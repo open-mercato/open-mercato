@@ -1,564 +1,332 @@
-# Operational retention pruners
+# Operational data retention
 
-> **Program:** packages D1 and D2 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), for core tables. The program lists separate carriers for forms and Enterprise tables.
-> **Code baseline:** Worktree snapshot `9e09023483`.
-> **Status:** Design settled with proposed OSS placement. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Each phase follows the dependencies below and receives ordinary maintainer review in its own PR.
+> **Tracker:** open-mercato/open-mercato#8593
+> **Program:** [program](2026-11-15-gdpr-ready-deployments-program.md)
+> **Edition:** OSS
+> **GDPR basis:** Art. 5(1)(e) storage limitation, Art. 5(1)(c) data minimisation, Art. 25(2) data protection by default, Art. 32(1) security of processing
 
-Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
+## TLDR
 
-**Delivery dependencies:** history Phase 3 and its opt-in minor require Phase 1 of `2026-11-16-privacy-data-class-contract.md` (R3-2 — The registry carries the whole `privacy.ts` default export) and Phase 3 of `2026-11-16-privacy-doctor-cli.md` (DEC-I — The doctor's extension point). The default flip additionally requires R3-4 — An opt-in database tier for the doctor, that spec's Phase 5 check `pruners.unscheduled`, and its scheduler-owned count service. Forms has an independent mode and release gate. DEC-H — The counting-period bridge governs operational history; B6's failed-job age bridge is separate.
+**Key points:**
+- Many OSS tables keep personal data with no end date: expired credentials, delivery and sync logs, read notifications, deleted AI chats, chat uploads that were never sent, unfinished signups, provider payloads, raw inbound email and failed queue jobs. Four cleanup workers exist, and nothing schedules them.
+- Every such table gets a scheduled, batched, age-based pruner in the module that owns it, with a documented default window. The defaults apply from the first release. Each window can be changed with an environment variable, and `0` turns that rule off.
 
-## 📝 TLDR
+**Scope:**
+- Schedule the existing pruners: customer_accounts session and token cleanup, the integrations log pruner and forms retention.
+- New pruners for OSS operational tables, one worker per owning module.
+- Forms retention removes every answer, not only the answers flagged as sensitive.
+- Failed queue jobs get an age bound.
 
-Expired staff sessions, password-reset tokens and message access tokens are never removed. A dozen operational tables grow without bound, and several hold personal data in clear: webhook delivery payloads, push-notification payloads, integration logs, indexer error payloads. Three cleanup jobs for some of these exist in the code and nothing runs them. **Proposed (future):** each table gets a scheduled, batched prune with a documented default window. Rows that are merely expired are deleted from the start. Rows that are history an operator may still be reading are only counted, unless the operator opts in to deleting them, for one minor; from the next minor they are deleted by default, after thirty days of counting on each installation.
+**Not in scope:** business records (CRM, sales, form content beyond each form's own period, messages, attachments), which stay for a period the controller chooses; Enterprise tables and the action-log age bound (#2980); access logs, which are already rotated when they are written (`audit_logs/services/accessLogService.ts:45-46, 414-432`, 7 days core / 8 hours non-core).
 
-**Not in this spec:** age policies for command audit history, which the maintainers placed in Enterprise (#2980), while C4 owns the OSS strip routine under DEC-B — The audit-history strip routine; forms submission retention, which changes user-visible data and gets its own spec; enterprise tables (sudo sessions, MFA challenges, SCIM log), which belong in an enterprise spec; inbound webhook receipts, which stay; notification, assistant-conversation and unreferenced chat-draft record sets owned by [`2026-11-16-privacy-record-retention.md`](2026-11-16-privacy-record-retention.md); onboarding-request cleanup owned by [`2026-11-16-privacy-coverage-people-ops.md`](2026-11-16-privacy-coverage-people-ops.md), “Unfinished signups”; message-specific retention and clearing owned by [`2026-11-16-privacy-coverage-communication.md`](2026-11-16-privacy-coverage-communication.md); per-tenant policy; access logs, which already rotate; failed queue jobs, whose age bound — its one setting, its default and the timed cleanup that runs for every async queue — is owned by [`2026-11-16-queue-payload-minimization.md`](2026-11-16-queue-payload-minimization.md) (package B6).
+## Overview
 
-## 📝 Overview
+Storage limitation means operational copies of personal data must not outlive their purpose. These tables serve a short purpose: proving a delivery, retrying a sync, showing a notification. The platform can bound them without asking the controller, as it already does for AI token usage (90 days), AI agent runs (30 days) and access logs. Business records are different: how long they are kept is the controller's decision. This spec only points to where that is handled.
 
-> **Market reference.** Matomo ships scheduled log deletion with instance-wide defaults an administrator can change, and warns before enabling it that deletion is permanent. Sidekiq and BullMQ bound their own job history by age as well as count. Adopted: instance-level windows with documented defaults; history deletion opt-in for one minor, then a counting period on each installation before it starts. The age bound on failed jobs is adopted by the queue-payload spec, not here. Rejected: per-site windows — per-tenant policy here is the enterprise engine's job.
+## Problem Statement
 
-## 📝 Resolved assumptions
+Paths are under `packages/core/src/modules/` unless stated.
 
-| # | Question | Chosen | Rationale |
-|---|---|---|---|
-| 1 | Scope of each prune | One installation-wide predicate per table, no tenant walk | Six tables have no tenant column: staff sessions/resets, message access tokens, portal sessions, portal email verifications and portal resets; only `indexer_error_logs` among the other listed tables has a nullable tenant, so a walk would skip rows. The existing AI usage prune works this way. |
-| 2 | Where windows are configured | Environment variables read by the worker at run time | A module-registered schedule's payload cannot be edited by an administrator. |
-| 3 | What `0` means | That prune is disabled. Unset means the default | The existing AI usage variable treats zero as "use the default" and is left unchanged; the new variables say what they mean in the example file. |
-| 4 | When history starts being deleted | Opt-in for one minor: with `OM_RETENTION_HISTORY_MODE` unset, history is only counted, and a warning at start and in `doctor` names the next minor's default. From the next minor, unset means delete, thirty days after the installation's first counting run for that table. An explicit mode overrides either way | The program's ordinary protocol: an explicit setting for one minor with a warning, then the default changes and `report` stays as the opt-out. The per-installation count is kept behind the flip, because an operator who skips the opt-in minor would otherwise get no warning at all. Deleting expired rows is not bridged: nothing can read them. |
-| 5 | Schedule values | Cron expressions, not intervals | Re-registering an interval schedule resets its next run, and registration runs at every onboarding; on the local poller a daily interval could then never fire. |
-| 6 | How existing installations get the schedules | Core modules use their own upgrade actions, following cart; `webhooks` and `ai_assistant` use module-local registration commands. Registration on upgrade stays manual, and `pruners.unscheduled` in `privacy doctor --database` reports missing or disabled schedules | `mercato seed:defaults` would also re-enable schedules an administrator disabled and re-merge default role features. The actions and commands call the same registration function as `seedDefaults` and touch only the pruner schedules. The history default flip ships only after that check, so an upgraded installation that prunes nothing is detectable before deletion becomes the default. |
-| 7 | Queues | Every prune has a dedicated queue; reuse only the three existing cleanup-only queues, never a delivery queue | Nine new queues at concurrency 1 add nine to peak demand; the queue inventory and deployment gate below count every queue, including the three reused ones. |
-| 8 | Edition | OSS, both groups, as program DEC-2 places D1 and D2 | This is hygiene of OSS tables, and each handler lives in the module that owns its table; an enterprise-only build would have to delete rows in core tables directly, which breaks module isolation. The umbrella issue's `enterprise` label and the maintainer comment refusing community OSS PRs are met by the core-member assignee carrying the work. #2980 places command-audit age policies in Enterprise; they stay out of this spec. Each phase PR goes through ordinary maintainer review. |
-| 9 | Split | Forms and enterprise tables moved out; expired and history kept together | They share one helper and one registration pattern, and ship as separate phases. |
+- **Existing workers are never scheduled.** `customer_accounts/workers/cleanupExpiredSessions.ts` and `cleanupExpiredTokens.ts` each run one unbatched `nativeDelete`, and the token worker removes invitations the moment they are accepted (`:40-46`). `integrations/workers/log-pruner.ts` needs a tenant-scoped payload, and `lib/log-service.ts:191` deletes in a single statement. `forms/workers/retention-purge.ts` throws without a scope (`:63-65`), skips soft-deleted forms (`:77`) and soft-deleted submissions (`:114`), and stops at the first submission that fails (`:139`).
+- **Forms "anonymize" is partial.** `forms/services/anonymize-service.ts:158-170` tombstones only fields flagged `x-om-sensitive`. A name typed into an unflagged field survives retention.
+- **Credentials are never removed.** `auth` and `messages` have no workers, so expired `sessions`, used or expired `password_resets` and `message_access_tokens` accumulate. Unfinished `onboarding_requests` keep an encrypted password hash, which is cleared only when the signup completes (`packages/onboarding/src/modules/onboarding/lib/service.ts:151`).
+- **Logs grow without bound, with payloads in them.** `webhook_deliveries` (payload and response body), `webhook_ingestions`, `push_notification_deliveries` (payload), `integration_logs` (payload), `indexer_error_logs` (payload and stack), `progress_jobs` (`meta`, error stack), `sync_runs`, `channel_ingest_dead_letters` (raw body), `ai_moderation_flags`, `forms_form_access_audit` (IP and user agent).
+- **People-facing records are never removed.** `notifications/lib/notificationService.ts:959` `cleanupExpired()` has no caller. The AI conversation DELETE route says the transcript stays "until a future retention worker hard-deletes it" (`packages/ai-assistant/src/modules/ai_assistant/api/ai/conversations/[conversationId]/route.ts:87-89`), and no such worker exists. Chat uploads are stored under entity `ai-chat-draft` (`packages/ui/src/ai/upload-adapter.ts:16`) and are never released. Resolved `ai_pending_actions` are kept forever: `ai-pending-action-cleanup` only moves `pending` to `expired`.
+- **Secondary copies of content are kept forever.** `inbox_emails` keeps raw, HTML and thread text. `message_channel_links.channel_payload` is a plaintext copy of each email: addresses, HTML and text (`communication_channels/encryption.ts:15-24`). `gateway_transactions.gateway_metadata` stores provider session and webhook data. The `payment_gateways` module cannot tell which transactions have no order: the table has no order column, and the sessions route creates a random `paymentId` (`payment_gateways/api/sessions/route.ts:73`).
+- **Failed queue jobs.** The async strategy keeps the last 1000 failed jobs, payloads included, with no age limit (`packages/queue/src/strategies/async.ts:405`). The local strategy keeps no store of failed jobs (`local.ts:147-149`), but a quarantined `queue.corrupted.*.json` file keeps its payloads forever (`local.ts:427`).
 
-## 📝 Problem Statement
+## Proposed Solution
 
-**Jobs that exist and never run**
+### Retention table
 
-| Job | Does | What must change before it can be scheduled |
-|---|---|---|
-| integrations `log-pruner` | Deletes `integration_logs` older than a window in its payload | Unvalidated window; one unbatched delete; expects an organization scope that a system schedule does not supply |
-| portal `cleanupExpiredSessions` | Deletes expired and soft-deleted portal sessions | Unbatched |
-| portal `cleanupExpiredTokens` | Deletes expired or used verifications and resets, and accepted or cancelled invitations | Unbatched; removes settled invitations the instant they settle |
+The windows are installation-wide. `*` marks an existing worker that this spec schedules or extends. **clear** means the listed columns are set to null and the row stays; every other rule deletes the row.
 
-**Scheduler facts**
+| Table | Owner module | Eligible rows (age anchor) | Default | Env var |
+|---|---|---|---|---|
+| `sessions` | auth | expired or revoked (`expires_at`, `deleted_at`) | 1 d | `OM_AUTH_SESSIONS_RETENTION_DAYS` |
+| `password_resets` | auth | used, expired or deleted (`used_at`, else `expires_at`) | 1 d | `OM_AUTH_PASSWORD_RESETS_RETENTION_DAYS` |
+| `message_access_tokens` | messages | expired (`expires_at`) | 1 d | `OM_MESSAGES_MESSAGE_ACCESS_TOKENS_RETENTION_DAYS` |
+| `customer_user_sessions` | customer_accounts* | expired or revoked | 1 d | `OM_CUSTOMER_ACCOUNTS_CUSTOMER_USER_SESSIONS_RETENTION_DAYS` |
+| `customer_user_email_verifications` | customer_accounts* | used or expired | 1 d | `OM_CUSTOMER_ACCOUNTS_CUSTOMER_USER_EMAIL_VERIFICATIONS_RETENTION_DAYS` |
+| `customer_user_password_resets` | customer_accounts* | used or expired | 1 d | `OM_CUSTOMER_ACCOUNTS_CUSTOMER_USER_PASSWORD_RESETS_RETENTION_DAYS` |
+| `customer_user_invitations` | customer_accounts* | accepted, cancelled or expired (that timestamp) | 1 d | `OM_CUSTOMER_ACCOUNTS_CUSTOMER_USER_INVITATIONS_RETENTION_DAYS` |
+| `onboarding_requests` | onboarding | `pending` or `expired` (`expires_at`) | 7 d | `OM_ONBOARDING_ONBOARDING_REQUESTS_RETENTION_DAYS` |
+| `webhook_deliveries` | webhooks | `delivered`, `failed`, `expired` (`updated_at`) | 30 d | `OM_WEBHOOKS_WEBHOOK_DELIVERIES_RETENTION_DAYS` |
+| `webhook_ingestions` | webhooks | `processed`, `failed`, `duplicate` (`updated_at`) | 30 d | `OM_WEBHOOKS_WEBHOOK_INGESTIONS_RETENTION_DAYS` |
+| `push_notification_deliveries` | push_notifications | `sent`, `failed`, `skipped`, `expired` (`updated_at`) | 30 d | `OM_PUSH_NOTIFICATIONS_PUSH_NOTIFICATION_DELIVERIES_RETENTION_DAYS` |
+| `integration_logs` | integrations* | all (`created_at`) | 30 d | `OM_INTEGRATIONS_INTEGRATION_LOGS_RETENTION_DAYS` |
+| `indexer_error_logs` | query_index | all (`occurred_at`) | 30 d | `OM_QUERY_INDEX_INDEXER_ERROR_LOGS_RETENTION_DAYS` |
+| `progress_jobs` | progress | `completed`, `failed`, `cancelled` (`finished_at`); a parent only once no child rows remain | 90 d | `OM_PROGRESS_PROGRESS_JOBS_RETENTION_DAYS` |
+| `sync_runs` | data_sync | `completed`, `failed`, `cancelled`, soft-deleted included (`updated_at`) | 90 d | `OM_DATA_SYNC_SYNC_RUNS_RETENTION_DAYS` |
+| `channel_ingest_dead_letters` | communication_channels | all (`created_at`) | 90 d | `OM_COMMUNICATION_CHANNELS_CHANNEL_INGEST_DEAD_LETTERS_RETENTION_DAYS` |
+| `sync_excel_uploads` (`sample_rows` hold imported people data) with its stored file | sync_excel | all (`created_at`); the file is deleted through the attachments service | 30 d | `OM_SYNC_EXCEL_SYNC_EXCEL_UPLOADS_RETENTION_DAYS` |
+| `rule_execution_logs` (`input_context`/`output_context` copy record data) | business_rules | all (`executed_at`) | 90 d | `OM_BUSINESS_RULES_RULE_EXECUTION_LOGS_RETENTION_DAYS` |
+| `message_channel_links` | communication_channels | **clear** `channel_payload` on inbound links, and on outbound links not `pending` or `queued` (`created_at`) | 90 d | `OM_COMMUNICATION_CHANNELS_MESSAGE_CHANNEL_LINKS_RETENTION_DAYS` |
+| `gateway_transactions` | payment_gateways | **clear** `gateway_metadata`, `client_secret`, `redirect_url` on `failed`, `cancelled`, `expired` (`updated_at`) | 90 d | `OM_PAYMENT_GATEWAYS_GATEWAY_TRANSACTIONS_RETENTION_DAYS` |
+| `inbox_emails` | inbox_ops | **clear** `raw_text`, `raw_html`, `cleaned_text`, `thread_messages` on `processed` or `failed` emails with no `pending` or `partial` proposal (`updated_at`) | 90 d | `OM_INBOX_OPS_INBOX_EMAILS_RETENTION_DAYS` |
+| `notifications` | notifications | `read`, `actioned`, `dismissed` (`created_at`); any status once `expires_at` is past the window | 90 d | `OM_NOTIFICATIONS_NOTIFICATIONS_RETENTION_DAYS` |
+| `ai_chat_conversations` with its participants and messages | ai_assistant | soft-deleted (`deleted_at`) | 30 d | `OM_AI_ASSISTANT_AI_CHAT_CONVERSATIONS_RETENTION_DAYS` |
+| `ai_chat_messages` | ai_assistant | soft-deleted on their own (`deleted_at`) | 30 d | `OM_AI_ASSISTANT_AI_CHAT_MESSAGES_RETENTION_DAYS` |
+| `ai_pending_actions` | ai_assistant | `confirmed`, `cancelled`, `expired`, `failed` (`resolved_at`, else `created_at`) | 90 d | `OM_AI_ASSISTANT_AI_PENDING_ACTIONS_RETENTION_DAYS` |
+| `ai_moderation_flags` | ai_assistant | all (`created_at`) | 365 d | `OM_AI_ASSISTANT_AI_MODERATION_FLAGS_RETENTION_DAYS` |
+| `attachments` with entity `ai-chat-draft` | attachments | not listed by any assistant message or pending action (`created_at`) | 30 d | `OM_ATTACHMENTS_AI_CHAT_DRAFTS_RETENTION_DAYS` |
+| `forms_form_access_audit` | forms* | all (`accessed_at`) | 365 d | `OM_FORMS_FORMS_FORM_ACCESS_AUDIT_RETENTION_DAYS` |
+| `forms_form_submission` with its revisions, uploads and invitations | forms* | past the form's own `retention_days` | per form | `OM_FORMS_SUBMISSION_RETENTION_ENABLED` (default `true`) |
 
-- A module registers a schedule through `schedulerService.register(...)`, an upsert by a deterministic id (`packages/scheduler/src/modules/scheduler/services/schedulerService.ts:11-122`). Any number of tenants registering the same system-scoped schedule produce one row.
-- Omitting `isEnabled` preserves an administrator's disable; passing `true` overrides it.
-- Each call resets `nextRunAt` to now plus the interval (`:50-54, 93`); the local poller fires only when `nextRunAt` has passed.
-- At dispatch the scheduler replaces the payload's scope with the schedule row's; a system-scoped schedule delivers a null tenant and organization.
-- A module-registered schedule dispatches when its module owns the queue; `schedulerSafe` only governs schedules an administrator authors.
-- Registration runs from `seedDefaults`: at init, at `seed:defaults`, at onboarding. Not on upgrade.
+**Variables.** Each name is built mechanically: `OM_<MODULE>_<TABLE>_RETENTION_DAYS`. A rule that covers only part of a table uses a name for that part (`AI_CHAT_DRAFTS`). If a variable is unset or empty, its default applies. `0` turns the rule off. A positive integer sets the window in days. Any other value falls back to the default, and each process logs the variable's name once, without its value. The existing `AI_TOKEN_USAGE_EVENTS_RETENTION_DAYS`, `AI_AGENT_RUNS_RETENTION_DAYS` and `AUDIT_LOGS_*` variables do not change. Setting the log window below 30 days shortens the integrations analytics view, which covers 30 days (`integrations/lib/log-service.ts:204`).
 
-**Unbounded tables in scope.** None has an inbound foreign key.
+**Already bounded, listed in the docs only:** `ai_token_usage_events` (90 d), `ai_agent_runs` with their steps and tool calls (30 d), `gateway_session_initializations` (expired claims), carts with their `cart_idempotency_keys` (90 d after resolution, `cart/lib/sweepers.ts:246`), `access_logs`.
 
-| Table | Scope column | Personal data in clear | Notes |
-|---|---|---|---|
-| `sessions` (staff) | None | User id | Rejected after expiry and never extended |
-| `password_resets` | None | User id | One-hour lifetime |
-| `message_access_tokens` | None | User id | Seven-day lifetime |
-| Portal sessions, email verifications and password resets | No tenant column; user FK only | User id | Existing installation-wide workers |
-| Portal invitations | Organization, tenant | Invitation contact data | Existing token cleanup worker |
-| `webhook_deliveries` | Organization, tenant | **Payload and response body** | The retry route re-queues a row in any status, so pruning ends manual redelivery of old rows |
-| `webhook_ingestions` | Organization, tenant | Encrypted | Statuses include failed and duplicate |
-| `push_notification_deliveries` | Organization, tenant | **Payload**, user id | A partial unique index guards idempotency |
-| `progress_jobs` | Organization, tenant | `meta`, error stack | Parent and child jobs; referenced softly by sync runs |
-| `sync_runs` | Organization, tenant | Error text | Has `deleted_at`; `paused` is not terminal; retry reuses the old run's cursor |
-| `integration_logs` | Organization, tenant | **Payload** | Feeds a 30-day analytics view |
-| `indexer_error_logs` | Organization, tenant (nullable) | **Payload and stack** | Keyed on `occurred_at` |
-| `channel_ingest_dead_letters` | Organization, tenant | Encrypted | Operator replay |
-| `ai_moderation_flags` | Organization, tenant | User id | An abuse audit record |
+**Left alone on purpose:**
+- `webhook_inbound_receipts` stays. It is the only replay defence for a sender that sends no timestamp header, because the inbound route treats such a request as fresh (`packages/webhooks/src/modules/webhooks/api/inbound/[endpointId]/route.ts:311-319`). The rows hold only ids.
+- `gateway_webhook_events`, `carrier_webhook_events` and `carrier_shipment_idempotency_keys` hold provider idempotency keys and no personal data.
 
-**Owned elsewhere.** Failed queue jobs: BullMQ keeps the last 1000 with no age bound, and their payloads may hold personal data. The queue-payload spec (package B6), “Part 1 — Bounds and compatible id jobs”, owns `QUEUE_FAILED_JOB_RETENTION_HOURS`: unset means `0` in bridge minor N, then `168` in N+1; explicit `0` preserves count-only retention. With a positive effective age, every async worker runs cleanup at start and hourly. The independent `mercato queue prune-failed (--queue <name> | --all) [--apply]` reaches quiet and retired queues without starting their handlers; it reports by default. Operators whose workers may stop run `mercato queue prune-failed --all --apply` at least hourly from their operations scheduler, including for quiet or retired queues. No worker or operational cleanup pass means no wall-clock age bound; unacknowledged abandon reports may also keep jobs indefinitely. DEC-H does not govern that B6 bridge. This spec adds no queue setting and does not touch `packages/queue`.
+### How a pruner runs (house pattern)
 
-**Left alone on purpose.** `webhook_inbound_receipts` is the only replay defence for a source that sends no timestamp header: the inbound route treats such a request as fresh (`packages/webhooks/src/modules/webhooks/api/inbound/[endpointId]/route.ts:317-319`) and relies on the unique receipt. Deleting receipts would let a captured request replay.
+The pattern follows `packages/ai-assistant/src/modules/ai_assistant/setup.ts:71-148` and `workers/ai-token-usage-prune.ts:49-73`. A system-scoped schedule is registered from `seedDefaults` under a stable `sha256` UUID. A batched `delete … where id in (select id … where <rule> limit n)` repeats until a batch comes back short. An environment window falls back to its default when the value is invalid. This spec adds four things to that pattern:
 
-**House pattern.** The AI token-usage prune deletes with `delete … where id in (select id … limit n)` in batches until a short batch, one statement per transaction, with no tenant filter (`packages/ai-assistant/src/modules/ai_assistant/workers/ai-token-usage-prune.ts:49-73`). Index migrations on large tables use `CREATE INDEX CONCURRENTLY` in a non-transactional migration (`packages/core/src/modules/attachments/migrations/Migration20261009120000_attachments.ts:10-13`).
+- **One shared queue.** Each owning module ships `workers/retention-prune.ts` with `metadata = { queue: 'retention-prune', id: '<module>:retention-prune', concurrency: 1 }`. Every handler registered on a queue runs in turn for each job (`packages/cli/src/lib/worker-job-handler.ts:29-46`). Each handler returns at once unless `job.payload.module` is its own module id. Sharing one queue adds one connection floor to `worker --all` instead of fourteen (`packages/queue/AGENTS.md` → Connection Budget). Each handler forks its entity manager, then catches and logs its own errors, as `ai-token-usage-prune.ts:155-166` does, so one module cannot block or retry the others.
+- **Time budget.** `pruneInBatches` in `packages/shared/src/lib/retention/prune.ts` deletes or clears 500 rows per statement, one statement per transaction, for at most 30 seconds per handler run. The delete statement repeats the full rule, so a row that changed state after it was selected is left alone. Clear rules also require `<column> is not null`, so a repeat run changes nothing. When the budget runs out, the handler enqueues one continuation `{ module }`, coalesced per module through the queue's `coalesceBy`, as `payment_gateways/workers/session-initialization-prune.ts:60-62` does.
+- **Installation-wide rules.** No tenant walk, as in the AI prune. Several tables have no tenant column (`sessions`, `password_resets`, `message_access_tokens`, the portal session and token tables, `forms_form_access_audit`).
+- **Report.** One info log per handler run: table, window, cutoff, rows deleted or cleared, and whether a continuation was queued. No row ids, no payloads. Nothing goes to the action log and no CRUD events are emitted. Scheduled hygiene has no actor, and per-row events would flood the event bus.
 
-## 📝 Proposed Solution
+### Scheduling and existing installations
 
-Each handler has its own cleanup-only queue and system-scoped cron schedule. It runs installation-wide predicates over its own tables. Deletes use batches of at most 100 rows, one transaction per batch, and a 30-second run budget with a database statement timeout. A run that exhausts its budget enqueues one coalesced continuation immediately on the same queue, until a short batch shows it has caught up. There is no per-day batch ceiling. A fixed maximum cutoff is carried between continuations, conservatively clamped when current policy requires more retention; each owner revalidates current mode/window before deleting, as specified below. A fresh cron run computes a new cutoff. Three consecutive exhausted runs log a warning with counts and backlog status. Counts are bounded at 10,000 matches and report `atLeast: true` when truncated; they never claim to be an exact total.
+`registerRetentionSchedule(container, { moduleId, queue = 'retention-prune', key })` in `packages/shared/src/lib/retention/schedule.ts` works as follows:
+- It resolves `schedulerService` only when `container.hasRegistration('schedulerService')`. Without the scheduler, nothing registers and nothing is pruned.
+- It registers the id `stableScheduleUuid(key)` with `scopeType: 'system'`, cron `0 3 * * *` in UTC, `targetPayload: { module }` (`{}` for the existing queues), `sourceType: 'module'` and `sourceModule: moduleId`, and it omits `isEnabled`.
 
-### Continuation safety under policy changes
+It differs from the ai_assistant registrations in two ways:
+- **Cron instead of a `24h` interval.** `register` recomputes `nextRunAt` on every call (`packages/scheduler/src/modules/scheduler/services/schedulerService.ts:50, 93`), and `seedDefaults` runs for every new tenant. An interval would keep moving forward on a busy installation.
+- **`isEnabled` omitted.** An administrator who disabled a pruner keeps it disabled (`:92`).
 
-Before each queued continuation and each new bounded delete batch, the owning worker rereads the effective mode, enabled state, counting-grace state and window through the shared accessors. Disabled, report, unknown or still-counting state performs no deletion, even if the queued run was admitted in delete mode. Preserve the original run-start time; derive the currently safe cutoff from that time and the current effective duration, then use the earlier of that cutoff and the inherited cutoff. Lengthening the window can only make the cutoff older; shortening it never expands an in-progress run. Validate the original scope/handler and cursor binding. A changed effective predicate invalidates traversal assumptions: restart that handler’s keyset from the beginning at the clamped cutoff, using idempotent bounded deletes. Persist the effective window/mode version with the continuation, and do not reuse an old checkpoint as current policy evidence. Later scheduled runs may adopt a shorter window afresh. These checks belong to the owner wrapper, not `pruneBatches`.
+Several modules own `retention-prune`. A module's schedule is dispatched because that module has a worker on the queue (`scheduler/lib/safeQueueTargets.ts:321-323`).
 
-The shared-helper and owner integration plans include a durable async continuation, worker restart with retention changed from 30 to 90 days, and rows between those ages: they survive. Repeat for delete-to-report, disabled/unknown configuration and a shortened window; assert zero stale-policy deletes, safe cursor restart and no broadened cutoff in the old run.
+- **New installations:** each owning module calls its registration from `setup.ts` `seedDefaults`. `onboarding` gets a `setup.ts` for this.
+- **Existing installations, core modules:** one configs upgrade action, `configs.register-retention-schedules`, in `configs/lib/upgrade-actions.ts`, follows `cart.register-sweeper-schedules` (`:215-226`). It calls each core module's `lib/retention.ts` registration and skips modules missing from `getEnabledModuleIds()`.
+- **Existing installations, other packages:** `webhooks`, `ai_assistant` and `onboarding` are registered with `mercato seed:defaults --module <id>` (`packages/cli/src/mercato.ts:1629-1680`). The upgrade note names both paths.
 
-### Two groups
+### Existing pruners
 
-| Group | Tables | Behaviour |
-|---|---|---|
-| **Expired** — nothing can read the row | Staff sessions, password resets, message access tokens, portal sessions and tokens | Deleted from the first run |
-| **History** — someone may be reading it | Webhook deliveries and ingestions, push deliveries, progress jobs, sync runs, integration logs, indexer errors, dead letters, moderation flags | Counted. Deleted only where the operator opts in during the opt-in minor; by default from the next minor, once the installation's counting period has passed |
+- **customer_accounts.** Both workers move to `pruneInBatches` and the env windows above. A settled invitation gets one day of grace. The queues stay `customer-accounts-cleanup-sessions` and `customer-accounts-cleanup-tokens`. Each queue gets a system schedule.
+- **integrations.** A `{}` payload now means a system tick: a batched installation-wide delete using the env window. The existing `{ retentionDays, scope }` payload keeps its meaning. Both payloads are validated with zod, and a partial scope is rejected. The queue stays `integration-log-pruner`.
+- **forms.** Described in the next section. The queue stays `forms-retention-purge`.
 
-**History mode.** `OM_RETENTION_HISTORY_MODE` may be `report` or `delete`. The value is trimmed and compared case-insensitively; an empty value after trimming is unset. Any other value is invalid and resolves to `report` under both release defaults: each process logs it once, at warning, naming the variable without echoing its value, and `configs.retention_history_mode_default` reports it as invalid at warning. An invalid mode never deletes history; expired-row pruning is unaffected because it does not consult the mode. The helper always records the time of each table's first counting run in module configuration. An explicit valid value overrides the default either way.
+### Forms submission retention
 
-| Release | Unset means | Warning |
-|---|---|---|
-| The opt-in minor — the one that ships the history handlers | `report`: history is counted, never deleted | Logged once per process at the start of its first prune run, and reported by `doctor`: history deletion is off; from the next minor an unset mode deletes history after the counting period |
-| The next minor | `delete`, beginning thirty days after the table's first counting run | With the mode unset, `doctor` remains `warning`; during counting each process warns once per table and counting start, naming the table and the UTC deletion-start date |
+1. **System tick.** A `{}` payload selects the distinct `(tenant_id, organization_id)` pairs from `forms_form` where `retention_days > 0`, soft-deleted forms included. It then runs the existing scoped routine for each pair. The `{ scope }` payload still works.
+2. **Scoped routine.** It includes soft-deleted forms and soft-deleted submissions and works in batches of 100. Each submission is wrapped in its own try/catch. A failure is logged with the submission id and the `AnonymizeServiceError` code, skipped, and retried on the next day's run. The routine uses the same time budget and continuation as other pruners.
+3. **Every answer goes.** Retention calls `AnonymizeService.anonymize(id, scope, { mode: 'erasure' })`, the full-erasure mode defined in [privacy-coverage](2026-11-16-privacy-coverage.md) (Forms full-erasure mode). That mode tombstones every answer and the `change_summary` in every revision, and clears uploads, the stored PDF and the invitation recipient. A submission stays eligible until it has been fully erased, including one that was anonymized earlier in the sensitive-only mode. The worker still emits `forms.submission.anonymized`. Downstream reactions to it are defined in privacy-coverage.
+4. **Access audit.** The same system tick prunes `forms_form_access_audit`.
+5. **Switch.** `OM_FORMS_SUBMISSION_RETENTION_ENABLED=false` (parsed with `parseBooleanWithDefault`) stops scheduled submission retention. A form with no `retention_days` keeps its submissions, as today (`forms/lib/retention.ts:60`).
 
-The flip changes the operational caller's default as a tracked task in the minor after Phases 3 and 4 ship, with its own upgrade note. It cannot ship before the database-tier `pruners.unscheduled` check; it does not flip forms' independent setting. Expired rows are deleted from the first run in both releases.
+### Unsent chat uploads
 
-### Defaults
+The attachments module owns the rule but cannot read assistant tables. ai_assistant registers a DI service, `aiChatAttachmentReferences.filterUnreferenced(ids)`. It returns the ids that are not listed in `ai_chat_messages.attachment_ids` or `ai_pending_actions.attachment_ids`, and it counts soft-deleted rows that have not been pruned yet.
 
-| Table | Eligible when and age anchor | Default | Variable |
-|---|---|---|---|
-| `sessions` | `expires_at` older than | 7 days | `OM_AUTH_SESSION_RETENTION_DAYS` |
-| `password_resets` | Expired or used; age from `used_at` if used, otherwise `expires_at` | 1 day | `OM_AUTH_PASSWORD_RESET_RETENTION_DAYS` |
-| `message_access_tokens` | Expired; age from `expires_at` | 1 day | `OM_MESSAGES_ACCESS_TOKEN_RETENTION_DAYS` |
-| Portal sessions | Expired or soft-deleted; immediate eligibility, as today | At expiry | — |
-| Portal tokens and invitations | Expired or settled; age from `used_at`, `accepted_at` or `cancelled_at` when present, otherwise `expires_at` | 1 day | `OM_PORTAL_TOKEN_RETENTION_DAYS` |
-| `webhook_deliveries` | `delivered`, `failed` or `expired`, with no `next_retry_at`; age from `greatest(created_at, updated_at, enqueued_at, delivered_at, last_attempt_at)` | 30 days | `OM_WEBHOOKS_DELIVERY_RETENTION_DAYS` |
-| `webhook_ingestions` | `status in ('processed','failed','duplicate')`; age from `greatest(created_at, updated_at, coalesce(processed_at, created_at))`; never `received` or `processing` | 30 days | `OM_WEBHOOKS_INGESTION_RETENTION_DAYS` |
-| `push_notification_deliveries` | `sent`, `failed`, `skipped` or `expired`, with no `next_retry_at`; age from `greatest(created_at, updated_at, sent_at)` | 30 days | `OM_PUSH_DELIVERY_RETENTION_DAYS` |
-| `integration_logs` | `created_at` older than; system tick never below the 30-day analytics window (legacy scoped payload unchanged) | 30 days | `OM_INTEGRATIONS_LOG_RETENTION_DAYS` |
-| `sync_runs` | `completed`, `failed` or `cancelled`, including soft-deleted rows; age from `updated_at`; never below the log window | 90 days | `OM_DATA_SYNC_RUN_RETENTION_DAYS` |
-| `progress_jobs` | `completed`, `failed` or `cancelled`, with non-null `finished_at` older than cutoff; a parent and all its children must each qualify before that family is removed | 90 days | `OM_PROGRESS_JOB_RETENTION_DAYS` |
-| `indexer_error_logs` | `occurred_at` older than | 30 days | `OM_QUERY_INDEX_ERROR_LOG_RETENTION_DAYS` |
-| `channel_ingest_dead_letters` | `created_at` older than | 90 days | `OM_CHANNELS_DEAD_LETTER_RETENTION_DAYS` |
-| `ai_moderation_flags` | `created_at` older than | Disabled | `OM_AI_MODERATION_FLAG_RETENTION_DAYS` |
+The attachments handler selects candidates in pages of 100: `entity_id = 'ai-chat-draft'`, created before the cutoff. It filters them through that service; if the service is not registered, the rule is skipped and logged once. It then calls `attachmentService.releaseScoped` with the upload's own primary assignment `{ type: 'ai-chat-draft', id: record_id }`. The release goes ahead only when that assignment is the upload's only reference. It deletes the stored object and the search records (`attachments/lib/attachment-service.ts:175-187, 214-229`). An upload that was assigned to another record through the attachment library therefore stays.
 
-These status names and timestamp columns were checked against the owning entities and the inbound status union in `packages/shared/src/lib/webhooks/inbound-types.ts`. Each batch repeats the terminal predicate and cutoff in the delete statement, so a concurrently retried or completed row is not deleted using stale selection. PostgreSQL `greatest` ignores nullable arguments; `created_at` remains the fallback. Sync runs are hard-deleted. Unset uses the default; `0` disables; a value that is not a non-negative integer uses the default and is reported once.
+### Failed queue jobs
 
-### Design decisions
+- **Setting.** `QUEUE_FAILED_JOB_RETENTION_HOURS`. Unset means 168. `0` keeps today's count-only retention. An invalid value falls back to the default and is logged once.
+- **Async strategy.** The job options at `async.ts:405` become `removeOnFail: { age: hours * 3600, count: 1000 }` (`1000` when the setting is `0`). BullMQ evicts old entries only when a later job fails, and jobs added before the upgrade keep their old option. So when an async worker starts, and every hour after that, it also removes failed jobs on its queue whose `finishedOn` is older than the age. It skips abandoned jobs whose report has not been acknowledged yet (`abandonReportedAt`, `async.ts:98-110`).
+- **Local strategy.** When a queue starts, and every hour, it deletes `queue.corrupted.*.json` files whose modification time is older than the age.
+- **One-off command.** `mercato queue prune-failed [--queue <name> | --all] [--dry-run]` applies the same rule without starting any handlers, so it also reaches quiet or retired queues. It is added to the built-in queue commands (`packages/cli/src/mercato.ts:223`).
 
-| Decision | Rationale |
-|---|---|
-| Only rows in a terminal state are eligible where a table has retries | A pending delivery, a running or paused sync and an unfinished job must never be removed. |
-| Windows are ordered by configuration, not by reading another module's table | Clamp the sync-run window to at least the integration-log window, and the progress-job window to at least the sync-run window. This orders configured durations only; different age anchors and batches can still leave soft references dangling. No module queries another's rows. |
-| Batched deletes with a time budget and coalesced continuations; bounded counts | Bounded lock time without a daily throughput ceiling; a truncated count is a lower bound. |
-| Registration omits `isEnabled` | An administrator who disabled a pruner keeps it disabled. |
-| Moderation flags default to disabled | They are an abuse audit record; an operator opts in. |
-| A day's grace for settled portal invitations | Today's worker would erase them the moment they are accepted. |
-| Each run reports through the logger and a counter | Scheduled installation-wide hygiene has no subject decision or actor. It deliberately creates no `privacy.retention_run` action-log entry, whose tenant attribution would be invented; deployments requiring durable evidence retain structured logs externally. Each report carries table, effective window, cutoff, requested/effective mode, counts, truncation, continuation and errors, without row ids or payloads. |
+### Business records
+
+CRM people and companies, sales documents, form content within a form's period, messages, attachments and staff records are kept for a period the controller chooses. Every OSS module already supports deletion through its UI and API. Erasure on request and tenant-set retention of business records are handled by the Enterprise `privacy` module ([DSR engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md)) through the `pruneExpired` handler in the [contract](2026-11-16-privacy-data-class-contract.md). The action-log age bound is also Enterprise (#2980). The age limits on Enterprise tables (sudo sessions, MFA challenges, SCIM log, agent-orchestrator traces) are in [privacy-coverage-enterprise](../enterprise/GDPR/2026-11-16-privacy-coverage-enterprise.md). The [deployment docs](2026-11-16-gdpr-deployment-docs.md) publish the full window table, including the already-bounded tables, and the procedure for reviewing inactive subjects.
 
 ### Alternatives considered
 
 | Alternative | Why rejected |
 |---|---|
-| Walk tenants | See assumption 1. It also needs a tenant list from another module. |
-| One schedule per organization | Thousands of rows and jobs, and every existing organization needs seeding. |
-| Register schedules at boot | No module does; every process would write scheduler rows. |
-| Inline rotation after writes, as the access log does | Never runs on an idle installation and adds a delete to hot paths. |
-| Prune inbound receipts | Removes a replay defence. |
-| A release-relative bridge alone, without the per-installation count | An operator who skips the opt-in minor would get deletion with no warning; see assumption 4. |
-| Deleting history by default from the first release, after a per-installation count | Contradicts the program's ordinary protocol, which this package follows. |
-| A failed-job age in this spec | The queue-payload spec owns it, with one setting, one default and a timer that runs for every async queue. |
-| The history group in Enterprise, with the helper kept in OSS as its seam | Program DEC-2 places D2 in OSS; an enterprise handler would have to delete rows in OSS modules' tables. See assumption 8. |
-| A separate `operationalPruners` member on `privacy.ts` for the registry | Duplicates C5's bound definition, which R4-13 drops; C5's existing `retentionBounds` member takes a second variant instead. |
+| One dedicated queue per pruner | Every queue keeps a connection floor of 1 under `worker --all`, so fourteen new queues would mean fourteen new floors. |
+| A walk over tenants | Several tables have no tenant column, and the walk would need a tenant list from another module. The AI prune does not walk tenants. |
+| Count only, and delete in a later minor | Expired credentials and terminal logs have no reader. A deferred default leaves the storage-limitation gap open for another release. Env windows and `0` give operators the opt-out. |
+| Inline rotation on write, as access logs do | It never runs on an idle installation, and it adds a delete to hot paths. |
+| Deleting orderless gateway rows | `payment_gateways` cannot identify them without reading other modules. Clearing provider payloads on unpaid terminal rows covers the abandoned sessions it can identify. |
 
-## 📝 Delta
-
-### Capability: operational-retention
-
-#### MODIFIED Requirement: Expired credentials and tokens
-The system SHALL delete expired staff sessions, password-reset tokens, message access tokens, and portal sessions and tokens on a schedule.
-
-##### Scenario: Expired staff session
-- WHEN a staff session expired more than the configured window ago and the pruner runs
-- THEN the row is gone and a session that has not expired is untouched
-
-Frozen by: `packages/core/src/modules/auth/services/__tests__/authService.session-retention.characterization.test.ts`
-
-#### MODIFIED Requirement: Operational history
-The system SHALL, on a schedule, count operational history rows older than their window. It SHALL delete them when the mode is `delete`, and, from the minor after the opt-in minor, when the mode is unset and the installation's counting period for that table has passed. In the opt-in minor it SHALL NOT delete them while the mode is unset.
-
-##### Scenario: Opt-in minor
-- WHEN the mode is unset in the opt-in minor and the table's first counting run was sixty days ago
-- THEN no history row is deleted, the run reports the eligible rows, the process has logged the warning once, and `doctor` names the next minor's default
-
-##### Scenario: Opting in
-- WHEN the mode is `delete` in the opt-in minor
-- THEN a terminal webhook delivery 40 days old is gone and a delivery still awaiting retry is untouched
-
-##### Scenario: Counting period
-- WHEN, from the next minor on, the mode is unset, a webhook delivery finished 40 days ago and the table's first counting run was yesterday
-- THEN the row stays, the run reports one row eligible, and a once-per-process warning names the table and deletion-start date
-
-##### Scenario: After the counting period
-- WHEN, from the next minor on, the mode is unset and the first counting run was more than thirty days ago
-- THEN the row is gone and a delivery still awaiting retry is untouched
-
-##### Scenario: Explicit report mode
-- WHEN the mode is set to `report`
-- THEN nothing is deleted however long ago counting began
-
-##### Scenario: Disabled
-- WHEN a table's window is set to `0`
-- THEN nothing is counted or deleted for that table
-
-##### Scenario: Invalid mode
-- WHEN `OM_RETENTION_HISTORY_MODE` is set to a value other than `report` or `delete`, in any case and after trimming
-- THEN history is counted and never deleted, under either release default; the process warns once, `doctor` reports the mode as invalid, and expired rows are still deleted
-
-Frozen by: `packages/webhooks/src/modules/webhooks/__tests__/deliveries.retention.characterization.test.ts`
-
-#### ADDED Requirement: Bounded runs
-The system SHALL delete in batches under a time budget and SHALL enqueue a coalesced continuation immediately while eligible rows remain.
-
-##### Scenario: Large backlog
-- WHEN more rows are eligible than one run may delete
-- THEN the run reports the spent budget and enqueues one immediate continuation; repeated exhaustion warns after three runs
-
-## 📝 Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
-  SD["setup.ts seedDefaults (existing)"] -- "register: system scope, cron" --> SCH["scheduler (existing)"]
-  UA["core upgrade action or module-local command (new)"] -- "same registration" --> SCH
-  SCH -- "tick" --> Q["dedicated prune queue per handler"]
-  Q --> W["prune handler (new or reworked)"]
-  W -- "window, mode, first-run time" --> CFG["environment + module config (existing)"]
-  W -- "batched delete, one predicate per table" --> DB[(tables)]
-  W -- "counts" --> T["logger + telemetry (existing)"]
+  SD["setup.ts seedDefaults / configs upgrade action / seed:defaults --module"] -- "register: system, cron, payload {module}" --> SCH["scheduler"]
+  SCH -- "daily tick" --> Q["queue retention-prune (concurrency 1)"]
+  Q --> W["each module's retention-prune worker (acts only on its own module)"]
+  W -- "pruneInBatches: own tables, 500 rows, 30 s" --> DB[(tables)]
+  W -- "budget spent" --> Q
+  W -. "attachments only" .-> REF["aiChatAttachmentReferences (DI, ai_assistant)"]
 ```
 
-Takeaway: the scheduler, the queues and module configuration are used as they are; what is new is one helper, a handler per module, and the registrations.
+Each module touches only its own tables. The one cross-module call is the chat-upload reference check, made through DI and soft (`hasRegistration`). Pruners read only ids and write only deletes or nulls, so they never decrypt anything. Setting an encrypted column to null stores no plaintext.
 
-### Components
+**New files.** For each module in the retention table without `*`:
+- `workers/retention-prune.ts`
+- `lib/retention.ts`, which holds the module's rules, its registration function and its unit tests
+- a `setup.ts` `seedDefaults` call
 
-- **Shared helper** `packages/shared/src/lib/retention/prune.ts` exports `parseRetentionWindow`, `resolveRetentionMode`, `recordRetentionFirstCount`, `reportRetentionRun` and `pruneBatches`. `resolveRetentionMode` is pure: it takes the setting name, configured value, caller's release default, clock and first-count time. `recordRetentionFirstCount` accepts a storage callback; shared never imports core. The configs service adds an atomic insert-if-absent operation with cache invalidation; concurrent first runs use the earliest persisted timestamp. `pruneBatches` accepts an entity manager, table, parameterized predicate, cutoff (including fractional days), batch size and time budget, and returns `{ deleted, more }`. It has no mode or configuration dependency; the owner must resolve current mode/window and validate a continuation before every invocation, as specified under continuation safety. It never authorizes deletion from a queued cutoff alone. Forms uses mode parsing and reporting with its own durable per-form notice state; access logs use only the delete loop.
-- **Effective windows:** `packages/shared/src/lib/retention/windows.ts` owns `getOperationalRetentionWindows()`, specified below. Every new system-tick handler, both portal handlers and the integrations system path use its result for their effective duration and disabled state. It uses `parseRetentionWindow` from `prune.ts`; no module, register collector or doctor check carries a copied parser or defaults. The existing integrations scoped payload keeps its separate legacy duration contract.
-- **Doctor checks:** `packages/core/src/modules/configs/privacy.ts` exports `{ dataClasses: [], doctorChecks: [...] }` under R3-2 — The registry carries the whole `privacy.ts` default export and DEC-I — The doctor's extension point, preserving any other owners' members/checks. `configs.retention_history_mode_default` reads the same shared mode parser and effective-window accessor as the pruners, and warns while the mode is unset under either default (including the next minor's default and the counting-period rule) or invalid (resolved to `report`). It never reads per-table dates or scheduler rows in the default tier. `pruners.unscheduled` belongs to the doctor spec's Phase 5 and is declared only in scheduler's `privacy.ts`, using that spec's sole check-id prefix exception, `needs: 'database'` and `countServices['scheduler.retention_schedules']`. The ordinary `{ em }` factory returns exactly `PrivacyDoctorCountingService`; the binding and counters below supply the enabled-handler manifest. Only scheduler counts its rows, returning aggregates without ids or payloads. Deduplicated system expectations are counted once with `tenantId: null` even with no tenants; tenant expectations retain their exact non-null tenant predicate. Service keys keep the scheduler prefix. With scheduler absent, configuration check `scheduler.module_absent` warns and no database assessment is claimed. Configuration-only doctor never inspects schedule health or instantiates a counting service.
-- **Handlers and queues:** all metadata declares concurrency 1. The module owns its tables and its queue, and no delivery handler receives a retention tick.
+Shared: `packages/shared/src/lib/retention/{prune,schedule,windows}.ts`, with `readRetentionDays(name, defaultDays): number | null` in `windows.ts`.
 
-| Module | Queue | New queue |
-|---|---|---|
-| `auth` | `auth-retention-prune` | Yes |
-| `messages` | `messages-access-token-prune` | Yes |
-| `customer_accounts` sessions | `customer-accounts-cleanup-sessions` | No |
-| `customer_accounts` tokens | `customer-accounts-cleanup-tokens` | No |
-| `webhooks` | `webhooks-retention-prune` | Yes |
-| `push_notifications` | `push-notifications-retention-prune` | Yes |
-| `progress` | `progress-retention-prune` | Yes |
-| `integrations` | `integration-log-pruner` | No |
-| `data_sync` | `data-sync-retention-prune` | Yes |
-| `query_index` | `query-index-error-retention-prune` | Yes |
-| `communication_channels` | `communication-channels-dead-letter-prune` | Yes |
-| `ai_assistant` | `ai-assistant-moderation-prune` | Yes |
+**Changed files.**
+- The four existing workers.
+- The AI conversation DELETE route's description, which will name the window.
+- `configs/lib/upgrade-actions.ts`, plus the `configs.upgrades.retentionSchedules.*` i18n keys.
+- `packages/queue/src/strategies/{async,local}.ts`.
+- `packages/cli/src/mercato.ts`.
 
-These are twelve cleanup queues, nine new and three reused, contributing twelve concurrent database jobs when all are enabled, nine more than today. Before shipping, inventory every other enabled queue and verify `Σ concurrency ≤ worker connection budget` and `web_pool_max + worker_pool_max + scheduler/overhead ≤ Postgres max_connections`. A default budget of twenty is not evidence that the whole installation fits. If queue floors exceed it, use existing per-queue worker processes with budgeted groups or provision headroom before enabling them; document the resolved ceiling for local and async strategies.
+## Data Models
 
-- **Registration:** one schedule per queue above, through a module-local function called from `setup.ts.seedDefaults`. System scope, daily cron, `isEnabled` omitted, guarded by `hasRegistration('schedulerService')`.
-- **Upgrade actions:** only core modules add to `packages/core/src/modules/configs/lib/upgrade-actions.ts`, following `cart.register-sweeper-schedules`. Core does not import `@open-mercato/webhooks` or `@open-mercato/ai-assistant`. Those packages expose `mercato webhooks register-retention-schedule` and `mercato ai_assistant register-retention-schedule` in their own `cli.ts`; the upgrade note names both. No module-contributed upgrade-action registry is added.
+No new entities or columns. Each table in the retention table that lacks one gets an index leading with its age column. The index is partial on the rule's predicate where the table also holds live rows; for example, `attachments(created_at) where entity_id = 'ai-chat-draft'`. `indexer_error_logs(occurred_at)` and `notifications(expires_at)` already exist. The migrations are written by hand: they are non-transactional and use `CREATE INDEX CONCURRENTLY`, dropping any invalid stub first, as `attachments/migrations/Migration20261009120000_attachments.ts:9-21` does. Each one updates its module snapshot.
 
-### Enabled-handler schedule expectations
+## API Contracts
 
-Each owner declares optional `retentionSchedules` on its `privacy.ts` default object under R3-2. Each entry is `{ key: string, queue: string, scopeType: 'system' | 'tenant' }`. The module id is stamped by the collector, never supplied by the entry. Definitions are side-effect-free constants imported by that same module's setup/upgrade registration function; registration and diagnostics must not keep separate lists. `getRetentionScheduleDefinitions(modules)` in shared `modules/registry.ts` validates non-empty keys/queues, unique keys and the scope discriminant, preserving the other default members. It includes only enabled modules with that declared cleanup handler, and neither resolves services nor imports a worker at collection time. Window zero/report mode does not remove an expected schedule: it describes an enabled handler whose age rule or deletion may be disabled separately.
+- **Environment:** the variables in the retention table, `OM_FORMS_SUBMISSION_RETENTION_ENABLED` and `QUEUE_FAILED_JOB_RETENTION_HOURS`. They are added to `apps/mercato/.env.example` and the create-app template in the same change (`yarn template:sync:fix`).
+- **Queue and workers:** queue `retention-prune`, with payload `{ module: string }` validated by zod, and worker ids `<module>:retention-prune`. The existing queues add a `{}` system payload beside their current payloads.
+- **Schedules:** ids `stableScheduleUuid('<module>:retention-prune')` for the shared queue. The existing queues use `customer_accounts:cleanup-sessions`, `customer_accounts:cleanup-tokens`, `integrations:log-pruner` and `forms:retention-purge`.
+- **Upgrade action:** `configs.register-retention-schedules`.
+- **CLI:** `mercato queue prune-failed [--queue <name> | --all] [--dry-run]`.
+- **DI:** `aiChatAttachmentReferences` (ai_assistant), with `filterUnreferenced(ids: string[]): Promise<string[]>`.
+- **Shared exports:** `@open-mercato/shared/lib/retention/{prune,schedule,windows}`.
+- **No new HTTP routes and no new events.**
 
-Use the cart module's existing deterministic UUID algorithm: SHA-256 of the UTF-8 key, first 32 lower-case hex digits, grouped `8-4-4-4-12`. These are the exact new system keys; registration passes their derived UUIDs, `scopeType: 'system'`, `tenantId: null` and `organizationId: null`.
+## Migration & Compatibility
 
-| Module | Exact key | Queue | Exact schedule id |
-|---|---|---|---|
-| `auth` | `auth:retention-prune:system` | `auth-retention-prune` | `4ede942e-12af-f3fe-420f-d9e4a49c276e` |
-| `messages` | `messages:access-token-prune:system` | `messages-access-token-prune` | `e593df23-0d49-afa8-4b58-8901c97b12da` |
-| `customer_accounts` | `customer_accounts:cleanup-sessions:system` | `customer-accounts-cleanup-sessions` | `14ca45b7-6bad-255f-5e18-a50ce4f88224` |
-| `customer_accounts` | `customer_accounts:cleanup-tokens:system` | `customer-accounts-cleanup-tokens` | `c517c800-d3ce-7a0d-5840-7896d1f02e85` |
-| `webhooks` | `webhooks:retention-prune:system` | `webhooks-retention-prune` | `e55f7b54-be95-9b4d-c8b1-e9dcd5e30de3` |
-| `push_notifications` | `push_notifications:retention-prune:system` | `push-notifications-retention-prune` | `c7f815d3-6a30-83bb-8d8d-3d21e1ab6406` |
-| `progress` | `progress:retention-prune:system` | `progress-retention-prune` | `5c6ee757-7462-cc7f-7773-c1fd9ea402c2` |
-| `integrations` | `integrations:log-pruner:system` | `integration-log-pruner` | `f2321282-aaf4-3865-e8fa-3f2d295f7d18` |
-| `data_sync` | `data_sync:retention-prune:system` | `data-sync-retention-prune` | `796e9824-cbe7-1e92-4f1f-b38927e895f4` |
-| `query_index` | `query_index:error-retention-prune:system` | `query-index-error-retention-prune` | `833da3f4-5fad-53bd-53fd-5c9c0f2a8ab9` |
-| `communication_channels` | `communication_channels:dead-letter-prune:system` | `communication-channels-dead-letter-prune` | `71aec8c0-3a8b-f479-3f57-30023ec9de49` |
-| `ai_assistant` | `ai_assistant:moderation-prune:system` | `ai-assistant-moderation-prune` | `36cb7896-2f98-0592-c8b7-0f7a664f6750` |
+- **`UPGRADE_NOTES.md`:** one entry. It lists every window in the retention table and the variable that changes each one, says that `0` turns a rule off, and names the forms switch and `QUEUE_FAILED_JOB_RETENTION_HOURS`. It tells operators to run `configs.register-retention-schedules`, or `mercato seed:defaults --module <id>` for `webhooks`, `ai_assistant` and `onboarding`. It also lists the consequences:
+  - pruned webhook deliveries can no longer be redelivered by hand;
+  - retrying a pruned sync run returns 404;
+  - a failed outbound channel message older than 90 days cannot be sent again, because its payload is cleared;
+  - forms that already have a `retention_days` value are fully erased past their period on the first run;
+  - BullMQ failed jobs older than 7 days disappear.
+- **`BACKWARD_COMPATIBILITY.md`:** one behaviour-change note. Retention defaults apply from this release. Variables, queue, worker ids, schedule ids, payload variants, CLI command and DI key are additive. Existing variables and payloads do not change.
+- **Phases.** Each phase is its own PR, and all of them target the same minor. Each PR adds its rows to the one upgrade entry.
 
-Forms, access-log and enterprise specs contribute their own keys through this same member; shared and scheduler import no optional package's owner code. `getRetentionScheduleExpectations({ definitions, tenantIds })` expands system definitions once to `{ moduleId, key, queue, scheduleId, scopeType, tenantId: null, organizationId: null }`, even for an empty tenant list. A tenant definition expands once per distinct validated tenant id, with `scheduleId = stableScheduleUuid(key + ':' + tenantId)` and `organizationId: null`. No handler in the table above uses tenant scope. This pure expansion defines ids explicitly; it never guesses schedules from queue names or copies other modules' key lists.
+## Risks & Impact Review
 
-The doctor CLI already holds the enabled module snapshot. Before handing scheduler's selected check to the database runner, call scheduler-owned `bindPrunerScheduleDoctorCheck(check, definitions)` with that collected manifest. It replaces only `countServices['scheduler.retention_schedules']` with `({ em }) => createPrunerScheduleCounter({ em, definitions })`, preserving the doctor's exact factory signature. The unbound factory refuses; there is no global mutable registry or general `di.ts` bootstrap. This is scheduler-owned code, and `--only pruners.unscheduled --database` must work in isolation. It uses the doctor's ordinary `resolveCountingService('scheduler.retention_schedules')`, returning `PrivacyDoctorCountingService`, and calls `count({ tenantId: null, counter: 'missing' })` / `count({ tenantId: null, counter: 'disabled' })` once for the installation's system expectations. For allowed tenant expectations it calls `count({ tenantId, counter })` with that exact non-null tenant id. The resolver accepts null only for scheduler's selected `pruners.unscheduled` check resolving `scheduler.retention_schedules`; every other check/service pair rejects null, and every non-null tenant outside the supplied list is rejected.
-
-The supported counter names are `missing` and `disabled`; unknown names refuse. For null tenant, expand only system definitions, deduplicate their deterministic ids, require `scope_type = 'system'`, `tenant_id IS NULL` and `organization_id IS NULL`, and run each counter once independently of the tenant list, including when it is empty. For a non-null tenant, compare only that tenant's expanded expectations with `scope_type = 'tenant'`, the exact tenant predicate and `organization_id IS NULL`. A tenant- or organization-specific row cannot satisfy a system expectation. A missing or soft-deleted expected id counts as missing. A live row must match the expected scope, `source_module`, `target_queue`, `source_type = 'module'` and `target_type = 'queue'`; then `is_enabled = false` counts only as disabled and true counts as neither. A mismatch counts only as missing, never accepted by id alone. Select only count-relevant scheduler columns; no target payload or personal field is returned. Aggregate missing and disabled totals separately in the `pruners.unscheduled` warning. Enabled rows prove registration only, never a running worker or a finite deletion deadline.
-
-### Shared process-window accessor
-
-`getOperationalRetentionWindows(): Array<{ id: string; value: number | null; unit: 'hours' | 'days'; enabled: boolean; source: 'this_process' }>` returns the exact process-window shape owned by `2026-11-16-privacy-ropa-generator.md`, Architecture. It is side-effect-free, reads this process's environment on each invocation, and returns stable table ids in sorted order. It opens no container or database, records no first-count time and emits no logs at import or collection time. Worker/doctor reporting owns parse warnings.
-
-There is one row per table in Defaults. Split the portal groups into `customer_user_sessions`, `customer_user_email_verifications`, `customer_user_password_resets` and `customer_user_invitations`; other ids are their table names. Windows are in days. A positive value means `enabled: true`; explicit zero means `{ value: 0, enabled: false }`; the disabled, unset moderation window is `{ value: null, enabled: false }`. The existing immediate portal-session cleanup is the sole zero-age enabled row, `{ id: 'customer_user_sessions', value: 0, unit: 'days', enabled: true, source: 'this_process' }`: zero there describes expiry cleanup rather than a disabled variable. Invalid values use the same effective default as the deleting owner. Apply the system integration-log minimum and sync/progress ordering before returning the values; a disabled window is never re-enabled by a clamp. A registered positive history window is still reported while history mode is report or its counting period is running: `enabled` describes the age rule, not proof of deletion or a live schedule.
-
-The register collector imports this accessor; the configs doctor declaration consumes it beside the shared mode parser. Deleting handlers select their own table's row, and owner tests prove their cutoffs equal the returned effective windows. The accessor describes these core system-tick windows only; it does not claim to cover forms' per-form notice state, legacy scoped integrations calls, B6 queue cleanup or enterprise-owned windows.
-
-### Operational bound projection for C5/G6
-
-R4-13 — Operational retention bounds adds `{ kind: 'operational_pruner', prunerId: string }` to C5's `retention_bounded.boundedBy` union. Each pruned table below has exactly one such bound reference for C5; a `retention_bounded` classification uses it as `boundedBy`. The reference must resolve against the operational-pruners registry through the already named `getOperationalRetentionBounds(modules)` collector, under R3-2 — The registry carries the whole `privacy.ts` default export. It identifies the owning pruner; it is neither a record-retention set nor an environment-variable name. The separate `operationalRetentionBounds` default-export shape and its duplicate definition/status/`describe` contract are dropped. No `pruneRecords` adapter is required.
-
-The table below declares the required registry inventory: one existing `<moduleId>.<table>` pruner id per exact table target, with that table's reviewed columns, owner predicate and schedule key. The owner and registry use the same constants as the deleting handler. The table's id in `getOperationalRetentionWindows()` supplies its effective duration; the already named `<camelCaseModuleId>OperationalRetentionBounds` DI service, for example `customerAccountsOperationalRetentionBounds`, supplies the read-only owner handler. Collection validates unique same-module pruner ids, exact target/column/anchor inventory and the schedule key against `getRetentionScheduleDefinitions(modules)`, without resolving services or importing workers. Missing or foreign references, mismatched columns/targets and unsupported subsets fail closed. These are bound references, not automatic replacements for a table's existing class or credential classification. Such tables keep their independent coverage/export requirements; neither a second `personalData` discriminant nor a duplicate table claim is introduced.
-
-**Registry publication.** The registry inventory is published in C5's existing optional `retentionBounds` member of each owner's `privacy.ts` default object, under R3-2. R4-13 gives C5's `PrivacyRetentionBoundDefinition` a second variant beside `kind: 'retention_set'` (table-coverage assumption 7): `{ id: string; handlerService: string; targets: PrivacyRetentionBoundTarget[]; kind: 'operational_pruner'; scheduleKey: string }`. `id` is the pruner id, `handlerService` the owner's `<camelCaseModuleId>OperationalRetentionBounds` DI key, `targets` the single table target from the table below, and `scheduleKey` that module's `retentionSchedules` key; the window is the target table's row in `getOperationalRetentionWindows()`. `getPrivacyRetentionBounds(modules)` validates the shared fields of both variants; its `retentionSetId` check applies to `retention_set` only. `getOperationalRetentionBounds(modules)` in shared `modules/registry.ts` selects the `operational_pruner` entries and applies the collection rules above; that selection is the operational-pruners registry. The entries, the deleting handler and the schedule definition share the owner's constants. No other member, generator field or registration interface is added.
-
-Use C5's exact `PrivacyRetentionBoundTarget`, `PrivacyRetentionBoundProjection` and `PrivacyRetentionBoundHandler` contracts from [`2026-11-16-privacy-table-coverage.md`](2026-11-16-privacy-table-coverage.md), “Retention bounds for independent verification” and “API Contracts”. The owner implements these existing methods, with `boundId` equal to the referenced `prunerId`:
-
-```ts
-resolve(input: { scope: PrivacyScope; boundId: string; now: string; em: EntityManager }):
-  Promise<PrivacyRetentionBoundProjection>
-evaluateFixtureRow(input: {
-  scope: PrivacyScope; boundId: string; table: string; subset?: string
-  rowId: string; now: string; em: EntityManager
-}): Promise<{
-  status: 'within_window' | 'expired' | 'not_eligible' | 'unbounded' | 'not_found' | 'unknown'
-  anchorAt: string | null; expiresAt: string | null; reason: string
-}>
-```
-
-`resolve` returns C5's `boundId` and `targets`, with each target's exact `table`, supported `subset` if any, `columns`, `ageAnchor: { columns, rule }` and `eligibility`. Anchor columns are precisely those used by the Defaults expression, and the existing pruner id names that owner's shared anchor/eligibility rule. Reuse C5's `effectiveWindow`, `mode`, `countingGraceEndsAt`, `enabled`, `scheduled`, `workerState` and `unboundedReason`; no parallel status shape is defined here. The duration, terminal predicate, cutoff and release mode come from the same window accessor and helpers as deletion, including clamps, zero/disabled semantics and configs-service first-count metadata. The projection returns no personal row values. It uses the supplied read-only snapshot manager, never a foreign table read, mutation, enqueue or bootstrap. Scheduler state remains scheduler-owned; unavailable observations remain unknown rather than being inferred from a configured schedule.
-
-The following columns are the complete reviewed survivor allowlist for each current row shape, including ids and scope metadata. Every name was checked against the owning canonical snapshot; a future column needs explicit review. These are temporary retention allowances, not permission to export credentials or hashes. Credential tables keep their C5 credential/export-redaction classification. The history predicate applies to each captured fixture row; pending/retrying rows and any unsupported subset or remainder stay outside a finite-deadline allowance.
-
-| Bound id / table | C5 `boundedBy` reference | Exact permitted columns | Group and age anchor | Schedule key |
-|---|---|---|---|---|
-| `auth.sessions` / `sessions` | `{ kind: 'operational_pruner', prunerId: 'auth.sessions' }` | `created_at`, `deleted_at`, `expires_at`, `id`, `last_used_at`, `token`, `user_id` | `expired`; `expires_at` | `auth:retention-prune:system` |
-| `auth.password_resets` / `password_resets` | `{ kind: 'operational_pruner', prunerId: 'auth.password_resets' }` | `created_at`, `deleted_at`, `expires_at`, `id`, `token`, `used_at`, `user_id` | `expired`; `used_at if used, otherwise expires_at` | `auth:retention-prune:system` |
-| `messages.message_access_tokens` / `message_access_tokens` | `{ kind: 'operational_pruner', prunerId: 'messages.message_access_tokens' }` | `created_at`, `expires_at`, `id`, `message_id`, `recipient_user_id`, `token`, `use_count`, `used_at` | `expired`; `expires_at` | `messages:access-token-prune:system` |
-| `customer_accounts.customer_user_sessions` / `customer_user_sessions` | `{ kind: 'operational_pruner', prunerId: 'customer_accounts.customer_user_sessions' }` | `created_at`, `deleted_at`, `expires_at`, `id`, `ip_address`, `last_used_at`, `token_hash`, `user_agent`, `user_id` | `expired`; `expires_at or deleted_at; immediate cleanup` | `customer_accounts:cleanup-sessions:system` |
-| `customer_accounts.customer_user_email_verifications` / `customer_user_email_verifications` | `{ kind: 'operational_pruner', prunerId: 'customer_accounts.customer_user_email_verifications' }` | `created_at`, `expires_at`, `id`, `purpose`, `token`, `used_at`, `user_id` | `expired`; `used_at if used, otherwise expires_at` | `customer_accounts:cleanup-tokens:system` |
-| `customer_accounts.customer_user_password_resets` / `customer_user_password_resets` | `{ kind: 'operational_pruner', prunerId: 'customer_accounts.customer_user_password_resets' }` | `created_at`, `expires_at`, `id`, `token`, `used_at`, `user_id` | `expired`; `used_at if used, otherwise expires_at` | `customer_accounts:cleanup-tokens:system` |
-| `customer_accounts.customer_user_invitations` / `customer_user_invitations` | `{ kind: 'operational_pruner', prunerId: 'customer_accounts.customer_user_invitations' }` | `accepted_at`, `cancelled_at`, `created_at`, `customer_entity_id`, `display_name`, `email`, `email_hash`, `expires_at`, `id`, `invited_by_customer_user_id`, `invited_by_user_id`, `organization_id`, `person_entity_id`, `role_ids_json`, `tenant_id`, `token` | `expired`; `accepted_at or cancelled_at when settled, otherwise expires_at` | `customer_accounts:cleanup-tokens:system` |
-| `webhooks.webhook_deliveries` / `webhook_deliveries` | `{ kind: 'operational_pruner', prunerId: 'webhooks.webhook_deliveries' }` | `attempt_number`, `created_at`, `delivered_at`, `duration_ms`, `enqueued_at`, `error_message`, `event_type`, `id`, `last_attempt_at`, `max_attempts`, `message_id`, `next_retry_at`, `organization_id`, `payload`, `response_body`, `response_headers`, `response_status`, `status`, `target_url`, `tenant_id`, `updated_at`, `webhook_id` | `history`; `greatest(created_at, updated_at, enqueued_at, delivered_at, last_attempt_at)` | `webhooks:retention-prune:system` |
-| `webhooks.webhook_ingestions` / `webhook_ingestions` | `{ kind: 'operational_pruner', prunerId: 'webhooks.webhook_ingestions' }` | `created_at`, `duration_ms`, `error_message`, `event_type`, `external_message_id`, `handler_count`, `handler_results`, `headers`, `id`, `organization_id`, `payload`, `processed_at`, `source_key`, `status`, `tenant_id`, `updated_at` | `history`; `greatest(created_at, updated_at, coalesce(processed_at, created_at))` | `webhooks:retention-prune:system` |
-| `push_notifications.push_notification_deliveries` / `push_notification_deliveries` | `{ kind: 'operational_pruner', prunerId: 'push_notifications.push_notification_deliveries' }` | `attempts`, `created_at`, `id`, `last_error`, `next_retry_at`, `notification_id`, `notification_type_id`, `organization_id`, `payload`, `provider`, `provider_response`, `sent_at`, `silent`, `status`, `tenant_id`, `token_snapshot`, `updated_at`, `user_device_id`, `user_id` | `history`; `greatest(created_at, updated_at, sent_at)` | `push_notifications:retention-prune:system` |
-| `progress.progress_jobs` / `progress_jobs` | `{ kind: 'operational_pruner', prunerId: 'progress.progress_jobs' }` | `cancel_requested_at`, `cancellable`, `cancelled_by_user_id`, `created_at`, `description`, `error_message`, `error_stack`, `eta_seconds`, `finished_at`, `heartbeat_at`, `id`, `job_type`, `meta`, `name`, `organization_id`, `parent_job_id`, `partition_count`, `partition_index`, `processed_count`, `progress_percent`, `result_summary`, `started_at`, `started_by_user_id`, `status`, `tenant_id`, `total_count`, `updated_at` | `history`; `finished_at; eligible terminal family only` | `progress:retention-prune:system` |
-| `integrations.integration_logs` / `integration_logs` | `{ kind: 'operational_pruner', prunerId: 'integrations.integration_logs' }` | `code`, `created_at`, `id`, `integration_id`, `level`, `message`, `organization_id`, `payload`, `run_id`, `scope_entity_id`, `scope_entity_type`, `tenant_id` | `history`; `created_at` | `integrations:log-pruner:system` |
-| `data_sync.sync_runs` / `sync_runs` | `{ kind: 'operational_pruner', prunerId: 'data_sync.sync_runs' }` | `batches_completed`, `created_at`, `created_count`, `cursor`, `deleted_at`, `direction`, `entity_type`, `failed_count`, `id`, `initial_cursor`, `integration_id`, `job_id`, `last_error`, `organization_id`, `parameters`, `progress_job_id`, `skipped_count`, `status`, `tenant_id`, `triggered_by`, `updated_at`, `updated_count` | `history`; `updated_at` | `data_sync:retention-prune:system` |
-| `query_index.indexer_error_logs` / `indexer_error_logs` | `{ kind: 'operational_pruner', prunerId: 'query_index.indexer_error_logs' }` | `entity_type`, `handler`, `id`, `message`, `occurred_at`, `organization_id`, `payload`, `record_id`, `source`, `stack`, `tenant_id` | `history`; `occurred_at` | `query_index:error-retention-prune:system` |
-| `communication_channels.channel_ingest_dead_letters` / `channel_ingest_dead_letters` | `{ kind: 'operational_pruner', prunerId: 'communication_channels.channel_ingest_dead_letters' }` | `channel_id`, `created_at`, `error_class`, `error_message`, `external_message_id`, `external_uid`, `id`, `organization_id`, `provider_key`, `raw_body`, `tenant_id` | `history`; `created_at` | `communication_channels:dead-letter-prune:system` |
-| `ai_assistant.ai_moderation_flags` / `ai_moderation_flags` | `{ kind: 'operational_pruner', prunerId: 'ai_assistant.ai_moderation_flags' }` | `agent_id`, `categories`, `created_at`, `id`, `model_id`, `organization_id`, `provider_id`, `tenant_id`, `user_id` | `history`; `created_at` | `ai_assistant:moderation-prune:system` |
-
-Disabled windows project `mode: 'off'` with `enabled: false`; the unset moderation window projects `effectiveWindow: null`. For history bounds, explicit report and the opt-in default project `mode: 'report'`. An unset flipped history mode before its persisted deadline also projects report and supplies `countingGraceEndsAt`. Enabled expired rules project delete without a counting period, including immediate portal-session cleanup with its zero-age enabled window. Explicit operational delete preserves its existing bypass of the installation counting period. Unknown first-count metadata without an explicit mode, missing/disabled registration, unavailable or unknown worker evidence, and outstanding continuations are unbounded/pending conditions, with `unboundedReason`; they never become an enforced finite-deadline exception. An enabled schedule alone proves no worker liveness. Forms' independent notice gate, legacy scoped integrations calls, queue copies and enterprise-owned windows stay outside these sixteen declarations. The `access_logs` bound, `audit_logs.access_logs`, uses the same `operational_pruner` variant and collector but is declared and owned by [`2026-11-16-access-log-retention.md`](2026-11-16-access-log-retention.md), “Retention bound for C5/G6”, with its own hour-unit windows and keep semantics.
-
-The pruner owner's `evaluateFixtureRow` applies the same exact terminal/eligibility predicate and age calculation to the captured `rowId` on the supplied read-only snapshot manager, including Defaults' retry exclusions and the progress-family rule. It verifies the declared table, supported subset, scope and anchor instead of accepting a class's retained claim or evaluating metadata strings as code.
-
-**Scope check per target shape.** `PrivacyScope` stays tenant-required and no installation variant of the handler is added, so each owner checks the captured row's scope by the shape of its table:
-
-| Target shape | Tables | Scope check |
-|---|---|---|
-| Tenant column, non-null | `customer_user_invitations`, `webhook_deliveries`, `webhook_ingestions`, `push_notification_deliveries`, `progress_jobs`, `integration_logs`, `sync_runs`, `channel_ingest_dead_letters`, `ai_moderation_flags` | The row's `tenant_id` must equal `scope.tenantId`, and its `organization_id` must equal `scope.organizationId` when the scope names one; otherwise `not_found` |
-| Nullable tenant column | `indexer_error_logs` | A tenant-owned row is checked as above. A row with null `tenant_id` returns `unknown`, reason `installation_row`: a tenant scope cannot attribute it, and such rows are covered by the owner's pruner tests, never as a G6 survivor allowance |
-| No tenant column | `sessions`, `password_resets` (parent `users`); `message_access_tokens` (parent `messages`); `customer_user_sessions`, `customer_user_email_verifications`, `customer_user_password_resets` (parent `customer_users`) | Read the parent row through the same module's own table by the row's `user_id` or `message_id`. A parent in another tenant returns `not_found`; a missing parent, or a parent with null `tenant_id` such as a super-administrator, returns `unknown`, reason `installation_row`. The window evaluated is the installation-wide one from `getOperationalRetentionWindows()` |
-
-Every shape returns only the evaluated state and times, never the parent row or its identifiers. The parent read stays inside the owning module, so no cross-module table read is introduced. A row still inside the actual window may return `within_window`; one past its cutoff returns `expired`; a non-terminal or otherwise excluded row returns `not_eligible` and grants no allowance. Disabled/report/counting/unscheduled/unobserved/pending enforcement returns `unbounded`, and unavailable or malformed evidence returns `unknown`. Missing rows return `not_found`. Neither an unresolved pruner nor a missing/throwing owner evaluator excuses a survivor. C5/G6 match exact table/subset/row/column evidence against this result; the owner methods and their fixture tests must ship before coverage can close.
-
-### Coupling
-
-| Touchpoint | Mechanism | Absent |
-|---|---|---|
-| Module → scheduler | `schedulerService` by DI key, checked with `hasRegistration` | No schedule; nothing is pruned |
-| Handler → its tables | Its own module's entities | — |
-| Helper → module config | `moduleConfigService` by DI key, resolved softly | No first-run time can be recorded: history stays in counting mode unless the mode is set explicitly |
-| Module → module | None; window ordering is by configuration | — |
-
-## 📝 Data Models
-
-No new entity. Additive indexes, created concurrently in non-transactional migrations, each with its module snapshot. The generator does not emit these; they are written by hand following the attachments precedent.
-
-| Table | Index |
-|---|---|
-| `sessions`, `password_resets`, `message_access_tokens`, portal session and token tables | `expires_at` |
-| `webhook_deliveries`, `webhook_ingestions`, `push_notification_deliveries` | Partial `(age expression, id)` indexes using the exact terminal predicates and `greatest` expressions in Defaults |
-| `progress_jobs` | `finished_at` |
-| `sync_runs` | Partial `(updated_at, id)` for `completed`, `failed`, `cancelled` |
-| `integration_logs`, `channel_ingest_dead_letters`, `ai_moderation_flags` | `(created_at, id)` where an equivalent leading index is absent |
-
-One installation-scoped `module_configs` row (`module_id = configs`, name `retention.operational.<table>.firstCountAt`, null tenant) holds the first counting time, inserted atomically through the configs service. These are internal installation metadata, separate from R3-3 — Tenant privacy settings live in `module_configs`, in the contract spec. The data-model graph is omitted: indexes on existing tables.
-
-## 📝 API Contracts
-
-- **Settings** — the variables in the Defaults table and `OM_RETENTION_HISTORY_MODE`. All are added to `apps/mercato/.env.example` and the create-app template's copy, each with its default and the meaning of `0`. `OM_RETENTION_HISTORY_MODE` is trimmed and case-insensitive; empty is unset and any other value is `report`.
-- **Schedules** — one per cleanup queue in the inventory, using the exact `retentionSchedules` keys and UUIDs in “Enabled-handler schedule expectations”. Its pure collectors and scheduler-owned count binding are additive shared/DI contracts under R3-2 and R3-4.
-- **Upgrade actions** — one id per core module; the two non-core registration commands above are new stable CLI surfaces.
-- **Telemetry** — counter `retention.rows`, labelled by table and outcome (`eligible`, `deleted`).
-- **Doctor check id** — `configs.retention_history_mode_default`. Stable once released.
-- **Shared accessor** — `getOperationalRetentionWindows()` has the process-window result in Architecture; additive shared export, with no route added. The existing scoped integrations payload keeps its `retentionDays` and `scope` semantics for callers; only the new system tick uses environment settings and its analytics minimum. The 30-day clamp applies only to system-tick mode; legacy scoped callers retain their supplied duration and scope exactly, including values below thirty days. Validate both with zod; reject partial scopes. The two portal workers currently ignore generic job payloads and delete installation-wide; keep that payload compatibility and system-wide semantics, rather than inventing an existing scoped mode. New auth/messages/history tick schemas accept no tenant scope; the integrations union distinguishes fully scoped legacy payloads from system ticks and rejects a partial scope. Portal payloads remain ignored as today.
-- **Operational bounds** — each pruned table declares a `{ kind: 'operational_pruner', prunerId }` reference for C5's `retention_bounded.boundedBy` under R4-13, without replacing an existing class or credential classification. The operational-pruners registry and already named `getOperationalRetentionBounds(modules)` must resolve the exact ids/targets in Architecture; the metadata is published as `operational_pruner` entries of C5's `retentionBounds` member (“Registry publication”). Owner services implement C5's `PrivacyRetentionBoundHandler.resolve` and `evaluateFixtureRow`, using its existing projection and fixture-result names. The duplicate default-export bound/status shape is removed; no record-retention set or route is added.
-
-## 📝 Edge Cases & Failure Scenarios
-
-| Case | Behaviour |
-|---|---|
-| Scheduler module not enabled | Nothing registers; nothing is pruned |
-| Existing installation after upgrade | No schedules until core upgrade actions and package-local commands run; `privacy doctor --database` warns on missing or disabled schedules |
-| An administrator disabled a pruner's schedule | It stays disabled across re-registration |
-| A backlog of years | Time-bounded runs immediately continue on a coalesced job until caught up; repeated exhaustion warns |
-| A delivery awaiting retry, a running or paused sync, an unfinished job | Never eligible |
-| Manual redelivery of a pruned delivery | No longer possible; stated in the upgrade note |
-| Retry or resume using a pruned sync-run id | Returns not found (the retry route returns 404); Run again still uses the shared cursor, not the removed run's cursor |
-| Old creation with recent completion or retry | Kept until the terminal age anchor passes its window; a re-queued non-terminal row is never eligible |
-| `OM_RETENTION_HISTORY_MODE` set to an unknown value | Treated as `report` under either release default; warned once per process and reported by `doctor`; expired rows still deleted |
-| Module configuration service unavailable | History is counted and never deleted, unless the mode is set explicitly |
-| Operator sets a sync-run window shorter than the log window | Clamped up to the log window, and reported once |
-| Handler fails mid-run | Deleted batches stay deleted; the job retries; the delete is idempotent |
-| Local queue strategy | The tick is a job like any other |
-| The mode is unset in the opt-in minor | History is counted and never deleted; the warning is logged once per process and `doctor` reports it |
-| An installation skips the opt-in minor | It upgrades straight to the flipped default; history is counted for thirty days from its first counting run, with a once-per-process/table warning naming the deletion-start date and a warning-level doctor finding while unset |
-
-## 📝 Migration & Backward Compatibility
-
-| Change | Route |
-|---|---|
-| Expired rows are deleted | Hygiene: nothing can read them, so this is not bridged. It covers the portal pruners of package D1. Dated entry and upgrade note |
-| History rows are deleted | Ordinary protocol: opt-in for one minor, with a warning at start and in `doctor` naming the next minor's default; from the next minor the default is `delete`, after the per-installation counting period, and `report` stays as the opt-out |
-| Portal invitations are kept one day after settling | A grace the existing worker lacks |
-| New variables, indexes, schedules, core upgrade actions, package-local commands, nine queues | Additive |
-
-- **`UPGRADE_NOTES.md`:** enable upgrade actions and run each core module's action once, and run the two package-local registration commands; check `privacy doctor --database` for missing schedules; the table of defaults; that history deletion is off by default in this minor and how to opt in (`OM_RETENTION_HISTORY_MODE=delete`); that from the next minor an unset mode deletes history after the counting period, and how to keep it off (`report`); that manual redelivery of pruned webhook deliveries and retry/resume using pruned sync-run ids end (404 on retry), while Run again uses shared cursors; that a worker process and the scheduler must be running. The flip release carries its own note.
-- **Template sync:** both `.env.example` files in the same change.
-- **Backports:** none.
-
-## 📋 Phasing
-
-| Phase | Outcome | Deletes anything |
-|---|---|---|
-| 1 | Shared helper; indexes; characterization tests | No |
-| 2 | Expired group | Yes — expired rows |
-| 3 | History group | Only where the mode is `delete`, until the default flips |
-| 4 | Existing workers reworked and scheduled | As their group |
-| 5 | The default for history becomes `delete` | Release task in the minor after Phases 3 and 4, gated on R3-4 and `pruners.unscheduled`; after each installation's counting period |
-
-Each phase is its own PR and goes through ordinary maintainer review.
-
-## 📋 Implementation Plan
-
-### Phase 1 — Foundation
-1. **Characterize** that an expired staff session and a 40-day-old terminal webhook delivery both persist today. Commit alone.
-2. Add the shared helper and `windows.ts` accessor with unit tests: window parsing including `0` and garbage; mode resolution with an explicit value, including upper-case and space-padded `report`/`delete`, an empty value treated as unset, and malformed values resolving to `report` with a once-per-process warning under both release defaults while expired pruning still runs; with the mode unset under the opt-in default, which never deletes and logs the warning once per process; with the mode unset under the flipped default, with a recorded first run inside and outside thirty days; with module configuration absent; the bounded count; the batch loop's time budget, statement timeout, coalesced continuation and three-exhaustion warning; an injectable clock. The release default is supplied by each caller. `retentionPrune.test.ts` pins the named helper exports and warns once per table/start date during flipped-release counting. `retentionWindows.test.ts` pins the exact register result shape, sorted table ids, defaults/invalid/zero/disabled semantics, immediate portal-session expiry, clamped effective values and no re-enabling of a disabled window; changing injected environment between invocations changes the result. Each owner test compares actual selected cutoff/disabled behavior with this same accessor; register and doctor consumer tests reject copied defaults. `retentionSchedules.test.ts` verifies the pure manifest's exact keys/UUIDs, enabled-module filtering, system deduplication with zero/many tenants, tenant expansion, registration parity, no import-time work and delivery/prune queue separation. `operationalRetentionBounds.test.ts` validates all sixteen R4-13 object references through the operational-pruners registry, exact table/column/anchor inventories against canonical snapshots, unresolved/foreign/duplicate ids, unsupported subsets, and the same effective predicates/windows as deletion. Exercise each owner's C5 `resolve`/`evaluateFixtureRow` methods on the read-only snapshot manager: within-window and expired fixture rows, not-eligible rows, wrong row/column/scope, the per-shape scope check (a tenant-owned row in and out of scope, a null-tenant `indexer_error_logs` row as `unknown`, and for each table without a tenant column a parent row in scope, in another tenant and with a null tenant), counting grace, zero/report/pending/unknown-worker states, absent/disabled schedules, missing/throwing services and attempted writes all fail or project the prescribed state without an exemption. Ship these declarations and collectors after C1 Phase 1 under R3-2 and C5's R4-13 union, including the `operational_pruner` variant of its bound definition; tests pin that publication through `retentionBounds` and that no duplicate bound/status shape is reinstated.
-3. Add the index migrations.
-
-### Phase 2 — Expired group
-One step per module — `auth`, `messages`: the handler, the registration function, its call from `setup.ts`, the upgrade action, unit tests with a fake clock, and that module's in-process integration test.
-
-### Phase 3 — History group
-This phase and the opt-in release wait for the contract's Phase 1 (R3-2) and the doctor's Phase 3 (DEC-I). First add `configs.retention_history_mode_default` with warning tests for both unset defaults, explicit `report`/`delete` and an invalid value reported as invalid without echoing it. Then one step per module — `webhooks`, `push_notifications`, `progress`, `data_sync`, `query_index`, `communication_channels`, `ai_assistant`. Each uses the named dedicated queue, its own schedule/bound declarations and C5 owner handler, registration and appropriate upgrade action or package-local command, and ships `retention-prune.test.ts` plus its in-process integration test. Pin the exact statuses and age anchors, old creation with recent completion, all non-terminal exclusions and repeated-run idempotency. Coordinate `pruners.unscheduled` and its zero-schedule fixture with the doctor's R3-4 tier and Phase 5 scheduler-owned count-service work. Scheduler's factory/binding tests cover isolated selection, the ordinary resolver and `PrivacyDoctorCountingService` with factory input `{ em }` and `count({ tenantId: null, counter })` for system expectations, missing versus disabled rows, wrong-scope rows, duplicate system expectations counted once per counter, count failures, aggregate-only output and a zero-tenant/zero-schedule installation. Test `count({ tenantId, counter })` for supplied tenant expectations, null rejection for every other check/service pair and rejection of foreign non-null tenant ids; every count uses the supplied read-only manager. That counting dependency must ship before this spec's Phase 5; C5/G6 consume the declared R4-13 pruner references and the owner's specified `PrivacyRetentionBoundHandler` methods; missing implementation or unbounded/pending evidence still blocks an exemption.
-
-### Phase 4 — Existing workers
-1. Portal cleanup: batch both workers; add the grace window; register; ship its own integration test.
-2. Integrations: add system-tick environment mode, preserve the scoped payload, batch and clamp system mode only; register; ship its own integration test.
-3. `UPGRADE_NOTES.md`, both `.env.example` files, the operations docs page.
-4. Archive this Delta into `.ai/specs/capabilities/operational-retention.md` if that directory has been adopted by then; it does not exist today.
-
-### Phase 5 — The default flip (next minor)
-1. Change only the operational callers' default for an unset mode to `delete` after the counting period; require the shipped `pruners.unscheduled` database check, verify the connection inventory, update unit tests while keeping unset-mode doctor severity at warning; add the flip's `UPGRADE_NOTES.md` entry and dated compatibility entry.
-
-### File manifest
-
-| File | Action |
-|---|---|
-| `packages/shared/src/lib/retention/prune.ts` and tests | Create |
-| `packages/shared/src/lib/retention/windows.ts` and `__tests__/retentionWindows.test.ts` | Create — shared effective-window accessor; owner handlers, configs doctor and register consume it |
-| `packages/shared/src/modules/{privacy.ts,registry.ts}` and registry/retention metadata tests | Extend — optional `retentionSchedules`, R4-13 bound references and operational-pruners registry validation/collection over the `operational_pruner` entries of C5's `retentionBounds` under R3-2; reuse C5 types, no duplicate bound member or generator change |
-| Each pruner owner's `privacy.ts`, `di.ts` and module-local retention metadata/fixture helpers | Create / modify — preserve existing members; registration and bounds share owner constants/parsers; owner C5 resolve/evaluateFixtureRow use the read-only snapshot manager |
-| `packages/scheduler/src/modules/scheduler/{privacy.ts,lib/privacy/retentionSchedules.ts}` and tests; privacy CLI binding | Add scheduler-only `pruners.unscheduled`, `scheduler.retention_schedules` count factory and isolated binding; no worker/general bootstrap |
-| For each module named: its prune handler, `setup.ts`, a migration where it gains an index | Create / modify |
-| `packages/core/src/modules/configs/lib/{upgrade-actions.ts,module-config-service.ts}` | Modify — core-only actions and atomic first-count storage |
-| `packages/{webhooks,ai-assistant}/src/modules/{webhooks,ai_assistant}/cli.ts` (respective modules) | Modify / create — package-local registration commands |
-| `packages/core/src/modules/{integrations,customer_accounts}/workers/*` | Modify |
-| `packages/core/src/modules/configs/privacy.ts` | Create / modify — `{ dataClasses: [], doctorChecks: [...] }`, shared parsers, preserve other owners' checks |
-| Each handler's module `__integration__/TC-<MODULE>-RETENTION-001.spec.ts`, using the test ids below | Create — ships with that handler |
-| `apps/mercato/.env.example`, template copy, `UPGRADE_NOTES.md`, docs | Modify |
-
-## 🧪 Integration Coverage
-
-No new API routes. Every handler ships a real-database integration test in the same phase. Call handlers in process with injected mode, clock, cutoff, run budget and an allowlist of fixture row ids in the test adapter; production has no fixture filter. This follows `packages/core/src/modules/entities/__integration__/TC-ENTITIES-009-encryption-map-concurrency.spec.ts`. Create all tenant/organization/token/log rows within the test and remove them and any test schedule/config/continuation rows in `finally`; never prune unrelated shared-suite data. Exercise both local and async queue delivery with own isolated queue namespaces.
-
-| Test | Covers |
-|---|---|
-| TC-AUTH-RETENTION-001 | Expired session and used reset deleted, live session/reset kept; repeat idempotent; test credentials still authenticate |
-| TC-MESSAGES-RETENTION-001 | Expired access token deleted, unexpired token kept; repeat idempotent |
-| TC-PORTAL-RETENTION-001 | Both cleanup handlers; expired/deleted sessions, expired/used tokens and settled invitations outside grace deleted; live and recently settled rows kept; repeat idempotent |
-| TC-WEBHOOKS-RETENTION-001 | Both tables in report, explicit delete and flipped default inside/outside counting period; delivered/failed/expired and processed/failed/duplicate old rows deleted, pending/retrying/received/processing kept, old creation with recent terminal timestamp kept; second run idempotent; deliveries API reflects only own surviving rows |
-| TC-PUSH-RETENTION-001 | Every terminal status, pending/sending and retry timestamp exclusion; recent completion kept; repeat idempotent |
-| TC-PROGRESS-RETENTION-001 | Finished terminal families removed, null-finish, recent child, pending/running parent or child kept; repeat idempotent |
-| TC-DATA-SYNC-RETENTION-001 | Old terminal runs including soft-deleted ones deleted; recent `updated_at`, pending/running/paused kept; clamp applied; retry of own pruned id returns 404; repeat idempotent |
-| TC-INTEGRATIONS-RETENTION-001 | Old logs deleted with minimum analytics window, recent logs kept; scoped legacy payload affects only its scope and honors a seven-day duration without the system clamp; system report/delete and repeat idempotent |
-| TC-QUERY-INDEX-RETENTION-001 | Old error rows with tenant and null tenant deleted, recent rows kept; repeat idempotent |
-| TC-CHANNELS-RETENTION-001 | Old dead letters deleted, recent ones kept; operator replay of removed fixture is unavailable; repeat idempotent |
-| TC-AI-MODERATION-RETENTION-001 | Disabled default/zero keep rows; configured report counts only; explicit delete removes old flags, keeps recent ones; repeat idempotent |
-| TC-PRUNERS-SCHEDULES-001 | Start with no schedules for own enabled-module fixture; `privacy doctor --database` and isolated `--only pruners.unscheduled --database` warn with missing/disabled totals only; registration ids match collected expectations, repeat preserves disabled rows, wrong scopes never satisfy them; deduplicated null-tenant/null-organization system ids count once per `count({ tenantId: null, counter })` call with zero/many tenants and zero schedules; tenant/organization rows never satisfy a system id, tenant expectations use the supplied non-null tenant, other check/service pairs reject null, and foreign non-null tenant ids refuse; output has no row ids/payloads and default doctor opens no count service; delivery queues never receive retention ticks |
-
-`retentionPrune.test.ts` covers invalid/zero windows, exact mode transitions, malformed/empty/case-variant modes, one-time warnings with table and date, absent configuration, truncated counts, statement timeout, continuation coalescing and repeated exhaustion. Integration tests for webhooks also cover zero, explicit report, the default flip and a backlog requiring more than one budget; no environment-based integration gap remains.
-
-## 📝 Risks & Impact Review
-
-#### Upstream review questions the OSS placement
-- **Scenario**: A reviewer reads the umbrella's `enterprise` label, or #2980's Enterprise placement of command-audit age policies, as covering operational pruning.
-- **Severity**: Low
-- **Affected area**: the whole spec
-- **Mitigation**: Program DEC-2 places D1 and D2 in OSS, with each handler in the module that owns its table (assumption 8); #2980's policies stay out of this spec; the core-member assignee carries the work, and each phase is its own PR.
-- **Residual risk**: Ordinary maintainer review can still ask for changes to a phase.
-
-#### Data an operator still needed is deleted
-- **Scenario**: Deliveries or logs older than the default are removed and someone needed them for a dispute.
+#### An operator still needed deleted history
+- **Scenario**: A webhook delivery or sync run older than its window was needed for a dispute.
 - **Severity**: High
-- **Affected area**: webhook deliveries, integration logs, sync runs
-- **Mitigation**: History deletion is opt-in for one minor, with a warning at start and in `doctor` naming the next minor's default; after the flip, thirty days of counting on each installation; every window is a variable; `0` disables; an explicit `report` mode never deletes.
-- **Residual risk**: An operator who reads neither the warning, the doctor report, the note nor the reports.
+- **Affected area**: webhooks, data_sync, integrations, communication_channels
+- **Mitigation**: Only terminal rows are eligible. Every window is a variable, and `0` turns a rule off. The upgrade note and the docs table list every default.
+- **Residual risk**: An operator who reads neither loses rows older than the window. Storage limitation requires a default.
 
-#### Existing installations stay unpruned
-- **Scenario**: Nobody runs the upgrade actions.
+#### Forms erase retroactively on upgrade
+- **Scenario**: A form has had `retention_days` set for months. The first run fully erases every older submission, including answers that the sensitive-only mode would have kept.
 - **Severity**: High
-- **Affected area**: every upgraded installation
-- **Mitigation**: Core actions and package-local commands in the upgrade note; `privacy doctor --database` detects missing or disabled schedules; the flip cannot precede that check.
-- **Residual risk**: An operator who never runs the database-tier doctor can still miss registration; configuration-only doctor cannot detect it.
+- **Affected area**: forms, form_to_deals reactions
+- **Mitigation**: Only forms whose owner set a period are affected. The upgrade note names this, and `OM_FORMS_SUBMISSION_RETENTION_ENABLED=false` stops it.
+- **Residual risk**: Erasure is irreversible, which is the purpose of the owner's setting.
 
-#### A prune or an index build locks a hot table
-- **Scenario**: A first run over millions of rows, or creating an index on them.
+#### A first run locks a large table
+- **Scenario**: Years of `webhook_deliveries` or `integration_logs` are pruned in one go.
 - **Severity**: Medium
-- **Affected area**: webhook deliveries, integration logs
-- **Mitigation**: Batches, a time budget, a statement timeout, one statement per transaction; indexes created concurrently.
-- **Residual risk**: A concurrent index build that fails leaves an invalid index to drop and retry; the migration notes it.
+- **Affected area**: hot write tables
+- **Mitigation**: 500-row statements, one per transaction, a 30-second budget with continuations, and indexes built concurrently.
+- **Residual risk**: The backlog drains over several runs. A concurrent index build that fails leaves an invalid stub, which the migration drops and rebuilds.
 
-#### A declared window falsely excuses retained personal data
-- **Scenario**: Verification accepts a pruner id or configured duration without evaluating the captured row, or ignores a report/counting/disabled/unscheduled/pending state.
-- **Severity**: High
-- **Affected area**: C5 table coverage and G6 survivor checks
-- **Mitigation**: R4-13 references resolve exact owner-table/column targets; the owner's C5 `resolve` and `evaluateFixtureRow` share deletion predicates and clocks on the read-only snapshot manager. Missing/throwing services, expired rows, unknown observations and unsupported subsets fail closed; tests cover every state.
-- **Residual risk**: An unavailable worker or outstanding continuation leaves the bound unenforced until operations recover, and verification reports it so. Metadata alone never closes the gate.
+#### Existing installations are never scheduled
+- **Scenario**: Nobody runs the upgrade action or `seed:defaults`.
+- **Severity**: Medium
+- **Affected area**: every upgraded installation
+- **Mitigation**: The upgrade action is offered in the admin UI, the upgrade note names both paths, and the docs show how to check the schedule list.
+- **Residual risk**: Tables stay unbounded until an operator acts. New installations are unaffected.
 
-#### Soft references dangle
-- **Scenario**: A sync run points at a progress job that was pruned.
+#### A chat upload is released while still in use
+- **Scenario**: A message lists a draft just as the pruner checks it.
 - **Severity**: Low
-- **Affected area**: `sync_runs.progress_job_id`, `push_notification_deliveries.notification_id`
-- **Mitigation**: The clamp orders only sync/log/progress durations; it guarantees no row lifetime across different anchors or batches. Readers treat a missing progress job or notification as absent; no cross-module table read or clamp of the notifications set is introduced.
-- **Residual risk**: A sync run can briefly outlive its progress job even at equal windows, and push deliveries may outlive their notification whose age is owned by `notifications.inbox` in the record-retention spec; both are harmless soft references.
+- **Affected area**: ai_assistant chats
+- **Mitigation**: Only uploads at least 30 days old are candidates. Soft-deleted rows count as references. `releaseScoped` rechecks under lock that the draft's own assignment is its only reference.
+- **Residual risk**: A message that first cites a 30-day-old draft in the same second loses its file.
 
-## Final Compliance Report — 2026-11-16
+#### An abandoned-job report is lost
+- **Scenario**: The report hook keeps failing for 7 days and `removeOnFail.age` evicts the job.
+- **Severity**: Low
+- **Affected area**: queue abandonment reporting
+- **Mitigation**: The hourly sweep and `prune-failed` skip unacknowledged jobs. The abandon sweep retries every 5 minutes. Each failure is reported.
+- **Residual risk**: Lazy BullMQ eviction does not check the acknowledgement marker.
 
-### Applicable repository guidance
-- `AGENTS.md` (root), `.ai/specs/AGENTS.md` — in full
-- `packages/queue/AGENTS.md` — MUST rules, connection budget
-- `packages/create-app/AGENTS.md` — template sync
-- Not reviewed: `packages/core/AGENTS.md` → Upgrade Actions and Module Config beyond what the research cites, and the module guides. Each module step reads its own.
+## Implementation Plan
+
+### Phase 1: Shared helpers and existing pruners
+1. Add `packages/shared/src/lib/retention/{windows,prune,schedule}.ts` with unit tests covering windows (unset, `0`, garbage), batch and budget loops, continuation coalescing and the registration arguments.
+2. customer_accounts: batch both workers, read env windows, add the one-day grace, register from `setup.ts`. Ships with TC-CUSTOMER-ACCOUNTS-RET-001.
+3. integrations: add the system payload, batching and registration. Ships with TC-INTEGRATIONS-RET-001.
+4. Add the `configs.register-retention-schedules` upgrade action and its i18n keys, with a unit test that registration skips disabled modules and keeps a disabled schedule disabled.
+
+### Phase 2: Credential and signup pruners
+1. auth and messages: worker, rules, registration and indexes. Ships with TC-AUTH-RET-001.
+2. onboarding: new `setup.ts`, worker and index. Ships with TC-ONBOARDING-RET-001.
+
+### Phase 3: Operational history
+1. webhooks, push_notifications, query_index, progress, data_sync, sync_excel, business_rules: one step per module. Each step brings worker, rules, registration, index and its TC.
+2. communication_channels: dead letters and the `channel_payload` clear. Ships with TC-COMMUNICATION-CHANNELS-RET-001.
+3. payment_gateways and inbox_ops clear rules. Each ships with its TC.
+
+### Phase 4: People-facing records
+1. notifications: the worker invalidates the notification cache for affected scopes, as `cleanupExpired()` does. Ships with TC-NOTIFICATIONS-RET-001.
+2. ai_assistant: conversations, messages, pending actions, moderation flags, the `aiChatAttachmentReferences` service and the DELETE route description. Ships with TC-AI-ASSISTANT-RET-001.
+3. attachments: the chat-draft rule. Ships with TC-ATTACHMENTS-RET-001.
+
+### Phase 5: Forms
+Depends on the forms full-erasure mode in [privacy-coverage](2026-11-16-privacy-coverage.md).
+1. System tick, per-row try/catch, batches, soft-deleted forms and submissions included, full-erasure call, access-audit pruning, switch. Unit tests cover the failing-row skip and partial-scope rejection. Ships with TC-FORMS-RET-001.
+
+### Phase 6: Failed queue jobs
+1. Async `removeOnFail` age, the start-up and hourly sweep, local quarantine-file cleanup, `mercato queue prune-failed`.
+2. Unit tests for the local strategy. A real-Redis test runs under `QUEUE_TEST_REDIS_URL` (`yarn workspace @open-mercato/queue test:redis`): an old failed job is removed, a young one kept, an unacknowledged abandoned job kept, `0` keeps count-only, and the command runs without a worker.
+3. The env examples in both apps and the completed upgrade entry.
+
+## Integration Coverage
+
+Every test is real-database and in-process. It boots the app root and resolves the container as `entities/__integration__/TC-ENTITIES-009-encryption-map-concurrency.spec.ts` does, creates its own fixtures in two tenants, calls the worker handler with the module's payload, and removes its own rows in `finally`. Each test backdates rows to just past and just inside the window. It asserts four things:
+- old eligible rows are gone, or their columns cleared, in both tenants, because pruning is installation-wide by age;
+- young rows and rows in an ineligible state stay in both tenants;
+- a second run changes nothing;
+- `0` turns the rule off.
+
+| Test (module `__integration__/`) | Additional assertions |
+|---|---|
+| TC-AUTH-RET-001 | Expired session and used reset deleted; a live session still authenticates; expired message token deleted, unexpired kept |
+| TC-CUSTOMER-ACCOUNTS-RET-001 | Invitation settled 2 days ago deleted; invitation settled today kept |
+| TC-ONBOARDING-RET-001 | Expired `pending` request deleted; `completed` request kept |
+| TC-WEBHOOKS-RET-001 | `pending` and `sending` deliveries and `received` and `processing` ingestions kept; `webhook_inbound_receipts` untouched |
+| TC-PUSH-NOTIFICATIONS-RET-001 | Every terminal status deleted; `pending` and `sending` kept |
+| TC-INTEGRATIONS-RET-001 | System tick prunes both tenants; scoped legacy payload prunes only its scope and leaves the other tenant untouched |
+| TC-QUERY-INDEX-RET-001 | Rows with and without a tenant pruned by `occurred_at` |
+| TC-PROGRESS-RET-001 | Parent kept while a child is running, removed after its children |
+| TC-DATA-SYNC-RET-001 | `running` and `paused` kept; soft-deleted terminal run deleted; retry of a pruned id returns 404 |
+| TC-COMMUNICATION-CHANNELS-RET-001 | Dead letters deleted; `channel_payload` null on an old inbound link, kept on a `pending` outbound link; `channel_metadata` unchanged |
+| TC-PAYMENT-GATEWAYS-RET-001 | `failed` row cleared and its ids and status kept; `captured` and `pending` rows untouched |
+| TC-INBOX-OPS-RET-001 | Raw content cleared on a processed email; email with a `pending` proposal kept; `content_hash` kept |
+| TC-NOTIFICATIONS-RET-001 | Old `read` deleted; old `unread` not yet expired kept; expired unread deleted |
+| TC-AI-ASSISTANT-RET-001 | Soft-deleted conversation removed with its participants and messages; live conversation kept; resolved pending action deleted, `pending` kept |
+| TC-ATTACHMENTS-RET-001 | Unlisted old draft released and its file gone; draft listed by a message or pending action kept; draft assigned to another record through the library kept |
+| TC-FORMS-RET-001 | System tick erases every answer, flagged or not, including on a soft-deleted form; a previously sensitive-only anonymized submission is fully erased; a failing row is skipped and the next one processed; a tenant-B form with a longer period keeps its submissions; switch off changes nothing |
+
+## Final Compliance Report — 2026-11-20
+
+### AGENTS.md Files Reviewed
+- `AGENTS.md` (root), `.ai/specs/AGENTS.md`
+- `packages/core/AGENTS.md` (Module Setup, Upgrade Actions, Module Config)
+- `packages/queue/AGENTS.md`
 
 ### Compliance Matrix
 
 | Rule Source | Rule | Status | Notes |
 |---|---|---|---|
-| root AGENTS.md | Background jobs via the worker contract | Compliant | Queue workers and the scheduler only |
-| root AGENTS.md | Never skip tenant scoping | Deviation, stated | Pruning is installation-wide by design: it removes rows by age regardless of tenant, as the existing AI usage prune does. No tenant's data is exposed to another |
-| root AGENTS.md | Ask before touching multiple modules | Compliant | Eleven modules, covered by this spec under program D1 and D2 (DEC-2); each phase PR goes through ordinary maintainer review |
-| root AGENTS.md | Mirror env vars into the template | Compliant | Named |
-| root AGENTS.md | Migration workflow | Deviation, stated | Concurrent index migrations are hand-written, following an existing precedent |
-| root AGENTS.md | Integration coverage for affected paths | Compliant design | Every handler ships an in-process, fixture-isolated real-database test in its own phase |
-| R4-13 / C5 | Operational bound references and independent fixture evidence | Compliant design | Sixteen exact references, published as `operational_pruner` entries of C5's `retentionBounds` member and resolved by `getOperationalRetentionBounds(modules)`; owner C5 resolve/evaluateFixtureRow are specified, with no duplicate bound member |
-| packages/queue/AGENTS.md | Idempotent workers; connection budget | Compliant | Deletes are idempotent; twelve cleanup queues, nine new at concurrency 1, gated by the full connection inventory |
-| `.ai/specs/AGENTS.md` | No enterprise-only scope in the OSS directory | Compliant | Enterprise tables were moved out |
-| `BACKWARD_COMPATIBILITY.md` | Protocol for behaviour changes | Compliant | History deletion is opt-in for one minor with a warning at start and in `doctor`, then the default flips with `report` as the opt-out — the program's ordinary protocol. Expired rows are hygiene |
-
-### Internal Consistency Check
-
-| Check | Status | Notes |
-|---|---|---|
-| Problem table matches the defaults table | Pass | Every in-scope table has a row; receipts are named as excluded; failed queue jobs are referred to the queue-payload spec |
-| Delta scenarios map to tests | Pass | TC or unit test for each |
-| MODIFIED requirements have characterization tests | Pass | Phase 1 step 1 |
-| Every step leaves the app working | Pass | Indexes and helper first; each handler is independent |
-| Operational bound declarations and owner evidence agree | Pass | R4-13 references replace duplicate metadata/status, publish through C5's `retentionBounds` member and reuse exact C5 methods; a survivor allowance still needs the owner's fixture evidence |
-
-### Implementation gates
-The opt-in release requires contract Phase 1 and doctor Phase 3. The default flip also requires R3-4, `pruners.unscheduled` and the deployment connection-budget check. Bound collection and C5/G6 survivor coverage require C5's `operational_pruner` bound-definition variant and the owner handlers. Each phase PR goes through ordinary maintainer review. This spec describes planned tests, not completed validation.
+| root AGENTS.md | Background jobs via the worker contract | Compliant | Scheduler and queue workers only |
+| root AGENTS.md | Tenant scoping | Deviation, stated | Pruning uses installation-wide age rules, as the AI token-usage prune does. No data is read across tenants or exposed. The scoped legacy payloads keep their scope |
+| root AGENTS.md | No cross-module table access | Compliant | Each worker uses its own tables. Chat-upload references go through a DI service |
+| root AGENTS.md | Migration workflow | Deviation, stated | Concurrent index migrations are written by hand, following the attachments precedent |
+| root AGENTS.md | Mirror env vars into the template | Compliant | Both `.env.example` files |
+| root AGENTS.md | Integration tests ship with the feature | Compliant | One test per pruner group, in the same phase |
+| packages/queue/AGENTS.md | Idempotent workers; connection budget | Compliant | Deletes and nulls are idempotent; one new queue at concurrency 1 |
+| BACKWARD_COMPATIBILITY.md | Behaviour change documented | Compliant | One upgrade entry and one compatibility note; all surfaces additive |
 
 ### Verdict
-**Design settled.** The proposed OSS placement is subject to the DEC-2 gate above. The R4-13 registry publication is decided under “Registry publication”. After the edition and delivery gates are met, each phase ships in its own PR.
+Ready for implementation. Phase 5 waits for the forms full-erasure mode in privacy-coverage.
+
 ## Changelog
 
-- 2026-11-16 — Initial specification.
+### 2026-11-20
+- Rewritten to minimal GDPR scope.

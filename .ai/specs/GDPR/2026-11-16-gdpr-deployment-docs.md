@@ -1,238 +1,319 @@
 # GDPR deployment documentation
 
-> **Program:** package G5 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593). The program schedules its first page, the sub-processor matrix, in Phase 1.
-> **Evidence:** the [program baseline and pinned source evidence](2026-11-15-gdpr-ready-deployments-program.md#-problem-statement), at `main` commit `08dada9624`.
+> **Tracker:** open-mercato/open-mercato#8593
+> **Program:** [program](2026-11-15-gdpr-ready-deployments-program.md)
+> **Edition:** OSS (the pages also describe Enterprise steps and label them)
+> **GDPR basis:** Art. 5(1)(e), 12–22, 25, 28, 30, 32–35, 44–46; ePrivacy Directive Art. 5(3) and 13
 
-Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
+## TLDR
 
-## 📝 TLDR
+- Ten pages under `apps/docs/docs/deployment/gdpr/` tell an operator what a deployment sends where, how to configure it safely, and how to handle requests, retention, restores, breaches, records of processing, impact assessments and tenant exit.
+- Every step that needs the Enterprise `privacy` module ([Enterprise spec](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md)) is labelled **Enterprise**. The **OSS** path is a manual procedure, which Art. 12 allows.
+- One docs test fails when a workspace package is neither in the sub-processor table nor on a no-outbound list.
+- A short pointer in `packages/create-app/README.md`. No application code.
 
-An operator deploying Open Mercato for EU personal data finds one documentation page that mentions GDPR, about field encryption. Nothing says which third parties a deployment sends data to, which settings make it safe, or what to do when a data subject writes in or a breach is found. **Proposed (future):** a documentation section that says those things, written from the code, with each claim traceable to it, and a check that fails when a workspace package is neither in the third-party table nor on a list of packages that send nothing out. It is written in stages, so that no page describes a command before that command exists.
+## Overview
 
-**Not in this spec:** legal advice. The pages state what the product does and where the controller must decide.
+The pages serve four readers: whoever picks vendors, whoever configures production, whoever answers a request, and whoever handles an incident. Rules for every page:
+- Open with one line: the page describes the product and is not legal advice. The controller decides.
+- Describe only what ships in the release the page goes out with. A step for an unshipped feature is marked "not yet available", with the manual step beside it.
+- Cite official sources inline, using only the links in this spec. Cite code claims by file path.
+- Label each procedure step **OSS** or **Enterprise**.
 
-## 📝 Overview
+## Problem Statement
 
-The section is written for four readers: whoever chooses vendors, whoever configures production, whoever answers a data-subject request and whoever handles an incident. Each page states only what ships in the release it accompanies. Claims are cited to code, so a reviewer of a code change can find the page that describes it. Two script tests keep the most drift-prone lists honest: every workspace package is either on the third-party table or declared as sending nothing out, and every AI SDK or agent-runtime caller is listed under a disclosed model-input route; plain-HTTP model calls are listed by hand. This spec also owns the operator procedure for restriction and objection (program DEC-8), so the OSS documentation is specified by an OSS spec; the enterprise decision record C10 keeps the legal and code analysis behind it.
+- `apps/docs/docs/user-guide/encryption.mdx` is the only page that mentions GDPR. No page lists the third parties a deployment calls, which settings matter, or what to do with a request or a breach.
+- Some flows are on by default and are coupled:
+  - Setting `OPENAI_API_KEY` turns on assistant chat, attachment OCR and embedding auto-indexing. OCR defaults to on (`attachments/lib/ocrConfig.ts:8-12`).
+  - OCR calls OpenAI even when `OM_AI_PROVIDER` names another provider (`attachments/lib/ocrService.ts:88-96`).
+  - The deals map and the EUDR plot map load OpenStreetMap tiles from the viewer's browser.
+- Several procedures the law expects have no home: restriction, objection, Art. 19 notices, re-applying erasures after a restore, the breach register, the Art. 30 records and tenant exit. This spec now owns all of them.
 
-## 📝 Resolved assumptions
+## Proposed Solution
 
-| # | Question | Chosen | Rationale |
+Ten `.mdx` pages, in a "GDPR" category under "Deployment". Required content per page:
+
+### 1. `index` — GDPR and Open Mercato
+- **Roles** ([EDPB 07/2020](https://www.edpb.europa.eu/documents/guideline/guidelines-072020-on-the-concepts-of-controller-and-processor-in-the-gdpr_en); [EDPB 4/2019](https://www.edpb.europa.eu/documents/guideline/guidelines-42019-on-article-25-data-protection-by-design-and-by-default_en) §94):
+  - The Open Mercato project is neither controller nor processor of deployment data unless it actually touches that data (hosting, support access). There is no telemetry by default (`TELEMETRY_BACKEND` unset means no-op).
+  - A self-hoster is the controller. A SaaS operator is a processor for each tenant (Art. 28) and controller of its own account data. A tenant is the controller of its CRM, portal, forms and sales data.
+- **What the product provides:**
+  - tenant and organization isolation, roles, field encryption, action and access logs;
+  - edit and delete screens, list exports, switchable providers;
+  - tenant-owned `/privacy` and `/terms` (`.ai/specs/2026-08-18-tenant-legal-documents-and-consent-versioning.md`);
+  - Enterprise adds subject export, erasure, tenant-set retention and tenant purge.
+- **What stays with the controller:** the privacy notice, lawful basis, retention periods, provider contracts (DPAs), records of processing, DPIAs, request handling, breach notification and backups.
+- **Known limits:**
+  - No per-record technical restriction; Art. 18 is a procedure.
+  - No automatic Art. 19 notification of recipients.
+  - A restore brings erased data back until the erasures are re-applied.
+  - Log, queue and other operational copies expire only by their retention windows.
+  - The OSS edition has no request-running tooling. Requests are handled manually or with Enterprise.
+  - Free-text mentions of a person in other people's records are not found automatically. Neither are copies held by external providers.
+- **Cookie inventory.** All cookies are first-party, and strictly necessary or a preference the user set. No consent banner is needed ([ePrivacy Art. 5(3)](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02002L0058-20091219), [WP194](https://ec.europa.eu/justice/article-29/documentation/opinion-recommendation/files/2012/wp194_en.pdf)). List purpose and lifetime for each:
+  - Sessions: `auth_token` and `session_token` (staff), `customer_auth_token` and `customer_session_token` (portal). All HttpOnly, SameSite=Lax, Secure in production (`auth/api/login.ts:263-270`).
+  - `sso_state` (Enterprise), the mailbox OAuth state cookie, `om_selected_tenant`, `om_selected_org`, `om_login_tenant`, `locale` (1 year).
+  - UI preferences (`om_sidebar_collapsed`, table and markdown preferences), checkout-link password access, and notice dismissals (`om_cookie_notice_ack`, `om_demo_notice_ack`, `start_page_dismissed`; demo-only `om_feedback_*`). `localStorage` holds UI flags and drafts only.
+  - Adding analytics, pixels or third-party embeds needs prior consent under Art. 5(3) ([EDPB 2/2023](https://www.edpb.europa.eu/documents/guideline/guidelines-22023-on-technical-scope-of-art-53-of-eprivacy-directive_en)), and the deployer adds the consent mechanism.
+- **Third-party calls from the browser.**
+  - The UI uses system fonts and loads no CDN scripts or avatars.
+  - Exceptions: map tiles (the viewer's IP goes to the tile host; [C-582/14 Breyer](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62014CJ0582)) and Stripe.js on payment pages.
+  - Point tiles at a self-hosted or contracted server ([CNIL sheet 09](https://www.cnil.fr/en/sheet-ndeg09-control-your-libraries-and-sdks)).
+
+### 2. `sub-processors`
+- One row per outbound flow. Columns:
+  - package or module, and the data sent;
+  - trigger and default, and how to disable or replace it;
+  - region: a vendor document with its checked date, or "controller to verify";
+  - transfer note: [EU-US DPF](https://eur-lex.europa.eu/eli/dec_impl/2023/1795/oj) if the vendor is certified, else [SCCs](https://eur-lex.europa.eu/eli/dec_impl/2021/914/oj) plus an assessment ([EDPB Rec 01/2020](https://www.edpb.europa.eu/documents/recommendation/recommendations-012020-on-measures-that-supplement-transfer-tools-to_en)). See the [adequacy list](https://commission.europa.eu/law/law-topic/data-protection/international-dimension-data-protection/adequacy-decisions_en). Targets the operator runs are marked "operator-hosted".
+- The page opens by saying that one `OPENAI_API_KEY` turns on chat, OCR and embeddings.
+- Rows, verified against code (each row cites its file on the page):
+
+| Package / module | Data sent | Trigger / default | Disable or replace |
 |---|---|---|---|
-| 1 | One page or a section | A section of seven pages | Each has a different reader: the person choosing vendors, the person configuring, the person answering a request, the person handling an incident. |
-| 2 | Describe planned features | No. A page states only what is in the release it ships with | Documentation that promises an erase command which does not exist is worse than none. |
-| 3 | Keep the third-party table honest | A script test: every workspace package is either named on the page or on an explicit list of packages that send no data out | A list of provider-name patterns would miss telephony, web research, the assistant, search, telemetry and webhooks. Inverting it makes a new package fail until someone decides. |
-| 4 | Notification and assessment templates | Structure and prompts only, no legal wording | The controller's lawyer owns the wording. |
-| 5 | Where it lives | `apps/docs/docs/deployment/gdpr/`, plus a short section in the create-app README that links to it | The issue asks for both. |
-| 6 | Model-input disclosure | No field-level model-input control (program DEC-11, `ai-model-input-minimisation` Q1=B). Stage 1 documents **What the assistant sends to a model**. DEC-14 keeps technical masking/exclusion open | A withholding filter would cover typed tool output only, while page context, search text, attachments and user text still reach the model, and it would be read as masking. The disclosure tells the controller every path that is sent, and the model-input inventory test keeps that list complete for AI SDK callers. Provider permission is not field minimisation. |
+| `core` communication_channels: system email via `SYSTEM_EMAIL_PROVIDER` (default `resend`) | recipient, sender, subject, body, attachments | every system email (`system-email-provider-config.ts:7,17`) | `ses` or `smtp`; `OM_DISABLE_EMAIL_DELIVERY` |
+| `channel-resend` / `channel-ses` / `channel-smtp` | same | `RESEND_API_KEY` / `AWS_SES_REGION` / `SMTP_HOST` (operator-hosted) | another transport |
+| `core` inbox_ops: Resend SDK directly, ignoring `SYSTEM_EMAIL_PROVIDER` | inbound mail; reply recipient and body | inbound webhook, reply send; needs `RESEND_API_KEY` | unset the key; `OM_DISABLE_EMAIL_DELIVERY` |
+| `core` inbox_ops extraction | full email text | every inbound email; `OM_AI_PROVIDER`, else the first provider with a key | unset keys; local model |
+| `ai-assistant` chat and typed agents (customers, catalog, eudr, staff, warranty_claims, workflows, Discord replies) | prompt, page context, tool output with record data, attachments | on use; default `openai` / `gpt-5-mini` once `OPENAI_API_KEY` is set | `OM_AI_PROVIDER`, `OM_AI_MODEL`, `OPENAI_BASE_URL`; Ollama, LM Studio, LiteLLM; tenant base URLs only within `AI_RUNTIME_BASEURL_ALLOWLIST` |
+| `ai-assistant` input moderation | latest user message, to OpenAI `/moderations` | off (`OM_AI_INPUT_MODERATION=false`) | leave off |
+| `core` attachments OCR (direct OpenAI client) | image and PDF page content | image/PDF uploads whenever `OPENAI_API_KEY` is set; `OCR_MODEL` default `gpt-4o` | `OM_DEFAULT_ATTACHMENT_OCR_ENABLED=false`; per partition `requiresOcr=false` |
+| `search` embeddings | indexed record text, search queries | auto-indexing on once the provider key exists; default OpenAI `text-embedding-3-small` | `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=true`, tenant toggle, Ollama |
+| `search` Meilisearch | indexed fields, including decrypted values by default | `MEILISEARCH_HOST`; self-hosted in Compose | `SEARCH_EXCLUDE_ENCRYPTED_FIELDS=true`; a hosted Meilisearch is a processor |
+| `core` customers deals map, eudr plot map | from the browser: viewer IP, user agent, viewed area, to `tile.openstreetmap.org` | page view | `NEXT_PUBLIC_OM_DEALS_MAP_TILE_URL` (build time), recommended |
+| `core` forms captcha | token; respondent IP only for Turnstile | off; needs `FORMS_CAPTCHA_PROVIDER`, `FORMS_CAPTCHA_SECRET` and the form setting | leave off |
+| `core` currencies | none (exchange rates from NBP, Raiffeisen) | admin action | — |
+| `telemetry` | spans, metrics, logs; emails, tokens and query strings redacted | off; `TELEMETRY_BACKEND` | leave unset |
+| `cli` New Relic APM agent | APM transaction data (controller to verify scope) | only with `NEW_RELIC_LICENSE_KEY` | leave unset |
+| `gateway-stripe` | server: amount, description, ids; browser: card data and payer IP via Stripe.js | configured integration | another gateway |
+| `gateway-tpay` / `gateway-autopay` | payer email and name / customer email; amount, description | configured integration | another gateway |
+| `carrier-inpost` | sender and receiver name, company, email, phone, address | shipment creation | — |
+| `channel-apns` / `channel-fcm` / `channel-expo` | device token, title, body, data | configured channel | — |
+| `channel-discord` / `channel-gmail` / `channel-imap` | message content and user ids / mailbox read and send / operator-hosted mailbox | configured channel | — |
+| `tillio` | pulls call records: numbers, status, durations, recording references | configured; the operator's Tillio instance and its telephony provider | — |
+| `storage-s3` | attachment files | configured; `S3_REGION`, `S3_ENDPOINT` | local storage |
+| `sync-akeneo` | OAuth credentials only; imports product data | configured | — |
+| `webhooks` | event payloads to operator-set URLs, kept in `webhook_deliveries` | per subscription | — |
+| `enterprise` sso / agent_orchestrator | OIDC token exchange (SCIM is inbound) / model calls with run context, model-native web search, optional OTLP trace export | configured | — |
+| `web-research-*` | search query text (Exa, Firecrawl, Tavily, DuckDuckGo, SearXNG, browser fetch, model web search) | opt-in `OM_WEB_SEARCH_ADAPTERS`; used by Enterprise agents | leave unset |
+| `create-app` / `cli` / `starter` | developer IP only (npm, GitHub, Railway, nodejs.org) | development time only | — |
 
-## 📝 Problem Statement
+- **No outbound flow, each listed with its reason:** `cache`, `events`, `queue`, `scheduler` (local Redis or Postgres); `checkout` (pays through the gateway packages); `content`, `documents`, `onboarding` (demo feedback goes to the operator's own `ADMIN_EMAIL`); `shared`, `ui`, `eslint-plugin-ds`, `apps/mercato`, `apps/docs`.
+- The official-modules submodule is outside the check.
 
-- `apps/docs/docs/user-guide/encryption.mdx` is the only page that mentions GDPR. Sub-processors, data-processing agreements and data residency appear only in passing in two AI pages.
-- The third parties a deployment calls are decided by configuration scattered across modules, and some are active by default:
+### 3. `hardening`
+Sources: [GDPR Art. 25, 32](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [EDPB 4/2019](https://www.edpb.europa.eu/documents/guideline/guidelines-42019-on-article-25-data-protection-by-design-and-by-default_en), [ENISA handbook](https://www.enisa.europa.eu/publications/handbook-on-security-of-personal-data-processing), [CNIL passwords](https://www.cnil.fr/fr/mots-de-passe-recommandations-pour-maitriser-sa-securite), [CNIL logging](https://www.cnil.fr/fr/la-cnil-publie-une-recommandation-relative-aux-mesures-de-journalisation).
+- **Unique secrets per deployment:** `AUTH_SECRET`/`JWT_SECRET`, `TENANT_DATA_ENCRYPTION_KEY` (or KMS/Vault), `FORMS_ENCRYPTION_MASTER_KEY`, `MEILISEARCH_API_KEY`, the database password. Production refuses a published tenant or forms key; a weak or unset key only warns. Exit runbook: [key guard](2026-11-16-runtime-encryption-key-guard.md).
+- **Encryption on:** `TENANT_DATA_ENCRYPTION=yes` (link `user-guide/encryption.mdx`).
+- **Search:** set `SEARCH_EXCLUDE_ENCRYPTED_FIELDS=true`, then run `mercato search reindex`. The default `false` indexes decrypted values (`search/src/di.ts:63`).
+- **Demo mode off:** `DEMO_MODE=false`. Anything other than literal `false` keeps demo accounts and the feedback widget on (`auth/lib/setup-app.ts:575-578`).
+- **TLS and HSTS** at the reverse proxy (link `deployment/production-readiness.mdx`).
+- **Workers and scheduler running.** Without them no pruner runs ([retention spec](2026-11-16-operational-retention-pruners.md)).
+- **MFA for admin accounts:** recommended by ENISA and CNIL, not named in the GDPR. Options: Enterprise `security`, an IdP via Enterprise `sso`, or an identity-aware proxy in OSS.
+- **Least privilege.** Use roles and organization visibility; nothing is public by default (Art. 25(2)).
+- **Turn off unused flows** (`sub-processors`). Keep application-log retention bounded at the log platform; CNIL suggests 6–12 months.
+- **Backups** encrypted and time-bounded (`backups-and-restore`).
 
-| Purpose | Default | Decided by |
-|---|---|---|
-| Transactional email | Resend | The system email provider setting; SES and SMTP packages also ship |
-| Language model | OpenAI, active once `OPENAI_API_KEY` is set | An environment-level key and default model; tenants can override the provider |
-| Embeddings | OpenAI with the environment key when no override is saved; automatic indexing is off in the example environment | Tenant setting, falling back to instance setting and environment; credentials remain environment-wide (`packages/search/src/modules/search/lib/embedding-config.ts`, embedding configuration routes) |
-| Attachment text extraction | OpenAI, with the same key; enabled by default | No provider choice |
-| Map tiles (deals map, EUDR plot map) | OpenStreetMap | A build-time variable |
-| Form captcha | Off | The server sends the token to Turnstile or reCAPTCHA’s siteverify endpoint; it adds the respondent’s IP only for Turnstile. No built-in browser widget loader ships. A widget belongs to the operator’s frontend, whose cookies and transfers the operator declares (`packages/core/src/modules/forms/services/captcha-verifier.ts:41-44,98-103`) |
-| Telemetry | Off | `TELEMETRY_BACKEND` selects a backend; traces, metrics and optional browser telemetry are sent to it |
-| Payment, messaging, push, telephony | Per installed provider package | Each package |
+### 4. `data-subject-requests`
+Sources: [GDPR Art. 12, 15–21](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [EDPB 01/2022](https://www.edpb.europa.eu/documents/guideline/guidelines-012022-on-data-subject-rights-right-of-access_en), [CNIL sheet 13](https://www.cnil.fr/en/sheet-ndeg13-prepare-exercise-peoples-rights), [WP242](https://ec.europa.eu/newsroom/article29/items/611233), [C-487/21](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62021CJ0487), [WP216](https://ec.europa.eu/justice/article-29/documentation/opinion-recommendation/files/2014/wp216_en.pdf).
+- **Intake.** Any channel counts, email included. A self-service portal is not required (EDPB 01/2022 §136; CNIL sheet 13). Portal users ask the tenant, and staff run the request. Free of charge (Art. 12(5)).
+- **Identity.** Ask for more information only on reasonable doubt (Art. 12(6)). Prefer a reply from the account's known email address.
+- **Deadline.** One month. It may be extended by two months if the person is told within the first month, with reasons (Art. 12(3)).
+- **Find the person.** OSS: search plus the per-module table on `records-of-processing`. Enterprise: an export run with `--subject kind:id`, `--email` or `--phone`, which also lists related subjects to run separately.
+- **Access and portability.**
+  - **OSS:** list exports filtered to the person (CSV/JSON/XML/Markdown, `exportScope=full`), record pages and attachment downloads.
+  - **Enterprise:** `mercato privacy export … --out <dir>` or `/backend/privacy` produces `subject.json` plus files.
+  - Art. 20 covers only data the person provided, under consent or contract (WP242). The copy must be faithful and intelligible (C-487/21).
+  - **Cover letter.** Include the Art. 15(1)(a)–(h) and 15(2) information: purposes, categories, recipients, retention, rights, complaint, source, automated decisions, transfer safeguards. Take it from the records of processing and the privacy notice. Enterprise pre-fills categories and set retention.
+  - Mention data still held in backups (EDPB 01/2022 §110).
+- **Rectification.**
+  - Use the edit screens; a staff user's email is editable.
+  - Staff cannot change a portal sign-in email today. Deactivate the old account, invite the person at the corrected address, then delete the old account.
+  - Then do the Art. 19 step.
+- **Erasure.**
+  - Choose delete or anonymize. Anonymization must be irreversible; masking or hashing is not erasure (WP216).
+  - **Enterprise:**
+    1. Run `mercato privacy erase …` as a dry run and review the report.
+    2. Rerun with `--apply --out report.json`. The report is the register entry.
+    3. Read `retained` for what Art. 17(3) keeps: `legal_retention`, `open_case` (retry later) or `other_party`. Read `notCovered` for tables the run did not touch.
+  - **OSS:** delete module by module, following the per-module table.
+  - **Both editions:**
+    - Search free text (notes, comments, message bodies, documents) for the person's name and address, and edit it by hand.
+    - Tell the person that operational copies expire by their windows.
+    - If the data must be kept for a legal claim, do not erase; record why.
+- **Restriction (Art. 18), Recital 67 procedure.** Pick one option:
+  - **(A) Move out.** Export a copy to an access-controlled store, then erase it from the live system (Enterprise run or OSS manual delete). If the restriction is lifted, re-enter or re-import from the copy; ids and links are not restored.
+  - **(B) Mark and narrow:**
+    1. Mark the person visibly: a `restricted` tag plus a note with the date and the ground.
+    2. Narrow access through roles, feature grants and organization visibility (`organizations_json` on role and user ACLs). This works per organization, not per record.
+    3. Pause automations: cancel running workflow instances, stop outreach, and stop syncs that carry the person.
+  - **Either way:** allow only storage and the Art. 18(2) exceptions, and tell the person before lifting the restriction (Art. 18(3)).
+- **Objection (Art. 21).**
+  - **Marketing objection is absolute.** Set the person-level do-not-contact flag once it ships (`.ai/specs/2026-10-22-crm-contact-permissions-and-consent-history.md`) and honour it immediately. Until then, tag the person and suppress them by hand in every sending tool.
+  - **General objection:** assess compelling grounds, and restrict meanwhile (Art. 18(1)(d)).
+- **Art. 19 recipients.**
+  - Find them in the `sub-processors` rows in use, plus `integration_logs`, `webhook_deliveries` and provider dashboards.
+  - Notify each one unless that is impossible or disproportionate, and record that assessment.
+  - Name the recipients to the person if asked.
+- **DSR log.** Per request: received, identity check, deadline, actions, outcome, answered, Art. 19 notices. Keep identifiers only. Enterprise: each run writes an action-log entry, shown in the page's request log. OSS: a register the controller keeps.
 
-- One API key therefore switches on three separate flows to the same vendor. Nothing tells an operator that.
-- The product's own legal pages name the vendor as controller. The index page says so and points to the tenant legal-documents work (program package E1) as the fix.
-- There is no runbook for a data-subject request or a breach, and the commands such a runbook would use are being specified now.
+### 5. `retention`
+Sources: [GDPR Art. 5(1)(e), Recital 39](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [CNIL sheet 14](https://www.cnil.fr/en/sheet-ndeg14-define-data-retention-period), [CNIL retention periods](https://www.cnil.fr/fr/passer-laction/les-durees-de-conservation-des-donnees), [VAT Directive](https://eur-lex.europa.eu/eli/dir/2006/112/oj) Art. 247.
+- **Window table** (table, default, setting, edition).
+  - From the [retention spec](2026-11-16-operational-retention-pruners.md): every `OM_<MODULE>_<TABLE>_RETENTION_DAYS`, `QUEUE_FAILED_JOB_RETENTION_HOURS` (168 h) and per-form submission retention.
+  - Existing windows:
+    - access logs: 7 d core, 8 h other (`AUDIT_LOGS_CORE_RETENTION_DAYS`, `AUDIT_LOGS_NON_CORE_RETENTION_HOURS`; `accessLogService.ts:45-46`);
+    - AI agent runs: 30 d (`AI_AGENT_RUNS_RETENTION_DAYS`);
+    - AI token usage: 90 d (`AI_TOKEN_USAGE_EVENTS_RETENTION_DAYS`);
+    - payment session initializations: 24 h;
+    - cart idempotency keys: 90 d;
+    - Enterprise agent-orchestrator trace content: tenant policy, default 30 d;
+    - Enterprise sign-in log: 90 d once shipped (`.ai/specs/enterprise/2026-11-13-sign-in-activity.md`);
+    - action log: kept until an Enterprise retention setting bounds it.
+- **Business records.** The controller chooses. Enterprise: per-class settings on `/backend/privacy`; unset means keep. OSS: manual deletion through the periodic review.
+- **Periodic review of inactive people** (Recital 39). Each period:
+  1. Staff users by `last_login_at`: deactivate, then delete leavers.
+  2. Portal users by `last_login_at`.
+  3. CRM people with no open deal, order or claim and no interaction within the period.
+  4. Delete or anonymize, keeping legally retained commercial records, and record the review.
+- **Legal retention.** Member States set invoice storage periods under VAT Directive Art. 247; other national periods vary. Record them in the records of processing.
 
-## 📝 Proposed Solution
+### 6. `backups-and-restore`
+Sources: [GDPR Art. 17, 32(1)(c)](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [EDPB CEF 2025 erasure report](https://www.edpb.europa.eu/system/files/documents/2026-02/edpb_cef-report_2025_right-to-erasure_en.pdf) Issue 6, [EDPB 01/2022](https://www.edpb.europa.eu/documents/guideline/guidelines-012022-on-data-subject-rights-right-of-access_en) §110.
+- **Backups:** encrypted, access-restricted, with a stated maximum retention. That maximum bounds how long erased data survives; put it in the records of processing.
+- **Erasure register:**
+  - Enterprise: the erase runs' `--out` reports and page downloads, stored outside the database with restricted access. Each holds the run date and the request: subject `kind:id`, plus the email or phone of a lookup-only subject, which a re-run needs.
+  - OSS: the DSR log entries of manual erasures.
+- **After any restore or point-in-time recovery, before reopening:**
+  1. Re-run every erasure recorded after the backup's timestamp. Enterprise runs are idempotent; in OSS, repeat the manual deletions.
+  2. Run `mercato search reindex`.
+  3. Admit users.
 
-Seven pages, each with a named reader and a rule for what may appear on it. The index repeats the program’s Known limits verbatim, including R3-5 — "Holds, honestly": legal holds are enterprise-only; OSS uses explicit record-retention exclusions, disables the relevant form period and does not erase. Operational expiry/log-age pruning and access-log rotation are outside hold coverage. Forms use the optional `privacyRetentionGuard` before anonymizing (DEC-C — Retention sets and holds; forms-retention spec, R3-5). The same repetition names each bridged secure default present in the release (plaintext writes during a KMS outage unless `TENANT_DATA_ENCRYPTION_UNAVAILABLE_WRITES=fail`; production services that warn rather than refuse on a weak tenant secret, unconfigured encryption or an insecure Vault address unless `TENANT_DATA_ENCRYPTION_KEY_POLICY=enforce`; published, weak or missing lookup secrets that are warned rather than refused, with B1 Phase D's lookup-secret rotation runbook as the remedy (DEC-12); Meilisearch indexing of decrypted encrypted-field values unless `SEARCH_EXCLUDE_ENCRYPTED_FIELDS=true` followed by the per-tenant fulltext rebuild; an advisory AI provider allow-list for non-chat calls unless the tenant enables `enforceForCalls`), the queue copies that outlive an erase (each content queue's maximum enqueue delay, `workflow-activities` unbounded, and the oldest stored job age per queue and state that `mercato queue payload-status` reports), and that the product does not notify recipients (Art. 19) of rectification, erasure or restriction, which stays a manual step (C10). No page presents a hold as a technical restriction of use.
+### 7. `breach-response`
+Sources: [GDPR Art. 33–34](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [EDPB 9/2022](https://www.edpb.europa.eu/documents/guideline/guidelines-92022-on-personal-data-breach-notification-under-gdpr_en) §37, [EDPB 01/2021](https://www.edpb.europa.eu/documents/guideline/guidelines-012021-on-examples-regarding-personal-data-breach-notification_en).
+- **Detection sources, with their retention:**
+  - the action log; Enterprise export and erase runs add entries, but ordinary list exports are not logged;
+  - access logs (7 d / 8 h);
+  - the Enterprise sign-in log (90 d, once shipped);
+  - `integration_logs` and `webhook_deliveries`;
+  - proxy, database and provider logs (retention set by the operator).
+- **Preserve evidence first.** Copy logs before their windows expire; raise the access-log variables during an investigation if needed. Snapshot the database and image hosts before cleanup.
+- **Clock.**
+  - Notify the authority within 72 h of awareness unless risk is unlikely (Art. 33(1)); details may follow in phases (33(4)).
+  - A processor tells the controller without undue delay (33(2)).
+- **Content (Art. 33(3)):** nature, categories and approximate numbers of people and records; contact point; likely consequences; measures taken.
+- **Telling people (Art. 34):** required when the risk is high, unless the data was unintelligible (e.g. encrypted), later measures removed the risk, or a public notice replaces disproportionate individual notices.
+- **Register template (Art. 33(5); every breach, notified or not):** id; dates (occurred, aware, contained); description; data and people affected; consequences; risk assessment; who was notified and when, or why not; remedial actions.
 
-| Page | Reader | Content | Source of truth |
-|---|---|---|---|
-| `index` | Anyone deciding to deploy | What the platform does, what stays with the controller, the list of known limits | The program spec's coverage map, restated for operators |
-| `sub-processors` | Whoever signs vendor agreements | One row per outbound integration: what data it receives, when it is active, how to change or disable it, whether an EU-hosted option exists, and the processor’s DPA reference or the explicit state “controller to verify” | Code, cited per row; the check below |
-| `hardening` | Whoever configures production | Privacy-specific items: encryption, search exclusion, demo mode, retention and workers. It says when to run each audit tool: the existing Readiness Scanner (`npx mercato-readiness-scanner scan .`, `apps/docs/docs/deployment/readiness-scanner.mdx`) checks release files and credential hygiene in CI and inside each deployed workload; `mercato privacy doctor` checks this process's privacy configuration, module-declared checks and, with `--database`, aggregate counts. Run both; neither replaces the other. `mercato privacy doctor` is configuration-only by default; `--database` explicitly requests read-only aggregate checks, including retention settings and schedules. R4-7 permits tenant-setting reads through C1’s `createReadOnlyPrivacySettingsService` alongside counting queries; `privacy.retention_settings_unset` reports counts only. R4-5 adds the database-tier `attachments.pending_deletions_stale` check for pending-deletion rows older than seven days; successful drain deletes these runtime rows without audit/history identities. A clean default report does not assess database settings or other processes' modes | Shipped check ids and R3-4 — An opt-in database tier for the doctor; existing production-readiness pages stay authoritative |
-| `data-subject-requests` | Whoever answers a request | Access, rectification, erasure, by subject type; shipped commands and limits; reproduce the **Restriction and objection procedure** table below, OSS preservation fallback, ordinary stop-editing/processing instructions with authorized rectification exceptions, and manual reconstruction of actual recipients | Shipped commands; **Restriction and objection procedure** below |
-| `restriction-and-objection` ("Restriction and objection") | Whoever handles an Art. 18 or general Art. 21 request | The **Restriction and objection procedure** below, its manual steps and OSS preservation fallback, with the exact Known limits from the program and the Recital 67 caveat; no claim that reads, assistant or automation stop | This spec under program DEC-8 / R3-5; C10 records the decision |
-| `breach-response` | Whoever handles an incident | What the current release can tell you (audit and access logs and their retention; sign-in log and alerts only after they ship), what to preserve, the 72-hour clock, the structure of a notification | Log and retention behaviour, cited |
+### 8. `records-of-processing`
+Sources: [GDPR Art. 30](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [EDPB SME guide](https://www.edpb.europa.eu/sme_en).
+- **Art. 30(1) controller template:** (a) controller, representative and DPO; (b) purposes; (c) categories of people and data; (d) recipients; (e) transfers and safeguards; (f) erasure time limits; (g) security measures.
+- **Art. 30(2) processor template (SaaS operator):** (a) processor and each controller; (b) categories of processing per controller; (c) transfers; (d) security measures.
+- **Per-module table, written by hand.**
+  - Columns: module, data subjects, data categories, typical purpose, retention setting.
+  - Built from the module tables in [privacy coverage](2026-11-16-privacy-coverage.md) and [Enterprise coverage](../enterprise/GDPR/2026-11-16-privacy-coverage-enterprise.md).
+  - Retention links to `retention`; recipients and transfers link to `sub-processors`.
 
-The seventh short page, `impact-assessment-notes`, lists the processing that usually triggers an assessment — AI features over CRM data, call recording, profiling fields — and the facts an assessor will ask for. Its required section **What the assistant sends to a model** has anchor `#what-the-assistant-sends-to-a-model`. Under model-input Q1=B (program DEC-11), it lists every route in the model-input record's **Problem Statement** table and states that the data on each may leave the installation: typed-agent tool output, page-context records, legacy OpenCode over MCP, code mode, search titles/snippets, agent-runtime callers (chat, run-object, workflow drafts, channel replies), enterprise agent-orchestrator context modules and evaluation judge, assistant command routing, inbox and warranty prompts, attachments and their text extraction, embeddings, web research, input moderation, the decision model and user text. Rows whose provider is a separate vendor choice link the matching `sub-processors` row. It says **No field-level model-input control** and **provider permission is not field minimisation**. The section ships in Stage 1 for existing paths and is updated for later F1 controls; #8593 cannot close without it.
+### 9. `impact-assessment-notes`
+Sources: [GDPR Art. 22, 35](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [WP248](https://ec.europa.eu/newsroom/article29/items/611236), [AI Act](https://eur-lex.europa.eu/eli/reg/2024/1689/oj).
+- **DPIA triggers.** Two or more WP248 criteria usually mean a DPIA. Typical here:
+  - the assistant or agents over CRM data (new technology, large scale);
+  - staff and planner data (employees);
+  - call records;
+  - scoring or profiling fields;
+  - consumer portals at scale.
+- **What the assistant sends to a model** (anchor `#what-the-assistant-sends-to-a-model`), one row per route, each stating the data may leave the installation:
+  - typed-agent tool output, page-context records, OpenCode over MCP, code mode, search titles and snippets;
+  - agent-runtime callers: chat, run-object, workflow drafts, Discord replies;
+  - Enterprise agent-orchestrator context, OCR and eval judge;
+  - command routing, inbox_ops extraction and translation, warranty assist;
+  - attachments and OCR, embeddings, web research, moderation, the decision model, and the user's own text.
+- **Provider choice.**
+  - Each route uses the configured provider. Region and zero-retention options are vendor terms (controller to verify).
+  - Fully local: Ollama or LM Studio for chat and agents, Ollama for embeddings, and OCR off or no `OPENAI_API_KEY`.
+- **No field-level masking.** Anything a tool returns can reach the model. Allowing a provider is not data minimisation.
+- **Art. 22.** Assistant writes wait for user confirmation (pending actions), and Enterprise agents only propose. No solely automated decision with legal effect ships; the controller assesses its own workflows.
+- **AI Act Art. 50(1):** from 2 August 2026, people who interact with an AI system must be told so. This applies when an operator exposes an agent to customers.
 
-The DSR and restriction pages reproduce the **Restriction and objection procedure** table below, including every availability qualifier, and the **R3-5 — Holds, honestly** Known limits paragraph verbatim from the program. Program DEC-8 decides option A, so Stage 1 publishes the procedure beside the factual current-release limits; steps that depend on an unshipped hold or command are labelled unavailable until it ships. The availability qualifiers keep enterprise holds distinct from OSS manual controls. For preservation they name repeatable `--exclude-subject <kind:id>`, the need to clear a relevant form retention period, and the separate pause/preservation procedure for operational pruners and access logs. Unmatchable subject holds skip the whole tenant's set as `hold_not_honourable`; `allowUnmatchedHolds=false` is the preservation default, and enabling it allows unmatched record deletion. A failed guard, stale hold or explicit set hold is never bypassed. Under R5-11, a person or portal-user hold created without a lookup secret stores `identifier_key_check = 'none'`. Once a secret is configured the hold is not stale: the next daily pass or extension computes its identifier ids/key check, and until then all guarded destructive subject erasure, record retention and forms retention in that tenant refuse with a reason naming the pending computation. Staff are instructed to stop ordinary editing, reading, reporting, automation and disclosure, with documented rectification exceptions. Actual recipients must be reconstructed from available integration execution records, webhook delivery logs, provider records and correspondence; the active-recipient register is not a per-subject disclosure history and expired/unlinked logs can leave gaps. Before processing resumes, the controller manually reassesses the ground, records the lawful basis/permitted exceptions, and notifies the person in advance with a recorded resumption time; releasing a hold alone never authorizes resumption. Include the shared tenant protection latch and require checks before destructive work following any module/composition change; an unavailable guard on a protected or unknown tenant means leave the affected writers paused until authorized reconciliation.
+### 10. `tenant-offboarding`
+Sources: [GDPR Art. 28(3)(g)](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [EDPB 07/2020](https://www.edpb.europa.eu/documents/guideline/guidelines-072020-on-the-concepts-of-controller-and-processor-in-the-gdpr_en), [Art. 28 SCCs](https://eur-lex.europa.eu/eli/dec_impl/2021/915/oj).
+- **The controller chooses:** return or delete.
+- **Export.**
+  - OSS: list exports per module (`exportScope=full`). Attachment files: copy the storage paths with segment `tenant_<id>` from the storage root or S3 bucket.
+  - Enterprise: subject exports where per-person files are needed.
+- **Delete.**
+  - Soft-delete the tenant. `directory/commands/tenants.ts:203-209` only sets `deleted_at`.
+  - Enterprise: `mercato privacy purge-tenant --tenant <id>` dry run, then `--apply --out`. It removes files, search entries and rows.
+  - OSS: no purge command. Use the operator's own database procedure, or Enterprise.
+- **Written confirmation** to the controller: date, scope, what external providers still hold, and when the last backup holding the tenant expires.
 
-The retention guidance names C1's `retention.privacy.exportEvidenceAgeDays` (default 365 days, floor 30), `privacy.export_evidence`, the mandatory configured runner and conservative hold/exclusion skips. R4-6 maps live-replay/unresolved-lock skips to `incompleteReason: 'history_replay_pending'` and retries them next run. These are R3-3 — Tenant privacy settings live in `module_configs`, in the contract spec's **Export-evidence expiry** and **Tenant privacy settings** sections; no new settings store is implied. Its **Settings-command evidence expiry** separately defines `retention.privacy.settingsEvidenceAgeDays` / `privacy.settings_evidence` (365/floor 30) for exact `configs.module_config` / `privacy.settings.set` groups, aged from successful terminal completion; holds, failed/conflicting operations and unresolved outcomes preserve the whole group. The index repeats C4 **Erasure-evidence expiry**: `retention.privacy.erasureEvidenceAgeDays` / `privacy.erasure_evidence` (365/floor 30, assumption 20), deleting whole terminal journal/coordinator groups after their latest completed `verifiedAt`; open/incomplete journals, unreconciled coordinators and pending file/cache/required-side-effect work preserve their group. R4-4 uses a durable owner requirement. An absent required provider, unknown requirement, unresolved authenticated inventory member, true owner result or read failure skips the run as `held_by_owner`. Retry after owner wiring and inventory evidence are restored or reconciled. Scrubbed consent evidence, tombstones and linked work product have separate unbounded subject-data lifetimes. R5-10 requires `ai_assistant.pending_actions` retention to exclude a held or explicitly excluded staff user by creator, approver and target user, covering every user-naming column. Record-retention **Retention-run evidence** uses `retention.privacy.retentionEvidenceAgeDays` / `privacy.retention_evidence` (365/floor 30); export-audit **Export-evidence expiry** separately defines `retention.audit_logs.exportEvidenceAgeDays` / `audit_logs.export_evidence` at 365/floor 30. All need their owners' shipped settings and running owner jobs; configured windows alone are not scheduled enforcement.
-
-C8's **CLI, audit and output — Tenant-export evidence expiry** adds `retention.privacy.tenantExportEvidenceAgeDays` / `privacy.tenant_export_evidence` (365/floor 30), whole settled lifecycle-group expiry and publication acknowledgement/reconciliation. Holds/exclusions, unknown/failed publication and unresolved reconciliation defer it. Under R4-3 — Tenant-export evidence always carries its tenant: every tenant-export evidence row names its tenant, and ordinary tenant-scoped runs expire it, including evidence about a soft-deleted tenant, because tenant deletion is a soft delete and the tenant's policy and schedule keep running until its evidence set is empty. The tenant-offboarding guidance tells operators to keep the `privacy.tenant_export_evidence` run scheduled for soft-deleted tenants; descheduling it leaves that evidence unexpired. DSR **Metadata retention and coverage**, assumption 17, separately defines `retention.data_erasure.auditEvidenceAgeDays` / `data_erasure.audit_evidence` (365/floor 30 after terminal state), preserving active configuration/holds and unresolved operations/replay/files. Its metadata clocks remain unchanged: completed operations/terminal holds/deleted policies 365 days, previews fifteen minutes and failures thirty days or earlier completion/policy deletion. C9 keeps settled file/row pairs 90 days above the longest restorable backup; pending/invalid files never auto-prune. Other null-tenant evidence still needs its actual owner's expiry rule or an explicit gap. Describe these only as their owners ship, never as evidence that today's rows already expire.
-
-Identifier guidance distinguishes recipient identity verification, owner-verified record attribution and candidate discovery. An independent root sharing an email or phone is selected explicitly after verification. A record matched only by a shared or reassigned alias is withheld, with a count and reason code only. Direct the operator to the owner workflow to resolve it, then obtain a fresh preview. Commerce warns about unused phone aliases even for a subject that also has an email alias. A partial file or a completed erasure of verified rows with incomplete alias coverage cannot certify that all data was found.
-
-Module-specific DSR guidance follows its owners: R4-14 sets `staff.team_members` to `anonymizeOwnerWhenRetained: false`; explicit `--prefer anonymize` with an identified legally retained employment root refuses pre-flight with `STAFF_EMPLOYMENT_RETENTION_REQUIRES_REVIEW` and directs the operator to `--prefer delete`, which deletes non-retained data and reports the identified legal root as retained `legal_retention` with `retainedUntil`. R5-6 limits the form-to-deals subscriber to its own deal-side CV attachment, mapped `cf.*` answers and label; it never changes the CRM person, which remains a related subject governed by the run and hold guard. R5-9 permits `workflowPrivacyRetentionService.deleteInstanceGraph` for terminal `COMPLETED`, `CANCELLED` or `FAILED` graphs, with failed graphs older than the window and no deletion of running/retrying graphs. Describe these only when their owning features ship.
-
-The DSR restore runbook requires the external controller to close and drain ingress and ordinary workers, revoke the serving admission and publish a fresh closed generation before any database rewind or switch, including a rewind of the same target. Pin `OM_ERASURE_RESTORE_GENERATION` and the verified `OM_ERASURE_RESTORED_SNAPSHOT_AT` on publishers and checkers, using C9's independently authenticated clock and source/target evidence. A managed archive must prove a coherent single snapshot or a quiesced archive. PITR must prove the actual recovered source and timeline. After hold reconciliation and reviewed replay, an unfiltered `mercato data_erasure restore-status --refresh --require-clear` issues clearance for that exact closed generation and target. Require `mercato data_erasure restore-status --check-live` before admitting work and continuously while serving. It verifies live storage and the current inventory under the admitted generation. A normal inventory advance or hold change does not require a fresh cutover. `--max-age <minutes>` is diagnostic only. Foreign or stale admission, missing expected files, unresolved storage operations, and withdrawn or unavailable live inventory evidence keep the protected gate closed. A same-target rewind outside the external controller fence is outside C9's guarantee. For a storage outage on an unchanged target, restore the external posture, manifest, signer and authenticated inventory and require a healthy live check before resuming. A suspected rewind or switch needs a fresh closed generation and strict clearance. If replay evidence is out of window, keep the recovered target closed and follow the controller's independent reconciliation procedure. Never infer protected clearance from a diagnostic exit or a list of surviving files.
-
-Verification guidance documents `mercato privacy scan-values --tenant <id> --values-file <path | -> --reference <text>`: the reference and a successful audit entry are required in every mode, input size limits refuse before any store read, `--only <store>` narrows a large tenant's run and reports the other stores as not requested; exit 2 for matches or unscanned-store gaps, exit 1 for usage/configuration/internal failure, and 0 for a completed scan with neither. It names every inspected store and gap with the exact checked condition/reason for each accepted waiver; a supported configured reader failure fails acceptance. Controlled queue probes/status/prune evidence and exact warmed-cache request replay are narrow fixture checks, not generic Redis/cache/bucket content scans. Blob-deletion receipts are checked separately and never certify unreadable binary content or unenumerated stored objects. This material ships only when the scan does; the suite owns the `privacy-verification.mdx` command page. Phase 7 documentation distinguishes B9 raw cache-storage, scoped legacy purge and late-fill evidence from G6’s broader post-erasure verification. Print the exact tested or explicitly accepted DEC-15 scope for each required store. Describe G1b’s shipped authentication history and bounded retention in breach response. Explain the current G2 export audit mode and owner receipt evidence. Report-mode exports do not establish durable delivery evidence.
-
-### Restriction and objection procedure (DEC-8)
-
-`restriction-and-objection` states availability before recommending an action. The OSS export/erasure/retention commands, enterprise holds and E2 contact permissions are future controls until their respective designs ship. None currently supplies general technical restriction. `data-subject-requests` reproduces the same table.
-
-| Request | Edition / availability | Procedure and limits |
-|---|---|---|
-| "Do not erase; I need it for a claim" | Enterprise, only with the approved governance engine deployed | Place a legal hold. The guarded erase service, hold-aware forms retention and engine/OSS record-retention paths honour it; R3-5, "Holds, honestly", and DEC-C, "Retention sets and holds", define the boundary. Forms leave held subjects out or skip as `hold_not_honourable`; guard failure refuses. A set unable to attribute held records skips for the whole tenant with `hold_not_honourable`. A record policy with `allowUnmatchedHolds` still deletes what it cannot attribute; leave that opt-out off for preservation. A hold does not block reads or edits, and SQL/independent module delete commands bypass it |
-| The same preservation request without enterprise holds | OSS, once the manual retention command ships | Record the preservation instruction outside the product; do not run the person's erasure or independent deletion. Pass repeatable `--exclude-subject <kind:id>` for every relevant held subject/identifier reference on each `mercato privacy retention` run. An unsupported kind refuses the set rather than guaranteeing selective preservation. With no guard, omitting exclusions leaves no protection. Clear the form's retention period wherever it could anonymize this subject, and pause any retention process that cannot honour the preservation instruction |
-| "I object to marketing" | OSS, once E2 / the 10-22 contact-permissions design ships | Set the scoped person/address-purpose suppression/permission controls. Until then record the objection outside the product and stop affected outreach manually. The proposed sender policy ([contact-permissions spec](../2026-10-22-crm-contact-permissions-and-consent-history.md#proposed-outbound-enforcement-seam)) does not govern external mail clients or every provider |
-| "I contest accuracy" or "I object" | OSS export once the contract ships; manual controls in either edition | Export through an authorized request if needed. Instruct staff: do not edit except to rectify at the person's request under a documented lawful exception; stop ordinary reads, reporting, automation and disclosure for that person by controller procedures. Record permitted exceptions and instruct downstream operators. The product does not enforce these instructions per record |
-| Telling recipients (Art. 19) | Manual in both editions | The product has no per-subject disclosure register. The [register draft](2026-11-16-privacy-ropa-generator.md#declarations) lists active recipients and declared inactive ones and cannot establish who received this person's data. Review available integration execution records, webhook delivery logs, provider records and manual correspondence to reconstruct actual disclosures; those sources may lack subject linkage or already have expired. Notify the identified recipients and record any impossible/disproportionate-effort assessment; do not mark the step complete merely because the recipient list was checked |
-
-Before ordinary processing resumes, the controller assesses whether the stated ground has ended, records the lawful basis and authorized exceptions, and tells the person before lifting the manual restriction (Art. 18(3)). Record that notice and the authorized resumption time in the controller's case record; a hold release alone does not authorize renewed processing.
-
-**Recital 67.** Recital 67 says restriction in automated filing systems should in principle be ensured by technical means, such as moving the data to another processing system or making it unavailable to users. A procedure alone may fall short of that expectation, so the page tells the controller to assess compensating measures and record the assessment. It lists the product-supported ones with their availability: exporting the subject's data to a separate controlled store through the subject export (OSS, once the contract's export ships; removing the live copy is a separate erasure decision), and narrowing which staff can reach the data through role and user feature grants and organization visibility (`RoleAcl` / `UserAcl` `organizations_json`, both editions today). Both act per organization or per feature, not per record; neither makes one person's record unavailable while others stay visible.
-
-**Topics each page must also cover**
-
-| Topic | Where |
-|---|---|
-| Where data is processed and whether it leaves the EU | A region column on `sub-processors`; every region assertion cites vendor documentation and its checked date, or says "controller to verify". Provider headquarters and an EU endpoint do not prove a processing region. Describe tenant region enforcement and verified zero retention as separate DEC-17 requirements. State the actual coverage and accepted limits for each |
-| Data-processing agreement | `sub-processors` names each vendor’s current DPA reference and its checked date or states “controller to verify”. The `index` retains the generic template pointer. |
-| Cookies the product sets, all first-party | `index.mdx` owns the production inventory. E5 Phase 1 updates the notice acknowledgement and language-cookie attributes/lifetime; E5 Phase 2 adds `om_consent`: URI-encoded version-1 per-category answers/revisions, 180 days (`Max-Age=15552000`), `Path=/; SameSite=Lax`, `Secure` on HTTPS, host-only/no Domain, intentionally script-readable. Test-only opt-in/probe cookies stay outside the production inventory |
-| Adding a non-essential integration | E5 Phase 2 adds **Adding a non-essential integration** to `index.mdx`: Create `next/script` or start the dynamic loader inside the granted client branch. Use a Client Component wrapper without import-time network, SDK or storage effects. A Server Component child can execute before a client gate decides, so keep server-side vendor fetches, prefetch, embeds and resource hints out of the gated integration. Give any server-side processing its own consent control. Declare exact first-party cleanup keys/paths and vendor procedures for third-party/HttpOnly storage. Link existing CSP `OM_CSP_SCRIPT_ORIGINS`, `OM_CSP_CONNECT_ORIGINS`, `OM_CSP_STYLE_ORIGINS`, `OM_CSP_FRAME_ORIGINS` and `useContentSecurityPolicyNonce` from `@open-mercato/ui/theme/ContentSecurityPolicyProvider`; keep provider nesting/nonce stable through navigation. Allowed origins never imply consent |
-| Browser choices and objection portability | `index` repeats **No field-level model-input control** and E5's browser-choice/no-server-proof limit. Withdrawal cannot erase prior processing or inaccessible vendor/HttpOnly storage. When E3/C8 ship, `data-subject-requests` states that both `recipient_hash` and `key_id` are redacted as `key_material` under R4-9, the manifest includes the row count, a receiving system cannot rebuild opt-outs even with the original key, and no suppression-state handover exists in this version |
-| Production and development process modes | `hardening` follows R5-2: a process with `NODE_ENV` other than `production` is always a development process, needs no dev mark and is never forced onto production rules by a mark file. R3-11 binding checks apply only to production-mode processes carrying the dev mark; an invalid binding uses production rules and logs once at error level |
-| SCIM without a lookup secret | `hardening` follows R5-4: without a lookup secret, `userName`/email filters keep SQL equality on plaintext values with no limit. Once the bounded reader activates for that configuration, a filter with more than 100 scoped ciphertext candidates returns HTTP 400 / `scimFilter.lookupSecretRequired`. If any within-bound historical ciphertext candidate cannot be read, including with tenant encryption disabled, the standard SCIM 503 / `scimFilter.ciphertextUnavailable` refuses the complete request without disclosing values or serving partial matches. Restore the existing decryption capability before retry. Ciphertext-free installations keep unlimited plaintext matching. Activation is no earlier than the minor after the warning ships. The configuration-tier error `sso.scim_lookup_secret_missing` applies when the `sso` module is enabled, tenant data encryption is enabled and no lookup secret is set, before any SCIM token is issued, so `mercato privacy doctor` exits 2 on such a deployment from the warning minor onward; with encryption off it is not raised. It is the doctor's named exception for a module whose operation the runtime refuses, or will refuse from the next minor, above a bound without a secret. Set the secret before enabling SCIM at scale on an encrypted deployment; `mercato sso fill-lookup-hashes` still refuses without it |
-| Bridged secure defaults | `hardening` (Stage 1, for the controls that exist in each release) states each default that stays less protective during a bridge and is present in the release. A3: a transient KMS outage writes mapped fields in plaintext, counted and reported, unless `TENANT_DATA_ENCRYPTION_UNAVAILABLE_WRITES=fail`; plaintext stays the default until A3's tracked default-flip task (kms-fail-closed, Migration). Opt in by setting `fail` in every production process's environment. A2: production services warn rather than refuse on a weak tenant secret, unconfigured encryption or an insecure Vault address while `TENANT_DATA_ENCRYPTION_KEY_POLICY` defaults to `warn`, until A2's tracked enforce flip (runtime-encryption-key-guard); opt in with `TENANT_DATA_ENCRYPTION_KEY_POLICY=enforce`. DEC-12: a published, weak or missing lookup secret is warned until the separately tracked **Refuse unsafe lookup secrets after B1 Phase D** task; no earlier opt-in exists, and the remedy is B1 Phase D's lookup-secret rotation runbook once it ships. B4: `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` stays `false` for one minor, so Meilisearch keeps indexing decrypted values of encrypted fields (fulltext-encrypted-field-exclusion); opt in with `true` and then the per-tenant fulltext rebuild (`POST /api/search/reindex` by a `search.reindex` holder whose organization scope is unrestricted, then `mercato search fulltext-privacy-status --tenant <id>` until its unsafe and missing counts are zero), since the setting alone does not recall stored plaintext. F1: a tenant's AI provider allow-list is advisory for non-chat calls unless that tenant enables `enforceForCalls` (ai-data-protection assumption 3). Opt in by saving the allow-list with `enforceForCalls: true` (`PUT /api/ai_assistant/settings/allowlist` or its settings page); an organization row cannot switch off a tenant's enforcement. The `index` known-limits repetition lists each |
-| Lookup-secret changes and vector rotation | `hardening` points to B1 Phase D and R5-7: re-run the commerce-owned `mercato {sales,cart,checkout,warranty_claims} fill-privacy-hashes` commands, refreshing stale non-null hashes as well as empty ones. R4-10 / R5-3 bind `searchVectorDisplayMaintenance.run` with optional `pin: { providerIdentity: string; wrappedDekFingerprint: string }`: B4-specified `VectorDisplayMaintenanceKeyPin.providerIdentity` plus SHA-256 of the tenant’s provider key check (B4 **Rotation pin source**) read fresh through `readTenantKeyPin`; mismatch refuses with `pin_mismatch` |
-| Upgraded startup and historical encryption | When their owners ship, `hardening` documents the A1/A2 per-process startup check for direct `next start` and B1’s `mercato entities verify-encryption --tenant <uuid>` or `--system` after backfill. Link the approved DEC-16 release-line instructions for affected installations. |
-| Queue registry readiness | `hardening` follows R5-5: sealing-off enqueue never waits for or refuses on the sealed-queue registry. Sealing-on enqueue before readiness fails closed with `SealedQueueRegistryNotReadyError` (code `QUEUE_SEALED_REGISTRY_NOT_READY`); disclose that behavior change with its compatibility guidance |
-| Portal deletion recovery | `data-subject-requests` follows R4-2 / R5-1: the worker acts for the verified requesting account only, with all related subjects excluded. After its seventh failed attempt the open portal journal becomes `failed_handoff` and request marks clear. An operator may resume only that handoff through `mercato privacy erase --resume-run <runId>` or the enterprise page with `data_erasure.subjects.erase`; keep portal origin, the original single subject/exclusions and audit `resumedBy`. This is the only exception to worker-only portal execution |
-| Application logs and what they may contain | `hardening` |
-| Backups, and restoring after an erasure | `data-subject-requests` |
-| Queue copies after an erasure | The `data-subject-requests` erasure runbook (Stage 3) adds a step after an erase completes, once B6's `payload-status` reports job ages: run `mercato queue payload-status --all`, review the oldest stored job per queue and state, and drain or remove the subject's delayed, failed or parked copies by procedure where possible. It names `workflow-activities` (timer, condition and user-task SLA jobs) as the queue whose delay is unbounded, and says that the product notifies no recipient of the erasure (Art. 19, manual) |
-| Portability | `data-subject-requests`, stating what the product does and does not do |
-| Restriction and objection | `restriction-and-objection`, linked from `data-subject-requests`; the procedure above (DEC-8), with enterprise/OSS hold coverage, operational-preservation limits and the Recital 67 caveat |
-| Public legal-page acceptance | Program E1 owns `/privacy` and `/terms`; E2 owns contact permissions/suppression. G6's `TC-PRIVACY-VERIFY-008` checks static rendering and legal links with an isolated anonymous browser context; no content-page mutation API or database fixture is assumed |
-| Generated processing register | G3 is an Art. 30(1) controller draft for one organization; a hosting operator still supplies its Art. 30(2) processor record |
-| An inventory of personal data by module | `index`, linking to the data-class list command once it exists |
-| Tenant offboarding | `data-subject-requests`, once the tenant exit export exists; it tells operators to keep the `privacy.tenant_export_evidence` run scheduled for a soft-deleted tenant until its evidence set is empty (R4-3) |
-
-**Stages**
-
-| Stage | Ships with | Pages |
-|---|---|---|
-| 1 | Program Phase 1 | `index`, `sub-processors`, `hardening`, `breach-response` and `impact-assessment-notes` for existing controls, including **What the assistant sends to a model**. `restriction-and-objection` publishes the procedure (DEC-8) with the factual current-release limits and the Recital 67 caveat. Planned hold/CLI steps remain unavailable until shipped |
-| 2 | The export command | `data-subject-requests`: access |
-| 3 | The erase command and retention pruners | `data-subject-requests`: erasure, with the queue-copy inspection step; `hardening`: retention windows; `restriction-and-objection`: the shipped erasure/retention exclusions and enterprise holds |
-| 4 | The sign-in log and alerting | Extend the existing `breach-response` page with the released enterprise log and alerts; the base runbook and assessment notes already shipped in Stage 1 |
-
-**The check.** A script test lists every workspace package. Each must appear either in the `Package` column of the sub-processors table, written in backticks, or in a short data file of packages that send nothing out, with a reason. The test fails for a package in neither, and for a table row naming a package that no longer exists. Flows that start inside core — captcha, map tiles, text extraction — have rows under `core`, and the official-modules repository is named as outside the check. This checks packages, not individual outbound flows: a new outbound flow inside an already-listed package can pass. The review rule is the only control for that case; the page makes no claim of automatic flow completeness.
-
-**Recipient parity.** The sub-processors table carries a `Recipient ids` column: the backticked ids of the `privacy.ts` `recipients` declarations that row describes (register spec G3), or `—` with a one-line reason for a flow that is not a server-side recipient, such as browser-loaded map tiles. When G3 Phase 2 ships, the same script test reads all discoverable package and app-owned `privacy.ts` files, including `packages/*/src/modules/*/privacy.ts`, `apps/*/src/modules/*/privacy.ts` and the shipped create-app template modules and requires each declared recipient id to be named on exactly one row of its own package or app, and each named id to be declared in that package. Recipient ids are string literals; an entry the test cannot read as one fails the test rather than being skipped.
-
-**Model-input inventory.** This carrier owns the source scope for `scripts/__tests__/gdpr-model-input-routes.test.mjs`. Enumerate non-test sources under workspace packages, `apps/*/src` and the shipped create-app template. Inspect imports and call sites for AI SDK and the assistant re-export helpers, including dynamic imports, typed agent runners, first-party OpenCode client sends and question replies, and the direct model-adapter entry points identified by F1. Classify detected call-site identities within each file, so a new send in a listed file is still checked. Each inventory entry names a shipped source and a disclosure route id, and each id must appear in **What the assistant sends to a model**. Fail on removed or unclassified detected identities. Owner review must identify arbitrary HTTP, SDK wrappers the patterns cannot follow, external/downstream app code and behavioral changes behind known call sites. Document these detection limits and keep the controller’s downstream supplement explicit.
-
-| Alternative | Why rejected |
-|---|---|
-| Generate the table from code | Providers do not declare what data they send or where it goes; a generated table would have empty columns that look authoritative. G5 owns this manually verified processor table; the doctor has no later processor report. |
-| One long page | Four readers, four tasks. |
-| Wait until every feature ships | The vendor table and the hardening list are useful today. |
-| Document a field-withholding control for model input (F1 option A) | DEC-11 builds none: it would cover typed tool output only and be read as masking. The page discloses every input path instead. |
-| Fold the privacy checks into the Readiness Scanner | The scanner is a standalone `npx` package that inspects release files and credentials without loading the module registry or contacting the database. The doctor needs module-declared checks and the opt-in database tier. `hardening` documents both and when to run each. |
-
-## 📝 Architecture
-
-Documentation pages in `apps/docs/docs/deployment/gdpr/`, registered in the docs sidebar; a README section in `packages/create-app`; two node tests under `scripts/__tests__/` (package coverage with recipient parity, and the model-input inventory). No application code.
-
-## 📝 Data Models
-
-None.
-
-## 📝 API Contracts
-
-None. The pages cite settings and command names owned by other specs and must be updated in the same change when one of those changes.
-
-## 📝 Edge Cases & Failure Scenarios
-
-| Case | Handling |
-|---|---|
-| A package is added | The check fails until the page has a row or the package is listed as sending nothing out |
-| An outbound flow is added inside an already-listed package | The package check can still pass; the review rule must require a new flow row and its citations. A new `recipients` declaration fails recipient parity until a row names it |
-| A model send is added or changed | The inventory test rejects unclassified detected SDK, agent, OpenCode and identified adapter call sites. Owner review traces new HTTP, wrappers and behavior changes outside those recognizers. |
-| A default changes in code | The page is wrong until edited. Each row cites its file so a reviewer of the code change can find it; the review checklist gains one rule for this |
-| A feature is described before it ships | Prevented by the staging rule and by review |
-| An operator reads the pages as legal advice | Each page opens by saying what it is and is not |
-| Installed modules differ from the defaults | The sub-processors page is organised by package, so an operator reads only the rows for what they installed |
-
-## 📝 Migration & Backward Compatibility
-
-Documentation only.
-
-## 📋 Implementation Plan
-
-Content checks must reject the unqualified phrases “absent provider holds nothing” and “holds only through registered providers” in generated operator guidance. Fixtures cover required-owner removal, unknown posture and the sole verified never-activated/no-evidence absence case.
-
-### Stage 1
-1. Add `index`, `sub-processors`, `hardening`, `restriction-and-objection`, `breach-response` and `impact-assessment-notes`, with only existing controls and each code claim cited as of the release; publish the procedure (DEC-8) with its factual current-release restriction limits and the Recital 67 caveat. Register them in the sidebar. Include **What the assistant sends to a model** with every route above, OpenCode/MCP included. `hardening` says when to run the Readiness Scanner and when to run the privacy doctor, and states each bridged secure default present in the release with its opt-in or remedy (`TENANT_DATA_ENCRYPTION_UNAVAILABLE_WRITES=fail`, `TENANT_DATA_ENCRYPTION_KEY_POLICY=enforce`, `SEARCH_EXCLUDE_ENCRYPTED_FIELDS=true` with the per-tenant fulltext rebuild, `enforceForCalls`, and for DEC-12 lookup secrets the B1 Phase D rotation runbook, with no earlier opt-in); the `index` known limits list them too. The first breach runbook covers audit/access logs, retention, evidence preservation, the 72-hour clock and notification structure; it does not wait for Enterprise.
-2. Add the package-coverage test and its list of packages that send nothing out, and the model-input inventory test with its route list. The recipient-parity case is added in G3 Phase 2's change, when declarations exist.
-3. Add the create-app README section.
-4. Add the region sourcing rule and cite vendor documentation with a checked date, or mark "controller to verify". Add a review rule, in the checklist's own card format, that a change to an outbound integration or to a privacy-relevant default updates the page.
-
-### Stages 2 to 4
-One step each, in the change that ships the feature the page describes, as the stage table lists. Independently update `index.mdx` with E5 Phase 1's honest-notice/language-cookie inventory changes and its browser-telemetry terminal-access entry (purpose, traces/metrics sent to `TELEMETRY_BACKEND`, staff-only backend mount, no cookie of its own, how to disable, and E5's statement that it makes no ePrivacy Art. 5(3) determination for deployments that enable it), and E5 Phase 2's exact `om_consent` inventory plus **Adding a non-essential integration** recipe, granted-branch loading and cleanup/CSP limits. Phase 2 requires TC-CONSENT-002/test-probe delivery; no production non-essential integration is needed and test cookies are not production inventory. Add E3/C8's redacted/nonportable objection-state limit when those features ship.
+## Architecture
 
 | File | Action |
 |---|---|
-| `apps/docs/docs/deployment/gdpr/{index,sub-processors,hardening,data-subject-requests,restriction-and-objection,breach-response,impact-assessment-notes}.mdx` | Create, by stage |
-| `apps/docs/sidebars.*` | Modify |
-| `scripts/__tests__/gdpr-subprocessor-coverage.test.mjs` | Create |
-| `packages/create-app` README | Modify |
-| The review checklist's reference card for documentation rules | Modify |
-| `scripts/__tests__/gdpr-no-outbound-packages.json` | Create |
-| `scripts/__tests__/gdpr-model-input-routes.test.mjs`, `scripts/__tests__/gdpr-model-input-routes.json` | Create |
+| `apps/docs/docs/deployment/gdpr/{index,sub-processors,hardening,data-subject-requests,retention,backups-and-restore,breach-response,records-of-processing,impact-assessment-notes,tenant-offboarding}.mdx` | Create, by stage |
+| `apps/docs/sidebars.ts` | "GDPR" sub-category under "Deployment" |
+| `apps/docs/__tests__/gdpr-subprocessors.test.mjs`, `apps/docs/__tests__/gdpr-no-outbound-packages.json` | Create; add to the `apps/docs` `test` script (pattern: `push-env-table.test.mjs`) |
+| `packages/create-app/README.md` | One "Privacy and GDPR" paragraph linking the section (the template has no README) |
 
-## 🧪 Integration Coverage
+**The test** reads the root `package.json` workspaces (`apps/*`, `packages/*`) and the backticked package names in the first column of the `sub-processors` table. It fails when:
+- a package is in neither the table nor the JSON list;
+- a package is in both;
+- a JSON entry has an empty `reason`;
+- a row or entry names a package that no longer exists.
 
-No application API is added. Unit cases in `scripts/__tests__/gdpr-subprocessor-coverage.test.mjs` use temporary package/table fixtures and clean them in `finally`: new unlisted package fails, explicit reasoned exemption passes, removed package reference fails, and a second flow in a listed package passes to pin the stated check limit. Once G3 Phase 2 ships, recipient-parity cases cover a declared id with no row, a row naming an undeclared id, an id declared in another package and an id the test cannot read as a string literal. `gdpr-model-input-routes.test.mjs` uses temporary fixture files cleaned in `finally`: an unlisted `ai` import fails, a dynamic `import('ai')` and an agent-runtime call are detected, a listed file passes, a removed listed file fails and a route id missing from the page fails. Stage 1 content checks also assert each bridged secure default present in the release on `hardening` and in the `index` known limits, each with its opt-in (`TENANT_DATA_ENCRYPTION_UNAVAILABLE_WRITES=fail`, `TENANT_DATA_ENCRYPTION_KEY_POLICY=enforce`, `SEARCH_EXCLUDE_ENCRYPTED_FIELDS=true` followed by the per-tenant fulltext rebuild, `enforceForCalls`) or, for DEC-12 lookup secrets, the statement that no earlier opt-in exists and B1 Phase D's rotation runbook is the remedy, and the manual Art. 19 notification limit; Stage 3 asserts the erasure runbook's `payload-status` inspection step naming `workflow-activities` as unbounded. Content checks are staged: Stage 1 requires its six pages (`index`, `sub-processors`, `hardening`, `restriction-and-objection`, `breach-response`, `impact-assessment-notes`) and Stage 2 adds `data-subject-requests`; they assert that each G5-owned page present for the stage exists, not that the directory holds an exact count, so G6's `privacy-verification.mdx` beside them never breaks the check. They also require the captcha verifier citation, Turnstile-only IP wording, and a source/date or "controller to verify" for each region cell. They also assert the exact model-input heading/anchor and every route id of the inventory, provider-permission limitation, edition table and OSS preservation fallback, the Recital 67 caveat with its compensating measures, the Readiness Scanner versus doctor guidance, stop-editing/rectification instructions, unmatched-hold opt-out, manual disclosure reconstruction, default doctor versus database tier, and scan exit 2, required `--reference`, input limits and `--only` once its command ships. Add content assertions for C1 export/settings, C4/D3 and C8 finite evidence ages versus unresolved work, C8 publication reconciliation, R4-3 tenant-carrying evidence with the scheduled-run instruction for soft-deleted tenants, C3's separate audit/metadata clocks, named owner gaps/waivers, the fresh externally fenced generation, one unfiltered `--refresh --require-clear` cutover and continuous `--check-live` health, with diagnostic `--max-age` and exit 0 or 3 providing no admission, signing-key storage and rotation, deferral/quarantine actions and routine directory-outage diagnostics distinct from strict cutover, with pending work verified before protected reopening, the awaited-capture/unprotected boundary, manual reassessment/advance notice, and E5 phase-specific production cookie inventory, including Phase 1's browser-telemetry terminal-access entry and its no-Art. 5(3)-determination statement, granted-branch recipe/CSP and cleanup/no-server-proof limits; exclude test cookies. When E3/C8 ship assert redaction of both `recipient_hash` and `key_id`, the manifest row count, unrebuildable opt-outs and no suppression-state handover under R4-9. Owner-release content cases also pin R4-4 true/throw/absence behavior, R4-6 retry reason, R4-7 settings-read/count-only output, R4-5 stale runtime rows, R4-14 retained employment handling, R5-1 handoff recovery limits, R5-2 process modes, R5-3 pin fields/source, R5-4 plaintext carve-out, bounded ciphertext scan and 400 only from the mapping minor, and the encryption-conditional check id with doctor exit 2, R5-5 registry behavior, R5-6 deal-only propagation, R5-7 stale commerce-hash refreshes, R5-9 terminal graph eligibility, R5-10 all user columns and R5-11 pending hold computation; these content checks never substitute for the owners’ runtime tests. Inventory cases include an undeclared app-local recipient and app-local model route, a declaration in the shipped template, and explicit documented downstream coverage limits. Restore runbook assertions distinguish current generation/snapshot clearance from diagnostic exit 0/3. Both inventory tests include an unlisted app-owned module and a shipped template fixture, which fail until the routes or recipient rows are added to the proper owner. The restore runbook content tests require the distinct strict refresh and live flags, the external interlock, generation and recovered-snapshot bound, and a closed cutover on missing or out-of-window evidence. Add fixtures for a new OpenCode send or reply in an existing listed file, a direct-adapter call in a shipped template and application-owned source, and a missing applicable per-processor DPA entry. Accept a checked processor-specific reference or the explicit controller-verification state.
+It checks packages, not flows. A new flow inside a listed package is caught only by review, and the page says so.
 
-The docs build and internal-link check must pass. A self-contained docs smoke test builds the docs site from repository pages, opens `index`, `restriction-and-objection`, `breach-response` and `impact-assessment-notes` in an OSS-only configuration, and after Stage 2 follows the DSR page's restriction link. It owns and removes its build/server fixture. Check the Stage 1 runbook has no enterprise prerequisite; later content checks add sign-in-log links only in its shipping change. G6's public-page gate is `TC-PRIVACY-VERIFY-008` under program E1: static anonymous `/privacy` and `/terms` rendering and legal-link resolution, restoring any test-local configuration in `finally`, without a content mutation API. E2's separate sender-policy tests remain with that carrier. No new data-subject API is tested by this documentation revision.
+## Data Models
 
-## 📝 Risks & Impact Review
+None.
 
-#### The pages drift from the code
-- **Scenario**: A default or a provider's behaviour changes and the page keeps the old claim.
-- **Severity**: High
-- **Affected area**: operators' vendor and configuration decisions
-- **Mitigation**: Per-row citations, the package-coverage and recipient-parity test, the model-input inventory test, the review rule.
-- **Residual risk**: A changed default, a new outbound flow inside an already-listed package without a `recipients` declaration, or a model call made by plain HTTP is caught only by review. The package check does not validate provider processing regions; a cited vendor statement can also change after its checked date.
+## API Contracts
 
-#### The pages are read as a compliance guarantee
-- **Scenario**: An operator treats the checklist as sufficient.
-- **Severity**: Medium
-- **Affected area**: operators
-- **Mitigation**: The index states the controller's own duties and the known limits first.
-- **Residual risk**: Readers who skip the index. R4-3: tenant-export evidence always carries its tenant; evidence about a soft-deleted tenant expires only while its tenant run stays scheduled; R4-4 permits absence only after positively verified never-activated posture with no captured evidence; required, unknown or previously activated owner absence holds evidence as `held_by_owner` until reconciled; its owners specify run correlation (C3) and file-only pending rows (C9). Suppression export cannot rebuild opt-outs or hand over suppression state (R4-9).
+None. The pages cite env vars and the Enterprise commands `mercato privacy export|erase|purge-tenant`, owned by other specs. A rename there updates the page in the same change.
 
-#### A page describes something that is not there
-- **Scenario**: A page ships ahead of its feature.
-- **Severity**: Medium
-- **Affected area**: an operator answering a real request
-- **Mitigation**: The staging rule ties feature-specific content to that feature’s change; base breach and assessment guidance ships with existing controls in Stage 1.
-- **Residual risk**: Low.
+## Risks & Impact Review
 
-## Final Compliance Report — 2026-11-16
+| Scenario | Severity | Affected area | Mitigation | Residual risk |
+|---|---|---|---|---|
+| A default, env var or provider flow changes and the page keeps the old claim | High | Operators' vendor and config decisions | Per-row file citations; package test; a change to an outbound flow or retention default edits the page in the same PR | A new flow inside a listed package is caught only by review |
+| Pages read as legal advice or a compliance guarantee | Medium | Controllers | Not-legal-advice line on every page; index puts duties and Known limits first | Readers who skip the index |
+| A page describes an unshipped feature | Medium | Operators answering requests | Staging rule; unshipped steps marked "not yet available" with the manual step | Low |
+| Manual OSS procedures miss data (free text, an unlisted module, provider copies) | Medium | Data subjects | Per-module table, free-text search step, Art. 19 from the matrix, Known limits | Accepted; Art. 12 permits manual routines |
+| A vendor's region or transfer claim goes stale | Low | Transfer assessments | Checked date or "controller to verify" per row | Controller re-checks its vendors |
 
-- **Reviewed:** root `AGENTS.md`, `.ai/specs/AGENTS.md`. Not reviewed: any docs-site guide.
+## Implementation Plan
+
+### Stage 1 — ships now (existing controls only)
+1. Add `index`, `sub-processors`, `hardening`, `breach-response`, `records-of-processing` and `impact-assessment-notes`, plus the sidebar category. The docs build passes.
+2. Add the package test and the no-outbound JSON, and wire them into the docs `test` script. The test passes, and fails on the fixtures below.
+3. Add the create-app README paragraph.
+
+### Stage 2 — ships with the features described, manual procedure first
+1. `data-subject-requests` with the OSS manual procedures, restriction, objection and Art. 19. Enterprise steps arrive in the change that ships the `privacy` module; the do-not-contact step arrives with the 10-22 flag.
+2. `retention`: existing windows now. New rows arrive in the change that ships each pruner phase.
+3. `backups-and-restore`: OSS register and re-apply now. Enterprise `--out` reports arrive with the module.
+4. `tenant-offboarding`: OSS export and manual deletion now. `purge-tenant` arrives with the module.
+
+## Integration Coverage
+
+No application API or UI path is added. Coverage is at the docs level:
+
+| Id | Asserts |
+|---|---|
+| TC-DOCS-GDPR-001 | `gdpr-subprocessors.test.mjs`. Fails for: a temporary package missing from both lists, a row naming a removed package, a package in both lists, an empty reason. Passes for a reasoned JSON entry. Fixtures are cleaned in `finally`. |
+| TC-DOCS-GDPR-002 | Each page of the current stage exists under `deployment/gdpr/` and appears in `sidebars.ts`. `impact-assessment-notes` holds the `what-the-assistant-sends-to-a-model` anchor. |
+| TC-DOCS-GDPR-003 | The docs build passes with `onBrokenLinks: 'throw'` (`docusaurus.config.ts:12`), so internal links resolve. |
+
+## Final Compliance Report — 2026-11-20
 
 | Rule | Status | Notes |
 |---|---|---|
-| No enterprise-only scope in the OSS directory | Compliant | Cross-edition deployment guidance ships for OSS in Stage 1; enterprise feature instructions are added only when those features ship. The restriction procedure is specified here, so OSS documentation is not sourced from an enterprise spec |
-| Ask before changing review automation | Process gate | One rule added to the review checklist's cards; the PR that adds it asks a maintainer first, as root `AGENTS.md` Ask First requires |
-| Integration coverage | Scoped | Package/content unit fixtures and docs navigation smoke coverage above; no application API added |
-| Honest preservation and verification limits | Compliant | Index repeats program Known limits; the procedure page names R3-5 and does not promise universal holds; R4-3: tenant-export evidence always carries its tenant, and evidence about a soft-deleted tenant expires only while its tenant run stays scheduled; R4-4 holds through registered true/throwing providers and required/unknown/previously activated missing owners; only positively verified never-activated posture with no captured evidence permits provider absence and R4-9 exports no usable suppression state |
-| R4/R5 owner decisions | Scoped | Operator guidance and release-bound content checks follow the named owner designs, including portal recovery, process modes, SCIM, rotation/commerce hashes, queue readiness and module-specific retention/hold limits; no new runtime contract or approval is supplied here |
+| No enterprise-only scope in OSS specs | Compliant | OSS docs; Enterprise steps are labelled and specified in the Enterprise spec |
+| Integration coverage | Scoped | Docs tests above; no API or UI added |
+| Backward compatibility | N/A | Documentation only |
+| Spec links only to the final GDPR set | Compliant | Other specs are named by path |
 
-**Documentation disposition:** Stage 1 proposes the restriction and objection procedure (DEC-8, C10 option A) with factual current-release limits and the Recital 67 caveat, processor/hardening material, base breach guidance and the model-input disclosure (DEC-11). Stage 3 adds only shipped controls. Evidence-expiry, consent-gate and restore claims follow their owners' delivery and approvals. G5 can document the restriction procedure and model-input disclosure. Under program DEC-14 neither document closes #8593's technical restriction/objection or field masking/exclusion requirement. Those requirements remain open pending a written named maintainer disposition in #8593 or shipped technical acceptance evidence.
 ## Changelog
 
-- 2026-11-16 — Initial specification.
+- 2026-11-20 — Rewritten to minimal GDPR scope.

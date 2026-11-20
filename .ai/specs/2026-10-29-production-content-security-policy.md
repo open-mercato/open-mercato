@@ -67,15 +67,6 @@ sources, wildcards, paths, queries, fragments and credentials are rejected with
 a generic internal configuration error. Provider-owned wildcard declarations
 remain narrowly scoped to the documented provider's subdomains.
 
-For an integration requiring consent, follow E5's **Adding a non-essential
-integration** recipe in `apps/docs/docs/deployment/gdpr/index.mdx#adding-a-non-essential-integration`
-once shipped, as specified by [`2026-11-16-consent-gate-hook.md`](GDPR/2026-11-16-consent-gate-hook.md),
-**Phase 2 — The gate**. Allowing an origin does not obtain consent: create its
-script or invoke its dynamic loader only inside the granted client branch. Keep
-server-side vendor requests and prefetch outside this integration boundary. The
-existing origin controls and nonce behavior apply; this adds no per-visitor CSP or
-consent-specific CSP variable.
-
 Module-authored inline assets need a trusted nonce, from `headers()` on the server
 or `useContentSecurityPolicyNonce()` on the client. Optional provider props and
 new helper import paths are additive; existing ThemeProvider APIs are unchanged.
@@ -144,13 +135,13 @@ results remain required before calling the implementation merge-ready.
 
 ## Changelog
 
-- 2026-11-20 — Require client-side consent before a non-essential integration starts and retain the existing CSP origin and nonce policy.
-
 - 2026-10-29: Defined and implemented the production policy, nonce plumbing,
   provider origin declaration, consumer compatibility and regression coverage.
-- 2026-10-29: Added validated nonce propagation to the storefront `srcDoc` preview
-  and unit, component and browser regression coverage. Demo keyframes have a
-  component regression and a production Chromium fixture.
+- 2026-10-29: Fresh scope-cohesion review approved the single coordinated capability.
+  Security review identified inherited CSP on the storefront `srcDoc` preview;
+  added validated nonce propagation and unit/component/browser regression coverage.
+  Its second finding, blocked demo keyframes, is covered by a failing-before /
+  passing-after component regression and the production Chromium fixture.
 - 2026-10-29: Updated the existing app header/layout suites to exercise emitted
   production CSP and trusted request-nonce propagation rather than config syntax.
 - 2026-10-29: Preserved the existing configured documents collaboration origin
@@ -158,5 +149,5 @@ results remain required before calling the implementation merge-ready.
   loopback-gate and real-config regressions without changing CI configuration.
 - 2026-10-29: Registered cross-package CSP regression coverage in the existing
   create-app parity exception manifest and added a redacted warning when a
-  configured collaboration endpoint cannot safely become a CSP source. The
-  warning appears once per process, including repeated proxy calls.
+  configured collaboration endpoint cannot safely become a CSP source. A
+  re-review bounds that warning to once per process, including repeated proxy calls.
