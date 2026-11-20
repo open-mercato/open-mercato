@@ -107,7 +107,6 @@
   "ledger.errors.amountInvalidFormat": "Der Betrag muss eine nicht-negative Dezimalzahl mit höchstens 4 Nachkommastellen sein.",
   "ledger.errors.baseCurrencyNotConfigured": "Für diese Organisation ist keine Basiswährung konfiguriert, daher kann kein Buchungssatz gebucht werden.",
   "ledger.errors.cannotReverseAReversal": "Dieser Buchungssatz ist selbst eine Stornierung und kann nicht storniert werden. Stornieren Sie stattdessen den ursprünglichen Buchungssatz.",
-  "ledger.errors.chartOfAccountsGroupsNotSeeded": "Die von dieser Vorlage benötigten polnischen Kontengruppen (Zespoły) sind für diese Organisation noch nicht angelegt.",
   "ledger.errors.chartOfAccountsImportConflict": "Für diese Organisation wurde gleichzeitig ein anderer Import abgeschlossen; aktualisieren Sie die Ansicht und prüfen Sie den Kontenplan, bevor Sie es erneut versuchen.",
   "ledger.errors.chartOfAccountsNotEmpty": "Der Kontenplan enthält bereits {{typeCount}} Kontoart(en) und {{accountCount}} Konto/Konten; der Import wird bei einem nicht leeren Kontenplan nicht ausgeführt.",
   "ledger.errors.currencyNotFound": "Die angegebene Währung existiert nicht für diese Organisation.",

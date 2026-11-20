@@ -107,7 +107,6 @@
   "ledger.errors.amountInvalidFormat": "El importe debe ser un número decimal no negativo con un máximo de 4 decimales.",
   "ledger.errors.baseCurrencyNotConfigured": "No hay una moneda base configurada para esta organización, por lo que no se puede registrar un asiento.",
   "ledger.errors.cannotReverseAReversal": "Este asiento contable es en sí mismo una reversión y no se puede revertir. Revierta en su lugar el asiento original.",
-  "ledger.errors.chartOfAccountsGroupsNotSeeded": "Los grupos de cuentas polacos (zespoły) que requiere esta plantilla aún no se han creado para esta organización.",
   "ledger.errors.chartOfAccountsImportConflict": "Otra importación se completó al mismo tiempo para esta organización; actualice y revise el plan de cuentas antes de volver a intentarlo.",
   "ledger.errors.chartOfAccountsNotEmpty": "El plan de cuentas ya tiene {{typeCount}} tipo(s) de cuenta y {{accountCount}} cuenta(s); la importación no se ejecuta sobre un plan de cuentas que no esté vacío.",
   "ledger.errors.currencyNotFound": "La moneda especificada no existe para esta organización.",

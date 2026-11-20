@@ -28,11 +28,12 @@ import { deleteGeneralEntityIfExists, readJsonSafe } from '@open-mercato/core/he
  *
  * Each test creates its own throwaway tenant/organization (per `AGENTS.md`'s
  * integration-test isolation rule — self-contained fixtures, no reliance on
- * seeded/demo data) and cleans up in `finally`. A fresh organization already
- * has its PL `LedgerAccountGroup` rows (zespoły 0-8) seeded by GL core
- * engine's own `onTenantCreated` subscriber (#5663) — this command only
- * ever reads those, never creates them, so no extra setup is needed before
- * calling it.
+ * seeded/demo data) and cleans up in `finally`. An organization created
+ * through Directory (`POST /api/directory/organizations`) after initial setup
+ * has no PL `LedgerAccountGroup` rows: only `setup.ts`'s `seedDefaults` seeds
+ * them, and nothing runs it for a new organization. The import provisions the
+ * missing groups itself (spec decision OQ-R1), so no extra setup is needed
+ * before calling it — the happy path below is the required test for that.
  */
 
 const randomNumber = (prefix: string) => `${prefix}-${randomUUID().slice(0, 8)}`;
@@ -58,7 +59,7 @@ function scopedHeaders(scope: { tenantId: string; organizationId: string }): Rec
 const IMPORT_PATH = '/api/ledger/accounts/import-default-chart-of-accounts';
 
 test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button UI path + search', () => {
-  test('happy path: 200 with the full template row counts', async ({ request }) => {
+  test('happy path on an organization created through Directory: provisions the PL groups and returns 200 with the full template row counts (OQ-R1)', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = randomUUID();
     let tenantId: string | null = null;
@@ -71,10 +72,27 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
       });
       const headers = scopedHeaders({ tenantId, organizationId });
 
+      // Created through Directory after setup: no PL groups exist yet (OQ-R1).
+      const groupsBefore = await apiRequest(request, 'GET', '/api/ledger/account-groups?jurisdiction=PL&pageSize=50', {
+        token: superadminToken,
+        headers,
+      });
+      expect(groupsBefore.status()).toBe(200);
+      const groupsBeforeBody = (await groupsBefore.json()) as { items: Array<{ code: string }> };
+      expect(groupsBeforeBody.items, 'a Directory-created organization has no PL account groups').toHaveLength(0);
+
       const res = await apiRequest(request, 'POST', IMPORT_PATH, { token: superadminToken, headers });
       expect(res.status(), 'import against a fresh, empty organization should return 200').toBe(200);
       const body = (await res.json()) as { ok: boolean; createdAccountTypeCount: number; createdAccountCount: number };
       expect(body).toMatchObject({ ok: true, createdAccountTypeCount: 42, createdAccountCount: 46 });
+
+      // The import provisioned zespoły 0-8 for this organization.
+      const groupsAfter = await apiRequest(request, 'GET', '/api/ledger/account-groups?jurisdiction=PL&pageSize=50', {
+        token: superadminToken,
+        headers,
+      });
+      const groupsAfterBody = (await groupsAfter.json()) as { items: Array<{ code: string }> };
+      expect(groupsAfterBody.items.map((group) => group.code).sort()).toEqual(['0', '1', '2', '3', '4', '5', '6', '7', '8']);
     } finally {
       await deleteOrganizationIfExists(request, superadminToken, organizationId);
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);

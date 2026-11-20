@@ -11,6 +11,8 @@
 // their own single command file's narrower surface.
 export {}
 
+import { randomUUID } from 'crypto'
+
 type FakeRecord = Record<string, unknown>
 type WhereCondition = Record<string, unknown>
 
@@ -117,7 +119,9 @@ export function buildFakeEm(opts: { throwOnNextFlush?: unknown } = {}): FakeEm {
       return tableFor(entityClass).filter((record) => matchesWhere(record, where)).length
     }),
     create: jest.fn((entityClass: { name: string }, payload: FakeRecord) => {
-      const record = { ...payload }
+      // Ledger ids default to `gen_random_uuid()` in the database when the
+      // caller omits them (`seedPolishAccountGroups` does); mirror that here.
+      const record = payload.id === undefined ? { id: randomUUID(), ...payload } : { ...payload }
       tableFor(entityClass).push(record)
       return record
     }),

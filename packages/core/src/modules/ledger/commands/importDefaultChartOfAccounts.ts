@@ -19,6 +19,7 @@ import {
   ledgerAccountTypeCrudIndexer,
 } from '../lib/ledgerAccountCrud'
 import { DEFAULT_CHART_OF_ACCOUNTS_PL } from '../lib/defaultChartOfAccounts'
+import { seedPolishAccountGroups } from '../lib/seeds'
 
 type Scope = { organizationId: string; tenantId: string }
 
@@ -116,6 +117,29 @@ async function accountTypeUsedOutsideImport(
   return count > 0
 }
 
+/**
+ * Provisions the PL `LedgerAccountGroup` rows (zespoły 0-8) the template links
+ * to, creating only the missing codes (OQ-R1). `seedDefaults` seeds them at
+ * setup, but an organization created in Directory afterwards has none.
+ *
+ * Runs in a nested transaction (a savepoint) on the import's own transaction:
+ * a concurrent seed of the same organization (another import, or setup) makes
+ * this insert fail on `ledger_account_groups_scope_code_unique`, and a failed
+ * statement aborts the enclosing Postgres transaction unless it is scoped to a
+ * savepoint. That violation means the other writer committed the groups
+ * first, so it is treated as "already exists"; the caller re-reads the groups
+ * afterwards and sees the committed rows.
+ */
+async function ensurePolishAccountGroups(em: EntityManager, scope: Scope): Promise<void> {
+  try {
+    await em.transactional(async (savepointEm) => {
+      await seedPolishAccountGroups(savepointEm, scope)
+    })
+  } catch (err) {
+    if (!isUniqueViolation(err, 'ledger_account_groups_scope_code_unique')) throw err
+  }
+}
+
 const importDefaultChartOfAccountsCommand: CommandHandler<
   ImportDefaultChartOfAccountsInput,
   ImportDefaultChartOfAccountsResult
@@ -127,143 +151,142 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const rootEm = (ctx.container.resolve('em') as EntityManager).fork()
     const scope: Scope = { organizationId: parsed.organizationId, tenantId: parsed.tenantId }
     const { translate } = await resolveTranslations()
-
-    // Precondition: refuses to run against a non-empty chart of accounts
-    // (Design Decisions, "Refuses to run against a non-empty chart of
-    // accounts") — a starting point for an empty ledger, not a merge
-    // tool. Soft-deleted rows don't block the import.
-    const [existingTypeCount, existingAccountCount] = await Promise.all([
-      em.count(LedgerAccountType, {
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        deletedAt: null,
-      }),
-      em.count(LedgerAccount, {
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        deletedAt: null,
-      }),
-    ])
-    if (existingTypeCount > 0 || existingAccountCount > 0) {
-      throw conflict(
-        translate(
-          'ledger.errors.chartOfAccountsNotEmpty',
-          'The chart of accounts already has {{typeCount}} account type(s) and {{accountCount}} account(s); import refuses to run against a non-empty chart of accounts.',
-          { typeCount: existingTypeCount, accountCount: existingAccountCount },
-        ),
-      )
-    }
-
-    // Every `LedgerAccountType` links to the `LedgerAccountGroup` GL core
-    // engine's `seedPolishAccountGroups` already seeded for this org
-    // (Architecture, "Entities" — read-only here, this command never
-    // creates or modifies a `LedgerAccountGroup` row).
-    const accountGroups = await em.find(LedgerAccountGroup, {
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      jurisdiction: 'PL',
-    })
-    const accountGroupIdByCode = new Map(accountGroups.map((group) => [group.code, group.id]))
 
     const now = new Date()
     const preparedTypes: PreparedAccountType[] = []
     const preparedAccounts: PreparedAccount[] = []
-
-    for (const typeSeed of DEFAULT_CHART_OF_ACCOUNTS_PL) {
-      const accountGroupId = accountGroupIdByCode.get(typeSeed.accountGroupCode)
-      if (!accountGroupId) {
-        // Defensive: `setup.ts`'s `seedDefaults` always seeds zespoły 0-8
-        // before a tenant can reach this command, so this should be
-        // unreachable in practice — but failing loudly here is strictly
-        // better than silently importing a type with a dangling
-        // `accountGroupId`.
-        throw conflict(
-          translate(
-            'ledger.errors.chartOfAccountsGroupsNotSeeded',
-            'The Polish account groups (zespoły) this template requires are not seeded for this organization yet.',
-          ),
-        )
-      }
-
-      const typeId = randomUUID()
-      // Validated once through the same schema `createLedgerAccountType`
-      // already uses — no new validation rules, just a sanity check on
-      // this template's own hardcoded data.
-      ledgerAccountTypeCreateSchema.parse({
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        number: typeSeed.number,
-        name: typeSeed.name,
-        normalBalance: typeSeed.normalBalance,
-        accountGroupId,
-      })
-      preparedTypes.push({ id: typeId, number: typeSeed.number, name: typeSeed.name, normalBalance: typeSeed.normalBalance, accountGroupId })
-
-      for (const accountSeed of typeSeed.accounts) {
-        ledgerAccountCreateSchema.parse({
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
-          number: accountSeed.number,
-          accountTypeId: typeId,
-          description: accountSeed.description,
-        })
-        preparedAccounts.push({
-          id: randomUUID(),
-          number: accountSeed.number,
-          accountTypeId: typeId,
-          description: accountSeed.description,
-        })
-      }
-    }
-
-    // Account types before accounts (accounts reference `accountTypeId`),
-    // inside one atomic transaction (Design Decisions, "One command, one
-    // transaction, one undo").
     const createdTypeRecords: LedgerAccountType[] = []
     const createdAccountRecords: LedgerAccount[] = []
     try {
-      await withAtomicFlush(
-        em,
-        [
-          () => {
-            for (const type of preparedTypes) {
-              const record = em.create(LedgerAccountType, {
-                id: type.id,
-                organizationId: scope.organizationId,
-                tenantId: scope.tenantId,
-                number: type.number,
-                name: type.name,
-                normalBalance: type.normalBalance,
-                accountGroupId: type.accountGroupId,
-                createdAt: now,
-                updatedAt: now,
-              })
-              em.persist(record)
-              createdTypeRecords.push(record)
-            }
-          },
-          () => {
-            for (const account of preparedAccounts) {
-              const record = em.create(LedgerAccount, {
-                id: account.id,
-                organizationId: scope.organizationId,
-                tenantId: scope.tenantId,
-                number: account.number,
-                accountTypeId: account.accountTypeId,
-                description: account.description,
-                createdAt: now,
-                updatedAt: now,
-              })
-              em.persist(record)
-              createdAccountRecords.push(record)
-            }
-          },
-        ],
-        { transaction: true, label: 'ledger.importDefaultChartOfAccounts' },
-      )
+      // One transaction for the group provisioning, the precondition check
+      // and every insert (Design Decisions, "One command, one transaction,
+      // one undo"; OQ-R1).
+      await rootEm.transactional(async (em) => {
+        // An organization created in Directory after initial setup never ran
+        // `setup.ts`'s `seedDefaults`, so it has no PL account groups yet.
+        // Provision the missing ones first (OQ-R1).
+        await ensurePolishAccountGroups(em, scope)
+
+        // Precondition: refuses to run against a non-empty chart of accounts
+        // (Design Decisions, "Refuses to run against a non-empty chart of
+        // accounts") — a starting point for an empty ledger, not a merge
+        // tool. Soft-deleted rows don't block the import.
+        const [existingTypeCount, existingAccountCount] = await Promise.all([
+          em.count(LedgerAccountType, {
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            deletedAt: null,
+          }),
+          em.count(LedgerAccount, {
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            deletedAt: null,
+          }),
+        ])
+        if (existingTypeCount > 0 || existingAccountCount > 0) {
+          throw conflict(
+            translate(
+              'ledger.errors.chartOfAccountsNotEmpty',
+              'The chart of accounts already has {{typeCount}} account type(s) and {{accountCount}} account(s); import refuses to run against a non-empty chart of accounts.',
+              { typeCount: existingTypeCount, accountCount: existingAccountCount },
+            ),
+          )
+        }
+
+        const accountGroups = await em.find(LedgerAccountGroup, {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          jurisdiction: 'PL',
+        })
+        const accountGroupIdByCode = new Map(accountGroups.map((group) => [group.code, group.id]))
+
+        for (const typeSeed of DEFAULT_CHART_OF_ACCOUNTS_PL) {
+          const accountGroupId = accountGroupIdByCode.get(typeSeed.accountGroupCode)
+          if (!accountGroupId) {
+            // `ensurePolishAccountGroups` above provisions every zespół the
+            // template uses, so this is a template defect (a code outside
+            // 0-8), not a state a tenant can reach.
+            throw new Error(
+              `[internal] default chart of accounts: type ${typeSeed.number} references unknown PL account group ${typeSeed.accountGroupCode}`,
+            )
+          }
+
+          const typeId = randomUUID()
+          // Validated once through the same schema `createLedgerAccountType`
+          // already uses — no new validation rules, just a sanity check on
+          // this template's own hardcoded data.
+          ledgerAccountTypeCreateSchema.parse({
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            number: typeSeed.number,
+            name: typeSeed.name,
+            normalBalance: typeSeed.normalBalance,
+            accountGroupId,
+          })
+          preparedTypes.push({ id: typeId, number: typeSeed.number, name: typeSeed.name, normalBalance: typeSeed.normalBalance, accountGroupId })
+
+          for (const accountSeed of typeSeed.accounts) {
+            ledgerAccountCreateSchema.parse({
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+              number: accountSeed.number,
+              accountTypeId: typeId,
+              description: accountSeed.description,
+            })
+            preparedAccounts.push({
+              id: randomUUID(),
+              number: accountSeed.number,
+              accountTypeId: typeId,
+              description: accountSeed.description,
+            })
+          }
+        }
+
+        // Account types before accounts (accounts reference `accountTypeId`).
+        // `withAtomicFlush` joins the ambient transaction opened above.
+        await withAtomicFlush(
+          em,
+          [
+            () => {
+              for (const type of preparedTypes) {
+                const record = em.create(LedgerAccountType, {
+                  id: type.id,
+                  organizationId: scope.organizationId,
+                  tenantId: scope.tenantId,
+                  number: type.number,
+                  name: type.name,
+                  normalBalance: type.normalBalance,
+                  accountGroupId: type.accountGroupId,
+                  createdAt: now,
+                  updatedAt: now,
+                })
+                em.persist(record)
+                createdTypeRecords.push(record)
+              }
+            },
+            () => {
+              for (const account of preparedAccounts) {
+                const record = em.create(LedgerAccount, {
+                  id: account.id,
+                  organizationId: scope.organizationId,
+                  tenantId: scope.tenantId,
+                  number: account.number,
+                  accountTypeId: account.accountTypeId,
+                  description: account.description,
+                  createdAt: now,
+                  updatedAt: now,
+                })
+                em.persist(record)
+                createdAccountRecords.push(record)
+              }
+            },
+          ],
+          { transaction: true, label: 'ledger.importDefaultChartOfAccounts' },
+        )
+      })
     } catch (err) {
       // Two concurrent imports against the same empty chart of accounts can
       // both pass the precondition check above before either writes — the

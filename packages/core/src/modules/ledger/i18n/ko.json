@@ -107,7 +107,6 @@
   "ledger.errors.amountInvalidFormat": "금액은 소수점 이하 최대 4자리의 음이 아닌 십진수여야 합니다.",
   "ledger.errors.baseCurrencyNotConfigured": "이 조직에 기준 통화가 설정되지 않아 전표를 전기할 수 없습니다.",
   "ledger.errors.cannotReverseAReversal": "이 전표는 그 자체가 역분개이므로 다시 역분개할 수 없습니다. 대신 원본 전표를 역분개하세요.",
-  "ledger.errors.chartOfAccountsGroupsNotSeeded": "이 템플릿에 필요한 폴란드 계정 그룹(zespoły)이 이 조직에 아직 생성되지 않았습니다.",
   "ledger.errors.chartOfAccountsImportConflict": "이 조직에서 다른 가져오기가 동시에 완료되었습니다. 새로 고침 후 계정과목표를 확인하고 다시 시도하세요.",
   "ledger.errors.chartOfAccountsNotEmpty": "계정과목표에 이미 계정 유형 {{typeCount}}개와 계정 {{accountCount}}개가 있습니다. 비어 있지 않은 계정과목표에는 가져오기를 실행하지 않습니다.",
   "ledger.errors.currencyNotFound": "지정된 통화가 이 조직에 존재하지 않습니다.",

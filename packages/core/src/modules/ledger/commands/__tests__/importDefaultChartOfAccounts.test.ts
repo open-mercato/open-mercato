@@ -219,6 +219,79 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     }
   })
 
+  it('provisions missing PL account groups (organization created after setup) and then imports (OQ-R1)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    // No groups seeded: an organization created in Directory never ran
+    // `seedDefaults`.
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+
+    expect(result.createdAccountTypeIds).toHaveLength(TOTAL_TEMPLATE_TYPES)
+    expect(result.createdAccountIds).toHaveLength(TOTAL_TEMPLATE_ACCOUNTS)
+    const groups = (em.tables.get('LedgerAccountGroup') ?? []).filter((row) => row.organizationId === ORG_A)
+    expect(groups.map((row) => row.code).sort()).toEqual(ACCOUNT_GROUP_CODES_PL)
+    expect(groups.every((row) => row.jurisdiction === 'PL' && row.tenantId === TENANT)).toBe(true)
+    const groupIdByCode = new Map(groups.map((row) => [row.code as string, row.id as string]))
+    const typeRows = em.tables.get('LedgerAccountType') ?? []
+    for (const seed of DEFAULT_CHART_OF_ACCOUNTS_PL) {
+      const row = typeRows.find((candidate) => candidate.number === seed.number)
+      expect(row?.accountGroupId).toBe(groupIdByCode.get(seed.accountGroupCode))
+    }
+    // The seed ran in a nested transaction (a savepoint) inside the import's
+    // own transaction.
+    expect(em.transactional.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('creates only the missing PL groups when some already exist (OQ-R1)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    const existing = em.seed(LedgerAccountGroup, {
+      id: randomUUID(),
+      organizationId: ORG_A,
+      tenantId: TENANT,
+      jurisdiction: 'PL',
+      code: '0',
+      name: 'Zespół 0',
+      createdAt: new Date(),
+    })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+
+    const groups = (em.tables.get('LedgerAccountGroup') ?? []).filter((row) => row.organizationId === ORG_A)
+    expect(groups).toHaveLength(ACCOUNT_GROUP_CODES_PL.length)
+    expect(groups.filter((row) => row.code === '0')).toEqual([existing])
+  })
+
+  it('tolerates a concurrent group seed that hits ledger_account_groups_scope_code_unique, and still imports (OQ-R1)', async () => {
+    const command = loadImportCommand()
+    // The seed's flush fails the way Postgres fails it when another writer
+    // committed the same groups first. The fake has no rollback, so the rows
+    // the failed seed created stay in its table and stand in for the
+    // concurrent writer's committed rows, which the import re-reads.
+    const em = buildFakeEm({
+      throwOnNextFlush: { code: '23505', constraint: 'ledger_account_groups_scope_code_unique' },
+    })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+
+    expect(result.createdAccountTypeIds).toHaveLength(TOTAL_TEMPLATE_TYPES)
+    expect(result.createdAccountIds).toHaveLength(TOTAL_TEMPLATE_ACCOUNTS)
+  })
+
+  it('does not swallow a unique violation on another constraint raised by the group seed', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm({ throwOnNextFlush: { code: '23505', constraint: 'some_other_unique' } })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    await expect(command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)).rejects.toMatchObject({
+      constraint: 'some_other_unique',
+    })
+  })
+
   it('undo restores an empty chart of accounts by soft-deleting exactly the imported rows', async () => {
     const command = loadImportCommand()
     const em = buildFakeEm()
