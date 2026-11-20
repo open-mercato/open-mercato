@@ -605,10 +605,10 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         ctx, trx, entity.tenantId, entity.organizationId, parsed.interactionType, false, enforceSelectableType,
       )
       const inapplicableCore = findInapplicableCoreFields(behavior, parsed)
-      const customKeys = Object.keys(custom).length
+      const customKeys = Object.keys(customValues).length
         ? await loadApplicableCustomFieldKeys(trx, entity.tenantId, organizationIds, behavior)
         : null
-      const inapplicableCustom = customKeys ? inapplicableCustomFieldKeys(custom, customKeys) : []
+      const inapplicableCustom = customKeys ? inapplicableCustomFieldKeys(customValues, customKeys) : []
       if (enforceSelectableType && (inapplicableCore.length || inapplicableCustom.length)) {
         const { translate } = await resolveTranslations()
         throw inapplicableFieldError(

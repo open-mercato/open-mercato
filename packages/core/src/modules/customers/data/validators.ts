@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import { withDecimalCaps } from '@open-mercato/shared/lib/decimal'
 import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import { calendarEventTypeBehaviorSchema } from '../calendar-event-types'
@@ -60,6 +61,8 @@ const clearableDomainSchema = z.preprocess(
 const clearableStringSchema = (max: number) =>
   z.preprocess(emptyStringToNull, z.string().trim().max(max).nullable().optional())
 
+const moneyInputSchema = <T extends z.ZodType>(schema: T) => withDecimalCaps(schema)
+
 // Annual revenue maps to a nullable numeric column. `''`/whitespace/null all clear it;
 // `.nullable()` short-circuits before coercion so null does not coerce to 0. See #3050.
 const clearableRevenueSchema = z.preprocess(
@@ -67,7 +70,7 @@ const clearableRevenueSchema = z.preprocess(
     if (typeof value === 'string' && value.trim().length === 0) return null
     return value
   },
-  z.coerce.number().min(0).nullable().optional(),
+  moneyInputSchema(z.coerce.number().min(0)).nullable().optional(),
 )
 
 const interactionPhoneNumberSchema = z.string().trim().max(50).optional().nullable()
@@ -125,6 +128,9 @@ const personDetailsSchema = {
 const personFirstNameSchema = z.string().trim().min(1).max(120)
 const personLastNameSchema = z.string().trim().min(1).max(120)
 
+export const COMPANY_TAX_ID_MAX_LENGTH = 64
+export const COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY = 'customers.companies.form.taxId.tooLong'
+
 const companyDetailsSchema = {
   // Nullable so blanked values on edit clear the columns instead of being dropped. See #3050.
   legalName: clearableStringSchema(200),
@@ -134,6 +140,7 @@ const companyDetailsSchema = {
   industry: z.string().trim().max(150).optional(),
   sizeBucket: clearableStringSchema(100),
   annualRevenue: clearableRevenueSchema,
+  taxId: clearableStringSchema(COMPANY_TAX_ID_MAX_LENGTH),
 }
 
 export const personCreateSchema = scopedSchema.extend({
@@ -187,7 +194,7 @@ export const dealCreateSchema = scopedSchema.extend({
   pipelineStage: z.string().max(100).optional().nullable(),
   pipelineId: uuid().optional().nullable(),
   pipelineStageId: uuid().optional().nullable(),
-  valueAmount: z.coerce.number().min(0).optional().nullable(),
+  valueAmount: moneyInputSchema(z.coerce.number().min(0)).optional().nullable(),
   valueCurrency: z.string().min(3).max(3).optional().nullable(),
   probability: z.number().min(0).max(100).optional().nullable(),
   expectedCloseAt: z.coerce.date().optional().nullable(),
@@ -233,7 +240,7 @@ export const activityCreateSchema = scopedSchema.extend({
   date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
   time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
   phoneNumber: interactionPhoneNumberSchema,
-  occurredAt: z.coerce.date().optional(),
+  occurredAt: z.coerce.date().nullable().optional(),
   dealId: uuid().optional(),
   authorUserId: uuid().optional(),
   appearanceIcon: z.string().trim().max(100).optional().nullable(),
@@ -270,6 +277,7 @@ export const commentUpdateSchema = z
     id: uuid(),
   })
   .merge(commentCreateSchema.partial())
+  .extend({ authorUserId: uuid().nullable().optional() })
 
 export const addressCreateSchema = scopedSchema.extend({
   entityId: uuid(),
@@ -723,12 +731,14 @@ export type InteractionCancelInput = z.infer<typeof interactionCancelSchema>
 export const pipelineCreateSchema = scopedSchema.extend({
   name: z.string().trim().min(1).max(200),
   isDefault: z.boolean().optional(),
+  stageProbabilitiesEnabled: z.boolean().optional(),
 })
 
 export const pipelineUpdateSchema = z.object({
   id: uuid(),
   name: z.string().trim().min(1).max(200).optional(),
   isDefault: z.boolean().optional(),
+  stageProbabilitiesEnabled: z.boolean().optional(),
 })
 
 export const pipelineDeleteSchema = z.object({
@@ -741,12 +751,15 @@ export type PipelineDeleteInput = z.infer<typeof pipelineDeleteSchema>
 
 // --- Pipeline Stage schemas ---
 
+const stageDefaultProbabilitySchema = z.number().int().min(0).max(100).nullable().optional()
+
 export const pipelineStageCreateSchema = scopedSchema.extend({
   pipelineId: uuid(),
   label: z.string().trim().min(1).max(200),
   order: z.number().int().min(0).optional(),
   color: z.string().trim().max(20).nullish(),
   icon: z.string().trim().max(100).nullish(),
+  defaultProbability: stageDefaultProbabilitySchema,
 })
 
 export const pipelineStageUpdateSchema = z.object({
@@ -755,6 +768,7 @@ export const pipelineStageUpdateSchema = z.object({
   order: z.number().int().min(0).optional(),
   color: z.string().trim().max(20).nullish(),
   icon: z.string().trim().max(100).nullish(),
+  defaultProbability: stageDefaultProbabilitySchema,
 })
 
 export const pipelineStageDeleteSchema = z.object({

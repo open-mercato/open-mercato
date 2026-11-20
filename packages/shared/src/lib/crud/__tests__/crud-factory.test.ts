@@ -14,6 +14,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CrudWriteGuardConfig } from '@open-mercato/shared/lib/crud/write-payload'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import {
@@ -25,7 +26,7 @@ import {
   getAllOptimisticLockReaders,
   registerOptimisticLockReaders,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
-import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
+import { loadCustomFieldDefinitionIndex, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import {
@@ -2118,21 +2119,22 @@ describe('CRUD Factory', () => {
       await em.persist(todo).flush()
     })
 
-    const guardedRoute = (writeGuard?: any) => makeCrudRoute({
+    const guardedUpdateSchema = z.object({ id: z.string(), title: z.string().optional(), isDone: z.boolean().optional() })
+    const guardedRoute = (writeGuard?: CrudWriteGuardConfig) => makeCrudRoute<never, z.infer<typeof guardedUpdateSchema>>({
       metadata: { PUT: { requireAuth: true } },
       orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
       indexer: { entityType: 'example.todo' },
       writeGuard,
       update: {
-        schema: z.object({ id: z.string(), title: z.string().optional(), isDone: z.boolean().optional() }),
-        applyToEntity: (e, input) => {
-          if ((input as any).title !== undefined) (e as any).title = (input as any).title
-          if ((input as any).isDone !== undefined) (e as any).isDone = !!(input as any).isDone
+        schema: guardedUpdateSchema,
+        applyToEntity: (entity, input) => {
+          if (input.title !== undefined) (entity as Rec).title = input.title
+          if (input.isDone !== undefined) (entity as Rec).isDone = input.isDone
         },
       },
     })
 
-    const put = (route: any, body: Record<string, unknown>) => route.PUT(new Request('http://x/api/example/todos', {
+    const put = (route: ReturnType<typeof makeCrudRoute>, body: Record<string, unknown>) => route.PUT(new Request('http://x/api/example/todos', {
       method: 'PUT',
       body: JSON.stringify(body),
       headers: { 'content-type': 'application/json' },
@@ -2142,16 +2144,32 @@ describe('CRUD Factory', () => {
       const res = await put(guardedRoute(), { id: todo.id, is_done: true })
       expect(res.status).toBe(200)
       expect(await res.json()).not.toHaveProperty('ignoredFields')
-      const saved = await em.getRepository(Todo).findOne({ id: todo.id, tenantId: defaultTenantId }) as any
-      expect(saved.isDone).toBe(true)
+      const saved = await em.getRepository(Todo).findOne({ id: todo.id, tenantId: defaultTenantId })
+      expect(saved?.isDone).toBe(true)
     })
 
     it('names a key it will not write instead of answering a bare success', async () => {
       const res = await put(guardedRoute(), { id: todo.id, title: 'kept', no_such_field: 'x' })
       expect(res.status).toBe(200)
       expect(await res.json()).toMatchObject({ ignoredFields: [{ key: 'no_such_field', reason: 'unknown' }] })
-      const saved = await em.getRepository(Todo).findOne({ id: todo.id, tenantId: defaultTenantId }) as any
-      expect(saved.title).toBe('kept')
+      const saved = await em.getRepository(Todo).findOne({ id: todo.id, tenantId: defaultTenantId })
+      expect(saved?.title).toBe('kept')
+    })
+
+    it('rejects destructive null aliases before the ORM write callback', async () => {
+      const updateSchema = z.object({ id: z.string(), priorityScore: z.coerce.number().optional() })
+      const applyToEntity = jest.fn()
+      const route = makeCrudRoute<never, z.infer<typeof updateSchema>>({
+        metadata: { PUT: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        update: { schema: updateSchema, applyToEntity },
+      })
+      const response = await put(route, { id: todo.id, priority_score: null })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ fields: ['priority_score'] })
+      expect(applyToEntity).not.toHaveBeenCalled()
+      expect(await em.getRepository(Todo).findOne({ id: todo.id, tenantId: defaultTenantId }))
+        .toMatchObject({ title: 'before' })
     })
 
     it('rejects an unknown key outright when the route opts into strictness', async () => {
@@ -2160,10 +2178,6 @@ describe('CRUD Factory', () => {
       expect(await res.json()).toMatchObject({ fields: ['no_such_field'] })
     })
 
-    // Command-backed routes parse their body through `parseScopedCommandInput`,
-    // which rides the report on the parsed input as a Symbol. A `response`
-    // callback returning a bare `{ ok: true }` must still surface it, or the
-    // command path keeps answering success for a write that dropped a field.
     it('surfaces the report on a command-backed update response', async () => {
       commandBus.execute.mockResolvedValue({ result: { id: todo.id }, logEntry: { id: 'log-1' } })
       const commandSchema = z.object({ id: z.string(), title: z.string().optional() })
@@ -2174,14 +2188,18 @@ describe('CRUD Factory', () => {
         actions: {
           update: {
             commandId: 'example.todo.update',
-            schema: z.any(),
-            mapInput: ({ raw, ctx }: any) => parseScopedCommandInput(commandSchema, raw ?? {}, ctx, mockTranslate),
+            schema: z.unknown(),
+            mapInput: ({ raw, ctx }) => {
+              const parsed = parseScopedCommandInput(commandSchema, raw ?? {}, ctx, mockTranslate)
+              const { base, custom } = splitCustomFieldPayload(parsed)
+              return Object.keys(custom).length ? { ...base, customFields: custom } : base
+            },
             response: () => ({ ok: true }),
           },
         },
       })
 
-      const res = await put(route, { id: todo.id, title: 'kept', no_such_field: 'x' })
+      const res = await put(route, { id: todo.id, title: 'kept', no_such_field: 'x', cf_priority: 5 })
 
       expect(res.status).toBe(200)
       expect(await res.json()).toEqual({
@@ -2200,8 +2218,8 @@ describe('CRUD Factory', () => {
         actions: {
           create: {
             commandId: 'example.todo.create',
-            schema: z.any(),
-            mapInput: ({ raw, ctx }: any) => parseScopedCommandInput(commandSchema, raw ?? {}, ctx, mockTranslate),
+            schema: z.unknown(),
+            mapInput: ({ raw, ctx }) => parseScopedCommandInput(commandSchema, raw ?? {}, ctx, mockTranslate),
             response: () => ({ id: 'todo-cmd-1' }),
           },
         },
@@ -2220,18 +2238,16 @@ describe('CRUD Factory', () => {
       })
     })
 
-    // `immutableFields` means "cannot change AFTER creation", so creation itself
-    // must accept the field. Enforcing it on POST would reject the request that
-    // sets it in the first place.
     it('still accepts an immutable field on create', async () => {
-      const route = makeCrudRoute({
+      const createSchema = z.object({ title: z.string() })
+      const route = makeCrudRoute<z.infer<typeof createSchema>>({
         metadata: { POST: { requireAuth: true } },
         orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
         indexer: { entityType: 'example.todo' },
         writeGuard: { immutableFields: ['title'] },
         create: {
-          schema: z.object({ title: z.string() }),
-          mapToEntity: (input) => ({ title: (input as any).title }),
+          schema: createSchema,
+          mapToEntity: (input) => ({ title: input.title }),
         },
       })
       const res = await route.POST(new Request('http://x/api/example/todos', {
@@ -2246,6 +2262,22 @@ describe('CRUD Factory', () => {
       const res = await put(guardedRoute({ immutableFields: ['title'] }), { id: todo.id, title: 'nope' })
       expect(res.status).toBe(400)
       expect(await res.json()).toMatchObject({ fields: ['title'] })
+    })
+
+    it.each([
+      { key: 'conflicting_field', body: { isDone: true, is_done: false }, config: undefined },
+      { key: 'immutable_field', body: { title: 'changed' }, config: { immutableFields: ['title'] } },
+      { key: 'unknown_field', body: { made_up: true }, config: { rejectUnknownFields: true } },
+    ])('resolves the runtime translator for ORM $key errors', async ({ key, body, config }) => {
+      mockTranslate.mockImplementation((messageKey: string, fallback?: string) =>
+        messageKey === `errors.write_guard.${key}` ? `localized:${key}` : fallback ?? messageKey)
+      try {
+        const response = await put(guardedRoute(config), { id: todo.id, ...body })
+        expect(response.status).toBe(400)
+        expect(await response.json()).toMatchObject({ error: `localized:${key}` })
+      } finally {
+        mockTranslate.mockImplementation((messageKey: string, fallback?: string) => fallback ?? messageKey)
+      }
     })
 
     it('refuses to guess when both spellings arrive with different values', async () => {

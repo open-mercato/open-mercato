@@ -193,7 +193,7 @@ function productUomCrossFieldRefinement(
 const productBaseSchema = scoped.extend({
   title: z.string().trim().min(1).max(255),
   subtitle: z.string().trim().max(255).nullable().optional(),
-  description: z.string().trim().max(4000).optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   sku: skuSchema.nullable().optional(),
   handle: handleSchema.optional(),
   taxRateId: uuid().nullable().optional(),
@@ -496,8 +496,8 @@ const priceBaseSchema = scoped.extend({
   customerId: uuid().optional(),
   customerGroupId: uuid().optional(),
   metadata: metadataSchema,
-  startsAt: z.coerce.date().optional(),
-  endsAt: z.coerce.date().optional(),
+  startsAt: z.coerce.date().nullable().optional(),
+  endsAt: z.coerce.date().nullable().optional(),
 })
 
 // Both checks only fire when both sides of the comparison are present in this
@@ -522,7 +522,7 @@ const priceQuantityRangeRefinement = (
 }
 
 const priceValidityWindowRefinement = (
-  input: { startsAt?: Date; endsAt?: Date },
+  input: { startsAt?: Date | null; endsAt?: Date | null },
   ctx: z.RefinementCtx,
 ) => {
   if (input.startsAt && input.endsAt && input.endsAt < input.startsAt) {

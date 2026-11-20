@@ -524,7 +524,7 @@ export type CrudCommandActionConfig = {
   // `input` is the mapped command input. It carries `ignoredFields` when the write
   // guard found keys it will not apply, so a response can tell the caller what was
   // dropped instead of answering a bare `{ ok: true }`.
-  response?: (args: { result: any; logEntry: any | null; ctx: CrudCtx; input: any }) => any
+  response?: (args: { result: any; logEntry: any | null; ctx: CrudCtx; input: unknown }) => any
   status?: number
 }
 
@@ -2573,7 +2573,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       // `immutableFields` names fields that cannot change AFTER creation, so the
       // create path must accept exactly those. Passing the option through here
       // would answer 400 to the POST that sets the field in the first place.
-      const createGuard = guardWriteBody(createConfig.schema, body, createWriteGuardConfig(opts.writeGuard))
+      const { translate } = await resolveTranslations()
+      const writeGuard = { ...createWriteGuardConfig(opts.writeGuard), translate: opts.writeGuard?.translate ?? translate }
+      const createGuard = guardWriteBody(createConfig.schema, body, writeGuard)
       const createIgnoredFields = createGuard.ignoredFields
       let input = createConfig.schema.parse(createGuard.body)
       const beforeInterceptors = await applyInterceptorsBefore({
@@ -2588,7 +2590,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (interceptorRequestPayload.body) {
         // See the update path: the report describes the caller's body, not the
         // post-parse one an interceptor handed back.
-        const rewritten = guardWriteBody(createConfig.schema, interceptorRequestPayload.body, createWriteGuardConfig(opts.writeGuard))
+        const rewritten = guardWriteBody(createConfig.schema, interceptorRequestPayload.body, writeGuard)
         input = createConfig.schema.parse(rewritten.body)
       }
 
@@ -2909,7 +2911,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       // Inspect before Zod strips: a key that is neither writable nor rejected
       // would otherwise vanish behind a 200.
-      const updateGuard = guardWriteBody(updateConfig.schema, body, opts.writeGuard)
+      const { translate } = await resolveTranslations()
+      const writeGuard = { ...opts.writeGuard, translate: opts.writeGuard?.translate ?? translate }
+      const updateGuard = guardWriteBody(updateConfig.schema, body, writeGuard)
       const updateIgnoredFields = updateGuard.ignoredFields
       let input = updateConfig.schema.parse(updateGuard.body)
       const beforeInterceptors = await applyInterceptorsBefore({
@@ -2926,7 +2930,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         // already been through `schema.parse`, so Zod has stripped the caller's
         // unknown keys and re-deriving the list here would always come back empty.
         // What we report is what the caller sent, not what interceptors left.
-        const rewritten = guardWriteBody(updateConfig.schema, interceptorRequestPayload.body, opts.writeGuard)
+        const rewritten = guardWriteBody(updateConfig.schema, interceptorRequestPayload.body, writeGuard)
         input = updateConfig.schema.parse(rewritten.body)
       }
 
