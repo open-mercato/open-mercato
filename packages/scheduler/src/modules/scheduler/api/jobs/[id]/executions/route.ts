@@ -36,10 +36,13 @@ export async function GET(
     return NextResponse.json({ error: translate('scheduler.error.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
+  const scheduleId = params.id
+  if (!scheduleIdSchema.safeParse(scheduleId).success) {
+    return NextResponse.json({ error: translate('scheduler.error.invalid_id', 'Invalid schedule id') }, { status: 400 })
+  }
+
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
-
-  const scheduleId = params.id
 
   try {
     // Load by id alone, then apply isolation to the loaded row. Folding the actor's
@@ -152,6 +155,8 @@ export async function GET(
   }
 }
 
+const scheduleIdSchema = z.guid()
+
 // Query schemas
 const executionsQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
@@ -207,7 +212,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
-        { status: 400, description: 'Local strategy not supported', schema: errorResponseSchema },
+        { status: 400, description: 'Invalid schedule id or local strategy not supported', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
         { status: 404, description: 'Schedule not found', schema: errorResponseSchema },
