@@ -90,6 +90,22 @@ afterEach(() => {
 })
 
 describe('CrudForm section registry generation', () => {
+  it('generates matching fact and lazy runtime registries from the reusable non-production fixture', async () => {
+    const fixtureSource = path.resolve(__dirname, '../../../../../../.ai/qa/fixtures/crudform-section-policy/src/modules/form_policy_fixture')
+    const fixtureDestination = path.join(root, 'app/src/modules/form_policy_fixture')
+    fs.cpSync(fixtureSource, fixtureDestination, { recursive: true })
+    await generateModuleRegistries({ resolver: resolver([{ id: 'form_policy_fixture', from: '@app' }]), quiet: true })
+
+    const facts = generated('facts')
+    const browser = generated('runtime')
+    expect(facts).toContain('form_policy_fixture/form-sections')
+    expect(facts.match(/fact: sections0\.(?:hostFacts|contributionFacts)\[\d+\]/g)).toHaveLength(5)
+    expect(browser.match(/load: \(\) => import\(/g)).toHaveLength(5)
+    expect(browser).toContain('form_policy_fixture.hide-uncovered@v1')
+    expect(browser).toContain('form_policy_fixture.record')
+    expect(browser).not.toContain('form_policy_fixture/form-sections')
+  })
+
   it('keeps server imports isolated, follows dependency order and excludes disabled modules', async () => {
     const packageModule = 'package/src/modules/shared_forms'
     const dependent = 'app/src/modules/alpha_forms'

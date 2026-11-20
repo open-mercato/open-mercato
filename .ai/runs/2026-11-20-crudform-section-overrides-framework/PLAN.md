@@ -31,7 +31,7 @@ Status: in-progress
 | 3 | 3.3 | Validate and project section fields and payload leaves | dispatch | done | 136886649f |
 | 3 | 3.4 | Bind submit, delete and action clients to their own resource versions | dispatch | done | b851023362 |
 | 3 | 3.2-review-fix | Fence form readiness by organization and isolate group preferences | dispatch | done | 9df7e6ab6d |
-| 4 | 4.1 | Build the non-production framework fixture | dispatch | todo | — |
+| 4 | 4.1 | Build the non-production framework fixture | dispatch | done | this commit |
 | 4 | 4.2 | Verify discovery, resolution, mutations and no-policy compatibility | dispatch | todo | — |
 | 4 | 4.3 | Define the discovery, runtime and generator compatibility guarantees | dispatch | todo | — |
 | 4 | 4.4 | Run and record the framework validation gates | dispatch | todo | — |
