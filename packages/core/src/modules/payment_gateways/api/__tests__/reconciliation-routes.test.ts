@@ -59,6 +59,11 @@ it('derives read scope from authentication rather than caller query parameters',
   expect(mockList).toHaveBeenCalledWith(expect.anything(), { tenantId: auth.tenantId, organizationId: auth.orgId }, expect.objectContaining({ status: 'resolved' }))
 })
 
+it('rejects repeated scalar filters before querying', async () => {
+  expect((await GET(new Request('http://localhost/?status=required&status=resolved'), { auth })).status).toBe(422)
+  expect(mockList).not.toHaveBeenCalled()
+})
+
 it('validates confirmation and UUID before entering mutation guards', async () => {
   expect((await POST(request({ ...evidence, confirmed: false }), { auth, params: { id } })).status).toBe(422)
   expect((await POST(request(), { auth, params: { id: 'invalid' } })).status).toBe(422)
