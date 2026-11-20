@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 191 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 192 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -42,6 +42,7 @@ This catalog indexes 191 focused lessons. Route the task first, then read only r
 
 ### architecture
 
+- [Bounded merged pagination needs a shared ordering](lessons/bounded-merged-pagination-needs-shared-ordering.md) — area:architecture,module-data,testing; module:workflows; topic:pagination,database-queries,sorting,pagination-boundaries
 - [Browser error reporting requires client registration](lessons/browser-error-reporting-requires-client-registration.md) — area:architecture,backend-ui,testing; module:telemetry,ui; topic:error-reporting,runtime-startup,browser,testing
 - [Shutdown failure reporting must not block cleanup](lessons/shutdown-failure-reporting-must-not-block-cleanup.md) — area:architecture,testing; module:telemetry,webhooks; topic:error-reporting,runtime-startup,shutdown,subscribers
 
