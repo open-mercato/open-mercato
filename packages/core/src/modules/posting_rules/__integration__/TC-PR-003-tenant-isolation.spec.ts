@@ -102,14 +102,14 @@ test.describe('TC-PR-003: posting_rules tenant and organization isolation', () =
         expect(await listIds(request, actor.token, '/api/posting_rules/cost-centers'), says('own cost centre is visible')).toContain(actor.org.costCenterId);
 
         const renameRes = await apiRequest(request, 'PUT', '/api/posting_rules/cost-centers', { token: actor.token, data: { id: owner.costCenterId, name: 'QA TC-PR-003 hijacked' } });
-        expect([403, 404], says(`PUT A's cost centre answered ${renameRes.status()}`)).toContain(renameRes.status());
+        expect(renameRes.status(), says('PUT A\'s cost centre is not found')).toBe(404);
         const deleteCostCenterRes = await apiRequest(request, 'DELETE', `/api/posting_rules/cost-centers?id=${owner.costCenterId}`, { token: actor.token });
-        expect([403, 404], says(`DELETE A's cost centre answered ${deleteCostCenterRes.status()}`)).toContain(deleteCostCenterRes.status());
+        expect(deleteCostCenterRes.status(), says('DELETE A\'s cost centre is not found')).toBe(404);
 
         const ruleUpdateRes = await apiRequest(request, 'PUT', '/api/posting_rules/default-account-posting-rules', { token: actor.token, data: { id: owner.ruleId, defaultCostCenterId: null } });
-        expect([403, 404], says(`PUT A's rule answered ${ruleUpdateRes.status()}`)).toContain(ruleUpdateRes.status());
+        expect(ruleUpdateRes.status(), says('PUT A\'s rule is not found')).toBe(404);
         const ruleDeleteRes = await apiRequest(request, 'DELETE', `/api/posting_rules/default-account-posting-rules?id=${owner.ruleId}`, { token: actor.token });
-        expect([403, 404], says(`DELETE A's rule answered ${ruleDeleteRes.status()}`)).toContain(ruleDeleteRes.status());
+        expect(ruleDeleteRes.status(), says('DELETE A\'s rule is not found')).toBe(404);
 
         const settingsRes = await apiRequest(request, 'GET', '/api/posting_rules/settings', { token: actor.token });
         expect(settingsRes.status()).toBe(200);
