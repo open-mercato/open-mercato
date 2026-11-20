@@ -25,6 +25,7 @@ Status: in-progress
 | 2 | 2.7 | Derive section hosts for qualifying CRUD routes | dispatch | done | this commit |
 | 2 | 2.7-review-fix | Preserve original CRUD lifecycle and generated route authority | inline | done | this commit |
 | 2 | 2.8 | Deliver outbox revisions with monotonic fencing and retry | dispatch | done | this commit |
+| 2 | 2.8-review-fix | Pin durable outbox contracts and recover terminal reporting | inline | done | this commit |
 | 3 | 3.1 | Introduce optional explicit CrudForm identity and composition props | dispatch | todo | — |
 | 3 | 3.2 | Resolve policies and block mutations until the host is ready | dispatch | todo | — |
 | 3 | 3.3 | Validate and project section fields and payload leaves | dispatch | todo | — |
@@ -124,6 +125,10 @@ Reuse original parsers, mapping, API interception and synchronous lifecycle at t
 #### 2.8 Deliver outbox revisions with monotonic fencing and retry
 
 Framework spec item 7d. Add `outbox` sinks: the `outboxColumns` mixin, revision-qualified outcome writes, provider-enforced monotonic remote fencing, retained identity/revision tombstones across delete/restore, post-commit coalesced enqueue, sweeper, `deliver`/`validateExternal` hooks with timeout and abort signal, backoff and terminal `failed` state, `__sync` read-back, `<sinkId>.retry` section-action façade, compensating delete/undo delivery, credentials and `url-safety`/`host-pinning` enforcement.
+
+#### 2.8-review-fix Pin durable outbox contracts and recover terminal reporting
+
+Reject stale undo and incompatible durable intents, isolate sink mappings, and retry terminal notifications without redelivery.
 
 ### Phase 3 — UI integration
 

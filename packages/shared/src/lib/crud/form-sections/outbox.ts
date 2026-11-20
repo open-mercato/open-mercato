@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { z } from 'zod'
 import {
@@ -21,6 +22,8 @@ const logger = createLogger('shared:crud-form-sections')
 const maxRevision = 9_223_372_036_854_775_807n
 const validationTimeoutMs = 3000
 const deliveryTimeoutMs = 30_000
+const failureReportLeaseMs = 60_000
+const failureReportRetryMs = 30_000
 const uuid = z.uuid().transform((value) => value.toLowerCase())
 const outboxScopeSchema = z.object({ tenantId: uuid, organizationId: uuid })
 export const crudFormSectionOutboxJobSchema = outboxScopeSchema.extend({
@@ -28,16 +31,32 @@ export const crudFormSectionOutboxJobSchema = outboxScopeSchema.extend({
 }).strict()
 export type CrudFormSectionOutboxIdentity = z.infer<typeof crudFormSectionOutboxJobSchema>
 export type CrudFormSectionOutboxScope = z.infer<typeof outboxScopeSchema>
-export type CrudFormSectionOutboxError = 'delivery_unavailable' | 'remote_rejected' | 'remote_revision_ahead'
+const outboxErrorSchema = z.enum([
+  'delivery_unavailable', 'remote_rejected', 'remote_revision_ahead', 'delivery_contract_mismatch', 'delivery_intent_invalid',
+])
+export type CrudFormSectionOutboxError = z.infer<typeof outboxErrorSchema>
 export const crudFormSectionOutboxSyncSchema = z.strictObject({
   status: z.enum(['pending', 'synced', 'failed']),
   lastAttemptAt: z.iso.datetime().nullable(),
-  errorCode: z.enum(['delivery_unavailable', 'remote_rejected', 'remote_revision_ahead']).nullable(),
+  errorCode: outboxErrorSchema.nullable(),
 })
 type Values = Record<string, unknown>
 type Operation = 'upsert' | 'delete' | 'restore'
 type Status = 'pending' | 'synced' | 'failed'
 type DeliveryFact = NonNullable<CrudFormExtensionSinkFact['externalDelivery']>
+type FailureEffect = 'log' | 'event' | 'notification'
+export type CrudFormSectionOutboxFailureReport = {
+  id: string
+  integrationId: string
+  actorId: string | null
+  code: CrudFormSectionOutboxError
+  notificationType: string
+  effects: FailureEffect[]
+}
+type FailureReporting = {
+  failureReports: CrudFormSectionOutboxFailureReport[]
+  nextFailureReportAt: Date | null
+}
 
 type DeliveryState = {
   syncStatus: Status
@@ -51,11 +70,13 @@ type Intent = DeliveryState & {
   values: Values | null
   updatedAt: Date
   deliveryRevision: string
+  deliveryIntegrationId: string
+  deliveryContractId: string
   idempotencyKey: string
   pendingOperation: Operation
   deliveryActorId: string | null
 }
-export type CrudFormSectionOutboxRow = Intent & {
+export type CrudFormSectionOutboxRow = Intent & FailureReporting & {
   id: string
   tenantId: string
   organizationId: string
@@ -65,7 +86,7 @@ export type CrudFormSectionOutboxRow = Intent & {
 export type CrudFormSectionOutboxMirror = {
   read(em: EntityManager, identity: CrudFormSectionOutboxIdentity, locked?: boolean): Promise<CrudFormSectionOutboxRow | null>
   write(em: EntityManager, identity: CrudFormSectionOutboxIdentity, row: CrudFormSectionOutboxRow | null, intent: Intent): Promise<void>
-  compareAndSet(em: EntityManager, identity: CrudFormSectionOutboxIdentity, row: CrudFormSectionOutboxRow, status: Status, changes: Partial<DeliveryState> & { values?: null }): Promise<boolean>
+  compareAndSet(em: EntityManager, identity: CrudFormSectionOutboxIdentity, row: CrudFormSectionOutboxRow, status: Status, changes: Partial<DeliveryState & FailureReporting> & { values?: null }): Promise<boolean>
   listDue(em: EntityManager, scope: CrudFormSectionOutboxScope, now: Date, limit: number): Promise<readonly string[]>
 }
 
@@ -118,6 +139,7 @@ export type CrudFormSectionOutboxServices = {
     status: Status
     code: CrudFormSectionOutboxError | null
     failureNotificationType: string
+    failure?: { effect: FailureEffect; reportId: string }
   }): Promise<void>
 }
 
@@ -136,8 +158,11 @@ export function validCrudFormSectionExternalDelivery(fact: CrudFormExtensionSink
   const external = fact.externalDelivery
   if (fact.atomicity !== 'outbox') return external === undefined && runtime === undefined
   return !!external && !!runtime
-    && Object.keys(external).length === 5
+    && Object.keys(external).length === 6
     && symbolicIdSchema.safeParse(external.integrationId).success
+    && symbolicIdSchema.safeParse(fact.targetEntityId).success
+    && typeof external.contractId === 'string' && external.contractId.startsWith(`${fact.targetEntityId}@v`)
+    && /^[1-9][0-9]*$/.test(external.contractId.slice(fact.targetEntityId.length + 2))
     && Number.isSafeInteger(external.maxAttempts) && external.maxAttempts > 0
     && external.coalesce === 'latest-state'
     && external.fencing === 'remote-monotonic-revision/v1'
@@ -161,6 +186,7 @@ export function collectCrudFormSectionOutboxRuntimes(sinks: Iterable<CrudFormSec
         || previous.outbox?.deliver !== sink.outbox.deliver || previous.outbox?.mirror !== sink.outbox.mirror
         || previous.outbox?.failureNotificationType !== sink.outbox.failureNotificationType
         || previousDelivery?.integrationId !== sink.fact.externalDelivery.integrationId
+        || previousDelivery.contractId !== sink.fact.externalDelivery.contractId
         || previousDelivery.maxAttempts !== sink.fact.externalDelivery.maxAttempts)) {
       conflicts.add(deliveryId)
     } else if (!previous) selected.set(deliveryId, sink)
@@ -181,6 +207,22 @@ function revisionOf(value: string): bigint | null {
   if (typeof value !== 'string' || !/^[1-9][0-9]{0,18}$/.test(value)) return null
   const revision = BigInt(value)
   return revision <= maxRevision ? revision : null
+}
+
+export const crudFormSectionOutboxRevisionSchema = z.string().refine((revision) => revisionOf(revision) !== null)
+
+function storedIntentError(row: CrudFormSectionOutboxRow, fact: DeliveryFact, identity: CrudFormSectionOutboxIdentity) {
+  if (row.deliveryIntegrationId !== fact.integrationId || row.deliveryContractId !== fact.contractId) {
+    return 'delivery_contract_mismatch'
+  }
+  const key = [identity.tenantId, identity.organizationId, identity.sinkId, identity.hostId, row.deliveryRevision].join(':')
+  if (revisionOf(row.deliveryRevision) === null || row.idempotencyKey !== key
+      || !['upsert', 'delete', 'restore'].includes(row.pendingOperation)) return 'delivery_intent_invalid'
+  return null
+}
+
+function requiresReconciliation(code: CrudFormSectionOutboxError | null): boolean {
+  return code === 'remote_revision_ahead' || code === 'delivery_contract_mismatch' || code === 'delivery_intent_invalid'
 }
 
 function requireIdentity(sinkId: string, hostId: string, scope: CrudFormSectionSinkScope): CrudFormSectionOutboxIdentity {
@@ -272,13 +314,17 @@ async function writeIntent(
   context: SinkMutationContext,
   operation: Operation,
   values: Values | null,
+  expectedRevision?: string,
 ): Promise<CrudFormSectionSinkSnapshot> {
-  if (!sink.outbox) return mismatch()
+  if (!sink.outbox || !sink.fact.externalDelivery) return mismatch()
   const identity = requireIdentity(sink.fact.targetEntityId, context.hostResourceId, context.scope)
   const { mirror } = sink.outbox
   const row = await lockedRow(mirror, context, identity)
   const currentRevision = row ? revisionOf(row.deliveryRevision) : 0n
-  if (currentRevision === null || currentRevision === maxRevision || row?.lastErrorCode === 'remote_revision_ahead') return mismatch()
+  const fact = sink.fact.externalDelivery
+  if (currentRevision === null || currentRevision === maxRevision
+      || (expectedRevision !== undefined && row?.deliveryRevision !== expectedRevision)
+      || (row && (requiresReconciliation(row.lastErrorCode) || storedIntentError(row, fact, identity)))) return mismatch()
   const deliveryRevision = (currentRevision + 1n).toString()
   const now = new Date()
   const before = row?.pendingOperation === 'delete' ? null : row?.values ?? null
@@ -289,11 +335,12 @@ async function writeIntent(
   await mirror.write(context.em, identity, row, {
     values: operation === 'delete' ? row?.values ?? null : values,
     updatedAt, deliveryRevision, idempotencyKey, pendingOperation: operation,
+    deliveryIntegrationId: fact.integrationId, deliveryContractId: fact.contractId,
     deliveryActorId: actor.success ? actor.data : null, syncStatus: 'pending', syncAttempts: 0,
     nextAttemptAt: now, lastAttemptAt: null, lastErrorCode: null, externalId: row?.externalId ?? null,
   })
   enqueueOnCommit(context, identity)
-  return { before, after }
+  return { before, after, outboxAfterRevision: deliveryRevision }
 }
 
 export function defineCrudFormSectionOutboxSink<Payload extends Values>(
@@ -325,8 +372,9 @@ export function defineCrudFormSectionOutboxSink<Payload extends Values>(
     onHostDeleted: (context) => writeIntent(sink, context, 'delete', null),
     ...(declaration.fact.undo === 'snapshot' ? {
       undo: async (context) => {
-        const before = context.snapshot.before
-        await writeIntent(sink, context, before === null ? 'delete' : 'restore', before)
+        const { before, outboxAfterRevision } = context.snapshot
+        if (!outboxAfterRevision || revisionOf(outboxAfterRevision) === null) return mismatch()
+        await writeIntent(sink, context, before === null ? 'delete' : 'restore', before, outboxAfterRevision)
       },
     } : {}),
   })
@@ -377,9 +425,10 @@ export function assertPrevalidatedCrudFormSectionOutbox(
 export async function retryCrudFormSectionOutbox(sink: CrudFormSectionSink, context: SinkMutationContext): Promise<void> {
   const identity = requireIdentity(sink.fact.targetEntityId, context.hostResourceId, context.scope)
   const mirror = sink.outbox?.mirror
-  if (!mirror) return mismatch()
+  if (!mirror || !sink.fact.externalDelivery) return mismatch()
   const row = await lockedRow(mirror, context, identity)
-  if (!row || row.syncStatus !== 'failed' || row.lastErrorCode === 'remote_revision_ahead') return mismatch()
+  if (!row || row.syncStatus !== 'failed' || requiresReconciliation(row.lastErrorCode)
+      || storedIntentError(row, sink.fact.externalDelivery, identity)) return mismatch()
   if (!await mirror.compareAndSet(context.em, identity, row, 'failed', {
     syncStatus: 'pending', syncAttempts: 0, nextAttemptAt: new Date(), lastErrorCode: null,
   })) return mismatch()
@@ -389,13 +438,71 @@ export async function retryCrudFormSectionOutbox(sink: CrudFormSectionSink, cont
 export async function preflightCrudFormSectionOutboxIntent(
   sink: CrudFormSectionSink, context: SinkMutationContext,
 ): Promise<void> {
-  if (!sink.outbox) return
+  if (!sink.outbox || !sink.fact.externalDelivery) return
   const identity = requireIdentity(sink.fact.targetEntityId, context.hostResourceId, context.scope)
   const row = await lockedRow(sink.outbox.mirror, context, identity)
   if (row) {
     const revision = revisionOf(row.deliveryRevision)
-    if (revision === null || revision === maxRevision || row.lastErrorCode === 'remote_revision_ahead') mismatch()
+    if (revision === maxRevision || requiresReconciliation(row.lastErrorCode)
+        || storedIntentError(row, sink.fact.externalDelivery, identity)) mismatch()
   }
+}
+
+async function updateFailureReporting(
+  em: EntityManager, mirror: CrudFormSectionOutboxMirror, identity: CrudFormSectionOutboxIdentity,
+  update: (row: CrudFormSectionOutboxRow) => Partial<FailureReporting> | undefined,
+): Promise<boolean> {
+  const tx = em.fork()
+  let won = false
+  await withAtomicFlush(tx, [async () => {
+    const row = await readScopedMirror(mirror, tx, identity, true)
+    const changed = row && update(row)
+    if (row && changed) won = await mirror.compareAndSet(tx, identity, row, row.syncStatus, changed)
+  }], { transaction: true, label: 'crud-form-section-outbox-failure-report' })
+  return won
+}
+
+async function reportPendingFailure(
+  em: EntityManager, mirror: CrudFormSectionOutboxMirror, identity: CrudFormSectionOutboxIdentity,
+  resourceKind: string, service: CrudFormSectionOutboxServices, now: Date,
+): Promise<void> {
+  if (!service.reportOutcome) return
+  const lease = new Date(now.getTime() + failureReportLeaseMs)
+  let report: CrudFormSectionOutboxFailureReport | undefined
+  const claimed = await updateFailureReporting(em, mirror, identity, (row) => {
+    if (!row.nextFailureReportAt || row.nextFailureReportAt > now || !row.failureReports.length) return
+    report = row.failureReports[0]
+    return { nextFailureReportAt: lease }
+  })
+  if (!claimed || !report) return
+  const { id: reportId, integrationId, actorId, code, effects, notificationType } = report
+  const ownsLease = (row: CrudFormSectionOutboxRow) => row.nextFailureReportAt?.getTime() === lease.getTime()
+    && row.failureReports[0]?.id === reportId
+  for (const effect of effects) {
+    const latest = await readScopedMirror(mirror, em.fork(), identity)
+    if (!latest || !ownsLease(latest)) return
+    try {
+      await service.reportOutcome({
+        identity, integrationId, resourceKind, actorId, code, status: 'failed',
+        failureNotificationType: notificationType, failure: { effect, reportId },
+      })
+    } catch {
+      reportFailure('outcome_reporting', identity.sinkId)
+      continue
+    }
+    if (!await updateFailureReporting(em, mirror, identity, (row) => {
+      if (!ownsLease(row)) return
+      const [first, ...rest] = row.failureReports
+      return { failureReports: [{ ...first, effects: first.effects.filter((pending) => pending !== effect) }, ...rest] }
+    })) return
+  }
+  await updateFailureReporting(em, mirror, identity, (row) => {
+    if (!ownsLease(row)) return
+    const [first, ...rest] = row.failureReports
+    return first.effects.length
+      ? { nextFailureReportAt: new Date(now.getTime() + failureReportRetryMs) }
+      : { failureReports: rest, nextFailureReportAt: rest.length ? now : null }
+  })
 }
 
 export async function deliverCrudFormSectionOutbox(input: {
@@ -410,21 +517,75 @@ export async function deliverCrudFormSectionOutbox(input: {
   const runtime = sink.outbox
   if (!fact || !runtime || !validCrudFormSectionExternalDelivery(sink.fact, runtime) || identity.sinkId !== sink.fact.targetEntityId) return
   const { mirror } = runtime
-  const row = await readScopedMirror(mirror, em.fork(), identity)
+  const report = (at: Date) => reportPendingFailure(em, mirror, identity, sink.hostDetailEntityId, service, at)
+  const initial = await readScopedMirror(mirror, em.fork(), identity)
+  if (initial?.nextFailureReportAt && initial.nextFailureReportAt <= now) await report(now)
+  const row = initial?.nextFailureReportAt && initial.nextFailureReportAt <= now
+    ? await readScopedMirror(mirror, em.fork(), identity) : initial
   if (!row || row.syncStatus !== 'pending' || !row.nextAttemptAt || row.nextAttemptAt > now) return
-  const revision = revisionOf(row.deliveryRevision)
-  if (revision === null) {
-    reportFailure('invalid_revision', identity.sinkId)
-    return
-  }
-  const expectedKey = [
-    identity.tenantId, identity.organizationId, identity.sinkId, identity.hostId, row.deliveryRevision,
-  ].join(':')
-  if (row.idempotencyKey !== expectedKey) {
-    reportFailure('invalid_idempotency_key', identity.sinkId)
-    return
+
+  const complete = async (
+    attempted: CrudFormSectionOutboxRow, state: Partial<DeliveryState> & { syncStatus: Status; values?: null },
+    completedAt: Date,
+  ) => {
+    const outcomeEm = em.fork()
+    let won = false
+    await withAtomicFlush(outcomeEm, [async () => {
+      if (state.syncStatus === 'failed') {
+        const latest = await readScopedMirror(mirror, outcomeEm, identity, true)
+        if (!latest) return
+        const failureReport: CrudFormSectionOutboxFailureReport = {
+          id: randomUUID(), integrationId: fact.integrationId, actorId: attempted.deliveryActorId,
+          code: state.lastErrorCode ?? 'delivery_unavailable', notificationType: runtime.failureNotificationType,
+          effects: attempted.deliveryActorId ? ['log', 'event', 'notification'] : ['log', 'event'],
+        }
+        won = await mirror.compareAndSet(outcomeEm, identity, {
+          ...attempted, nextFailureReportAt: latest.nextFailureReportAt,
+        }, 'pending', {
+          ...state, failureReports: [...latest.failureReports, failureReport],
+          nextFailureReportAt: latest.nextFailureReportAt ?? completedAt,
+        })
+      } else {
+        won = await mirror.compareAndSet(outcomeEm, identity, attempted, 'pending', state)
+        if (won && state.syncStatus === 'synced') {
+          await service.recordMapping?.(outcomeEm, {
+            identity, integrationId: fact.integrationId, resourceKind: sink.hostDetailEntityId,
+            externalId: state.externalId ?? null, operation: attempted.pendingOperation,
+          })
+        }
+      }
+    }], { transaction: true, label: 'crud-form-section-outbox-outcome' })
+    if (!won) {
+      const current = await readScopedMirror(mirror, em.fork(), identity)
+      if (current?.syncStatus === 'pending' && current.nextAttemptAt && current.nextAttemptAt <= completedAt) await enqueue(service, identity)
+      return
+    }
+    if (state.syncStatus === 'failed') {
+      await report(completedAt)
+      return
+    }
+    if (state.syncStatus === 'pending' && state.nextAttemptAt) {
+      await enqueue(service, identity, Math.max(0, state.nextAttemptAt.getTime() - completedAt.getTime()))
+    }
+    try {
+      await service.reportOutcome?.({
+        identity, integrationId: fact.integrationId, resourceKind: sink.hostDetailEntityId,
+        actorId: attempted.deliveryActorId, status: state.syncStatus, code: state.lastErrorCode ?? null,
+        failureNotificationType: runtime.failureNotificationType,
+      })
+    } catch {
+      reportFailure('outcome_reporting', identity.sinkId)
+    }
   }
 
+  const intentError = storedIntentError(row, fact, identity)
+  const revision = revisionOf(row.deliveryRevision)
+  if (intentError || revision === null) {
+    await complete(row, {
+      syncStatus: 'failed', lastErrorCode: intentError ?? 'delivery_intent_invalid', lastAttemptAt: now, nextAttemptAt: null,
+    }, now)
+    return
+  }
   let reply: CrudFormSectionOutboxReply | null
   try {
     const response = await providerCall(service, fact, identity, deliveryTimeoutMs, (provider) =>
@@ -439,46 +600,13 @@ export async function deliverCrudFormSectionOutbox(input: {
   }
   const completedAt = input.now ?? new Date()
 
-  const complete = async (
-    attempted: CrudFormSectionOutboxRow, state: Partial<DeliveryState> & { syncStatus: Status; values?: null },
-  ) => {
-    const outcomeEm = em.fork()
-    let won = false
-    await withAtomicFlush(outcomeEm, [async () => {
-      won = await mirror.compareAndSet(outcomeEm, identity, attempted, 'pending', state)
-      if (won && state.syncStatus === 'synced') {
-        await service.recordMapping?.(outcomeEm, {
-          identity, integrationId: fact.integrationId, resourceKind: sink.hostDetailEntityId,
-          externalId: state.externalId ?? null, operation: attempted.pendingOperation,
-        })
-      }
-    }], { transaction: true, label: 'crud-form-section-outbox-outcome' })
-    if (won) {
-      if (state.syncStatus === 'pending' && state.nextAttemptAt) {
-        await enqueue(service, identity, Math.max(0, state.nextAttemptAt.getTime() - completedAt.getTime()))
-      }
-      try {
-        await service.reportOutcome?.({
-          identity, integrationId: fact.integrationId, resourceKind: sink.hostDetailEntityId,
-          actorId: attempted.deliveryActorId, status: state.syncStatus, code: state.lastErrorCode ?? null,
-          failureNotificationType: runtime.failureNotificationType,
-        })
-      } catch {
-        reportFailure('outcome_reporting', identity.sinkId)
-      }
-    } else {
-      const current = await readScopedMirror(mirror, em.fork(), identity)
-      if (current?.syncStatus === 'pending' && current.nextAttemptAt && current.nextAttemptAt <= completedAt) await enqueue(service, identity)
-    }
-  }
-
   if (reply?.status === 'applied' || reply?.status === 'identical') {
     const externalId = reply.externalId ?? row.externalId
     if (row.pendingOperation === 'delete' || externalId) {
       await complete(row, {
         syncStatus: 'synced', nextAttemptAt: null, lastAttemptAt: completedAt, lastErrorCode: null,
         ...(row.pendingOperation === 'delete' ? { values: null, externalId: null } : { externalId }),
-      })
+      }, completedAt)
       return
     }
     reply = null
@@ -487,10 +615,10 @@ export async function deliverCrudFormSectionOutbox(input: {
     const remote = revisionOf(reply.currentRevision)
     if (remote !== null && remote > revision) {
       const current = await readScopedMirror(mirror, em.fork(), identity)
-      if (!current || current.syncStatus !== 'pending') return
+      if (!current || current.syncStatus !== 'pending' || storedIntentError(current, fact, identity)) return
       const local = revisionOf(current.deliveryRevision)
       if (local !== null && remote > local) {
-        await complete(current, { syncStatus: 'failed', lastErrorCode: 'remote_revision_ahead', lastAttemptAt: completedAt, nextAttemptAt: null })
+        await complete(current, { syncStatus: 'failed', lastErrorCode: 'remote_revision_ahead', lastAttemptAt: completedAt, nextAttemptAt: null }, completedAt)
       } else if (current.nextAttemptAt && current.nextAttemptAt <= completedAt) {
         await enqueue(service, identity)
       }
@@ -505,5 +633,5 @@ export async function deliverCrudFormSectionOutbox(input: {
     lastErrorCode: reply?.status === 'rejected' ? 'remote_rejected' : 'delivery_unavailable',
     syncAttempts: attempts, lastAttemptAt: completedAt,
     nextAttemptAt: terminal ? null : new Date(completedAt.getTime() + calculateBackoffDelayMs(attempts)),
-  })
+  }, completedAt)
 }

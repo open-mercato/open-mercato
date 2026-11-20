@@ -48,9 +48,11 @@ function fixture(delivery: Partial<CrudFormSectionOutboxDelivery<{ brand: string
   const scoped = (wanted: CrudFormSectionOutboxIdentity) => wanted.tenantId === tenantId
     && wanted.organizationId === organizationId && wanted.hostId === hostId && wanted.sinkId === identity.sinkId
   const write = jest.fn<ReturnType<CrudFormSectionOutboxMirror['write']>, Parameters<CrudFormSectionOutboxMirror['write']>>(
-    async (em, wanted, _row, intent) => {
+    async (em, wanted, row, intent) => {
       if (!scoped(wanted) || !em.isInTransaction()) throw new Error('[internal] Invalid scope')
-      staged.set(em, { ...wanted, ...intent, id: 'mirror-id' })
+      staged.set(em, { ...wanted, ...intent, id: 'mirror-id',
+        failureReports: row?.failureReports ?? [], nextFailureReportAt: row?.nextFailureReportAt ?? null,
+      })
     },
   )
   const mirror: CrudFormSectionOutboxMirror = {
@@ -60,7 +62,10 @@ function fixture(delivery: Partial<CrudFormSectionOutboxDelivery<{ brand: string
       const actual = staged.get(em)
       if (!scoped(wanted) || !actual || actual.id !== row.id || actual.syncStatus !== status
           || actual.deliveryRevision !== row.deliveryRevision || actual.syncAttempts !== row.syncAttempts
+          || actual.idempotencyKey !== row.idempotencyKey || actual.pendingOperation !== row.pendingOperation
+          || actual.deliveryIntegrationId !== row.deliveryIntegrationId || actual.deliveryContractId !== row.deliveryContractId
           || actual.lastAttemptAt?.getTime() !== row.lastAttemptAt?.getTime()
+          || actual.nextFailureReportAt?.getTime() !== row.nextFailureReportAt?.getTime()
           || actual.nextAttemptAt?.getTime() !== row.nextAttemptAt?.getTime()) return false
       staged.set(em, { ...actual, ...changes })
       return true
@@ -68,7 +73,8 @@ function fixture(delivery: Partial<CrudFormSectionOutboxDelivery<{ brand: string
     listDue: async () => [],
   }
   const externalDelivery = {
-    integrationId: 'example.erp', maxAttempts: 2, preCommitValidation: delivery.validateExternal ? 'read-only' : 'none',
+    integrationId: 'example.erp', contractId: `${identity.sinkId}@v1`,
+    maxAttempts: 2, preCommitValidation: delivery.validateExternal ? 'read-only' : 'none',
     coalesce: 'latest-state', fencing: 'remote-monotonic-revision/v1',
   } as const
   function makeSink(formOperation: 'create' | 'update') {
@@ -145,11 +151,15 @@ it('retains a single monotonic fence across create, update, delete, and undo and
   await expect(setup.sink.load({ ...setup.context, userId: actorId })).resolves.toEqual({
     values: {}, sync: { status: 'pending', lastAttemptAt: null, errorCode: null },
   })
-  expect(snapshot).toEqual({ before: { brand: 'two' }, after: null })
+  expect(snapshot).toEqual({ before: { brand: 'two' }, after: null, outboxAfterRevision: '3' })
   await withAtomicFlush(setup.em, [async () => {
     await setup.sink.undo!({ ...setup.context, snapshot: snapshot! })
   }], { transaction: true })
   expect(setup.read()).toMatchObject({ deliveryRevision: '4', pendingOperation: 'restore', values: { brand: 'two' } })
+  await expect(withAtomicFlush(setup.em, [async () => {
+    await setup.sink.undo!({ ...setup.context, snapshot: snapshot! })
+  }], { transaction: true })).rejects.toMatchObject(conflict)
+  expect(setup.read()).toMatchObject({ deliveryRevision: '4', pendingOperation: 'restore' })
 
   setup.replace({ ...setup.read()!, deliveryRevision: '9223372036854775807' })
   const writes = setup.write.mock.calls.length
@@ -271,4 +281,70 @@ it('rejects drift in read-only external validation and stops waiting after three
   } finally {
     jest.useRealTimers()
   }
+})
+
+it('recovers only unfinished terminal effects without redelivering and pins their identity', async () => {
+  const deliver = jest.fn(async () => ({ status: 'rejected' } as const))
+  const setup = fixture({ deliver })
+  setup.service.reportOutcome.mockImplementationOnce(async () => undefined)
+    .mockImplementationOnce(async () => { throw new Error('[internal] temporary event transport failure') })
+  await setup.writeWith(setup.sink, 'value')
+  await setup.deliver()
+
+  const failed = setup.read()!
+  const report = failed.failureReports[0]!
+  expect(failed).toMatchObject({ syncStatus: 'failed', deliveryRevision: '1', lastErrorCode: 'remote_rejected' })
+  expect(report.effects).toEqual(['event'])
+  expect(failed.nextFailureReportAt).toBeInstanceOf(Date)
+  expect(setup.service.reportOutcome.mock.calls.map(([call]) => call.failure)).toEqual(
+    ['log', 'event', 'notification'].map((effect) => ({ effect, reportId: report.id })),
+  )
+
+  await setup.deliver(setup.sink, failed.nextFailureReportAt!)
+  expect(setup.service.reportOutcome).toHaveBeenCalledTimes(4)
+  expect(setup.service.reportOutcome.mock.lastCall?.[0]).toMatchObject({
+    identity, failure: { effect: 'event', reportId: report.id },
+  })
+  expect(deliver).toHaveBeenCalledTimes(1)
+  expect(setup.read()).toMatchObject({ syncStatus: 'failed', failureReports: [], nextFailureReportAt: null })
+})
+
+it.each([
+  [{ deliveryContractId: 'example.brand_mirror@v2' }, 'delivery_contract_mismatch'],
+  [{ deliveryIntegrationId: 'example.other' }, 'delivery_contract_mismatch'],
+  [{ idempotencyKey: 'invalid' }, 'delivery_intent_invalid'],
+  [{ deliveryRevision: '0' }, 'delivery_intent_invalid'],
+] as const)('quarantines the specific malformed or superseded intent %j without provider I/O', async (changed, errorCode) => {
+  const deliver = jest.fn(async () => ({ status: 'identical' } as const))
+  const setup = fixture({ deliver })
+  await setup.writeWith(setup.sink, 'value')
+  setup.replace({ ...setup.read()!, ...changed })
+  await setup.deliver()
+  expect(deliver).not.toHaveBeenCalled()
+  expect(setup.service.credentials).not.toHaveBeenCalled()
+  expect(setup.read()).toMatchObject({ ...changed, syncStatus: 'failed', lastErrorCode: errorCode, nextAttemptAt: null })
+  await expect(withAtomicFlush(setup.em, [async () => {
+    await retryCrudFormSectionOutbox(setup.sink, setup.context)
+  }], { transaction: true })).rejects.toMatchObject(conflict)
+})
+
+it('retains an unfinished report when a later intent succeeds', async () => {
+  type DeliveryResult = Awaited<ReturnType<CrudFormSectionOutboxDelivery<{ brand: string }>['deliver']>>
+  const deliver = jest.fn<Promise<DeliveryResult>, []>(async () => ({ status: 'applied', externalId: 'stable' }))
+    .mockResolvedValueOnce({ status: 'rejected' })
+  const setup = fixture({ deliver })
+  setup.service.reportOutcome.mockImplementationOnce(async () => undefined)
+    .mockImplementationOnce(async () => { throw new Error('[internal] temporary event transport failure') })
+  await setup.writeWith(setup.sink, 'first')
+  await setup.deliver()
+  const failed = setup.read()!
+  await setup.writeWith(setup.sink, 'later')
+  await setup.deliver()
+  expect(setup.read()).toMatchObject({ deliveryRevision: '2', syncStatus: 'synced', failureReports: failed.failureReports })
+  await setup.deliver(setup.sink, failed.nextFailureReportAt!)
+  expect(setup.read()).toMatchObject({ deliveryRevision: '2', syncStatus: 'synced', failureReports: [] })
+  expect(setup.service.reportOutcome.mock.lastCall?.[0]).toMatchObject({
+    failure: { effect: 'event', reportId: failed.failureReports[0].id },
+  })
+  expect(deliver).toHaveBeenCalledTimes(2)
 })

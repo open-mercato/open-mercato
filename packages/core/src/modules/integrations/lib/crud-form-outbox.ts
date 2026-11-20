@@ -1,5 +1,6 @@
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EventBus } from '@open-mercato/events'
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import type { AwilixContainer } from 'awilix'
 import { z } from 'zod'
@@ -14,7 +15,7 @@ import {
 } from '@open-mercato/shared/lib/crud/form-sections/outbox'
 import { getCrudFormSectionManifest } from '@open-mercato/shared/lib/crud/form-sections/manifest'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { getGlobalEventBus, isEventDeclared } from '@open-mercato/shared/modules/events'
+import { isEventDeclared } from '@open-mercato/shared/modules/events'
 import type { NotificationService } from '../../notifications/lib/notificationService'
 import { SyncExternalIdMapping } from '../data/entities'
 import type { IntegrationLogService } from './log-service'
@@ -38,11 +39,11 @@ export function createCrudFormSectionOutboxService(container: AwilixContainer): 
       })
       await outboxQueue.enqueue(crudFormSectionOutboxJobSchema.parse(identity), { delayMs })
     },
-    async recordMapping(em, { identity, integrationId, resourceKind, externalId, operation }) {
+    async recordMapping(em, { identity, integrationId, externalId, operation }) {
       const id = z.uuid().safeParse(identity.hostId)
       if (!id.success) throw new Error('[internal] Invalid host identity for outbox mapping')
       const scope = { tenantId: identity.tenantId, organizationId: identity.organizationId }
-      const where = { ...scope, integrationId, internalEntityType: resourceKind, internalEntityId: id.data }
+      const where = { ...scope, integrationId, internalEntityType: `crud_form_section_sink:${identity.sinkId}`, internalEntityId: id.data }
       await em.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [
         `crudform_outbox_mapping:${JSON.stringify(where)}`,
       ])
@@ -58,35 +59,37 @@ export function createCrudFormSectionOutboxService(container: AwilixContainer): 
         }
       }
     },
-    async reportOutcome({ identity, integrationId, resourceKind, status, actorId, code, failureNotificationType }) {
+    async reportOutcome({ identity, integrationId, resourceKind, status, actorId, code, failureNotificationType, failure }) {
       const scope = { tenantId: identity.tenantId, organizationId: identity.organizationId }
-      const reporting: Array<Promise<unknown>> = [
-        container.resolve<IntegrationLogService>('integrationLogService').write({
-          integrationId, scopeEntityType: resourceKind,
-          scopeEntityId: z.uuid().safeParse(identity.hostId).data,
+      if (failure?.effect === 'event') {
+        const event = `${identity.sinkId.replace(':', '.')}.sync_failed`
+        if (!container.hasRegistration('eventBus') || !isEventDeclared(event)) {
+          throw new Error('[internal] Outbox failure event unavailable')
+        }
+        const bus = container.resolve<EventBus>('eventBus')
+        await bus.emit(event, {
+          ...scope, id: identity.hostId, actorUserId: actorId, errorCode: code, failureReportId: failure.reportId,
+        }, { ...scope, persistent: true, skipPersistentSubscribersInline: true, rethrowHandlerErrors: true })
+      } else if (failure?.effect === 'notification') {
+        if (!actorId || !container.hasRegistration('notificationService')) {
+          throw new Error('[internal] Outbox failure notification unavailable')
+        }
+        await container.resolve<NotificationService>('notificationService').createBatch({
+          type: failureNotificationType, recipientUserIds: [actorId],
+          titleKey: `${failureNotificationType}.title`, severity: 'error', channels: ['database'],
+          groupKey: `crud_form_outbox_failure:${failure.reportId}`,
+          sourceModule: identity.sinkId.split(/[.:]/)[0], sourceEntityType: resourceKind,
+          sourceEntityId: identity.hostId,
+        }, scope, { skipExistingGroup: true })
+      } else {
+        await container.resolve<IntegrationLogService>('integrationLogService').write({
+          integrationId, scopeEntityType: resourceKind, scopeEntityId: identity.hostId,
           level: status === 'failed' ? 'error' : status === 'pending' ? 'warn' : 'info',
           message: status === 'synced' ? 'CrudForm extension delivery completed' : 'CrudForm extension delivery failed',
           code: code ?? 'crud_form_section_delivery_synced',
-        }, scope),
-      ]
-      if (status === 'failed') {
-        const event = `${identity.sinkId.replace(':', '.')}.sync_failed`
-        if (isEventDeclared(event)) {
-          reporting.push(getGlobalEventBus()?.emit(event, {
-            ...scope, id: identity.hostId, actorUserId: actorId, errorCode: code,
-          }) ?? Promise.resolve())
-        }
-        if (actorId && container.hasRegistration('notificationService')) {
-          reporting.push(container.resolve<NotificationService>('notificationService').create({
-            type: failureNotificationType, recipientUserId: actorId,
-            titleKey: `${failureNotificationType}.title`, severity: 'error', channels: ['database'],
-            sourceModule: identity.sinkId.split(/[.:]/)[0], sourceEntityType: resourceKind,
-            sourceEntityId: z.uuid().safeParse(identity.hostId).data,
-          }, scope))
-        }
+          ...(failure ? { payload: { failureReportId: failure.reportId } } : {}),
+        }, scope)
       }
-      const results = await Promise.allSettled(reporting)
-      if (results.some(({ status }) => status === 'rejected')) throw new Error('[internal] Outbox outcome reporting incomplete')
     },
   }
 }

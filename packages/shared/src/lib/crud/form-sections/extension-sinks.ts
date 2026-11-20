@@ -18,7 +18,7 @@ import { assertOptimisticLock, enforceRecordGoneIsConflict } from '../optimistic
 import type { CrudFormSectionCapabilityEntry } from '../form-section-capabilities'
 import { compareSectionIds, crudFormSectionHostKey } from './composition'
 import { resourceIdSchema, roundTripIdSchema, symbolicIdSchema } from './protocol'
-import { collectCrudFormSectionOutboxRuntimes, crudFormSectionOutboxSyncSchema, validCrudFormSectionExternalDelivery } from './outbox'
+import { collectCrudFormSectionOutboxRuntimes, crudFormSectionOutboxRevisionSchema, crudFormSectionOutboxSyncSchema, validCrudFormSectionExternalDelivery } from './outbox'
 
 type Payload = Record<string, unknown>
 type HostAddress = Omit<CrudFormSectionAddress, 'sectionId'>
@@ -347,6 +347,7 @@ const snapshotSchema = z.object({
   targetEntityId: symbolicIdSchema,
   before: z.record(z.string(), z.unknown()).nullable(),
   after: z.record(z.string(), z.unknown()).nullable(),
+  outboxAfterRevision: crudFormSectionOutboxRevisionSchema.optional(),
 }).strict()
 
 type PersistedSnapshot = z.infer<typeof snapshotSchema>
@@ -359,6 +360,7 @@ export function appendCrudFormSectionSinkSnapshot(
   source: SinkMutationSource,
 ): void {
   if (!log?.id || log.resourceId !== hostResourceId || (log.undoToken && runtime.fact.undo !== 'snapshot')) return mismatch()
+  if ((runtime.fact.atomicity === 'outbox') !== (snapshot.outboxAfterRevision !== undefined)) return mismatch()
   const entry = snapshotSchema.safeParse({
     ...snapshot,
     protocol: 'crud-form-section-sink/v1',
@@ -443,6 +445,7 @@ export async function authorizeCrudFormSectionSinkUndo(input: {
     }
     const runtime = requireRegisteredSink(manifest, accepted)
     if (!runtime.undo || runtime.fact.undo !== 'snapshot'
+        || ((runtime.fact.atomicity === 'outbox') !== (snapshot.outboxAfterRevision !== undefined))
         || (source.kind === 'parent-delete' && !runtime.onHostDeleted)) return mismatch()
     for (const feature of [...policy.requireFeatures, ...sourcePolicy.requireFeatures]) features.add(feature)
     return { runtime, snapshot }
@@ -465,7 +468,10 @@ export async function restoreCrudFormSectionSinks(
     if (!runtime.undo) return mismatch()
     await runtime.undo({
       ...context, hostResourceId: snapshot.hostResourceId,
-      snapshot: { before: snapshot.before, after: snapshot.after },
+      snapshot: {
+        before: snapshot.before, after: snapshot.after,
+        ...(snapshot.outboxAfterRevision === undefined ? {} : { outboxAfterRevision: snapshot.outboxAfterRevision }),
+      },
     })
   }
 }

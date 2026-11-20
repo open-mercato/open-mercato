@@ -57,6 +57,7 @@ export type CrudFormExtensionSinkFact = {
   atomicity: 'host-transaction' | 'after-commit' | 'outbox'
   externalDelivery?: {
     integrationId: string
+    contractId: string
     maxAttempts: number
     preCommitValidation: 'none' | 'read-only'
     coalesce: 'latest-state'

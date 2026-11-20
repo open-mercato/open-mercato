@@ -6,6 +6,7 @@ import { writeCrudFormSectionRegistries } from '../form-sections'
 
 const externalFact = {
   integrationId: 'example.erp',
+  contractId: 'example.brand_mirror@v1',
   maxAttempts: 3,
   preCommitValidation: 'read-only',
   coalesce: 'latest-state',
@@ -15,7 +16,10 @@ const externalFact = {
 function fixture(atomicity: string, externalDelivery?: Record<string, unknown>) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'form-section-outbox-'))
   const source = path.join(root, 'form-sections.ts')
-  const fact = { id: 'example.brand', roundTripId: 'example.brand@v1', ownerModuleId: 'example', atomicity, externalDelivery }
+  const fact = {
+    id: 'example.brand', roundTripId: 'example.brand@v1', ownerModuleId: 'example',
+    targetEntityId: 'example.brand_mirror', atomicity, externalDelivery,
+  }
   fs.writeFileSync(source, `
     export const crudFormSections = defineCrudFormSections({
       sinks: [defineCrudFormSectionSink({ fact: ${JSON.stringify(fact)}, schema: serverSchema })],
@@ -36,6 +40,7 @@ function fixture(atomicity: string, externalDelivery?: Record<string, unknown>) 
 it.each([
   ['outbox', undefined, /requires a literal externalDelivery/],
   ['outbox', { ...externalFact, fencing: 'lease-only' }, /remote-monotonic-revision\/v1/],
+  ['outbox', { ...externalFact, contractId: 'example.other@v1' }, /requires contractId/],
   ['host-transaction', externalFact, /invalid atomicity or externalDelivery/],
 ] as const)('rejects %s declarations with invalid delivery facts', (atomicity, external, error) => {
   const { build, clean } = fixture(atomicity, external)

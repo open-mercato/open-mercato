@@ -401,7 +401,12 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
       const external = fieldsOf(externalDelivery, invalid)
       const maxAttempts = external.get('maxAttempts')
       const attempts = maxAttempts && literalData(maxAttempts, invalid)
-      if (external.size !== 5
+      const target = literalValue(properties.get('targetEntityId'), 'targetEntityId', invalid)
+      const contract = literalValue(external.get('contractId'), 'contractId', invalid)
+      if (!contract.startsWith(`${target}@v`) || !/^[1-9][0-9]*$/.test(contract.slice(target.length + 2))) {
+        return invalid(`outbox sink "${id}" requires contractId "${target}@v<positive-integer>"`)
+      }
+      if (external.size !== 6
           || literalValue(external.get('fencing'), 'fencing', invalid) !== 'remote-monotonic-revision/v1'
           || literalValue(external.get('coalesce'), 'coalesce', invalid) !== 'latest-state'
           || !['none', 'read-only'].includes(literalValue(external.get('preCommitValidation'), 'preCommitValidation', invalid))

@@ -2,7 +2,7 @@ import { BigIntType, LockMode, type EntityClass } from '@mikro-orm/core'
 import { Entity, Property } from '@mikro-orm/decorators/legacy'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '../../encryption/find'
-import type { CrudFormSectionOutboxIdentity, CrudFormSectionOutboxMirror, CrudFormSectionOutboxRow, CrudFormSectionOutboxScope } from './outbox'
+import type { CrudFormSectionOutboxFailureReport, CrudFormSectionOutboxIdentity, CrudFormSectionOutboxMirror, CrudFormSectionOutboxRow, CrudFormSectionOutboxScope } from './outbox'
 
 @Entity({ abstract: true })
 abstract class OutboxColumns {
@@ -27,6 +27,12 @@ abstract class OutboxColumns {
   @Property({ name: 'delivery_revision', type: new BigIntType('string') })
   deliveryRevision!: string
 
+  @Property({ name: 'delivery_integration_id', type: 'text' })
+  deliveryIntegrationId!: string
+
+  @Property({ name: 'delivery_contract_id', type: 'text' })
+  deliveryContractId!: string
+
   @Property({ name: 'idempotency_key', type: 'text' })
   idempotencyKey!: string
 
@@ -35,6 +41,12 @@ abstract class OutboxColumns {
 
   @Property({ name: 'delivery_actor_id', type: 'uuid', nullable: true })
   deliveryActorId: string | null = null
+
+  @Property({ name: 'failure_reports', type: 'jsonb', defaultRaw: "'[]'::jsonb" })
+  failureReports: CrudFormSectionOutboxFailureReport[] = []
+
+  @Property({ name: 'next_failure_report_at', type: Date, nullable: true })
+  nextFailureReportAt: Date | null = null
 }
 
 export { OutboxColumns as outboxColumns }
@@ -63,17 +75,22 @@ export function createCrudFormSectionOutboxMirror(
     async compareAndSet(em, identity, prior, status, changes) {
       const where = {
         ...scoped(identity), id: prior.id, deliveryRevision: prior.deliveryRevision,
+        deliveryIntegrationId: prior.deliveryIntegrationId, deliveryContractId: prior.deliveryContractId,
+        idempotencyKey: prior.idempotencyKey, pendingOperation: prior.pendingOperation,
         syncStatus: status, syncAttempts: prior.syncAttempts,
-        lastAttemptAt: prior.lastAttemptAt, nextAttemptAt: prior.nextAttemptAt,
+        lastAttemptAt: prior.lastAttemptAt, nextAttemptAt: prior.nextAttemptAt, nextFailureReportAt: prior.nextFailureReportAt,
       }
       return await em.nativeUpdate(entity, where, changes) === 1
     },
     async listDue(em: EntityManager, scope: CrudFormSectionOutboxScope, now: Date, limit: number) {
-      const where = { ...scope, syncStatus: 'pending' as const, nextAttemptAt: { $lte: now } }
-      const due = await em.find(entity, where, {
-        fields: ['hostId'], limit, orderBy: { nextAttemptAt: 'ASC', id: 'ASC' },
+      const reportLimit = Math.floor(limit / 2)
+      const deliveries = await em.find(entity, { ...scope, syncStatus: 'pending', nextAttemptAt: { $lte: now } }, {
+        fields: ['hostId'], limit: limit - reportLimit, orderBy: { nextAttemptAt: 'ASC', id: 'ASC' },
       })
-      return due.map(({ hostId }) => hostId)
+      const reports = reportLimit ? await em.find(entity, { ...scope, nextFailureReportAt: { $lte: now } }, {
+        fields: ['hostId'], limit: reportLimit, orderBy: { nextFailureReportAt: 'ASC', id: 'ASC' },
+      }) : []
+      return [...new Set([...deliveries, ...reports].map(({ hostId }) => hostId))]
     },
   }
 }

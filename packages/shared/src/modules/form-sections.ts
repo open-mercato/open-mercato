@@ -105,7 +105,11 @@ type SinkMutationContext = {
   container: AwilixContainer
 }
 
-export type CrudFormSectionSinkSnapshot = { before: SinkRecord | null; after: SinkRecord | null }
+export type CrudFormSectionSinkSnapshot = {
+  before: SinkRecord | null
+  after: SinkRecord | null
+  outboxAfterRevision?: string
+}
 export type CrudFormSectionSinkRow = {
   values: SinkRecord
   updatedAt?: string | Date
