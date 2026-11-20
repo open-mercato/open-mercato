@@ -1,5 +1,6 @@
 import type { PaymentGatewayPresentationRequest } from '@open-mercato/shared/modules/payment_gateways/types'
 import type Stripe from 'stripe'
+import { decimalToNumber, decimalToString, divideDecimals, roundDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 
 const ZERO_DECIMAL_CURRENCIES = new Set([
   'BIF',
@@ -24,16 +25,22 @@ function isZeroDecimalCurrency(currencyCode: string): boolean {
   return ZERO_DECIMAL_CURRENCIES.has(currencyCode.toUpperCase())
 }
 
-export function toCents(amount: number, currencyCode: string): number {
-  return isZeroDecimalCurrency(currencyCode)
-    ? Math.round(amount)
-    : Math.round(amount * 100)
+function minorUnitFactor(currencyCode: string): number {
+  return isZeroDecimalCurrency(currencyCode) ? 1 : 100
+}
+
+/** Stripe minor units (rounded half-up) for an amount given as a number or an exact decimal string. */
+export function toCents(amount: number | string, currencyCode: string): number {
+  return decimalToNumber(roundDecimal(toDecimal(amount).times(minorUnitFactor(currencyCode)), 0))
 }
 
 export function fromCents(amount: number, currencyCode: string): number {
-  return isZeroDecimalCurrency(currencyCode)
-    ? amount
-    : amount / 100
+  return decimalToNumber(fromCentsExact(amount, currencyCode))
+}
+
+/** Exact decimal string for a Stripe minor-unit amount. */
+export function fromCentsExact(amount: number, currencyCode: string): string {
+  return decimalToString(divideDecimals(amount, minorUnitFactor(currencyCode), 2))
 }
 
 export function stripeIdempotencyOptions(idempotencyKey?: string): { idempotencyKey: string } | undefined {

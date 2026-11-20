@@ -42,9 +42,10 @@ import { AssertionFormDrawer } from './AssertionFormDrawer'
 import { EvalCaseDrawer } from './EvalCaseDrawer'
 import { RunEvaluationDrawer } from './RunEvaluationDrawer'
 import { EvalResultsDrawer } from './EvalResultsDrawer'
+import EvalRegressionSection from './EvalRegressionSection'
 import { shortCaseId } from '../../../../components/subjectRef'
 
-type EvaluationSection = 'assertions' | 'cases' | 'runs'
+type EvaluationSection = 'assertions' | 'cases' | 'runs' | 'regressions'
 
 export type EvaluationTabProps = {
   agentId: string
@@ -523,6 +524,9 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
           <TabsTrigger value="runs" count={runs.length}>
             {t('agent_orchestrator.agentDetail.evaluation.section.runs', 'Runs')}
           </TabsTrigger>
+          <TabsTrigger value="regressions">
+            {t('agent_orchestrator.agentDetail.evaluation.section.regressions', 'Regressions')}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="assertions" className="space-y-3">
@@ -678,6 +682,10 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
               onRowClick={(row) => setResultsRunId(row.id)}
             />
           )}
+        </TabsContent>
+
+        <TabsContent value="regressions" className="space-y-3">
+          <EvalRegressionSection agentId={agentId} active={active && section === 'regressions'} reloadToken={runs.length} />
         </TabsContent>
       </Tabs>
 
