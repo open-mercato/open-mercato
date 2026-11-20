@@ -205,6 +205,7 @@
   "messages.flash.replySuccess": "Odpowiedź wysłana.",
   "messages.flash.resendFailedSuccess": "Wiadomość wysłano ponownie na nieudane adresy.",
   "messages.flash.scheduleCancelled": "Planowanie anulowane. Wiadomość wróciła do szkiców.",
+  "messages.flash.scheduledInFolder": "Wiadomość zaplanowana na {date}. Znajdziesz ją w Wiadomości → Zaplanowane.",
   "messages.flash.scheduledSuccess": "Wiadomość zaplanowana.",
   "messages.flash.sentSuccess": "Wiadomość wysłana.",
   "messages.folder.all": "Wszystkie",

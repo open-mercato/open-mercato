@@ -221,6 +221,17 @@ export function MessageComposer(props: MessageComposerProps) {
           >
             {compose.t('ui.forms.actions.cancel', 'Cancel')}
           </Button>
+          {compose.canSchedule ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { if (compose.validateBeforeSchedule()) setScheduleOpen(true) }}
+              disabled={compose.submitting}
+            >
+              <Clock className="mr-2 size-4" />
+              {compose.t('messages.compose.sendLater', 'Send later…')}
+            </Button>
+          ) : null}
           <Button
             type="button"
             onClick={() => {

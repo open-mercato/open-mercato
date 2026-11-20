@@ -205,6 +205,7 @@
   "messages.flash.replySuccess": "Reply sent.",
   "messages.flash.resendFailedSuccess": "Message resent to the failed addresses.",
   "messages.flash.scheduleCancelled": "Schedule cancelled. The message is back in drafts.",
+  "messages.flash.scheduledInFolder": "Message scheduled for {date}. You will find it in Messages → Scheduled.",
   "messages.flash.scheduledSuccess": "Message scheduled.",
   "messages.flash.sentSuccess": "Message sent.",
   "messages.folder.all": "All",

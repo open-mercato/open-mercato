@@ -205,6 +205,7 @@
   "messages.flash.replySuccess": "Respuesta enviada.",
   "messages.flash.resendFailedSuccess": "Mensaje reenviado a las direcciones fallidas.",
   "messages.flash.scheduleCancelled": "Programación cancelada. El mensaje vuelve a estar en borradores.",
+  "messages.flash.scheduledInFolder": "Mensaje programado para {date}. Lo encontrarás en Mensajes → Programados.",
   "messages.flash.scheduledSuccess": "Mensaje programado.",
   "messages.flash.sentSuccess": "Mensaje enviado.",
   "messages.folder.all": "Todos",

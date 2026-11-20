@@ -205,6 +205,7 @@
   "messages.flash.replySuccess": "Antwort gesendet.",
   "messages.flash.resendFailedSuccess": "Nachricht erneut an die fehlgeschlagenen Adressen gesendet.",
   "messages.flash.scheduleCancelled": "Planung abgebrochen. Die Nachricht ist wieder in den Entwürfen.",
+  "messages.flash.scheduledInFolder": "Nachricht für {date} geplant. Sie finden sie unter Nachrichten → Geplant.",
   "messages.flash.scheduledSuccess": "Nachricht geplant.",
   "messages.flash.sentSuccess": "Nachricht gesendet.",
   "messages.folder.all": "Alle",

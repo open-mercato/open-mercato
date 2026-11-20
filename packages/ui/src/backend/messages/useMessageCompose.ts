@@ -778,7 +778,9 @@ export function useMessageCompose({
           }
           shouldReturnFalse = true
         } else {
-          flash(scheduledAt ? t('messages.flash.scheduledSuccess', 'Message scheduled.') : operation.successMessage, 'success')
+          flash(scheduledAt
+            ? t('messages.flash.scheduledInFolder', 'Message scheduled for {date}. You will find it in Messages → Scheduled.', { date: new Date(scheduledAt).toLocaleString() })
+            : operation.successMessage, 'success')
           keepSubmitLock = true
 
           onSuccess?.({ id: call.result?.id })
