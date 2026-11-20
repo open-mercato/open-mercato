@@ -50,6 +50,8 @@ function createFixture(variant: Variant, manifestExtras: Record<string, unknown>
     default: ['core'],
     external: {
       source: 'open-mercato/skills',
+      ref: 'a90b091d27141a6cd12f363e94ebd0f5f84ba615',
+      cliVersion: '1.9.0',
       // Present on disk as a repo-local override; must never be symlinked.
       skills: [EXTERNAL_SKILL],
     },
