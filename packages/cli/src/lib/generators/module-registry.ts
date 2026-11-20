@@ -78,7 +78,7 @@ import {
   resolveStandaloneSourceMirrorBase,
 } from './scanner'
 import { loadGeneratorExtensions } from './extensions'
-import { writeCrudFormSectionRegistries } from './form-sections'
+import { writeCrudFormSectionRegistries, writeDerivedCrudFormSectionRoutes } from './form-sections'
 import type { ModuleScanContext, StandaloneConfigOptions } from './extension'
 import {
   renderRouteManifestShardOutputs,
@@ -3751,6 +3751,16 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   const backendRouteMetadataEntries: RouteManifestShardEntry[] = []
   const apiRouteShardEntries: RouteManifestShardEntry[] = []
   const apiRouteMetadataEntries: RouteManifestShardEntry[] = []
+  const derivedCrudRoutes = writeDerivedCrudFormSectionRoutes({
+    modules: discovery.modules,
+    identities: discovery.identities,
+    requiresByModule: new Map(),
+    outputDir,
+    structureChecksum: discovery.getStructureChecksum(),
+    result,
+    quiet,
+  })
+
   // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
   const requiresByModule = new Map<string, string[]>()
@@ -3991,6 +4001,25 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       apiRouteManifestDecls.push(...generatedApis.manifestApis)
       apiRouteShardEntries.push(...generatedApis.manifestShardApis)
       apiRouteMetadataEntries.push(...generatedApis.metadataApis)
+      for (const derived of derivedCrudRoutes.filter((route) => route.moduleId === modId)) {
+        const importPath = `./${stripModuleCodeExtension(derived.fileName)}`
+        const importName = `DERIVED_CRUD_${importIdRef.value++}`
+        imports.push(buildImportStatement(`* as ${importName}`, importPath))
+        runtimeImports.push(buildImportStatement(`* as ${importName}`, importPath))
+        const entry = `{ path: ${toLiteral(derived.routePath)}, metadata: ${importName}.metadata, handlers: ${importName}, docs: ${importName}.openApi }`
+        apis.push(entry)
+        runtimeApis.push(entry)
+        const entries: GeneratedObjectEntry[] = [
+          { name: 'moduleId', value: modId },
+          { name: 'kind', value: 'route-file' },
+          { name: 'path', value: derived.routePath },
+          { name: 'methods', value: arrayLiteral(derived.methods, writeValue) },
+        ]
+        const manifestEntry = objectLiteral([...entries, { name: 'load', value: buildManifestApiLoader(importPath) }])
+        apiRouteManifestDecls.push(manifestEntry)
+        apiRouteShardEntries.push({ path: derived.routePath, declaration: renderGeneratedValue(manifestEntry) })
+        apiRouteMetadataEntries.push({ path: derived.routePath, declaration: renderGeneratedValue(objectLiteral(entries)) })
+      }
     }
 
     // 15. CLI
@@ -4307,6 +4336,11 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     imports: backendRouteManifestImports,
     entries: backendRouteManifestDecls,
   })
+  for (const derived of derivedCrudRoutes) {
+    if (apiRouteMetadataEntries.filter(({ path: routePath }) => routePath === derived.routePath).length !== 1) {
+      throw new Error(`[generate] Derived CrudForm route conflicts with an existing API route "${derived.routePath}"`)
+    }
+  }
   const apiRoutesOutput = renderAstManifestFile({
     fileName: 'api-routes.generated.ts',
     typeName: 'ApiRouteManifestEntry',

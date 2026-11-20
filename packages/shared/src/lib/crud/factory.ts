@@ -1,3 +1,4 @@
+import { rememberCrudRouteSectionSource, type CrudRouteSectionSource } from './form-sections/factory-route-source'
 import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -3329,5 +3330,47 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     }
   }
 
-  return { metadata, GET, POST, PUT, DELETE }
+  const route = { metadata, GET, POST, PUT, DELETE }
+  if (opts.actions?.create || opts.actions?.update || opts.actions?.delete) {
+    const actions: CrudRouteSectionSource['actions'] = {}
+    for (const operation of ['create', 'update', 'delete'] as const) {
+      const action = opts.actions?.[operation]
+      if (!action) continue
+      actions[operation] = {
+        commandId: action.commandId,
+        schema: action.schema,
+        status: action.status,
+        hasCustomMetadata: Boolean(action.metadata),
+        response: action.response,
+      }
+    }
+    rememberCrudRouteSectionSource(route, {
+      metadata, orm: ormCfg, actions, resourceKind,
+      hasWriteHooks: Boolean(opts.hooks?.beforeCreate || opts.hooks?.afterCreate || opts.hooks?.beforeUpdate
+        || opts.hooks?.afterUpdate || opts.hooks?.beforeDelete || opts.hooks?.afterDelete),
+      hasCustomIdentifiers: Boolean(opts.resolveIdentifiers),
+      deleteIdFrom: opts.del?.idFrom ?? 'query',
+      softDelete: opts.del?.softDelete !== false,
+      requestContext: withCtx,
+      async execute(operation, input, ctx) {
+        const action = actions[operation]
+        if (!action) throw new Error('[internal] Missing derived CRUD command')
+        const event = operation === 'create' ? 'created' : operation === 'update' ? 'updated' : 'deleted'
+        const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+        return withRouteIndexerDeclaration(ctx, event, action.commandId, () =>
+          commandBus.execute(action.commandId, {
+            input,
+            ctx,
+            metadata: {
+              tenantId: ctx.auth?.tenantId ?? null,
+              organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+              resourceKind,
+              context: { cacheAliases: resourceTargets },
+            },
+          }),
+        )
+      },
+    })
+  }
+  return route
 }

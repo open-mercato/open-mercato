@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import ts from 'typescript-js'
 import { resolveModuleRequirement, type ModuleIdentity } from '@open-mercato/shared/modules/module-locators'
@@ -39,7 +40,26 @@ type ModuleSections = {
   sinkIds: readonly string[]
   clientHosts: readonly unknown[]
   contributedOverrides: unknown
+  derivedRoutes: readonly DerivedRouteDeclaration[]
 }
+
+type DerivedMethod = 'POST' | 'PUT' | 'DELETE'
+type DerivedRouteDeclaration = {
+  index: number
+  routePath: string
+  hostDescriptorId: string
+  operations: readonly ('create' | 'update' | 'delete')[]
+}
+export type GeneratedDerivedCrudRoute = {
+  moduleId: string
+  routePath: string
+  fileName: string
+  methods: DerivedMethod[]
+}
+
+const derivedRouteMethods = { create: 'POST', update: 'PUT', delete: 'DELETE' } as const
+export const generatedDerivedCrudRouteIndex = 'crud-form-section-derived-routes.generated.json'
+
 
 function compareIds(left: string, right: string): number {
   if (left === right) return 0
@@ -177,6 +197,146 @@ function readRuntimePath(
   return `${importBase}/${relative}`
 }
 
+function importedNamedBinding(source: ts.SourceFile, localName: string): { specifier: string; exported: string } | null {
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)
+        || statement.importClause?.isTypeOnly) continue
+    const names = statement.importClause?.namedBindings
+    if (!names || !ts.isNamedImports(names)) continue
+    const entry = names.elements.find(({ name, isTypeOnly }) => !isTypeOnly && name.text === localName)
+    if (entry) return { specifier: statement.moduleSpecifier.text, exported: (entry.propertyName ?? entry.name).text }
+  }
+  return null
+}
+
+function exportsFactoryBinding(source: ts.SourceFile, factoryName: string, exported: string): boolean {
+  const exportedLocals = new Set<string>()
+  for (const statement of source.statements) {
+    if (!ts.isExportDeclaration(statement) || statement.moduleSpecifier || !statement.exportClause
+        || !ts.isNamedExports(statement.exportClause)) continue
+    for (const entry of statement.exportClause.elements) {
+      if (!entry.isTypeOnly && entry.name.text === exported) exportedLocals.add((entry.propertyName ?? entry.name).text)
+    }
+  }
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    const direct = statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    const isBound = (local: string) => Boolean(direct && local === exported) || exportedLocals.has(local)
+    for (const declaration of statement.declarationList.declarations) {
+      if (!declaration.initializer) continue
+      const value = unwrap(declaration.initializer)
+      if (ts.isIdentifier(declaration.name) && isBound(declaration.name.text)
+          && ts.isPropertyAccessExpression(value) && ts.isIdentifier(value.expression)
+          && value.expression.text === factoryName && value.name.text === exported) return true
+      if (ts.isObjectBindingPattern(declaration.name) && ts.isIdentifier(value) && value.text === factoryName
+          && declaration.name.elements.some((entry) => ts.isIdentifier(entry.name) && isBound(entry.name.text)
+            && !entry.initializer && (entry.propertyName ?? entry.name).getText() === exported)) return true
+    }
+  }
+  return false
+}
+
+function hasIdentityMapper(input: ts.Expression | undefined): boolean {
+  if (!input) return true
+  const mapper = unwrap(input)
+  if (!ts.isArrowFunction(mapper) || mapper.parameters.length !== 1 || ts.isBlock(mapper.body)) return false
+  const binding = mapper.parameters[0].name
+  if (!ts.isObjectBindingPattern(binding) || binding.elements.length !== 1) return false
+  const [entry] = binding.elements
+  const body = unwrap(mapper.body)
+  return !entry.dotDotDotToken && !entry.initializer && ts.isIdentifier(entry.name)
+    && (entry.propertyName ?? entry.name).getText() === 'parsed' && ts.isIdentifier(body) && body.text === entry.name.text
+}
+
+function parseDerivedRoutes(
+  fields: ReadonlyMap<string, ts.Expression>,
+  module: ModuleSource,
+  declaration: ResolvedFile,
+  source: ts.SourceFile,
+  invalid: (reason: string) => never,
+): DerivedRouteDeclaration[] {
+  return arrayField(fields, 'derivedHosts', invalid).map((entry, index) => {
+    const options = fieldsOf(helperArgument(entry, 'defineCrudRouteSectionHost', invalid), invalid)
+    const hostDescriptorId = literalValue(options.get('hostDescriptorId'), 'hostDescriptorId', invalid)
+    const formOperation = literalValue(options.get('formOperation'), 'formOperation', invalid)
+    if (formOperation !== 'create' && formOperation !== 'update') return invalid('derived host requires create or update')
+    if (formOperation === 'create' && options.has('delete')) return invalid('derived create host cannot declare delete')
+    const groups = arrayField(options, 'sections', invalid)
+    if (!groups.length) return invalid('derived host requires a finite group set')
+    for (const group of groups) {
+      const writes = literalValue(fieldsOf(group, invalid).get('writes'), 'section writes', invalid)
+      if (writes !== 'parent' && writes !== 'none') return invalid('derived host group declares a secondary write')
+    }
+    const routeNode = options.get('route')
+    const binding = routeNode && ts.isIdentifier(routeNode) && importedNamedBinding(source, routeNode.text)
+    if (!binding || !/^\.\/api(?:\/[A-Za-z0-9_.[\]-]+)*\/route(?:\.[jt]sx?)?$/.test(binding.specifier)) {
+      return invalid('derived host route must import the original named makeCrudRoute result from its module API route')
+    }
+    const relative = binding.specifier.slice(2)
+    const routeFile = module.resolve(relative)
+    if (!routeFile || routeFile.fromApp !== declaration.fromApp) return invalid('derived host route is missing or shadowed')
+    const mirror = routeFile.fromApp ? null : resolveStandaloneSourceMirrorBase(module.roots.pkgBase)
+    const mirrorFile = mirror && MODULE_CODE_EXTENSIONS.map((extension) =>
+      path.join(mirror, stripModuleCodeExtension(relative) + extension),
+    ).find((candidate) => fs.existsSync(candidate))
+    const fileName = mirrorFile || routeFile.absolutePath
+    const routeSource = ts.createSourceFile(fileName, fs.readFileSync(fileName, 'utf8'), ts.ScriptTarget.Latest, true)
+    const routeInitializer = exportedDeclaration(routeSource, binding.exported)
+    const routeCall = routeInitializer && unwrap(routeInitializer)
+    const factory = routeCall && ts.isCallExpression(routeCall) && ts.isIdentifier(routeCall.expression)
+      && importedNamedBinding(routeSource, routeCall.expression.text)
+    if (!routeCall || !ts.isCallExpression(routeCall) || routeCall.arguments.length !== 1
+        || !factory || factory.exported !== 'makeCrudRoute'
+        || !['@open-mercato/shared/lib/crud/factory', '@open-mercato/shared/lib/crud'].includes(factory.specifier)) {
+      return invalid('derived host requires a named original makeCrudRoute declaration')
+    }
+    const routeDeclaration = routeInitializer?.parent
+    if (!routeDeclaration || !ts.isVariableDeclaration(routeDeclaration) || !ts.isIdentifier(routeDeclaration.name)
+        || !exportsFactoryBinding(routeSource, routeDeclaration.name.text, 'metadata')) {
+      return invalid('derived route metadata must come directly from the named factory result')
+    }
+    const factoryName = routeDeclaration.name.text
+    const factoryOptions = fieldsOf(routeCall.arguments[0], invalid)
+    const actionNode = factoryOptions.get('actions')
+    const metadataNode = factoryOptions.get('metadata')
+    if (!actionNode || !metadataNode) return invalid('derived route requires literal factory actions and method metadata')
+    if (factoryOptions.has('resolveIdentifiers')) return invalid('derived route declares custom identifier mapping')
+    const hooks = factoryOptions.get('hooks')
+    if (hooks && [...fieldsOf(hooks, invalid).keys()].some((key) => /^(before|after)(Create|Update|Delete)$/.test(key))) {
+      return invalid('derived route declares custom write hooks')
+    }
+    const actions = fieldsOf(actionNode, invalid)
+    const metadata = fieldsOf(metadataNode, invalid)
+    const operations: DerivedRouteDeclaration['operations'] = [formOperation, ...(options.has('delete') ? ['delete' as const] : [])]
+    for (const operation of operations) {
+      const action = actions.get(operation)
+      const method = derivedRouteMethods[operation]
+      if (!action || !metadata.has(method) || !exportsFactoryBinding(routeSource, factoryName, method)) {
+        return invalid(`derived route has no direct ${method} factory export, command or metadata`)
+      }
+      const command = fieldsOf(action, invalid)
+      if (!hasIdentityMapper(command.get('mapInput')) || command.has('metadata')) {
+        return invalid(`derived ${method} route requires direct command input without custom metadata`)
+      }
+      const commandId = literalValue(command.get('commandId'), 'commandId', invalid)
+      if (!commandId.endsWith(`.${operation}`)) return invalid(`derived ${method} route command does not match its operation`)
+      const methodMetadata = fieldsOf(metadata.get(method)!, invalid)
+      if (methodMetadata.get('requireAuth')?.kind !== ts.SyntaxKind.TrueKeyword
+          || methodMetadata.has('requireRoles')) {
+        return invalid(`derived ${method} route must require authentication`)
+      }
+      for (const feature of arrayField(methodMetadata, 'requireFeatures', invalid)) literalValue(feature, 'required feature', invalid)
+    }
+    const configuredPath = metadata.get('path')
+    const basePath = configuredPath ? literalValue(configuredPath, 'route path', invalid)
+      : `/${[module.modId, ...relative.split('/').slice(1, -1)].join('/')}`
+    if (!/^\/(?:[A-Za-z0-9_.-]+|\[[A-Za-z0-9_-]+\])(?:\/(?:[A-Za-z0-9_.-]+|\[[A-Za-z0-9_-]+\]))*$/.test(basePath)) {
+      return invalid('derived route path must be a regular named API path')
+    }
+    return { index, routePath: `${basePath}/section-policy`, hostDescriptorId, operations }
+  })
+}
+
 function parseModuleSections(module: ModuleSource): ModuleSections | null {
   const declaration = module.resolve('form-sections.ts')
   if (!declaration) return null
@@ -199,6 +359,7 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
   if (!initializer) return invalid('expected a named crudFormSections declaration')
   const fields = fieldsOf(helperArgument(initializer, 'defineCrudFormSections', invalid), invalid)
 
+  const derivedRoutes = parseDerivedRoutes(fields, module, declaration, source, invalid)
   const runtimes = new Map<string, { roundTripId: string; runtimePath: string }>()
   for (const runtime of arrayField(fields, 'runtimes', invalid)) {
     const properties = fieldsOf(runtime, invalid)
@@ -244,7 +405,11 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
         const alternatives = arrayField(properties, 'alternatives', invalid).map((entry) => {
           const surface = fieldsOf(entry, invalid).get('surface')
           if (!surface) return invalid('missing finite surface alternative')
-          return literalData(surface, invalid)
+          const fact = literalData(surface, invalid)
+          const derived = derivedRoutes.find(({ hostDescriptorId }) => hostDescriptorId === id)
+          if (!derived) return fact
+          if (!fact || typeof fact !== 'object' || Array.isArray(fact)) return invalid('expected finite derived host facts')
+          return { ...fact, mutationSurfaceIds: derived.operations.map((operation) => `${id}.${operation}`) }
         })
         const hostResourceKind = properties.has('hostResourceKind')
           ? literalValue(properties.get('hostResourceKind'), 'hostResourceKind', invalid)
@@ -268,6 +433,7 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
   return {
     moduleId: module.modId,
     importPath: declaration.importPath,
+    derivedRoutes,
     clientHosts: clientHosts.sort((left, right) => compareIds(left.id, right.id)),
     contributedOverrides: fields.has('contributedOverrides')
       ? literalData(fields.get('contributedOverrides')!, invalid)
@@ -320,13 +486,19 @@ function renderFactRegistry(modules: readonly ModuleSections[]): string {
     generatedHeader,
     "import type { CrudFormSectionFactEntry, CrudFormSectionServerModule } from '@open-mercato/shared/modules/form-sections'",
     ...imports,
+    ...(modules.some(({ derivedRoutes }) => derivedRoutes.length)
+      ? ["import { bindDerivedCrudRouteSectionHosts } from '@open-mercato/shared/lib/crud/form-sections/derived-route-host'"] : []),
     '',
     'export const crudFormSectionFactEntries = [',
     ...entries,
     '] as const satisfies readonly CrudFormSectionFactEntry[]',
     '',
     'export const crudFormSectionServerModules = [',
-    ...modules.map(({ moduleId }, index) => `  { moduleId: ${JSON.stringify(moduleId)}, sections: sections${index} },`),
+    ...modules.map(({ moduleId, derivedRoutes }, index) => {
+      const bindings = derivedRoutes.map((route) => `{ declaration: sections${index}.derivedHosts[${route.index}], route: ${JSON.stringify(route.routePath)} }`)
+      const sections = bindings.length ? `bindDerivedCrudRouteSectionHosts(sections${index}, [${bindings.join(', ')}])` : `sections${index}`
+      return `  { moduleId: ${JSON.stringify(moduleId)}, sections: ${sections} },`
+    }),
     '] as const satisfies readonly CrudFormSectionServerModule[]',
     '',
   ].join('\n')
@@ -411,4 +583,92 @@ export function writeCrudFormSectionRegistries(options: {
       quiet: options.quiet,
     })
   }
+}
+
+const derivedRouteFilePattern = /^crud-form-section-route-[a-f0-9]{16}\.generated\.ts$/
+
+export function writeDerivedCrudFormSectionRoutes(
+  options: Parameters<typeof writeCrudFormSectionRegistries>[0],
+): GeneratedDerivedCrudRoute[] {
+  const routes = new Map<string, {
+    moduleId: string
+    importPath: string
+    entries: DerivedRouteDeclaration[]
+  }>()
+  for (const module of options.modules) {
+    const source = parseModuleSections(module)
+    if (!source) continue
+    const hostIds = new Set(source.descriptors.filter(({ kind }) => kind === 'host').map(({ id }) => id))
+    const bound = new Set<string>()
+    for (const entry of source.derivedRoutes) {
+      if (!hostIds.has(entry.hostDescriptorId) || bound.has(entry.hostDescriptorId)) {
+        throw new Error(`[generate] Derived CrudForm route requires one matching host fact in "${module.modId}"`)
+      }
+      bound.add(entry.hostDescriptorId)
+      const existing = routes.get(entry.routePath)
+      if (existing && existing.moduleId !== module.modId) {
+        throw new Error(`[generate] Duplicate derived CrudForm route "${entry.routePath}"`)
+      }
+      const route = existing ?? { moduleId: module.modId, importPath: source.importPath, entries: [] }
+      route.entries.push(entry)
+      routes.set(entry.routePath, route)
+    }
+  }
+
+  const generated: GeneratedDerivedCrudRoute[] = []
+  for (const [routePath, { moduleId, importPath, entries }] of [...routes].sort(([left], [right]) => compareIds(left, right))) {
+    const suffix = createHash('sha256').update(`${moduleId}:${routePath}`).digest('hex').slice(0, 16)
+    const fileName = `crud-form-section-route-${suffix}.generated.ts`
+    const methods = [...new Set(entries.flatMap(({ operations }) => operations.map((operation) => derivedRouteMethods[operation])))].sort(compareIds)
+    const content = [
+      generatedHeader,
+      "import { createDerivedCrudFormSectionFacade } from '@open-mercato/shared/lib/crud/form-sections/derived-route-host'",
+      `import { crudFormSections } from ${JSON.stringify(importPath)}`,
+      `const facade = createDerivedCrudFormSectionFacade([${entries.map(({ index }) => `crudFormSections.derivedHosts[${index}]`).join(', ')}], ${JSON.stringify(routePath)}, ${JSON.stringify(methods)})`,
+      'export const metadata = facade.metadata',
+      'export const openApi = facade.openApi',
+      ...methods.map((method) => `export const ${method} = facade.handlers.${method}!`),
+      '',
+    ].join('\n')
+    generated.push({ moduleId, routePath, fileName, methods })
+    writeGeneratedFile({
+      outFile: path.join(options.outputDir, fileName),
+      checksumFile: path.join(options.outputDir, fileName.replace(/\.ts$/, '.checksum')),
+      content, structureChecksum: options.structureChecksum, result: options.result, quiet: options.quiet,
+    })
+  }
+
+  const indexPath = path.join(options.outputDir, generatedDerivedCrudRouteIndex)
+  if (generated.length || fs.existsSync(indexPath)) {
+    writeGeneratedFile({
+      outFile: indexPath,
+      checksumFile: indexPath.replace(/\.json$/, '.checksum'),
+      content: JSON.stringify(generated, null, 2) + '\n',
+      structureChecksum: options.structureChecksum, result: options.result, quiet: options.quiet,
+    })
+  }
+  const current = new Set(generated.map(({ fileName }) => fileName))
+  if (fs.existsSync(options.outputDir)) {
+    for (const fileName of fs.readdirSync(options.outputDir)) {
+      if (!derivedRouteFilePattern.test(fileName) || current.has(fileName)) continue
+      fs.rmSync(path.join(options.outputDir, fileName), { force: true })
+      fs.rmSync(path.join(options.outputDir, fileName.replace(/\.ts$/, '.checksum')), { force: true })
+    }
+  }
+  return generated
+}
+
+export function readDerivedCrudFormSectionRouteIndex(outputDir: string): GeneratedDerivedCrudRoute[] {
+  const filePath = path.join(outputDir, generatedDerivedCrudRouteIndex)
+  if (!fs.existsSync(filePath)) return []
+  const entries: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+  if (!Array.isArray(entries)) throw new Error('[generate] Invalid generated derived route index')
+  return entries.map((entry: Partial<GeneratedDerivedCrudRoute>) => {
+    if (typeof entry.moduleId !== 'string' || typeof entry.routePath !== 'string' || !entry.routePath.endsWith('/section-policy')
+        || typeof entry.fileName !== 'string' || !derivedRouteFilePattern.test(entry.fileName)
+        || !Array.isArray(entry.methods) || !entry.methods.every((method) => ['POST', 'PUT', 'DELETE'].includes(method))) {
+      throw new Error('[generate] Invalid derived route index entry')
+    }
+    return { moduleId: entry.moduleId, routePath: entry.routePath, fileName: entry.fileName, methods: entry.methods }
+  })
 }

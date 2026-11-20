@@ -13,6 +13,7 @@ import type { ModuleEntry, PackageResolver } from '../resolver'
 import { getEnabledModuleIdentities } from '../module-identity'
 import { isModuleRouteFile } from './scanner'
 import { resolveNamedObjectExport } from './module-registry'
+import { generatedDerivedCrudRouteIndex, readDerivedCrudFormSectionRouteIndex } from './form-sections'
 import {
   calculateChecksum,
   calculateStructureChecksum,
@@ -56,6 +57,7 @@ interface OpenApiInputContext {
 interface OpenApiBundleResult {
   doc: Record<string, any> | null
   inputPaths: string[]
+  qualifierFailure?: string
 }
 
 const OPENAPI_INPUT_MANIFEST_VERSION = 2
@@ -117,6 +119,7 @@ function calculateOpenApiInputFingerprint(
   const appDir = resolver.getAppDir()
   const configPaths = [
     resolver.getModulesConfigPath(),
+    path.join(resolver.getOutputDir(), generatedDerivedCrudRouteIndex),
     path.join(rootDir, 'package.json'),
     path.join(rootDir, 'yarn.lock'),
     path.join(rootDir, 'package-lock.json'),
@@ -214,6 +217,13 @@ async function findApiRoutes(
     }
   }
 
+  const enabledIds = new Set(enabled.map(({ id }) => id))
+  const derived = readDerivedCrudFormSectionRouteIndex(resolver.getOutputDir())
+  routes.push(...derived.filter(({ moduleId }) => enabledIds.has(moduleId)).map(({ moduleId, routePath, methods, fileName }) => ({
+    moduleId, methods,
+    path: path.join(resolver.getOutputDir(), fileName),
+    openApiPath: `/api${routePath}`.replace(/\[([^\]]+)\]/g, '{$1}'),
+  })))
   return routes
 }
 
@@ -611,7 +621,8 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
         }
       }
     }
-    return { doc: null, inputPaths }
+    const qualifierFailure = /Cannot derive CrudForm section host: [^\r\n]+/.exec(`${errMsg}\n${String(stderr ?? '')}`)?.[0]
+    return { doc: null, inputPaths, qualifierFailure }
   } finally {
     // Shut down esbuild's persistent Go service so it does not deadlock at
     // process exit when a plugin request is still in flight.
@@ -719,6 +730,10 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
   // Try esbuild bundle approach first — produces full requestBody/response schemas
   const bundleResult = await generateOpenApiViaBundle(routes, resolver, quiet)
   let doc: Record<string, any> | null = bundleResult.doc
+
+  if (!doc && readDerivedCrudFormSectionRouteIndex(outputDir).length) {
+    throw new Error(bundleResult.qualifierFailure ?? '[generate] Could not validate generated CrudForm section-policy OpenAPI schemas')
+  }
 
   // Fallback to static regex approach (extracts operationId/summary/tags but no schemas)
   if (!doc) {

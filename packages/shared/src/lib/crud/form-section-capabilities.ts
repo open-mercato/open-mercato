@@ -16,6 +16,7 @@ type CapabilitySourceKind =
   | 'command-interceptor'
   | 'mutation-guard'
   | 'section-policy'
+  | 'derived-crud-route'
 
 type CapabilitySource = {
   kind: CapabilitySourceKind
@@ -202,6 +203,7 @@ type CapabilityHost = {
 
 export function collectCrudFormSectionCapabilities(
   displayPolicies: readonly CrudFormSectionDisplayPolicy[] = [],
+  derivedRoutes: readonly (CrudFormSectionDisplayPolicy & { features: readonly string[] })[] = [],
 ): CrudFormSectionCapabilityRegistry {
   const capabilities = new Map<string, CrudFormSectionCapabilityEntry>()
   const rejected = new Map<string, 'duplicate-provider' | 'invalid-provider'>()
@@ -254,6 +256,9 @@ export function collectCrudFormSectionCapabilities(
     if (fact) register({ kind: 'section-policy', moduleId, id: fact.capabilityId }, [], fact, true)
   }
 
+  for (const { moduleId, fact, features } of derivedRoutes) {
+    if (fact) register({ kind: 'derived-crud-route', moduleId, id: fact.capabilityId }, canonicalSet(features), fact, true)
+  }
   return { capabilities, rejected }
 }
 

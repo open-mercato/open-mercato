@@ -25,6 +25,22 @@ function omitPath(record: SchemaFixture, [key, ...descendants]: readonly string[
   return { ...record, [key]: omitPath(nested, descendants) }
 }
 
+export function deriveCrudFormRequiredLeafPaths(
+  schema: z.ZodType,
+  schemaId: string,
+  fixtures: readonly SchemaFixture[],
+): string[] {
+  if (!fixtures.length) throw new Error('[internal] Required leaf contract needs at least one valid schema fixture')
+  const required = new Set<string>()
+  for (const fixture of fixtures) {
+    if (!schema.safeParse(fixture).success) throw new Error(`[internal] Invalid fixture for required leaf schema "${schemaId}"`)
+    for (const path of collectPaths(fixture)) {
+      if (!schema.safeParse(omitPath(fixture, path)).success) required.add(path.join('.'))
+    }
+  }
+  return [...required].sort()
+}
+
 export async function findCrudFormRequiredLeafDrift(
   schema: z.ZodType,
   schemaId: string,

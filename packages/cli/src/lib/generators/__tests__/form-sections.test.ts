@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { ModuleEntry, PackageResolver } from '../../resolver'
 import { generateModuleRegistries, generateModuleRegistryApp } from '../module-registry'
+import { generatedDerivedCrudRouteIndex, readDerivedCrudFormSectionRouteIndex } from '../form-sections'
 
 let root: string
 
@@ -226,5 +227,99 @@ describe('CrudForm section registry generation', () => {
       resolver: resolver([{ id: 'alpha', from: '@app' }, { id: 'beta', from: '@app' }]),
       quiet: true,
     })).rejects.toThrow(/Duplicate form-sections descriptor id "test.notes" in "alpha" and "beta"/)
+  })
+})
+
+const plainDerivedRoute = `
+  import { z } from 'zod'
+  import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+  export const crudRoute = makeCrudRoute({
+    metadata: {
+      POST: { requireAuth: true, requireFeatures: ['example.manage'] },
+      PUT: { requireAuth: true },
+      DELETE: { requireAuth: true, requireFeatures: ['example.manage'] },
+    },
+    orm: { entity: ExampleRecord },
+    actions: {
+      create: { commandId: 'example.records.create', schema: z.object({ name: z.string() }) },
+      update: { commandId: 'example.records.update', mapInput: ({ parsed }) => parsed },
+      delete: { commandId: 'example.records.delete' },
+    },
+  })
+  export const { metadata, POST, PUT, DELETE } = crudRoute
+`
+
+const derivedDeclaration = `
+import { defineCrudFormSections, lazyCrudFormSectionRuntime } from '@open-mercato/shared/modules/form-sections'
+import { defineCrudRouteSectionHost } from '@open-mercato/shared/lib/crud/form-sections/derived-route-host'
+import { crudRoute } from './api/records/route'
+export const crudFormSections = defineCrudFormSections({
+  hostFacts: [{
+    id: 'example.edit-rec', roundTripId: 'example.edit-rec@v1', hostResourceKind: 'example.records',
+    alternatives: [{ surface: {
+      id: 'example.edit-base', hostId: 'example.record', formVariant: 'default', formOperation: 'update',
+      orderedSectionIds: ['details'], callerIds: [], contributionIds: [],
+      ownershipFacts: [], mutationSurfaceIds: [], dependencies: [],
+    } }],
+  }],
+  derivedHosts: [defineCrudRouteSectionHost({
+    hostId: 'example.record', formVariant: 'default', formOperation: 'update', hostDescriptorId: 'example.edit-rec',
+    route: crudRoute, sections: [{ id: 'details', writes: 'parent' }],
+    delete: { proof: { finalInput: 'transactional-final-input/v1' } },
+  })],
+  runtimes: [{ id: 'example.edit-rec', roundTripId: 'example.edit-rec@v1',
+    load: lazyCrudFormSectionRuntime(() => import('./descriptor.client')),
+  }],
+})
+`
+
+function writeDerivedFixture(base: string, declarationSource = derivedDeclaration, routeSource = plainDerivedRoute, ext = 'ts'): void {
+  write(`${base}/form-sections.${ext}`, declarationSource)
+  write(`${base}/api/records/route.${ext}`, routeSource)
+  write(`${base}/descriptor.client.${ext}`, runtime('example.edit-rec'))
+}
+
+describe('derived CRUD section route generation', () => {
+  it('emits one standalone-compatible façade into the static client, runtime, shard and docs route indices', async () => {
+    writeDerivedFixture('app/src/modules/example')
+    const fixture = resolver([{ id: 'example', from: '@app' }])
+    await generateModuleRegistries({ resolver: fixture, quiet: true })
+    const [derived] = readDerivedCrudFormSectionRouteIndex(fixture.getOutputDir())
+    expect(derived).toMatchObject({ moduleId: 'example', routePath: '/example/records/section-policy', methods: ['DELETE', 'PUT'] })
+    const content = fs.readFileSync(path.join(fixture.getOutputDir(), derived.fileName), 'utf8')
+    expect(content).toContain('export const PUT = facade.handlers.PUT!')
+    expect(content).toContain('export const DELETE = facade.handlers.DELETE!')
+    expect(content).not.toContain('export const POST')
+    expect(content).toContain('export const openApi = facade.openApi')
+    for (const fileName of ['api-routes.generated.ts', 'api-route-metadata.generated.ts', 'modules.runtime.generated.ts']) {
+      expect(fs.readFileSync(path.join(fixture.getOutputDir(), fileName), 'utf8')).toContain('/example/records/section-policy')
+    }
+    const docsIndex = path.join(fixture.getOutputDir(), generatedDerivedCrudRouteIndex)
+    expect(fs.readFileSync(docsIndex, 'utf8')).toContain('/example/records/section-policy')
+    expect(generated('facts')).toContain('bindDerivedCrudRouteSectionHosts')
+    expect(generated('runtime')).toContain('"example.edit-rec.update"')
+    expect(generated('runtime')).not.toContain('createDerivedCrudFormSectionFacade')
+    const second = await generateModuleRegistries({ resolver: fixture, quiet: true })
+    expect(second.flatMap((result) => result.filesWritten)).toEqual([])
+  })
+
+  it('recognizes the original route binding from packaged JS', async () => {
+    writeDerivedFixture('package/dist/modules/example', derivedDeclaration.replace("'./api/records/route'", "'./api/records/route.js'"), plainDerivedRoute, 'js')
+    const fixture = resolver([{ id: 'example' }], true)
+    await generateModuleRegistries({ resolver: fixture, quiet: true })
+    const [derived] = readDerivedCrudFormSectionRouteIndex(fixture.getOutputDir())
+    expect(fs.readFileSync(path.join(fixture.getOutputDir(), derived.fileName), 'utf8'))
+      .toContain('@open-mercato/core/modules/example/form-sections')
+  })
+
+  it.each([
+    ['secondary write', derivedDeclaration.replace("writes: 'parent'", "writes: 'child'"), plainDerivedRoute, /secondary write/],
+    ['unknown route factory', derivedDeclaration, plainDerivedRoute.replace('= makeCrudRoute({', '= differentFactory({'), /named original makeCrudRoute/],
+    ['custom command mapper', derivedDeclaration, plainDerivedRoute.replace('=> parsed', '=> ({ body: parsed })'), /requires direct command input/],
+  ])('rejects %s as a failed qualifier', async (_name, formSource, routeSource, diagnostic) => {
+    writeDerivedFixture('app/src/modules/example', formSource, routeSource)
+    await expect(generateModuleRegistries({
+      resolver: resolver([{ id: 'example', from: '@app' }]), quiet: true,
+    })).rejects.toThrow(diagnostic)
   })
 })

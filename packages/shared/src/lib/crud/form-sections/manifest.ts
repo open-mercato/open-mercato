@@ -33,6 +33,7 @@ import {
   type CrudFormSectionConfiguredHostLedger,
 } from './composition'
 import { symbolicIdSchema } from './protocol'
+import { getDerivedCrudRouteCapabilities } from './factory-route-source'
 import {
   collectCrudFormSectionSinks, crudFormSectionSinkAtomicities, selectCrudFormSectionSinks,
   type AcceptedCrudFormSectionSink,
@@ -175,9 +176,10 @@ export function buildCrudFormSectionManifest(
   const sinkRuntimes = collectCrudFormSectionSinks(modules)
   if (!configuredEntries.length) return { ledger: { hosts: [], fingerprint: hash('[]') }, policies, providers, leafDefaultProviders, sinkRuntimes }
 
-  const capabilityRegistry = collectCrudFormSectionCapabilities(modules.flatMap(({ moduleId, sections }) =>
-    (sections.displayPolicies ?? []).map((fact) => ({ moduleId, fact })),
-  ))
+  const capabilityRegistry = collectCrudFormSectionCapabilities(
+    modules.flatMap(({ moduleId, sections }) => (sections.displayPolicies ?? []).map((fact) => ({ moduleId, fact }))),
+    modules.flatMap(({ moduleId, sections }) => getDerivedCrudRouteCapabilities(sections).map((entry) => ({ moduleId, ...entry }))),
+  )
   const contributions = uniqueIndex(
     modules.flatMap(({ sections }) => sections.contributionFacts ?? []),
     (contribution) => contribution.id,

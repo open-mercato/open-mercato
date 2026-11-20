@@ -1,3 +1,4 @@
+import type { CrudRouteSectionHostDeclaration } from '../lib/crud/form-sections/derived-route-host'
 import type { AwilixContainer } from 'awilix'
 import type { EntityName, FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -172,6 +173,7 @@ export type CrudFormSectionsDeclaration = {
   hostFacts?: readonly CrudFormSectionHostFact[]
   contributionFacts?: readonly CrudFormSectionContributionFact[]
   hostProviders?: readonly CrudFormSectionHostProvider[]
+  derivedHosts?: readonly CrudRouteSectionHostDeclaration[]
   leafDefaultProviders?: readonly CrudFormLeafDefaultProvider[]
   sinks?: readonly CrudFormSectionSink[]
   displayPolicies?: readonly CrudFormSectionCapabilityProviderFact[]

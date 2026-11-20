@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { ModuleEntry, PackageResolver } from '../../resolver'
 import { generateOpenApi } from '../openapi'
+import { generatedDerivedCrudRouteIndex } from '../form-sections'
 
 describe('resolveOpenApiGeneratorProjectRoot', () => {
   it('resolves the monorepo root from a POSIX module URL', async () => {
@@ -112,6 +113,28 @@ export function buildOpenApiDocument(modules: any[], options: any) {
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('loads generated section-policy docs and fails closed when the qualified route cannot load', async () => {
+    const resolver = createMockResolver([{ id: 'example', from: '@app' }])
+    const outputDir = resolver.getOutputDir()
+    const fileName = 'crud-form-section-route-0123456789abcdef.generated.ts'
+    touchFile(path.join(outputDir, generatedDerivedCrudRouteIndex), JSON.stringify([{
+      moduleId: 'example', routePath: '/example/records/section-policy', fileName, methods: ['PUT'],
+    }]))
+    const routePath = path.join(outputDir, fileName)
+    touchFile(routePath, `
+      export const metadata = { PUT: { requireAuth: true } }
+      export const PUT = () => new Response()
+      export const openApi = { PUT: { summary: 'Update the bound record', requestBody: { required: true } } }
+    `)
+    await generateOpenApi({ resolver, quiet: true })
+    const generated = JSON.parse(fs.readFileSync(path.join(outputDir, 'openapi.generated.json'), 'utf8'))
+    expect(generated.paths['/api/example/records/section-policy']).toEqual({
+      put: { summary: 'Update the bound record', requestBody: { required: true } },
+    })
+    touchFile(routePath, "throw new Error('Cannot derive CrudForm section host: fixture qualifier failed')")
+    await expect(generateOpenApi({ resolver, quiet: true })).rejects.toThrow(/fixture qualifier failed/)
   })
 
   it('lets app route files override package route files while preserving package-only routes', async () => {
