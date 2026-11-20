@@ -1,5 +1,18 @@
 # Upgrade Notes
 
+## CRUD factory security and query correctness bundle
+
+These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.
+
+- **Full exports keep row scope (#9015).** `?format=…&exportScope=full` now always runs the route's `buildFilters` (with an empty query, or with the before-interceptor's rewritten query when one rewrote it). Rows a caller cannot see in the list (own records only, project membership, deny-all) are no longer exported. **Action:** none; a route whose `buildFilters` needs query params to be correct should handle an empty query.
+- **Advanced filters cannot override route scope (#9016, #9896).** Client `filter[conditions]` are AND-combined with `buildFilters` output (`$and`) instead of spread over it.
+- **List cache partitions (#7579, #7529).** With `ENABLE_CRUD_API_CACHE=true`, the list cache key now includes the resolved translation-overlay locale (or a `none` sentinel), a before-interceptor query rewrite, and an optional route-owned scope. Translation writes and undos drop cached localized lists of the entity. New additive `list.cacheScope(query, ctx)` option on `makeCrudRoute`: return a string to partition the cache, `null` to bypass it for the request, `undefined` for the default key. Staff time-projects uses it to partition by the caller's resolved project access. Existing cache entries simply miss once after the upgrade.
+- **Customers write commands load targets in scope (#7598).** Update/delete commands for people, companies, deals, addresses, comments, tags, pipelines, interactions and todo links look up the target inside the caller's tenant and allowed organizations. An out-of-scope id now answers 404 instead of 403.
+- **WMS commands check features in-command (#7673).** Every WMS write command requires the same feature its HTTP route requires, so notification actions, workflows and AI tools dispatching through the command bus cannot bypass it. `wms.inventory.adjust` accepts `wms.adjust_inventory` or `wms.import`; `wms.putaway-tasks.complete` also requires `wms.adjust_inventory`, as its routes do. Actor-less server dispatches (`auth: null`) are unaffected. **Action:** custom roles that dispatch WMS commands outside the HTTP routes need the matching feature.
+- **Sortable columns (#9548).** List routes whose `sortFieldMap` lacked keys the backend tables send (WMS, deals, staff, resources, planner, catalog products, company/person pickers) map them now, so those columns sort on the server again under the sort-map boundary (#3827).
+- **Empty `in` / `not in` (#7637).** Join-column, custom-field and index-doc filters with an empty list compile to never-match / match-all instead of invalid SQL.
+- **Search on plaintext columns (#5803).** With `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS` off (default), a search-token match on a column the encryption map reports as plaintext must also contain each search word (case- and accent-folded), so `?search=2026-08` no longer returns `2026-01`. Encrypted columns are unchanged. The folding uses Postgres `normalize()`, which requires a UTF8 database (PostgreSQL 13+).
+
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
 
 The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
