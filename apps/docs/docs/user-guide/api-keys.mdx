@@ -14,7 +14,7 @@ Use API keys when automations or external systems must call the Open Mercato API
 
 ![API keys table](/screenshots/open-mercato-manage-api-keys.png)
 
-1. Open **Admin → Security → API keys**.
+1. Open **Settings → Auth → API Keys** (`/backend/api-keys`).
 2. Select the tenant and (optionally) the organization the key should scope to.
 3. Click **Create API key** to launch the form.
 
@@ -28,7 +28,7 @@ Use API keys when automations or external systems must call the Open Mercato API
 ![API key created modal](/screenshots/open-mercato-api-key-created.png)
 
 - Copy the shown secret immediately; it is hashed after the modal closes.
-- Distribute the prefix (`omk_live_...`) alongside the secret so auditors can correlate requests with this key.
+- Distribute the prefix (the `omk_xxxxxxxx` part before the dot, also shown in the **Key** column) alongside the secret so auditors can correlate requests with this key.
 
 ## Rotating or revoking a key
 
