@@ -3,6 +3,7 @@ import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_FALLBACK_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 
 export interface CheckAuthRateLimitOptions {
@@ -21,8 +22,8 @@ export interface CheckAuthRateLimitResult {
 
 /**
  * Fail-open rate limit check for auth endpoints.
- * Layer 1: IP check with ipConfig. Opted-in callers with an identifier but no
- * trusted address scope this limit to the identifier.
+ * Layer 1: IP check with ipConfig. Without a trusted address, opted-in callers
+ * check the identifier quota first while retaining the shared fallback ceiling.
  * Layer 2 (optional): compound IP + hashed identifier check with compoundConfig.
  */
 export async function checkAuthRateLimit(options: CheckAuthRateLimitOptions): Promise<CheckAuthRateLimitResult> {
@@ -47,19 +48,38 @@ export async function checkAuthRateLimit(options: CheckAuthRateLimitOptions): Pr
     const compoundKey = options.compoundConfig && options.compoundIdentifier
       ? `${clientKey}:${computeEmailHash(options.compoundIdentifier)}`
       : null
-    const ipKey = !clientIp && options.isolateByIdentifierWithoutTrustedIp && compoundKey
-      ? `identifier:${compoundKey}`
-      : clientKey
-    const ipError = await checkRateLimit(rateLimiterService, options.ipConfig, ipKey, errorMessage)
-    if (ipError) return { error: ipError, compoundKey: null }
+    const identifierFirst = Boolean(!clientIp && options.isolateByIdentifierWithoutTrustedIp && options.compoundConfig && compoundKey)
+    let aggregateConsumed = false
+    if (identifierFirst && options.compoundConfig && compoundKey) {
+      const aggregateState = await rateLimiterService.get(clientKey, options.ipConfig).catch((error) => {
+        try {
+          getTelemetryRuntime()?.reportError(error, { module: 'auth', code: 'auth.fallback_rate_limit_read_failed' })
+        } catch {
+          return null
+        }
+        return null
+      })
+      if (aggregateState && !aggregateState.allowed) {
+        const aggregateError = await checkRateLimit(rateLimiterService, options.ipConfig, clientKey, errorMessage)
+        if (aggregateError) return { error: aggregateError, compoundKey: null }
+        aggregateConsumed = true
+      }
+      const identifierError = await checkRateLimit(rateLimiterService, options.compoundConfig, compoundKey, errorMessage)
+      if (identifierError) return { error: identifierError, compoundKey }
+    }
 
-    if (options.compoundConfig && compoundKey) {
+    if (!aggregateConsumed) {
+      const ipError = await checkRateLimit(rateLimiterService, options.ipConfig, clientKey, errorMessage)
+      if (ipError) return { error: ipError, compoundKey: null }
+    }
+
+    if (!identifierFirst && options.compoundConfig && compoundKey) {
       const compoundError = await checkRateLimit(rateLimiterService, options.compoundConfig, compoundKey, errorMessage)
       if (compoundError) return { error: compoundError, compoundKey }
       return { error: null, compoundKey }
     }
 
-    return { error: null, compoundKey: null }
+    return { error: null, compoundKey }
   } catch {
     return { error: null, compoundKey: null }
   }

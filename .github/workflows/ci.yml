@@ -1240,8 +1240,10 @@ jobs:
           OM_TEST_RATE_LIMIT_MODE: enabled
           RATE_LIMIT_TRUST_PROXY_DEPTH: '0'
           RATE_LIMIT_STRATEGY: memory
-          RATE_LIMIT_LOGIN_IP_POINTS: '2'
-          RATE_LIMIT_CUSTOMER_LOGIN_IP_POINTS: '2'
+          RATE_LIMIT_LOGIN_IP_POINTS: '6'
+          RATE_LIMIT_LOGIN_POINTS: '2'
+          RATE_LIMIT_CUSTOMER_LOGIN_IP_POINTS: '6'
+          RATE_LIMIT_CUSTOMER_LOGIN_POINTS: '2'
         run: yarn test:integration:ephemeral TC-AUTH-016 --no-reuse-env
 
   # ── Merge shard coverage ─────────────────────────────────────────────────────

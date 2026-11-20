@@ -155,7 +155,7 @@ test.describe('TC-AUTH-016: default proxy depth rate-limit fixture', () => {
   test.skip(process.env.OM_INTEGRATION_AUTH_RATE_LIMIT_FIXTURE !== '1', 'Requires the dedicated auth rate-limit fixture');
 
   for (const audience of ['staff', 'portal'] as const) {
-    test(`${audience} login enforces a separate quota for each identifier`, async ({ request }) => {
+    test(`${audience} login isolates blocked identifiers and bounds rotating identifiers`, async ({ request }) => {
       const tenantId = audience === 'portal'
         ? getTokenContext(await getAuthToken(request, 'admin')).tenantId
         : undefined;
@@ -177,7 +177,17 @@ test.describe('TC-AUTH-016: default proxy depth rate-limit fixture', () => {
       expect(limited.headers()['x-ratelimit-limit']).toBe('2');
       expect(limited.headers()['x-ratelimit-remaining']).toBe('0');
 
-      expect((await login(`rate-limit-${randomUUID()}@test.invalid`)).status()).toBe(401);
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        expect((await login(identifier)).status()).toBe(429);
+      }
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        expect((await login(`rate-limit-${randomUUID()}@test.invalid`)).status()).toBe(401);
+      }
+      const aggregateLimited = await login(`rate-limit-${randomUUID()}@test.invalid`);
+      expect(aggregateLimited.status()).toBe(429);
+      expect(aggregateLimited.headers()['x-ratelimit-limit']).toBe('6');
+      expect(aggregateLimited.headers()['x-ratelimit-remaining']).toBe('0');
+      expect(aggregateLimited.headers()['retry-after']).toMatch(/^[1-9]\d*$/);
     });
   }
 });
