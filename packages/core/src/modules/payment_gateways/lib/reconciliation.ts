@@ -1,9 +1,10 @@
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { decimalsEqual, resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { GatewayPaymentOperation, GatewayTransaction } from '../data/entities'
 import { reconciliationRecordSchema, reconciliationResolutionSchema, type ReconciliationRecord, type ReconciliationResolution } from '../data/validators'
 import { resolvePaymentGatewayTranslator } from './order-amount-reconciliation'
@@ -66,6 +67,8 @@ export async function listReconciliations(em: EntityManager, scope: Scope, query
     const reconciliation = readReconciliation(operation, transaction.currencyCode)
     return reconciliation ? [{
       id: operation.id, transactionId: operation.transactionId, providerKey: operation.providerKey,
+      providerSessionId: transaction.providerSessionId ?? null, gatewayPaymentId: transaction.gatewayPaymentId ?? null,
+      paymentId: transaction.paymentId, parentDeleted: transaction.deletedAt != null,
       updatedAt: operation.updatedAt.toISOString(), reconciliation,
     }] : []
   })
@@ -73,7 +76,7 @@ export async function listReconciliations(em: EntityManager, scope: Scope, query
 }
 
 export async function resolveReconciliation(em: EntityManager, input: {
-  id: string; evidence: ReconciliationResolution; actorUserId: string; scope: Scope; request?: Request
+  id: string; evidence: ReconciliationResolution; actorUserId: string; scope: Scope; container: AwilixContainer; request?: Request
 }) {
   const evidence = reconciliationResolutionSchema.parse(input.evidence)
   const translate = await resolvePaymentGatewayTranslator()
@@ -99,7 +102,7 @@ export async function resolveReconciliation(em: EntityManager, input: {
       }
       return refuse('alreadyResolved')
     }
-    enforceCommandOptimisticLock({ resourceKind: 'payment_gateways.payment_operation', resourceId: operation.id, current: operation.updatedAt, request: input.request })
+    await enforceCommandOptimisticLockWithGuards(input.container, { resourceKind: 'payment_gateways.payment_operation', resourceId: operation.id, current: operation.updatedAt, request: input.request })
     if (evidence.currencyCode !== reconciliation.currencyCode || !decimalsEqual(evidence.refundedAmountExact, reconciliation.capturedAmountExact)
       || new Date(evidence.confirmedAt).getTime() > Date.now()
       || new Date(evidence.confirmedAt).getTime() < operation.createdAt.getTime()) return refuse('evidenceMismatch')

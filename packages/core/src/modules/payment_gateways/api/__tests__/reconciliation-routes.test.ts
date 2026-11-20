@@ -2,6 +2,7 @@ import { GET, metadata as listMetadata } from '../reconciliations/route'
 import { POST, metadata as resolveMetadata } from '../reconciliations/[id]/resolve/route'
 import { resolveReconciliationCommand } from '../../commands/reconciliation'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 
 const mockResolve = jest.fn()
 const mockList = jest.fn()
@@ -78,6 +79,18 @@ it('revalidates modified guard payloads', async () => {
   mockGuard.mockResolvedValue({ ok: true, modifiedPayload: { ...evidence, confirmed: false }, afterSuccessCallbacks: [] })
   expect((await POST(request(), { auth, params: { id } })).status).toBe(422)
   expect(mockExecute).not.toHaveBeenCalled()
+})
+
+it('forwards explicit command-interceptor HTTP refusals and leaves unexpected failures to the error funnel', async () => {
+  const body = { error: 'fixture policy refusal', code: 'fixture_refused' }
+  mockExecute.mockRejectedValueOnce(new CommandInterceptorError('fixture policy refusal', { status: 422, body }))
+  const refusal = await POST(request(), { auth, params: { id } })
+  expect(refusal.status).toBe(422)
+  expect(await refusal.json()).toEqual(body)
+  expect(mockAfter).not.toHaveBeenCalled()
+  const unexpected = new Error('[internal] fixture database unavailable')
+  mockExecute.mockRejectedValueOnce(unexpected)
+  await expect(POST(request(), { auth, params: { id } })).rejects.toBe(unexpected)
 })
 
 it('enforces refund permission at the command boundary as well', async () => {

@@ -339,12 +339,13 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
               ? current.unifiedStatus as UnifiedPaymentStatus
               : null
             input.applyResult(current, result)
-            const reconciliation = input.action === 'capture' && outcome === 'incompatible'
+            const reconciliation = input.action === 'capture'
               ? readReconciliation({ operationType: input.action, status: 'succeeded', updatedAt: new Date(),
                 result: { ...result, __settledTransactionStatus: current.unifiedStatus } }, current.currencyCode)
               : null
             if (reconciliation) {
               completionResult = { ...result, reconciliation: reconciliationResponse(operation.id) }
+              incompatibleConcurrentStatus = current.unifiedStatus as UnifiedPaymentStatus
             }
             return { statusChanged: outcome === 'applied', settledStatus: current.unifiedStatus,
               ...(reconciliation ? { storedResult: { ...(completionResult as unknown as Record<string, unknown>), [RECONCILIATION_KEY]: reconciliation } } : {}) }

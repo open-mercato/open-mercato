@@ -25,7 +25,7 @@ export const resolveReconciliationCommand: CommandHandler<Input, Result> = {
     }
     return resolveReconciliation(ctx.container.resolve<EntityManager>('em'), {
       id: input.id, evidence: reconciliationResolutionSchema.parse(input.evidence),
-      actorUserId: auth.sub, scope, request: ctx.request,
+      actorUserId: auth.sub, scope, container: ctx.container, request: ctx.request,
     })
   },
   async buildLog({ result }) {

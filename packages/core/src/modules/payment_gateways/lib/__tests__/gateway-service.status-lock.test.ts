@@ -351,18 +351,23 @@ describe('payment gateway service — status writers evaluate the locked committ
       ))).toHaveLength(1)
     })
 
-    it('does not fail or announce anything when a concurrent writer moved the payment to an incompatible status', async () => {
+    it.each([
+      { status: 'captured' as const, currencyCode: 'USD' },
+      { status: 'partially_captured' as const, currencyCode: 'usd' },
+    ])('records the obligation and identical first/replay references for $status with $currencyCode', async (fixture) => {
       const committed = makeRow('authorized')
+      committed.currencyCode = fixture.currencyCode
       const harness = buildHarness({ committed, callerCopy: makeRow('authorized') })
       harness.adapter.capture.mockImplementation(async () => {
         committed.unifiedStatus = 'cancelled'
-        return { status: 'captured', capturedAmount: 100, providerData: { captureMarker: true } }
+        return { status: fixture.status, capturedAmount: 100, providerData: { captureMarker: true } }
       })
 
       const result = await harness.service.capturePayment('txn_1', undefined, scope, 'capture-after-cancel')
 
-      expect(result.status).toBe('captured')
+      expect(result.status).toBe(fixture.status)
       expect(result.reconciliation).toEqual({ id: 'operation_1', requiredAtCompletion: true })
+      expect(await harness.service.capturePayment('txn_1', undefined, scope, 'capture-after-cancel')).toEqual(result)
       expect(emit).not.toHaveBeenCalled()
       expect(committed.unifiedStatus).toBe('cancelled')
       expect(committed.gatewayMetadata).toEqual({ captureResult: { captureMarker: true } })
@@ -377,7 +382,7 @@ describe('payment gateway service — status writers evaluate the locked committ
         expect.objectContaining({
           level: 'warn',
           message: 'Payment status changed concurrently; provider result not applied',
-          payload: { action: 'capture', currentStatus: 'cancelled', resultStatus: 'captured' },
+          payload: { action: 'capture', currentStatus: 'cancelled', resultStatus: fixture.status },
         }),
         scope,
       )

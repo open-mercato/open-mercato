@@ -91,10 +91,12 @@ const exactPositiveAmountSchema = z.string().max(200).refine(
   { message: 'payment_gateways.errors.amountMustBePositive' },
 )
 
+const reconciliationCurrencySchema = z.string().length(3).transform((value) => value.replace(/[a-z]/g, (letter) => letter.toUpperCase()))
+
 export const reconciliationResolutionSchema = z.object({
   refundReference: z.string().trim().min(1).max(200),
   refundedAmountExact: exactPositiveAmountSchema,
-  currencyCode: z.string().regex(/^[A-Z]{3}$/),
+  currencyCode: reconciliationCurrencySchema,
   confirmedAt: z.string().datetime(),
   confirmed: z.literal(true),
 })
@@ -105,7 +107,7 @@ export const reconciliationRecordSchema = z.object({
   detectedAt: z.string().datetime(),
   observedStatus: z.enum(['cancelled', 'failed', 'expired']),
   capturedAmountExact: exactPositiveAmountSchema,
-  currencyCode: z.string().regex(/^[A-Z]{3}$/),
+  currencyCode: reconciliationCurrencySchema,
   resolution: reconciliationResolutionSchema.extend({
     actorUserId: z.string().min(1),
     recordedAt: z.string().datetime(),

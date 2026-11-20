@@ -4,6 +4,7 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { reconciliationResolutionSchema } from '../../../../data/validators'
 import { resolvePaymentGatewayTranslator } from '../../../../lib/order-amount-reconciliation'
@@ -30,7 +31,8 @@ export async function POST(request: Request, context: { auth: AuthContext; param
   const evidence = reconciliationResolutionSchema.safeParse(guard.modifiedPayload ?? parsed.data)
   if (!evidence.success) return NextResponse.json({ error: translate('payment_gateways.reconciliation.errors.invalidPayload') }, { status: 422 })
   try {
-    const { result } = await container.resolve<CommandBus>('commandBus').execute('payment_gateways.reconciliation.resolve', {
+    const commandBus = container.resolve<CommandBus>('commandBus')
+    const { result } = await commandBus.execute('payment_gateways.reconciliation.resolve', {
       input: { id: params.data.id, evidence: evidence.data },
       ctx: { container, auth, selectedOrganizationId: auth.orgId, organizationIds: [auth.orgId], organizationScope: null, request },
     })
@@ -38,6 +40,8 @@ export async function POST(request: Request, context: { auth: AuthContext; param
     return NextResponse.json(result)
   } catch (error) {
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
+    const rejection = getCommandInterceptorHttpRejection(error)
+    if (rejection) return NextResponse.json(rejection.body, { status: rejection.status })
     throw error
   }
 }

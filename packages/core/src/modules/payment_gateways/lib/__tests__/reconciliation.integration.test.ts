@@ -1,10 +1,14 @@
 import 'reflect-metadata'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { asValue, createContainer } from 'awilix'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
-import { MikroORM } from '@mikro-orm/postgresql'
+import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
 import type { StartedTestContainer } from 'testcontainers'
 import { GatewayPaymentOperation, GatewayTransaction } from '../../data/entities'
-import { listReconciliations, readReconciliation, RECONCILIATION_KEY, resolveReconciliation } from '../reconciliation'
+import { listReconciliations, readReconciliation, reconciliationResponse, RECONCILIATION_KEY, resolveReconciliation } from '../reconciliation'
+import { completePaymentOperation } from '../payment-operation-idempotency'
+import { createPaymentGatewayService } from '../gateway-service'
 import { GET } from '../../api/reconciliations/route'
 import { POST } from '../../api/reconciliations/[id]/resolve/route'
 import { resolveReconciliationCommand } from '../../commands/reconciliation'
@@ -41,12 +45,12 @@ withDatabase('capture reconciliation against disposable PostgreSQL', () => {
     try { await orm?.close(true) } finally { await postgres?.stop({ timeout: 10_000 }) }
   }, 30_000)
 
-  async function fixture() {
+  async function fixture(currencyCode = 'USD') {
     const scope = { tenantId: randomUUID(), organizationId: randomUUID() }
     const em = orm.em.fork()
     const transaction = em.create(GatewayTransaction, {
       id: randomUUID(), ...scope, paymentId: randomUUID(), providerKey: 'synthetic', providerSessionId: randomUUID(),
-      amount: '100.000000000000000001', capturedAmount: '100.000000000000000001', currencyCode: 'USD', unifiedStatus: 'cancelled',
+      amount: '100.000000000000000001', capturedAmount: '100.000000000000000001', currencyCode, unifiedStatus: 'cancelled',
       deletedAt: new Date(),
     })
     const operation = em.create(GatewayPaymentOperation, {
@@ -57,14 +61,14 @@ withDatabase('capture reconciliation against disposable PostgreSQL', () => {
     })
     await em.persist([transaction, operation]).flush()
     const evidence = { refundReference: randomUUID(), refundedAmountExact: '100.000000000000000001', currencyCode: 'USD', confirmedAt: new Date(Date.now() - 1000).toISOString(), confirmed: true as const }
-    const input = { id: operation.id, scope, actorUserId: randomUUID(), evidence }
+    const input = { id: operation.id, scope, actorUserId: randomUUID(), evidence, container: createContainer() }
     return { scope, transaction, operation, input }
   }
 
   it('discovers legacy obligations even when the parent transaction is deleted', async () => {
     const { scope, operation } = await fixture()
     const result = await listReconciliations(orm.em.fork(), scope, { page: 1, pageSize: 20, status: 'required' })
-    expect(result.items).toEqual([expect.objectContaining({ id: operation.id, reconciliation: expect.objectContaining({ status: 'required' }) })])
+    expect(result.items).toEqual([expect.objectContaining({ id: operation.id, parentDeleted: true, providerSessionId: expect.any(String), paymentId: expect.any(String), reconciliation: expect.objectContaining({ status: 'required' }) })])
     expect(result.total).toBe(1)
     expect((await listReconciliations(orm.em.fork(), { ...scope, tenantId: randomUUID() }, { page: 1, pageSize: 20, status: 'required' })).total).toBe(0)
   })
@@ -131,6 +135,23 @@ withDatabase('capture reconciliation against disposable PostgreSQL', () => {
     await expect(resolveReconciliation(orm.em.fork(), { ...input, evidence: { ...input.evidence, refundReference: randomUUID() } })).rejects.toMatchObject({ status: 409 })
   })
 
+  it('awaits the optional record-lock guard and preserves its refusal', async () => {
+    const { input } = await fixture()
+    const enforce = jest.fn(async () => { throw new CrudHttpError(409, { code: 'record_lock_conflict', error: 'fixture conflict' }) })
+    input.container.register({ commandOptimisticLockGuardService: asValue({ enforce }) })
+    await expect(resolveReconciliation(orm.em.fork(), input)).rejects.toMatchObject({ status: 409, body: { code: 'record_lock_conflict' } })
+    expect(enforce).toHaveBeenCalledTimes(1)
+    expect((await orm.em.fork().findOneOrFail(GatewayPaymentOperation, input.id)).result?.[RECONCILIATION_KEY]).toBeUndefined()
+  })
+
+  it('discovers and resolves accepted lowercase legacy currency without rewriting transaction history', async () => {
+    const { input, scope, transaction } = await fixture('usd')
+    const listed = await listReconciliations(orm.em.fork(), scope, { page: 1, pageSize: 20, status: 'required' })
+    expect(listed.items[0].reconciliation.currencyCode).toBe('USD')
+    expect((await resolveReconciliation(orm.em.fork(), { ...input, evidence: { ...input.evidence, currencyCode: 'usd' } })).reconciliation.status).toBe('resolved')
+    expect((await orm.em.fork().findOneOrFail(GatewayTransaction, transaction.id)).currencyCode).toBe('usd')
+  })
+
   it('serializes concurrent receipt use across operations on independent connections', async () => {
     const { input, operation } = await fixture()
     const em = orm.em.fork()
@@ -150,5 +171,55 @@ withDatabase('capture reconciliation against disposable PostgreSQL', () => {
     const { operation } = await fixture()
     expect(readReconciliation({ ...operation, result: { ...operation.result, __settledTransactionStatus: 'partially_refunded' } }, 'USD')).toBeNull()
     expect(readReconciliation({ ...operation, status: 'in_progress' }, 'USD')).toBeNull()
+  })
+
+  it.each(['captured', 'partially_captured'] as const)('atomically stores %s completion facts and preserves replay after resolution', async (status) => {
+    const { input, operation, transaction } = await fixture('usd')
+    const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
+    const em = orm.em.fork()
+    await em.nativeUpdate(GatewayTransaction, transaction.id, { deletedAt: null })
+    await em.nativeUpdate(GatewayPaymentOperation, operation.id, {
+      status: 'in_progress', result: null,
+      requestHash: digest({ transactionId: transaction.id, providerKey: operation.providerKey, action: 'capture', payload: { amount: null } }),
+      providerIdempotencyKey: `om-pg-${digest({ tenantId: input.scope.tenantId, organizationId: input.scope.organizationId, transactionId: transaction.id, action: 'capture', operationId: operation.operationId })}`,
+    })
+    const record = await em.findOneOrFail(GatewayPaymentOperation, operation.id)
+    const capturedAmountExact = status === 'captured' ? '100.000000000000000001' : '60.000000000000000001'
+    const providerResult = { status, capturedAmount: status === 'captured' ? 100 : 60, capturedAmountExact }
+    const completionResult = { ...providerResult, reconciliation: reconciliationResponse(record.id) }
+    await completePaymentOperation(em, { record, attemptToken: record.attemptToken, providerIdempotencyKey: record.providerIdempotencyKey }, providerResult, async (completionEm) => {
+      const current = await completionEm.findOneOrFail(GatewayTransaction, transaction.id)
+      const reconciliation = readReconciliation({ operationType: 'capture', status: 'succeeded', updatedAt: new Date(), result: {
+        ...providerResult, __settledTransactionStatus: current.unifiedStatus,
+      } }, current.currencyCode)
+      expect(reconciliation).toMatchObject({ status: 'required', currencyCode: 'USD' })
+      return { statusChanged: false, settledStatus: current.unifiedStatus, storedResult: { ...completionResult, [RECONCILIATION_KEY]: reconciliation } }
+    })
+    const stored = await orm.em.fork().findOneOrFail(GatewayPaymentOperation, operation.id)
+    expect(stored.result).toMatchObject({ ...completionResult, [RECONCILIATION_KEY]: { status: 'required', capturedAmountExact, currencyCode: 'USD' } })
+    const credentials = { resolve: jest.fn() }
+    const replay = () => createPaymentGatewayService({ em: orm.em.fork(), integrationCredentialsService: credentials as never })
+      .capturePayment(transaction.id, undefined, input.scope, operation.operationId)
+    await expect(replay()).resolves.toEqual(completionResult)
+    await resolveReconciliation(orm.em.fork(), { ...input, evidence: { ...input.evidence, refundedAmountExact: capturedAmountExact } })
+    await expect(replay()).resolves.toEqual(completionResult)
+    expect(credentials.resolve).not.toHaveBeenCalled()
+  })
+
+  it('rolls back newly attached obligation metadata with the completion transaction', async () => {
+    const { operation } = await fixture()
+    const em = orm.em.fork()
+    await em.nativeUpdate(GatewayPaymentOperation, operation.id, { status: 'in_progress', result: null })
+    const record = await em.findOneOrFail(GatewayPaymentOperation, operation.id)
+    const original = em.transactional.bind(em)
+    em.transactional = (async (...args: Parameters<EntityManager['transactional']>) => original(async (transactionEm) => {
+      await args[0](transactionEm)
+      throw new Error('[internal] fixture commit refused')
+    }, args[1])) as EntityManager['transactional']
+    await expect(completePaymentOperation(em, { record, attemptToken: record.attemptToken, providerIdempotencyKey: record.providerIdempotencyKey }, { status: 'captured' }, async () => ({
+      statusChanged: false, settledStatus: 'cancelled', storedResult: { status: 'captured', [RECONCILIATION_KEY]: { status: 'required' } },
+    }))).rejects.toThrow('fixture commit refused')
+    expect(await orm.em.fork().findOneOrFail(GatewayPaymentOperation, operation.id)).toMatchObject({ status: 'in_progress', result: null, providerIdempotencyKey: record.providerIdempotencyKey })
+    expect(record.result).toBeNull()
   })
 })

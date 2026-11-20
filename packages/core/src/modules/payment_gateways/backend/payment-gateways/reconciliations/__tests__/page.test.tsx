@@ -26,6 +26,7 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({ DataTable: ({ data, onR
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({ CrudForm: ({ initialValues, onSubmit }: { initialValues: Record<string, unknown>; onSubmit: (values: Record<string, unknown>) => Promise<void> }) => <button onClick={() => void onSubmit({ ...initialValues, confirmed: true, refundReference: 'fixture', confirmedAt: '2026-01-01T00:00:00.000Z' })}>Submit evidence</button> }))
 
 const required = { id: 'case-fixture', transactionId: 'transaction', providerKey: 'fixture', updatedAt: '2026-01-01T00:00:00.000Z',
+  paymentId: 'internal-payment-fixture', providerSessionId: 'provider-session-fixture', gatewayPaymentId: 'provider-charge-fixture', parentDeleted: true,
   reconciliation: { status: 'required', capturedAmountExact: '100.000000000000000001', currencyCode: 'USD' } }
 
 beforeEach(() => { jest.clearAllMocks(); mockCreate.mockResolvedValue({ ok: true }) })
@@ -34,6 +35,11 @@ it('keeps an actionable case visible and sends its own version and exact amount'
   mockApi.mockResolvedValue({ ok: true, result: { items: [required], total: 1, totalPages: 1 } })
   render(<ReconciliationsPage />)
   fireEvent.click(await screen.findByText(required.id))
+  expect(screen.getByText('transaction')).toBeTruthy()
+  expect(screen.getByText('provider-session-fixture')).toBeTruthy()
+  expect(screen.getByText('provider-charge-fixture')).toBeTruthy()
+  expect(screen.getByText('internal-payment-fixture')).toBeTruthy()
+  expect(screen.getByText('payment_gateways.reconciliation.deletedParent')).toBeTruthy()
   fireEvent.click(screen.getByText('Submit evidence'))
   await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('payment_gateways/reconciliations/case-fixture/resolve', expect.objectContaining({
     refundedAmountExact: '100.000000000000000001', confirmed: true,

@@ -18,7 +18,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import type { ReconciliationRecord } from '../../../data/validators'
 
-type Row = { id: string; transactionId: string; providerKey: string; updatedAt: string; reconciliation: ReconciliationRecord }
+type Row = { id: string; transactionId: string; paymentId: string; providerKey: string; providerSessionId: string | null; gatewayPaymentId: string | null; parentDeleted: boolean; updatedAt: string; reconciliation: ReconciliationRecord }
 type ResponseBody = { items: Row[]; total: number; totalPages: number }
 
 export default function ReconciliationsPage() {
@@ -57,6 +57,8 @@ export default function ReconciliationsPage() {
   const columns = React.useMemo<LegacyColumnDef<Row>[]>(() => [
     { accessorKey: 'id', header: t('payment_gateways.reconciliation.operation'), meta: { truncate: true, maxWidth: '16rem' } },
     { accessorKey: 'providerKey', header: t('payment_gateways.reconciliation.provider') },
+    { accessorKey: 'transactionId', header: t('payment_gateways.reconciliation.transaction'), meta: { truncate: true, maxWidth: '16rem' } },
+    { accessorKey: 'providerSessionId', header: t('payment_gateways.reconciliation.providerSession'), meta: { truncate: true, maxWidth: '16rem' } },
     { id: 'amount', header: t('payment_gateways.reconciliation.amount'), cell: ({ row }) => `${row.original.reconciliation.capturedAmountExact} ${row.original.reconciliation.currencyCode}` },
     { id: 'status', header: t('payment_gateways.reconciliation.status'), cell: ({ row }) => t(`payment_gateways.reconciliation.${row.original.reconciliation.status}`) },
   ], [t])
@@ -83,6 +85,16 @@ export default function ReconciliationsPage() {
     {selected ? <section className="mt-6 rounded-lg border border-border p-4">
       <h2 className="mb-2 text-lg font-semibold">{selected.id}</h2>
       <p className="mb-4 text-sm">{selected.reconciliation.capturedAmountExact} {selected.reconciliation.currencyCode}</p>
+      <dl className="mb-4 grid gap-2 text-sm">
+        {[
+          [t('payment_gateways.reconciliation.provider'), selected.providerKey],
+          [t('payment_gateways.reconciliation.transaction'), selected.transactionId],
+          [t('payment_gateways.reconciliation.payment'), selected.paymentId],
+          [t('payment_gateways.reconciliation.providerSession'), selected.providerSessionId],
+          [t('payment_gateways.reconciliation.providerPayment'), selected.gatewayPaymentId],
+        ].map(([label, value]) => <div key={label}><dt className="text-muted-foreground">{label}</dt><dd className="break-all font-mono">{value ?? t('common.none')}</dd></div>)}
+      </dl>
+      {selected.parentDeleted ? <p className="mb-4 text-sm text-status-warning-text">{t('payment_gateways.reconciliation.deletedParent')}</p> : <Link href={`/backend/payment-gateways?transactionId=${encodeURIComponent(selected.transactionId)}`}>{t('payment_gateways.reconciliation.inspectTransaction')}</Link>}
       {selected.reconciliation.status === 'resolved' ? <p>{t('payment_gateways.reconciliation.resolved')}: {selected.reconciliation.resolution?.refundReference} ({selected.reconciliation.resolution?.actorUserId})</p> : <CrudForm
         key={selected.id} title={t('payment_gateways.reconciliation.resolve')} fields={fields}
         initialValues={{ updatedAt: selected.updatedAt, refundedAmountExact: selected.reconciliation.capturedAmountExact,

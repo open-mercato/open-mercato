@@ -67,8 +67,9 @@ Document the recovery and client behavior in UPGRADE_NOTES.md. Keep version 0.10
 1. Implement typed JSON handling, atomic settlement and supported legacy discovery.
 2. Add guarded, audited evidence resolution and bounded reads.
 3. Integrate capture feedback and finance worklist; add unit, PostgreSQL, API and UI coverage.
-4. Independently review the main correction; prepare the same correction on the backport.
-   Do not push shared branches without Guard approval, merge or record others' approvals.
+4. Independently review the main correction. Release/backport and milestone work is held
+   outside this implementation. Do not push shared branches without Guard approval, merge
+   or record others' approvals.
 
 ## Integration coverage and acceptance
 
@@ -98,9 +99,15 @@ and explicitly accept the human-attestation trust model and ownership of unresol
 ## Final Compliance Report
 
 Schema-free, scoped, additive contracts; existing refund permission and idempotency machinery;
-guarded mutations, audited command, optimistic locking and no automatic payment operations.
-Implementation and fresh validation/review/QA evidence are pending.
+guarded mutations, audited command, async optional record-lock enrichment and no automatic
+payment operations. Full and partial capture obligations share first/replay references;
+accepted lowercase currencies are normalized only at the reconciliation boundary. Finance
+can inspect payment/provider identifiers even when a parent transaction was deleted.
+Independent review findings have corrections and synthetic database/route/real-form coverage;
+final re-review, declared-toolchain full gate and human financial QA remain pending.
 
 ## Changelog
 
 - 2026-11-20: Approved recovery contract documented; implementation started for source R1.
+- 2026-11-20: Addressed independent review: record locks, partial outcomes, currency
+  compatibility, charge correlation and interceptor responses. Main-only validation ongoing.
