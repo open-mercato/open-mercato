@@ -283,7 +283,7 @@ export function AuditLogsActions({
   ) : null
 
   const combinedActions = undoButton || headerExtras
-    ? <div className="flex items-center gap-2">{headerExtras}{undoButton}</div>
+    ? <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{headerExtras}{undoButton}</div>
     : undefined
 
   const showSelfOnlyHint = !permissions.isLoading && !permissions.canViewTenant && !!permissions.currentUserId

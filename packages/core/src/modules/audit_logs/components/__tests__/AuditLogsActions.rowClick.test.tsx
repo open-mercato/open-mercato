@@ -189,6 +189,15 @@ describe('AuditLogsActions row controls', () => {
     expect(screen.getByRole('button', { name: polish['audit_logs.actions.undo'] })).toBeInTheDocument()
   })
 
+  it('lets the header toolbar wrap so the undo-last button stays visible on narrow screens', async () => {
+    renderWithProviders(<AuditLogsActions items={[baseItem]} onRefresh={jest.fn()}
+      headerExtras={<span data-testid="header-extra">extra</span>} />, { dict: polish })
+    const undoLast = await screen.findByRole('button', { name: polish['audit_logs.actions.undo'] })
+    const toolbar = undoLast.parentElement!
+    expect(toolbar).toContainElement(screen.getByTestId('header-extra'))
+    expect(toolbar).toHaveClass('flex', 'flex-wrap', 'min-w-0', 'max-w-full')
+  })
+
   it('keeps the ID fallback and only enables the newest undo for each resource', async () => {
     renderWithProviders(<AuditLogsActions items={[baseItem, { ...baseItem, id: 'log-old', undoToken: 'old-token' }]}
       onRefresh={jest.fn()} />, { dict: polish })
@@ -254,6 +263,33 @@ describe('AuditLogsActions row controls', () => {
     fireEvent.click(inspect)
     expect(onInspect).toHaveBeenCalledTimes(1)
     expect(apiCallOrThrow).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('action-log-details-dialog')).not.toBeInTheDocument()
+  })
+
+  it('shows a contributed action only on the rows its isVisible predicate accepts', async () => {
+    Object.assign(mockPermissions, { canUndoSelf: false, canUndoTenant: false, canRedoSelf: false, canRedoTenant: false })
+    const onSelect = jest.fn()
+    registerRowWidget({
+      metadata: { id: 'test.audit-row-action' },
+      rowActions: [{
+        id: 'test.open-run',
+        label: 'Open run',
+        onSelect,
+        isVisible: (row: unknown) => (row as ActionLogItem).id === 'with-run',
+      }],
+    })
+    const items = [
+      { ...baseItem, id: 'with-run', actionLabel: 'Agent change' },
+      { ...baseItem, id: 'no-run', actionLabel: 'Human change' },
+    ]
+    renderWithProviders(<AuditLogsActions items={items} onRefresh={jest.fn()} />)
+
+    const agentRow = (await screen.findByText('Agent change')).closest('tr')!
+    const humanRow = screen.getByText('Human change').closest('tr')!
+    expect(within(humanRow).queryByRole('button', { name: 'Open actions' })).not.toBeInTheDocument()
+    fireEvent.click(await within(agentRow).findByRole('button', { name: 'Open actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Open run' }))
+    expect(onSelect).toHaveBeenCalledWith(items[0], expect.objectContaining({ navigate: expect.any(Function) }))
     expect(screen.queryByTestId('action-log-details-dialog')).not.toBeInTheDocument()
   })
 
