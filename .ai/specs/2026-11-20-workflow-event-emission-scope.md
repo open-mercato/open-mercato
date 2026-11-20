@@ -57,7 +57,8 @@ or CLI commands. Do not treat historical event payload scope as trusted.
   asynchronous activity rerun. TC-WF-082 verifies rejection through the workflow
   definition, execution, and event history APIs.
 - TC-CHKT-019 and TC-CHKT-043 cover actual gateway webhook delivery to checkout.
-  TC-QIDX-5723 covers API reindex through the event worker and into the index projection.
+  TC-QIDX-5723 covers reindex through the event worker, and TC-QIDX-9134 verifies
+  that a queued purge preserves another organization’s projection.
 - Subscriber tests exercise checkout command scope and query-index scope, including
   legacy jobs that have no trusted scope. Producer tests cover runtime/API and CLI dispatch.
 - The privileged state transitions and index operations retain their existing contracts.
