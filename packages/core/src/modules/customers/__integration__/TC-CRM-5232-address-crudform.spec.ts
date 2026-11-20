@@ -62,9 +62,9 @@ test.describe('TC-CRM-5232 address contact fields through the real forms', () =>
     )
     await page.getByRole('button', { name: 'Create Company' }).first().click()
     const companyBody = (await (await companyCreated).json()) as { id?: string; entityId?: string }
-    expect((await addressCreated).ok()).toBe(true)
     companyId = companyBody.id ?? companyBody.entityId ?? null
     expect(companyId, 'company create response exposes the id').toBeTruthy()
+    expect((await addressCreated).ok()).toBe(true)
 
     const created = await listAddresses(request, token as string, companyId as string)
     expect(created).toHaveLength(1)
