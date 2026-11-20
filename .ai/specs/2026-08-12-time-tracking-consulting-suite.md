@@ -673,6 +673,8 @@ No deprecation protocol is triggered beyond that, because nothing is removed in 
 
 The #7834 export permission fix adds only the optional `ReportExportInput.canSeeMoney` field; omission preserves existing serializer callers. Routes, methods, format identifiers, ACL features, required input fields and authorized output remain compatible. Contributed serializers now receive redacted money for unauthorized callers and should honor `canSeeMoney: false` when deciding which monetary columns to display. No database migration is required.
 
+**2026-11-19 security fix (#8885):** `GET /api/staff/timesheets/time-projects/{id}/employees` was missing the project-level access check D-13/D-12 already require on every other project-scoped read — it enforced only the global `staff.timesheets.projects.view` feature, so a caller who is not a member of the URL's project (and does not hold `staff.timesheets.projects.manage`) could read that project's membership. This is a bug fix, not an API-shape change: the route, request, and response schemas are unchanged for an authorized caller. A caller that was relying on the missing check now gets the same non-enumerable `404 { reason: "no_project_access" }` the `time-projects` list route already answers for a project it cannot see — documented in `UPGRADE_NOTES.md`. No deprecation protocol applies; closing an access-control gap is never backward-compatible with the bypass.
+
 ---
 
 ## Resolved Decisions
@@ -726,6 +728,7 @@ Every question the requirements left open — each one traced to the mockup note
 
 | Date | Change |
 |---|---|
+| 2026-11-19 | Security fix (#8885): the `[id]/employees` GET route only checked the global `staff.timesheets.projects.view` feature and skipped the per-project access check D-13 already applies to the project list itself, letting a caller read another project's membership. Now resolves `resolveFeatureAccess`/`resolveProjectAccess`/`assertProjectAccess` before the CRUD factory runs (so the list cache cannot bypass it) and denies with the same non-enumerable `404 reason=no_project_access` the list route uses. `buildFilters` also stopped letting `?timeProjectId=` or an advanced-filter condition on `time_project_id` override the URL's project id (self-review follow-up: the advanced-filter query params are consumed via `consumeAdvancedFilterState` and AND-combined with `mergeAdvancedFilterTree`, the same pattern `devices`/`customers.people` use, closing the path the CRUD factory's own unscoped `mergeAdvancedFilters` spread would otherwise have let through). |
 | 2026-11-13 | #7019: gate locked-entry report navigation on `staff.timesheets.reports.view`; preserve the read-only lock notice. Unit permission matrix and TC-TT-035 cover denied/allowed navigation. |
 | 2026-11-03 | #6990 / #8379: document additive whole-filter entry totals, rates redaction, structural project-access filter composition, footer/shared chip props, and self-contained live API boundary regressions in TC-STAFF-048. |
 | 2026-11-02 | #8448: bind access-request writes, authorization, deduplication and manager notification to validated request-selected scope; reject rejected/missing scope. Bootstrap integration waits for switcher completion, requiring a project reload only for fresh-cookie hydration, while preserving scope/confidentiality/acknowledgement assertions. |

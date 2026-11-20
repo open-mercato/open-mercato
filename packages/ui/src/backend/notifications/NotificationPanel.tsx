@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { ArrowDown, ArrowUp, Bell, Loader2, RotateCcw, Settings2, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { Alert } from '../../primitives/alert'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { IconButton } from '../../primitives/icon-button'
 import { Sheet, SheetContent, SheetTitle } from '../../primitives/sheet'
 import { Tabs, TabsList, TabsTrigger } from '../../primitives/tabs'
@@ -96,7 +97,8 @@ export function NotificationPanel({
     setMarkAllReadFailed(false)
     try {
       await onMarkAllRead()
-    } catch {
+    } catch (error) {
+      reportTelemetryError(error, { module: 'notifications', code: 'notifications.mark_all_read_failed' })
       setMarkAllReadFailed(true)
     } finally {
       setMarkingAllRead(false)

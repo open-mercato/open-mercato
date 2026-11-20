@@ -7,6 +7,7 @@ import { render, screen, fireEvent, within, act, waitFor } from '@testing-librar
 import { NotificationPanel } from '../NotificationPanel'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { registerTelemetryErrorReporter } from '@open-mercato/shared/lib/telemetry/runtime'
 
 // NotificationItem (rendered per row) calls next/navigation's useRouter, which
 // throws outside an App Router provider. Stub it so the panel can render rows.
@@ -104,31 +105,42 @@ describe('NotificationPanel controls use shared primitives', () => {
   it.each([new TypeError('Failed to fetch'), new Error('HTTP 500')])(
     'shows localized retry feedback after %s and permits retry',
     async (failure) => {
-      const errorMessage = 'Nie udało się oznaczyć powiadomień jako przeczytane. Spróbuj ponownie.'
-      const translate = ((key: string, fallback?: unknown) =>
-        key === 'notifications.error.markAllRead' ? errorMessage : t(key, fallback)) as TranslateFn
-      const onMarkAllRead = jest.fn().mockRejectedValueOnce(failure).mockResolvedValueOnce(undefined)
-      render(<NotificationPanel {...buildProps({
-        unreadCount: 1,
-        notifications: [buildNotification({ title: 'Still unread' })],
-        onMarkAllRead,
-        t: translate,
-      })} />)
-      fireEvent.click(screen.getByRole('tab', { name: /Unread/i }))
-      const button = screen.getByRole('button', { name: /Mark all read/i })
+      const reportError = jest.fn()
+      const unregisterReporter = registerTelemetryErrorReporter(reportError)
+      try {
+        const errorMessage = 'Nie udało się oznaczyć powiadomień jako przeczytane. Spróbuj ponownie.'
+        const translate = ((key: string, fallback?: unknown) =>
+          key === 'notifications.error.markAllRead' ? errorMessage : t(key, fallback)) as TranslateFn
+        const onMarkAllRead = jest.fn().mockRejectedValueOnce(failure).mockResolvedValueOnce(undefined)
+        render(<NotificationPanel {...buildProps({
+          unreadCount: 1,
+          notifications: [buildNotification({ title: 'Still unread' })],
+          onMarkAllRead,
+          t: translate,
+        })} />)
+        fireEvent.click(screen.getByRole('tab', { name: /Unread/i }))
+        const button = screen.getByRole('button', { name: /Mark all read/i })
 
-      fireEvent.click(button)
-      expect(button).toBeDisabled()
+        fireEvent.click(button)
+        expect(button).toBeDisabled()
 
-      expect(await screen.findByRole('alert')).toHaveTextContent(errorMessage)
-      expect(button).toBeEnabled()
-      expect(screen.getByText('Still unread')).toBeVisible()
-      expect(within(screen.getByRole('tab', { name: /Unread/i })).getByText('1')).toBeVisible()
+        expect(await screen.findByRole('alert')).toHaveTextContent(errorMessage)
+        expect(reportError).toHaveBeenCalledTimes(1)
+        expect(reportError).toHaveBeenCalledWith(failure, {
+          module: 'notifications',
+          code: 'notifications.mark_all_read_failed',
+        })
+        expect(button).toBeEnabled()
+        expect(screen.getByText('Still unread')).toBeVisible()
+        expect(within(screen.getByRole('tab', { name: /Unread/i })).getByText('1')).toBeVisible()
 
-      fireEvent.click(button)
-      await waitFor(() => expect(button).toBeEnabled())
-      expect(onMarkAllRead).toHaveBeenCalledTimes(2)
-      expect(screen.queryByRole('alert')).toBeNull()
+        fireEvent.click(button)
+        await waitFor(() => expect(button).toBeEnabled())
+        expect(onMarkAllRead).toHaveBeenCalledTimes(2)
+        expect(screen.queryByRole('alert')).toBeNull()
+      } finally {
+        unregisterReporter()
+      }
     },
   )
 
