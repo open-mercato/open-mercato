@@ -308,6 +308,56 @@ describe('CrudForm validation state', () => {
     expect(queryByText('Too big: expected string to have <=120 characters')).toBeNull()
   })
 
+  it.each([
+    {
+      name: 'a module translation key',
+      message: 'availability.policies.errors.integerTooLarge',
+      expected: 'Value is too large for this policy.',
+    },
+    {
+      name: 'custom validator text',
+      message: 'Last name is far too long for our records',
+      expected: 'Last name is far too long for our records',
+    },
+  ])('preserves $name supplied on a known Zod code instead of the generic message', async ({ message, expected }) => {
+    const fields: CrudField[] = [
+      { id: 'lastName', label: 'Last name', type: 'text' },
+    ]
+
+    const serverError = createCrudFormError('Invalid input', undefined, {
+      status: 400,
+      details: [{ origin: 'number', code: 'too_big', maximum: 120, path: ['lastName'], message }],
+    })
+
+    const { container, getByText, queryByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        onSubmit={() => {
+          throw serverError
+        }}
+      />,
+      {
+        dict: {
+          'availability.policies.errors.integerTooLarge': 'Value is too large for this policy.',
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.errors.highlighted': 'Please fix the highlighted errors.',
+          'ui.forms.errors.tooBig': 'Value exceeds the maximum of {{maximum}}.',
+          'ui.forms.flash.saveError': 'Save failed',
+        },
+      },
+    )
+
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+    })
+
+    await waitFor(() => {
+      expect(getByText(expected)).toBeInTheDocument()
+    })
+    expect(queryByText('Value exceeds the maximum of 120.')).toBeNull()
+  })
+
   it('does not validate date picker fields when the trigger blurs', async () => {
     const fields: CrudField[] = [
       { id: 'dueDate', label: 'Due date', type: 'datepicker', required: true },

@@ -78,8 +78,9 @@ function mapIssueArray(
     const message = typeof (issue as any).message === 'string' ? (issue as any).message : null
     if (!message) continue
     fieldErrors[field] = message
-    const code = typeof (issue as any).code === 'string' ? (issue as any).code : undefined
-    fieldIssues[field] = { code, message, params: extractIssueParams(issue as Record<string, unknown>) }
+    const issueRecord = issue as Record<string, unknown>
+    const code = typeof issueRecord.code === 'string' ? issueRecord.code : undefined
+    fieldIssues[field] = { code, message, params: extractIssueParams(issueRecord) }
   }
   return Object.keys(fieldErrors).length ? { fieldErrors, fieldIssues } : null
 }
@@ -365,14 +366,31 @@ const ZOD_CODE_I18N_KEYS: Record<string, string> = {
   invalid_type: 'ui.forms.errors.invalidType',
 }
 
+const ZOD_DEFAULT_MESSAGE_PATTERNS: Record<string, RegExp> = {
+  too_big: /^(Too big(:|$)|(Number|BigInt) must be (exactly|less than)|(String|Array|Set) must contain (exactly|at most|under|less than) |Date must be (exactly|smaller than) )/,
+  too_small: /^(Too small(:|$)|(Number|BigInt) must be (exactly|greater than)|(String|Array|Set) must contain (exactly|at least|over|more than) |Date must be (exactly|greater than) )/,
+  invalid_type: /^(Invalid input(: expected |$)|Expected \S+, received \S+$|Required$)/,
+}
+
+// Only Zod's own default wording is replaced by the code-based key; a validator
+// that supplied an explicit message (an i18n key or custom text) keeps it.
+function isDefaultZodIssueMessage(code: string | undefined, message: string): boolean {
+  if (!code) return false
+  const pattern = ZOD_DEFAULT_MESSAGE_PATTERNS[code]
+  return pattern ? pattern.test(message.trim()) : false
+}
+
 // Maps a Zod issue code to a localizable key with its numeric params so the
-// caller's `t()` can render it; unmapped/missing codes keep the raw server
-// message as-is (it may already be a stable i18n key a command returned).
+// caller's `t()` can render it; unmapped/missing codes and explicit validator
+// messages keep the raw server message as-is (it may already be a stable i18n
+// key a command returned).
 export function resolveFieldIssueTranslation(
   issue: CrudServerFieldIssue | undefined,
   fallbackMessage: string,
 ): FieldIssueTranslation {
   const key = issue?.code ? ZOD_CODE_I18N_KEYS[issue.code] : undefined
-  if (!key) return { key: '', fallback: fallbackMessage }
+  if (!key || !isDefaultZodIssueMessage(issue?.code, issue?.message ?? fallbackMessage)) {
+    return { key: '', fallback: fallbackMessage }
+  }
   return { key, fallback: fallbackMessage, params: issue?.params }
 }

@@ -209,4 +209,41 @@ describe('serverErrors helpers', () => {
       fallback: 'stable.i18n.key',
     })
   })
+
+  it('resolveFieldIssueTranslation maps Zod v3 and v4 default messages for every known code', () => {
+    const defaults: Array<[string, string]> = [
+      ['too_big', 'Too big: expected number to be <=100'],
+      ['too_big', 'Number must be less than or equal to 100'],
+      ['too_big', 'String must contain at most 120 character(s)'],
+      ['too_small', 'Too small: expected string to have >=1 characters'],
+      ['too_small', 'Array must contain at least 1 element(s)'],
+      ['invalid_type', 'Invalid input: expected string, received undefined'],
+      ['invalid_type', 'Expected number, received string'],
+      ['invalid_type', 'Required'],
+    ]
+    for (const [code, message] of defaults) {
+      expect(resolveFieldIssueTranslation({ code, message }, message).key).not.toBe('')
+    }
+  })
+
+  it('resolveFieldIssueTranslation preserves explicit validator messages on known Zod codes', () => {
+    expect(
+      resolveFieldIssueTranslation(
+        { code: 'too_big', message: 'availability.policies.errors.integerTooLarge', params: { maximum: 2147483647 } },
+        'availability.policies.errors.integerTooLarge',
+      ),
+    ).toEqual({ key: '', fallback: 'availability.policies.errors.integerTooLarge' })
+    expect(
+      resolveFieldIssueTranslation(
+        { code: 'too_small', message: 'Pick at least one warehouse', params: { minimum: 1 } },
+        'Pick at least one warehouse',
+      ),
+    ).toEqual({ key: '', fallback: 'Pick at least one warehouse' })
+    expect(
+      resolveFieldIssueTranslation(
+        { code: 'invalid_type', message: 'Choose a valid currency' },
+        'Choose a valid currency',
+      ),
+    ).toEqual({ key: '', fallback: 'Choose a valid currency' })
+  })
 })
