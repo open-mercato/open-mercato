@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string) => key,
@@ -69,5 +69,23 @@ describe('FilterBarRow', () => {
 
     expect(group.contains(sort)).toBe(false)
     expect(sort.parentElement?.className).toContain('shrink-0')
+  })
+
+  it('offers a visible control to reach filters that are clipped', () => {
+    const group = renderRow()
+    expect(screen.queryByRole('button', { name: 'Scroll right' })).toBeNull()
+
+    const scrollBy = jest.fn()
+    Object.defineProperty(group, 'scrollWidth', { configurable: true, value: 600 })
+    Object.defineProperty(group, 'clientWidth', { configurable: true, value: 300 })
+    Object.defineProperty(group, 'scrollBy', { configurable: true, value: scrollBy })
+    fireEvent.scroll(group)
+
+    const scrollRight = screen.getByRole('button', { name: 'Scroll right' })
+    expect(screen.queryByRole('button', { name: 'Scroll left' })).toBeNull()
+    expect(group.contains(scrollRight)).toBe(false)
+
+    fireEvent.click(scrollRight)
+    expect(scrollBy).toHaveBeenCalledWith({ left: 180, behavior: 'smooth' })
   })
 })

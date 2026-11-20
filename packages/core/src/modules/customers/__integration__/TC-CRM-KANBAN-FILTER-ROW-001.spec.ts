@@ -21,12 +21,43 @@ async function expectFiltersOnOneLine(page: Page, viewportWidth: number): Promis
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewportWidth)
 }
 
+async function expectLastFilterReachable(page: Page, viewportWidth: number): Promise<void> {
+  const label = `${viewportWidth}px`
+  const group = page.getByRole('group', { name: 'Filter' })
+  const lastFilter = group.getByRole('button').last()
+  const scrollRight = page.getByRole('button', { name: 'Scroll right', exact: true })
+  const scrollLeft = page.getByRole('button', { name: 'Scroll left', exact: true })
+
+  await expect(lastFilter, `the last filter starts clipped at ${label}`).not.toBeInViewport({ ratio: 1 })
+  await expect(scrollRight, `a visible control reaches the clipped filters at ${label}`).toBeVisible()
+
+  await expect(async () => {
+    if (await scrollRight.isVisible()) await scrollRight.click()
+    await expect(lastFilter).toBeInViewport({ ratio: 1, timeout: 1_500 })
+    await expect(scrollRight).toBeHidden({ timeout: 1_500 })
+  }).toPass({ timeout: 20_000 })
+  await expect(scrollLeft).toBeVisible()
+
+  await lastFilter.click()
+  const popover = page.getByRole('dialog')
+  await expect(popover, `the last filter opens at ${label}`).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(popover).toBeHidden()
+
+  await expect(async () => {
+    if (await scrollLeft.isVisible()) await scrollLeft.click()
+    await expect(scrollLeft).toBeHidden({ timeout: 1_500 })
+  }).toPass({ timeout: 20_000 })
+}
+
 /**
  * TC-CRM-KANBAN-FILTER-ROW-001: the deals board filter row never wraps.
  *
  * Seven filters and the sort control used to break into two or three lines.
  * The filters now share one line at every width, scroll sideways when they do
- * not fit, and keep the sort control pinned on the same line.
+ * not fit, and keep the sort control pinned on the same line. On a tablet and
+ * a phone the clipped filters are reachable through the scroll arrow, without
+ * a horizontal wheel or a touch drag.
  */
 test('TC-CRM-KANBAN-FILTER-ROW-001: board filters stay on one line from desktop to phone', async ({ page, request }) => {
   test.slow()
@@ -67,6 +98,7 @@ test('TC-CRM-KANBAN-FILTER-ROW-001: board filters stay on one line from desktop 
     ]) {
       await page.setViewportSize(viewport)
       await expectFiltersOnOneLine(page, viewport.width)
+      if (viewport.width < 1440) await expectLastFilterReachable(page, viewport.width)
     }
   } finally {
     await deleteEntityIfExists(request, token, '/api/customers/pipeline-stages', stageId)

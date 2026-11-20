@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { HorizontalScrollRow } from '@open-mercato/ui/primitives/time-picker'
 import { ChipButton } from './ChipButton'
 
 export type KanbanFilterChip = {
@@ -33,11 +34,15 @@ export function FilterBarRow({
   // That picker is not wired up in this slice (it would need AdvancedFilterPanel integration),
   // so the affordance is intentionally omitted instead of shipping a "coming next" toast.
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3.5 py-3">
-      <div
-        role="group"
-        aria-label={translateWithFallback(t, 'customers.deals.kanban.filter.label', 'Filter')}
-        className="scrollbar-hide -m-1 flex min-w-0 flex-1 flex-nowrap items-center gap-2 overflow-x-auto p-1"
+    <div className="flex items-center gap-2 rounded-lg bg-muted/40 py-2 pr-3.5">
+      <HorizontalScrollRow
+        className="min-w-0 flex-1"
+        contentClassName="flex-nowrap p-1"
+        arrowSize="sm"
+        edgeFade={false}
+        ariaLabel={translateWithFallback(t, 'customers.deals.kanban.filter.label', 'Filter')}
+        scrollLeftAriaLabel={translateWithFallback(t, 'ui.timePicker.scrollLeft', 'Scroll left')}
+        scrollRightAriaLabel={translateWithFallback(t, 'ui.timePicker.scrollRight', 'Scroll right')}
       >
         {leadingChips}
         {chips.map((chip) => (
@@ -54,7 +59,7 @@ export function FilterBarRow({
             )}
           />
         ))}
-      </div>
+      </HorizontalScrollRow>
       <div className="shrink-0">{sortNode}</div>
     </div>
   )
