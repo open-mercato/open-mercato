@@ -88,6 +88,8 @@
   "integrations.detail.version.select": "Seleccionar versión",
   "integrations.detail.version.stable": "Estable",
   "integrations.detail.version.sunsetAt": "Fin de soporte: {date}",
+  "integrations.hubs.data_sync": "Sincronización de datos",
+  "integrations.hubs.payment_gateways": "Pasarelas de pago",
   "integrations.marketplace.analytics.errorRate": "Tasa de error: {rate}",
   "integrations.marketplace.analytics.events": "{count} eventos de registro (30 d.)",
   "integrations.marketplace.categories.all": "Todas",
