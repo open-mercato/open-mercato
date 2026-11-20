@@ -15,8 +15,15 @@ const invalidateCrudCacheMock = jest.fn(async () => {})
 const createBatchMock = jest.fn(async () => [])
 const settleExternalParticipantsMock = jest.fn(async (..._args: unknown[]) => ({ finished: true }))
 
+const assertExternalEmailBudgetMock = jest.fn(async (..._args: unknown[]) => undefined)
+
 jest.mock('@open-mercato/core/modules/messages/lib/externalEmailBudget', () => ({
-  assertExternalEmailBudget: jest.fn(async () => undefined),
+  assertExternalEmailBudget: (...args: unknown[]) => assertExternalEmailBudgetMock(...args),
+  ExternalEmailBudgetError: class ExternalEmailBudgetError extends Error {
+    constructor(readonly status: number) {
+      super('budget refused')
+    }
+  },
 }))
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({
@@ -192,6 +199,25 @@ describe('messages scheduled send commands', () => {
       expect(eventBus.emitEvent).toHaveBeenCalledWith('query_index.upsert_one', expect.objectContaining({ entityType: 'messages:message' }), expect.anything())
     })
 
+    it('does not charge the external email budget when scheduling', async () => {
+      const em = createEm()
+      const { ctx } = createCtx(em)
+
+      await command('messages.messages.compose').execute({
+        visibility: 'public',
+        externalEmails: ['lead@example.com', 'other@example.com'],
+        sendViaEmail: true,
+        recipients: [],
+        subject: 'Later',
+        body: 'Body',
+        scheduledAt: inMinutes(60).toISOString(),
+        ...scope,
+        userId: senderUserId,
+      }, ctx)
+
+      expect(assertExternalEmailBudgetMock).not.toHaveBeenCalled()
+    })
+
     it('rejects a schedule in the past at command validation', async () => {
       const em = createEm()
       const { ctx } = createCtx(em)
@@ -249,6 +275,25 @@ describe('messages scheduled send commands', () => {
       expect(eventIds()).toEqual(['messages.message.scheduled'])
       expect(eventBus.emitEvent).toHaveBeenCalledTimes(1)
       expect(eventBus.emitEvent).toHaveBeenCalledWith('query_index.upsert_one', expect.objectContaining({ entityType: 'messages:message' }), expect.anything())
+    })
+
+    it('does not charge the external email budget when scheduling or rescheduling', async () => {
+      const message = draftMessage({ visibility: 'public', externalEmail: 'lead@example.com', status: 'scheduled', scheduledAt: inMinutes(30) })
+      const { ctx } = setup(message)
+
+      await command('messages.messages.update_draft').execute({ messageId, scheduledAt: inMinutes(120), ...scope, userId: senderUserId }, ctx)
+
+      expect(message.status).toBe('scheduled')
+      expect(assertExternalEmailBudgetMock).not.toHaveBeenCalled()
+    })
+
+    it('charges the external email budget when a draft is sent now', async () => {
+      const message = draftMessage({ visibility: 'public', externalEmail: 'lead@example.com' })
+      const { ctx } = setup(message)
+
+      await command('messages.messages.update_draft').execute({ messageId, isDraft: false, ...scope, userId: senderUserId }, ctx)
+
+      expect(assertExternalEmailBudgetMock).toHaveBeenCalledTimes(1)
     })
 
     it('turns a scheduled message back into a plain draft on scheduledAt: null', async () => {
@@ -329,6 +374,93 @@ describe('messages scheduled send commands', () => {
       expect(emitMessagesEventMock.mock.calls[0][1]).toMatchObject({ messageId, recipientUserIds: [recipientUserId], senderUserId })
       const sentOrder = emitMessagesEventMock.mock.invocationCallOrder[0]
       expect(sentOrder).toBeGreaterThan(invalidateCrudCacheMock.mock.invocationCallOrder[0])
+    })
+
+    function setupExternal() {
+      const em = createEm()
+      const { ctx, eventBus } = createCtx(em)
+      findOneWithDecryptionMock.mockResolvedValue(draftMessage({
+        status: 'sent',
+        isDraft: false,
+        sentAt: new Date(),
+        visibility: 'public',
+        externalEmail: 'a@example.com',
+      }))
+      findWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => entity === MessageExternalParticipant
+        ? [
+          { email: 'a@example.com', role: 'to' },
+          { email: 'b@example.com', role: 'to' },
+          { email: 'c@example.com', role: 'bcc' },
+        ]
+        : [{ recipientUserId }])
+      return { em, ctx, eventBus }
+    }
+
+    it('charges the external email budget once for every external recipient before handing off', async () => {
+      const { ctx } = setupExternal()
+      claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: new Date(), attempts: 1 }])
+
+      const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+      expect(result).toEqual({ released: [messageId], reverted: [], returnedToDraft: [] })
+      expect(assertExternalEmailBudgetMock).toHaveBeenCalledTimes(1)
+      expect(assertExternalEmailBudgetMock).toHaveBeenCalledWith(
+        ctx.container,
+        { tenantId, userId: senderUserId },
+        expect.arrayContaining(['a@example.com', 'b@example.com', 'c@example.com']),
+      )
+      expect(assertExternalEmailBudgetMock.mock.invocationCallOrder[0]).toBeLessThan(emitMessagesEventMock.mock.invocationCallOrder[0])
+    })
+
+    it('returns the message to drafts without delivering anything when the budget refuses', async () => {
+      const { em, ctx, eventBus } = setupExternal()
+      claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: inMinutes(-1), attempts: 1 }])
+      const { ExternalEmailBudgetError } = jest.requireMock('@open-mercato/core/modules/messages/lib/externalEmailBudget')
+      assertExternalEmailBudgetMock.mockRejectedValueOnce(new ExternalEmailBudgetError(429))
+      const handOff = jest.fn()
+      ctx.container.resolve = jest.fn((name: string) => {
+        if (name === 'em') return { fork: () => em }
+        if (name === 'eventBus') return eventBus
+        if (name === 'communicationChannelsSendAsUser') return handOff
+        throw new Error(`Unknown dependency: ${name}`)
+      }) as never
+
+      const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+      expect(result).toEqual({ released: [], reverted: [], returnedToDraft: [messageId] })
+      expect(em.nativeUpdate).toHaveBeenCalledWith(
+        Message,
+        { id: messageId, ...scope, status: 'sent' },
+        { status: 'draft', isDraft: true, sentAt: null, scheduledAt: null },
+      )
+      expect(em.nativeUpdate).not.toHaveBeenCalledWith(
+        MessageExternalParticipant,
+        expect.anything(),
+        { deliveryStatus: 'pending' },
+      )
+      expect(emitMessagesEventMock).not.toHaveBeenCalled()
+      expect(eventBus.emitEvent).not.toHaveBeenCalled()
+      expect(handOff).not.toHaveBeenCalled()
+      expect(createBatchMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'messages.scheduled_send_failed',
+          bodyKey: 'messages.notifications.scheduledSendFailed.budgetExceeded',
+          recipientUserIds: [senderUserId],
+        }),
+        scope,
+      )
+    })
+
+    it('retries the release when the budget is unavailable', async () => {
+      const { ctx } = setupExternal()
+      claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: inMinutes(-1), attempts: 1 }])
+      const { ExternalEmailBudgetError } = jest.requireMock('@open-mercato/core/modules/messages/lib/externalEmailBudget')
+      assertExternalEmailBudgetMock.mockRejectedValueOnce(new ExternalEmailBudgetError(503))
+
+      const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+      expect(result).toEqual({ released: [], reverted: [messageId], returnedToDraft: [] })
+      expect(emitMessagesEventMock).not.toHaveBeenCalled()
     })
 
     it('skips the audit log when nothing was due', async () => {

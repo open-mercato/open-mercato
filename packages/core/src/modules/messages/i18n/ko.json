@@ -241,6 +241,7 @@
   "messages.notifications.new.body": "{from}님으로부터 새 메시지를 받았습니다: {title}",
   "messages.notifications.new.title": "새 메시지",
   "messages.notifications.scheduledSendFailed.body": "전송이 여러 번 실패하여 메시지가 임시 보관함으로 이동했습니다. 열어서 다시 보내세요.",
+  "messages.notifications.scheduledSendFailed.budgetExceeded": "외부 이메일 일일 한도에 도달하여 아무것도 전송되지 않았으며 메시지가 임시 보관함으로 이동했습니다. 나중에 다시 보내세요.",
   "messages.notifications.scheduledSendFailed.title": "예약 메시지가 전송되지 않음: {subject}",
   "messages.objectPreview.fallback.subtitle": "{type} • {id}",
   "messages.objectPreview.fallback.title": "연결된 객체",

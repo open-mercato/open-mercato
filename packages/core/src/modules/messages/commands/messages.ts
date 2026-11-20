@@ -47,7 +47,7 @@ import {
   settleExternalParticipants,
   type PlannedExternalParticipant,
 } from '../lib/externalParticipants'
-import { assertExternalEmailBudget } from '../lib/externalEmailBudget'
+import { assertExternalEmailBudget, ExternalEmailBudgetError } from '../lib/externalEmailBudget'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
 import {
   assertOrganizationAccess,
@@ -390,8 +390,8 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
     const storesAsDraft = input.isDraft || scheduledAt !== null
     const externalAddressing = planComposeExternalParticipants({ ...input, isDraft: storesAsDraft })
 
-    // Every external addressee (all "to", cc and bcc participants) counts against the budget.
-    if (!input.isDraft && (input.sendViaEmail || input.externalEmailRecipients?.length) && externalAddressing.externalEmail) {
+    // Every external addressee (all "to", cc and bcc participants) counts against the budget. A scheduled message is charged at release instead.
+    if (!input.isDraft && scheduledAt === null && (input.sendViaEmail || input.externalEmailRecipients?.length) && externalAddressing.externalEmail) {
       const participantEmails = externalAddressing.participants.map((participant) => participant.email)
       await assertExternalEmailBudget(
         ctx.container,
@@ -739,8 +739,8 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
 
     const finalSendViaEmail = input.sendViaEmail ?? message.sendViaEmail
     const finalExternalEmail = draftAddressing ? draftAddressing.externalEmail : message.externalEmail
-    if ((isSending || isScheduling) && (finalVisibility === 'public' || finalSendViaEmail) && finalExternalEmail) {
-      // Every external addressee of the draft (all "to", cc and bcc participants) counts against the budget.
+    if (isSending && !isScheduling && (finalVisibility === 'public' || finalSendViaEmail) && finalExternalEmail) {
+      // Every external addressee of the draft (all "to", cc and bcc participants) counts against the budget; scheduling is charged at release.
       const participants = draftAddressing
         ? draftAddressing.participants
         : await findWithDecryption(
@@ -1615,12 +1615,45 @@ type ReleaseScheduledResult = { released: string[]; reverted: string[]; returned
 
 type ReleaseContainer = CommandRuntimeContext['container']
 
+const SCHEDULED_SEND_BUDGET_EXCEEDED_BODY_KEY = 'messages.notifications.scheduledSendFailed.budgetExceeded'
+
+const isEmailAddress = (value: string) => z.string().email().safeParse(value).success
+
+/**
+ * Charges the external email budget once for every external addressee of the
+ * message (all "to", cc and bcc participants, so every "send separately" copy).
+ * Returns false when the budget refuses; an unavailable budget throws so the
+ * release is retried.
+ */
+async function chargeReleasedMessageBudget(
+  container: ReleaseContainer,
+  em: EntityManager,
+  messageId: string,
+  scope: ScheduledReleaseScope,
+): Promise<boolean> {
+  const message = await findOneWithDecryption(em.fork(), Message, { id: messageId, ...scope, deletedAt: null }, undefined, scope)
+  if (!message?.externalEmail || (message.visibility !== 'public' && !message.sendViaEmail)) return true
+  const participants = await findWithDecryption(em.fork(), MessageExternalParticipant, { messageId, ...scope }, undefined, scope)
+  // Non-email channels (e.g. a phone number on a CRM channel send) are not part of the email budget.
+  const emails = [message.externalEmail, ...participants.map((participant) => participant.email)].filter(isEmailAddress)
+  if (!emails.length) return true
+  try {
+    await assertExternalEmailBudget(container, { tenantId: scope.tenantId, userId: message.senderUserId }, emails)
+    return true
+  } catch (error) {
+    if (error instanceof ExternalEmailBudgetError && error.status === 429) return false
+    throw error
+  }
+}
+
 async function handOffReleasedMessage(
   container: ReleaseContainer,
   em: EntityManager,
   messageId: string,
   scope: ScheduledReleaseScope,
-): Promise<void> {
+): Promise<'released' | 'budgetExceeded'> {
+  // Charged before anything is delivered; a refusal delivers nothing.
+  if (!(await chargeReleasedMessageBudget(container, em, messageId, scope))) return 'budgetExceeded'
   await em.fork().transactional(async (trx) => {
     await markDraftParticipantsPending(trx, { messageId, ...scope })
     await trx.nativeUpdate(Message, { id: messageId, ...scope, threadId: null }, { threadId: messageId })
@@ -1641,6 +1674,7 @@ async function handOffReleasedMessage(
   if (message.senderChannelId) await handOffReleasedToMailbox(container, em, message, message.senderChannelId, scope)
   // Emitted last and never reverted afterwards, so recipients are not notified twice.
   await emitDraftSentEvent(container, message, recipients.map((recipient) => recipient.recipientUserId))
+  return 'released'
 }
 
 /**
@@ -1685,14 +1719,20 @@ async function handOffReleasedToMailbox(
   )
 }
 
-async function notifyScheduledSendFailed(container: ReleaseContainer, em: EntityManager, messageId: string, scope: ScheduledReleaseScope) {
+async function notifyScheduledSendFailed(
+  container: ReleaseContainer,
+  em: EntityManager,
+  messageId: string,
+  scope: ScheduledReleaseScope,
+  budgetExceeded: boolean,
+) {
   const typeDef = notificationTypes.find((type) => type.type === 'messages.scheduled_send_failed')
   if (!typeDef) return
   const message = await findOneWithDecryption(em.fork(), Message, { id: messageId, ...scope, deletedAt: null }, undefined, scope)
   if (!message) return
   const variables = { subject: message.subject ?? '' }
   await resolveNotificationService(container).createBatch(
-    buildBatchNotificationFromType(typeDef, {
+    buildBatchNotificationFromType(budgetExceeded ? { ...typeDef, bodyKey: SCHEDULED_SEND_BUDGET_EXCEEDED_BODY_KEY } : typeDef, {
       recipientUserIds: [message.senderUserId],
       titleVariables: variables,
       bodyVariables: variables,
@@ -1705,14 +1745,18 @@ async function notifyScheduledSendFailed(container: ReleaseContainer, em: Entity
   )
 }
 
-/** Hand-off failed: retry on the next tick, or give up after the attempt cap and return the message to the author's drafts. */
+/**
+ * Hand-off failed: retry on the next tick, or give up after the attempt cap and
+ * return the message to the author's drafts. A refused budget is not retried.
+ */
 async function revertFailedRelease(
   container: ReleaseContainer,
   em: EntityManager,
   claimed: ClaimedScheduledMessage,
   scope: ScheduledReleaseScope,
+  budgetExceeded = false,
 ): Promise<'reverted' | 'returnedToDraft'> {
-  const toDraft = claimed.attempts >= MAX_SCHEDULED_RELEASE_ATTEMPTS
+  const toDraft = budgetExceeded || claimed.attempts >= MAX_SCHEDULED_RELEASE_ATTEMPTS
   await em.fork().transactional(async (trx) => {
     await trx.nativeUpdate(
       MessageExternalParticipant,
@@ -1729,7 +1773,7 @@ async function revertFailedRelease(
   })
   if (!toDraft) return 'reverted'
   try {
-    await notifyScheduledSendFailed(container, em, claimed.id, scope)
+    await notifyScheduledSendFailed(container, em, claimed.id, scope, budgetExceeded)
   } catch (error) {
     releaseLogger.warn('Failed to notify the author about a failed scheduled send', { messageId: claimed.id, err: error })
   }
@@ -1750,7 +1794,10 @@ const releaseScheduledCommand: CommandHandler<unknown, ReleaseScheduledResult> =
     const claimed = await claimDueScheduledMessages(em, scope)
     for (const item of claimed) {
       try {
-        await handOffReleasedMessage(ctx.container, em, item.id, scope)
+        if (await handOffReleasedMessage(ctx.container, em, item.id, scope) === 'budgetExceeded') {
+          result[await revertFailedRelease(ctx.container, em, item, scope, true)].push(item.id)
+          continue
+        }
         result.released.push(item.id)
       } catch (error) {
         releaseLogger.warn('Scheduled message hand-off failed', { messageId: item.id, attempts: item.attempts, err: error })

@@ -241,6 +241,7 @@
   "messages.notifications.new.body": "Sie haben eine neue Nachricht von {from} erhalten: {title}",
   "messages.notifications.new.title": "Neue Nachricht",
   "messages.notifications.scheduledSendFailed.body": "Der Versand ist mehrmals fehlgeschlagen, daher wurde die Nachricht in Ihre Entwürfe verschoben. Öffnen Sie sie, um sie erneut zu senden.",
+  "messages.notifications.scheduledSendFailed.budgetExceeded": "Das Tageslimit für externe E-Mails wurde erreicht, daher wurde nichts gesendet und die Nachricht wurde in Ihre Entwürfe verschoben. Senden Sie sie später erneut.",
   "messages.notifications.scheduledSendFailed.title": "Geplante Nachricht nicht gesendet: {subject}",
   "messages.objectPreview.fallback.subtitle": "{type} • {id}",
   "messages.objectPreview.fallback.title": "Verknüpftes Objekt",

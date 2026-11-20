@@ -241,6 +241,7 @@
   "messages.notifications.new.body": "Otrzymano nową wiadomość od {from}: {title}",
   "messages.notifications.new.title": "Nowa wiadomość",
   "messages.notifications.scheduledSendFailed.body": "Wysyłka kilka razy się nie powiodła, więc wiadomość wróciła do szkiców. Otwórz ją, aby wysłać ponownie.",
+  "messages.notifications.scheduledSendFailed.budgetExceeded": "Osiągnięto dzienny limit wiadomości e-mail do odbiorców zewnętrznych, więc nic nie zostało wysłane, a wiadomość wróciła do szkiców. Wyślij ją ponownie później.",
   "messages.notifications.scheduledSendFailed.title": "Zaplanowana wiadomość nie została wysłana: {subject}",
   "messages.objectPreview.fallback.subtitle": "{type} • {id}",
   "messages.objectPreview.fallback.title": "Powiązany obiekt",

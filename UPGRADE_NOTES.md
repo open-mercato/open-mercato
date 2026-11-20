@@ -1,5 +1,9 @@
 # Upgrade Notes
 
+## Scheduled messages charge the external email budget at release
+
+A scheduled message (Messages compose or draft "Send later", and `sendAsUser` with `scheduledAt`) no longer charges the external email budget (`message_external_email_windows`, `message_external_recipient_days`) when it is scheduled or rescheduled. The release worker charges it once, for every external addressee (to, cc, bcc, every "send separately" copy), before anything is delivered. When the budget refuses, nothing is sent: the message goes back to the author's drafts (scheduled time cleared, content, recipients and sender kept) and the author gets a `messages.scheduled_send_failed` notification with the `messages.notifications.scheduledSendFailed.budgetExceeded` body. This is not retried. Immediate sends, draft "Send now" and "Resend to failed" charge as before.
+
 ## Deal loss reasons seeded by customers (#8801)
 
 `customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.

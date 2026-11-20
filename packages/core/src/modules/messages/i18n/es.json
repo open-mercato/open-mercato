@@ -241,6 +241,7 @@
   "messages.notifications.new.body": "Has recibido un nuevo mensaje de {from}: {title}",
   "messages.notifications.new.title": "Nuevo mensaje",
   "messages.notifications.scheduledSendFailed.body": "El envío falló varias veces, así que el mensaje volvió a tus borradores. Ábrelo para enviarlo de nuevo.",
+  "messages.notifications.scheduledSendFailed.budgetExceeded": "Se alcanzó el límite diario de correos externos, así que no se envió nada y el mensaje volvió a tus borradores. Envíalo de nuevo más tarde.",
   "messages.notifications.scheduledSendFailed.title": "Mensaje programado no enviado: {subject}",
   "messages.objectPreview.fallback.subtitle": "{type} • {id}",
   "messages.objectPreview.fallback.title": "Objeto vinculado",

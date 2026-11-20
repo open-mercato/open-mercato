@@ -241,6 +241,7 @@
   "messages.notifications.new.body": "You have received a new message from {from}: {title}",
   "messages.notifications.new.title": "New message",
   "messages.notifications.scheduledSendFailed.body": "Sending failed several times, so the message was moved back to your drafts. Open it to send it again.",
+  "messages.notifications.scheduledSendFailed.budgetExceeded": "The daily limit for external emails was reached, so nothing was sent and the message was moved back to your drafts. Send it again later.",
   "messages.notifications.scheduledSendFailed.title": "Scheduled message not sent: {subject}",
   "messages.objectPreview.fallback.subtitle": "{type} • {id}",
   "messages.objectPreview.fallback.title": "Linked object",
