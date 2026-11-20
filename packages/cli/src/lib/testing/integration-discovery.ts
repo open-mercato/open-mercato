@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
 
@@ -34,6 +34,7 @@ const INTEGRATION_META_REQUIRED_ANY_ENV_KEYS = ['requiredAnyEnvVars', 'requiresA
 const DEFAULT_OVERLAY_ROOT = 'packages/enterprise'
 export const APP_ONLY_INTEGRATION_ENV_VAR = 'OM_INTEGRATION_APP_ONLY'
 export const SKIP_METADATA_FILTERS_INTEGRATION_ENV_VAR = 'OM_INTEGRATION_SKIP_METADATA_FILTERS'
+export const DISCOVERY_SELECTION_REPORT_INTEGRATION_ENV_VAR = 'OM_INTEGRATION_DISCOVERY_SELECTION_REPORT'
 
 export function normalizePath(filePath: string): string {
   return filePath.split(path.sep).join('/')
@@ -60,6 +61,12 @@ function isMetadataFilteringDisabled(): boolean {
 
 export function isAppOwnedIntegrationSpecPath(relativePath: string): boolean {
   return !normalizePath(relativePath).split('/').includes('node_modules')
+}
+
+function writeDiscoverySelectionReport(projectRoot: string, files: readonly IntegrationSpecDiscoveryItem[]): void {
+  const reportFile = process.env[DISCOVERY_SELECTION_REPORT_INTEGRATION_ENV_VAR]?.trim()
+  if (!reportFile) return
+  writeFileSync(reportFile, JSON.stringify({ projectRoot, paths: files.map((file) => file.path) }))
 }
 
 function collectNamedDirectories(rootPath: string, directoryName: string): string[] {
@@ -512,7 +519,9 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
   const discovered = Array.from(discoveredByPath.values())
     .filter((file) => !appOnly || isAppOwnedIntegrationSpecPath(file.path))
   if (isMetadataFilteringDisabled()) {
-    return discovered.sort((left, right) => left.path.localeCompare(right.path))
+    const selected = discovered.sort((left, right) => left.path.localeCompare(right.path))
+    writeDiscoverySelectionReport(projectRoot, selected)
+    return selected
   }
   const enabledModules = resolveEnabledModuleIds(projectRoot)
   const testAppRoot = resolveTestAppRoot()

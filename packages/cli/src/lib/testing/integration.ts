@@ -17,6 +17,7 @@ import { resolveSpawnCommand } from '../spawn'
 import {
   APP_ONLY_INTEGRATION_ENV_VAR,
   SKIP_METADATA_FILTERS_INTEGRATION_ENV_VAR,
+  DISCOVERY_SELECTION_REPORT_INTEGRATION_ENV_VAR,
   discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared,
   isAppOwnedIntegrationSpecPath,
 } from './integration-discovery'
@@ -2912,12 +2913,12 @@ export function parsePlaywrightListedSpecPaths(report: unknown, projectRoot: str
   return Array.from(listed).sort((left, right) => left.localeCompare(right))
 }
 
-function runQuietNpxCommand(args: string[], environment: NodeJS.ProcessEnv): Promise<void> {
+function runQuietNpxCommand(args: string[], environment: NodeJS.ProcessEnv, cwd: string): Promise<void> {
   const binary = process.platform === 'win32' ? 'npx.cmd' : 'npx'
   return new Promise((resolve, reject) => {
     const resolvedSpawn = resolveSpawnCommand(binary, args)
     const command = spawn(resolvedSpawn.command, resolvedSpawn.args, {
-      cwd: projectRootDirectory,
+      cwd,
       env: environment,
       stdio: ['ignore', 'ignore', 'pipe'],
       ...resolvedSpawn.spawnOptions,
@@ -2937,18 +2938,68 @@ function runQuietNpxCommand(args: string[], environment: NodeJS.ProcessEnv): Pro
   })
 }
 
-async function listPlaywrightSelectedSpecPaths(environment: NodeJS.ProcessEnv): Promise<string[]> {
+export function parseDiscoverySelectionReport(report: unknown, projectRoot: string): string[] {
+  if (!isRecord(report) || !Array.isArray(report.paths)) {
+    throw new Error('[internal] Integration discovery selection report has no paths')
+  }
+  const reportRoot = typeof report.projectRoot === 'string' ? report.projectRoot : projectRoot
+  const selected = new Set<string>()
+  for (const entry of report.paths) {
+    if (typeof entry !== 'string' || entry.length === 0) continue
+    selected.add(normalizePath(path.relative(projectRoot, path.resolve(reportRoot, entry))))
+  }
+  return Array.from(selected).sort((left, right) => left.localeCompare(right))
+}
+
+export type PlaywrightListTarget = {
+  projectRoot: string
+  configPath: string
+}
+
+const DEFAULT_PLAYWRIGHT_LIST_TARGET: PlaywrightListTarget = {
+  projectRoot: projectRootDirectory,
+  configPath: PLAYWRIGHT_INTEGRATION_CONFIG_PATH,
+}
+
+async function listPlaywrightSpecPaths(
+  environment: NodeJS.ProcessEnv,
+  source: 'registered-tests' | 'config-selection',
+  target: PlaywrightListTarget,
+): Promise<string[]> {
   const outputDirectory = await mkdtemp(path.join(os.tmpdir(), 'om-integration-list-'))
   const outputFile = path.join(outputDirectory, 'list.json')
+  const selectionFile = path.join(outputDirectory, 'selection.json')
+  const listEnvironment: NodeJS.ProcessEnv = { ...environment, PLAYWRIGHT_JSON_OUTPUT_FILE: outputFile }
+  if (source === 'config-selection') {
+    listEnvironment[DISCOVERY_SELECTION_REPORT_INTEGRATION_ENV_VAR] = selectionFile
+  }
   try {
     await runQuietNpxCommand(
-      ['playwright', 'test', '--config', PLAYWRIGHT_INTEGRATION_CONFIG_PATH, '--list', '--reporter=json', '--pass-with-no-tests'],
-      { ...environment, PLAYWRIGHT_JSON_OUTPUT_FILE: outputFile },
+      ['playwright', 'test', '--config', target.configPath, '--list', '--reporter=json', '--pass-with-no-tests'],
+      listEnvironment,
+      target.projectRoot,
     )
-    return parsePlaywrightListedSpecPaths(JSON.parse(await readFile(outputFile, 'utf8')), projectRootDirectory)
+    if (source === 'config-selection' && existsSync(selectionFile)) {
+      return parseDiscoverySelectionReport(JSON.parse(await readFile(selectionFile, 'utf8')), target.projectRoot)
+    }
+    return parsePlaywrightListedSpecPaths(JSON.parse(await readFile(outputFile, 'utf8')), target.projectRoot)
   } finally {
     await rm(outputDirectory, { recursive: true, force: true }).catch(() => undefined)
   }
+}
+
+export function listPlaywrightSelectedSpecPaths(
+  environment: NodeJS.ProcessEnv,
+  target: PlaywrightListTarget = DEFAULT_PLAYWRIGHT_LIST_TARGET,
+): Promise<string[]> {
+  return listPlaywrightSpecPaths(environment, 'registered-tests', target)
+}
+
+export function listPlaywrightConfigSelectedSpecPaths(
+  environment: NodeJS.ProcessEnv,
+  target: PlaywrightListTarget = DEFAULT_PLAYWRIGHT_LIST_TARGET,
+): Promise<string[]> {
+  return listPlaywrightSpecPaths(environment, 'config-selection', target)
 }
 
 function buildAppOnlyEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -2956,7 +3007,7 @@ function buildAppOnlyEnvironment(environment: NodeJS.ProcessEnv): NodeJS.Process
 }
 
 export async function listAppOwnedIntegrationSpecCandidates(
-  listSpecs: PlaywrightSpecLister = listPlaywrightSelectedSpecPaths,
+  listSpecs: PlaywrightSpecLister = listPlaywrightConfigSelectedSpecPaths,
 ): Promise<Array<{ path: string }>> {
   const environment = { ...buildAppOnlyEnvironment(process.env), [SKIP_METADATA_FILTERS_INTEGRATION_ENV_VAR]: '1' }
   return (await listSpecs(environment)).map((specPath) => ({ path: specPath }))
