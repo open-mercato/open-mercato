@@ -8,6 +8,8 @@
   "currencies.edit.title": "Editar Moneda",
   "currencies.errors.baseCurrencyUnset": "Elija otra moneda como base en lugar de quitarla.",
   "currencies.errors.undoHasRates": "Este cambio no se puede deshacer porque ahora hay tipos de cambio que usan esta moneda. Elimine o desactive primero esos tipos de cambio.",
+  "currencies.errors.undoRateChanged": "No se puede deshacer este cambio porque el tipo de cambio se ha modificado desde esta edición.",
+  "currencies.errors.undoRateKeyOccupied": "No se puede deshacer este cambio porque otro tipo de cambio ya ocupa su par de divisas, fecha y fuente originales.",
   "currencies.errors.undoWouldClearBase": "Este cambio no se puede deshacer porque dejaría a la organización sin moneda base.",
   "currencies.exchange_rates.update": "Actualizar tipo de cambio",
   "currencies.fetch.description": "Gestionar la obtención automática de tipos de cambio desde proveedores externos",

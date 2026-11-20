@@ -8,6 +8,8 @@
   "currencies.edit.title": "Edit Currency",
   "currencies.errors.baseCurrencyUnset": "Choose another currency as the base instead of clearing it.",
   "currencies.errors.undoHasRates": "This change can't be undone because exchange rates now use this currency. Delete or deactivate those exchange rates first.",
+  "currencies.errors.undoRateChanged": "This change cannot be undone because the exchange rate has changed since this edit.",
+  "currencies.errors.undoRateKeyOccupied": "This change cannot be undone because another exchange rate now occupies its original currency pair, date, and source.",
   "currencies.errors.undoWouldClearBase": "This change can't be undone because it would leave the organization without a base currency.",
   "currencies.exchange_rates.update": "Update exchange rate",
   "currencies.fetch.description": "Manage automatic currency exchange rate fetching from external providers",
