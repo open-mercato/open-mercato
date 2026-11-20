@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { isEmailDeliveryConfigured } from '../config'
-import { sendEmail } from '../send'
+import { EmailSendError, readEmailDeliveryErrorHints, sendEmail } from '../send'
 import {
   clearRegisteredEmailTransportForTests,
   registerEmailTransport,
@@ -345,6 +345,39 @@ describe('sendEmail', () => {
     registerEmailTransport({ id: 'test', send: sendMock })
 
     await expect(sendEmail({ to: 'user@example.com', subject: 'Hello', text: 'Hi' })).rejects.toThrow('SMTP_SEND_FAILED: down')
+  })
+
+  it('keeps transient hints per address on a separate send and on the all-rejected error', async () => {
+    const retryAt = new Date('2026-11-19T12:00:00Z')
+    sendMock
+      .mockRejectedValueOnce(new EmailSendError('rate limited', { transient: true, retryAt }))
+      .mockRejectedValueOnce(new EmailSendError('rate limited', { transient: true }))
+    registerEmailTransport({ id: 'test', send: sendMock })
+
+    const failure = await sendEmail({ to: ['a@example.com', 'b@example.com'], sendSeparately: true, subject: 'Hello', text: 'Hi' })
+      .catch((error: unknown) => error)
+
+    expect(readEmailDeliveryErrorHints(failure)).toEqual({
+      transient: true,
+      retryAt,
+      rejected: [
+        { address: 'a@example.com', error: 'rate limited', transient: true, retryAt },
+        { address: 'b@example.com', error: 'rate limited', transient: true },
+      ],
+    })
+  })
+
+  it('reports an all-rejected send as permanent when any address failed permanently', async () => {
+    sendMock
+      .mockRejectedValueOnce(new EmailSendError('rate limited', { transient: true }))
+      .mockRejectedValueOnce(new Error('mailbox unavailable'))
+    registerEmailTransport({ id: 'test', send: sendMock })
+
+    const failure = await sendEmail({ to: ['a@example.com', 'b@example.com'], sendSeparately: true, subject: 'Hello', text: 'Hi' })
+      .catch((error: unknown) => error)
+
+    expect(readEmailDeliveryErrorHints(failure).transient).toBe(false)
+    expect(readEmailDeliveryErrorHints('nope')).toEqual({})
   })
 
   it('captures every address in OM_TEST_MODE for joint and separate sends', async () => {

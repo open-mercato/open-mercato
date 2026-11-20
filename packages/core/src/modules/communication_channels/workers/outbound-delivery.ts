@@ -48,10 +48,15 @@ type HandlerContext = JobContext & {
  *
  * Dispatches the `deliver_outbound_message` command which performs the actual
  * send. The command returns a classified result:
- *   - `delivered` / `already_delivered` / `no_channel_link` → success, return.
- *   - `failed` with `transient: true` → re-enqueue with exponential backoff,
- *      incremented attempt, up to `OUTBOUND_DELIVERY_MAX_ATTEMPTS`.
- *   - `failed` with `transient: false` → permanent failure, no retry.
+ *   - `delivered` / `already_delivered` / `no_channel_link` / `not_due` → return.
+ *   - `failed` with `requiresReauth` and no forced refresh yet → one immediate
+ *      retry with a forced credential refresh.
+ *   - `failed` with `participantDelivery` → the participants own the schedule:
+ *      re-enqueue at their `nextAttemptAt` (the command used this worker's short
+ *      backoff for the first attempts, then the configured retry delay, until
+ *      the delivery window closes), or stop when none is pending.
+ *   - legacy links without participants: `transient: true` → exponential backoff
+ *      up to `OUTBOUND_DELIVERY_MAX_ATTEMPTS`; `transient: false` → stop.
  *
  * The command already wrote the failure record + emitted `.delivery_failed`,
  * so the worker just decides whether to schedule another attempt.
@@ -88,7 +93,13 @@ export default async function handle(
     >(
       COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID,
       {
-        input: { messageId, scope, forceCredentialRefresh, externalParticipantId },
+        input: {
+          messageId,
+          scope,
+          forceCredentialRefresh,
+          externalParticipantId,
+          ...(attempt < OUTBOUND_DELIVERY_MAX_ATTEMPTS ? { transientRetryDelayMs: computeBackoffMs(attempt) } : {}),
+        },
         ctx: commandCtx as never,
       },
     )
@@ -111,6 +122,7 @@ export default async function handle(
     case 'delivered':
     case 'already_delivered':
     case 'no_channel_link':
+    case 'not_due':
       return
     case 'failed': {
       // Reauth (401 / invalid_grant): the command already flipped the channel to
@@ -119,13 +131,21 @@ export default async function handle(
       // was skipped can still recover here. If we already forced a refresh and
       // still got a reauth error, the token is unrecoverable: stop (the operator
       // must reconnect).
-      if (
-        outcome.requiresReauth &&
-        !forceCredentialRefresh &&
-        attempt < OUTBOUND_DELIVERY_MAX_ATTEMPTS
-      ) {
+      // The forced flag rides on every later attempt, so this branch runs once.
+      if (outcome.requiresReauth && !forceCredentialRefresh) {
         logger.warn('reauth failure; retrying once with a forced credential refresh', { attempt, messageId, providerKey: outcome.providerKey, reason: outcome.error })
         await reenqueue({ ...job.payload, forceCredentialRefresh: true }, attempt)
+        return
+      }
+      if (outcome.participantDelivery) {
+        const nextAttemptAt = outcome.participantDelivery.nextAttemptAt
+        if (nextAttemptAt) {
+          logger.warn('delivery failure; participants retry later', { attempt, messageId, providerKey: outcome.providerKey, nextAttemptAt, reason: outcome.error })
+          // A second of slack so the job never lands before the participant claim is due.
+          await reenqueue(job.payload, attempt, Math.max(0, Date.parse(nextAttemptAt) - Date.now()) + 1000)
+          return
+        }
+        logger.error('giving up on message delivery', { messageId, attempt, providerKey: outcome.providerKey, reason: outcome.error })
         return
       }
       if (outcome.transient && attempt < OUTBOUND_DELIVERY_MAX_ATTEMPTS) {
@@ -141,12 +161,11 @@ export default async function handle(
   }
 }
 
-async function reenqueue(payload: OutboundDeliveryPayload, attempt: number): Promise<void> {
+async function reenqueue(payload: OutboundDeliveryPayload, attempt: number, delayMs: number = computeBackoffMs(attempt)): Promise<void> {
   const next: OutboundDeliveryPayload = {
     ...payload,
     attempt: attempt + 1,
   }
-  const delayMs = computeBackoffMs(attempt)
   const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
   await queue.enqueue(next as unknown as Record<string, unknown>, { delayMs })
 }

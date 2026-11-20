@@ -10,6 +10,7 @@ const events = [
   { id: 'messages.message.action_taken', label: 'Message Action Taken', entity: 'message', category: 'custom', clientBroadcast: true },
   { id: 'messages.message.email_sent', label: 'Message Email Sent', entity: 'message', category: 'custom', clientBroadcast: true },
   { id: 'messages.message.email_failed', label: 'Message Email Failed', entity: 'message', category: 'custom', clientBroadcast: true },
+  { id: 'messages.message.delivery_finished', label: 'Message Delivery Finished', entity: 'message', category: 'custom', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({

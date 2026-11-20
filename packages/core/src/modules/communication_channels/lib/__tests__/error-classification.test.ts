@@ -20,6 +20,12 @@ describe('classifyOutboundError', () => {
     expect(classifyOutboundError(err).transient).toBe(false)
   })
 
+  it('treats SMTP 4xx replies as transient and 5xx replies as permanent', () => {
+    expect(classifyOutboundError(new Error('SMTP_SEND_FAILED: 451 4.7.1 Greylisted')).transient).toBe(true)
+    expect(classifyOutboundError(new Error('SMTP_SEND_FAILED: 421 Service not available')).transient).toBe(true)
+    expect(classifyOutboundError(new Error('SMTP_SEND_FAILED: 550 5.1.1 User unknown')).transient).toBe(false)
+  })
+
   it('classifies 429 / 5xx / 408 statuses as transient', () => {
     for (const status of [408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524]) {
       const err = new Error('http') as Error & { status?: number }

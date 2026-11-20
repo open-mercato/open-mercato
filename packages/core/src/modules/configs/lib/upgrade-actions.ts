@@ -257,6 +257,21 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       logger.info('messages external participants backfill completed', { tenantId, organizationId, ...report })
     },
   },
+  {
+    id: 'messages.register-email-retry-schedule',
+    version: '0.10.0',
+    messageKey: 'messages.upgradeActions.emailRetrySchedule.message',
+    ctaKey: 'messages.upgradeActions.emailRetrySchedule.cta',
+    successKey: 'messages.upgradeActions.emailRetrySchedule.success',
+    loadingKey: 'messages.upgradeActions.emailRetrySchedule.loading',
+    requiredModules: ['messages'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerMessagesEmailRetrySchedule } = await import(
+        '@open-mercato/core/modules/messages/lib/emailRetrySchedule'
+      )
+      await registerMessagesEmailRetrySchedule(container, { tenantId, organizationId })
+    },
+  },
 ]
 
 export function actionsUpToVersion(version: string): UpgradeActionDefinition[] {

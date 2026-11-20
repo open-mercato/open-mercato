@@ -14,6 +14,7 @@ import { ensureTestSeedAdapterRegistered } from './lib/test-seed'
 import { sendAsUser } from './lib/send-as-user'
 import { isSystemEmailTransportConfigured, sendSystemEmail } from './lib/system-email'
 import { resolveChannelTypeSafely } from './lib/resolve-channel-type'
+import { enqueueOutboundDelivery } from './lib/queue'
 import { resolveChannelThreadAccessSafely } from './lib/channel-thread-access'
 
 export function register(container: AppContainer) {
@@ -61,5 +62,10 @@ export function register(container: AppContainer) {
     // module owns. Absent module or failed lookup reads as "internal thread",
     // which leaves the participant rule in force.
     communicationChannelsResolveChannelThreadAccess: asValue(resolveChannelThreadAccessSafely),
+
+    // Cross-module outbound re-enqueue. The messages email retry tick resolves
+    // this to recover a mailbox delivery whose queue job was lost; absent module
+    // means there is no mailbox path to recover.
+    communicationChannelsEnqueueOutboundDelivery: asValue(enqueueOutboundDelivery),
   })
 }

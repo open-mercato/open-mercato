@@ -100,7 +100,7 @@ function MessageConversationDetailItem({
             data={state.detail}
           />
 
-          <MessageDetailMetaSection detail={state.detail} />
+          <MessageDetailMetaSection detail={state.detail} onResent={() => state.refreshDetailWithoutAutoMarkRead()} />
 
           {/* UMES — channel sidebar widgets (channel info panel, contact preview, delivery status).
               `userFeatures` lets feature-gated widgets (e.g. the channel reassignment editor,

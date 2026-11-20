@@ -121,6 +121,30 @@ describe('ImapChannelAdapter.sendMessage', () => {
     expect(result.error).toMatch(/at least one recipient/i)
   })
 
+  it('reports a partial rejection with the accepted/rejected split', async () => {
+    setSmtpClient({
+      verify: async () => undefined,
+      send: async () => ({
+        messageId: '<out@example.com>',
+        raw: Buffer.alloc(0),
+        response: '250 OK',
+        accepted: ['bob@example.com'],
+        rejected: ['ghost@example.com'],
+      }),
+    })
+    setImapClient({ connectAndValidate: async () => ({ capabilities: [] }), selectInbox: async () => ({}), fetchUidRange: async () => [], appendSent: async () => undefined })
+    const result = await getImapChannelAdapter().sendMessage({
+      content: { text: 'hi', bodyFormat: 'text' },
+      credentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      metadata: { to: ['bob@example.com', 'ghost@example.com'] },
+    })
+    expect(result.status).toBe('failed')
+    expect(result.externalMessageId).toBe('<out@example.com>')
+    expect(result.error).toBe('SMTP_SEND_PARTIALLY_REJECTED: relay rejected ghost@example.com')
+    expect(result.metadata).toEqual({ response: '250 OK', accepted: ['bob@example.com'], rejected: ['ghost@example.com'] })
+  })
+
   it('swallows IMAP append failures without failing the send', async () => {
     setSmtpClient({
       verify: async () => undefined,

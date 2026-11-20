@@ -418,7 +418,13 @@ export const unlinkAttachmentPayloadSchema = z.object({
   { message: 'attachmentId or attachmentIds is required' }
 )
 
+export const resendFailedSchema = z.object({
+  /** Failed participants to resend to; omitted means every failed participant of the message. */
+  participantIds: z.array(z.string().uuid()).min(1).max(MAX_COMPOSE_EXTERNAL_PARTICIPANTS).optional(),
+})
+
 export type ComposeMessageInput = z.infer<typeof composeMessageSchema>
+export type ResendFailedInput = z.infer<typeof resendFailedSchema>
 export type ExternalParticipantInput = z.infer<typeof externalParticipantSchema>
 export type UpdateDraftInput = z.infer<typeof updateDraftSchema>
 export type ListMessagesInput = z.infer<typeof listMessagesSchema>

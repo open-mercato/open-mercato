@@ -93,6 +93,7 @@ export const messageDetailResponseSchema = z.object({
   externalEmail: z.string().nullable().optional(),
   externalName: z.string().nullable().optional(),
   emailSendSeparately: z.boolean().optional(),
+  canResendFailed: z.boolean().optional(),
   externalParticipants: z.array(messageExternalParticipantSchema).optional(),
   typeDefinition: z.object({
     labelKey: z.string(),

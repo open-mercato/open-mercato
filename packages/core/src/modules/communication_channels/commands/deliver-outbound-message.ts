@@ -17,7 +17,13 @@ import { resolveOutboundReplyExternalId, stripCallerReplyTargeting } from '../li
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { Message, MessageExternalParticipant } from '../../messages/data/entities'
-import { recordExternalDeliverySummary } from '../../messages/lib/externalParticipants'
+import {
+  DELIVERY_WINDOW_EXCEEDED_ERROR,
+  planTransientRetry,
+  recordExternalDeliverySummary,
+  settleExternalParticipants,
+  type ExternalParticipantSettlement,
+} from '../../messages/lib/externalParticipants'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -50,6 +56,11 @@ const deliverInputSchema = z.object({
    * delivers the message's joint link (one send to every participant).
    */
   externalParticipantId: z.string().uuid().nullable().optional(),
+  /**
+   * Retry delay the worker wants for a transient failure on this attempt (its
+   * short in-process backoff). Omitted means the configured retry delay.
+   */
+  transientRetryDelayMs: z.number().int().nonnegative().optional(),
 })
 
 export type DeliverOutboundMessageInput = z.infer<typeof deliverInputSchema>
@@ -57,6 +68,8 @@ export type DeliverOutboundMessageInput = z.infer<typeof deliverInputSchema>
 export type DeliverOutboundMessageResult =
   | { status: 'no_channel_link' }
   | { status: 'already_delivered'; messageId: string; channelLinkId: string }
+  /** Every participant of the link is settled, or another delivery holds them until a later attempt. */
+  | { status: 'not_due'; messageId: string; channelLinkId: string }
   | {
       status: 'delivered'
       messageId: string
@@ -77,7 +90,14 @@ export type DeliverOutboundMessageResult =
        * forced credential refresh before giving up.
        */
       requiresReauth: boolean
+      /**
+       * Present when the link has participants: their state owns the retry
+       * schedule. `nextAttemptAt` (ISO) is set while any of them stays pending.
+       */
+      participantDelivery?: { nextAttemptAt: string | null }
     }
+
+const PARTICIPANT_CLAIM_LOCK_MS = 15 * 60 * 1000
 
 export const COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID =
   'communication_channels.message.deliver_outbound'
@@ -303,17 +323,38 @@ const deliverOutboundMessageCommand: CommandHandler<
     }
 
     // Participants are the source of truth for addressing: one for a separate
-    // link, all of them for a joint link. Legacy messages without participant
-    // rows keep the recipients stored on the link.
+    // link, all still-pending ones for a joint link. The claim pushes their
+    // `next_attempt_at` past a lock window so a retry-tick duplicate cannot send
+    // twice. Legacy messages without status-bearing participant rows keep the
+    // recipients stored on the link.
+    const participantScope = {
+      messageId: message.id,
+      tenantId: input.scope.tenantId,
+      organizationId: input.scope.organizationId ?? null,
+    }
+    const linkParticipantFilter = {
+      ...participantScope,
+      ...(link.externalParticipantId ? { id: link.externalParticipantId } : {}),
+    }
+    const claimNow = new Date()
+    const claimUntil = new Date(claimNow.getTime() + PARTICIPANT_CLAIM_LOCK_MS)
+    const claimedCount = await em.nativeUpdate(
+      MessageExternalParticipant,
+      {
+        ...linkParticipantFilter,
+        deliveryStatus: 'pending',
+        $or: [{ nextAttemptAt: null }, { nextAttemptAt: { $lte: claimNow } }],
+      },
+      { nextAttemptAt: claimUntil },
+    )
+    const claimedUntil = claimedCount > 0 ? claimUntil : null
+    if (!claimedUntil && (await em.count(MessageExternalParticipant, { ...linkParticipantFilter, deliveryStatus: { $ne: null } })) > 0) {
+      return { status: 'not_due', messageId: message.id, channelLinkId: link.id }
+    }
     const participants = await findWithDecryption(
       em,
       MessageExternalParticipant,
-      {
-        messageId: message.id,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-        ...(link.externalParticipantId ? { id: link.externalParticipantId } : {}),
-      },
+      claimedUntil ? { ...linkParticipantFilter, deliveryStatus: 'pending', nextAttemptAt: claimedUntil } : linkParticipantFilter,
       { orderBy: { createdAt: 'asc' } },
       dscope,
     )
@@ -523,7 +564,10 @@ const deliverOutboundMessageCommand: CommandHandler<
       const partiallyAccepted =
         sendResult.status === 'failed' && addressSet(resultMetadata?.accepted).size > 0 && participantOutcome.sent.length > 0
       if (sendResult.status === 'failed' && !partiallyAccepted) {
-        throw new Error(sendResult.error ?? `Adapter '${adapter.providerKey}' reported send failure`)
+        throw Object.assign(new Error(sendResult.error ?? `Adapter '${adapter.providerKey}' reported send failure`), {
+          ...(sendResult.transient !== undefined ? { transient: sendResult.transient } : {}),
+          ...(sendResult.retryAt ? { retryAt: sendResult.retryAt } : {}),
+        })
       }
 
       // (7) Persist success records.
@@ -585,32 +629,18 @@ const deliverOutboundMessageCommand: CommandHandler<
       }
       await em.flush()
 
-      const participantScope = {
-        messageId: message.id,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-      }
-      const sentAt = new Date()
-      if (participantOutcome.sent.length > 0) {
-        await em.nativeUpdate(
-          MessageExternalParticipant,
-          { ...participantScope, id: { $in: participantOutcome.sent.map((participant) => participant.id) } },
-          { deliveryStatus: 'sent', sentAt, deliveryError: null, nextAttemptAt: null },
-        )
-      }
-      if (participantOutcome.rejected.length > 0) {
-        await em.nativeUpdate(
-          MessageExternalParticipant,
-          { ...participantScope, id: { $in: participantOutcome.rejected.map((participant) => participant.id) } },
-          {
-            deliveryStatus: 'failed',
-            deliveryError: sendResult.error ?? 'Rejected by the mail server',
-            nextAttemptAt: null,
-          },
-        )
-      }
       if (participants.length > 0) {
-        await recordExternalDeliverySummary(em, participantScope, { sentAt })
+        const rejectionError = sendResult.error ?? 'Rejected by the mail server'
+        await settleExternalParticipants(
+          em,
+          participantScope,
+          {
+            sent: participantOutcome.sent.map((participant) => participant.id),
+            failed: participantOutcome.rejected.map((participant) => ({ id: participant.id, error: rejectionError })),
+          },
+          { claimedUntil },
+        )
+        await recordExternalDeliverySummary(em, participantScope, { sentAt: new Date() })
       }
 
       await emitCommunicationChannelsEvent(
@@ -649,7 +679,20 @@ const deliverOutboundMessageCommand: CommandHandler<
       // (8) Failure path — classify, persist, emit, return.
       const classification = classifyOutboundError(sendErr)
       const requiresReauth = isReauthError(classification)
-      link.deliveryStatus = 'failed'
+      const providerRetryAt = (sendErr as { retryAt?: unknown } | null)?.retryAt
+      const settlement = participants.length > 0
+        ? planParticipantFailure(participants.map((participant) => participant.id), {
+            error: classification.message,
+            transient: classification.transient,
+            requiresReauth,
+            forcedRefresh: Boolean(input.forceCredentialRefresh),
+            messageSentAt: message.sentAt ?? null,
+            retryAt: providerRetryAt instanceof Date ? providerRetryAt : undefined,
+            delayMs: input.transientRetryDelayMs,
+          })
+        : null
+      const retries = settlement?.retry ?? []
+      link.deliveryStatus = retries.length > 0 ? 'pending' : 'failed'
       link.channelMetadata = {
         ...((link.channelMetadata as Record<string, unknown> | undefined) ?? {}),
         lastError: classification.message,
@@ -667,18 +710,11 @@ const deliverOutboundMessageCommand: CommandHandler<
       }
       await em.flush()
 
-      if (participants.length > 0) {
-        const failureScope = {
-          messageId: message.id,
-          tenantId: input.scope.tenantId,
-          organizationId: input.scope.organizationId ?? null,
+      if (settlement) {
+        await settleExternalParticipants(em, participantScope, settlement, { claimedUntil })
+        if (retries.length === 0) {
+          await recordExternalDeliverySummary(em, participantScope, { error: classification.message })
         }
-        await em.nativeUpdate(
-          MessageExternalParticipant,
-          { ...failureScope, id: { $in: participants.map((participant) => participant.id) }, deliveryStatus: 'pending' },
-          { deliveryError: classification.message },
-        )
-        await recordExternalDeliverySummary(em, failureScope, { error: classification.message })
       }
 
       try {
@@ -737,9 +773,49 @@ const deliverOutboundMessageCommand: CommandHandler<
         error: classification.message,
         transient: classification.transient,
         requiresReauth,
+        ...(settlement
+          ? {
+              participantDelivery: {
+                nextAttemptAt: retries.length > 0
+                  ? new Date(Math.min(...retries.map((entry) => entry.nextAttemptAt.getTime()))).toISOString()
+                  : null,
+              },
+            }
+          : {}),
       }
     }
   },
+}
+
+/**
+ * Participant outcome of a failed link delivery. A reauth failure is retried once
+ * right away (the worker forces a credential refresh) and fails every participant
+ * once that refresh did not help; a transient failure waits for the provider's
+ * retry time or the delay, inside the delivery window; anything else fails.
+ */
+export function planParticipantFailure(
+  participantIds: string[],
+  failure: {
+    error: string
+    transient: boolean
+    requiresReauth: boolean
+    forcedRefresh: boolean
+    messageSentAt: Date | null
+    retryAt?: Date
+    delayMs?: number
+  },
+  now: Date = new Date(),
+): ExternalParticipantSettlement {
+  const failAll = (error: string): ExternalParticipantSettlement => ({ failed: participantIds.map((id) => ({ id, error })) })
+  if (failure.requiresReauth) {
+    return failure.forcedRefresh
+      ? failAll(failure.error)
+      : { retry: participantIds.map((id) => ({ id, error: failure.error, nextAttemptAt: now })) }
+  }
+  if (!failure.transient) return failAll(failure.error)
+  const plan = planTransientRetry({ messageSentAt: failure.messageSentAt, retryAt: failure.retryAt, delayMs: failure.delayMs, now })
+  if ('expired' in plan) return failAll(DELIVERY_WINDOW_EXCEEDED_ERROR)
+  return { retry: participantIds.map((id) => ({ id, error: failure.error, nextAttemptAt: plan.nextAttemptAt })) }
 }
 
 registerCommand(deliverOutboundMessageCommand)

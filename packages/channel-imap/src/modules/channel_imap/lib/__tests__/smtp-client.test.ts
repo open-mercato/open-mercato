@@ -1,6 +1,6 @@
 import { generateMessageId, getSmtpClient, setSmtpClient, type SmtpConnectionOptions } from '../smtp-client'
 
-const sendMail = jest.fn(async (_options: { messageId?: string }) => ({
+const sendMail = jest.fn(async (_options: { messageId?: string }): Promise<Record<string, unknown>> => ({
   messageId: '<server@example.com>' as string | undefined,
   response: '250 OK',
 }))
@@ -82,6 +82,32 @@ describe('NodemailerClient.send — RFC2822 capture for the Sent-folder append',
     expect(sentOptions.messageId).toMatch(/^<[0-9a-f-]{36}@mail\.example\.com>$/)
     expect(result.raw.toString('utf8')).toContain(`Message-ID: ${sentOptions.messageId}`)
     expect(result.messageId).toBe(sentOptions.messageId)
+  })
+})
+
+describe('NodemailerClient.send — accepted/rejected split', () => {
+  afterEach(() => {
+    setSmtpClient(null)
+    jest.clearAllMocks()
+  })
+
+  it('returns the accepted and rejected recipients as plain addresses', async () => {
+    sendMail.mockImplementationOnce(async () => ({
+      messageId: '<server@example.com>',
+      response: '250 OK',
+      accepted: [{ address: 'a@example.com' }],
+      rejected: ['b@example.com'],
+    }))
+
+    const result = await getSmtpClient().send(connection, {
+      from: 'sender@example.com',
+      to: ['a@example.com', 'b@example.com'],
+      subject: 'Split',
+      text: 'body',
+    })
+
+    expect(result.accepted).toEqual(['a@example.com'])
+    expect(result.rejected).toEqual(['b@example.com'])
   })
 })
 

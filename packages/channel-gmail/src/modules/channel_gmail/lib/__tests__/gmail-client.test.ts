@@ -1,5 +1,5 @@
 import { FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
-import { decodeBase64Url, encodeBase64Url, getGmailApiClient, GmailApiError, setGmailApiClient } from '../gmail-client'
+import { decodeBase64Url, encodeBase64Url, getGmailApiClient, GmailApiError, resolveRetryAt, setGmailApiClient } from '../gmail-client'
 
 describe('base64url encoding helpers', () => {
   it('encodeBase64Url uses URL-safe alphabet without padding', () => {
@@ -29,6 +29,23 @@ describe('GmailApiError', () => {
     expect(e.name).toBe('GmailApiError')
     expect(e.status).toBe(401)
     expect(e.detail).toBe('invalid_grant')
+  })
+})
+
+describe('resolveRetryAt', () => {
+  it('parses the retry time from a Gmail 429 body when Retry-After is absent', () => {
+    const body = JSON.stringify({ error: { code: 429, message: 'User-rate limit exceeded.  Retry after 2026-11-20T10:15:00.000Z' } })
+    expect(resolveRetryAt(null, body)).toEqual(new Date('2026-11-20T10:15:00.000Z'))
+  })
+
+  it('prefers the Retry-After header over the body', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 10, 20, 10, 0, 0))
+    expect(resolveRetryAt('30', 'Retry after 2026-11-21T00:00:00Z')).toEqual(new Date(Date.UTC(2026, 10, 20, 10, 0, 30)))
+    jest.restoreAllMocks()
+  })
+
+  it('returns undefined when neither carries a retry time', () => {
+    expect(resolveRetryAt(null, 'quota exceeded')).toBeUndefined()
   })
 })
 
@@ -151,6 +168,20 @@ describe('FetchGmailApiClient.requestJson retry/backoff', () => {
     for (let i = 1; i < capturedDelays.length; i += 1) {
       expect(capturedDelays[i]).toBeGreaterThanOrEqual(capturedDelays[i - 1])
     }
+  })
+
+  it('carries the body retry time on the error thrown after exhausting retries', async () => {
+    Math.random = () => 0
+    const body = JSON.stringify({ error: { message: 'User-rate limit exceeded.  Retry after 2099-01-01T00:00:00.000Z' } })
+    globalThis.fetch = (() =>
+      Promise.resolve(fakeResponse({ status: 429, statusText: 'Too Many Requests', body }))) as unknown as typeof globalThis.fetch
+
+    const thrown = await getGmailApiClient().getProfile({ accessToken: 'token' }).catch((error: unknown) => error)
+
+    expect(thrown).toBeInstanceOf(GmailApiError)
+    expect((thrown as GmailApiError).transient).toBe(true)
+    expect((thrown as GmailApiError).retryAt).toEqual(new Date('2099-01-01T00:00:00.000Z'))
+    expect(capturedDelays).toEqual([8000, 8000, 8000])
   })
 
   describe('HTTP-date Retry-After on a pinned clock', () => {

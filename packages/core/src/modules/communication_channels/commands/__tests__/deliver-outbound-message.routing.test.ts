@@ -52,6 +52,8 @@ type TestEntityManager = {
   create(entity: new () => object, data: Record<string, unknown>): object
   persist(record: object): void
   flush(): Promise<void>
+  nativeUpdate(): Promise<number>
+  count(): Promise<number>
 }
 
 function makeAdapter(providerKey: string) {
@@ -166,6 +168,8 @@ function makeFixture(options: {
     }),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
+    nativeUpdate: jest.fn(async () => 0),
+    count: jest.fn(async () => 0),
   }
   const originalAdapter = makeAdapter(originalChannel.providerKey)
   const selectedAdapter = makeAdapter(selectedChannel.providerKey)

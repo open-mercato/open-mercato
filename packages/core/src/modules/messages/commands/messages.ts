@@ -10,8 +10,13 @@ import {
   composeMessageSchema,
   forwardMessageSchema,
   replyMessageSchema,
+  resendFailedSchema,
   updateDraftSchema,
 } from '../data/validators'
+import { conflict, CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { delegateComposeToSender } from '../lib/composeSenderDelegation'
+import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../lib/messageSourceEntityTypes'
 import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
@@ -1271,8 +1276,120 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
   },
 }
 
+const resendFailedCommandSchema = resendFailedSchema.safeExtend({
+  messageId: z.string().uuid(),
+  tenantId: scopeSchema.shape.tenantId,
+  organizationId: scopeSchema.shape.organizationId,
+  userId: scopeSchema.shape.userId,
+})
+
+/**
+ * Resends a sent message to its `failed` external participants as a new message in
+ * the same thread, through the same path the original took: the sender's mailbox
+ * for a `send_as_user` message, the platform sender otherwise. A former BCC
+ * address is never exposed to the others, so it forces a separate send.
+ */
+const resendFailedCommand: CommandHandler<unknown, { id: string; threadId: string | null; sourceMessageId: string }> = {
+  id: 'messages.messages.resend_failed',
+  async execute(rawInput, ctx) {
+    const input = resendFailedCommandSchema.parse(rawInput)
+    const { translate } = await resolveTranslations()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+    const message = await findOneWithDecryption(
+      em,
+      Message,
+      { id: input.messageId, ...scope, deletedAt: null, isDraft: false },
+      undefined,
+      scope,
+    )
+    if (!message) throw notFound(translate('messages.errors.notFound', 'Message not found'))
+    if (message.senderUserId !== input.userId) throw forbidden(translate('messages.errors.resendOnlySender', 'Only the sender can resend a message.'))
+
+    const requestedIds = input.participantIds ? Array.from(new Set(input.participantIds)) : null
+    const failed = await findWithDecryption(
+      em,
+      MessageExternalParticipant,
+      { messageId: message.id, ...scope, deliveryStatus: 'failed', ...(requestedIds ? { id: { $in: requestedIds } } : {}) },
+      { orderBy: { createdAt: 'asc' } },
+      scope,
+    )
+    if (failed.length === 0 || (requestedIds && failed.length !== requestedIds.length)) {
+      throw conflict(translate('messages.errors.nothingToResend', 'There are no failed recipients to resend to.'))
+    }
+
+    const externalEmails = Array.from(new Map(failed.map((participant) => [participant.email.toLowerCase(), participant.email])).values())
+    const sendSeparately = message.emailSendSeparately || failed.some((participant) => participant.role === 'bcc')
+    const bodyFormat = message.bodyFormat === 'markdown' ? 'markdown' as const : 'text' as const
+
+    if (message.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE && message.sourceEntityId) {
+      const delegated = await delegateComposeToSender(
+        ctx.container,
+        { userId: input.userId, tenantId: input.tenantId, organizationId: input.organizationId, auth: ctx.auth ?? null },
+        {
+          senderChannelId: message.sourceEntityId,
+          visibility: 'public',
+          externalEmails,
+          sendSeparately,
+          subject: message.subject,
+          body: message.body,
+          bodyFormat,
+          parentMessageId: message.id,
+        },
+      )
+      if (!delegated.ok) throw new CrudHttpError(delegated.status, { error: delegated.error, fieldErrors: delegated.fieldErrors })
+      return { id: delegated.messageId, threadId: delegated.threadId, sourceMessageId: message.id }
+    }
+
+    const composed = await composeMessageCommand.execute(
+      {
+        type: message.type,
+        visibility: 'public',
+        externalEmails,
+        sendSeparately,
+        subject: message.subject,
+        body: message.body,
+        bodyFormat,
+        priority: message.priority,
+        parentMessageId: message.id,
+        sendViaEmail: true,
+        recipients: [],
+        ...scope,
+        userId: input.userId,
+      },
+      ctx,
+    )
+    return { id: composed.id, threadId: composed.threadId, sourceMessageId: message.id }
+  },
+  async captureAfter(_input, result, ctx) {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return loadMessageAggregateSnapshot(em, result.id)
+  },
+  buildLog: async ({ input, result, snapshots }) => {
+    const parsed = resendFailedCommandSchema.parse(input)
+    return {
+      actionLabel: 'Resend message to failed recipients',
+      resourceKind: 'messages.message',
+      resourceId: result.id,
+      parentResourceKind: 'messages.message',
+      parentResourceId: result.sourceMessageId,
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+      payload: {
+        undo: {
+          after: (snapshots.after as MessageAggregateSnapshot | undefined) ?? null,
+        } satisfies UndoPayload<MessageAggregateSnapshot>,
+      },
+      snapshotAfter: snapshots.after ?? null,
+    }
+  },
+  // Same undo as compose: the created message is deleted. Mail already handed to a provider cannot be recalled.
+  undo: async (args) => composeMessageCommand.undo?.(args),
+}
+
 registerCommand(composeMessageCommand)
 registerCommand(updateDraftCommand)
 registerCommand(replyMessageCommand)
 registerCommand(forwardMessageCommand)
 registerCommand(deleteForActorCommand)
+registerCommand(resendFailedCommand)

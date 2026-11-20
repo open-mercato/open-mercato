@@ -72,6 +72,9 @@ const TRANSIENT_CODE_PATTERNS = [
   /connection terminated/i,
   /too many clients already/i,
   /the database system is (starting up|shutting down|in recovery)/i,
+  // SMTP 4xx replies are temporary by definition (RFC 5321 §4.2.1); 5xx stay permanent.
+  /\b4\d{2}[ -]4\.\d{1,3}\.\d{1,3}\b/,
+  /\b(421|450|451|452)\b/,
 ]
 
 export function classifyOutboundError(error: unknown): ErrorClassification {

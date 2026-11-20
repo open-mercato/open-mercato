@@ -293,6 +293,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     externalEmail: message.externalEmail,
     externalName: message.externalName,
     emailSendSeparately: message.emailSendSeparately ?? false,
+    canResendFailed: message.senderUserId === scope.userId && !message.isDraft,
     externalParticipants: externalParticipants.map((participant) => ({
       id: participant.id,
       role: participant.role,

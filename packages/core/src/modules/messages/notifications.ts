@@ -22,6 +22,26 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     linkHref: '/backend/messages/{sourceEntityId}',
     expiresAfterHours: 168,
   },
+  {
+    type: 'messages.delivery_failed',
+    channels: ['in_app', 'email'],
+    module: 'messages',
+    titleKey: 'messages.notifications.deliveryFailed.title',
+    bodyKey: 'messages.notifications.deliveryFailed.body',
+    icon: 'alert-triangle',
+    severity: 'warning',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'messages.actions.resendFailed',
+        variant: 'outline',
+        href: '/backend/messages/{sourceEntityId}',
+        icon: 'external-link',
+      },
+    ],
+    linkHref: '/backend/messages/{sourceEntityId}',
+    expiresAfterHours: 168,
+  },
 ]
 
 export default notificationTypes

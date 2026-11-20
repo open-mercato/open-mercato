@@ -98,7 +98,7 @@ describe('deliverOutboundMessageCommand — idempotency (no double-send)', () =>
   const VALID_ORG = '550e8400-e29b-41d4-a716-446655440030'
 
   function makeCtx(adapter: Record<string, unknown>) {
-    const em: any = { create: jest.fn(), persist: jest.fn(), flush: jest.fn() }
+    const em: any = { create: jest.fn(), persist: jest.fn(), flush: jest.fn(), nativeUpdate: jest.fn(async () => 0), count: jest.fn(async () => 0) }
     em.fork = () => em
     return {
       container: {
@@ -151,6 +151,8 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
       }),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
+      nativeUpdate: jest.fn(async () => 0),
+      count: jest.fn(async () => 0),
     }
     em.fork = () => em
     const channel = {
@@ -352,6 +354,8 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
       create: jest.fn((_entity: unknown, data: Record<string, any>) => ({ ...data })),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
+      nativeUpdate: jest.fn(async () => 0),
+      count: jest.fn(async () => 0),
     }
     em.fork = () => em
     const adapter = {

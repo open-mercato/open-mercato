@@ -53,10 +53,55 @@ export type ResolvedEmailPayload = {
   organizationId?: string | null
 }
 
+export type EmailRejection = {
+  address: string
+  error: string
+  /** True when the provider may accept the address on a later attempt (rate limit, outage, SMTP 4xx). */
+  transient?: boolean
+  retryAt?: Date
+}
+
 export type EmailSendResult = {
   accepted: string[]
-  rejected: { address: string; error: string }[]
+  rejected: EmailRejection[]
   retryAt?: Date
+}
+
+export type EmailDeliveryErrorHints = {
+  transient?: boolean
+  retryAt?: Date
+  rejected?: EmailRejection[]
+}
+
+/** A failed send that tells the caller whether retrying can help; transports may throw it. */
+export class EmailSendError extends Error {
+  readonly transient?: boolean
+  readonly retryAt?: Date
+  readonly rejected?: EmailRejection[]
+  constructor(message: string, hints: EmailDeliveryErrorHints = {}) {
+    super(message)
+    this.name = 'EmailSendError'
+    this.transient = hints.transient
+    this.retryAt = hints.retryAt
+    this.rejected = hints.rejected
+  }
+}
+
+/** Reads retry hints from any thrown value, so errors from other bundles or transports work too. */
+export function readEmailDeliveryErrorHints(error: unknown): EmailDeliveryErrorHints {
+  if (!error || typeof error !== 'object') return {}
+  const candidate = error as { transient?: unknown; retryAt?: unknown; rejected?: unknown }
+  const retryAt = candidate.retryAt instanceof Date && Number.isFinite(candidate.retryAt.getTime()) ? candidate.retryAt : undefined
+  return {
+    ...(typeof candidate.transient === 'boolean' ? { transient: candidate.transient } : {}),
+    ...(retryAt ? { retryAt } : {}),
+    ...(Array.isArray(candidate.rejected) ? { rejected: candidate.rejected as EmailRejection[] } : {}),
+  }
+}
+
+function latestRetryAt(current: Date | undefined, next: Date | undefined): Date | undefined {
+  if (!next) return current
+  return !current || next > current ? next : current
 }
 
 type CapturedEmail = {
@@ -184,7 +229,14 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
     } catch (error) {
       // A separate send must not lose the addresses already accepted, or a retry would duplicate them.
       if (!options.sendSeparately) throw error
-      result.rejected.push({ address: batch[0], error: errorMessage(error) })
+      const { transient, retryAt } = readEmailDeliveryErrorHints(error)
+      result.rejected.push({
+        address: batch[0],
+        error: errorMessage(error),
+        ...(transient !== undefined ? { transient } : {}),
+        ...(retryAt ? { retryAt } : {}),
+      })
+      result.retryAt = latestRetryAt(result.retryAt, retryAt)
       continue
     }
     if (!outcome) {
@@ -193,12 +245,16 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
     }
     result.accepted.push(...outcome.accepted)
     result.rejected.push(...outcome.rejected)
-    if (outcome.retryAt && (!result.retryAt || outcome.retryAt > result.retryAt)) result.retryAt = outcome.retryAt
+    result.retryAt = latestRetryAt(result.retryAt, outcome.retryAt)
   }
 
   if (result.accepted.length === 0) {
     const details = result.rejected.map((entry) => `${entry.address}: ${entry.error}`).join('; ')
-    throw new Error(`EMAIL_SEND_REJECTED: ${details || 'no recipient accepted'}`)
+    throw new EmailSendError(`EMAIL_SEND_REJECTED: ${details || 'no recipient accepted'}`, {
+      transient: result.rejected.length > 0 && result.rejected.every((entry) => entry.transient === true),
+      retryAt: result.retryAt,
+      rejected: result.rejected,
+    })
   }
   return result
 }

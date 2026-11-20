@@ -1,14 +1,24 @@
-import handle from '../send-email.worker'
+import handle, { planExternalParticipantOutcome } from '../send-email.worker'
 import { Message, MessageExternalParticipant } from '../../data/entities'
+import { EmailSendError } from '@open-mercato/shared/lib/email/send'
 
 const findOneWithDecryptionMock = jest.fn()
 const findWithDecryptionMock = jest.fn()
 const sendMessageEmailToExternalMock = jest.fn()
 const emitMessagesEventMock = jest.fn(async () => {})
+const enqueueMock = jest.fn(async () => 'job-1')
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
   findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => ({
+  withAdvisoryXactLock: (em: unknown, _key: string, fn: (tx: unknown) => Promise<unknown>) => fn(em),
+}))
+
+jest.mock('@open-mercato/queue', () => ({
+  createQueue: () => ({ enqueue: (...args: unknown[]) => enqueueMock(...args) }),
 }))
 
 jest.mock('../../lib/attachments', () => ({
@@ -42,18 +52,24 @@ describe('messages send-email worker — external participants', () => {
     senderUserId: 'sender-1',
     externalEmail: 'a@example.com',
     emailSendSeparately: true,
+    sentAt: new Date(),
   }
   const participants = [
     { id: 'p-a', email: 'a@example.com', role: 'to' },
     { id: 'p-b', email: 'b@example.com', role: 'to' },
   ]
 
-  function createContext(options: { claimRows: number; participantCount?: number }) {
+  function createContext(options: { claimRows: number; participantCount?: number; pendingAfter?: number }) {
     const calls: NativeUpdateCall[] = []
     let first = true
     const em = {
       find: jest.fn(async () => []),
-      count: jest.fn(async () => options.participantCount ?? 0),
+      count: jest.fn(async (_entity: unknown, where: Record<string, unknown>) => {
+        if (where.deliveryStatus === 'pending') return options.pendingAfter ?? 0
+        if (where.deliveryStatus === 'sent') return 1
+        if (where.deliveryStatus === 'failed') return 1
+        return options.participantCount ?? 0
+      }),
       nativeUpdate: jest.fn(async (entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
         calls.push({ entity, where, data })
         if (first) {
@@ -81,7 +97,7 @@ describe('messages send-email worker — external participants', () => {
     findWithDecryptionMock.mockResolvedValue(participants)
   })
 
-  it('sends once to every claimed participant and writes back per-participant status', async () => {
+  it('sends once to every claimed participant, writes back per-participant status and finishes once', async () => {
     sendMessageEmailToExternalMock.mockResolvedValue({
       accepted: ['a@example.com'],
       rejected: [{ address: 'B@example.com', error: 'mailbox unavailable' }],
@@ -124,28 +140,50 @@ describe('messages send-email worker — external participants', () => {
       expect.objectContaining({ participantId: 'p-b', error: 'mailbox unavailable' }),
       { persistent: true },
     )
+    const finished = emitMessagesEventMock.mock.calls.filter((call) => call[0] === 'messages.message.delivery_finished')
+    expect(finished).toEqual([[
+      'messages.message.delivery_finished',
+      { messageId: 'message-1', sentCount: 1, failedCount: 1, tenantId: 'tenant-1', organizationId: 'org-1' },
+      { persistent: true },
+    ]])
+    expect(enqueueMock).not.toHaveBeenCalled()
   })
 
-  it('releases the claim and records the failure summary when the send throws', async () => {
-    sendMessageEmailToExternalMock.mockRejectedValue(new Error('SMTP_SEND_FAILED: down'))
+  it('keeps participants pending and re-enqueues itself after a transient failure', async () => {
+    const retryAt = new Date(Date.now() + 120_000)
+    sendMessageEmailToExternalMock.mockRejectedValue(new EmailSendError('rate limited', { transient: true, retryAt }))
+    const { ctx, calls } = createContext({ claimRows: 2, pendingAfter: 2 })
+
+    await handle(job as never, ctx as never)
+
+    const retries = calls.filter((call) => call.entity === MessageExternalParticipant && call.data.deliveryStatus === 'pending')
+    expect(retries).toHaveLength(2)
+    expect(retries[0].data).toEqual({ deliveryStatus: 'pending', deliveryError: 'rate limited', nextAttemptAt: retryAt })
+    expect(calls.some((call) => call.data.deliveryStatus === 'sent' || call.data.deliveryStatus === 'failed')).toBe(false)
+    expect(calls.some((call) => call.entity === Message)).toBe(false)
+    expect(emitMessagesEventMock).not.toHaveBeenCalled()
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    const [enqueuedJob, enqueueOptions] = enqueueMock.mock.calls[0] as unknown as [unknown, { delayMs: number; coalesce?: unknown }]
+    expect(enqueuedJob).toEqual(job.payload)
+    expect(enqueueOptions.coalesce).toBeUndefined()
+    expect(enqueueOptions.delayMs).toBeGreaterThan(115_000)
+    expect(enqueueOptions.delayMs).toBeLessThanOrEqual(121_000)
+  })
+
+  it('fails participants permanently on a non-transient error and records the failure summary', async () => {
+    sendMessageEmailToExternalMock.mockRejectedValue(new EmailSendError('550 5.1.1 unknown user', { transient: false }))
     const { ctx, calls } = createContext({ claimRows: 2 })
 
     await handle(job as never, ctx as never)
 
-    const claimUntil = calls[0].data.nextAttemptAt
+    expect(calls.filter((call) => call.data.deliveryStatus === 'failed')).toHaveLength(2)
     expect(calls).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        entity: MessageExternalParticipant,
-        where: expect.objectContaining({ deliveryStatus: 'pending', nextAttemptAt: claimUntil }),
-        data: { nextAttemptAt: null, deliveryError: 'SMTP_SEND_FAILED: down' },
-      }),
-      expect.objectContaining({
         entity: Message,
-        data: expect.objectContaining({ externalEmailFailedAt: expect.any(Date), externalEmailError: 'SMTP_SEND_FAILED: down' }),
+        data: expect.objectContaining({ externalEmailFailedAt: expect.any(Date), externalEmailError: '550 5.1.1 unknown user' }),
       }),
     ]))
-    expect(calls.some((call) => call.data.deliveryStatus === 'sent')).toBe(false)
-    expect(emitMessagesEventMock).toHaveBeenCalledTimes(2)
+    expect(enqueueMock).not.toHaveBeenCalled()
   })
 
   it('does nothing when another worker holds the claim', async () => {
@@ -167,5 +205,39 @@ describe('messages send-email worker — external participants', () => {
       entity: Message,
       data: expect.objectContaining({ externalEmailSentAt: expect.any(Date) }),
     }))
+  })
+})
+
+describe('planExternalParticipantOutcome', () => {
+  const participant = (id: string, email: string) => ({ id, email, role: 'to' }) as never
+  const original = { ...process.env }
+
+  afterEach(() => {
+    process.env = { ...original }
+  })
+
+  it('fails transient rejections once the delivery window is over', () => {
+    process.env.OM_EMAIL_DELIVERY_MAX_HOURS = '24'
+    const now = new Date('2026-11-20T12:00:00Z')
+    const outcome = planExternalParticipantOutcome(
+      [participant('p-a', 'a@example.com')],
+      { accepted: [], rejected: [{ address: 'a@example.com', error: '451 4.7.1 try later', transient: true }] },
+      new Date('2026-11-19T11:00:00Z'),
+      now,
+    )
+    expect(outcome.failed).toEqual([{ participant: expect.objectContaining({ id: 'p-a' }), error: 'delivery window exceeded' }])
+  })
+
+  it('schedules a transient rejection after the configured delay inside the window', () => {
+    process.env.OM_EMAIL_DELIVERY_RETRY_DELAY_SECONDS = '60'
+    const now = new Date('2026-11-20T12:00:00Z')
+    const outcome = planExternalParticipantOutcome(
+      [participant('p-a', 'a@example.com'), participant('p-b', 'b@example.com')],
+      { accepted: ['b@example.com'], rejected: [{ address: 'a@example.com', error: 'busy', transient: true }] },
+      now,
+      now,
+    )
+    expect(outcome.sent.map((entry: { id: string }) => entry.id)).toEqual(['p-b'])
+    expect(outcome.retry).toEqual([{ participant: expect.objectContaining({ id: 'p-a' }), error: 'busy', nextAttemptAt: new Date('2026-11-20T12:01:00Z') }])
   })
 })

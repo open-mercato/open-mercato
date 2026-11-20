@@ -52,6 +52,17 @@ export interface SmtpSendResult {
   raw: Buffer
   /** Provider response string. */
   response?: string
+  /** Recipients the relay accepted; nodemailer resolves once any recipient is accepted. */
+  accepted?: string[]
+  /** Recipients the relay rejected while still accepting others. */
+  rejected?: string[]
+}
+
+function toAddressStrings(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.map((entry) =>
+    entry && typeof entry === 'object' && 'address' in entry ? String((entry as { address: unknown }).address) : String(entry),
+  )
 }
 
 export interface SmtpClient {
@@ -162,10 +173,20 @@ class NodemailerClient implements SmtpClient {
         messageId?: string
         envelope?: { messageId?: string }
         response?: string
+        accepted?: unknown
+        rejected?: unknown
       }
       const id = info.messageId ?? composedMessageId ?? info.envelope?.messageId
       if (!id) throw new Error('[internal] SMTP server did not return a Message-ID')
-      return { messageId: id, raw, response: info.response }
+      const accepted = toAddressStrings(info.accepted)
+      const rejected = toAddressStrings(info.rejected)
+      return {
+        messageId: id,
+        raw,
+        response: info.response,
+        ...(accepted ? { accepted } : {}),
+        ...(rejected ? { rejected } : {}),
+      }
     } finally {
       transporter.close()
     }

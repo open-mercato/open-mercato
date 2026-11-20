@@ -291,6 +291,27 @@ describe('GmailChannelAdapter.sendMessage', () => {
     expect(result.error).toBe('requires_reauth')
   })
 
+  it('surfaces the transient flag and retry time of a rate-limited send', async () => {
+    const retryAt = new Date('2026-11-20T10:00:00.000Z')
+    setGmailApiClient({
+      listHistory: async () => ({ historyId: '0' }),
+      listMessages: async () => ({}),
+      getMessageRaw: async () => ({ id: '', threadId: '', raw: '' }),
+      sendRawMessage: async () => {
+        throw new GmailApiError('Gmail API POST /send failed: rate limited', 429, 'rate limited', { transient: true, retryAt })
+      },
+      getProfile: async () => ({ emailAddress: '', historyId: '0' }),
+      trashMessage: async () => undefined,
+    })
+    const result = await getGmailChannelAdapter().sendMessage({
+      content: { text: 'hi', bodyFormat: 'text' },
+      credentials: userCredentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      metadata: { to: ['bob@example.com'] },
+    })
+    expect(result).toEqual(expect.objectContaining({ status: 'failed', transient: true, retryAt }))
+  })
+
   it('returns failed when no recipients', async () => {
     setGmailApiClient({
       listHistory: async () => ({ historyId: '0' }),

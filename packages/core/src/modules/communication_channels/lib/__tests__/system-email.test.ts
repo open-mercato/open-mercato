@@ -543,6 +543,26 @@ describe('sendSystemEmail', () => {
 
       await expect(sendSystemEmail(container as never, payload)).rejects.toThrow('SMTP_SEND_FAILED: down')
     })
+
+    it('tells the caller whether a failed send can be retried', async () => {
+      const retryAt = new Date('2026-11-20T10:00:00Z')
+      const rateLimited = jest.fn().mockResolvedValue({
+        externalMessageId: '',
+        status: 'failed',
+        error: 'Too many requests',
+        retryAt,
+      })
+      await expect(sendSystemEmail(buildContainer({ fork: {}, sendMessage: rateLimited, credentials: null }) as never, payload))
+        .rejects.toMatchObject({ transient: true, retryAt })
+
+      const rejected = jest.fn().mockResolvedValue({ externalMessageId: '', status: 'failed', error: 'SMTP_SEND_FAILED: 550 5.1.1 unknown' })
+      await expect(sendSystemEmail(buildContainer({ fork: {}, sendMessage: rejected, credentials: null }) as never, payload))
+        .rejects.toMatchObject({ transient: false })
+
+      const network = jest.fn().mockRejectedValue(new Error('connect ECONNRESET'))
+      await expect(sendSystemEmail(buildContainer({ fork: {}, sendMessage: network, credentials: null }) as never, payload))
+        .rejects.toMatchObject({ transient: true, message: 'connect ECONNRESET' })
+    })
   })
 
   it('reports unknown and disabled providers as unconfigured', () => {

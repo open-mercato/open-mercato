@@ -64,3 +64,21 @@ export const COMMUNICATION_CHANNELS_QUEUES = {
 
 export type CommunicationChannelsQueueName =
   (typeof COMMUNICATION_CHANNELS_QUEUES)[keyof typeof COMMUNICATION_CHANNELS_QUEUES]
+
+/**
+ * Enqueues one outbound delivery of a message (its joint link, or one participant's
+ * "send separately" link). Exposed through DI as `communicationChannelsEnqueueOutboundDelivery`
+ * so the messages retry tick can recover a lost job without importing this module.
+ */
+export async function enqueueOutboundDelivery(payload: {
+  messageId: string
+  scope: { tenantId: string; organizationId: string | null }
+  externalParticipantId?: string | null
+}): Promise<void> {
+  await getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound).enqueue({
+    messageId: payload.messageId,
+    scope: payload.scope,
+    attempt: 1,
+    ...(payload.externalParticipantId ? { externalParticipantId: payload.externalParticipantId } : {}),
+  })
+}

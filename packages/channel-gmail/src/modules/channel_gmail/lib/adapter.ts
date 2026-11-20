@@ -128,6 +128,15 @@ class GmailChannelAdapter implements ChannelAdapter {
         return { externalMessageId: '', status: 'failed', error: 'requires_reauth' }
       }
       const message = error instanceof Error ? error.message : 'Gmail send failed'
+      if (error instanceof GmailApiError) {
+        return {
+          externalMessageId: '',
+          status: 'failed',
+          error: message,
+          ...(error.transient !== undefined ? { transient: error.transient } : {}),
+          ...(error.retryAt ? { retryAt: error.retryAt } : {}),
+        }
+      }
       return { externalMessageId: '', status: 'failed', error: message }
     }
   }

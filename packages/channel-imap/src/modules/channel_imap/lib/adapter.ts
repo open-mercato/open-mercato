@@ -124,11 +124,28 @@ class ImapChannelAdapter implements ChannelAdapter {
       logger.warn('failed to append outbound message to Sent folder', { err: appendError })
     }
 
+    const rejected = result.rejected ?? []
+    const metadata = {
+      response: result.response,
+      ...(result.accepted ? { accepted: result.accepted } : {}),
+      ...(rejected.length > 0 ? { rejected } : {}),
+    }
+    // A partial rejection is reported like channel-smtp does: failed, carrying the
+    // accepted/rejected split so the hub marks only the rejected recipients failed.
+    if (rejected.length > 0) {
+      return {
+        externalMessageId: result.messageId,
+        conversationId: input.conversationId,
+        status: 'failed',
+        error: `SMTP_SEND_PARTIALLY_REJECTED: relay rejected ${rejected.join(', ')}`,
+        metadata,
+      }
+    }
     return {
       externalMessageId: result.messageId,
       conversationId: input.conversationId,
       status: 'sent',
-      metadata: { response: result.response },
+      metadata,
     }
   }
 

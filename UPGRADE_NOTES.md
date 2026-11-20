@@ -133,6 +133,22 @@ CC/BCC addressees now become message participants. Outbound delivery addresses t
 participants and no longer fails the whole send on an SMTP/IMAP partial rejection: accepted
 participants are `sent`, rejected ones `failed`.
 
+### External email delivery: retries, delivery window, resend
+
+A recipient the provider deferred (429, SMTP 4xx, HTTP 5xx, network) now stays `pending` and is
+retried at the provider's retry time or after `OM_EMAIL_DELIVERY_RETRY_DELAY_SECONDS` (300); after
+`OM_EMAIL_DELIVERY_MAX_HOURS` (24) from the send it becomes `failed`. Run the
+`messages.register-email-retry-schedule` upgrade action to schedule the 60 s retry tick (queue
+`messages-email-retry`) for existing organizations. Additive contracts: `EmailSendError` and
+`readEmailDeliveryErrorHints` in `@open-mercato/shared/lib/email/send` (custom transports may throw
+`EmailSendError` with `transient` / `retryAt`, and `EmailSendResult.rejected[]` may carry them);
+`SendMessageResult.transient` / `retryAt` for channel adapters; event
+`messages.message.delivery_finished`; notification type `messages.delivery_failed`; command
+`messages.messages.resend_failed` and `POST /api/messages/[id]/resend-failed`; DI facade
+`communicationChannelsEnqueueOutboundDelivery`. The channel outbound worker's
+`OUTBOUND_DELIVERY_MAX_ATTEMPTS` cap now applies only to links without participant rows; with
+participants the retry schedule follows `next_attempt_at`.
+
 ### Encryption maintenance safety confirmations (#6767)
 
 Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.

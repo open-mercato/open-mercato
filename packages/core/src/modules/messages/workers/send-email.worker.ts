@@ -1,7 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
+import { createQueue, type EnqueueOptions, type JobContext, type QueuedJob, type WorkerMeta } from '@open-mercato/queue'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import type { EmailSendResult } from '@open-mercato/shared/lib/email/send'
+import {
+  readEmailDeliveryErrorHints,
+  type EmailRejection,
+  type EmailSendResult,
+} from '@open-mercato/shared/lib/email/send'
 import { User } from '../../auth/data/entities'
 import {
   Message,
@@ -12,7 +16,12 @@ import {
 } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 import { getMessageEmailAttachments } from '../lib/attachments'
-import { recordExternalDeliverySummary } from '../lib/externalParticipants'
+import {
+  DELIVERY_WINDOW_EXCEEDED_ERROR,
+  planTransientRetry,
+  recordExternalDeliverySummary,
+  settleExternalParticipants,
+} from '../lib/externalParticipants'
 import {
   sendMessageEmailToExternal,
   sendMessageEmailToRecipient,
@@ -52,6 +61,12 @@ export type SendMessageEmailJob =
   | SendMessageEmailToExternalParticipantsJob
 
 const EXTERNAL_PARTICIPANT_CLAIM_LOCK_MS = 15 * 60 * 1000
+const NOT_CONFIRMED_ERROR = 'Not confirmed by the mail provider'
+
+export async function enqueueMessageEmailJob(job: SendMessageEmailJob, options?: EnqueueOptions): Promise<void> {
+  const strategy = process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local'
+  await createQueue<SendMessageEmailJob>(MESSAGES_EMAIL_QUEUE_NAME, strategy).enqueue(job, options)
+}
 
 export const metadata: WorkerMeta = {
   queue: MESSAGES_EMAIL_QUEUE_NAME,
@@ -238,51 +253,58 @@ export async function claimExternalParticipants(
   return updatedRows > 0 ? claimUntil : null
 }
 
-export async function releaseExternalParticipantsClaim(
-  em: EntityManager,
-  payload: SendMessageEmailToExternalParticipantsJob,
-  claimUntil: Date,
-  errorMessage: string,
-): Promise<void> {
-  await em.nativeUpdate(
-    MessageExternalParticipant,
-    { ...participantClaimScope(payload), nextAttemptAt: claimUntil },
-    { nextAttemptAt: null, deliveryError: errorMessage },
-  )
+type PlannedParticipant = MessageExternalParticipant
+
+export type ExternalParticipantOutcome = {
+  sent: PlannedParticipant[]
+  failed: Array<{ participant: PlannedParticipant; error: string }>
+  retry: Array<{ participant: PlannedParticipant; error: string; nextAttemptAt: Date }>
 }
 
-export async function recordExternalParticipantResults(
-  em: EntityManager,
-  payload: SendMessageEmailToExternalParticipantsJob,
-  claimUntil: Date,
-  participants: MessageExternalParticipant[],
+/**
+ * Accepted → sent; a transient rejection waits for the provider's retry time or the
+ * configured delay (failed once the delivery window is over); any other rejection fails.
+ * A participant the provider neither accepted nor rejected is retried.
+ */
+export function planExternalParticipantOutcome(
+  participants: PlannedParticipant[],
   result: EmailSendResult,
-): Promise<{ sent: MessageExternalParticipant[]; failed: Array<{ participant: MessageExternalParticipant; error: string }> }> {
-  const owned = { ...participantClaimScope(payload), nextAttemptAt: claimUntil }
+  messageSentAt: Date | null | undefined,
+  now: Date = new Date(),
+): ExternalParticipantOutcome {
   const acceptedKeys = new Set(result.accepted.map((address) => address.toLowerCase()))
-  const rejectedErrors = new Map(result.rejected.map((entry) => [entry.address.toLowerCase(), entry.error]))
-  const sent = participants.filter((participant) => acceptedKeys.has(participant.email.toLowerCase()))
-  const failed = participants.flatMap((participant) => {
-    const error = rejectedErrors.get(participant.email.toLowerCase())
-    return error !== undefined && !acceptedKeys.has(participant.email.toLowerCase()) ? [{ participant, error }] : []
-  })
+  const rejections = new Map(result.rejected.map((entry) => [entry.address.toLowerCase(), entry]))
+  const outcome: ExternalParticipantOutcome = { sent: [], failed: [], retry: [] }
+  for (const participant of participants) {
+    const key = participant.email.toLowerCase()
+    if (acceptedKeys.has(key)) {
+      outcome.sent.push(participant)
+      continue
+    }
+    const rejection: EmailRejection = rejections.get(key) ?? { address: participant.email, error: NOT_CONFIRMED_ERROR, transient: true }
+    if (rejection.transient !== true) {
+      outcome.failed.push({ participant, error: rejection.error })
+      continue
+    }
+    const plan = planTransientRetry({ messageSentAt, retryAt: rejection.retryAt ?? result.retryAt, now })
+    if ('expired' in plan) outcome.failed.push({ participant, error: DELIVERY_WINDOW_EXCEEDED_ERROR })
+    else outcome.retry.push({ participant, error: rejection.error, nextAttemptAt: plan.nextAttemptAt })
+  }
+  return outcome
+}
 
-  if (sent.length > 0) {
-    await em.nativeUpdate(
-      MessageExternalParticipant,
-      { ...owned, id: { $in: sent.map((participant) => participant.id) } },
-      { deliveryStatus: 'sent', sentAt: new Date(), nextAttemptAt: null, deliveryError: null },
-    )
+/** A thrown send becomes a per-address result; errors without a hint count as transient. */
+export function sendErrorToResult(error: unknown, participants: PlannedParticipant[]): EmailSendResult {
+  const hints = readEmailDeliveryErrorHints(error)
+  if (hints.rejected && hints.rejected.length > 0) {
+    return { accepted: [], rejected: hints.rejected, ...(hints.retryAt ? { retryAt: hints.retryAt } : {}) }
   }
-  for (const { participant, error } of failed) {
-    await em.nativeUpdate(
-      MessageExternalParticipant,
-      { ...owned, id: participant.id },
-      { deliveryStatus: 'failed', deliveryError: error, nextAttemptAt: null },
-    )
+  const message = error instanceof Error ? error.message : 'Unknown error'
+  return {
+    accepted: [],
+    rejected: participants.map((participant) => ({ address: participant.email, error: message, transient: hints.transient ?? true })),
+    ...(hints.retryAt ? { retryAt: hints.retryAt } : {}),
   }
-  await em.nativeUpdate(MessageExternalParticipant, owned, { nextAttemptAt: null })
-  return { sent, failed }
 }
 
 type ExternalDeliveryContext = {
@@ -366,6 +388,37 @@ async function deliverToExternalParticipants(
   )
   if (participants.length === 0) return
 
+  let result: EmailSendResult
+  try {
+    result = await sendMessageEmailToExternal({
+      message,
+      email: participants.map((participant) => participant.email),
+      sendSeparately: message.emailSendSeparately,
+      ...delivery,
+    })
+  } catch (error) {
+    logger.warn('External participants email send failed', { err: error, messageId: message.id })
+    result = sendErrorToResult(error, participants)
+  }
+
+  const outcome = planExternalParticipantOutcome(participants, result, message.sentAt)
+  const target = { messageId: payload.messageId, ...scope }
+  await settleExternalParticipants(
+    em,
+    target,
+    {
+      sent: outcome.sent.map((participant) => participant.id),
+      failed: outcome.failed.map(({ participant, error }) => ({ id: participant.id, error })),
+      retry: outcome.retry.map(({ participant, error, nextAttemptAt }) => ({ id: participant.id, error, nextAttemptAt })),
+    },
+    { claimedUntil: claimUntil },
+  )
+  if (outcome.sent.length > 0) {
+    await recordExternalDeliverySummary(em, target, { sentAt: new Date() })
+  } else if (outcome.retry.length === 0 && outcome.failed.length > 0) {
+    await recordExternalDeliverySummary(em, target, { error: outcome.failed[0].error })
+  }
+
   const eventBase = {
     messageId: message.id,
     target: 'external' as const,
@@ -378,34 +431,17 @@ async function deliverToExternalParticipants(
     email: participant.email,
     role: participant.role,
   })
+  for (const participant of outcome.sent) {
+    await emitEmailDeliveryEvent(ctx, 'messages.message.email_sent', { ...eventBase, ...participantEventFields(participant) })
+  }
+  for (const { participant, error } of outcome.failed) {
+    await emitEmailDeliveryEvent(ctx, 'messages.message.email_failed', { ...eventBase, ...participantEventFields(participant), error })
+  }
 
-  try {
-    const result = await sendMessageEmailToExternal({
-      message,
-      email: participants.map((participant) => participant.email),
-      sendSeparately: message.emailSendSeparately,
-      ...delivery,
-    })
-    const { sent, failed } = await recordExternalParticipantResults(em, payload, claimUntil, participants, result)
-    if (sent.length > 0) await recordExternalDeliverySummary(em, { messageId: payload.messageId, ...scope }, { sentAt: new Date() })
-    for (const participant of sent) {
-      await emitEmailDeliveryEvent(ctx, 'messages.message.email_sent', { ...eventBase, ...participantEventFields(participant) })
-    }
-    for (const { participant, error } of failed) {
-      await emitEmailDeliveryEvent(ctx, 'messages.message.email_failed', { ...eventBase, ...participantEventFields(participant), error })
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    await releaseExternalParticipantsClaim(em, payload, claimUntil, errorMessage)
-    await recordExternalDeliverySummary(em, { messageId: payload.messageId, ...scope }, { error: errorMessage })
-    for (const participant of participants) {
-      await emitEmailDeliveryEvent(ctx, 'messages.message.email_failed', {
-        ...eventBase,
-        ...participantEventFields(participant),
-        error: errorMessage,
-      })
-    }
-    logger.error('External participants email send failed', { err: error })
+  if (outcome.retry.length > 0) {
+    const nextAttemptAt = Math.min(...outcome.retry.map((entry) => entry.nextAttemptAt.getTime()))
+    // A second of slack so the job never lands before the claim becomes due again.
+    await enqueueMessageEmailJob(payload, { delayMs: Math.max(0, nextAttemptAt - Date.now()) + 1000 })
   }
 }
 

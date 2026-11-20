@@ -68,6 +68,7 @@ export type MessageDetail = {
   externalEmail?: string | null
   externalName?: string | null
   emailSendSeparately?: boolean
+  canResendFailed?: boolean
   externalParticipants?: MessageDetailExternalParticipant[]
   typeDefinition: {
     labelKey: string
