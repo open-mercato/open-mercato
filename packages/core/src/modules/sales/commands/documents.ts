@@ -59,7 +59,6 @@ import {
   SalesDocumentTagAssignment,
   SalesReturn,
   SalesQuoteRecurrence,
-  SalesRecurringPeriod,
   type SalesLineKind,
   type SalesAdjustmentKind,
   type SalesSettings,
@@ -135,6 +134,7 @@ import {
 import { resolveConvertedOrderFeeTotals } from "../lib/convertedOrderTotals";
 import {
   findOrderRecurrenceRow,
+  hasRecurringPeriods,
   loadOrderRecurrenceSnapshot,
   loadQuoteRecurrenceSnapshot,
   orderRecurrenceChanges,
@@ -4832,7 +4832,7 @@ async function assertOrderGraphUndoCurrent(
   const current = await loadOrderSnapshot(em, orderId);
   if (!current) return throwDocumentUndoStale("order");
   const lineIds = current.lines.map((line) => line.id);
-  const [returnCount, invoiceLineCount, creditMemoLineCount, recurringPeriodCount] = await Promise.all([
+  const [returnCount, invoiceLineCount, creditMemoLineCount, hasPeriods] = await Promise.all([
     em.count(SalesReturn, { order: orderId }),
     lineIds.length
       ? em.count(SalesInvoiceLine, { orderLine: { $in: lineIds } })
@@ -4840,9 +4840,9 @@ async function assertOrderGraphUndoCurrent(
     lineIds.length
       ? em.count(SalesCreditMemoLine, { orderLine: { $in: lineIds } })
       : Promise.resolve(0),
-    em.count(SalesRecurringPeriod, { order: orderId }),
+    hasRecurringPeriods(em, current.order),
   ]);
-  if (returnCount > 0 || invoiceLineCount > 0 || creditMemoLineCount > 0 || recurringPeriodCount > 0) {
+  if (returnCount > 0 || invoiceLineCount > 0 || creditMemoLineCount > 0 || hasPeriods) {
     return throwDocumentUndoStale("order");
   }
   const unchanged =
@@ -5709,7 +5709,11 @@ const createQuoteCommand: CommandHandler<
       );
       if (!quote) return;
       await assertQuoteGraphUndoCurrent(tx, quote.id, after);
-      await tx.nativeDelete(SalesQuoteRecurrence, { quote: quote.id });
+      await tx.nativeDelete(SalesQuoteRecurrence, {
+        quote: quote.id,
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+      });
       await tx.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
       await tx.nativeDelete(SalesQuoteLine, { quote: quote.id });
       tx.remove(quote);
@@ -5786,7 +5790,11 @@ const deleteQuoteCommand: CommandHandler<
             documentId: quote.id,
             documentKind: "quote",
           });
-          await em.nativeDelete(SalesQuoteRecurrence, { quote: quote.id });
+          await em.nativeDelete(SalesQuoteRecurrence, {
+            quote: quote.id,
+            tenantId: quote.tenantId,
+            organizationId: quote.organizationId,
+          });
           await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
           await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
           em.remove(quote);
@@ -7775,7 +7783,11 @@ const convertQuoteToOrderCommand: CommandHandler<
 
       if (snapshot.recurrence) {
         persistOrderRecurrence(em, order, snapshot.recurrence, existingRecurrence);
-        await em.nativeDelete(SalesQuoteRecurrence, { quote: snapshot.quote.id });
+        await em.nativeDelete(SalesQuoteRecurrence, {
+          quote: quote.id,
+          tenantId: quote.tenantId,
+          organizationId: quote.organizationId,
+        });
       }
       await em.nativeDelete(SalesQuoteAdjustment, { quote: snapshot.quote.id });
       await em.nativeDelete(SalesQuoteLine, { quote: snapshot.quote.id });
