@@ -489,6 +489,35 @@ describe('sales.orders.lines.upsert_many', () => {
     jest.mocked(setRecordCustomFields).mockClear()
   })
 
+  it.each(['single', 'batch'] as const)('replays %s creation with original ids and all six frozen snapshot values', async (mode) => {
+    const world = makeWorld(1)
+    const before = { order: { ...world.order }, lines: world.lines.map((line) => ({ ...line })) }
+    const body = { organizationId: ORG_ID, tenantId: TENANT_ID, orderId: ORDER_ID }
+    const created = mode === 'batch'
+      ? (await runBulk(world, { lines: [newLineBody(1), newLineBody(2)] })).result?.lineIds
+      : [(await runSingle(world, newLineBody(1))).lineId]
+    expect(created).toBeDefined()
+    const frozen = {
+      omnibusReferenceNet: '100000000000000.123456789',
+      omnibusReferenceGross: '123000000000000.123456789',
+      omnibusPromotionAnchorAt: '2026-05-01T00:00:00.000Z',
+      omnibusApplicabilityReason: 'announced_promotion',
+      isPersonalized: true,
+      personalizationReason: 'user_specific_price',
+    }
+    for (const line of world.lines.filter((line) => created?.includes(line.id))) Object.assign(line, frozen)
+    const after = { order: { ...world.order }, lines: world.lines.map((line) => ({ ...line })) }
+    world.lines = world.lines.filter((line) => !created?.includes(line.id))
+    const harness = makeHarness(world)
+    const handler = mode === 'batch' ? bulkHandler() : commandRegistry.get('sales.orders.lines.upsert')!
+    const input = { body: { ...body, ...(mode === 'batch' ? { lines: [newLineBody(1), newLineBody(2)] } : newLineBody(1)) } }
+    await handler.redo!({ input, ctx: harness.ctx, logEntry: { commandPayload: { undo: { before, after } } } } as never)
+    for (const id of created ?? []) {
+      expect(world.lines.find((line) => line.id === id)).toMatchObject({ ...frozen, omnibusPromotionAnchorAt: new Date(frozen.omnibusPromotionAnchorAt) })
+    }
+    expect(harness.em.flush).toHaveBeenCalledTimes(1)
+  })
+
   it('reaches the same line set and totals as the equivalent sequence of single upserts', async () => {
     const added = [newLineBody(1), newLineBody(2), newLineBody(3)]
 

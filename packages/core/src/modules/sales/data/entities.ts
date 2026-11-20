@@ -679,10 +679,10 @@ export class SalesOrderLine {
   @Property({ name: 'custom_field_set_id', type: 'uuid', nullable: true })
   customFieldSetId?: string | null
 
-  @Property({ name: 'omnibus_reference_net', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'omnibus_reference_net', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   omnibusReferenceNet?: string | null
 
-  @Property({ name: 'omnibus_reference_gross', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'omnibus_reference_gross', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   omnibusReferenceGross?: string | null
 
   @Property({ name: 'omnibus_promotion_anchor_at', type: Date, nullable: true })
@@ -1142,10 +1142,10 @@ export class SalesQuoteLine {
   @Property({ name: 'custom_field_set_id', type: 'uuid', nullable: true })
   customFieldSetId?: string | null
 
-  @Property({ name: 'omnibus_reference_net', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'omnibus_reference_net', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   omnibusReferenceNet?: string | null
 
-  @Property({ name: 'omnibus_reference_gross', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'omnibus_reference_gross', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   omnibusReferenceGross?: string | null
 
   @Property({ name: 'omnibus_promotion_anchor_at', type: Date, nullable: true })

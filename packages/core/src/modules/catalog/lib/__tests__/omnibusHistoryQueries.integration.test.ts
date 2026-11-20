@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { Kysely, PostgresDialect } from 'kysely'
 import { Pool } from 'pg'
 import type { StartedTestContainer } from 'testcontainers'
-import { fetchOmnibusWindowIds, type OmnibusWindowLookup } from '../omnibusHistoryQueries'
+import { fetchOmnibusCampaignIds, fetchOmnibusPrecedingIds, fetchOmnibusWindowIds, type OmnibusWindowLookup } from '../omnibusHistoryQueries'
 
 const describeWithPostgres = process.env.OM_PG_INTEGRATION === '1' ? describe : describe.skip
 
@@ -70,13 +70,14 @@ describeWithPostgres('Omnibus create-undo history against PostgreSQL', () => {
     redoneCommand?: string
     tenantId?: string
     organizationId?: string
+    offerId?: string
   }): Promise<string> {
     const id = randomUUID()
     await pool.query(
       `INSERT INTO catalog_price_history_entries
         (id, tenant_id, organization_id, product_id, price_id, price_kind_id,
-         currency_code, change_type, recorded_at, metadata, unit_price_gross)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+         currency_code, change_type, recorded_at, metadata, unit_price_gross, offer_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         id,
         input.tenantId ?? lookup.tenantId,
@@ -91,6 +92,7 @@ describeWithPostgres('Omnibus create-undo history against PostgreSQL', () => {
           ? { undoneCommand: input.undoneCommand }
           : input.redoneCommand ? { redoneCommand: input.redoneCommand } : null,
         input.gross ?? 5,
+        input.offerId ?? null,
       ],
     )
     return id
@@ -105,6 +107,60 @@ describeWithPostgres('Omnibus create-undo history against PostgreSQL', () => {
     )
     return Number(prices.rows[0].lowest)
   }
+
+  async function campaign(offerId: string, asOf = new Date('2026-05-07')) {
+    const [result] = await fetchOmnibusCampaignIds(em, [{
+      ...lookup, offerId, baselineScopeColumn: 'product_id', baselineScopeId: lookup.scopeId, asOf,
+    }])
+    return result
+  }
+
+  it.each(['preceding', 'campaign'] as const)('%s cancels same-millisecond creates while retaining same-time redos', async (selector) => {
+    const validId = await insertHistory({ priceId: randomUUID(), gross: 100, recordedAt: '2026-05-01' })
+    const mistakenPriceId = randomUUID()
+    const recordedAt = '2026-05-02T00:00:00.000Z'
+    const canceledId = await insertHistory({ priceId: mistakenPriceId, gross: 500, recordedAt })
+    await insertHistory({ priceId: mistakenPriceId, changeType: 'undo', undoneCommand: 'catalog.prices.create', recordedAt })
+    const offerId = randomUUID()
+    await insertHistory({ priceId: randomUUID(), offerId, gross: 90, recordedAt: '2026-05-03' })
+    const select = async () => selector === 'preceding'
+      ? (await fetchOmnibusPrecedingIds(em, [{ ...lookup, before: new Date('2026-05-03') }]))[0][0]
+      : (await campaign(offerId)).baselineId
+    expect(await select()).toBe(validId)
+    const redoId = await insertHistory({ priceId: mistakenPriceId, redoneCommand: 'catalog.prices.create', gross: 150, recordedAt })
+    expect(await select()).toBe(redoId)
+    expect(await select()).not.toBe(canceledId)
+  })
+
+  it.each(['preceding', 'campaign'] as const)('%s ignores later undos and foreign-scope undos at its historical cutoff', async (selector) => {
+    const priceId = randomUUID()
+    const validId = await insertHistory({ priceId, gross: 100, recordedAt: '2026-05-01' })
+    const offerId = randomUUID()
+    await insertHistory({ priceId: randomUUID(), offerId, gross: 90, recordedAt: '2026-05-03' })
+    await insertHistory({ priceId, changeType: 'undo', undoneCommand: 'catalog.prices.create', recordedAt: '2026-05-04' })
+    for (const scopeKey of ['tenantId', 'organizationId'] as const) {
+      await insertHistory({ priceId, changeType: 'undo', undoneCommand: 'catalog.prices.create', recordedAt: '2026-05-02', [scopeKey]: randomUUID() })
+    }
+    const selected = selector === 'preceding'
+      ? (await fetchOmnibusPrecedingIds(em, [{ ...lookup, before: new Date('2026-05-03') }]))[0][0]
+      : (await campaign(offerId)).baselineId
+    expect(selected).toBe(validId)
+  })
+
+  it('removes a canceled campaign lifecycle before deriving the anchor, with historical and restored controls', async () => {
+    const oldBaseline = await insertHistory({ priceId: randomUUID(), gross: 100, recordedAt: '2026-05-01' })
+    const offerId = randomUUID()
+    const priceId = randomUUID()
+    const canceledId = await insertHistory({ priceId, offerId, gross: 90, recordedAt: '2026-05-02' })
+    await insertHistory({ priceId, offerId, changeType: 'undo', undoneCommand: 'catalog.prices.create', recordedAt: '2026-05-03' })
+    const newBaseline = await insertHistory({ priceId: randomUUID(), gross: 150, recordedAt: '2026-05-04' })
+    const firstSurvivingId = await insertHistory({ priceId: randomUUID(), offerId, gross: 80, recordedAt: '2026-05-05' })
+    const lastId = await insertHistory({ priceId: randomUUID(), offerId, gross: 70, recordedAt: '2026-05-06' })
+    expect(await campaign(offerId)).toEqual({ baselineId: newBaseline, campaignIds: [firstSurvivingId, lastId], campaignTruncated: false })
+    expect(await campaign(offerId, new Date('2026-05-02T23:59:59.999Z'))).toEqual({ baselineId: oldBaseline, campaignIds: [canceledId], campaignTruncated: false })
+    const restoredId = await insertHistory({ priceId, offerId, redoneCommand: 'catalog.prices.create', gross: 85, recordedAt: '2026-05-03' })
+    expect(await campaign(offerId)).toEqual({ baselineId: oldBaseline, campaignIds: [restoredId, firstSurvivingId, lastId], campaignTruncated: false })
+  })
 
   it('keeps the real 100 price as reference after a mistaken 5 price is create-undone before a promotion', async () => {
     const mistakenPriceId = randomUUID()

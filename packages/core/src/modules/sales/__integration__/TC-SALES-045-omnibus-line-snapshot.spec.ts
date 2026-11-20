@@ -72,6 +72,19 @@ function referenceGross(line: OrderLineRow | undefined): number | null {
   return value === null || value === undefined ? null : Number(value);
 }
 
+function frozenSnapshot(line: OrderLineRow | undefined) {
+  expect(line).toBeTruthy();
+  return {
+    id: line?.id,
+    net: line?.omnibus_reference_net,
+    gross: line?.omnibus_reference_gross,
+    anchor: line?.omnibus_promotion_anchor_at,
+    applicability: line?.omnibus_applicability_reason,
+    personalized: line?.is_personalized,
+    personalization: line?.personalization_reason,
+  };
+}
+
 test.describe('TC-SALES-045: Omnibus snapshot on order lines', () => {
   test.describe.configure({ timeout: 240_000 });
 
@@ -163,12 +176,21 @@ test.describe('TC-SALES-045: Omnibus snapshot on order lines', () => {
       });
       expect(upserted.status(), `line upsert should be 201 (${await upserted.text()})`).toBe(201);
 
+      const upsertOperation = expectOperation(upserted, 'order-line creation');
+      const originalUpsert = (await readOrderLines(request, token, orderId)).find((line) => line.name === `QA OMNI upserted ${stamp}`);
+      await undoOk(request, token, upsertOperation.undoToken, 'order-line creation');
+      expect((await patchOmnibusConfig(request, token, { enabled: false })).status).toBe(200);
+      await redoOk(request, token, upsertOperation.logId, 'order-line creation');
+      expect(frozenSnapshot((await readOrderLines(request, token, orderId)).find((line) => line.id === originalUpsert?.id))).toEqual(frozenSnapshot(originalUpsert));
+      expect((await patchOmnibusConfig(request, token, { enabled: true })).status).toBe(200);
+
       const bulkUpserted = await apiRequest(request, 'POST', '/api/sales/order-lines/batch', {
         token,
-        data: { orderId, lines: [pricedLine(`QA OMNI bulk ${stamp}`)] },
+        data: { orderId, lines: [pricedLine(`QA OMNI bulk ${stamp}`), pricedLine(`QA OMNI bulk second ${stamp}`)] },
       });
       expect(bulkUpserted.status(), `bulk line create should be 200 (${await bulkUpserted.text()})`).toBe(200);
 
+      const bulkOperation = expectOperation(bulkUpserted, 'batch line creation');
       const captured = await readOrderLines(request, token, orderId);
       const createdLine = captured.find((line) => line.name === `QA OMNI created ${stamp}`);
       const upsertedLine = captured.find((line) => line.name === `QA OMNI upserted ${stamp}`);
@@ -186,6 +208,14 @@ test.describe('TC-SALES-045: Omnibus snapshot on order lines', () => {
 
       const disabled = await patchOmnibusConfig(request, token, { enabled: false });
       expect(disabled.status, JSON.stringify(disabled.body)).toBe(200);
+
+      await undoOk(request, token, bulkOperation.undoToken, 'batch line creation');
+      expect((await readOrderLines(request, token, orderId)).some((line) => line.name?.startsWith('QA OMNI bulk '))).toBe(false);
+      await redoOk(request, token, bulkOperation.logId, 'batch line creation');
+      const restoredBatch = await readOrderLines(request, token, orderId);
+      for (const original of captured.filter((line) => line.name?.startsWith('QA OMNI bulk '))) {
+        expect(frozenSnapshot(restoredBatch.find((line) => line.id === original.id))).toEqual(frozenSnapshot(original));
+      }
 
       const edited = await apiRequest(request, 'PUT', ORDER_LINES_PATH, {
         token,
@@ -306,6 +336,17 @@ test.describe('TC-SALES-045: Omnibus snapshot on order lines', () => {
         data: { quoteId, ...pricedLine(`QA OMNI quote upserted ${stamp}`) },
       });
       expect(upserted.status(), `quote line upsert should be 201 (${await upserted.text()})`).toBe(201);
+      const creationOperation = expectOperation(upserted, 'quote-line creation');
+      const originalCreated = await readOrderLines(request, token, quoteId, QUOTE_LINES_PATH);
+      await undoOk(request, token, creationOperation.undoToken, 'quote-line creation');
+      expect((await patchOmnibusConfig(request, token, { enabled: false })).status).toBe(200);
+      await redoOk(request, token, creationOperation.logId, 'quote-line creation');
+      const replayedCreation = await readOrderLines(request, token, quoteId, QUOTE_LINES_PATH);
+      for (const original of originalCreated) {
+        expect(frozenSnapshot(replayedCreation.find((line) => line.id === original.id))).toEqual(frozenSnapshot(original));
+      }
+      expect((await patchOmnibusConfig(request, token, { enabled: true })).status).toBe(200);
+
 
       const created = await readOrderLines(request, token, quoteId, QUOTE_LINES_PATH);
       const createdLine = created.find((line) => line.name === `QA OMNI quote ${stamp}`);

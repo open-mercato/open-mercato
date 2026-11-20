@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { Migration20261015120000_catalog as CatalogDerogationsMigration } from '../migrations/Migration20261015120000_catalog'
 import { Migration20261015120000_sales_line_omnibus_snapshot as SalesSnapshotMigration } from '../../sales/migrations/Migration20261015120000_sales_line_omnibus_snapshot'
+import { Migration20261120010000_sales_omnibus_exact_decimal as SalesExactDecimalMigration } from '../../sales/migrations/Migration20261120010000_sales_omnibus_exact_decimal'
 
 /**
  * TC-CAT-OMNI-006: the two Omnibus phase 4-5 migrations round-trip in a scratch schema.
@@ -94,6 +95,25 @@ test.describe('TC-CAT-OMNI-006: Omnibus migrations round-trip', () => {
               'personalization_reason',
             ]),
           )
+          for (const reference of ['100000000000000', '123.1234567890123456789']) {
+            const id = randomUUID()
+            await client.query(`insert into "${table}" (id, omnibus_reference_net, omnibus_reference_gross) values ($1, $2, $2)`, [id, reference])
+            const persisted = await client.query<{ net: string; gross: string }>(`select omnibus_reference_net::text as net, omnibus_reference_gross::text as gross from "${table}" where id = $1`, [id])
+            expect(persisted.rows[0]).toEqual({ net: reference, gross: reference })
+            await client.query(`delete from "${table}" where id = $1`, [id])
+          }
+        }
+
+        for (const table of ['sales_order_lines', 'sales_quote_lines']) {
+          await client.query(`alter table "${table}" alter column omnibus_reference_net type numeric(18,4), alter column omnibus_reference_gross type numeric(18,4)`)
+        }
+        await execute(new SalesExactDecimalMigration({} as never, {} as never), 'up')
+        for (const table of ['sales_order_lines', 'sales_quote_lines']) {
+          const id = table === 'sales_order_lines' ? orderLineId : quoteLineId
+          const reference = '100000000000000.123456789'
+          await client.query(`update "${table}" set omnibus_reference_net = $1, omnibus_reference_gross = $1 where id = $2`, [reference, id])
+          const persisted = await client.query<{ reference: string }>(`select omnibus_reference_gross::text as reference from "${table}" where id = $1`, [id])
+          expect(persisted.rows[0].reference).toBe(reference)
         }
 
         await execute(salesMigration(), 'down')

@@ -54,6 +54,8 @@ export type OmnibusConfigScope = {
   organizationId?: string | null
 }
 
+export type OmnibusScopedConfig = { scope: Pick<OmnibusResolutionContext, 'tenantId' | 'organizationId'>; value: OmnibusConfig | null }
+
 export interface CatalogOmnibusService {
   getConfig(scope: OmnibusConfigScope): Promise<OmnibusConfig | null>
   resolvePresentedPriceKindId(
@@ -77,7 +79,7 @@ export interface CatalogOmnibusService {
     presentedEntry?: OmnibusPresentedEntry | null,
     priceKindIsPromotion?: boolean,
   ): Promise<OmnibusBlock | null>
-  resolveOmnibusBlocks(em: EntityManager, requests: OmnibusResolutionRequest[]): Promise<Array<OmnibusBlock | null>>
+  resolveOmnibusBlocks(em: EntityManager, requests: OmnibusResolutionRequest[], config?: OmnibusScopedConfig): Promise<Array<OmnibusBlock | null>>
 }
 
 type HistoryScope = { column: OmnibusScopeColumn; id: string }
@@ -507,10 +509,10 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     return block ?? null
   }
 
-  async resolveOmnibusBlocks(em: EntityManager, requests: OmnibusResolutionRequest[]): Promise<Array<OmnibusBlock | null>> {
+  async resolveOmnibusBlocks(em: EntityManager, requests: OmnibusResolutionRequest[], config?: OmnibusScopedConfig): Promise<Array<OmnibusBlock | null>> {
     const blocks: Array<OmnibusBlock | null> = requests.map(() => null)
     if (!requests.length) return blocks
-    const configs = await this.loadConfigs(requests)
+    const configs = await this.loadConfigs(requests, config)
     const enabled: Array<{ index: number; config: OmnibusConfig }> = []
     requests.forEach((request, index) => {
       const config = configs.get(configKey(request.context)) ?? null
@@ -556,8 +558,9 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     return blocks
   }
 
-  private async loadConfigs(requests: OmnibusResolutionRequest[]): Promise<Map<string, OmnibusConfig | null>> {
+  private async loadConfigs(requests: OmnibusResolutionRequest[], config?: OmnibusScopedConfig): Promise<Map<string, OmnibusConfig | null>> {
     const configs = new Map<string, OmnibusConfig | null>()
+    if (config) configs.set(configKey(config.scope), config.value)
     for (const request of requests) {
       const key = configKey(request.context)
       if (configs.has(key)) continue
@@ -713,6 +716,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       offerId: lookup.offerId as string,
       baselineScopeColumn: lookup.context.variantId ? 'variant_id' : 'product_id',
       baselineScopeId: (lookup.context.variantId ?? lookup.context.productId) as string,
+      asOf: lookup.now,
       priceKindId: lookup.presentedPriceKindId,
       currencyCode: lookup.context.currencyCode,
       channelId: lookup.channelId,

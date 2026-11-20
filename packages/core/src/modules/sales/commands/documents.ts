@@ -17,7 +17,7 @@ import { LockMode } from "@mikro-orm/core";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import type { EventBus } from "@open-mercato/events";
 import type { DataEngine } from "@open-mercato/shared/lib/data/engine";
-import { CrudHttpError, notFound } from "@open-mercato/shared/lib/crud/errors";
+import { CrudHttpError, badRequest, notFound } from "@open-mercato/shared/lib/crud/errors";
 import {
   deriveResourceFromCommandId,
   invalidateCrudCache,
@@ -68,7 +68,9 @@ import {
 } from "../../catalog/data/entities";
 import type { CatalogOmnibusService } from "../../catalog/services/catalogOmnibusService";
 import {
-  applyOmnibusSnapshotToLine,
+  applyOmnibusSnapshotsToLines,
+  type OmnibusSnapshotTarget,
+  type OmnibusSourceLine,
   resolveOmnibusService,
 } from "../lib/omnibusSnapshot";
 import { Dictionary, DictionaryEntry } from "../../dictionaries/data/entities";
@@ -215,6 +217,32 @@ import type { TranslateWithFallbackFn } from "@open-mercato/shared/lib/i18n/tran
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
+const omnibusReplaySnapshots = Symbol('sales.omnibusReplaySnapshots');
+type OmnibusReplayContext = CommandRuntimeContext & {
+  [omnibusReplaySnapshots]?: Map<string, OmnibusSnapshotTarget>;
+};
+
+function readOmnibusReplaySnapshots(ctx: CommandRuntimeContext) {
+  return (ctx as OmnibusReplayContext)[omnibusReplaySnapshots];
+}
+
+function replayLineInput<TInput extends { body?: Record<string, unknown> }>(input: TInput, body: Record<string, unknown>): TInput {
+  const replayInput = { ...input, body };
+  if (lockedGraphWriteInputs.has(input)) markLockedGraphWrite(replayInput);
+  return replayInput;
+}
+
+function snapshotForReplay(line: OrderGraphSnapshot['lines'][number]): OmnibusSnapshotTarget {
+  return {
+    omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+    omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+    omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt ? new Date(line.omnibusPromotionAnchorAt) : null,
+    omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+    isPersonalized: line.isPersonalized ?? null,
+    personalizationReason: line.personalizationReason ?? null,
+  };
+}
+
 let warnedDeprecatedOrderPaymentLedgerInput = false
 
 // CRUD events configuration for workflow triggers
@@ -3514,6 +3542,7 @@ async function applyOrderLineResults(params: {
   sourceLines: Array<DocumentLineCreateInput & { id?: string }>;
   existingLines: SalesOrderLine[];
   omnibusService?: CatalogOmnibusService | null;
+  replaySnapshots?: Map<string, OmnibusSnapshotTarget>;
 }): Promise<void> {
   const {
     em,
@@ -3522,9 +3551,11 @@ async function applyOrderLineResults(params: {
     sourceLines,
     existingLines,
     omnibusService = null,
+    replaySnapshots,
   } = params;
   const existingMap = new Map(existingLines.map((line) => [line.id, line]));
   const persisted = new Set<string>();
+  const snapshotLines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }> = [];
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null;
@@ -3565,15 +3596,10 @@ async function applyOrderLineResults(params: {
       statusEntryId,
       status: statusValue,
     });
-    if (!existing && omnibusService && sourceLine.productId) {
-      await applyOmnibusSnapshotToLine({
-        em: em.fork(),
-        service: omnibusService,
-        line: lineEntity,
-        sourceLine,
-        document: order,
-        documentKind: "order",
-      });
+    if (!existing) {
+      const replaySnapshot = replaySnapshots?.get(lineEntity.id);
+      if (replaySnapshot) Object.assign(lineEntity, replaySnapshot);
+      else if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
     }
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
@@ -3592,6 +3618,11 @@ async function applyOrderLineResults(params: {
     }
     persisted.add(lineEntity.id);
   }
+  if (omnibusService && snapshotLines.length) {
+    await applyOmnibusSnapshotsToLines({
+      em: em.fork(), service: omnibusService, lines: snapshotLines, document: order, documentKind: "order",
+    });
+  }
   for (const [id, line] of existingMap.entries()) {
     if (!persisted.has(id)) {
       em.remove(line);
@@ -3606,6 +3637,7 @@ async function applyQuoteLineResults(params: {
   sourceLines: Array<DocumentLineCreateInput & { id?: string }>;
   existingLines: SalesQuoteLine[];
   omnibusService?: CatalogOmnibusService | null;
+  replaySnapshots?: Map<string, OmnibusSnapshotTarget>;
 }): Promise<void> {
   const {
     em,
@@ -3614,9 +3646,11 @@ async function applyQuoteLineResults(params: {
     sourceLines,
     existingLines,
     omnibusService = null,
+    replaySnapshots,
   } = params;
   const existingMap = new Map(existingLines.map((line) => [line.id, line]));
   const persisted = new Set<string>();
+  const snapshotLines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }> = [];
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null;
@@ -3653,15 +3687,10 @@ async function applyQuoteLineResults(params: {
       statusEntryId,
       status: statusValue,
     });
-    if (!existing && omnibusService && sourceLine.productId) {
-      await applyOmnibusSnapshotToLine({
-        em: em.fork(),
-        service: omnibusService,
-        line: lineEntity,
-        sourceLine,
-        document: quote,
-        documentKind: "quote",
-      });
+    if (!existing) {
+      const replaySnapshot = replaySnapshots?.get(lineEntity.id);
+      if (replaySnapshot) Object.assign(lineEntity, replaySnapshot);
+      else if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
     }
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
@@ -3680,6 +3709,11 @@ async function applyQuoteLineResults(params: {
     }
     persisted.add(lineEntity.id);
   }
+  if (omnibusService && snapshotLines.length) {
+    await applyOmnibusSnapshotsToLines({
+      em: em.fork(), service: omnibusService, lines: snapshotLines, document: quote, documentKind: "quote",
+    });
+  }
   for (const [id, line] of existingMap.entries()) {
     if (!persisted.has(id)) {
       em.remove(line);
@@ -3695,6 +3729,7 @@ async function replaceQuoteLines(
   omnibusService: CatalogOmnibusService | null = null,
 ): Promise<void> {
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
+  const snapshotLines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }> = [];
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null;
@@ -3720,16 +3755,7 @@ async function replaceQuoteLines(
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    if (omnibusService && sourceLine.productId) {
-      await applyOmnibusSnapshotToLine({
-        em: em.fork(),
-        service: omnibusService,
-        line: lineEntity,
-        sourceLine,
-        document: quote,
-        documentKind: "quote",
-      });
-    }
+    if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -3745,6 +3771,11 @@ async function replaceQuoteLines(
         values: normalizeCustomFieldValues(customValues),
       });
     }
+  }
+  if (omnibusService && snapshotLines.length) {
+    await applyOmnibusSnapshotsToLines({
+      em: em.fork(), service: omnibusService, lines: snapshotLines, document: quote, documentKind: "quote",
+    });
   }
 }
 
@@ -3834,6 +3865,7 @@ async function replaceOrderLines(
   omnibusService: CatalogOmnibusService | null = null,
 ): Promise<void> {
   await em.nativeDelete(SalesOrderLine, { order: order.id });
+  const snapshotLines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }> = [];
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null;
@@ -3863,16 +3895,7 @@ async function replaceOrderLines(
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    if (omnibusService && sourceLine.productId) {
-      await applyOmnibusSnapshotToLine({
-        em: em.fork(),
-        service: omnibusService,
-        line: lineEntity,
-        sourceLine,
-        document: order,
-        documentKind: "order",
-      });
-    }
+    if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -3888,6 +3911,11 @@ async function replaceOrderLines(
         values: normalizeCustomFieldValues(customValues),
       });
     }
+  }
+  if (omnibusService && snapshotLines.length) {
+    await applyOmnibusSnapshotsToLines({
+      em: em.fork(), service: omnibusService, lines: snapshotLines, document: order, documentKind: "order",
+    });
   }
 }
 
@@ -8678,7 +8706,7 @@ const orderLineUpsertCommand: CommandHandler<
         lineSnapshots.length + 1,
       );
       const lineId = updatedSnapshot.id;
-      const mergedLines = parsed.id
+      const mergedLines = parsed.id && !readOmnibusReplaySnapshots(ctx)?.has(parsed.id)
         ? lineSnapshots.map((line) =>
             line.id === parsed.id ? updatedSnapshot : line,
           )
@@ -8733,6 +8761,7 @@ const orderLineUpsertCommand: CommandHandler<
         sourceLines: sourceInputs,
         existingLines,
         omnibusService: resolveOmnibusService(ctx),
+        replaySnapshots: readOmnibusReplaySnapshots(ctx),
       });
       applyOrderTotals(order, calculation.totals, calculation.lines.length);
       return { result: { orderId: order.id, lineId }, calculation };
@@ -8766,6 +8795,22 @@ const orderLineUpsertCommand: CommandHandler<
     const before = payload?.before;
     if (!before) return;
     await undoOrderGraph(ctx, before, payload?.after);
+  },
+  redo: async ({ input, ctx, logEntry }) => {
+    const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
+    if (!payload?.before || !payload.after) {
+      throw badRequest("[internal] sales line redo snapshot unavailable");
+    }
+    const previousIds = new Set(payload.before.lines.map((line) => line.id));
+    const created = payload.after.lines.filter((line) => !previousIds.has(line.id));
+    const replayCtx: OmnibusReplayContext = {
+      ...ctx,
+      [omnibusReplaySnapshots]: new Map(created.map((line) => [line.id, snapshotForReplay(line)])),
+    };
+    const body = input.body ?? {};
+    const lineId = typeof body.id === "string" ? body.id : created[0]?.id;
+    if (!lineId) throw badRequest("[internal] sales line redo id unavailable");
+    return orderLineUpsertCommand.execute(replayLineInput(input, { ...body, id: lineId }), replayCtx);
   },
 };
 
@@ -9008,7 +9053,7 @@ const orderLineBulkUpsertCommand: CommandHandler<
         ...parsed.lines.flatMap((line) => (line.id ? [line.id] : [])),
       ];
       for (const id of referencedIds) {
-        if (existingSnapshotsById.has(id)) continue;
+        if (existingSnapshotsById.has(id) || readOmnibusReplaySnapshots(ctx)?.has(id)) continue;
         throw notFound(
           translate(
             "sales.documents.detail.error",
@@ -9136,6 +9181,7 @@ const orderLineBulkUpsertCommand: CommandHandler<
         sourceLines: sourceInputs,
         existingLines,
         omnibusService: resolveOmnibusService(ctx),
+        replaySnapshots: readOmnibusReplaySnapshots(ctx),
       });
       applyOrderTotals(order, calculation.totals, calculation.lines.length);
       return { result: { orderId: order.id, lineIds }, calculation };
@@ -9174,6 +9220,29 @@ const orderLineBulkUpsertCommand: CommandHandler<
     // restore (#6462, #6833) — restores inside one transaction, and refreshes
     // the query index.
     await undoOrderGraph(ctx, before, payload?.after);
+  },
+  redo: async ({ input, ctx, logEntry }) => {
+    const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
+    if (!payload?.before || !payload.after) {
+      throw badRequest("[internal] sales line redo snapshot unavailable");
+    }
+    const previousIds = new Set(payload.before.lines.map((line) => line.id));
+    const created = payload.after.lines.filter((line) => !previousIds.has(line.id));
+    const replayCtx: OmnibusReplayContext = {
+      ...ctx,
+      [omnibusReplaySnapshots]: new Map(created.map((line) => [line.id, snapshotForReplay(line)])),
+    };
+    const body = input.body ?? {};
+    const originalLines = Array.isArray(body.lines) ? body.lines : [];
+    const affectedIds = new Set(originalLines.flatMap((line) => {
+      if (!line || typeof line !== "object" || !("id" in line) || typeof line.id !== "string") return [];
+      return [line.id];
+    }));
+    created.forEach((line) => affectedIds.add(line.id));
+    const lines = payload.after.lines
+      .filter((line) => affectedIds.has(line.id))
+      .map((line) => Object.fromEntries(Object.entries(line).filter(([, value]) => value !== null)));
+    return orderLineBulkUpsertCommand.execute(replayLineInput(input, { ...body, lines }), replayCtx);
   },
 };
 
@@ -9431,7 +9500,7 @@ const quoteLineUpsertCommand: CommandHandler<
         (existingSnapshot as any)?.promotionSnapshot ??
         null;
 
-      const mergedLines = parsed.id
+      const mergedLines = parsed.id && !readOmnibusReplaySnapshots(ctx)?.has(parsed.id)
         ? lineSnapshots.map((line) =>
             line.id === parsed.id ? updatedSnapshot : line,
           )
@@ -9483,6 +9552,7 @@ const quoteLineUpsertCommand: CommandHandler<
         sourceLines: sourceInputs,
         existingLines,
         omnibusService: resolveOmnibusService(ctx),
+        replaySnapshots: readOmnibusReplaySnapshots(ctx),
       });
       applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
       return { result: { quoteId: quote.id, lineId }, calculation };
@@ -9516,6 +9586,22 @@ const quoteLineUpsertCommand: CommandHandler<
     const before = payload?.before;
     if (!before) return;
     await undoQuoteGraph(ctx, before, payload?.after);
+  },
+  redo: async ({ input, ctx, logEntry }) => {
+    const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
+    if (!payload?.before || !payload.after) {
+      throw badRequest("[internal] sales line redo snapshot unavailable");
+    }
+    const previousIds = new Set(payload.before.lines.map((line) => line.id));
+    const created = payload.after.lines.filter((line) => !previousIds.has(line.id));
+    const replayCtx: OmnibusReplayContext = {
+      ...ctx,
+      [omnibusReplaySnapshots]: new Map(created.map((line) => [line.id, snapshotForReplay(line)])),
+    };
+    const body = input.body ?? {};
+    const lineId = typeof body.id === "string" ? body.id : created[0]?.id;
+    if (!lineId) throw badRequest("[internal] sales line redo id unavailable");
+    return quoteLineUpsertCommand.execute(replayLineInput(input, { ...body, id: lineId }), replayCtx);
   },
 };
 
