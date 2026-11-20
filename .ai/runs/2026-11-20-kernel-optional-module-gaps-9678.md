@@ -50,8 +50,8 @@ Phase 1 merges the existing community PRs. Phases 2–5 run as parallel child ta
 
 ### Phase 2: Kernel infra (auth, scheduler)
 
-- [ ] 2.1 Fix #6950 auth sync-role-acls without customer_accounts
-- [ ] 2.2 Fix #8381 scheduler dispatching jobs of disabled modules
+- [x] 2.1 Fix #6950 auth sync-role-acls without customer_accounts — already fixed on main by 45a3cee87f (no change)
+- [x] 2.2 Fix #8381 scheduler dispatching jobs of disabled modules — 6fa2e7af06
 
 ### Phase 3: configs + docs
 
