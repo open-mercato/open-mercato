@@ -31,10 +31,10 @@ test('TC-CUR-018: First exchange-rate save succeeds before organization scope in
     await page.getByRole('option', { name: to.code, exact: true }).click()
     await page.getByRole('textbox', { name: 'Exchange Rate', exact: true }).fill('1.25')
     await page.getByLabel('Source', { exact: false }).fill('QA-Early-Scope')
-    // CrudForm now names the date-time trigger after its field label, so the
+    // CrudForm names the date trigger after its field label, so the
     // placeholder is no longer the trigger's accessible name.
-    await page.getByRole('button', { name: /^Date & Time/ }).click()
-    await page.getByRole('button', { name: /^Today,/ }).click()
+    await page.getByRole('button', { name: /^Date\b/ }).click()
+    await page.locator('[data-today="true"] button').click()
     await page.getByRole('button', { name: 'Apply', exact: true }).click()
     const created = page.waitForResponse((response) =>
       response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/currencies/exchange-rates',
