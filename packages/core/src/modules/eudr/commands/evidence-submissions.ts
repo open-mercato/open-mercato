@@ -34,7 +34,9 @@ import {
   type EvidenceSubmissionCreateInput,
   type EvidenceSubmissionUpdateInput,
 } from '../data/validators'
-import { computeSubmissionCompleteness, type CompletenessContext } from '../lib/completeness'
+import { computeSubmissionCompleteness, countActivePlots, type CompletenessContext } from '../lib/completeness'
+import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
+import { guardUpdateRedo, withUpdateRedoLog } from '../lib/redo-guard'
 
 const EVIDENCE_SUBMISSION_ENTITY_ID = 'eudr:eudr_evidence_submission'
 
@@ -172,6 +174,10 @@ async function findEvidenceSubmission(
 async function loadEvidenceSubmissionSnapshot(em: EntityManager, entityId: string): Promise<EvidenceSubmissionSnapshot | null> {
   const record = await findEvidenceSubmission(em, entityId)
   if (!record) return null
+  return buildEvidenceSubmissionSnapshot(em, record)
+}
+
+async function buildEvidenceSubmissionSnapshot(em: EntityManager, record: EudrEvidenceSubmission): Promise<EvidenceSubmissionSnapshot> {
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: EVIDENCE_SUBMISSION_ENTITY_ID,
     recordId: record.id,
@@ -282,6 +288,10 @@ async function validateSubmissionPlots(input: {
     }
   }
   return uniquePlotIds.length
+}
+
+function withoutCompleteness(snapshot: EvidenceSubmissionSnapshot): EvidenceSubmissionSnapshot {
+  return { ...snapshot, completenessScore: 0, missingFields: [] }
 }
 
 function applySubmissionUpdate(record: EudrEvidenceSubmission, parsed: EvidenceSubmissionUpdateInput): void {
@@ -482,6 +492,8 @@ const createEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionCr
   }),
 }
 
+const updateEvidenceSubmissionSnapshots = new WeakMap<EvidenceSubmissionCommandResult, { before: EvidenceSubmissionSnapshot; after: EvidenceSubmissionSnapshot }>()
+
 const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUpdateInput, EvidenceSubmissionCommandResult> = {
   id: 'eudr.evidence_submissions.update',
   async prepare(rawInput, ctx) {
@@ -497,59 +509,68 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(evidenceSubmissionUpdateSchema, rawInput)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await findEvidenceSubmission(entityManager, parsed.id, false)
-    if (!record) throw new CrudHttpError(404, { error: 'eudr.errors.evidenceSubmissionNotFound' })
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
+    return entityManager.transactional(async (entityManager) => {
+      const unlockedRecord = await findEvidenceSubmission(entityManager, parsed.id, false)
+      if (!unlockedRecord) throw new CrudHttpError(404, { error: 'eudr.errors.evidenceSubmissionNotFound' })
+      ensureTenantScope(ctx, unlockedRecord.tenantId)
+      ensureOrganizationScope(ctx, unlockedRecord.organizationId)
+      const record = await lockForUndo(entityManager, EudrEvidenceSubmission, unlockedRecord)
+      if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.evidenceSubmissionNotFound' })
+      const before = structuredClone(await buildEvidenceSubmissionSnapshot(entityManager, record))
+      await guardUpdateRedo(ctx, before)
+      const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
 
-    await runCrudCommandWrite({
-      ctx,
-      em: entityManager,
-      entityId: EVIDENCE_SUBMISSION_ENTITY_ID,
-      action: 'updated',
-      scope,
-      customFields: custom,
-      events: evidenceSubmissionCrudEvents,
-      indexer: evidenceSubmissionCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: {
-          id: record.id,
-          organizationId: record.organizationId,
-          tenantId: record.tenantId,
-        },
-      }),
-      phases: [
-        async () => {
-          const nextSupplierEntityId = parsed.supplierEntityId ?? record.supplierEntityId
-          const nextPlotIds = parsed.plotIds !== undefined
-            ? [...parsed.plotIds]
-            : Array.isArray(record.plotIds)
-              ? [...record.plotIds]
-              : []
-          const activePlotCount = await validateSubmissionPlots({
-            em: entityManager,
-            scope,
-            plotIds: nextPlotIds,
-            supplierEntityId: nextSupplierEntityId,
-          })
-          const linkedAttachmentCount = await countLinkedAttachments(entityManager, scope, record.id)
-          applySubmissionUpdate(record, parsed)
-          refreshSubmissionCompleteness(record, { activePlotCount, linkedAttachmentCount })
-        },
-      ],
+      await runCrudCommandWrite({
+        ctx,
+        em: entityManager,
+        entityId: EVIDENCE_SUBMISSION_ENTITY_ID,
+        action: 'updated',
+        scope,
+        customFields: custom,
+        events: evidenceSubmissionCrudEvents,
+        indexer: evidenceSubmissionCrudIndexer,
+        sideEffect: () => ({
+          entity: record,
+          identifiers: {
+            id: record.id,
+            organizationId: record.organizationId,
+            tenantId: record.tenantId,
+          },
+        }),
+        phases: [
+          async () => {
+            const nextSupplierEntityId = parsed.supplierEntityId ?? record.supplierEntityId
+            const nextPlotIds = parsed.plotIds !== undefined
+              ? [...parsed.plotIds]
+              : Array.isArray(record.plotIds)
+                ? [...record.plotIds]
+                : []
+            const activePlotCount = await validateSubmissionPlots({
+              em: entityManager,
+              scope,
+              plotIds: nextPlotIds,
+              supplierEntityId: nextSupplierEntityId,
+            })
+            const linkedAttachmentCount = await countLinkedAttachments(entityManager, scope, record.id)
+            applySubmissionUpdate(record, parsed)
+            refreshSubmissionCompleteness(record, { activePlotCount, linkedAttachmentCount })
+          },
+        ],
+      })
+
+      const result = { entityId: record.id, updatedAt: record.updatedAt }
+      const persisted = (await lockForUndo(entityManager, EudrEvidenceSubmission, record)) ?? record
+      const after = structuredClone(await buildEvidenceSubmissionSnapshot(entityManager, persisted))
+      updateEvidenceSubmissionSnapshots.set(result, { before, after })
+      return result
     })
-
-    return { entityId: record.id, updatedAt: record.updatedAt }
   },
-  captureAfter: async (_rawInput, result, ctx) => {
-    const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadEvidenceSubmissionSnapshot(entityManager, result.entityId)
-  },
-  buildLog: async ({ snapshots }) => {
-    const before = snapshots.before as EvidenceSubmissionSnapshot | undefined
-    const after = snapshots.after as EvidenceSubmissionSnapshot | undefined
+  redo: ({ input, ctx, logEntry }) => updateEvidenceSubmissionCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
+  captureAfter: async (_rawInput, result) => updateEvidenceSubmissionSnapshots.get(result)?.after,
+  buildLog: async ({ result }) => {
+    const lockedSnapshots = updateEvidenceSubmissionSnapshots.get(result)
+    const before = lockedSnapshots?.before
+    const after = lockedSnapshots?.after
     if (!before) return null
     if (after && snapshotsEqual(before, after)) return { skipLog: true }
     const { translate } = await resolveTranslations()
@@ -570,32 +591,44 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
     const payload = extractUndoPayload<EvidenceSubmissionUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) return throwUndoConflict()
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await findEvidenceSubmission(entityManager, before.id)
-    if (!record) {
-      record = entityManager.create(EudrEvidenceSubmission, evidenceSubmissionSeedFromSnapshot(before))
-      entityManager.persist(record)
-    } else {
-      ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
-      restoreEvidenceSubmission(record, before)
-    }
-    await entityManager.flush()
+    return entityManager.transactional(async (entityManager) => {
+      let record = await lockForUndo(entityManager, EudrEvidenceSubmission, before)
+      if (!record) {
+        record = entityManager.create(EudrEvidenceSubmission, evidenceSubmissionSeedFromSnapshot(before))
+        entityManager.persist(record)
+        await entityManager.flush()
+      } else {
+        const currentSnapshot = await buildEvidenceSubmissionSnapshot(entityManager, record)
+        if (!isUnchangedSince(withoutCompleteness(currentSnapshot), withoutCompleteness(after))) await throwUndoConflict()
+        const completenessContext = {
+          activePlotCount: await countActivePlots(entityManager, before),
+          linkedAttachmentCount: await countLinkedAttachments(entityManager, before, record.id),
+        }
+        restoreEvidenceSubmission(record, before)
+        refreshSubmissionCompleteness(record, completenessContext)
+        await entityManager.flush()
+      }
 
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
-    await setEvidenceSubmissionCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
-    await emitCrudUndoSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      indexer: evidenceSubmissionCrudIndexer,
-      events: evidenceSubmissionCrudEvents,
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
+      await setEvidenceSubmissionCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: record,
+        identifiers: {
+          id: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        },
+        indexer: evidenceSubmissionCrudIndexer,
+        events: evidenceSubmissionCrudEvents,
+      })
     })
   },
 }

@@ -712,7 +712,10 @@ function DefaultGridView({
       ) : null}
 
       <div className="isolate overflow-x-auto rounded-lg border">
-        <table className="w-full text-sm table-fixed" aria-busy={isLoading || undefined}>
+        <table
+          className={cn('w-full text-sm table-fixed', dense ? null : 'min-w-4xl')}
+          aria-busy={isLoading || undefined}
+        >
           <caption className="sr-only">
             {t(
               'staff.time_tracking.timesheet.grid.caption',

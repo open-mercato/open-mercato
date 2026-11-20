@@ -19,6 +19,7 @@ import {
   createVariantInitialValues,
   normalizeOptionSchema,
   findInvalidVariantPriceKinds,
+  resolveVariantPriceAmount,
 } from '@open-mercato/core/modules/catalog/components/products/variantForm'
 import {
   type PriceKindSummary,
@@ -26,7 +27,6 @@ import {
   type TaxRateSummary,
   normalizePriceKindSummary,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
-import { parseNumericInput } from '@open-mercato/core/modules/catalog/components/products/productFormUtils'
 import {
   VariantBasicsSection,
   VariantOptionValuesSection,
@@ -231,12 +231,13 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
         column: 1,
         title: t('catalog.variants.form.pricesLabel', 'Prices'),
         description: t('catalog.variants.form.pricesHint', 'Populate list prices per price kind.'),
-        component: ({ values, setValue }) => (
+        component: ({ values, setValue, errors }) => (
           <VariantPricesSection
             values={values as VariantFormValues}
             setValue={setValue}
             priceKinds={priceKinds}
             taxRates={taxRates}
+            errors={errors}
             showHeader={false}
             embedded
           />
@@ -467,10 +468,8 @@ async function syncVariantPrices({
   const resolvedTaxRateId = (selectedTaxRate ?? fallbackProductTaxRate)?.id ?? null
   for (const kind of priceKinds) {
     const draft = priceDrafts?.[kind.id]
-    const amount = typeof draft?.amount === 'string' ? draft.amount.trim() : ''
-    if (!amount) continue
-    const numeric = parseNumericInput(amount)
-    if (!Number.isFinite(numeric) || numeric < 0) continue
+    const amount = resolveVariantPriceAmount(draft)
+    if (amount === null) continue
     const payload: Record<string, unknown> = {
       productId,
       variantId,
@@ -482,8 +481,8 @@ async function syncVariantPrices({
     } else if (typeof resolvedTaxRateValue === 'number' && Number.isFinite(resolvedTaxRateValue)) {
       payload.taxRate = resolvedTaxRateValue
     }
-    if (kind.displayMode === 'including-tax') payload.unitPriceGross = numeric
-    else payload.unitPriceNet = numeric
+    if (kind.displayMode === 'including-tax') payload.unitPriceGross = amount
+    else payload.unitPriceNet = amount
     await createCrud('catalog/prices', payload)
   }
 }
