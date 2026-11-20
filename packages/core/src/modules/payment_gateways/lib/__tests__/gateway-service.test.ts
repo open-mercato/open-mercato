@@ -196,8 +196,10 @@ function buildConcurrentService(transaction: GatewayTransaction) {
     }
     if (options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
       while (lockOwner && lockOwner !== manager) await lockReleased.promise
-      lockOwner = manager as unknown as Manager
-      lockReleased = deferred()
+      if (lockOwner !== manager) {
+        lockOwner = manager as unknown as Manager
+        lockReleased = deferred()
+      }
     }
     const snapshot = { ...transaction }
     snapshots.set(manager, snapshot)

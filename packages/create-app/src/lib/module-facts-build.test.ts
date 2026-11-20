@@ -87,6 +87,9 @@ test('build emits customers facts and the framework extension catalog (T5)', () 
   const frameworkMarkdown = fs.readFileSync(join(guidesDir, 'framework-extension-points.md'), 'utf8')
   assert.match(frameworkMarkdown, /^# Framework extension points/m)
   assert.match(frameworkMarkdown, /menu/i)
+  assert.ok(frameworkMarkdown.includes(
+    '| section:ui.inputs.MarkdownField | component-handle | component-replacement | FROZEN |',
+  ), 'the emitted framework catalog must expose the bound MarkdownField component host')
 
   const legacySecurityOverride = facts.security.extensionSurfaces.contributions.find(
     (contribution: { id: string }) => contribution.id.includes('section:auth.login.form'),
