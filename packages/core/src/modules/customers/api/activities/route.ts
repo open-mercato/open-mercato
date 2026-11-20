@@ -21,7 +21,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerActivity, CustomerDeal, CustomerInteraction } from '../../data/entities'
 import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
 import { activityCreateSchema, activityUpdateSchema, interactionUpdateSchema } from '../../data/validators'
-import { calendarDayStartInstant, calendarWallTimeToInstant } from '../../lib/calendar/timezone'
+import { calendarDayStartInstant, calendarWallTimeToInstant, defaultCalendarTimezone } from '../../lib/calendar/timezone'
 import { createCustomersCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import {
   mapInteractionRecordToActivitySummary,
@@ -81,7 +81,7 @@ function assertActivitySchedule(
       },
     })
   }
-  const invalidClock = Boolean(input.date && input.time && !calendarWallTimeToInstant(input.date, input.time, 'UTC'))
+  const invalidClock = Boolean(input.date && input.time && !calendarWallTimeToInstant(input.date, input.time, defaultCalendarTimezone()))
   if (input.time && (invalidClock || !interactionUpdateSchema.parse(input).scheduledAt)) {
     throw new CrudHttpError(400, {
       error: translate('customers.errors.validationFailed', 'Validation failed'),
