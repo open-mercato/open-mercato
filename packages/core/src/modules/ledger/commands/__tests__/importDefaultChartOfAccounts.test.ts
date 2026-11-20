@@ -80,6 +80,20 @@ function loadImportCommand(): ImportCommandHandler {
   return handler as ImportCommandHandler
 }
 
+function loadImportCommandWithTemplate(template: unknown): ImportCommandHandler {
+  let handler: unknown
+  jest.isolateModules(() => {
+    jest.doMock('../../lib/defaultChartOfAccounts', () => ({ DEFAULT_CHART_OF_ACCOUNTS_PL: template }))
+    require('../importDefaultChartOfAccounts')
+    handler = registerCommand.mock.calls.find(
+      ([candidate]) => candidate.id === 'ledger.importDefaultChartOfAccounts',
+    )?.[0]
+  })
+  jest.dontMock('../../lib/defaultChartOfAccounts')
+  if (!handler) throw new Error('ledger.importDefaultChartOfAccounts was not registered')
+  return handler as ImportCommandHandler
+}
+
 function seedAccountGroups(em: FakeEm, scope: { organizationId: string; tenantId: string }) {
   return ACCOUNT_GROUP_CODES_PL.map((code) =>
     em.seed(LedgerAccountGroup, {
@@ -291,6 +305,37 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     await expect(command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)).rejects.toMatchObject({
       constraint: 'some_other_unique',
     })
+  })
+
+  it.each([
+    [
+      'a type number that does not start with its zespół code',
+      [{ number: '110', name: 'Broken', normalBalance: 'DEBIT', accountGroupCode: '0', accounts: [{ number: '110-1', description: 'Broken' }] }],
+      /type 110 breaks the PL type numbering rule \(groupDigit\)/,
+    ],
+    [
+      'a type number that is not three digits',
+      [{ number: '01', name: 'Broken', normalBalance: 'DEBIT', accountGroupCode: '0', accounts: [] }],
+      /type 01 breaks the PL type numbering rule \(format\)/,
+    ],
+    [
+      'an account number that does not start with its type number',
+      [{ number: '010', name: 'OK type', normalBalance: 'DEBIT', accountGroupCode: '0', accounts: [{ number: '020-1', description: 'Broken' }] }],
+      /account 020-1 does not start with its type number 010/,
+    ],
+  ])('a template row with %s fails the import before anything is written (R4)', async (_label, template, message) => {
+    registerCommand.mockClear()
+    const command = loadImportCommandWithTemplate(template)
+    const em = buildFakeEm()
+    const { ctx, dataEngine } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    await expect(command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)).rejects.toThrow(message)
+
+    expect(em.tables.get('LedgerAccountType') ?? []).toHaveLength(0)
+    expect(em.tables.get('LedgerAccount') ?? []).toHaveLength(0)
+    expect(em.tables.get('LedgerAccountGroup') ?? []).toHaveLength(0)
+    expect(em.transactional).not.toHaveBeenCalled()
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
   })
 
   it('undo restores an empty chart of accounts by soft-deleting exactly the imported rows', async () => {

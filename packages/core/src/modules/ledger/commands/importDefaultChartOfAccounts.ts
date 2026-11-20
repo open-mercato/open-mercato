@@ -19,7 +19,8 @@ import {
   ledgerAccountTypeCrudEvents,
   ledgerAccountTypeCrudIndexer,
 } from '../lib/ledgerAccountCrud'
-import { DEFAULT_CHART_OF_ACCOUNTS_PL } from '../lib/defaultChartOfAccounts'
+import { DEFAULT_CHART_OF_ACCOUNTS_PL, type DefaultChartOfAccountsAccountTypeSeed } from '../lib/defaultChartOfAccounts'
+import { PL_JURISDICTION, accountNumberFitsType, checkTypeNumber } from '../lib/accountNumbering'
 import { seedPolishAccountGroups } from '../lib/seeds'
 
 type Scope = { organizationId: string; tenantId: string }
@@ -77,6 +78,34 @@ type PreparedAccount = {
  * exactly those rows in one call, instead of one undo-log entry per row.
  */
 /**
+ * Applies the PL numbering rules `createLedgerAccountType`/`createLedgerAccount`
+ * enforce on top of their Zod schemas (`lib/accountNumbering.ts`, #6340) to
+ * every template row (spec R4): a type number is three digits starting with
+ * its zespół's code, and an account number starts with its type's number.
+ * Every template group is a PL group, so both rules always apply. A violation
+ * is a defect in the hardcoded template, not caller input, so it fails the
+ * import with an internal error before anything is written.
+ */
+function assertTemplateFollowsPolishNumbering(template: readonly DefaultChartOfAccountsAccountTypeSeed[]): void {
+  for (const typeSeed of template) {
+    const group = { jurisdiction: PL_JURISDICTION, code: typeSeed.accountGroupCode }
+    const violation = checkTypeNumber(typeSeed.number, group)
+    if (violation) {
+      throw new Error(
+        `[internal] default chart of accounts: type ${typeSeed.number} breaks the PL type numbering rule (${violation})`,
+      )
+    }
+    for (const accountSeed of typeSeed.accounts) {
+      if (!accountNumberFitsType(accountSeed.number, typeSeed.number, group)) {
+        throw new Error(
+          `[internal] default chart of accounts: account ${accountSeed.number} does not start with its type number ${typeSeed.number}`,
+        )
+      }
+    }
+  }
+}
+
+/**
  * Provisions the PL `LedgerAccountGroup` rows (zespoły 0-8) the template links
  * to, creating only the missing codes (OQ-R1). `seedDefaults` seeds them at
  * setup, but an organization created in Directory afterwards has none.
@@ -109,6 +138,10 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
     const parsed = importDefaultChartOfAccountsSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+
+    // Before the transaction: a template that breaks the PL numbering rules
+    // writes nothing, not even the account groups (R4).
+    assertTemplateFollowsPolishNumbering(DEFAULT_CHART_OF_ACCOUNTS_PL)
 
     const rootEm = (ctx.container.resolve('em') as EntityManager).fork()
     const scope: Scope = { organizationId: parsed.organizationId, tenantId: parsed.tenantId }
@@ -175,8 +208,8 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
 
           const typeId = randomUUID()
           // Validated once through the same schema `createLedgerAccountType`
-          // already uses — no new validation rules, just a sanity check on
-          // this template's own hardcoded data.
+          // already uses (the PL numbering rules were checked above) — a
+          // sanity check on this template's own hardcoded data.
           ledgerAccountTypeCreateSchema.parse({
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
