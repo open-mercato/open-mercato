@@ -9,6 +9,7 @@ import {
   waitForCapturedSystemEmail,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { composeMessageWithToken, deleteMessageIfExists } from './helpers'
+import { QA_RECIPIENTS } from './scheduledSendFixtures'
 
 type ParticipantRow = { email: string; deliveryStatus: string | null }
 
@@ -27,7 +28,7 @@ test.describe('TC-MSG-EMAIL-004: send separately to multiple external recipients
     await clearCapturedSystemEmails(request, token)
 
     const stamp = Date.now()
-    const addresses = [1, 2, 3].map((index) => `qa-message-separate-${index}-${stamp}@example.test`)
+    const addresses = [...QA_RECIPIENTS]
     const subject = `QA separate external message ${stamp}`
     let messageId: string | null = null
 

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { deleteMessageIfExists } from './helpers';
+import { QA_RECIPIENTS } from './scheduledSendFixtures';
 
 type ParticipantRow = { role: string; email: string; deliveryStatus: string | null };
 
@@ -14,8 +15,8 @@ test.describe('TC-API-MSG-033: Search messages by a second outbound recipient', 
   test('finds the message by its 2nd "to" address and exposes all participants on detail', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin');
     const stamp = Date.now();
-    const firstEmail = `tc-api-msg-023-first-${stamp}@example.com`;
-    const secondEmail = `tc-api-msg-023-second-${stamp}@example.com`;
+    const firstEmail = QA_RECIPIENTS[0];
+    const secondEmail = QA_RECIPIENTS[1];
     let messageId: string | null = null;
 
     try {
@@ -49,7 +50,7 @@ test.describe('TC-API-MSG-033: Search messages by a second outbound recipient', 
       const unrelatedResponse = await apiRequest(
         request,
         'GET',
-        `/api/messages?folder=sent&externalEmail=${encodeURIComponent(`tc-api-msg-023-none-${stamp}@example.com`)}`,
+        `/api/messages?folder=sent&externalEmail=${encodeURIComponent('qa-recipient-none@example.com')}`,
         { token: adminToken },
       );
       expect(unrelatedResponse.status()).toBe(200);

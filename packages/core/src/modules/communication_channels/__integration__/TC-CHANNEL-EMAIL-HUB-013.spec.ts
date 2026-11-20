@@ -17,6 +17,7 @@ import {
   readMessageScheduleRow,
   runScheduledRelease,
   scheduledAtInMinutes,
+  QA_RECIPIENTS,
 } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
@@ -30,7 +31,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-013: scheduled mailbox message', () => {
   test('has no channel link before release and is delivered through the mailbox after', async ({ request }) => {
     test.slow()
     const stamp = Date.now()
-    const recipient = `hub-013-${stamp}@example.com`
+    const recipient = QA_RECIPIENTS[0]
     const subject = `HUB-013 scheduled ${stamp}`
     let token: string | null = null
     let channelId: string | null = null

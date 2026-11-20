@@ -8,6 +8,7 @@ import {
   waitForCapturedSystemEmail,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { composeMessageWithToken, deleteMessageIfExists } from './helpers'
+import { QA_RECIPIENTS } from './scheduledSendFixtures'
 
 /**
  * TC-MSG-EMAIL-006 — a public message to several external addresses is delivered as
@@ -24,7 +25,7 @@ test.describe('TC-MSG-EMAIL-006: joint send to multiple external recipients', ()
     await clearCapturedSystemEmails(request, token)
 
     const stamp = Date.now()
-    const addresses = [1, 2, 3].map((index) => `qa-message-joint-${index}-${stamp}@example.test`)
+    const addresses = [...QA_RECIPIENTS]
     const subject = `QA joint external message ${stamp}`
     let messageId: string | null = null
 

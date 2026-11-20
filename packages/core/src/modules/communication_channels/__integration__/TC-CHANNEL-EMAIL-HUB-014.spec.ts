@@ -11,7 +11,7 @@ import {
   seedConnectedChannel,
   waitForCapturedSystemEmail,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
-import { readMessageScheduleRow } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
+import { readMessageScheduleRow, QA_RECIPIENTS } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
  * TC-CHANNEL-EMAIL-HUB-014 — a saved draft is sent through the sender's mailbox.
@@ -24,7 +24,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-014: saved draft sent via mailbox', () => {
   test('sends the stored draft through the mailbox it was saved with', async ({ request }) => {
     test.slow()
     const stamp = Date.now()
-    const recipient = `hub-014-${stamp}@example.com`
+    const recipient = QA_RECIPIENTS[0]
     const subject = `HUB-014 draft ${stamp}`
     let token: string | null = null
     let channelId: string | null = null

@@ -85,3 +85,13 @@ export async function readUnreadCount(request: APIRequestContext, token: string)
   const body = await readJsonSafe<{ unreadCount?: number }>(response)
   return Number(body?.unreadCount ?? 0)
 }
+
+/**
+ * The external email budget caps a new tenant at 20 DISTINCT recipients per UTC day, so every
+ * integration spec sends only to this fixed set and isolates its captures by unique subject.
+ */
+export const QA_RECIPIENTS = ['qa-recipient-1@example.com', 'qa-recipient-2@example.com', 'qa-recipient-3@example.com'] as const
+export const QA_COPY_RECIPIENT = 'qa-copy@example.com'
+export const QA_BLIND_RECIPIENT = 'qa-blind@example.com'
+export const QA_REJECT_RECIPIENT = 'qa-recipient+reject@example.com'
+export const QA_RATELIMIT_RECIPIENT = 'qa-recipient+ratelimit@example.com'

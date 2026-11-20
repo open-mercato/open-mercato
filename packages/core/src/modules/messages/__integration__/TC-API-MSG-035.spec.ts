@@ -3,6 +3,7 @@ import { getAuthToken } from '@open-mercato/core/helpers/integration/authFixture
 import { deleteChannelIfExists, inspectMessageChannelLinks, isChannelSeedingAvailable } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { deleteMessageIfExists } from './helpers'
 import { drainDeliveryUntil, readMessageParticipants, sendThroughSeededMailbox } from './deliveryFixtures'
+import { QA_RECIPIENTS, QA_REJECT_RECIPIENT } from './scheduledSendFixtures'
 
 /**
  * TC-API-MSG-035: a partially rejected send is a sent message with failed participants.
@@ -12,8 +13,8 @@ import { drainDeliveryUntil, readMessageParticipants, sendThroughSeededMailbox }
 test.describe('TC-API-MSG-035: partial rejection', () => {
   test('marks only the rejected participant failed', async ({ request }) => {
     const stamp = Date.now()
-    const accepted = `tc-api-msg-025-ok-${stamp}@example.com`
-    const rejected = `tc-api-msg-025+reject@example.com`
+    const accepted = QA_RECIPIENTS[0]
+    const rejected = QA_REJECT_RECIPIENT
     let token: string | null = null
     let channelId: string | null = null
     let messageId: string | null = null

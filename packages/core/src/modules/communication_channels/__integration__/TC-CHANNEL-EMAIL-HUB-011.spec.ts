@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/authFixtures'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { QA_COPY_RECIPIENT, QA_RECIPIENTS } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
  * TC-CHANNEL-EMAIL-HUB-011 — "send separately" cannot be combined with copies.
@@ -23,8 +24,8 @@ test.describe('TC-CHANNEL-EMAIL-HUB-011: send separately with cc/bcc', () => {
         token,
         data: {
           userChannelId,
-          to: [`first-${stamp}@example.com`, `second-${stamp}@example.com`],
-          [field]: [`copy-${stamp}@example.com`],
+          to: [QA_RECIPIENTS[0], QA_RECIPIENTS[1]],
+          [field]: [QA_COPY_RECIPIENT],
           subject: `HUB-011 ${field} ${stamp}`,
           body: { plain: 'Should not be sent.' },
           sendSeparately: true,
@@ -46,8 +47,8 @@ test.describe('TC-CHANNEL-EMAIL-HUB-011: send separately with cc/bcc', () => {
       token,
       data: {
         userChannelId,
-        to: [`only-${stamp}@example.com`],
-        cc: [`copy-${stamp}@example.com`],
+        to: [QA_RECIPIENTS[0]],
+        cc: [QA_COPY_RECIPIENT],
         subject: `HUB-011 single ${stamp}`,
         body: { plain: 'Validation passes; the unknown channel is refused afterwards.' },
         sendSeparately: true,

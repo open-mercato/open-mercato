@@ -17,6 +17,7 @@ import {
   readMessageScheduleRow,
   runScheduledRelease,
   scheduledAtInMinutes,
+  QA_RECIPIENTS,
 } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
@@ -30,7 +31,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-015: mailbox requires reauth at release', ()
   test('fails the participants and notifies the author instead of sending', async ({ request }) => {
     test.slow()
     const stamp = Date.now()
-    const recipient = `hub-015-${stamp}@example.com`
+    const recipient = QA_RECIPIENTS[0]
     const subject = `HUB-015 reauth ${stamp}`
     let token: string | null = null
     let channelId: string | null = null

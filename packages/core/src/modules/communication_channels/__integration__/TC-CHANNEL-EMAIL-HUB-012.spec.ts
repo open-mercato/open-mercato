@@ -15,6 +15,7 @@ import {
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
+import { QA_COPY_RECIPIENT, QA_RECIPIENTS } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
  * TC-CHANNEL-EMAIL-HUB-012 — mailbox CC and CRM interactions per link.
@@ -79,8 +80,8 @@ test.describe('TC-CHANNEL-EMAIL-HUB-012: mailbox CC and CRM interactions', () =>
   test('a joint send delivers CC, records it as a participant and on the CRM interaction', async ({ request }) => {
     test.slow()
     const stamp = Date.now()
-    const recipient = `joint-${stamp}@example.com`
-    const copy = `copy-${stamp}@example.com`
+    const recipient = QA_RECIPIENTS[0]
+    const copy = QA_COPY_RECIPIENT
     const subject = `HUB-012 joint ${stamp}`
     let token: string | null = null
     let channelId: string | null = null
@@ -174,7 +175,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-012: mailbox CC and CRM interactions', () =>
 
       const { messageId } = await sendAsUser(request, token, {
         userChannelId: channelId,
-        to: [`one-${stamp}@example.com`, `two-${stamp}@example.com`],
+        to: [QA_RECIPIENTS[1], QA_RECIPIENTS[2]],
         subject,
         body: { plain: 'Separate copies.' },
         sendSeparately: true,

@@ -5,6 +5,7 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
 import { deleteChannelIfExists, isChannelSeedingAvailable } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { deleteMessageIfExists } from './helpers'
 import { drainDeliveryUntil, readMessageParticipants, sendThroughSeededMailbox } from './deliveryFixtures'
+import { QA_RECIPIENTS, QA_REJECT_RECIPIENT } from './scheduledSendFixtures'
 
 /**
  * TC-API-MSG-026: resend to failed recipients.
@@ -15,8 +16,8 @@ import { drainDeliveryUntil, readMessageParticipants, sendThroughSeededMailbox }
 test.describe('TC-API-MSG-026: resend-failed', () => {
   test('resends only to failed participants and refuses when nothing failed', async ({ request }) => {
     const stamp = Date.now()
-    const accepted = `tc-api-msg-026-ok-${stamp}@example.com`
-    const rejected = `tc-api-msg-026+reject@example.com`
+    const accepted = QA_RECIPIENTS[0]
+    const rejected = QA_REJECT_RECIPIENT
     let token: string | null = null
     let channelId: string | null = null
     const createdMessageIds: string[] = []
@@ -54,7 +55,7 @@ test.describe('TC-API-MSG-026: resend-failed', () => {
       const missing = await apiRequest(request, 'POST', `/api/messages/${encodeURIComponent(crypto.randomUUID())}/resend-failed`, { token, data: {} })
       expect(missing.status()).toBe(404)
 
-      const okOnly = await sendThroughSeededMailbox(request, token, { stamp: stamp + 1, to: [`tc-api-msg-026-only-${stamp}@example.com`], subject: `QA TC-API-MSG-026 ok ${stamp}` })
+      const okOnly = await sendThroughSeededMailbox(request, token, { stamp: stamp + 1, to: [QA_RECIPIENTS[0]], subject: `QA TC-API-MSG-026 ok ${stamp}` })
       createdMessageIds.push(okOnly.messageId)
       await drainDeliveryUntil(async () => {
         const current = await readMessageParticipants(request, token as string, okOnly.messageId)

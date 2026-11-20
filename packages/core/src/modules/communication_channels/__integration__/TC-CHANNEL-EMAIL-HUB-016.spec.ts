@@ -20,6 +20,7 @@ import {
   readMessageScheduleRow,
   runScheduledRelease,
   scheduledAtInMinutes,
+  QA_BLIND_RECIPIENT, QA_COPY_RECIPIENT, QA_RECIPIENTS,
 } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
@@ -71,9 +72,9 @@ test.describe('TC-CHANNEL-EMAIL-HUB-016: scheduled CRM email', () => {
   test('keeps CRM person, visibility and CC through the scheduled release', async ({ request }) => {
     test.slow()
     const stamp = Date.now()
-    const recipient = `hub-016-${stamp}@example.com`
-    const copy = `hub-016-copy-${stamp}@example.com`
-    const hidden = `hub-016-hidden-${stamp}@example.com`
+    const recipient = QA_RECIPIENTS[1]
+    const copy = QA_COPY_RECIPIENT
+    const hidden = QA_BLIND_RECIPIENT
     const subject = `HUB-016 scheduled CRM ${stamp}`
     let token: string | null = null
     let channelId: string | null = null

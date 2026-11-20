@@ -10,6 +10,7 @@ import {
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { composeMessageWithToken, deleteMessageIfExists } from './helpers'
 import { isSchedulingAvailable, makeScheduledMessageDue, runScheduledRelease, scheduledAtInMinutes } from './scheduledSendFixtures'
+import { QA_RECIPIENTS } from './scheduledSendFixtures'
 
 /**
  * TC-MSG-EMAIL-005: a scheduled external message on the system transport sends no
@@ -26,7 +27,7 @@ test.describe('TC-MSG-EMAIL-005: scheduled external email on the system transpor
     await clearCapturedSystemEmails(request, token)
 
     const stamp = Date.now()
-    const externalEmail = `qa-scheduled-external-${stamp}@example.test`
+    const externalEmail = QA_RECIPIENTS[0]
     const subject = `QA TC-MSG-EMAIL-005 ${stamp}`
     const matches = (email: { metadata?: { to?: unknown; subject?: unknown } }) =>
       email.metadata?.to === externalEmail && email.metadata?.subject === subject
