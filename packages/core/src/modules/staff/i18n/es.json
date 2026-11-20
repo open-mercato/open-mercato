@@ -2088,11 +2088,14 @@
   "staff.timesheets.errors.assignerNeedsUser": "Solo los miembros del equipo con cuenta de usuario pueden ser asignadores, porque deben iniciar sesión y recibir notificaciones.",
   "staff.timesheets.errors.bulkSave": "No se pudieron guardar en lote los registros de tiempo.",
   "staff.timesheets.errors.bulkTagsUnsupported": "Las etiquetas no se pueden cambiar desde la cuadrícula de la hoja de horas. Abre el registro de tiempo para editar sus etiquetas.",
+  "staff.timesheets.errors.capacity": "No se pudo cargar el objetivo.",
+  "staff.timesheets.errors.capacityForbidden": "No puedes ver el objetivo de esta persona.",
   "staff.timesheets.errors.copyDaySameDate": "El día de origen y el de destino deben ser diferentes.",
   "staff.timesheets.errors.copyDayTargetNotEmpty": "El día de destino ya tiene registros de tiempo. Revísalos primero o confirma para añadir estas copias de todos modos.",
   "staff.timesheets.errors.defaultAssigneeNotMember": "El responsable predeterminado debe ser un miembro activo de este proyecto.",
   "staff.timesheets.errors.entryNotFound": "Registro de tiempo no encontrado, eliminado o no asignado a ti.",
   "staff.timesheets.errors.invalidBody": "Cuerpo de la solicitud no válido.",
+  "staff.timesheets.errors.invalidCapacityQuery": "Periodo de objetivo no válido.",
   "staff.timesheets.errors.invalidProjectId": "Identificador de proyecto no válido.",
   "staff.timesheets.errors.loadPreference": "No se pudo cargar la preferencia de hoja de horas.",
   "staff.timesheets.errors.memberNotFound": "Miembro del proyecto de tiempo no encontrado o no accesible.",
@@ -2176,6 +2179,7 @@
   "staff.timesheets.my.saving": "Guardando...",
   "staff.timesheets.my.status": "Estado",
   "staff.timesheets.my.status_open": "Abierto",
+  "staff.timesheets.my.timer.alreadyStopped": "Este temporizador ya se detuvo en otra ventana.",
   "staff.timesheets.my.timer.noProjects": "No se encontraron proyectos",
   "staff.timesheets.my.timer.noteChangedElsewhere": "La nota de este temporizador se cambió en otra pestaña. Tu texto sin guardar se conserva; al guardarlo se te pedirá que resuelvas el conflicto.",
   "staff.timesheets.my.timer.noteConflictTitle": "Nota del temporizador cambiada en otro lugar",
@@ -2194,6 +2198,7 @@
   "staff.timesheets.my.timer.stopError": "No se pudo detener el temporizador",
   "staff.timesheets.my.timer.stopLocked": "Otra persona está editando esta entrada de tiempo, así que el temporizador no se detuvo. Inténtalo de nuevo en un momento.",
   "staff.timesheets.my.timer.stoppedNoteNotSaved": "El temporizador se detuvo, pero no se pudo guardar tu nota en él. El texto se conserva en el campo de nota para que puedas añadirlo a la entrada.",
+  "staff.timesheets.my.timer.unsavedNoteDropped": "Tu nota del temporizador sin guardar «{note}» no se guardó: este temporizador se detuvo o se reemplazó en otra ventana.",
   "staff.timesheets.my.timerStart": "Iniciar temporizador",
   "staff.timesheets.my.timerStop": "Detener temporizador",
   "staff.timesheets.my.total": "Total",
@@ -2394,5 +2399,6 @@
   "staff.timesheets.widgets.timeReporting.stop": "Detener temporizador",
   "staff.timesheets.widgets.timeReporting.stopError": "No se pudo detener el temporizador",
   "staff.timesheets.widgets.timeReporting.taskNote": "Tarea / Nota",
-  "staff.timesheets.widgets.timeReporting.unknownProject": "Proyecto desconocido"
+  "staff.timesheets.widgets.timeReporting.unknownProject": "Proyecto desconocido",
+  "staff.validation.nonNegativeAmount": "Introduce un importe válido."
 }
