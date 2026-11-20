@@ -424,6 +424,12 @@ Decisions taken while implementing, with their reasons. They refine the design a
 - Notification `messages.delivery_failed` (deduped per message by `groupKey`); command `messages.messages.resend_failed` + `POST /api/messages/[id]/resend-failed` (a former BCC forces a separate send); detail returns `canResendFailed`; failed-delivery alert with "Resend to failed" on the message detail.
 - Integration: TC-API-MSG-025/026/027 through the test-seed mailbox (`+reject@` / `+ratelimit@` fixture recipients).
 
+### 2026-11-20 — Manual QA follow-ups
+- Author list folders (`sent`, `drafts`, `scheduled`) show recipients comma-separated with "+N" instead of "(No recipient)": `GET /api/messages` returns an additive `recipientSummary: { labels, total }` for those folders (internal recipients first, then external addresses, to → cc → bcc; `externalEmail` fallback for legacy rows), built by `lib/recipientSummary.ts`.
+- The retry tick no longer depends on the `messages.register-email-retry-schedule` upgrade action (its banner is hidden unless `NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED` is set): both delivery paths call `ensureMessagesEmailRetrySchedule` when a recipient is left pending — idempotent, once per organization per process, never fails the delivery.
+- Compose UI: "Send separately" is a plain switch field placed after "Send from" (no bordered row, one-line hint "Each recipient gets a private copy."); without a mailbox selector it sits left-aligned.
+- TC-CHANNEL-EMAIL-HUB-012 asserts the CC on the link snapshot: the interactions API loses `_integrations.email` because the `integrations.external-id-mapping` enricher (`*`, lower priority) overwrites `_integrations` with `{}` — pre-existing on `main`, reported separately.
+
 ### Review — 2026-11-19
 - **Reviewer**: Agent (fresh context)
 - **Security**: Passed

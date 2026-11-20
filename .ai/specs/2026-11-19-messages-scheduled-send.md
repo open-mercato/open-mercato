@@ -366,6 +366,13 @@ Decisions taken while implementing, with their reasons. Where they differ from t
 - UI: "Send later" offered with a mailbox sender; a saved draft keeps the chosen mailbox; participant error `mailbox unavailable` has a translated label (`messages.detail.deliveryError.mailboxUnavailable`).
 - Integration specs TC-CHANNEL-EMAIL-HUB-013…015 (release driven through the release queue like the Phase 2 fixtures; HUB-015 sets `requires_reauth` in the DB because no API does).
 
+### 2026-11-20 — Manual QA follow-ups
+- Release tick registers itself: a persistent `messages.message.scheduled` subscriber (`messages:ensure-scheduled-release-schedule`) calls `ensureMessagesScheduledReleaseSchedule` — existing tenants no longer need the hidden `messages.register-scheduled-release` upgrade action, so a scheduled message cannot wait forever.
+- "Send later" runs the send validation (recipients, subject, body) before opening the time picker.
+- Message detail header: the date slot shows "Scheduled for …" / "Draft" instead of "—"; a "To:" line lists external to/cc addresses (BCC never shown), up to three with "+N".
+- The list folder lives in the URL (`/backend/messages?folder=scheduled`); rows open `/backend/messages/<id>?folder=<folder>` and back / "Back to messages" / delete / mark-unread return to it (inbox when absent).
+- Clicking a scheduled message opens the detail view (same as drafts), not the editor.
+
 ### 2026-11-21 — Send later in CRM and record dialogs
 - **Reversed decision:** the CRM "Compose email" dialog (`customers/components/detail/ComposeEmailDialog.tsx` — Emails tab "New email", Reply, Reply all, Forward) is now in scope. It gains "+ Bcc" (same reveal as "+ Cc") and "Send later", offered when `GET /api/messages/compose-capabilities` reports scheduling; the button is disabled until To, subject and body are filled, like Send. Scheduled CRM emails are managed in Messages → Scheduled (success flash points there); the Emails tab shows them after release.
 - Record "Compose message" dialogs (`SendObjectMessageDialog`) load the same capability through the new `useComposeScheduling(enabled)` hook (`@open-mercato/ui/backend/messages`) and offer Send later; no sender selector there. With no sender options, "Send separately" sits left-aligned.
@@ -373,3 +380,5 @@ Decisions taken while implementing, with their reasons. Where they differ from t
 - `sendAsUser` compose mode accepts `scheduledAt: Date`: refuses with 422 `code: 'scheduling_unavailable'` without the scheduler; composes with `scheduledAt`, `senderChannelId` and `senderDeliveryOptions` (`channelMetadata`, `inReplyTo`, `references`); creates no link and enqueues nothing; returns `scheduledAt` (ISO). Compose validation errors on `scheduledAt` map to `fieldErrors.scheduledAt` (400).
 - New column `messages.sender_delivery_options` (`Migration20261121120000`). Existing-message mode uses it when the caller passes no `channelMetadata` — so the release keeps `crmPersonId`, `crmVisibility` and reply threading. The compose command accepts `senderDeliveryOptions` as a server-only field; `POST /api/messages` strips it from request bodies. A draft PATCH that changes `senderChannelId` keeps it (it describes the CRM context, not the mailbox).
 - Integration spec TC-CHANNEL-EMAIL-HUB-016 (schedule via the CRM route with cc + bcc + shared visibility → release → link metadata and CRM interaction visibility).
+- The messages compose dialog footer offers "Send later…" next to Send (in addition to the header action), and the success flash reads "Message scheduled for {date}. You will find it in Messages → Scheduled." (`messages.flash.scheduledInFolder`).
+- Verified: targeted integration run (`TC-API-MSG|TC-MSG|TC-CHANNEL|TC-CRM-EMAIL|TC-ATT-02[45]|TC-INBOX`) — 251 passed, 0 failed, 21 skipped (IMAP live-server, inbox_ops, TC-API-MSG-031 fixme).
