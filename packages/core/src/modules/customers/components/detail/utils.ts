@@ -52,13 +52,8 @@ export function resolveTodoHref(source: string, todoId: string | null | undefine
   return `/backend/${module}/todos/${encodeURIComponent(todoId)}/edit`
 }
 
-/** Query parameter that scopes the customer tasks list to one person or company. */
 export const CUSTOMER_TASKS_CUSTOMER_PARAM = 'customerId'
 
-/**
- * Link to the customer tasks list. With a customer id the list opens filtered to
- * that customer's tasks; without one it opens the unfiltered list.
- */
 export function buildCustomerTasksHref(customerId?: string | null): string {
   if (!customerId) return '/backend/customer-tasks'
   return `/backend/customer-tasks?${CUSTOMER_TASKS_CUSTOMER_PARAM}=${encodeURIComponent(customerId)}`

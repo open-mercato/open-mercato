@@ -197,9 +197,6 @@ export function CustomerTodosTable(): React.JSX.Element {
     )
   }, [t])
 
-  // Previous rows may stand in while a page or search change loads, but never across
-  // a customer or organization scope change: the table (and the view export) would
-  // otherwise show the previous scope's tasks under the new customer's chip.
   const customerScopeKey = customerId ?? null
   const { data, isLoading, error, refetch, isFetching, isPlaceholderData } = useQuery<CustomerTodosResponse>({
     queryKey: ['customers-interactions-tasks', scopeVersion, customerScopeKey, params],
@@ -213,12 +210,8 @@ export function CustomerTodosTable(): React.JSX.Element {
   })
 
   const rows = data?.items ?? []
-  // The view export serializes the rendered rows, so it is offered only once they
-  // belong to the current query rather than standing in for it.
   const viewRowsAreCurrent = !!data && !isPlaceholderData
 
-  // The chip names the customer from its task rows; remember the name so the chip
-  // keeps it while a search narrows the list down to no rows.
   const rowCustomerName = customerId
     ? rows.find((row) => row.customer?.id === customerId)?.customer?.displayName ?? null
     : null
