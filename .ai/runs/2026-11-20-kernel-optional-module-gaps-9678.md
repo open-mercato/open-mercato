@@ -44,9 +44,9 @@ Phase 1 merges the existing community PRs. Phases 2–5 run as parallel child ta
 
 ### Phase 1: Integrate existing fix PRs
 
-- [ ] 1.1 Merge PR #10114 (#9194 data_sync)
-- [ ] 1.2 Merge PR #9326 (#9197 entities)
-- [ ] 1.3 Merge PR #9569 (#8803 translations)
+- [x] 1.1 Merge PR #10114 (#9194 data_sync) — dd86908348
+- [x] 1.2 Merge PR #9326 (#9197 entities) — 7ab688c658
+- [x] 1.3 Merge PR #9569 (#8803 translations) — 4873f11eb3
 
 ### Phase 2: Kernel infra (auth, scheduler)
 
