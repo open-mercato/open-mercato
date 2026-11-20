@@ -16,12 +16,20 @@ describe('recurrenceInputSchema', () => {
     ).toBe(true)
   })
 
+  it('accepts a finite recurrence whose end anniversary is in the last supported year', () => {
+    expect(
+      recurrenceInputSchema.safeParse({ frequency: 'monthly', startsOn: '9999-11-30', periodCount: 1 }).success,
+    ).toBe(true)
+  })
+
   it.each([
     [{ frequency: 'daily', startsOn: '2026-10-01' }, 'frequency'],
     [{ frequency: 'monthly', startsOn: '2026-02-30' }, 'startsOn'],
     [{ frequency: 'monthly', startsOn: '01.10.2026' }, 'startsOn'],
     [{ frequency: 'monthly', startsOn: '2026-10-01', periodCount: 0 }, 'periodCount'],
     [{ frequency: 'monthly', startsOn: '2026-10-01', periodCount: 1.5 }, 'periodCount'],
+    [{ frequency: 'monthly', startsOn: '9999-12-01', periodCount: 1 }, 'periodCount'],
+    [{ frequency: 'weekly', startsOn: '9999-12-31', periodCount: 1 }, 'periodCount'],
     [{ frequency: 'monthly', startsOn: '2026-10-15', anchorDay: 31 }, 'anchorDay'],
     [{ frequency: 'weekly', startsOn: '2026-10-15', anchorDay: 15 }, 'anchorDay'],
   ])('rejects %j on %s', (input, path) => {

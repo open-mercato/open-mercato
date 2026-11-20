@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { SALES_RECURRENCE_FREQUENCIES, isAnchorDayValid, isIsoDate } from './recurrence'
+import { SALES_RECURRENCE_FREQUENCIES, anniversary, isAnchorDayValid, isIsoDate } from './recurrence'
 
 export const SALES_RECURRENCE_MAX_PERIOD_COUNT = 1200
 
@@ -20,5 +20,23 @@ export const recurrenceInputSchema = z
     message: 'sales.recurring.errors.invalidAnchorDay',
     path: ['anchorDay'],
   })
+  .refine(
+    (value) => {
+      const { periodCount } = value
+      if (
+        periodCount == null ||
+        !Number.isInteger(periodCount) ||
+        periodCount < 1 ||
+        periodCount > SALES_RECURRENCE_MAX_PERIOD_COUNT
+      ) {
+        return true
+      }
+      return !isIsoDate(value.startsOn) || isIsoDate(anniversary(value, periodCount))
+    },
+    {
+      message: 'sales.recurring.errors.invalidPeriodCount',
+      path: ['periodCount'],
+    },
+  )
 
 export type RecurrenceInput = z.infer<typeof recurrenceInputSchema>
