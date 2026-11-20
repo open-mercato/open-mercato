@@ -3,6 +3,7 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SsoConfig, SsoIdentity, SsoUserDeactivation } from '../../data/entities'
 import { AccountLinkingService } from '../accountLinkingService'
+import type { SsoAuthorizationService } from '../ssoAuthorizationService'
 import { SsoService } from '../ssoService'
 import { resolveSsoCallbackErrorCode } from '../../lib/errors'
 
@@ -16,6 +17,7 @@ jest.mock('../../lib/state-cookie', () => ({
 jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({ signJwt: jest.fn(() => 'signed-token') }))
 
 const config = {
+  updatedAt: new Date('2026-11-15T00:00:00.000Z'),
   id: 'config-1', protocol: 'oidc', tenantId: 'tenant-1', organizationId: 'org-1',
   allowedDomains: ['example.com'], autoLinkByEmail: true, appRoleMappings: {},
 } as SsoConfig
@@ -30,7 +32,14 @@ function createFixture(overrides: Partial<SsoUserDeactivation> = {}, linked = tr
   }
   const em = {
     flush: jest.fn(async () => undefined),
-    persist: jest.fn(), create: jest.fn(), transactional: jest.fn(),
+    persist: jest.fn(), create: jest.fn(),
+    transactional: jest.fn(async (callback: (transaction: EntityManager) => Promise<unknown>) => callback(em as unknown as EntityManager)),
+    isInTransaction: () => true,
+  }
+  const authorization = {
+    resolveTenant: jest.fn(async () => 'tenant-1'),
+    assertConfiguration: jest.fn(async () => 'tenant-1'),
+    authorizeAccount: jest.fn(async () => ({ tenantId: 'tenant-1', mappedRoleIds: ['role-employee'] })),
   }
   jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity, where) => {
     if (entity === SsoConfig) return config
@@ -43,7 +52,7 @@ function createFixture(overrides: Partial<SsoUserDeactivation> = {}, linked = tr
     }
     return null
   })
-  return { em, identity, user, deactivation, service: new AccountLinkingService(em as unknown as EntityManager) }
+  return { em, identity, user, deactivation, service: new AccountLinkingService(em as unknown as EntityManager, authorization as unknown as SsoAuthorizationService) }
 }
 
 describe('SCIM deactivation enforcement during account linking', () => {
@@ -56,9 +65,15 @@ describe('SCIM deactivation enforcement during account linking', () => {
 
     expect(identity.lastLoginAt).toBeNull()
     expect(em.flush).not.toHaveBeenCalled()
+<<<<<<< HEAD
     expect(em.transactional).not.toHaveBeenCalled()
     expect(findOneWithDecryption).toHaveBeenLastCalledWith(
       em, SsoUserDeactivation,
+=======
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(findOneWithDecryption).toHaveBeenNthCalledWith(
+      4, em, SsoUserDeactivation,
+>>>>>>> b69e252f3f (fix(sso): enforce author privilege ceilings for SSO and SCIM (#10070))
       { userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: 'config-1', reactivatedAt: null },
       {}, { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
@@ -121,7 +136,7 @@ describe('SCIM deactivation enforcement during account linking', () => {
     await expect(service.handleOidcCallback({ state: 'flow-state' }, 'cookie', 'https://app/callback')).resolves.toHaveProperty('token', 'signed-token')
     expect(authService.createSession).toHaveBeenCalledTimes(1)
     expect(authService.createSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'user-1' }), expect.any(Date), {
-      tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: 'config-1',
+      tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: 'config-1', configUpdatedAt: config.updatedAt.getTime(),
     })
   })
 })

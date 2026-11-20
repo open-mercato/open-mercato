@@ -75,7 +75,7 @@ export class OidcProvider implements SsoProtocolProvider {
 
     const claims = tokens.claims()
     if (!claims) {
-      throw new Error('No ID token claims received from IdP')
+      throw new Error('[internal] No ID token claims received from IdP')
     }
 
     const mergedClaims = await mergeWithUserInfoClaims(oidcConfig, tokens, claims)
@@ -86,7 +86,7 @@ export class OidcProvider implements SsoProtocolProvider {
     const upnAsEmail = typeof upnCandidate === 'string' && upnCandidate.includes('@') ? upnCandidate : undefined
     const email = rawEmail ?? upnAsEmail
     if (!email) {
-      throw new Error('IdP did not return an email claim (checked: email, upn, unique_name)')
+      throw new Error('[internal] IdP did not return an email claim (checked: email, upn, unique_name)')
     }
 
     const emailVerified = normalizeEmailVerifiedClaim(mergedClaims.email_verified)
@@ -105,6 +105,12 @@ export class OidcProvider implements SsoProtocolProvider {
     config: SsoConfig,
     params?: { clientSecret?: string },
   ): Promise<{ ok: boolean; error?: string }> {
+    if (!config.issuer || !config.clientId) {
+      const { translate } = await resolveTranslations()
+      return config.issuer
+        ? { ok: false, error: translate('sso.errors.discovery.missingClientId', 'SSO config is missing client ID') }
+        : { ok: false, error: translate('sso.errors.discovery.missingIssuer', 'SSO config is missing issuer URL') }
+    }
     try {
       await this.discover(config, params?.clientSecret)
       return { ok: true }
@@ -121,10 +127,10 @@ export class OidcProvider implements SsoProtocolProvider {
     clientSecret?: string,
   ): Promise<client.Configuration> {
     if (!config.issuer) {
-      throw new Error('SSO config is missing issuer URL')
+      throw new Error('[internal] SSO config is missing issuer URL')
     }
     if (!config.clientId) {
-      throw new Error('SSO config is missing client ID')
+      throw new Error('[internal] SSO config is missing client ID')
     }
 
     const clientSecretFingerprint = createHash('sha256')
