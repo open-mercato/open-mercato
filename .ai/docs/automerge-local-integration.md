@@ -1,8 +1,9 @@
 # Local integration tests for automerge
 
 Apply this procedure during A3 of `om-auto-fix-pr` and `om-auto-fix-issue`,
-including force automerge. Run it after the ordered `validation.commands` gate
-and before recording `localCi: pass` or applying
+and during an immediate `om-auto-merge-buddy` visit requested by the
+`automerge-now` label. Run it after the ordered `validation.commands` gate and
+before recording `localCi: pass` or applying
 `automerge-signal-3-passes-local-ci-checks`.
 
 ## Select the same suite as PR CI
@@ -71,4 +72,4 @@ scope changes, recompute it and run the newly required suite before publishing.
 Handle a failure under the existing A3 retry and review rules. If the suite
 fails, times out or cannot run, report the reason and record
 `localCi: missing` while required evidence is absent. The local CI signal and
-force merge both require that evidence.
+any merge relying on it require that evidence.
