@@ -235,6 +235,7 @@ function makeEm(task: Row) {
   })
 
   const flush = jest.fn(async () => undefined)
+  const nativeUpdate = jest.fn(async () => 1)
   const create = jest.fn((_entity: unknown, data: Row) => {
     const row = { ...data }
     events.push(row)
@@ -243,7 +244,7 @@ function makeEm(task: Row) {
   const persist = jest.fn(() => ({ flush }))
 
   return {
-    em: { findOne, flush, create, persist } as unknown as EntityManager,
+    em: { findOne, flush, create, persist, nativeUpdate } as unknown as EntityManager,
     task,
     instance,
     events,

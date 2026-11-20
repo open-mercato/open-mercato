@@ -14,6 +14,7 @@ jest.mock('@open-mercato/queue', () => ({
   createModuleQueue: jest.fn(() => ({ enqueue: jest.fn() })),
 }))
 
+import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { canApplyBulkReplay, runBulkReplay } from '../bulk-replay'
 import { WorkflowInstance } from '../../data/entities'
 
@@ -53,7 +54,14 @@ function makeHarness(instances: FakeInstance[]) {
     if (where.tenantId !== found.tenantId || where.organizationId !== found.organizationId) return null
     return found
   })
-  const em = { findOne, flush: jest.fn(async () => undefined) }
+  const nativeUpdate = jest.fn(async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+    const found = byId.get(where.id as string) as Record<string, unknown> | undefined
+    if (!found) return 0
+    if (!Object.entries(where).every(([key, value]) => key === 'currentStepId' || found[key] === value)) return 0
+    found.status = data.status
+    return 1
+  })
+  const em = { findOne, flush: jest.fn(async () => undefined), nativeUpdate }
   const progressService = {
     startJob: jest.fn(async () => undefined),
     updateProgress: jest.fn(async () => undefined),
@@ -63,7 +71,7 @@ function makeHarness(instances: FakeInstance[]) {
   const container = {
     resolve: (name: string) => (name === 'em' ? em : name === 'progressService' ? progressService : null),
   }
-  return { container, em, progressService, findOne }
+  return { container, em, progressService, findOne, nativeUpdate }
 }
 
 describe('canApplyBulkReplay', () => {
@@ -127,6 +135,48 @@ describe('runBulkReplay', () => {
     expect(parked.status).toBe('RUNNING')
     expect(parked.retryCount).toBe(1)
     expect(parked.errorMessage).toBeNull()
+  })
+
+  test('a parked run another caller resumed first is skipped, not replayed or announced twice (#7186)', async () => {
+    const busEmit = jest.fn(async () => {})
+    setGlobalEventBus({ emit: busEmit as never })
+    const parked = makeInstance('a', 'PAUSED')
+    const harness = makeHarness([parked])
+    harness.nativeUpdate.mockResolvedValueOnce(0 as never)
+
+    const summary = await runBulkReplay({
+      container: harness.container as never,
+      progressJobId: 'job-1',
+      action: 'retry',
+      ids: ['a'],
+      scope: SCOPE,
+    })
+
+    expect(summary).toMatchObject({ affectedCount: 0, skippedCount: 1, failedCount: 0 })
+    expect(executeWorkflow).not.toHaveBeenCalled()
+    expect(busEmit.mock.calls.filter((call) => call[0] === 'workflows.instance.resumed')).toHaveLength(0)
+    setGlobalEventBus({ emit: async () => {} })
+  })
+
+  test('a parked run whose resume write wins publishes resumed once; a FAILED one publishes nothing (#7186)', async () => {
+    const busEmit = jest.fn(async () => {})
+    setGlobalEventBus({ emit: busEmit as never })
+    const harness = makeHarness([makeInstance('a', 'PAUSED'), makeInstance('b', 'FAILED')])
+
+    const summary = await runBulkReplay({
+      container: harness.container as never,
+      progressJobId: 'job-1',
+      action: 'retry',
+      ids: ['a', 'b'],
+      scope: SCOPE,
+    })
+
+    expect(summary).toMatchObject({ affectedCount: 2, skippedCount: 0 })
+    const resumed = busEmit.mock.calls.filter((call) => call[0] === 'workflows.instance.resumed')
+    expect(resumed).toHaveLength(1)
+    expect(resumed[0][1]).toMatchObject({ id: 'a', status: 'RUNNING' })
+    expect(harness.nativeUpdate).toHaveBeenCalledTimes(1)
+    setGlobalEventBus({ emit: async () => {} })
   })
 
   test('skips an instance whose status the action cannot act on', async () => {

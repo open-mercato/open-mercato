@@ -33,7 +33,7 @@ import {
 import { workflowsTag, workflowErrorSchema } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { emitInstanceParkTransition } from '../../../../lib/instance-lifecycle-events'
+import { observeInstanceWait, resumeObservedInstanceWait } from '../../../../lib/instance-resume-claim'
 
 const logger = createLogger('workflows')
 
@@ -112,6 +112,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       )
     }
 
+    const observedWait = observeInstanceWait(instance)
+
     if (validation.data.action === 'stop') {
       instance.metadata = { ...(instance.metadata || {}), stepThrough: null }
       instance.updatedAt = new Date()
@@ -137,14 +139,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     // The instance was parked with PAUSED; every resume path flips it back to
-    // RUNNING before re-entering, and this one is no different.
+    // RUNNING before re-entering, and this one is no different. Two overlapping
+    // requests both read the same PAUSED snapshot, so the flip is a claim on the
+    // observed wait: only the winner drives the run and publishes `resumed`.
     if (instance.status === 'PAUSED') {
-      const previousInstanceStatus = instance.status
-      instance.status = 'RUNNING'
-      instance.pausedAt = null
-      instance.updatedAt = new Date()
-      await em.flush()
-      await emitInstanceParkTransition(instance, previousInstanceStatus)
+      const resumed = await resumeObservedInstanceWait(em, instance, observedWait, async () => {
+        instance.pausedAt = null
+        await em.flush()
+      })
+      if (!resumed) {
+        return NextResponse.json(
+          { error: 'This run was already resumed by another request', code: 'WORKFLOW_NOT_PAUSED' },
+          { status: 409 },
+        )
+      }
     }
 
     const result = await workflowExecutor.executeWorkflow(em, container, instance.id, {
@@ -194,6 +202,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Not a step-through run, or malformed payload', schema: workflowErrorSchema },
         { status: 403, description: 'Insufficient permissions', schema: workflowErrorSchema },
         { status: 404, description: 'Workflow instance not found', schema: workflowErrorSchema },
+        { status: 409, description: 'A concurrent request already resumed the run', schema: workflowErrorSchema },
       ],
     },
   },

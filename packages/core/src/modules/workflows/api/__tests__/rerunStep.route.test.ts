@@ -47,6 +47,7 @@ jest.mock('../../lib/workflow-executor', () => ({
   WorkflowExecutionError,
 }))
 
+import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { POST as rerunStep } from '../instances/[id]/rerun-step/route'
 import { WorkflowEventTypes } from '../../lib/event-logger'
 
@@ -67,7 +68,7 @@ type TerminalStepRow = {
 
 let terminalStep: TerminalStepRow
 let instance: Record<string, unknown>
-let mockEm: { findOne: jest.Mock; find: jest.Mock; flush: jest.Mock; refresh: jest.Mock }
+let mockEm: { findOne: jest.Mock; find: jest.Mock; flush: jest.Mock; refresh: jest.Mock; nativeUpdate: jest.Mock }
 let mockRbac: { userHasAllFeatures: jest.Mock }
 
 function makeRequest(body: unknown) {
@@ -113,6 +114,7 @@ beforeEach(() => {
     find: jest.fn(async () => [terminalStep]),
     flush: jest.fn(async () => undefined),
     refresh: jest.fn(async () => undefined),
+    nativeUpdate: jest.fn(async () => 1),
   }
   mockRbac = { userHasAllFeatures: jest.fn().mockResolvedValue(true) }
 
@@ -283,5 +285,62 @@ describe('POST /api/workflows/instances/[id]/rerun-step', () => {
         organizationId: orgId,
       })
     )
+  })
+
+  describe('resuming a PAUSED run (#7186)', () => {
+    let busEmit: jest.Mock
+    let row: Record<string, unknown>
+
+    const resumedCalls = () => busEmit.mock.calls.filter((call) => call[0] === 'workflows.instance.resumed')
+
+    beforeEach(() => {
+      busEmit = jest.fn(async () => {})
+      setGlobalEventBus({ emit: busEmit as never })
+      row = { ...instance, status: 'PAUSED', waitVersion: 2 }
+      mockEm.findOne.mockImplementation(async () => ({ ...row, metadata: { ...(row.metadata as object) } }))
+      mockEm.nativeUpdate.mockImplementation(async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+        const matches = Object.entries(where).every(([key, value]) => row[key] === value)
+        if (!matches) return 0
+        row = { ...row, status: data.status, waitVersion: (row.waitVersion as number) + 1 }
+        return 1
+      })
+    })
+
+    afterAll(() => {
+      setGlobalEventBus({ emit: async () => {} })
+    })
+
+    test('overlapping reruns: only the winning resume write replays and publishes resumed', async () => {
+      const responses = await Promise.all([
+        rerunStep(makeRequest({ stepId: 'charge' }), routeContext),
+        rerunStep(makeRequest({ stepId: 'charge' }), routeContext),
+      ])
+
+      expect(responses.map((response) => response.status).sort()).toEqual([200, 409])
+      expect(resumedCalls()).toHaveLength(1)
+      expect(executeStep).toHaveBeenCalledTimes(1)
+      expect(logWorkflowEvent).toHaveBeenCalledTimes(1)
+    })
+
+    test('a failed rerun write hands the wait back and publishes nothing', async () => {
+      mockEm.flush.mockRejectedValueOnce(new Error('write failed'))
+
+      const response = await rerunStep(makeRequest({ stepId: 'charge' }), routeContext)
+
+      expect(response.status).toBe(500)
+      expect(row.status).toBe('PAUSED')
+      expect(resumedCalls()).toHaveLength(0)
+      expect(executeStep).not.toHaveBeenCalled()
+    })
+
+    test('a FAILED run is not a resume: no claim and no resumed', async () => {
+      row = { ...row, status: 'FAILED' }
+
+      const response = await rerunStep(makeRequest({ stepId: 'charge' }), routeContext)
+
+      expect(response.status).toBe(200)
+      expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+      expect(resumedCalls()).toHaveLength(0)
+    })
   })
 })

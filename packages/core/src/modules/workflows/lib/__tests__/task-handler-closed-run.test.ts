@@ -124,6 +124,7 @@ function makeEm(task: Row, instance: Row | null) {
   })
 
   const flush = jest.fn(async () => undefined)
+  const nativeUpdate = jest.fn(async () => 1)
   const create = jest.fn((_entity: unknown, data: Row) => {
     const row = { ...data }
     events.push(row)
@@ -132,7 +133,8 @@ function makeEm(task: Row, instance: Row | null) {
   const persist = jest.fn(() => ({ flush }))
 
   return {
-    em: { findOne, flush, create, persist } as unknown as EntityManager,
+    em: { findOne, flush, create, persist, nativeUpdate } as unknown as EntityManager,
+    nativeUpdate,
     flush,
     create,
     persist,
@@ -390,6 +392,41 @@ describe('workflows.instance.resumed bus emission (#7186)', () => {
       status: 'RUNNING',
     })
     expect(resumedCalls()[0][1]).not.toHaveProperty('context')
+  })
+
+  test('overlapping completions of one PAUSED run: only the winning resume write publishes resumed and drives the run', async () => {
+    let row: Row = { ...makeInstance('PAUSED'), waitVersion: 3 }
+    const claim = async (_entity: unknown, where: Row, data: Row) => {
+      if (!Object.entries(where).every(([key, value]) => row[key] === value)) return 0
+      row = { ...row, status: data.status, waitVersion: (row.waitVersion as number) + 1 }
+      return 1
+    }
+    const first = makeEm(makeTask(), { ...row })
+    const second = makeEm(makeTask(), { ...row })
+    first.nativeUpdate.mockImplementation(claim as never)
+    second.nativeUpdate.mockImplementation(claim as never)
+
+    await Promise.all([complete(first.em), complete(second.em)])
+
+    expect(resumedCalls()).toHaveLength(1)
+    expect(transitionHandler.executeTransition).toHaveBeenCalledTimes(1)
+    expect(executeWorkflow).toHaveBeenCalledTimes(1)
+    expect(first.nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      { id: INSTANCE_ID, tenantId: TENANT, organizationId: ORG, status: 'PAUSED', currentStepId: 'review', waitVersion: 3 },
+      expect.objectContaining({ status: 'RUNNING' }),
+    )
+  })
+
+  test('a run another caller already resumed is neither driven nor announced again', async () => {
+    const harness = makeEm(makeTask(), makeInstance('PAUSED'))
+    harness.nativeUpdate.mockResolvedValue(0 as never)
+
+    await complete(harness.em)
+
+    expect(resumedCalls()).toHaveLength(0)
+    expect(transitionHandler.executeTransition).not.toHaveBeenCalled()
+    expect(executeWorkflow).not.toHaveBeenCalled()
   })
 
   test('completing the task of a RUNNING run emits nothing', async () => {

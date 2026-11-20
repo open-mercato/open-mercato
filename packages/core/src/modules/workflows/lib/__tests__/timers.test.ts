@@ -98,6 +98,7 @@ describe('WAIT_FOR_TIMER step', () => {
       persist: jest.fn(function persist(this: any) { return this }),
       persistAndFlush: jest.fn(),
       flush: jest.fn(),
+      nativeUpdate: jest.fn(async () => 1),
     } as any
 
     jest.clearAllMocks()
@@ -535,6 +536,35 @@ describe('WAIT_FOR_TIMER step', () => {
         status: 'RUNNING',
         stepId: 'timer_step',
       })
+    })
+
+    test('two deliveries of one timer: only the winning resume write drives the run and publishes resumed', async () => {
+      const busEmit = jest.fn(async () => {})
+      setGlobalEventBus({ emit: busEmit as never })
+      let row: Record<string, unknown> = { ...makeInstance({ status: 'PAUSED' }), waitVersion: 7 }
+      const definition = makeDefinition({ duration: 'PT5M' })
+      mockFindOneWithDecryption.mockImplementation((async (_em: unknown, entity: { name?: string }) => {
+        if (entity?.name === 'WorkflowInstance') return { ...row }
+        if (entity?.name === 'WorkflowDefinition') return definition
+        return { id: 'step-instance-1', stepId: 'timer_step', status: 'ACTIVE' }
+      }) as never)
+      ;(mockEm.nativeUpdate as jest.Mock).mockImplementation((async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+        if (!Object.entries(where).every(([key, value]) => row[key] === value)) return 0
+        row = { ...row, status: data.status, waitVersion: (row.waitVersion as number) + 1 }
+        return 1
+      }) as never)
+
+      const fire = () => fireTimer(mockEm, mockContainer, { instanceId, stepInstanceId: 'step-instance-1', tenantId, organizationId })
+      await Promise.all([fire(), fire()])
+
+      expect(busEmit.mock.calls.filter((call: unknown[]) => call[0] === 'workflows.instance.resumed')).toHaveLength(1)
+      expect(mockExecuteTransition).toHaveBeenCalledTimes(1)
+      expect(mockExecuteWorkflow).toHaveBeenCalledTimes(1)
+      expect(mockEm.nativeUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        { id: instanceId, tenantId, organizationId, status: 'PAUSED', currentStepId: 'timer_step', waitVersion: 7 },
+        expect.objectContaining({ status: 'RUNNING' }),
+      )
     })
 
     test('parking on a future timer emits paused exactly once', async () => {

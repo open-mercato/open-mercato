@@ -36,6 +36,7 @@ import {
   wakeConditionWaiters,
 } from '../condition-handler'
 import { enqueueConditionCheckJob } from '../activity-executor'
+import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import type { WorkflowDefinition, WorkflowInstance, StepInstance } from '../../data/entities'
 
 jest.mock('../activity-executor', () => {
@@ -147,6 +148,7 @@ describe('WAIT_FOR_CONDITION', () => {
       }),
       persistAndFlush: jest.fn(),
       flush: jest.fn(),
+      nativeUpdate: jest.fn(async () => 1),
     } as any
 
     mockExitStep = jest.fn().mockResolvedValue(undefined)
@@ -454,6 +456,42 @@ describe('WAIT_FOR_CONDITION', () => {
       )
       expect(mockExecuteWorkflow).toHaveBeenCalled()
       expect(mockEnqueueConditionCheckJob).not.toHaveBeenCalled()
+    })
+
+    test('a met condition with no valid route: overlapping wakes publish resumed only for the winning resume write (#7186)', async () => {
+      const busEmit = jest.fn(async () => {})
+      setGlobalEventBus({ emit: busEmit as never })
+      let row: Record<string, unknown> = {
+        ...makeInstance({ status: 'PAUSED', context: { payment: { status: 'captured' } } } as any),
+        waitVersion: 5,
+      }
+      const definition = makeDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' })
+      mockFindOneWithDecryption.mockImplementation((async (_em: unknown, entity: { name?: string }) => {
+        if (entity?.name === 'WorkflowInstance') return { ...row }
+        if (entity?.name === 'StepInstance') return makeStepInstance()
+        return definition
+      }) as never)
+      mockFindValidTransitions.mockResolvedValue([{ isValid: false }] as never)
+      ;(mockEm.nativeUpdate as jest.Mock).mockImplementation((async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+        if (!Object.entries(where).every(([key, value]) => row[key] === value)) return 0
+        row = { ...row, status: data.status, waitVersion: (row.waitVersion as number) + 1 }
+        return 1
+      }) as never)
+
+      const evaluate = () =>
+        evaluateWaitCondition(mockEm, mockContainer, {
+          instanceId,
+          stepInstanceId,
+          deadlineAt: futureDeadline(),
+          attempt: 1,
+          tenantId,
+          organizationId,
+        })
+      await Promise.all([evaluate(), evaluate()])
+
+      expect(row.status).toBe('RUNNING')
+      expect(busEmit.mock.calls.filter((call: unknown[]) => call[0] === 'workflows.instance.resumed')).toHaveLength(1)
+      setGlobalEventBus({ emit: async () => {} })
     })
 
     test('fails the workflow when the deadline passed and onTimeout is FAIL', async () => {

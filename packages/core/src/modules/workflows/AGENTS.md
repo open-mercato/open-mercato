@@ -565,9 +565,13 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   advance produces, and refreshes on `om:bridge:reconnected`. The broadcast payload is instance
   identity and state only — the bridge forwards it to every backoffice connection in the tenant +
   organization WITHOUT evaluating ACL features, which is why the task events stay off it.
-  `workflows.instance.paused`/`resumed` go through `emitInstanceParkTransition`
-  (`lib/instance-lifecycle-events.ts`): any NEW instance-level park or resume site MUST call it
-  with the status read before the write, so each real transition publishes exactly once.
+  `workflows.instance.paused` goes through `emitInstanceParkTransition`
+  (`lib/instance-lifecycle-events.ts`): any NEW instance-level park site MUST call it with the
+  status read before the write. A resume site MUST NOT flip `PAUSED → RUNNING` from its loaded
+  snapshot: overlapping callers all read the same PAUSED row. It MUST go through
+  `resumeObservedInstanceWait` (`lib/instance-resume-claim.ts`), a tenant/org-scoped conditional
+  write pinned to the observed step and `waitVersion` that publishes `resumed` only when it wins
+  (`sendSignal` keeps its own claim). The loser must neither drive the run nor publish.
 - **The failure queue is a UNION**, not a filter: attention-parked plus FAILED. The list route ANDs
   its `attention` and `status` filters and cannot express it, hence
   `GET api/instances/failure-queue`. Error grouping (`lib/failure-grouping.ts`, PURE) normalizes

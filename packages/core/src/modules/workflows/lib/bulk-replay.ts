@@ -20,7 +20,7 @@ import { WorkflowInstance } from '../data/entities'
 import * as workflowExecutor from './workflow-executor'
 import { isRetryableRunOutcome, type WorkflowRunOutcome } from './run-outcome'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
-import { emitInstanceParkTransition } from './instance-lifecycle-events'
+import { observeInstanceWait, resumeObservedInstanceWait } from './instance-resume-claim'
 
 const logger = createLogger('workflows')
 
@@ -96,23 +96,34 @@ async function retryInstance(
   em: EntityManager,
   container: AwilixContainer,
   instance: WorkflowInstance
-): Promise<void> {
+): Promise<boolean> {
   // A parked instance carries an engine-owned attention marker; clearing it is
   // what takes it out of the failure queue. It is deliberately cleared BEFORE
   // execution so a replay that parks again re-marks it honestly.
-  if (instance.metadata?.attention) {
-    instance.metadata = { ...instance.metadata, attention: null }
+  const applyRetry = async () => {
+    if (instance.metadata?.attention) {
+      instance.metadata = { ...instance.metadata, attention: null }
+    }
+    instance.status = 'RUNNING'
+    instance.retryCount = (instance.retryCount || 0) + 1
+    instance.errorMessage = null
+    instance.errorDetails = null
+    instance.updatedAt = new Date()
+    await em.flush()
   }
-  const previousInstanceStatus = instance.status
-  instance.status = 'RUNNING'
-  instance.retryCount = (instance.retryCount || 0) + 1
-  instance.errorMessage = null
-  instance.errorDetails = null
-  instance.updatedAt = new Date()
-  await em.flush()
-  await emitInstanceParkTransition(instance, previousInstanceStatus)
+
+  // A parked run may be resumed concurrently (a signal, a timer, a second
+  // batch), so leaving the wait is a claim: a run another caller already
+  // resumed is skipped, never replayed twice, and `resumed` publishes once.
+  if (instance.status === 'PAUSED') {
+    const resumed = await resumeObservedInstanceWait(em, instance, observeInstanceWait(instance), applyRetry)
+    if (!resumed) return false
+  } else {
+    await applyRetry()
+  }
 
   await workflowExecutor.executeWorkflow(em, container, instance.id)
+  return true
 }
 
 export async function runBulkReplay(params: {
@@ -156,8 +167,11 @@ export async function runBulkReplay(params: {
       if (!instance || !canApplyBulkReplay(action, instance.status, instance.outcome ?? null)) {
         skippedCount += 1
       } else if (action === 'retry') {
-        await retryInstance(em, container, instance)
-        affectedCount += 1
+        if (await retryInstance(em, container, instance)) {
+          affectedCount += 1
+        } else {
+          skippedCount += 1
+        }
       } else {
         await workflowExecutor.completeWorkflow(em, container, instance.id, 'CANCELLED')
         affectedCount += 1

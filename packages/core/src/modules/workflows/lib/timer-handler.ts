@@ -15,7 +15,7 @@ import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
 import type * as workflowExecutorModule from './workflow-executor'
 import { resolveCodeDefinitionForInstance } from './find-definition'
-import { emitInstanceParkTransition } from './instance-lifecycle-events'
+import { observeInstanceWait, resumeObservedInstanceWait } from './instance-resume-claim'
 
 export interface FireTimerOptions {
   instanceId: string
@@ -112,6 +112,8 @@ export async function fireTimer(
     )
   }
 
+  const observedWait = observeInstanceWait(instance)
+
   const definition = (await findOneWithDecryption(
     em as PostgreSqlEntityManager,
     WorkflowDefinition,
@@ -198,10 +200,7 @@ export async function fireTimer(
   )
 
   if (autoTransitions.length === 0) {
-    const previousInstanceStatus = instance.status
-    instance.status = 'RUNNING'
-    await em.flush()
-    await emitInstanceParkTransition(instance, previousInstanceStatus)
+    await resumeObservedInstanceWait(em, instance, observedWait)
     return
   }
 
@@ -220,21 +219,18 @@ export async function fireTimer(
   const firstValidTransition = validTransitions.find((t) => t.isValid)
 
   if (!firstValidTransition || !firstValidTransition.transition) {
-    const previousInstanceStatus = instance.status
-    instance.status = 'RUNNING'
-    await em.flush()
-    await emitInstanceParkTransition(instance, previousInstanceStatus)
+    await resumeObservedInstanceWait(em, instance, observedWait)
     return
   }
 
   // Resume from the paused wait BEFORE executing the transition, exactly as
   // `sendSignal` does. Without it the executor's defense-in-depth PAUSED check
   // stops the run at the very first step the timer traverses, so the instance
-  // sits at that step (typically END) as PAUSED and never completes.
-  const previousInstanceStatus = instance.status
-  instance.status = 'RUNNING'
-  await em.flush()
-  await emitInstanceParkTransition(instance, previousInstanceStatus)
+  // sits at that step (typically END) as PAUSED and never completes. Two
+  // deliveries of one timer job both pass the PAUSED check above, so the flip
+  // is a claim on the observed wait: only the winner drives the transition and
+  // publishes `resumed`.
+  if (!(await resumeObservedInstanceWait(em, instance, observedWait))) return
 
   const transitionResult = await transitionHandler.executeTransition(
     em,
