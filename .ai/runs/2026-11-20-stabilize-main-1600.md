@@ -58,6 +58,13 @@ The full configured local gate subsequently passed on `d88fe1dc4d` (unit retry a
 
 Queue debug logs and read-only inspection of the owned ephemeral database established the last cause: partition flags and extraction `searchIndexed` stats became false, but fourteen search projection rows remained because `query_index.delete_one` selected `deleted_at` from the hard-delete document-section table. PostgreSQL error `42703` rolled back the synchronous removal. Commit `1aa589d51b` changes both consistency-mode coverage probes to read the existing primary-key/scoped row without requiring that column; a present row lacking `deleted_at` stays live, a missing/soft-deleted row decrements base coverage. Tenant and organization predicates remain intact. Eight state/mode regressions cover this, with four failures on the original subscriber and all passing afterward; 37 combined query-index/queue/structure/purge regressions pass. No schema, API, public type or default changes. The existing consistency spec changelog records the correction. Rerun real toggle-off cleanup, the twelve affected cases and all current-head gates before completion.
 
+## Final source verification
+
+- Reviewed source head: `b290286776806a8ad926acfbd7b17b64d03e9a29`. [Full hosted CI44784964531](https://github.com/open-mercato/open-mercato/actions/runs/44784964531) passed all 15 integration shards and coverage merge, builds/generation, full typechecking/unit tests, root guards, i18n, lint, Docker, timezone and documents multi-instance checks. Every reported check and exact-head workflow settled successfully or was intentionally skipped. Dependency audit was scoped out, not executed.
+- Runner: local for the configured eight-command gate in order, all passing on this source; 51/51 unit tasks and the app build passed. Extra root scripts: 1,720 passed, zero failed, seven intentional skips. Task-local tooling supplied the runner's missing unzip/Buildx prerequisites; no production dependency or credential change was made.
+- Worker-disabled app-scoped integration run: all twelve affected cases passed together (5.1 minutes), including partition toggle-off, search/agent visibility, tenant/owner access, re-extraction, and message/staff attachment cleanup. The separate real toggle-off regression passed too. Assertions and timeouts were preserved. This proves the affected workers-disabled paths; no new package publication or full published standalone run is claimed.
+- The required ONE final independent review task `681643f5` approved this exact source head with zero findings after inspecting all nine changed files, security/scoping, compatibility, behavior and validation evidence. [Authoritative review](https://github.com/open-mercato/open-mercato/pull/10154#issuecomment-7047091723). The parent validated the report and proof. No child code was authored or merged. GitHub refused native self-approval by the App author; the review evidence does not bypass any native approval requirement.
+
 Claim run: `5032d9a6-7403-48b9-a8f0-93368de201fa`
 
 Engine: om-auto-create-pr (steps: 5, --loop: no)
@@ -74,7 +81,7 @@ PR: #10154
 ### Phase 2: Correct and verify
 
 - [x] 2.1 Fix demonstrated root causes with regression coverage, preserving behavior when no defect is established. — 2fb9c77989, 787062c0e3, d2b21f489e, 1aa589d51b
-- [ ] 2.2 Run configured validation and verify all applicable workflows, including 15 integration shards, on the exact PR head.
+- [x] 2.2 Run configured validation and verify all applicable workflows, including 15 integration shards, on the exact PR head. — b290286776
 
 ### Phase 3: Review and finalize
 
