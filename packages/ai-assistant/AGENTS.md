@@ -1160,7 +1160,7 @@ Request → Check x-api-key header → Validate against the api_keys table (find
 | **Validation** | Prefix-indexed lookup + bcrypt verification (`findApiKeyBySecret`) |
 | **Result** | Grants transport access only; tool calls fail closed (`UNAUTHORIZED`) without `_sessionToken` — no fallback (#5173) |
 
-**Code reference**: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts:219-235`
+**Code reference**: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts:734-749`
 
 ### Tier 2: User-Level Authentication (Session Tokens)
 
@@ -1459,7 +1459,7 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 
 ### 2026-11-12 - HTTP MCP server requires a per-user session token, no fallback (#5173)
 
-`createMcpServerForRequest`'s per-call tool handler always returns `UNAUTHORIZED` without `_sessionToken` — no opt-in fallback; `McpServerConfig`/`mcp:serve-http` carry no such field/flag. Operator access uses stdio `mcp:serve` (`OPEN_MERCATO_API_KEY`/`--user <id>`; `--allow-unauthenticated-superadmin`=DEV/TEST ONLY), not chat. See `BACKWARD_COMPATIBILITY.md`, `UPGRADE_NOTES.md`, spec `2026-11-14-mcp-http-session-required-no-fallback.md`. Tests: `lib/__tests__/http-server-auth-boundary.test.ts`.
+`createMcpServerForRequest`'s tool handler returns `UNAUTHORIZED` without `_sessionToken` — no fallback; `McpServerConfig`/`mcp:serve-http` carry no such field/flag. Operator access uses stdio `mcp:serve` (`OPEN_MERCATO_API_KEY`/`--user <id>`; `--allow-unauthenticated-superadmin`=DEV/TEST ONLY), not chat. See `BACKWARD_COMPATIBILITY.md`, `UPGRADE_NOTES.md`, spec `2026-11-14-mcp-http-session-required-no-fallback.md`. Tests: `lib/__tests__/http-server-auth-boundary.test.ts`.
 
 ### 2026-07-07 - Containerized MCP server + file-based key delivery
 
