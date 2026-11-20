@@ -23,6 +23,12 @@ Each preset needs an isolated database so previous setup runs cannot hide missin
 
 The published development snapshot built from `8aca00925` passed scaffold, install, generate, migrate, and initialize for classic, empty, CRM, and WMS on separate pgvector PostgreSQL databases. Each database contained three active users after initialization. The API-key fixes are already on main via #7473 and #7511. The published 0.9.0 packages still require the workaround tracked by #9615.
 
+The same clean-database check on published 0.9.0 passed classic, reproduced missing `ApiKey` metadata for empty and CRM, and reproduced the WMS migration failure on missing `message_channel_links` tracked by #9647.
+
+## Verification
+
+`yarn test:create-app:presets` passed against packages built from this branch and served by a private local Verdaccio registry. All 22 starter-preset unit tests and the full configured validation gate passed locally. The full repository test command passed on Node 24.22.3 after a Jest worker in the Expo package crashed on the first run with Node 24.19.0.
+
 ## Progress
 
 PR: #10079
@@ -36,4 +42,4 @@ PR: #10079
 ### Phase 2: Regression coverage
 
 - [x] 2.1 Add standalone initialization smoke coverage for the shipped presets — 9d6f7ff8a
-- [ ] 2.2 Run validation and review the PR
+- [x] 2.2 Run validation and review the PR — 9d6f7ff8a
