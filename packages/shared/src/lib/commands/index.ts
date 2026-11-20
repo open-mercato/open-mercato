@@ -26,4 +26,11 @@ export {
   type CrudCommandWriteScope,
   type CrudCommandWriteSideEffectTarget,
 } from './runCrudCommandWrite'
+export {
+  buildTrustedCommandContext,
+  type TrustedCommandContextInput,
+  type TrustedCommandContext,
+  type TrustedCommandAuditMetadata,
+  type TrustedCommandContextResult,
+} from './trusted-context'
 export { withAuditCorrelation, getAmbientAuditCorrelation } from './auditCorrelationScope'
