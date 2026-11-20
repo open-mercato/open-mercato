@@ -27,6 +27,7 @@ import {
   sendMessageEmailToRecipient,
 } from '../lib/email-sender'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { ensureMessagesEmailRetrySchedule } from '../lib/emailRetrySchedule'
 
 const logger = createLogger('messages').child({ component: 'send-email' })
 
@@ -439,6 +440,7 @@ async function deliverToExternalParticipants(
   }
 
   if (outcome.retry.length > 0) {
+    await ensureMessagesEmailRetrySchedule(ctx, { tenantId: message.tenantId, organizationId: message.organizationId ?? null })
     const nextAttemptAt = Math.min(...outcome.retry.map((entry) => entry.nextAttemptAt.getTime()))
     // A second of slack so the job never lands before the claim becomes due again.
     await enqueueMessageEmailJob(payload, { delayMs: Math.max(0, nextAttemptAt - Date.now()) + 1000 })

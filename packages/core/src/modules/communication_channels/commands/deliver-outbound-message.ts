@@ -24,6 +24,7 @@ import {
   settleExternalParticipants,
   type ExternalParticipantSettlement,
 } from '../../messages/lib/externalParticipants'
+import { ensureMessagesEmailRetrySchedule } from '../../messages/lib/emailRetrySchedule'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -714,6 +715,11 @@ const deliverOutboundMessageCommand: CommandHandler<
         await settleExternalParticipants(em, participantScope, settlement, { claimedUntil })
         if (retries.length === 0) {
           await recordExternalDeliverySummary(em, participantScope, { error: classification.message })
+        } else {
+          await ensureMessagesEmailRetrySchedule(ctx.container, {
+            tenantId: input.scope.tenantId,
+            organizationId: input.scope.organizationId ?? null,
+          })
         }
       }
 
