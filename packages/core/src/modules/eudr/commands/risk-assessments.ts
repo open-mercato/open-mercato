@@ -40,6 +40,7 @@ import {
   type RiskAssessmentUpdateInput,
 } from '../data/validators'
 import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
+import { guardUpdateRedo, withUpdateRedoLog } from '../lib/redo-guard'
 import { getCountryRiskTier } from '../lib/reference-data'
 
 const RISK_ASSESSMENT_ENTITY_ID = 'eudr:eudr_risk_assessment'
@@ -519,6 +520,7 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
       const record = await lockForUndo(entityManager, EudrRiskAssessment, unlockedRecord)
       if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.riskAssessmentNotFound' })
       const before = structuredClone(await buildRiskAssessmentSnapshot(entityManager, record))
+      await guardUpdateRedo(ctx, before)
       const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
       const previousConclusion = record.conclusion
       let statementTitle = ''
@@ -594,6 +596,7 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
     }
     return result
   },
+  redo: ({ input, ctx, logEntry }) => updateRiskAssessmentCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
   captureAfter: async (_rawInput, result) => updateRiskAssessmentSnapshots.get(result)?.after,
   buildLog: async ({ result }) => {
     const lockedSnapshots = updateRiskAssessmentSnapshots.get(result)
