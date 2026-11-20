@@ -88,7 +88,7 @@ function frozenSnapshot(line: OrderLineRow | undefined) {
 test.describe('TC-SALES-045: Omnibus snapshot on order lines', () => {
   test.describe.configure({ timeout: 240_000 });
 
-  test('captures the reference price on new lines and never recomputes it', async ({ request }) => {
+  [1, 2].forEach((firstPosition) => test(`captures the reference price and replays bulk insertion at ${firstPosition} then 1`, async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = uniqueStamp();
     let actor: OmnibusTenantActor | null = null;
@@ -184,14 +184,27 @@ test.describe('TC-SALES-045: Omnibus snapshot on order lines', () => {
       expect(frozenSnapshot((await readOrderLines(request, token, orderId)).find((line) => line.id === originalUpsert?.id))).toEqual(frozenSnapshot(originalUpsert));
       expect((await patchOmnibusConfig(request, token, { enabled: true })).status).toBe(200);
 
+      const beforeBatch = await readOrderLines(request, token, orderId);
       const bulkUpserted = await apiRequest(request, 'POST', '/api/sales/order-lines/batch', {
         token,
-        data: { orderId, lines: [pricedLine(`QA OMNI bulk ${stamp}`), pricedLine(`QA OMNI bulk second ${stamp}`)] },
+        data: { orderId, lines: [
+          { ...pricedLine(`QA OMNI bulk ${stamp}`), lineNumber: firstPosition },
+          { ...pricedLine(`QA OMNI bulk second ${stamp}`), lineNumber: 1 },
+        ] },
       });
       expect(bulkUpserted.status(), `bulk line create should be 200 (${await bulkUpserted.text()})`).toBe(200);
 
+      const bulkResult = await readJsonSafe<{ lineIds?: string[] }>(bulkUpserted);
       const bulkOperation = expectOperation(bulkUpserted, 'batch line creation');
       const captured = await readOrderLines(request, token, orderId);
+      const expectedNames = beforeBatch.map((line) => line.name);
+      expectedNames.splice(firstPosition - 1, 0, `QA OMNI bulk ${stamp}`);
+      expectedNames.unshift(`QA OMNI bulk second ${stamp}`);
+      expect(captured.map((line) => line.name)).toEqual(expectedNames);
+      expect(bulkResult?.lineIds).toEqual([
+        captured.find((line) => line.name === `QA OMNI bulk ${stamp}`)?.id,
+        captured.find((line) => line.name === `QA OMNI bulk second ${stamp}`)?.id,
+      ]);
       const createdLine = captured.find((line) => line.name === `QA OMNI created ${stamp}`);
       const upsertedLine = captured.find((line) => line.name === `QA OMNI upserted ${stamp}`);
       const bulkLine = captured.find((line) => line.name === `QA OMNI bulk ${stamp}`);
@@ -213,6 +226,8 @@ test.describe('TC-SALES-045: Omnibus snapshot on order lines', () => {
       expect((await readOrderLines(request, token, orderId)).some((line) => line.name?.startsWith('QA OMNI bulk '))).toBe(false);
       await redoOk(request, token, bulkOperation.logId, 'batch line creation');
       const restoredBatch = await readOrderLines(request, token, orderId);
+      expect(restoredBatch.map((line) => ({ id: line.id, name: line.name })))
+        .toEqual(captured.map((line) => ({ id: line.id, name: line.name })));
       for (const original of captured.filter((line) => line.name?.startsWith('QA OMNI bulk '))) {
         expect(frozenSnapshot(restoredBatch.find((line) => line.id === original.id))).toEqual(frozenSnapshot(original));
       }
@@ -246,7 +261,7 @@ test.describe('TC-SALES-045: Omnibus snapshot on order lines', () => {
       }
       await cleanupOmnibusTenantActor(request, superadminToken, actor);
     }
-  });
+  }));
 
   test('freezes the reference on quote lines and carries it through edit, undo/redo and conversion', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');

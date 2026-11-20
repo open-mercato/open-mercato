@@ -60,6 +60,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(
     async (em: TestEntityManager, entityClass: unknown, where: TestWhere) => {
       const world = em.world
+      if (readEntityName(entityClass) === 'SalesOrderLine' || readEntityName(entityClass) === 'SalesQuoteLine') {
+        return [...world.lines].sort((left, right) => left.lineNumber - right.lineNumber)
+      }
       if (entityClass === SalesShipment) {
         return world.shipments.filter((shipment) => shipment.deletedAt === null)
       }
@@ -231,6 +234,7 @@ type TestEntityManager = {
   begin: jest.Mock
   commit: jest.Mock
   rollback: jest.Mock
+  clear: jest.Mock
   find: jest.Mock
   findOne: jest.Mock
   count: jest.Mock
@@ -264,6 +268,7 @@ function makeEm(world: World, trace: string[] = []): TestEntityManager {
     rollback: jest.fn(async () => {
       trace.push('rollback')
     }),
+    clear: jest.fn(),
     find: jest.fn(async (entityClass: unknown, where: TestWhere) => {
       const entityName = readEntityName(entityClass)
       findCounts[entityName] = (findCounts[entityName] ?? 0) + 1
@@ -521,6 +526,99 @@ describe('sales.orders.lines.upsert_many', () => {
       expect(world.lines.find((line) => line.id === id)).toMatchObject({ ...frozen, omnibusPromotionAnchorAt: new Date(frozen.omnibusPromotionAnchorAt) })
     }
     expect(harness.em.flush).toHaveBeenCalledTimes(1)
+  })
+
+  describe.each([true, false])('bulk replay with logged result IDs: %s', (hasResultIds) => {
+    it.each([
+      { lineCount: 1, firstPosition: 1, mixed: false, expected: ['New B', 'New A', 'Line 1'] },
+      { lineCount: 2, firstPosition: 2, mixed: false, expected: ['New B', 'Line 1', 'New A', 'Line 2'] },
+      { lineCount: 4, firstPosition: 2, mixed: true, expected: ['New B', 'Moved', 'Edited', 'New A', 'Line 3'] },
+    ])('preserves input placement at $firstPosition with $lineCount initial lines (mixed: $mixed)', async ({ lineCount, firstPosition, mixed, expected }) => {
+      const world = makeWorld(lineCount)
+      const before = { order: { ...world.order }, lines: world.lines.map((line) => ({ ...line })) }
+      const lines = [
+        newLineBody(1, { name: 'New A', lineNumber: firstPosition }),
+        ...(mixed ? [{ id: world.lines[3].id, currencyCode: 'USD', quantity: 1, name: 'Moved', lineNumber: 1 }] : []),
+        newLineBody(2, { name: 'New B', lineNumber: 1 }),
+        ...(mixed ? [{ id: world.lines[0].id, currencyCode: 'USD', quantity: 2, name: 'Edited' }] : []),
+      ]
+      const body = { lines, ...(mixed ? { deleteIds: [world.lines[1].id] } : {}) }
+      const original = await runBulk(world, body)
+      expect(original.caught).toBeUndefined()
+      expect(lineNames(world)).toEqual(expected)
+      expect(original.result?.lineIds.map((id) => world.lines.find((line) => line.id === id)?.name))
+        .toEqual(mixed ? ['New A', 'Moved', 'New B', 'Edited'] : ['New A', 'New B'])
+      const frozen = (line: TestLine) => ({
+        omnibusReferenceNet: line.omnibusReferenceNet,
+        omnibusReferenceGross: line.omnibusReferenceGross,
+        omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt,
+        omnibusApplicabilityReason: line.omnibusApplicabilityReason,
+        isPersonalized: line.isPersonalized,
+        personalizationReason: line.personalizationReason,
+      })
+      for (const line of world.lines.filter((line) => !before.lines.some((previous) => previous.id === line.id))) {
+        Object.assign(line, line.name === 'New A' ? {
+          omnibusReferenceNet: '100000000000000.1234567890123456789',
+          omnibusReferenceGross: '123000000000000.1234567890123456789',
+          omnibusPromotionAnchorAt: new Date('2026-05-01T00:00:00.000Z'),
+          omnibusApplicabilityReason: 'announced_promotion',
+          isPersonalized: true,
+          personalizationReason: 'user_specific_price',
+        } : {
+          omnibusReferenceNet: null,
+          omnibusReferenceGross: null,
+          omnibusPromotionAnchorAt: null,
+          omnibusApplicabilityReason: null,
+          isPersonalized: false,
+          personalizationReason: null,
+        })
+      }
+      const after = { order: { ...world.order }, lines: orderedLines(world).map((line) => ({ ...line })) }
+      const input = { body: { organizationId: ORG_ID, tenantId: TENANT_ID, orderId: ORDER_ID, ...body } }
+      const originalInput = structuredClone(input)
+      const harness = makeHarness(world)
+      const log = await bulkHandler().buildLog!({ input, ctx: harness.ctx, result: original.result, snapshots: { before, after } } as never)
+      const payload = log?.payload as { undo: { lineIds?: string[] } }
+      if (!hasResultIds) delete payload.undo.lineIds
+      world.lines = before.lines.map((line) => ({ ...line }))
+      Object.assign(world.order, before.order)
+      await bulkHandler().prepare!(input, harness.ctx as never)
+
+      const replayed = await bulkHandler().redo!({ input, ctx: harness.ctx, logEntry: { commandPayload: payload } } as never) as BulkResult
+
+      expect(lineNames(world)).toEqual(expected)
+      expect(replayed.lineIds).toEqual(original.result?.lineIds)
+      expect(orderedLines(world).map((line) => ({ id: line.id, ...projectLine(line) })))
+        .toEqual(after.lines.map((line) => ({ id: line.id, ...projectLine(line) })))
+      for (const line of after.lines.filter((line) => !before.lines.some((previous) => previous.id === line.id))) {
+        expect(frozen(world.lines.find((current) => current.id === line.id)!)).toEqual(frozen(line))
+      }
+      expect(input).toEqual(originalInput)
+      expect(harness.em.clear).toHaveBeenCalledTimes(1)
+      const replayAfter = await bulkHandler().captureAfter!(input, replayed, harness.ctx as never)
+      const replayLog = await bulkHandler().buildLog!({ input, ctx: harness.ctx, result: replayed, snapshots: { after: replayAfter } } as never)
+      const replayPayload = replayLog?.payload as { undo: { before: { lines: TestLine[] }; after: { lines: TestLine[] } } }
+      expect(replayPayload.undo.before.lines.map((line) => line.id)).toEqual(before.lines.map((line) => line.id))
+      expect(replayPayload.undo.after.lines.map((line) => line.id)).toEqual(after.lines.map((line) => line.id))
+      expect(harness.em.commit).toHaveBeenCalledTimes(1)
+      expect(harness.trace.indexOf(`emit:${TOTALS_EVENT}`)).toBeGreaterThan(harness.trace.lastIndexOf('commit'))
+    })
+  })
+
+  it('does not accept frozen replay snapshots from a request body', async () => {
+    const world = makeWorld(1)
+    const supplied = {
+      omnibusReferenceNet: '100000000000000.1234567890123456789',
+      omnibusReferenceGross: '123000000000000.1234567890123456789',
+      omnibusPromotionAnchorAt: '2026-05-01T00:00:00.000Z',
+      omnibusApplicabilityReason: 'announced_promotion',
+      isPersonalized: true,
+      personalizationReason: 'user_specific_price',
+    }
+    const { caught, result } = await runBulk(world, { lines: [newLineBody(1, supplied)] })
+    expect(caught).toBeUndefined()
+    const created = world.lines.find((line) => line.id === result?.lineIds[0])!
+    for (const key of Object.keys(supplied)) expect(created[key] ?? null).toBeNull()
   })
 
   it('reaches the same line set and totals as the equivalent sequence of single upserts', async () => {

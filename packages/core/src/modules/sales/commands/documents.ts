@@ -9236,17 +9236,26 @@ const orderLineBulkUpsertCommand: CommandHandler<
     };
     const body = input.body ?? {};
     const originalLines = Array.isArray(body.lines) ? body.lines : [];
-    const affectedIds = new Set(originalLines.flatMap((line) => {
-      if (!line || typeof line !== "object" || !("id" in line) || typeof line.id !== "string") return [];
-      return [line.id];
-    }));
-    created.forEach((line) => affectedIds.add(line.id));
-    const snapshotsById = new Map(payload.after.lines.map((line) => [line.id, line]));
-    const lineIds = payload.lineIds ?? payload.after.lines.filter((line) => affectedIds.has(line.id)).map((line) => line.id);
-    const lines = lineIds.flatMap((id) => {
-      const line = snapshotsById.get(id);
-      return line ? [Object.fromEntries(Object.entries(line).filter(([, value]) => value !== null))] : [];
-    });
+    let lineIds = payload.lineIds;
+    if (!lineIds) {
+      const parsed = orderLineBulkUpsertSchema.parse(body);
+      const deleteIds = new Set(parsed.deleteIds);
+      let projectedLines = payload.before.lines
+        .filter((line) => !deleteIds.has(line.id))
+        .sort((left, right) => left.lineNumber - right.lineNumber);
+      const snapshotsById = new Map(payload.after.lines.map((line) => [line.id, line]));
+      let createdIndex = 0;
+      const provisionalIds = parsed.lines.map((entry) => {
+        const line = entry.id ? snapshotsById.get(entry.id) : created[createdIndex++];
+        if (!line) throw badRequest("[internal] sales line redo snapshot unavailable");
+        projectedLines = placeOrderLine(projectedLines, line, entry.lineNumber ?? null);
+        return line.id;
+      });
+      const finalLines = [...payload.after.lines].sort((left, right) => left.lineNumber - right.lineNumber);
+      const finalIds = new Map(projectedLines.map((line, index) => [line.id, finalLines[index]?.id]));
+      lineIds = provisionalIds.map((id) => previousIds.has(id) ? id : finalIds.get(id));
+    }
+    const lines = originalLines.map((line, index) => ({ ...line, id: lineIds[index] }));
     return orderLineBulkUpsertCommand.execute(replayLineInput(input, { ...body, lines }), replayCtx);
   },
 };
