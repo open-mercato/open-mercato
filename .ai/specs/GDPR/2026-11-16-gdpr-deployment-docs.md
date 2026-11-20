@@ -251,7 +251,7 @@ Sources: [GDPR Art. 28(3)(g)](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [E
   - **A database dump is not a return.** Field encryption is on by default, so encrypted columns are ciphertext without the deployment's keys.
   - OSS: list exports per module (`exportScope=full`). Attachment files: copy the storage paths with segment `tenant_<id>` from the storage root or S3 bucket.
   - Enterprise: `mercato privacy export-tenant --tenant <id> --out <dir>` writes decrypted rows per table, the files and a manifest of what was left out (hashes, tokens, credentials). Subject exports where per-person files are needed.
-  - Hand the export over an encrypted channel.
+  - Review the manifest, resolve incomplete export sources through their module or provider procedure, and record any deliberate exclusions with the controller. If the controller chose return, verify receipt through an encrypted channel before applying purge.
 - **Delete.**
   - Soft-delete the tenant. `directory/commands/tenants.ts:203-209` only sets `deleted_at`.
   - Enterprise: `mercato privacy purge-tenant --tenant <id>` dry run, then `--apply --out`. It removes files, search entries and rows.
