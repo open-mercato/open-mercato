@@ -32,7 +32,7 @@ function setup(rowsFor: RecordedRows) {
 }
 
 describe('listMergedTodoPage', () => {
-  it('counts and pages both sources in one scoped query, hiding bridged links and deleted tasks', async () => {
+  it('counts and pages both sources through the same scoped union, hiding bridged links and deleted tasks', async () => {
     const { run, queries } = setup((query) => (isCountQuery(query) ? [{ total: '120' }] : []))
 
     const result = await run({ page: 3, pageSize: 50, entityId: PERSON })
