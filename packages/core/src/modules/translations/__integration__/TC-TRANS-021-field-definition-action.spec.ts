@@ -7,7 +7,7 @@ import { deleteTranslationIfExists, getLocales, setLocales } from './helpers/tra
 
 export const integrationMeta = { dependsOnModules: ['translations', 'entities'] }
 
-test('TC-TRANS-020: injected field action saves labels, descriptions and option translations', async ({ page, request, baseURL }) => {
+test('TC-TRANS-021: injected field action saves labels, descriptions and option translations', async ({ page, request, baseURL }) => {
   const token = await getAuthToken(request, 'superadmin')
   const originalLocales = await getLocales(request, token)
   const entityId = uniqueEntityId('translated_fields')

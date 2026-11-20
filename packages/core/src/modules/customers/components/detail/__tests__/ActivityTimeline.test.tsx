@@ -103,6 +103,57 @@ it.each([
   expect(screen.queryByText(/12:34/)).not.toBeInTheDocument()
 })
 
+describe('ActivityTimeline delete affordance', () => {
+  it('keeps delete inside the overflow menu and forwards the activity to onDelete', async () => {
+    const onDelete = jest.fn()
+    const onEdit = jest.fn()
+    const activity = createActivity({ interactionType: 'call', title: 'Intro call' })
+    renderWithProviders(<ActivityTimeline activities={[activity]} onEdit={onEdit} onDelete={onDelete} />)
+
+    expect(screen.queryByRole('menuitem', { name: 'Delete activity' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete activity' }))
+
+    await waitFor(() => {
+      expect(onDelete).toHaveBeenCalledWith(activity)
+    })
+    expect(onEdit).not.toHaveBeenCalled()
+  })
+
+  it('offers Edit in the same menu and opens the activity for editing', async () => {
+    const onEdit = jest.fn()
+    const activity = createActivity()
+    renderWithProviders(<ActivityTimeline activities={[activity]} onEdit={onEdit} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    expect(screen.queryByRole('menuitem', { name: 'Delete activity' })).toBeNull()
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }))
+
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    expect(onEdit).toHaveBeenCalledWith(activity)
+  })
+
+  it('leaves Delete out of the menu for a row the user may not delete, and keeps Edit', async () => {
+    const onDelete = jest.fn()
+    const onEdit = jest.fn()
+    const activity = createActivity({ status: 'done' })
+    renderWithProviders(
+      <ActivityTimeline activities={[activity]} onEdit={onEdit} onDelete={onDelete} canDelete={() => false} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    expect(await screen.findByRole('menuitem', { name: 'Edit' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'Delete activity' })).toBeNull()
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+
+  it('does not render the overflow menu when the row has no actions', () => {
+    renderWithProviders(<ActivityTimeline activities={[createActivity()]} />)
+    expect(screen.queryByRole('button', { name: 'Open actions' })).toBeNull()
+  })
+})
+
 describe('ActivityTimeline Mark done version', () => {
   it('sends the version of the row as it is now, after a reload replaced it with a newer one', async () => {
     const onMarkDone = jest.fn(async () => {})
