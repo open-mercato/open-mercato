@@ -766,7 +766,7 @@ describe('SUB_WORKFLOW start-time child selection is unchanged (#7184)', () => {
     )
 
     expect(result.status).toBe('COMPLETED')
-    expect(startWorkflowSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workflowId: 'child-workflow', version: 1 }))
+    expect(startWorkflowSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workflowId: 'child-workflow', version: 1, allowRetainedCodeVersion: true }))
     startWorkflowSpy.mockRestore()
     executeWorkflowSpy.mockRestore()
   })

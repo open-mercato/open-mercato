@@ -267,6 +267,7 @@ describe('workflow-level error handler — execution', () => {
         }),
         tenantId: testTenantId,
         organizationId: testOrgId,
+        allowRetainedCodeVersion: true,
       })
     )
     expect(executeWorkflowSpy).toHaveBeenCalledWith(em, container, handlerInstanceId)

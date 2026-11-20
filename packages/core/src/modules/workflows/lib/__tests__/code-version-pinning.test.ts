@@ -3,7 +3,8 @@
  *
  * The code registry retains every exported version of a workflow; new starts
  * use the highest version and an in-flight instance keeps resolving the
- * version it persisted at start (`instance.version`).
+ * version it persisted at start (`instance.version`). Only trusted definition
+ * pins (`allowRetainedCodeVersion`) may start a retained older version.
  */
 
 import { describe, test, expect, beforeEach, jest } from '@jest/globals'
@@ -195,12 +196,48 @@ describe('version-pinned definition resolution', () => {
     const em = { findOne: jest.fn(async () => null) } as unknown as EntityManager
 
     const latest = await findWorkflowDefinition(em, { workflowId: 'res.start', tenantId, organizationId })
-    const pinned = await findWorkflowDefinition(em, { workflowId: 'res.start', version: 1, tenantId, organizationId })
 
     expect(latest?.version).toBe(2)
     expect(stepIds(latest)).toContain('path_v2')
+  })
+
+  test('caller-supplied version input cannot select a retained older code version', async () => {
+    registerCodeWorkflows([codeWorkflow('res.untrusted', 1, 'path_v1'), codeWorkflow('res.untrusted', 2, 'path_v2')])
+    const em = { findOne: jest.fn(async () => null) } as unknown as EntityManager
+
+    const requested = await findWorkflowDefinition(em, { workflowId: 'res.untrusted', version: 1, tenantId, organizationId })
+
+    expect(requested?.version).toBe(2)
+    expect(stepIds(requested)).toContain('path_v2')
+    expect(stepIds(requested)).not.toContain('path_v1')
+  })
+
+  test('a trusted definition pin still resolves the retained version', async () => {
+    registerCodeWorkflows([codeWorkflow('res.trusted', 1, 'path_v1'), codeWorkflow('res.trusted', 2, 'path_v2')])
+    const em = { findOne: jest.fn(async () => null) } as unknown as EntityManager
+
+    const pinned = await findWorkflowDefinition(em, {
+      workflowId: 'res.trusted',
+      version: 1,
+      tenantId,
+      organizationId,
+      allowRetainedCodeVersion: true,
+    })
+
     expect(pinned?.version).toBe(1)
     expect(stepIds(pinned)).toContain('path_v1')
+  })
+
+  test('an explicit version still selects a DB-defined row for untrusted callers', async () => {
+    const dbRow = { id: 'db-row', workflowId: 'res.db', version: 1 }
+    const findOne = jest.fn(async (_entity: unknown, where: Record<string, unknown>) =>
+      where.version === 1 ? dbRow : null)
+    const em = { findOne } as unknown as EntityManager
+
+    const resolved = await findWorkflowDefinition(em, { workflowId: 'res.db', version: 1, tenantId, organizationId })
+
+    expect(resolved).toBe(dbRow)
+    expect(findOne).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workflowId: 'res.db', version: 1 }))
   })
 
   test('a missing pinned version falls back to the latest with a single warning per process', async () => {
@@ -209,14 +246,44 @@ describe('version-pinned definition resolution', () => {
 
     const fromInstance = resolveCodeDefinitionForInstance(instanceOf('res.missing', 1))
     const again = resolveCodeDefinitionForInstance(instanceOf('res.missing', 1))
-    const fromStart = await findWorkflowDefinition(em, { workflowId: 'res.missing', version: 1, tenantId, organizationId })
+    const fromTrustedPin = await findWorkflowDefinition(em, {
+      workflowId: 'res.missing',
+      version: 1,
+      tenantId,
+      organizationId,
+      allowRetainedCodeVersion: true,
+    })
 
     expect(fromInstance?.version).toBe(2)
     expect(again?.version).toBe(2)
-    expect(fromStart?.version).toBe(2)
+    expect(fromTrustedPin?.version).toBe(2)
     const warnings = warnCallsFor('res.missing')
     expect(warnings).toHaveLength(1)
     expect(warnings[0][1]).toEqual({ workflowId: 'res.missing', requestedVersion: 1, resolvedVersion: 2 })
+  })
+
+  test('the missing-version warning state stays bounded by workflow, not by requested version', () => {
+    registerCodeWorkflows([codeWorkflow('res.bounded', 2, 'path_v2')])
+
+    for (let requested = 1000; requested < 1500; requested += 1) {
+      expect(resolveCodeDefinitionForInstance(instanceOf('res.bounded', requested))?.version).toBe(2)
+    }
+
+    expect(warnCallsFor('res.bounded')).toHaveLength(1)
+  })
+
+  test('untrusted start input never reaches the missing-version warning', async () => {
+    registerCodeWorkflows([codeWorkflow('res.quiet', 2, 'path_v2')])
+    const em = { findOne: jest.fn(async () => null) } as unknown as EntityManager
+
+    for (let requested = 1; requested <= 20; requested += 1) {
+      const resolved = await findWorkflowDefinition(em, { workflowId: 'res.quiet', version: requested, tenantId, organizationId })
+      expect(resolved?.version).toBe(2)
+    }
+
+    expect(warnCallsFor('res.quiet')).toHaveLength(0)
+    resolveCodeDefinitionForInstance(instanceOf('res.quiet', 1))
+    expect(warnCallsFor('res.quiet')).toHaveLength(1)
   })
 
   test('an instance without a version resolves the latest (narrow external callers)', () => {
@@ -342,6 +409,30 @@ describe('executor regression: an in-flight instance follows its pinned version'
       .map((row) => row.stepId)
     expect(freshSteps).toContain('path_v2')
     expect(freshSteps).not.toContain('path_v1')
+  })
+
+  test('a start with an explicit version runs the latest code version unless the pin is trusted', async () => {
+    registerCodeWorkflows([codeWorkflow('exec.boundary', 1, 'path_v1'), codeWorkflow('exec.boundary', 2, 'path_v2')])
+    const { em, rows } = createInMemoryEm()
+
+    const requested = await workflowExecutor.startWorkflow(em, { workflowId: 'exec.boundary', version: 1, tenantId, organizationId })
+    expect(requested.version).toBe(2)
+    const requestedResult = await workflowExecutor.executeWorkflow(em, container, requested.id)
+    expect(requestedResult.status).toBe('COMPLETED')
+    const requestedSteps = rows('StepInstance')
+      .filter((row) => row.workflowInstanceId === requested.id)
+      .map((row) => row.stepId)
+    expect(requestedSteps).toContain('path_v2')
+    expect(requestedSteps).not.toContain('path_v1')
+
+    const trusted = await workflowExecutor.startWorkflow(em, {
+      workflowId: 'exec.boundary',
+      version: 1,
+      allowRetainedCodeVersion: true,
+      tenantId,
+      organizationId,
+    })
+    expect(trusted.version).toBe(1)
   })
 
   test('a single-version workflow runs unchanged', async () => {

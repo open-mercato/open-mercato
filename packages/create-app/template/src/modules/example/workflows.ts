@@ -89,8 +89,33 @@ function versionPinningFixture(version: 1 | 2) {
   })
 }
 
+const versionPinningParentFixture = defineWorkflow({
+  workflowId: 'example.version-pinning-parent-fixture',
+  workflowName: 'Example Version Pinning Parent Fixture',
+  description: 'Integration-test fixture: a trusted SUB_WORKFLOW pin that starts the retained v1 of the version-pinning fixture.',
+  version: 1,
+  metadata: {
+    category: 'Example',
+    tags: ['example', 'integration-test'],
+  },
+  steps: [
+    { stepId: 'start', stepName: 'Start', stepType: 'START' },
+    {
+      stepId: 'call_pinned_v1',
+      stepName: 'Call pinned v1',
+      stepType: 'SUB_WORKFLOW',
+      config: { subWorkflowId: VERSION_PINNING_FIXTURE_WORKFLOW_ID, version: 1, inputMapping: {}, outputMapping: {} },
+    },
+    { stepId: 'end', stepName: 'End', stepType: 'END' },
+  ],
+  transitions: [
+    { transitionId: 'start_to_call_pinned_v1', fromStepId: 'start', toStepId: 'call_pinned_v1', trigger: 'auto', priority: 0 },
+    { transitionId: 'call_pinned_v1_to_end', fromStepId: 'call_pinned_v1', toStepId: 'end', trigger: 'auto', priority: 0 },
+  ],
+})
+
 const integrationTestWorkflows = parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
-  ? [versionPinningFixture(1), versionPinningFixture(2)]
+  ? [versionPinningFixture(1), versionPinningFixture(2), versionPinningParentFixture]
   : []
 
 export const workflowsConfig = createWorkflowsModuleConfig({

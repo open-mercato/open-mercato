@@ -15,7 +15,13 @@ import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workfl
 
 const logger = createLogger('workflows')
 
-const warnedMissingCodeVersions = new Set<string>()
+/**
+ * Workflow ids that already logged a missing pinned code version in this
+ * process. Keyed by `workflowId` only, so the set can never outgrow the code
+ * registry: an unregistered id returns before it is touched, and the requested
+ * version — the only unbounded part — is never part of the key.
+ */
+const warnedMissingCodeVersionWorkflowIds = new Set<string>()
 
 /**
  * Generate a deterministic UUID for a code workflow definition.
@@ -43,6 +49,14 @@ export function codeWorkflowUuid(workflowId: string): string {
  *
  * When no DB row exists but a code definition is registered, a virtual
  * WorkflowDefinition-like object is constructed with a deterministic UUID.
+ *
+ * Code definitions resolve their LATEST registered version unless the caller
+ * sets `allowRetainedCodeVersion`. Only trusted, definition-authored pins
+ * (a SUB_WORKFLOW step's `config.version`, a workflow-level error handler's
+ * `version`) may set it: a retained older version can predate approval or
+ * validation steps the latest version added, so caller-supplied start input
+ * (`POST /api/workflows/instances`, validate-start, AI tools) MUST NOT reach
+ * it. Explicit `version` selection of DB-defined rows is unaffected.
  */
 export async function findWorkflowDefinition(
   em: EntityManager,
@@ -51,9 +65,10 @@ export async function findWorkflowDefinition(
     version?: number
     tenantId: string
     organizationId: string
+    allowRetainedCodeVersion?: boolean
   },
 ): Promise<WorkflowDefinition | null> {
-  const { workflowId, version, tenantId, organizationId } = options
+  const { workflowId, version, tenantId, organizationId, allowRetainedCodeVersion = false } = options
 
   // 1. Try database first
   const where: Record<string, unknown> = {
@@ -82,10 +97,12 @@ export async function findWorkflowDefinition(
     if (dbDef) return dbDef
   }
 
-  // 2. Fall back to code registry: an explicit version resolves that retained
-  // code version (latest + warning when it is not registered), no version
-  // resolves the latest.
-  const codeDef = resolveCodeWorkflowVersion(workflowId, version)
+  // 2. Fall back to code registry: a trusted explicit version resolves that
+  // retained code version (latest + warning when it is not registered); an
+  // untrusted or absent version resolves the latest.
+  const codeDef = allowRetainedCodeVersion
+    ? resolveCodeWorkflowVersion(workflowId, version)
+    : getCodeWorkflow(workflowId)
   if (!codeDef) return null
 
   // When no version was requested, mirror the DB branch's `enabled = true` filter
@@ -99,8 +116,8 @@ export async function findWorkflowDefinition(
  * Resolve a code workflow version: the exact retained version when `version`
  * is given and registered, otherwise the highest registered version. A pinned
  * version that is not registered (removed from code, or never retained) falls
- * back to the latest and logs one warning per `(workflowId, version)` per
- * process.
+ * back to the latest and logs one warning per `workflowId` per process.
+ * Reached only by persisted instance pins and trusted definition pins.
  */
 function resolveCodeWorkflowVersion(
   workflowId: string,
@@ -111,9 +128,8 @@ function resolveCodeWorkflowVersion(
   if (typeof version !== 'number') return latest
   const exact = getCodeWorkflowVersion(workflowId, version)
   if (exact) return exact
-  const warningKey = `${workflowId}@${version}`
-  if (!warnedMissingCodeVersions.has(warningKey)) {
-    warnedMissingCodeVersions.add(warningKey)
+  if (!warnedMissingCodeVersionWorkflowIds.has(workflowId)) {
+    warnedMissingCodeVersionWorkflowIds.add(workflowId)
     logger.warn('Pinned code workflow version is not registered — falling back to the latest version', {
       workflowId,
       requestedVersion: version,
@@ -163,7 +179,7 @@ function buildVirtualCodeDefinition(
  * Every version of a code workflow shares that UUID, so the instance's
  * persisted `version` pins which retained code version it runs on. A missing
  * `version` resolves the latest; a version no longer registered falls back to
- * the latest with a once-per-process warning.
+ * the latest with a once-per-workflow, per-process warning.
  */
 export function resolveCodeDefinitionForInstance(instance: {
   definitionId: string
