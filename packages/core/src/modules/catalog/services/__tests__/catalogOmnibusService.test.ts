@@ -860,7 +860,7 @@ describe('catalogOmnibusService member-state derogations', () => {
     expect(windowIdsMock).toHaveBeenCalledTimes(1)
   })
 
-  it('falls back for the integration fixture overflowing the campaign at runtime', async () => {
+  it.each(['product', 'offer'] as const)('falls back within %s history scope when the campaign overflows', async (scope) => {
     const day = 24 * 60 * 60 * 1000
     const current = addProgressiveCampaign([20, 16, 12].map((days, index) => [
       String(90 - index * 10), new Date(TODAY.getTime() - days * day).toISOString(),
@@ -869,12 +869,17 @@ describe('catalogOmnibusService member-state derogations', () => {
       addRow({ gross: row.unitPriceGross, net: row.unitPriceNet, recordedAt: row.recordedAt.toISOString(), offerId: OFFER })
     }
     const block = await buildService(derogationConfig({ progressiveReductionRule: true })).resolveOmnibusBlock(
-      em, ctx(), presentedFrom(current),
+      em, ctx(scope === 'offer' ? { offerId: OFFER } : {}), presentedFrom(current),
     )
-    expect(block).toMatchObject({ applicabilityReason: 'announced_promotion', lowestPriceGross: '100.0000' })
+    expect(block).toMatchObject(scope === 'offer'
+      ? { applicabilityReason: 'no_history', lowestPriceGross: null, lowestPriceNet: null }
+      : { applicabilityReason: 'announced_promotion', lowestPriceGross: '100.0000' })
     expect(campaignIdsMock).toHaveBeenCalledWith(em, [expect.objectContaining({ asOf: TODAY })])
     expect((await campaignIdsMock.mock.results[0].value)[0]).toMatchObject({ campaignTruncated: true })
     expect(windowIdsMock).toHaveBeenCalledTimes(1)
+    expect(windowIdsMock).toHaveBeenCalledWith(em, [expect.objectContaining({
+      scopeColumn: scope === 'offer' ? 'offer_id' : 'product_id', scopeId: scope === 'offer' ? OFFER : PRODUCT,
+    })])
   })
 
   it('ignores future observations instead of calling an in-cap campaign overflowed', async () => {

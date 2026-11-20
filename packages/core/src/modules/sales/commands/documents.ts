@@ -243,40 +243,112 @@ function buildDocumentCreateReplay(
   inputLines: Array<Partial<OrderLineCreateInput>>,
   lineIds?: string[],
 ): DocumentCreateReplay {
-  const remaining = [...lines];
-  const replayLines = inputLines.map((inputLine, index) => {
-    let candidates = remaining.filter((line) => lineIds
+  if (lines.length !== inputLines.length || (lineIds !== undefined && (!Array.isArray(lineIds) || lineIds.length !== lines.length))) {
+    throw badRequest("[internal] sales document redo line count mismatch");
+  }
+  const validIds = (ids: string[]) => ids.every((id) => z.string().uuid().safeParse(id).success)
+    && new Set(ids.map((id) => id.toLowerCase())).size === ids.length;
+  if (!validIds(lines.map((line) => line.id)) || (lineIds && !validIds(lineIds))) {
+    throw badRequest("[internal] sales document redo line unavailable");
+  }
+  const orderedLines = [...lines].sort((left, right) => left.id.localeCompare(right.id));
+  const snapshots = orderedLines.map(snapshotForReplay);
+  const candidates = inputLines.map((inputLine, index) => {
+    const positions = orderedLines.flatMap((line, rowIndex) => (lineIds
       ? line.id === lineIds[index]
-      : line.lineNumber === (inputLine.lineNumber ?? index + 1));
-    if (!lineIds && candidates.length > 1) {
-      candidates = candidates.filter((line) => {
-        const fields = ['kind', 'statusEntryId', 'productId', 'productVariantId', 'name', 'description', 'comment', 'quantityUnit', 'currencyCode', 'promotionCode', 'customFieldSetId'] as const;
-        return fields.every((field) => inputLine[field] === undefined || isDeepStrictEqual(inputLine[field], line[field]));
-      });
-    }
-    if (!lineIds && candidates.length > 1) {
-      candidates = candidates.filter((line) => {
-        const fields = ['configuration', 'promotionSnapshot', 'metadata', 'customFields'] as const;
-        const amounts = ['quantity', 'unitPriceNet', 'unitPriceGross', 'discountPercent', 'taxRate'] as const;
-        const exactInput = inputLine as Partial<OrderLineCreateInput> & Record<string, unknown>;
-        return fields.every((field) => inputLine[field] === undefined || isDeepStrictEqual(inputLine[field], line[field]))
-          && amounts.every((field) => inputLine[field] === undefined || decimalsEqual(resolveExactDecimal(exactInput[`${field}Exact`], inputLine[field]), line[field]));
-      });
-    }
-    if (candidates.length > 1) {
-      const snapshot = snapshotForReplay(candidates[0]);
-      if (!candidates.every((line) => isDeepStrictEqual(snapshotForReplay(line), snapshot))) {
-        throw badRequest("[internal] sales document redo line correspondence is ambiguous");
-      }
-      candidates.sort((left, right) => left.id.localeCompare(right.id));
-    }
-    const position = candidates.length ? remaining.findIndex((line) => line.id === candidates[0].id) : -1;
-    if (position < 0) throw badRequest("[internal] sales document redo line unavailable");
-    const [line] = remaining.splice(position, 1);
-    return { id: line.id, snapshot: snapshotForReplay(line) };
+      : line.lineNumber === (inputLine.lineNumber ?? index + 1)) ? [rowIndex] : []);
+    if (lineIds || positions.length <= 1) return positions;
+    const fields = ['kind', 'statusEntryId', 'productId', 'productVariantId', 'name', 'description', 'comment', 'quantityUnit', 'currencyCode', 'promotionCode', 'customFieldSetId', 'configuration', 'promotionSnapshot', 'metadata', 'customFields'] as const;
+    const amounts = ['quantity', 'unitPriceNet', 'unitPriceGross', 'discountPercent', 'taxRate'] as const;
+    const exactInput = inputLine as Partial<OrderLineCreateInput> & Record<string, unknown>;
+    return positions.filter((rowIndex) => {
+      const line = orderedLines[rowIndex];
+      return fields.every((field) => inputLine[field] === undefined || isDeepStrictEqual(inputLine[field], line[field]))
+        && amounts.every((field) => inputLine[field] === undefined || decimalsEqual(resolveExactDecimal(exactInput[`${field}Exact`], inputLine[field]), line[field]));
+    });
   });
-  if (remaining.length) throw badRequest("[internal] sales document redo line count mismatch");
+  const assignment = matchDocumentCreateReplayLines(candidates, snapshots);
+  const replayLines = assignment.map((rowIndex) => ({ id: orderedLines[rowIndex].id, snapshot: snapshots[rowIndex] }));
   return { id: document.id, tenantId: document.tenantId, organizationId: document.organizationId, lines: replayLines };
+}
+
+function matchDocumentCreateReplayLines(candidates: number[][], snapshots: OmnibusSnapshotTarget[]): number[] {
+  const rowForInput = Array<number>(candidates.length).fill(-1);
+  const inputForRow = Array<number>(snapshots.length).fill(-1);
+  for (let inputIndex = 0; inputIndex < candidates.length; inputIndex += 1) {
+    const predecessorInputForRow = Array<number>(snapshots.length).fill(-1);
+    const pending = [inputIndex];
+    let availableRow = -1;
+    for (let cursor = 0; cursor < pending.length && availableRow < 0; cursor += 1) {
+      const currentInput = pending[cursor];
+      for (const rowIndex of candidates[currentInput]) {
+        if (predecessorInputForRow[rowIndex] >= 0) continue;
+        predecessorInputForRow[rowIndex] = currentInput;
+        if (inputForRow[rowIndex] < 0) {
+          availableRow = rowIndex;
+          break;
+        }
+        pending.push(inputForRow[rowIndex]);
+      }
+    }
+    if (availableRow < 0) throw badRequest("[internal] sales document redo line unavailable");
+    while (availableRow >= 0) {
+      const matchedInput = predecessorInputForRow[availableRow];
+      const previousRow = rowForInput[matchedInput];
+      rowForInput[matchedInput] = availableRow;
+      inputForRow[availableRow] = matchedInput;
+      availableRow = previousRow;
+    }
+  }
+  const predecessors = candidates.map(() => [] as number[]);
+  candidates.forEach((rows, inputIndex) => {
+    for (const rowIndex of rows) predecessors[inputForRow[rowIndex]].push(inputIndex);
+  });
+  candidates.forEach((rows, inputIndex) => {
+    const snapshot = snapshots[rowForInput[inputIndex]];
+    const differentRows = rows.filter((rowIndex) => !isDeepStrictEqual(snapshots[rowIndex], snapshot));
+    if (!differentRows.length) return;
+    const nextInput = replayAlternatingPaths(predecessors, inputIndex);
+    if (differentRows.some((rowIndex) => nextInput[inputForRow[rowIndex]] >= 0)) {
+      throw badRequest("[internal] sales document redo line correspondence is ambiguous");
+    }
+  });
+  for (let inputIndex = 0; inputIndex < candidates.length; inputIndex += 1) {
+    const earlierRows = candidates[inputIndex].filter((rowIndex) => rowIndex < rowForInput[inputIndex] && inputForRow[rowIndex] >= inputIndex);
+    if (!earlierRows.length) continue;
+    const remainingPredecessors = candidates.map(() => [] as number[]);
+    for (let remainingInput = inputIndex; remainingInput < candidates.length; remainingInput += 1) {
+      for (const rowIndex of candidates[remainingInput]) {
+        if (inputForRow[rowIndex] >= inputIndex) remainingPredecessors[inputForRow[rowIndex]].push(remainingInput);
+      }
+    }
+    const nextInput = replayAlternatingPaths(remainingPredecessors, inputIndex);
+    const earlierRow = earlierRows.find((rowIndex) => nextInput[inputForRow[rowIndex]] >= 0);
+    if (earlierRow === undefined) continue;
+    const updates = [{ inputIndex, rowIndex: earlierRow }];
+    for (let displacedInput = inputForRow[earlierRow]; displacedInput !== inputIndex; displacedInput = nextInput[displacedInput]) {
+      updates.push({ inputIndex: displacedInput, rowIndex: rowForInput[nextInput[displacedInput]] });
+    }
+    for (const update of updates) {
+      rowForInput[update.inputIndex] = update.rowIndex;
+      inputForRow[update.rowIndex] = update.inputIndex;
+    }
+  }
+  return rowForInput;
+}
+
+function replayAlternatingPaths(predecessors: number[][], inputIndex: number): number[] {
+  const nextInput = Array<number>(predecessors.length).fill(-1);
+  nextInput[inputIndex] = inputIndex;
+  const pending = [inputIndex];
+  for (let cursor = 0; cursor < pending.length; cursor += 1) {
+    for (const predecessor of predecessors[pending[cursor]]) {
+      if (nextInput[predecessor] >= 0) continue;
+      nextInput[predecessor] = pending[cursor];
+      pending.push(predecessor);
+    }
+  }
+  return nextInput;
 }
 
 const omnibusReplaySnapshots = Symbol('sales.omnibusReplaySnapshots');
