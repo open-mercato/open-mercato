@@ -17,6 +17,11 @@ import { isSsoUserDeactivated } from '../lib/deactivation'
 type SsoAuthority = {
   userId: string
   feature: 'sso.config.manage' | 'sso.scim.manage'
+  isRequester: boolean
+}
+
+export type SsoConfigurationAuthorizationOptions = {
+  scimActorIsRequester?: boolean
 }
 
 export type SsoAccountAuthorization = {
@@ -50,8 +55,9 @@ export class SsoAuthorizationService {
     config: SsoConfig,
     actorUserId?: string | null,
     scimActorUserId?: string | null,
+    options: SsoConfigurationAuthorizationOptions = {},
   ): Promise<string> {
-    return (await this.assertAuthorization(em, config, actorUserId, scimActorUserId)).tenantId
+    return (await this.assertAuthorization(em, config, actorUserId, scimActorUserId, undefined, 'locked', options)).tenantId
   }
 
   async assertAccount(
@@ -83,6 +89,7 @@ export class SsoAuthorizationService {
     scimActorUserId?: string | null,
     targetUser?: User,
     mode: 'locked' | 'snapshot' = 'locked',
+    options: SsoConfigurationAuthorizationOptions = {},
   ): Promise<SsoAccountAuthorization> {
     if (
       !em.isInTransaction()
@@ -96,8 +103,14 @@ export class SsoAuthorizationService {
     const scimActorId = normalizeId(scimActorUserId)
     if (!configurationActorId || (scimActorUserId !== undefined && !scimActorId)) return denyAuthorization()
 
-    const authorities: SsoAuthority[] = [{ userId: configurationActorId, feature: 'sso.config.manage' }]
-    if (scimActorId) authorities.push({ userId: scimActorId, feature: 'sso.scim.manage' })
+    const authorities: SsoAuthority[] = [{
+      userId: configurationActorId,
+      feature: 'sso.config.manage',
+      isRequester: actorUserId !== undefined,
+    }]
+    if (scimActorId) {
+      authorities.push({ userId: scimActorId, feature: 'sso.scim.manage', isRequester: options.scimActorIsRequester === true })
+    }
 
     const tenantId = await this.resolveTenant(em, config)
     const mappedRoles = mode === 'locked'
@@ -164,7 +177,9 @@ export class SsoAuthorizationService {
           }
         }
       } catch (error) {
-        if (isCrudHttpError(error) && error.status === 403) return denyAuthorization()
+        if (isCrudHttpError(error) && error.status === 403) {
+          return authority.isRequester ? denyAuthorityCeiling() : denyAuthorization()
+        }
         throw error
       }
     }
@@ -268,6 +283,11 @@ function relationId(value: unknown): string | null {
   if (typeof value === 'string') return normalizeId(value)
   if (!value || typeof value !== 'object' || !('id' in value)) return null
   return typeof value.id === 'string' ? normalizeId(value.id) : null
+}
+
+async function denyAuthorityCeiling(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw forbidden(translate('sso.errors.authorityCeilingExceeded'))
 }
 
 async function denyAuthorization(): Promise<never> {

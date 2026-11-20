@@ -12,6 +12,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { surfaceSsoAdminError } from '../../../../components/surfaceSsoAdminError'
 
 type Tab = 'general' | 'domains' | 'roles' | 'scim' | 'activity'
 
@@ -84,6 +85,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
   const [jitEnabled, setJitEnabled] = React.useState(true)
   const [autoLinkByEmail, setAutoLinkByEmail] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
+  const [saveError, setSaveError] = React.useState<string | null>(null)
 
   // Domains tab state
   const [domainInput, setDomainInput] = React.useState('')
@@ -101,6 +103,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
       setClientId(c.clientId ?? '')
       setJitEnabled(c.jitEnabled)
       setAutoLinkByEmail(c.autoLinkByEmail)
+      setSaveError(null)
       setError(null)
     } else if (call.status === 404) {
       setIsNotFound(true)
@@ -114,6 +117,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
 
   const handleSave = async () => {
     setIsSaving(true)
+    setSaveError(null)
     try {
       const payload: Record<string, unknown> = { name, issuer, clientId, jitEnabled, autoLinkByEmail }
       if (newClientSecret) payload.clientSecret = newClientSecret
@@ -134,8 +138,8 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
       setNewClientSecret('')
       setShowSecretField(false)
       fetchConfig()
-    } catch (error) {
-      flash(error instanceof Error ? error.message : t('sso.admin.error.saveFailed', 'Failed to save SSO configuration'), 'error')
+    } catch (err) {
+      setSaveError(surfaceSsoAdminError(err, t, t('sso.admin.error.saveFailed', 'Failed to save SSO configuration'), { onRefresh: fetchConfig }))
     } finally {
       setIsSaving(false)
     }
@@ -167,13 +171,15 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
       setShowActivationBanner(false)
       fetchConfig()
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error ? err.message : ''
       const isNoDomains = message.toLowerCase().includes('no allowed domains')
       if (isNoDomains) {
-        setActivationError(t('sso.admin.error.noDomainsForActivation', 'Add at least one allowed email domain before activating'))
+        const noDomainsMessage = t('sso.admin.error.noDomainsForActivation', 'Add at least one allowed email domain before activating')
+        flash(noDomainsMessage, 'error')
+        setActivationError(noDomainsMessage)
         setActiveTab('domains')
       } else {
-        flash(message, 'error')
+        setActivationError(surfaceSsoAdminError(err, t, t('sso.admin.error.activationFailed', 'Failed to update activation status'), { onRefresh: fetchConfig }))
       }
     } finally {
       setIsActivating(false)
@@ -194,8 +200,8 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
       } else {
         flash(call.result?.error || t('sso.admin.test.failed', 'Discovery failed'), 'error')
       }
-    } catch {
-      // handled by apiCallOrThrow
+    } catch (err) {
+      surfaceSsoAdminError(err, t, t('sso.admin.error.testFailed', 'Connection test failed'))
     }
   }
 
@@ -213,12 +219,17 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
     })
     if (!confirmed) return
 
-    await runMutationWithContext(
-      () => apiCallOrThrow(`/api/sso/config/${configId}`, { method: 'DELETE' }, {
-        errorMessage: t('sso.admin.error.deleteFailed', 'Failed to delete SSO configuration'),
-      }),
-      { id: configId },
-    )
+    try {
+      await runMutationWithContext(
+        () => apiCallOrThrow(`/api/sso/config/${configId}`, { method: 'DELETE' }, {
+          errorMessage: t('sso.admin.error.deleteFailed', 'Failed to delete SSO configuration'),
+        }),
+        { id: configId },
+      )
+    } catch (err) {
+      surfaceSsoAdminError(err, t, t('sso.admin.error.deleteFailed', 'Failed to delete SSO configuration'), { onRefresh: fetchConfig })
+      return
+    }
     flash(t('sso.admin.delete.success', 'SSO configuration deleted'), 'success')
     router.push('/backend/sso')
   }
@@ -249,8 +260,8 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
       setDomainInput('')
       setDomainError('')
       fetchConfig()
-    } catch {
-      // handled by apiCallOrThrow
+    } catch (err) {
+      surfaceSsoAdminError(err, t, t('sso.admin.error.domainAddFailed', 'Failed to add domain'), { onRefresh: fetchConfig })
     }
   }
 
@@ -265,8 +276,8 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
         { domain },
       )
       fetchConfig()
-    } catch {
-      // handled by apiCallOrThrow
+    } catch (err) {
+      surfaceSsoAdminError(err, t, t('sso.admin.error.domainRemoveFailed', 'Failed to remove domain'), { onRefresh: fetchConfig })
     }
   }
 
@@ -293,6 +304,13 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
     { id: 'scim', label: t('sso.admin.tab.scim', 'Provisioning') },
     { id: 'activity', label: t('sso.admin.tab.activity', 'Activity') },
   ]
+
+  const isGeneralDirty = name !== (config.name ?? '')
+    || issuer !== (config.issuer ?? '')
+    || clientId !== (config.clientId ?? '')
+    || jitEnabled !== config.jitEnabled
+    || autoLinkByEmail !== config.autoLinkByEmail
+    || newClientSecret.length > 0
 
   const statusBadge = (
     <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${config.isActive ? 'bg-status-success-bg text-status-success-text' : 'bg-status-neutral-bg text-status-neutral-text'}`}>
@@ -324,6 +342,10 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
                 </Button>
               </div>
             </div>
+          )}
+
+          {activationError && !(showActivationBanner && !config.isActive) && (
+            <p role="alert" data-testid="sso-activation-error" className="text-sm text-destructive">{activationError}</p>
           )}
 
           <FormHeader
@@ -465,10 +487,18 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
                     </div>
                   </label>
                 </div>
-                <div className="pt-4">
+                {saveError && (
+                  <p role="alert" data-testid="sso-general-save-error" className="text-sm text-destructive">{saveError}</p>
+                )}
+                <div className="flex items-center gap-3 pt-4">
                   <Button onClick={handleSave} disabled={isSaving}>
                     {isSaving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
                   </Button>
+                  {isGeneralDirty && (
+                    <span data-testid="sso-general-unsaved" className="text-sm text-muted-foreground">
+                      {t('sso.admin.unsavedChanges', 'Unsaved changes')}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -562,10 +592,14 @@ function RoleMappingsTab({
   const [roleOptions, setRoleOptions] = React.useState<{ value: string; label: string }[]>([])
   const [isSaving, setIsSaving] = React.useState(false)
   const [inputError, setInputError] = React.useState('')
+  const [saveError, setSaveError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     setMappings(appRoleMappings)
+    setSaveError(null)
   }, [appRoleMappings])
+
+  const isDirty = !areRoleMappingsEqual(mappings, appRoleMappings)
 
   React.useEffect(() => {
     const loadRoles = async () => {
@@ -608,16 +642,19 @@ function RoleMappingsTab({
     setMappings({ ...mappings, [trimmed]: localRoleInput })
     setIdpRoleInput('')
     setInputError('')
+    setSaveError(null)
   }
 
   const handleRemove = (idpRole: string) => {
     const updated = { ...mappings }
     delete updated[idpRole]
     setMappings(updated)
+    setSaveError(null)
   }
 
   const handleSave = async () => {
     setIsSaving(true)
+    setSaveError(null)
     try {
       await runMutationWithContext(
         () => apiCallOrThrow(
@@ -633,8 +670,8 @@ function RoleMappingsTab({
       )
       flash(t('sso.admin.roles.saved', 'Role mappings saved'), 'success')
       onSaved()
-    } catch (error) {
-      flash(error instanceof Error ? error.message : t('sso.admin.roles.error.saveFailed', 'Failed to save role mappings'), 'error')
+    } catch (err) {
+      setSaveError(surfaceSsoAdminError(err, t, t('sso.admin.roles.error.saveFailed', 'Failed to save role mappings'), { onRefresh: onSaved }))
     } finally {
       setIsSaving(false)
     }
@@ -698,11 +735,27 @@ function RoleMappingsTab({
         </p>
       )}
 
-      <Button onClick={handleSave} disabled={isSaving}>
-        {isSaving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
-      </Button>
+      {saveError && (
+        <p role="alert" data-testid="sso-role-mappings-save-error" className="text-sm text-destructive mb-2">{saveError}</p>
+      )}
+      <div className="flex items-center gap-3">
+        <Button onClick={handleSave} disabled={isSaving}>
+          {isSaving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
+        </Button>
+        {isDirty && (
+          <span data-testid="sso-role-mappings-unsaved" className="text-sm text-muted-foreground">
+            {t('sso.admin.unsavedChanges', 'Unsaved changes')}
+          </span>
+        )}
+      </div>
     </div>
   )
+}
+
+function areRoleMappingsEqual(left: Record<string, string>, right: Record<string, string>): boolean {
+  const leftEntries = Object.entries(left)
+  if (leftEntries.length !== Object.keys(right).length) return false
+  return leftEntries.every(([idpRole, localRole]) => right[idpRole] === localRole)
 }
 
 interface ScimTokenRow {
@@ -789,8 +842,8 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
         fetchData()
         onProvisioningChange()
       }
-    } catch (error) {
-      flash(error instanceof Error ? error.message : t('sso.admin.scim.error.createFailed', 'Failed to create SCIM token'), 'error')
+    } catch (err) {
+      surfaceSsoAdminError(err, t, t('sso.admin.scim.error.createFailed', 'Failed to create SCIM token'), { onRefresh: fetchData })
     } finally {
       setIsCreating(false)
     }
@@ -815,8 +868,8 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
       flash(t('sso.admin.scim.revoked', 'Token revoked'), 'success')
       fetchData()
       onProvisioningChange()
-    } catch {
-      // handled
+    } catch (err) {
+      surfaceSsoAdminError(err, t, t('sso.admin.scim.error.revokeFailed', 'Failed to revoke token'), { onRefresh: fetchData })
     }
   }
 

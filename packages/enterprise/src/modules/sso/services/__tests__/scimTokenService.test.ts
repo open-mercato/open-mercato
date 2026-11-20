@@ -164,7 +164,7 @@ describe('ScimTokenService.generateToken', () => {
     const { service, authorization } = createTokenService(em)
     authorization.assertConfiguration.mockRejectedValue(new Error('[internal] Authority revoked'))
     await expect(service.generateToken('sso-config-1', 'Directory sync', sameOrgScope)).rejects.toThrow('[internal] Authority revoked')
-    expect(authorization.assertConfiguration).toHaveBeenCalledWith(em, config, undefined, 'actor-1')
+    expect(authorization.assertConfiguration).toHaveBeenCalledWith(em, config, undefined, 'actor-1', { scimActorIsRequester: true })
     expect(em.create).not.toHaveBeenCalled()
     expect(em.persist).not.toHaveBeenCalled()
   })

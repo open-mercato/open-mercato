@@ -158,6 +158,40 @@ describe('SSO delegation authorization', () => {
     await expect(service.assertConfiguration(em, config)).rejects.toMatchObject({ status: 403 })
   })
 
+  it('tells the requesting editor that a mapping exceeds their own authority', async () => {
+    const { service, em, config, roleAcl, actor } = fixture()
+    roleAcl.featuresJson = ['auth.users.manage']
+    await expect(service.assertConfiguration(em, config, actor.id)).rejects.toMatchObject({
+      status: 403, body: { error: 'sso.errors.authorityCeilingExceeded' },
+    })
+  })
+
+  it('keeps the stale-authority message when the persisted author no longer covers the mapping', async () => {
+    const { service, em, config, roleAcl } = fixture()
+    roleAcl.featuresJson = ['auth.users.manage']
+    await expect(service.assertConfiguration(em, config)).rejects.toMatchObject({
+      status: 403, body: { error: 'sso.errors.authorizationDenied' },
+    })
+  })
+
+  it('keeps the stale-authority message for non-ceiling refusals of the requesting editor', async () => {
+    const { service, em, config, actor } = fixture()
+    config.appRoleMappings = { staff: 'missing' }
+    await expect(service.assertConfiguration(em, config, actor.id)).rejects.toMatchObject({
+      status: 403, body: { error: 'sso.errors.authorizationDenied' },
+    })
+  })
+
+  it('distinguishes the requesting SCIM token issuer ceiling from a stored token author', async () => {
+    const { service, em, config, roleAcl, actorAcl } = fixture()
+    actorAcl.isSuperAdmin = true
+    roleAcl.featuresJson = ['auth.users.manage']
+    await expect(service.assertConfiguration(em, config, undefined, 'scim-editor', { scimActorIsRequester: true }))
+      .rejects.toMatchObject({ status: 403, body: { error: 'sso.errors.authorityCeilingExceeded' } })
+    await expect(service.assertConfiguration(em, config, undefined, 'scim-editor'))
+      .rejects.toMatchObject({ status: 403, body: { error: 'sso.errors.authorizationDenied' } })
+  })
+
   it('rejects unknown mapping targets instead of permitting a future privileged role', async () => {
     const { service, em, config } = fixture()
     config.appRoleMappings = { staff: 'missing' }

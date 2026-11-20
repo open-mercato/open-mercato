@@ -63,7 +63,7 @@ export class ScimTokenService {
         throw new ScimTokenError('Cannot create SCIM tokens while JIT provisioning is enabled. Disable JIT first.', 409)
       }
 
-      await authorization.assertConfiguration(txEm, config, undefined, actorUserId)
+      await authorization.assertConfiguration(txEm, config, undefined, actorUserId, { scimActorIsRequester: true })
 
       const raw = TOKEN_PREFIX + randomBytes(32).toString('hex')
       const tokenHash = await hash(raw, BCRYPT_COST)
