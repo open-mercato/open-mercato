@@ -61,7 +61,10 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 const logger = createLogger('catalog')
 const rawBodySchema = z.object({}).passthrough();
 
-const listSchema = catalogProductFilterQuerySchema;
+const listSchema = catalogProductFilterQuerySchema.extend({
+  exactOrganizationId: z.string().uuid().optional(),
+  exactTenantId: z.string().uuid().optional(),
+});
 
 type ProductsQuery = CatalogProductFilterQuery;
 
@@ -641,7 +644,11 @@ const crud = makeCrudRoute({
       createdAt: F.created_at,
       updatedAt: F.updated_at,
     },
-    buildFilters: buildProductFilters,
+    buildFilters: async (query, ctx) => ({
+      ...await buildProductFilters(query, ctx),
+      ...(query.exactOrganizationId ? { organization_id: { $eq: query.exactOrganizationId } } : {}),
+      ...(query.exactTenantId ? { tenant_id: { $eq: query.exactTenantId } } : {}),
+    }),
     transformItem: (item: ProductListItem | null | undefined) => {
       if (!item) return item;
       const normalized = { ...item };

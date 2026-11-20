@@ -113,6 +113,7 @@ describe('template peer-module availability', () => {
     expect(mockVerifyEntityRegistrySelections).toHaveBeenCalledWith(
       expect.any(Request),
       [],
+      { scope: { tenantId: undefined, organizationId: undefined } },
     )
   })
 })

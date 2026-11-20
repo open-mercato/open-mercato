@@ -241,6 +241,7 @@ describe('document link command transaction snapshots', () => {
     expect(mockVerifyEntityRegistrySelection).toHaveBeenCalledWith(
       harness.ctx.request,
       linkInput().link,
+      { scope: { tenantId, organizationId } },
     )
     expect(harness.em.create).toHaveBeenCalledWith(
       DocumentEntityLink,
@@ -633,7 +634,7 @@ describe('document link command transaction snapshots', () => {
       entityId: productId,
       label: 'Atlas Runner',
       href: `/backend/catalog/products/${productId}`,
-    })
+    }, { scope: { tenantId, organizationId } })
     expect(harness.order.indexOf('verify-target')).toBeGreaterThanOrEqual(0)
     expect(harness.order.indexOf('verify-target')).toBeLessThan(harness.order.indexOf('begin'))
     expect(link.deletedAt).toBeNull()

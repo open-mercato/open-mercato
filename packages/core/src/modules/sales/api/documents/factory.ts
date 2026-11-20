@@ -92,6 +92,8 @@ const listSchema = z
     pageSize: z.coerce.number().min(1).max(100).default(50),
     search: z.string().optional(),
     id: z.string().uuid().optional(),
+    exactOrganizationId: z.string().uuid().optional(),
+    exactTenantId: z.string().uuid().optional(),
     customerId: z.string().uuid().optional(),
     channelId: z.string().uuid().optional(),
     channelIds: z
@@ -130,6 +132,8 @@ type ListQuery = z.infer<typeof listSchema>
 function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind) {
   const filters: Record<string, unknown> = {}
   if (query.id) filters.id = { $eq: query.id }
+  if (query.exactOrganizationId) filters.organization_id = { $eq: query.exactOrganizationId }
+  if (query.exactTenantId) filters.tenant_id = { $eq: query.exactTenantId }
   if (query.search && query.search.trim().length > 0) {
     const term = buildIlikeTerm(query.search.trim())
     filters[numberColumn] = { $ilike: term }
