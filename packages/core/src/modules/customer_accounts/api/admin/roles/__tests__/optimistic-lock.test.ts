@@ -1,6 +1,8 @@
 /** @jest-environment node */
 
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import polish from '../../../../i18n/pl.json'
 import { GET, PUT, DELETE } from '../[id]'
 
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
@@ -11,6 +13,11 @@ const CURRENT_VERSION = '2026-06-01T10:00:00.000Z'
 const STALE_VERSION = '2026-06-01T09:00:00.000Z'
 
 const mockGetAuthFromRequest = jest.fn()
+const mockTranslate = createFallbackTranslator(polish)
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({ translate: mockTranslate })),
+}))
 
 const mockEm = {
   findOne: jest.fn(),
@@ -75,6 +82,42 @@ describe('customer_accounts admin role optimistic locking', () => {
     expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
   })
 
+  it('GET exposes the creation timestamp as the version of a legacy unedited role', async () => {
+    mockEm.findOne.mockResolvedValueOnce({
+      id: ROLE_ID,
+      name: 'Legacy reviewer',
+      slug: 'legacy-reviewer',
+      createdAt: new Date(CURRENT_VERSION),
+      updatedAt: null,
+    }).mockResolvedValueOnce(null)
+
+    const response = await GET(request('GET', null), params)
+
+    expect(response.status).toBe(200)
+    expect((await response.json()).updatedAt).toBe(CURRENT_VERSION)
+  })
+
+  it.each([
+    ['PUT', () => PUT(request('PUT', STALE_VERSION, { name: 'Stale rename' }), params)],
+    ['DELETE', () => DELETE(request('DELETE', STALE_VERSION), params)],
+  ])('%s rejects a stale creation-time version before the first edit', async (_method, invoke) => {
+    mockEm.findOne.mockResolvedValue({
+      id: ROLE_ID,
+      name: 'Legacy reviewer',
+      slug: 'legacy-reviewer',
+      isDefault: false,
+      isSystem: false,
+      createdAt: new Date(CURRENT_VERSION),
+      updatedAt: null,
+    })
+
+    const response = await invoke()
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).code).toBe('optimistic_lock_conflict')
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+  })
+
   it('PUT succeeds and bumps updated_at when the expected version matches', async () => {
     const res = await PUT(request('PUT', CURRENT_VERSION, { name: 'Renamed' }), params)
     expect(res.status).toBe(200)
@@ -95,6 +138,26 @@ describe('customer_accounts admin role optimistic locking', () => {
     expect(res.status).toBe(409)
     const body = await res.json()
     expect(body.code).toBe('optimistic_lock_conflict')
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('DELETE localizes the default-role refusal without mutating the role', async () => {
+    mockEm.findOne.mockResolvedValueOnce({ id: ROLE_ID, isDefault: true })
+
+    const response = await DELETE(request('DELETE', null), params)
+
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toBe(polish['customer_accounts.admin.roles.error.deleteDefault'])
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('DELETE localizes the assigned-user refusal and interpolates its count', async () => {
+    mockEm.count.mockResolvedValueOnce(4)
+
+    const response = await DELETE(request('DELETE', null), params)
+
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toBe('Nie można usunąć roli z przypisanymi użytkownikami (4). Najpierw przypisz ich do innej roli.')
     expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
   })
 
