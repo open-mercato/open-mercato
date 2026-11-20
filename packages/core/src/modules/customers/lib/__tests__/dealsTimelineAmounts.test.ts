@@ -56,9 +56,16 @@ describe('dealsTimelineAmounts', () => {
     ).toEqual([{ currency: '', open: 50, weighted: 40, won: 0 }])
   })
 
-  it('avoids floating point drift by summing in cents', () => {
+  it('avoids floating point drift when summing fractional amounts', () => {
     const rows = Array.from({ length: 10 }, () => row({ valueAmount: 0.1, probability: 100 }))
     expect(summarize(rows)).toEqual([{ currency: 'EUR', open: 1, weighted: 1, won: 0 }])
+  })
+
+  it('preserves cents through aggregation when a stored decimal exceeds float precision', () => {
+    expect(summarize([
+      row({ valueAmount: '90071992547409.93', probability: 100 }),
+      row({ valueAmount: '-90071992547409.92', probability: 100 }),
+    ])).toEqual([{ currency: 'EUR', open: 0.01, weighted: 0.01, won: 0 }])
   })
 
   it('merges accumulators', () => {

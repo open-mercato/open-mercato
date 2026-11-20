@@ -36,6 +36,7 @@ import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserI
 import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { getCurrentOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { mapDictionaryColorToTone, type FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
@@ -293,11 +294,20 @@ type PendingReveal = { dealId: string; date: string; laneKey: string | null; tar
 type PendingDrawerFocus = { kind: 'card'; dealId: string } | { kind: 'showDeal' }
 type ActiveDrag = { laneKey: string; column: number; item: DealTimelineItem } | null
 
-export function DealsTimelineBoard({ state, update, permissions }: DealsTimelineBoardProps): React.ReactElement {
+export function DealsTimelineBoard(props: DealsTimelineBoardProps): React.ReactElement {
+  const scopeVersion = useOrganizationScopeVersion()
+  return <ScopedDealsTimelineBoard key={scopeVersion} {...props} scopeVersion={scopeVersion} />
+}
+
+function ScopedDealsTimelineBoard({
+  state,
+  update,
+  permissions,
+  scopeVersion,
+}: DealsTimelineBoardProps & { scopeVersion: number }): React.ReactElement {
   const t = useT()
   const locale = useLocale()
   const queryClient = useQueryClient()
-  const scopeVersion = useOrganizationScopeVersion()
   const isNarrowViewport = useIsMobile()
   const activeOrgId = useCurrentOrganization()?.id ?? null
   const currentUserId = useCurrentUserId()
@@ -464,12 +474,12 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   const closeDrawerRef = React.useRef<(() => void) | null>(null)
 
   const focusCard = React.useCallback((dealId: string): boolean => {
-    if (typeof document === 'undefined') return false
+    if (typeof document === 'undefined' || getCurrentOrganizationScopeVersion() !== scopeVersion) return false
     const element = document.querySelector<HTMLElement>(`[data-timeline-card][data-deal-id="${CSS.escape(dealId)}"]`)
     if (!element) return false
     element.focus()
     return true
-  }, [])
+  }, [scopeVersion])
 
   React.useEffect(() => {
     if (pendingPushDealIdRef.current && state.dealId === pendingPushDealIdRef.current) {
@@ -497,6 +507,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
 
   const afterReschedule = React.useCallback(
     (dealId: string, date: string, knownLaneKey: string | null = null) => {
+      if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
       const current = queryClient.getQueryData<DealTimelineResponse>(queryKey)
       const location = findTimelineDeal(current, dealId)
       const laneKey = location?.laneKey ?? knownLaneKey
@@ -521,7 +532,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         closeDrawerRef.current?.()
       }
     },
-    [focusCard, locale, queryClient, queryKey, t],
+    [focusCard, locale, queryClient, queryKey, scopeVersion, t],
   )
 
   React.useLayoutEffect(() => {
@@ -562,12 +573,6 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
 
   const reschedule = useRescheduleDeal(queryKey)
   const [writeLocks, setWriteLocks] = React.useState<DealWriteLocks>(EMPTY_DEAL_WRITE_LOCKS)
-  const lockScopeVersionRef = React.useRef(scopeVersion)
-  React.useEffect(() => {
-    if (lockScopeVersionRef.current === scopeVersion) return
-    lockScopeVersionRef.current = scopeVersion
-    setWriteLocks(EMPTY_DEAL_WRITE_LOCKS)
-  }, [scopeVersion])
   const readDataUpdatedAt = React.useCallback(
     () => queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0,
     [queryClient, queryKey],
@@ -603,6 +608,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   )
 
   const closeDrawer = React.useCallback(() => {
+    if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
     const pendingFocus = pendingDrawerFocusRef.current
     pendingDrawerFocusRef.current = null
     if (pendingFocus?.kind === 'card') {
@@ -617,7 +623,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     drawerPushedDealIdRef.current = null
     pendingPushDealIdRef.current = null
     update({ dealId: null }, { history })
-  }, [state.dealId, update])
+  }, [scopeVersion, state.dealId, update])
   closeDrawerRef.current = closeDrawer
 
   const drawerItem = React.useMemo(

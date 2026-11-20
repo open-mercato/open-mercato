@@ -770,37 +770,26 @@ test.describe('TC-CRM-TL-002: deals timeline page (read-only)', () => {
       const drawer = page.getByTestId('timeline-deal-drawer');
       await expect(drawer).toBeVisible();
       await expect(drawer).toContainText(orgADealTitle);
+      await expect(timelineCard(page, orgADealId)).toBeAttached();
 
-      await expect(page.locator('button[aria-label^="Organization:"]')).toBeAttached({ timeout: 30_000 });
-      await page.evaluate(() => {
-        const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Organization:"]');
-        if (!trigger) throw new Error('[internal] organization switcher not found');
-        trigger.click();
+      const timelineRoute = '**/api/customers/deals/timeline?*';
+      const { promise: resumeTimeline, resolve: releaseTimeline } = Promise.withResolvers<void>();
+      await page.route(timelineRoute, async (route) => {
+        await resumeTimeline;
+        await route.continue();
       });
-      await expect
-        .poll(() =>
-          page.evaluate(
-            (name) =>
-              Array.from(document.querySelectorAll<HTMLButtonElement>('[data-radix-popper-content-wrapper] button')).some(
-                (button) => button.textContent?.trim() === name,
-              ),
-            orgBName,
-          ),
-        )
-        .toBe(true);
-      await page.evaluate((name) => {
-        const option = Array.from(
-          document.querySelectorAll<HTMLButtonElement>('[data-radix-popper-content-wrapper] button'),
-        ).find((button) => button.textContent?.trim() === name);
-        if (!option) throw new Error('[internal] organization option not found');
-        option.click();
-      }, orgBName);
-
-      await expect(page, 'the previous organization\'s deal param is dropped').not.toHaveURL(/[?&]deal=/, {
-        timeout: 30_000,
-      });
-      await expect(drawer).toBeHidden();
-      await expect(page.getByText(orgADealTitle)).toHaveCount(0);
+      try {
+        await switchOrganization(page, orgBName);
+        await expect(page, 'the previous organization\'s deal param is dropped').not.toHaveURL(/[?&]deal=/, {
+          timeout: 30_000,
+        });
+        await expect(drawer).toBeHidden();
+        await expect(page.getByRole('grid', { name: 'Deals Timeline' })).toHaveAttribute('aria-busy', 'true');
+        await expect(page.getByText(orgADealTitle), 'org A data stays hidden while org B is loading').toHaveCount(0);
+      } finally {
+        releaseTimeline();
+        await page.unroute(timelineRoute);
+      }
       await expect(timelineCard(page, orgBDealId)).toBeVisible({ timeout: 30_000 });
     } finally {
       if (orgBUserToken) await deleteEntityIfExists(request, orgBUserToken, '/api/customers/deals', orgBDealId);

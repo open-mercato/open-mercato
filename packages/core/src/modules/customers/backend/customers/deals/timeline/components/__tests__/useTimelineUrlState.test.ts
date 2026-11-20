@@ -208,4 +208,3 @@ describe('useTimelineUrlState update', () => {
     expect(href).not.toContain('groupBy=stage')
   })
 })
-

@@ -356,8 +356,9 @@ const AMOUNT_FIELDS = ['value_amount', 'value_currency', 'probability', 'status'
 const LANE_FIELDS = ['owner_user_id', 'pipeline_id', 'pipeline_stage_id']
 
 function amountRowFor(row: Record<string, unknown>): DealTimelineAmountRow {
+  const amount = row.value_amount
   return {
-    valueAmount: toFiniteNumberOrNull(row.value_amount),
+    valueAmount: typeof amount === 'string' || typeof amount === 'number' ? amount : null,
     valueCurrency: toStringOrNull(row.value_currency),
     probability: toFiniteNumberOrNull(row.probability),
     status: toStringOrNull(row.status),
@@ -445,9 +446,17 @@ async function runAmountScan(
       if (rows.length >= TIMELINE_AMOUNTS_COLUMN_ROW_CAP) break
       rows.push({ laneKey: laneKeyFor(groupBy, row), amount: amountRowFor(row) })
     }
-    if (res.rows.length < TIMELINE_AMOUNT_PAGE_SIZE) break
+    const exhausted = res.rows.length < TIMELINE_AMOUNT_PAGE_SIZE || (!res.countCapped && rows.length >= res.total)
+    if (exhausted) return { rows, complete: rows.length >= expectedTotal }
   }
-  return { rows, complete: rows.length >= expectedTotal }
+  if (rows.length < expectedTotal) return { rows, complete: false }
+  const overflow = await runQuery(queryEngine, scope, filters, {
+    fields: ['id'],
+    sort: DATE_THEN_ID_ASC,
+    page: TIMELINE_AMOUNTS_COLUMN_ROW_CAP + 1,
+    pageSize: 1,
+  })
+  return { rows, complete: overflow.rows.length === 0 }
 }
 
 async function runInBatches<Input, Output>(
@@ -842,12 +851,18 @@ export async function GET(req: Request) {
   const countsCapped =
     columnPasses.some((pass) => pass.countCapped) || overdueRes.countCapped || undatedRes.countCapped
 
-  const truncatedPasses = columnPasses.filter((pass) => pass.truncated)
+  const passesToScan = columnPasses.filter((pass) =>
+    pass.truncated || (pass.countCapped && pass.rows.length === TIMELINE_COLUMN_CAP),
+  )
   const amountScans = new Map<number, AmountScan>()
-  const scanResults = await runInBatches(truncatedPasses, QUERY_CONCURRENCY, (pass) =>
+  const scanResults = await runInBatches(passesToScan, QUERY_CONCURRENCY, (pass) =>
     runAmountScan(queryEngine, queryScope, baseFilters, pass.column, query.groupBy, pass.total),
   )
-  truncatedPasses.forEach((pass, index) => amountScans.set(pass.column.index, scanResults[index]))
+  passesToScan.forEach((pass, index) => {
+    const scan = scanResults[index]
+    pass.truncated ||= !scan.complete || scan.rows.length > pass.rows.length
+    amountScans.set(pass.column.index, scan)
+  })
   const amountsCapped = scanResults.some((scan) => !scan.complete)
   const columnAmounts = new Map<number, DealTimelineAmountAccumulator>()
   const laneAmounts = new Map<string, DealTimelineAmountAccumulator>()

@@ -612,6 +612,18 @@ describe('customers deals timeline route', () => {
       expect(wonOnly.columns[1].amounts).toEqual([{ currency: 'EUR', open: 0, weighted: 0, won: 700 }])
     })
 
+    it('rounds currency amounts after aggregating the stored decimals', async () => {
+      deals = [
+        makeDeal({ expected_close_at: thisWeek, value_amount: '0.004', value_currency: 'KWD', probability: 75 }),
+        makeDeal({ expected_close_at: thisWeek, value_amount: '0.004', value_currency: 'KWD', probability: 75 }),
+        makeDeal({ expected_close_at: thisWeek, value_amount: '1.005', value_currency: 'KWD', status: 'win' }),
+      ]
+      const body = await grid(`from=${lastWeek}&excludeClosed=false`)
+      const amounts = [{ currency: 'KWD', open: 0.01, weighted: 0.01, won: 1.01 }]
+      expect(body.columns[1].amounts).toEqual(amounts)
+      expect(body.lanes[0].amounts).toEqual(amounts)
+    })
+
     it('keeps amounts exact past the column cap, including deals of lanes beyond the cap', async () => {
       deals = Array.from({ length: TIMELINE_COLUMN_CAP + 5 }, (_, index) =>
         makeDeal({
@@ -639,6 +651,27 @@ describe('customers deals timeline route', () => {
       const body = await grid(`from=${lastWeek}`)
       expect(body.amountsCapped).toBe(true)
       expect(body.columns[1].amounts[0].open).toBe(TIMELINE_AMOUNTS_COLUMN_ROW_CAP)
+    })
+
+    it.each([
+      { countCap: TIMELINE_AMOUNTS_COLUMN_ROW_CAP, size: TIMELINE_AMOUNTS_COLUMN_ROW_CAP + 1, partial: true },
+      { countCap: 100, size: TIMELINE_AMOUNTS_COLUMN_ROW_CAP, partial: false },
+      { countCap: 100, size: TIMELINE_COLUMN_CAP + 1, partial: false },
+      { countCap: 100, size: TIMELINE_COLUMN_CAP, partial: false },
+    ])('keeps amount completeness separate from a list count capped at $countCap with $size rows', async ({ countCap, size, partial }) => {
+      deals = Array.from({ length: size }, () =>
+        makeDeal({ expected_close_at: thisWeek, value_amount: '1.00' }),
+      )
+      queryMock.mockImplementation(async (entity: string, args: QueryArgs) => {
+        const result = await fakeQuery(entity, args)
+        return result.total > countCap
+          ? { ...result, total: countCap, meta: { listCountCapWarning: { entity, cap: countCap } } }
+          : result
+      })
+      const body = await grid(`from=${lastWeek}`)
+      expect(body.columns[1]).toMatchObject({ countCapped: true, truncated: size > TIMELINE_COLUMN_CAP })
+      expect(body.amountsCapped).toBe(partial)
+      expect(body.columns[1].amounts[0].open).toBe(Math.min(size, TIMELINE_AMOUNTS_COLUMN_ROW_CAP))
     })
 
     it('returns empty amounts for an empty organization scope', async () => {

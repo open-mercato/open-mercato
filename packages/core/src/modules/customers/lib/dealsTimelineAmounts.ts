@@ -1,16 +1,20 @@
+import { parseDecimal, toDecimal, type DecimalValue } from '@open-mercato/shared/lib/decimal'
 import { isClosedDealStatus, isWonDealStatus } from './dealStatus'
 import type { DealTimelineCurrencyTotal } from './dealsTimelineTypes'
 
 export type DealTimelineAmountRow = {
-  valueAmount: number | null
+  valueAmount: string | number | null
   valueCurrency: string | null
   probability: number | null
   status: string | null
 }
 
-type CurrencyCents = { open: number; weighted: number; won: number }
+type CurrencyAmounts = { open: DecimalValue; weighted: DecimalValue; won: DecimalValue }
 
-export type DealTimelineAmountAccumulator = Map<string, CurrencyCents>
+export type DealTimelineAmountAccumulator = Map<string, CurrencyAmounts>
+
+const zero = toDecimal(0)
+const emptyAmounts: CurrencyAmounts = { open: zero, weighted: zero, won: zero }
 
 export function createTimelineAmountAccumulator(): DealTimelineAmountAccumulator {
   return new Map()
@@ -31,20 +35,23 @@ function clampProbability(value: number | null): number {
  * without a value are ignored. A value without a currency is kept under `''`.
  */
 export function addTimelineAmount(accumulator: DealTimelineAmountAccumulator, row: DealTimelineAmountRow): void {
-  if (typeof row.valueAmount !== 'number' || !Number.isFinite(row.valueAmount)) return
   const status = row.status?.toLowerCase() ?? null
   const won = isWonDealStatus(status)
   if (!won && isClosedDealStatus(status)) return
+  const amount = parseDecimal(row.valueAmount)
+  if (!amount) return
   const currency = normalizeCurrency(row.valueCurrency)
-  const totals = accumulator.get(currency) ?? { open: 0, weighted: 0, won: 0 }
-  const cents = Math.round(row.valueAmount * 100)
+  const totals = accumulator.get(currency) ?? emptyAmounts
   if (won) {
-    totals.won += cents
+    accumulator.set(currency, { ...totals, won: totals.won.plus(amount) })
   } else {
-    totals.open += cents
-    totals.weighted += (cents * clampProbability(row.probability)) / 100
+    const weightedAmount = amount.times(clampProbability(row.probability)).times('0.01')
+    accumulator.set(currency, {
+      ...totals,
+      open: totals.open.plus(amount),
+      weighted: totals.weighted.plus(weightedAmount),
+    })
   }
-  accumulator.set(currency, totals)
 }
 
 export function mergeTimelineAmounts(
@@ -52,11 +59,11 @@ export function mergeTimelineAmounts(
   source: DealTimelineAmountAccumulator,
 ): void {
   for (const [currency, totals] of source) {
-    const existing = target.get(currency) ?? { open: 0, weighted: 0, won: 0 }
+    const existing = target.get(currency) ?? emptyAmounts
     target.set(currency, {
-      open: existing.open + totals.open,
-      weighted: existing.weighted + totals.weighted,
-      won: existing.won + totals.won,
+      open: existing.open.plus(totals.open),
+      weighted: existing.weighted.plus(totals.weighted),
+      won: existing.won.plus(totals.won),
     })
   }
 }
@@ -65,9 +72,9 @@ export function summarizeTimelineAmounts(accumulator: DealTimelineAmountAccumula
   return Array.from(accumulator.entries())
     .map(([currency, totals]) => ({
       currency,
-      open: totals.open / 100,
-      weighted: Math.round(totals.weighted) / 100,
-      won: totals.won / 100,
+      open: Number(totals.open.toFixed(2)),
+      weighted: Number(totals.weighted.toFixed(2)),
+      won: Number(totals.won.toFixed(2)),
     }))
     .sort((left, right) => right.open - left.open || left.currency.localeCompare(right.currency))
 }
