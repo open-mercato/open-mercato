@@ -155,6 +155,10 @@ async function seedWorkflowDefinitionFile(
   const entities = (await import(
     '@open-mercato/core/modules/workflows/data/entities'
   )) as typeof import('@open-mercato/core/modules/workflows/data/entities')
+  if (!em.getMetadata().has(entities.WorkflowDefinition)) {
+    logger.warn('workflows module not enabled; skipping demo workflow seed', { fileName })
+    return false
+  }
 
   const seed = readExampleJson<WorkflowSeedDefinition>(fileName)
   const workflowId = requireString(seed.workflowId, 'workflowId')
@@ -203,6 +207,10 @@ async function seedDemoDeals(
   const customers = (await import(
     '@open-mercato/core/modules/customers/data/entities'
   )) as typeof import('@open-mercato/core/modules/customers/data/entities')
+  if (!em.getMetadata().has(customers.CustomerDeal)) {
+    logger.warn('customers module not enabled; skipping demo deals seed')
+    return 0
+  }
   const commandBus = container.resolve('commandBus') as CommandBus
 
   let created = 0
@@ -278,6 +286,10 @@ async function seedDealsHealthCheckEval(
   const customers = (await import(
     '@open-mercato/core/modules/customers/data/entities'
   )) as typeof import('@open-mercato/core/modules/customers/data/entities')
+  if (!em.getMetadata().has(customers.CustomerDeal)) {
+    logger.warn('customers module not enabled; skipping demo golden eval case')
+    return
+  }
   const deal = await findOneWithDecryption(
     em,
     customers.CustomerDeal,
