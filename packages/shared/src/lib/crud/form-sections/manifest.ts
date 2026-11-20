@@ -4,6 +4,7 @@ import { composeFormSectionOverrides, type FormSectionOverridesMap } from '../..
 import type {
   CrudFormSectionAddress,
   CrudFormSectionContributionFact,
+  CrudFormSectionMutationSurfaceFact,
   CrudFormSectionSurfaceAlternativeFact,
 } from '../../../modules/form-section-facts'
 import type {
@@ -11,9 +12,11 @@ import type {
   CrudFormSectionHostAlternative,
   CrudFormSectionHostFact,
   CrudFormSectionHostProvider,
+  CrudFormSectionMutationProviderProof,
   CrudFormSectionServerModule,
 } from '../../../modules/form-sections'
 import {
+  canonicalCrudFormSectionMutationSurface,
   collectCrudFormSectionCapabilities,
   matchCrudFormSectionCapabilities,
   type CrudFormSectionCapabilityEntry,
@@ -34,6 +37,8 @@ export type CrudFormSectionAcceptedPolicy = {
   hostResourceKind: string
   surface: CrudFormSectionSurfaceAlternativeFact
   capabilities: readonly CrudFormSectionCapabilityEntry[]
+  mutationSurfaces: readonly CrudFormSectionMutationSurfaceFact[]
+  mutationProviders: readonly CrudFormSectionMutationProviderProof[]
   bindings: NonNullable<CrudFormSectionHostAlternative['resourceBindings']>
   requireFeatures: readonly string[]
   roundTripIds: readonly string[]
@@ -112,6 +117,20 @@ function validOwnership(surface: CrudFormSectionSurfaceAlternativeFact): boolean
   return true
 }
 
+function hasMutationProviderProof(
+  surface: CrudFormSectionMutationSurfaceFact,
+  proofs: ReadonlyMap<string, CrudFormSectionMutationProviderProof>,
+): boolean {
+  const proof = proofs.get(surface.id)
+  if (!proof || proof.finalInput !== 'transactional-final-input/v1'
+      || proof.delegatedTarget?.kind !== surface.delegatedTarget.kind
+      || proof.delegatedTarget.id !== surface.delegatedTarget.id) return false
+  if (surface.optimisticLock === 'none') return true
+  return (proof.atomicity === 'pessimistic-write' || proof.atomicity === 'compare-and-swap')
+    && Array.isArray(proof.contenderCoverage) && proof.contenderCoverage.length === 2
+    && proof.contenderCoverage.includes('update/update') && proof.contenderCoverage.includes('update/delete')
+}
+
 function hasTuple(
   surface: Omit<CrudFormSectionAddress, 'hostId' | 'sectionId'> & { hostId: string | null },
   address: Omit<CrudFormSectionAddress, 'sectionId'>,
@@ -179,6 +198,16 @@ export function buildCrudFormSectionManifest(
     }
     const { surface, mutationSurfaces = [], resourceBindings = [], activeDataContractIds = [],
       providedDataContractIdsByCapability = {}, sinkAtomicityByCapability = {} } = matches[0].alternative
+    const mutationProviders = uniqueIndex(provider?.mutationProviders ?? [], (proof) => proof.mutationSurfaceId)
+    const canonicalSurfaces = mutationSurfaces.flatMap((candidate) => {
+      const normalized = canonicalCrudFormSectionMutationSurface(candidate)
+      return normalized ? [normalized] : []
+    }).sort((left, right) => compareSectionIds(left.id, right.id))
+    if (canonicalSurfaces.length !== mutationSurfaces.length
+        || canonicalSurfaces.some((candidate) => !hasMutationProviderProof(candidate, mutationProviders))) {
+      fail('invalid_mutation_provider')
+      continue
+    }
     const baseSections = new Set(baselines[0].alternative.surface.orderedSectionIds)
     const activeSections = new Set(surface.orderedSectionIds)
     const selectedContributions: CrudFormSectionContributionFact[] = []
@@ -243,6 +272,17 @@ export function buildCrudFormSectionManifest(
       hostResourceKind: resourceKind.data,
       surface: canonicalSurface,
       capabilities,
+      mutationSurfaces: canonicalSurfaces,
+      mutationProviders: canonicalSurfaces.map((candidate) => {
+        const proof = mutationProviders.get(candidate.id)!
+        return {
+          mutationSurfaceId: proof.mutationSurfaceId,
+          delegatedTarget: { kind: proof.delegatedTarget.kind, id: proof.delegatedTarget.id },
+          finalInput: proof.finalInput,
+          atomicity: proof.atomicity,
+          contenderCoverage: proof.contenderCoverage?.slice().sort(),
+        }
+      }),
       bindings: [...resourceBindings].sort((left, right) => compareSectionIds(left.id, right.id)),
       requireFeatures: [...new Set([...(provider?.requireFeatures ?? []), ...capabilities.flatMap((entry) => entry.source.features)])].sort(),
       roundTripIds: descriptors.map(({ roundTripId }) => roundTripId).sort(),

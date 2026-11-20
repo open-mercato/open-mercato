@@ -52,9 +52,18 @@ export type CrudFormSectionHostAssertion = {
   hostResourceId?: string
 }
 
+export type CrudFormSectionMutationProviderProof = {
+  mutationSurfaceId: string
+  delegatedTarget: CrudFormSectionMutationSurfaceFact['delegatedTarget']
+  finalInput: 'transactional-final-input/v1'
+  atomicity?: 'pessimistic-write' | 'compare-and-swap'
+  contenderCoverage?: readonly ('update/update' | 'update/delete')[]
+}
+
 export type CrudFormSectionHostProvider = {
   hostDescriptorId: string
   requireFeatures: readonly string[]
+  mutationProviders?: readonly CrudFormSectionMutationProviderProof[]
   authorizeHost(input: {
     auth: NonNullable<AuthContext>
     container: AwilixContainer

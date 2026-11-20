@@ -1,3 +1,5 @@
+import type { CrudFormSectionHostAssertion } from '../../../modules/form-sections'
+import type { CrudFormSectionAcceptedPolicy } from './manifest'
 import { canonicalSectionJson } from './composition'
 import {
   crudFormSectionPolicyTokenBodySchema,
@@ -24,4 +26,25 @@ export function decodeCrudFormSectionPolicyToken(token: string): CrudFormSection
   } catch {
     return null
   }
+}
+
+export function encodeCurrentCrudFormSectionPolicyToken(input: {
+  address: Pick<CrudFormSectionPolicyTokenBody, 'hostId' | 'formVariant' | 'formOperation'>
+  host: CrudFormSectionHostAssertion
+  policy: CrudFormSectionAcceptedPolicy
+  fingerprint: string
+}): string | null {
+  const { address, host, policy, fingerprint } = input
+  return encodeCrudFormSectionPolicyToken({
+    protocol: 'crud-form-sections/v1',
+    schemaVersion: 1,
+    ...address,
+    ...host,
+    contributionIds: [...policy.surface.contributionIds],
+    roundTripIds: [...policy.roundTripIds],
+    capabilityIds: policy.capabilities.map(({ fact }) => fact.capabilityId),
+    orderedActiveSectionIds: [...policy.surface.orderedSectionIds],
+    clientManifestFingerprint: policy.clientFingerprint,
+    fingerprint,
+  })
 }

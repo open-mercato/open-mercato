@@ -7,7 +7,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readBoundedRequestBytes, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
 import { crudFormSectionHostKey } from '@open-mercato/shared/lib/crud/form-sections/composition'
 import { getCrudFormSectionManifest } from '@open-mercato/shared/lib/crud/form-sections/manifest'
-import { encodeCrudFormSectionPolicyToken } from '@open-mercato/shared/lib/crud/form-sections/policy-token'
+import { encodeCurrentCrudFormSectionPolicyToken } from '@open-mercato/shared/lib/crud/form-sections/policy-token'
 import {
   crudFormSectionsPrivateHeaders,
   crudFormSectionsResolveMaxBytes,
@@ -117,19 +117,7 @@ export async function POST(request: Request): Promise<Response> {
     return failed('policy_or_bundle_mismatch')
   }
   const fingerprint = manifest.ledger.fingerprint
-  const policyToken = encodeCrudFormSectionPolicyToken({
-    protocol: 'crud-form-sections/v1',
-    schemaVersion: 1,
-    ...address,
-    hostResourceKind: authorized.hostResourceKind,
-    hostResourceId: authorized.hostResourceId,
-    contributionIds: [...policy.surface.contributionIds],
-    roundTripIds: [...policy.roundTripIds],
-    capabilityIds: policy.capabilities.map(({ fact }) => fact.capabilityId),
-    orderedActiveSectionIds: [...policy.surface.orderedSectionIds],
-    clientManifestFingerprint,
-    fingerprint,
-  })
+  const policyToken = encodeCurrentCrudFormSectionPolicyToken({ address, host: authorized, policy, fingerprint })
   if (!policyToken) return failed('policy_token_too_large')
   const response = resolveCrudFormSectionsResponseSchema.safeParse({
     state: 'ready',

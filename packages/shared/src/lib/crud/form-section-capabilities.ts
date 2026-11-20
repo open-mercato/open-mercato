@@ -105,7 +105,7 @@ function canonicalOwnership(
     : { mode: 'ids', ids, definitionSetId: ownership.definitionSetId }
 }
 
-function canonicalSurface(surface: CrudFormSectionMutationSurfaceFact): CrudFormSectionMutationSurfaceFact | null {
+export function canonicalCrudFormSectionMutationSurface(surface: CrudFormSectionMutationSurfaceFact): CrudFormSectionMutationSurfaceFact | null {
   if (!surface) return null
   const { guardedFacade, delegatedTarget } = surface
   const resourceBindingIds = canonicalSet(surface.resourceBindingIds)
@@ -148,7 +148,7 @@ function canonicalProvider(fact: CrudFormSectionCapabilityProviderFact): CrudFor
 
   const surfaces = new Map<string, CrudFormSectionMutationSurfaceFact>()
   for (const declaredSurface of fact.mutationSurfaces) {
-    const surface = canonicalSurface(declaredSurface)
+    const surface = canonicalCrudFormSectionMutationSurface(declaredSurface)
     if (!surface || surfaces.has(surface.id)) return null
     surfaces.set(surface.id, surface)
   }
@@ -292,7 +292,7 @@ export function matchCrudFormSectionCapabilities(
     const declaredSurfaces = declaredSurfaceIds?.map((id) => {
       const surface = context.mutationSurfaces.get(id)
       if (surface?.id !== id) return null
-      const canonical = canonicalSurface(surface)
+      const canonical = canonicalCrudFormSectionMutationSurface(surface)
       return canonical?.resourceBindingIds?.every((bindingId) => context.resourceBindingIds.has(bindingId)) ? canonical : null
     })
     const sinkAtomicities = context.sinkAtomicityByCapability?.get(capabilityId) ?? []

@@ -69,6 +69,8 @@ beforeEach(() => {
       capabilities: [],
       bindings: [],
       requireFeatures: ['example.manage'],
+      mutationSurfaces: [],
+      mutationProviders: [],
       roundTripIds: payload.clientRoundTripIds,
       clientFingerprint: payload.clientManifestFingerprint,
     }]]),

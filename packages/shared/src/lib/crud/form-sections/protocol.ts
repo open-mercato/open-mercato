@@ -106,3 +106,14 @@ export const crudFormSectionPolicyTokenBodySchema = z.object({
 })
 
 export type CrudFormSectionPolicyTokenBody = z.infer<typeof crudFormSectionPolicyTokenBodySchema>
+
+export const crudFormSectionPolicyMismatchResponseSchema = z.object({
+  error: z.literal('extension_policy_mismatch'),
+  code: z.literal('extension_policy_mismatch'),
+}).strict()
+
+export const crudFormSectionMutationGuardRejectedResponseSchema = z.object({
+  error: z.literal('mutation_guard_rejected'),
+  code: z.literal('mutation_guard_rejected'),
+  details: z.unknown().optional(),
+}).strict()
