@@ -1,4 +1,4 @@
-import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
+import { parseScopedCommandInput, type ScopedContext } from '@open-mercato/shared/lib/api/scoped'
 import { collectWritableKeys, IGNORED_FIELDS, inspectWritePayload } from '@open-mercato/shared/lib/crud/write-payload'
 import { activityUpdateSchema, dealUpdateSchema } from '../data/validators'
 
@@ -6,7 +6,7 @@ const translate = (_key: string, fallback?: string) => fallback ?? _key
 const ctx = {
   auth: { tenantId: '11111111-1111-4111-8111-111111111111', orgId: '22222222-2222-4222-8222-222222222222' },
   selectedOrganizationId: '22222222-2222-4222-8222-222222222222',
-} as any
+} as ScopedContext
 
 const DEAL_ID = 'b55529cc-364a-466a-9134-d6a01a2380c5'
 const ACTIVITY_ID = 'e356a1cf-8ec9-4c8c-9d9b-491436dd03a0'
@@ -33,7 +33,7 @@ describe('deal update accepts the spelling the read endpoints emit', () => {
     expect(parsed.status).toBe('closed')
     expect(parsed.closureOutcome).toBe('lost')
     expect(parsed.lossNotes).toBe('client went with an incumbent vendor')
-    expect((parsed as any)[IGNORED_FIELDS]).toBeUndefined()
+    expect((parsed as Record<symbol, unknown>)[IGNORED_FIELDS]).toBeUndefined()
   })
 
   it('aliases owner_user_id, which the list endpoint also emits', () => {
@@ -56,7 +56,7 @@ describe('deal update accepts the spelling the read endpoints emit', () => {
     ) as Record<string, unknown>
 
     expect(parsed.status).toBe('closed')
-    expect((parsed as any)[IGNORED_FIELDS]).toEqual([{ key: 'not_a_deal_field', reason: 'unknown' }])
+    expect((parsed as Record<symbol, unknown>)[IGNORED_FIELDS]).toEqual([{ key: 'not_a_deal_field', reason: 'unknown' }])
   })
 })
 
@@ -70,7 +70,7 @@ describe('scope keys survive a round trip', () => {
     const allOrgs = {
       auth: { tenantId: '11111111-1111-4111-8111-111111111111', orgId: '22222222-2222-4222-8222-222222222222' },
       selectedOrganizationId: null,
-    } as any
+    } as ScopedContext
     const parsed = parseScopedCommandInput(
       dealUpdateSchema,
       {
@@ -86,7 +86,7 @@ describe('scope keys survive a round trip', () => {
     expect(parsed.status).toBe('open')
     // Scope still comes from context, never from the body's snake_case spelling.
     expect(parsed.organizationId).toBe('22222222-2222-4222-8222-222222222222')
-    expect((parsed as any)[IGNORED_FIELDS]).toBeUndefined()
+    expect((parsed as Record<symbol, unknown>)[IGNORED_FIELDS]).toBeUndefined()
   })
 })
 
@@ -136,7 +136,7 @@ describe('server-maintained timestamps are not reported as ignored', () => {
       translate
     ) as Record<string, unknown>
     expect(parsed.status).toBe('open')
-    expect((parsed as any)[IGNORED_FIELDS]).toBeUndefined()
+    expect((parsed as Record<symbol, unknown>)[IGNORED_FIELDS]).toBeUndefined()
   })
 })
 

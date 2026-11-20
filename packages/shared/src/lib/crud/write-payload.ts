@@ -73,15 +73,12 @@ function readWrappedSchema(def: unknown): unknown {
 
 export function collectWritableKeys(schema: z.ZodTypeAny): Set<string> | null {
   let current: unknown = schema
-  // `.optional()`, `.nullable()`, `.default()` and `.superRefine()` can nest.
   for (let depth = 0; depth < 10; depth += 1) {
     if (!current || typeof current !== 'object') return null
     const node = current as SchemaInspectionNode
     if (!node._def) return null
     const shape = readSchemaShape(node)
     if (shape) return new Set(Object.keys(shape))
-    // zod v3 exposes `.shape` as a getter on ZodObject; v4 keeps it too, but the
-    // wrappers below hide it, so unwrap one layer at a time.
     const inner = readWrappedSchema(node._def)
     if (!inner) return null
     current = inner
@@ -147,14 +144,14 @@ export function isReadOnlyTimestampKey(key: string): boolean {
  * telling the caller their values differ when they do not. Shallow structural
  * comparison covers the shapes that actually travel in a write payload.
  */
-function sameWriteValue(a: unknown, b: unknown): boolean {
-  if (a === b) return true
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((item, index) => item === b[index])
+function sameWriteValue(leftValue: unknown, rightValue: unknown): boolean {
+  if (leftValue === rightValue) return true
+  if (Array.isArray(leftValue) && Array.isArray(rightValue)) {
+    return leftValue.length === rightValue.length && leftValue.every((item, index) => item === rightValue[index])
   }
-  if (a && b && typeof a === 'object' && typeof b === 'object') {
-    const left = a as Record<string, unknown>
-    const right = b as Record<string, unknown>
+  if (leftValue && rightValue && typeof leftValue === 'object' && typeof rightValue === 'object') {
+    const left = leftValue as Record<string, unknown>
+    const right = rightValue as Record<string, unknown>
     const leftKeys = Object.keys(left)
     if (leftKeys.length !== Object.keys(right).length) return false
     return leftKeys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && left[key] === right[key])
@@ -194,7 +191,6 @@ export function inspectWritePayload(
   const unwritable: UnwritableKey[] = []
 
   if (!writableKeys) {
-    // Unintrospectable schema: report immutable hits, otherwise leave untouched.
     for (const key of Object.keys(source)) {
       if (immutable.has(key)) unwritable.push({ key, reason: 'immutable' })
     }
@@ -252,9 +248,6 @@ export function withIgnoredFieldsReport<T extends Record<string, unknown>>(
 ): T & { ignoredFields?: UnwritableKey[] } {
   if (!input || typeof input !== 'object') return payload
   const carrier = input as Record<string | symbol, unknown>
-  // The string key is the hand-written-caller path: a route that computed the
-  // report itself passes `{ ignoredFields }` directly. Everything that goes
-  // through `parseScopedCommandInput` or the factory uses the Symbol.
   const ignored = (carrier[IGNORED_FIELDS] ?? carrier.ignoredFields) as UnwritableKey[] | undefined
   if (!Array.isArray(ignored) || ignored.length === 0) return payload
   return { ...payload, ignoredFields: ignored }
@@ -287,16 +280,7 @@ export type CrudWriteGuardConfig = {
    * payload end-to-end can opt in.
    */
   rejectUnknownFields?: boolean
-  /**
-   * Optional i18n hook plus the message keys to look up.
-   *
-   * `@open-mercato/shared` ships no locale files, so passing a literal key argument
-   * to the translate function here would name a key no dictionary can declare, and
-   * `yarn i18n:check-usage` fails on exactly that. Callers that want translated messages pass their own
-   * module-namespaced keys (`customers.errors.immutable_field`), which is the same
-   * shape `ScopedPayloadOptions.messages` already uses. Without them the English
-   * fallbacks are returned verbatim, which is what every caller does today.
-   */
+  /** Runtime translator; route callers resolve it through the server i18n boundary. */
   translate?: (key: string, fallback?: string) => string
   messages?: {
     conflictingField?: { key: string; fallback?: string }
@@ -305,17 +289,6 @@ export type CrudWriteGuardConfig = {
   }
 }
 
-/**
- * Default message keys and their English text.
- *
- * `{ key, fallback }` pairs in a plain object literal, the same shape
- * `ScopedPayloadOptions`' own `DEFAULT_MESSAGES` uses. That shape is what lets the
- * messages be translatable without tripping `i18n:check-usage`: the scanner
- * matches literal arguments to the translate function, and an object-literal
- * property is not one, which is why the existing `errors.*` keys were never
- * flagged. A caller supplies its own module-namespaced key through
- * `CrudWriteGuardConfig.messages` when it has a dictionary to back it.
- */
 const WRITE_GUARD_MESSAGES = {
   conflictingField: {
     key: 'errors.write_guard.conflicting_field',
@@ -371,10 +344,12 @@ export function guardWriteBody(
 
   if (inspection.conflicts.length > 0) {
     const first = inspection.conflicts[0]!
+    const detailsFallback = '{snake} and {camel} were both sent with different values.'
+    const details = config?.translate?.('errors.write_guard.conflicting_field_details', detailsFallback) ?? detailsFallback
     throw new CrudHttpError(400, {
       error: resolveGuardMessage(config, 'conflictingField'),
       fields: inspection.conflicts.map((entry) => entry.snake),
-      details: `${first.snake} and ${first.camel} were both sent with different values.`,
+      details: details.replace('{snake}', first.snake).replace('{camel}', first.camel),
     })
   }
 
@@ -387,10 +362,6 @@ export function guardWriteBody(
   }
 
   const aliasing = config?.aliasSnakeCaseKeys !== false
-  // With aliasing off the original body still spells the key snake_case, so Zod
-  // strips it. Report it — and count it as unwritable for strictness, or
-  // `rejectUnknownFields` combined with `aliasSnakeCaseKeys: false` would accept
-  // the very key it is meant to refuse.
   const misspelled: UnwritableKey[] = aliasing
     ? []
     : inspection.aliased.map((entry) => ({ key: entry.from, reason: 'misspelled' as const }))
@@ -406,8 +377,6 @@ export function guardWriteBody(
   return {
     body: aliasing ? { ...inspection.payload, ...passthrough } : body,
     ignoredFields: unapplied,
-    // Returned so a caller holding keys the guard never saw (custom fields, say)
-    // can apply the same renames to its own copy of the body.
     aliased: aliasing ? inspection.aliased : [],
   }
 }

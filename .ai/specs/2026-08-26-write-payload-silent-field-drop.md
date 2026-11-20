@@ -161,7 +161,7 @@ Other bespoke handlers that call neither shared entry point must adopt
 
 ---
 
-## Backward Compatibility
+## Migration & Backward Compatibility
 
 - Previously-discarded snake_case keys are now **applied**. This is the intended
   fix, and it is the one behavioural change a caller could notice: a client that
@@ -228,6 +228,25 @@ given `.nullable()` for the same reason (TC-CRM-069).
 
 ## Testing
 
+- `packages/core/src/modules/wms/__integration__/TC-WMS-LOT-WRITE-GUARD-001.spec.ts`:
+  create a product, variant and lot, read null dates, set all three dates, clear
+  them through snake-case aliases, and read nulls again. All fixtures are cleaned up.
+- `packages/core/src/modules/catalog/__integration__/TC-CAT-WRITE-GUARD-001.spec.ts`:
+  actual product create/update responses report unknown fields after the existing
+  custom-field mapper, and a fresh read confirms the accepted title was written.
+- The customer API suite also creates a scheduled activity, explicitly clears
+  `date`, and reads the canonical interaction to verify `scheduledAt: null`.
+- Restricted-fieldset command tests reject both top-level `phoneNumber` and its
+  equivalent custom-field value before persistence. The applicability lookup uses
+  the merged custom-field values under the interaction's tenant and organization.
+- Scoped lot tests preserve nullable dates and trusted scope. Shared factory tests
+  exercise report propagation through `splitCustomFieldPayload`, runtime translation
+  for conflicting/immutable/strict-unknown errors, and shipped dictionaries for
+  English, Polish, German, Spanish and Korean with standalone-template parity.
+- The nullable-date audit also covers catalog price validity windows and the
+  activity adapter's occurrence timestamp. Their schemas preserve explicit nulls;
+  the adapter forwards occurrence clears using the existing canonical planned status.
+
 - `packages/core/src/modules/customers/__integration__/TC-CRM-WRITE-GUARD-001.spec.ts`:
   deal round-trip aliases, ignored keys, immutable parent, plus activity and
   interaction create/read/update/read persistence, matching/conflicting phone
@@ -246,6 +265,14 @@ given `.nullable()` for the same reason (TC-CRM-069).
 ---
 
 ## Changelog
+
+- **2026-11-20** - Preserve nullable WMS lot dates before coercion, forward explicit
+  activity date clearing, retain ignored-field reports through custom-field
+  splitting, and validate merged phone custom fields on create. Resolve default
+  write-guard messages through runtime translation and ship supported locale keys.
+  Remove new unchecked public/test inputs and add consuming API regressions.
+  Preserve nullable catalog price validity dates and activity occurrence clears
+  found while tracing the affected consumers.
 
 - **2026-09-13** - Resolve upstream indexer-wrapper conflicts while retaining the
   command-response input. Persist phone writes through canonical interaction

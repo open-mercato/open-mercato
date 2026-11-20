@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { parseScopedCommandInput } from '../scoped'
+import { parseScopedCommandInput, type ScopedContext } from '../scoped'
 import { IGNORED_FIELDS } from '../../crud/write-payload'
 
 const translate = (_key: string, fallback?: string) => fallback ?? _key
@@ -158,7 +158,7 @@ describe('parseScopedCommandInput write guard', () => {
   const ctx = {
     auth: { tenantId: 'tenant-1', orgId: 'org-1' },
     selectedOrganizationId: 'org-1',
-  } as any
+  } as ScopedContext
 
   // Mirrors dealUpdateSchema: z.object({id}).merge(dealCreateSchema.partial())
   const dealUpdateLike = z
@@ -186,7 +186,7 @@ describe('parseScopedCommandInput write guard', () => {
     expect(result.status).toBe('closed')
     expect(result.closureOutcome).toBe('lost')
     expect(result.lossNotes).toBe('undercut on price')
-    expect((result as any)[IGNORED_FIELDS]).toBeUndefined()
+    expect((result as Record<symbol, unknown>)[IGNORED_FIELDS]).toBeUndefined()
   })
 
   it('reports a key it cannot write rather than answering a bare ok', () => {
@@ -200,7 +200,7 @@ describe('parseScopedCommandInput write guard', () => {
     expect(result.status).toBe('closed')
     // Carried on a Symbol so it never lands in a command input or an audit snapshot.
     expect(result.ignoredFields).toBeUndefined()
-    expect((result as any)[IGNORED_FIELDS]).toEqual([{ key: 'totally_made_up', reason: 'unknown' }])
+    expect((result as Record<symbol, unknown>)[IGNORED_FIELDS]).toEqual([{ key: 'totally_made_up', reason: 'unknown' }])
   })
 
   it('rejects an unknown key outright when the caller opts into strictness', () => {
@@ -247,6 +247,13 @@ describe('parseScopedCommandInput write guard', () => {
     ) as Record<string, unknown>
 
     expect(result.customFields).toEqual({ foo: 'bar', extra: '123' })
-    expect((result as any)[IGNORED_FIELDS]).toBeUndefined()
+    expect((result as Record<symbol, unknown>)[IGNORED_FIELDS]).toBeUndefined()
+  })
+
+  it('keeps trusted scope when snake-case scope accompanies writable aliases', () => {
+    const result = parseScopedCommandInput(dealUpdateLike, {
+      id: 'deal-1', closure_outcome: 'lost', tenant_id: 'foreign-tenant', organization_id: 'foreign-org',
+    }, ctx, translate)
+    expect(result).toMatchObject({ tenantId: 'tenant-1', organizationId: 'org-1', closureOutcome: 'lost' })
   })
 })

@@ -681,7 +681,8 @@ export async function PUT(request: Request): Promise<Response> {
     // writable nor rejected would vanish behind a `200 {"ok":true}`. Custom-field
     // keys are split out first so the guard never sees them.
     const { base: guardBase } = splitCustomFieldPayload(body)
-    const guarded = guardWriteBody(activityUpdateBodySchema, guardBase, ACTIVITY_WRITE_GUARD)
+    const { translate } = await resolveTranslations()
+    const guarded = guardWriteBody(activityUpdateBodySchema, guardBase, { ...ACTIVITY_WRITE_GUARD, translate })
     const ignoredFields = guarded.ignoredFields
     // Apply the renames onto the ORIGINAL body rather than parsing the guard's
     // copy: the guard never saw the custom-field keys, and `customFields` and
@@ -718,12 +719,12 @@ export async function PUT(request: Request): Promise<Response> {
         interactionType: parsed.activityType,
         title: parsed.subject ?? undefined,
         body: parsed.body ?? undefined,
-        occurredAt: parsed.occurredAt ?? undefined,
-        status: parsed.occurredAt ? 'done' : undefined,
+        occurredAt: parsed.occurredAt,
+        status: parsed.occurredAt === null ? 'planned' : parsed.occurredAt ? 'done' : undefined,
         // Forwarded because `activityUpdateSchema` declares all three and the
         // canonical interaction update accepts them, deriving `scheduledAt` from
         // `date`+`time`. They were validated here and then left out of this input.
-        date: parsed.date ?? undefined,
+        date: parsed.date,
         time: parsed.time ?? undefined,
         phoneNumber: parsed.phoneNumber,
         dealId: parsed.dealId ?? undefined,

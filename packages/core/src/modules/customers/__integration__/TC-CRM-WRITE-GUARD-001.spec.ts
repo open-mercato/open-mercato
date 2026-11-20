@@ -127,6 +127,47 @@ test.describe('TC-CRM-WRITE-GUARD-001: writes never silently discard a field', (
     }
   });
 
+  test('an explicit activity date clear persists through a fresh canonical read', async ({ request }) => {
+    const token = await getAuthToken(request);
+    let companyId: string | null = null;
+    let activityId: string | null = null;
+    try {
+      companyId = await createCompanyFixture(request, token, `QA WG date ${Date.now()}`);
+      const created = await apiRequest(request, 'POST', '/api/customers/activities', {
+        token, data: { entityId: companyId, activityType: 'call', subject: 'Scheduled call', date: '2026-12-15', time: '10:30' },
+      });
+      expect(created.status()).toBe(201);
+      activityId = (await created.json() as { id: string }).id;
+      const readInteraction = async () => {
+        const response = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${companyId}`, { token });
+        expect(response.status()).toBe(200);
+        const body = await response.json() as { items: Array<{ id: string; scheduledAt: string | null; occurredAt: string | null }> };
+        const interaction = body.items.find((item) => item.id === activityId);
+        expect(interaction).toBeDefined();
+        return interaction;
+      };
+      expect((await readInteraction())?.scheduledAt).toMatch(/^2026-12-15T/);
+      const cleared = await apiRequest(request, 'PUT', '/api/customers/activities', {
+        token, data: { id: activityId, date: null },
+      });
+      expect(cleared.status()).toBe(200);
+      expect((await readInteraction())?.scheduledAt).toBeNull();
+      const completed = await apiRequest(request, 'PUT', '/api/customers/activities', {
+        token, data: { id: activityId, occurred_at: '2026-12-15T10:30:00.000Z' },
+      });
+      expect(completed.status()).toBe(200);
+      expect((await readInteraction())?.occurredAt).toBe('2026-12-15T10:30:00.000Z');
+      const occurrenceCleared = await apiRequest(request, 'PUT', '/api/customers/activities', {
+        token, data: { id: activityId, occurred_at: null },
+      });
+      expect(occurrenceCleared.status()).toBe(200);
+      expect((await readInteraction())?.occurredAt).toBeNull();
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/activities', activityId);
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
+    }
+  });
+
   for (const resource of ['activities', 'interactions'] as const) {
     const endpoint = `/api/customers/${resource}`;
 

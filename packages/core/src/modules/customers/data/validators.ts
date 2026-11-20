@@ -240,7 +240,7 @@ export const activityCreateSchema = scopedSchema.extend({
   date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
   time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
   phoneNumber: interactionPhoneNumberSchema,
-  occurredAt: z.coerce.date().optional(),
+  occurredAt: z.coerce.date().nullable().optional(),
   dealId: uuid().optional(),
   authorUserId: uuid().optional(),
   appearanceIcon: z.string().trim().max(100).optional().nullable(),

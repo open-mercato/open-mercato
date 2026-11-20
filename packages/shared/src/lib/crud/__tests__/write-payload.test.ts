@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { CrudHttpError } from '../errors'
+import type { CrudWriteGuardConfig } from '../write-payload'
 import { collectWritableKeys, guardWriteBody, inspectWritePayload, withIgnoredFieldsReport } from '../write-payload'
 
 describe('collectWritableKeys', () => {
@@ -103,7 +105,7 @@ describe('guardWriteBody', () => {
   // `reason: 'unknown'` let `aliasSnakeCaseKeys: false` + `rejectUnknownFields`
   // accept the snake spelling it was configured to refuse.
   it('rejects a misspelled key when strictness is on and aliasing is off', () => {
-    let thrown: any = null
+    let thrown: unknown = null
     try {
       guardWriteBody(schema, { id: 'x', is_done: true }, { aliasSnakeCaseKeys: false, rejectUnknownFields: true })
     } catch (error) {
@@ -128,9 +130,13 @@ describe('guardWriteBody', () => {
 
 describe('guard messages', () => {
   const schema = z.object({ id: z.string(), entityId: z.string().optional() })
-  const throwing = (config: any) => {
-    try { guardWriteBody(schema, { id: 'x', entityId: 'y' }, config); return null }
-    catch (e: any) { return e.body }
+  const throwing = (config: CrudWriteGuardConfig): Record<string, unknown> => {
+    try { guardWriteBody(schema, { id: 'x', entityId: 'y' }, config) }
+    catch (error: unknown) {
+      if (!(error instanceof CrudHttpError)) throw error
+      return error.body
+    }
+    throw new Error('[internal] Expected write guard rejection')
   }
 
   it('translates the default key when a translate hook is supplied', () => {
