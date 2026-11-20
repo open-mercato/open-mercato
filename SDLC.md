@@ -46,6 +46,22 @@ it stops that processing. It grants no code-review, QA, legal or CI approval.
 Configured human-only labels/authors and `blocked`, `do-not-merge`, `qa-failed`
 and active manual QA remain gates.
 
+`automerge-now` also enrolls a PR and asks either fixer (`om-auto-fix-issue`,
+`om-auto-fix-pr`) to hand off to `om-auto-merge-buddy` for one immediate visit;
+on an issue, the fixer copies the label to the implementation PR. The buddy owns
+every automated merge. `automerge-force` grants nothing alone: only together
+with `automerge-now` does it select the automation-only approval policy, and
+the buddy then posts a PR notice that human QA and the protected-area check were
+skipped. That pair never overrides this repository's QA-approval gate: a
+`needs-qa` PR still needs `qa-approved`. Removing either label restores the
+ordinary rules; `automerge-prepare` limits the buddy to preparation.
+
+`automerge-signal-3-passes-local-ci-checks` is the alternative CI signal: every
+configured validation command and the selected integration suite passed locally
+on the current head ([local integration tests](.ai/docs/automerge-local-integration.md)),
+no host check failed and there are no conflicts. Pending host checks are never
+reported as green, and a current host failure invalidates the signal.
+
 The configured mode is `prepare-and-merge`, with independent review required.
 The worker may prepare and squash-merge only after all applicable gates pass on
 the reviewed head. The tracker merge operation matches that commit SHA and keeps
