@@ -37,6 +37,7 @@
   "directory.organizations.common.none": "—",
   "directory.organizations.errors.deleteFailed": "Failed to delete organization",
   "directory.organizations.errors.orgIdRequired": "Organization identifier is required",
+  "directory.organizations.errors.replayCycle": "The organization hierarchy changed since this action, so it can't be reverted without making an organization its own ancestor.",
   "directory.organizations.errors.tenantRequired": "Tenant selection is required for super administrators",
   "directory.organizations.flash.created": "Organization created",
   "directory.organizations.flash.deleted": "Organization deleted",
