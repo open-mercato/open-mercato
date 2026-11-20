@@ -3,7 +3,12 @@ const mockApplyCoverageAdjustments = jest.fn(async () => undefined)
 const mockCreateCoverageAdjustments = jest.fn(() => [])
 const mockRecordIndexerError = jest.fn(async () => undefined)
 const mockLoadQueryIndexRowScope = jest.fn(async () => ({ kind: 'missing' as const }))
-const mockResolveQueryIndexSourceMetadata = jest.fn(() => ({
+const mockResolveQueryIndexSourceMetadata = jest.fn((): {
+  table: string
+  organizationColumn: string | null
+  tenantColumn: string | null
+  deletedAtColumn?: string
+} => ({
   table: 'entity_indexes',
   organizationColumn: 'organization_id',
   tenantColumn: 'tenant_id',
@@ -60,12 +65,10 @@ function createAlwaysConsistentContext() {
   const eventBus = { emitEvent }
   const rowQuery: Record<string, jest.Mock> = {
     select: jest.fn(),
-    selectAll: jest.fn(),
     where: jest.fn(),
     executeTakeFirst: jest.fn(async () => ({ deleted_at: new Date() })),
   }
   rowQuery.select.mockReturnValue(rowQuery)
-  rowQuery.selectAll.mockReturnValue(rowQuery)
   rowQuery.where.mockReturnValue(rowQuery)
   const trx = { selectFrom: jest.fn(() => rowQuery) }
   const db = {
@@ -186,7 +189,7 @@ describe('query_index delete_one coverage refresh throttling', () => {
     }
     baseQuery.where.mockReturnValue(baseQuery)
     const select = jest.fn(() => baseQuery)
-    const selectFrom = jest.fn(() => ({ select, selectAll: select }))
+    const selectFrom = jest.fn(() => ({ select }))
     const { ctx } = createContext(() => ({ selectFrom }))
     mockResolveQueryIndexSourceMetadata.mockReturnValue({
       table: 'feature_toggles',
@@ -248,16 +251,20 @@ describe('query_index delete_one coverage refresh throttling', () => {
 
   it.each([false, true].flatMap((alwaysConsistent) => [
     { alwaysConsistent, state: 'live hard-delete row', row: { id: 'section-1' }, baseDelta: 0 },
-    { alwaysConsistent, state: 'live soft-delete row', row: { deleted_at: null }, baseDelta: 0 },
-    { alwaysConsistent, state: 'soft-deleted row', row: { deleted_at: new Date('2026-01-01') }, baseDelta: -1 },
+    { alwaysConsistent, state: 'live soft-delete row', row: { archived_at: null }, baseDelta: 0 },
+    { alwaysConsistent, state: 'soft-deleted row', row: { archived_at: new Date('2026-01-01') }, baseDelta: -1 },
     { alwaysConsistent, state: 'missing row', row: undefined, baseDelta: -1 },
   ]))('handles $state when synchronous consistency is $alwaysConsistent', async ({ alwaysConsistent, row, baseDelta }) => {
     mockIsReadProjectionAlwaysConsistent.mockReturnValue(alwaysConsistent)
     mockResolveQueryIndexRecordScope.mockReturnValue({ organizationId: 'org-1', tenantId: 'tenant-1' })
     const { ctx: consistentContext, rowQuery } = createAlwaysConsistentContext()
-    if (!row || !('deleted_at' in row)) {
-      rowQuery.select.mockImplementation(() => { throw new Error('[internal] column deleted_at does not exist') })
-    }
+    const deletedAtColumn = row && 'archived_at' in row ? 'archived_at' : undefined
+    mockResolveQueryIndexSourceMetadata.mockReturnValue({
+      table: 'entity_indexes',
+      organizationColumn: 'organization_id',
+      tenantColumn: 'tenant_id',
+      deletedAtColumn,
+    })
     rowQuery.executeTakeFirst.mockResolvedValue(row)
     const { ctx: deferredContext } = createContext(() => ({ selectFrom: () => rowQuery }))
 
@@ -278,6 +285,9 @@ describe('query_index delete_one coverage refresh throttling', () => {
       indexDelta: -1,
     })
     expect(mockRecordIndexerError).not.toHaveBeenCalled()
+    expect(rowQuery.select).toHaveBeenCalledTimes(1)
+    expect(rowQuery.select).toHaveBeenCalledWith(deletedAtColumn ?? 'id')
+    expect(rowQuery.where).toHaveBeenCalledTimes(3)
     expect(rowQuery.where).toHaveBeenCalledWith('organization_id', '=', 'org-1')
   })
 })
