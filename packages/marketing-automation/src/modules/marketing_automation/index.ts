@@ -40,15 +40,18 @@ export const metadata: ModuleInfo = {
    */
   requires: ['customers', 'customer_accounts', 'business_rules'],
   /**
-   * SOFT: used where present, degraded where not — and every reader keeps that promise.
+   * SOFT: used where present, degraded where not — once a reader exists to keep that promise.
    *
-   * Marketing enriches campaigns with purchase history when `sales` is there and with live product
-   * classification when `catalog` is. Neither is needed to send a welcome sequence, run lead scoring, survey
-   * somebody or write a birthday campaign, which is the whole point: an installation shaped as a CRM rather
-   * than a shop could not previously enable this module at all.
+   * Marketing is MEANT to enrich campaigns with purchase history when `sales` is there and with live
+   * product classification when `catalog` is. Neither is needed to send a welcome sequence, run lead
+   * scoring, survey somebody or write a birthday campaign, which is the whole point: an installation
+   * shaped as a CRM rather than a shop could not previously enable this module at all.
    *
-   * What is withheld without them is stated on the setup screen rather than discovered per trigger, and every
-   * reader is guarded — `lib/capabilities.ts` is the probe, and two tests keep the list of readers complete.
+   * Nothing in this phase reads `sales` or `catalog` yet — this phase is schema and vocabulary only, no
+   * `api/` routes, no backend screens, no readers. The guard (a `lib/capabilities.ts` probe) and the
+   * tests that keep its reader list complete land with the phase that adds the first such reader, not
+   * here. Declaring the dependency optional now, before any reader exists, is what lets later phases add
+   * readers without a second review of this file.
    */
   optionalRequires: ['sales', 'catalog'],
 }

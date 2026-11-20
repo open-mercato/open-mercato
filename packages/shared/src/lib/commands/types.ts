@@ -109,6 +109,12 @@ export type CommandRuntimeContext = {
    * audit path.
    */
   runAs?: CommandRunAsContext
+  /**
+   * Correlation ids (e.g. `agentRunId`, `proposalId`) merged into the action log
+   * `context.correlation` of every write this context produces. Additive: keys
+   * already present in the logged context win, and non-string values are dropped.
+   */
+  auditCorrelation?: Record<string, string>
 }
 
 export type CommandRunAsContext = {
@@ -166,8 +172,11 @@ export type CommandExecuteResult<TResult> = {
    * that transaction has committed. An ambient replay returns this as false
    * while its caller-owned transaction is still active; the returned result
    * object is updated to true by the owner's commit callback. It remains false
-   * on rollback. Callers that historically finalized redo themselves can use
-   * this additive signal to avoid a redundant post-commit write.
+   * on rollback. A non-atomic redo returns true once its compare-and-set claim
+   * moved the source log to redone before the command ran; with
+   * `ctx.transactionalEm` that claim is part of the caller's transaction, whose
+   * rollback reverts it. Callers that historically finalized redo themselves
+   * can use this additive signal to avoid a redundant post-commit write.
    */
   replaySourceFinalized?: boolean
 }
