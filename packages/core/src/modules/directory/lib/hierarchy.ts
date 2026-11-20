@@ -55,6 +55,25 @@ function normalizeUuid(value: unknown): string | null {
   return v
 }
 
+export function findOrganizationParentCycle(
+  organizations: ReadonlyArray<Pick<Organization, 'id' | 'parentId'>>,
+  organizationIds: Iterable<string>,
+): string | null {
+  const parents = new Map<string, string | null>()
+  for (const org of organizations) parents.set(String(org.id), normalizeUuid(org.parentId))
+  for (const startId of organizationIds) {
+    const seen = new Set<string>([startId])
+    let currentId = parents.get(startId) ?? null
+    while (currentId && parents.has(currentId)) {
+      if (currentId === startId) return startId
+      if (seen.has(currentId)) break
+      seen.add(currentId)
+      currentId = parents.get(currentId) ?? null
+    }
+  }
+  return null
+}
+
 export function computeHierarchyForOrganizations(organizations: Organization[], tenantId: string): ComputedHierarchy {
   const nodes = new Map<string, InternalNode>()
 
