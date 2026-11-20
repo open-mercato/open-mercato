@@ -58,6 +58,13 @@ function parseTriggeredByUser(triggeredBy: ProcessInstance['triggeredBy']): stri
   return triggeredBy.ref ?? null
 }
 
+function tryResolveWorkflowExecutor(
+  container: Awaited<ReturnType<typeof createRequestContainer>>,
+): WorkflowExecutorLike | null {
+  if (!container.hasRegistration('workflowExecutor')) return null
+  return (container.resolve('workflowExecutor') as WorkflowExecutorLike | null) ?? null
+}
+
 /**
  * Terminal failure BEFORE any workflow instance exists — the only status this
  * worker may write. Once an instance exists the instance owns the lifecycle and
@@ -179,7 +186,11 @@ export default async function handle(job: QueuedJob<ProcessExecutionJobPayload>,
     return
   }
 
-  const workflowExecutor = container.resolve('workflowExecutor') as WorkflowExecutorLike
+  const workflowExecutor = tryResolveWorkflowExecutor(container)
+  if (!workflowExecutor) {
+    await failBeforeStart(em, decrypted, 'Workflows module is not enabled')
+    return
+  }
 
   // The workflow definition owns the EXECUTION identity: core provisions a
   // least-privilege principal from its `grantedFeatures` and every run acts as
