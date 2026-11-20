@@ -28,6 +28,8 @@ type ChannelRow = {
   pollIntervalSeconds: number | null
   lastPolledAt: string | null
   pushStatus: string | null
+  pushExpiresAt: string | null
+  pushExpired: boolean
   lastPushError: { code: string | null; message: string | null; at: string | null } | null
   supportsRealtimePush: boolean
   supportsPushRegistration: boolean
@@ -109,6 +111,8 @@ function buildRow(overrides: Partial<ChannelRow>): ChannelRow {
     pollIntervalSeconds: null,
     lastPolledAt: null,
     pushStatus: null,
+    pushExpiresAt: null,
+    pushExpired: false,
     lastPushError: null,
     supportsRealtimePush: true,
     supportsPushRegistration: false,
@@ -217,6 +221,77 @@ describe('profile communication channels — push column and poll action', () =>
     expect(screen.getByRole('menuitem', { name: 'Re-register push' })).toBeInTheDocument()
   })
 
+  // Regression for https://github.com/open-mercato/open-mercato/issues/8943 — an
+  // expired Gmail watch still stores pushStatus 'active', which rendered "Push
+  // active" and hid the only action that recovers it.
+  it('shows an expired Gmail watch as expired and offers to re-register it', () => {
+    const expired = buildRow({
+      providerKey: 'gmail',
+      supportsRealtimePush: false,
+      supportsPushRegistration: true,
+      pushStatus: 'active',
+      pushExpiresAt: '2026-08-27T12:40:11.000Z',
+      pushExpired: true,
+    })
+    renderCell('pushStatus', expired)
+
+    expect(screen.getByText('Push expired — re-register to resume delivery')).toBeInTheDocument()
+    expect(screen.queryByText('Push active')).not.toBeInTheDocument()
+
+    openRowActions(expired)
+    expect(screen.getByRole('menuitem', { name: 'Re-register push' })).toBeInTheDocument()
+  })
+
+  // Regression for https://github.com/open-mercato/open-mercato/issues/9802 — the
+  // computed Push column fell back to DataTable's 150px truncation, clipping the
+  // long expired/failed tags mid-word with no tooltip.
+  it('opts the Push column out of truncation so long tags wrap instead of clipping', () => {
+    expect(findColumn('pushStatus')?.meta).toMatchObject({ truncate: false })
+
+    const { unmount } = renderCell(
+      'pushStatus',
+      buildRow({
+        providerKey: 'gmail',
+        supportsRealtimePush: false,
+        supportsPushRegistration: true,
+        pushStatus: 'active',
+        pushExpired: true,
+      }),
+    )
+    expect(
+      screen.getByText('Push expired — re-register to resume delivery').closest('[data-slot="tag"]'),
+    ).toHaveClass('max-w-60')
+    unmount()
+
+    renderCell(
+      'pushStatus',
+      buildRow({
+        providerKey: 'gmail',
+        supportsRealtimePush: false,
+        supportsPushRegistration: true,
+        pushStatus: 'failed',
+      }),
+    )
+    expect(screen.getByText('Push failed — using polling').closest('[data-slot="tag"]')).toHaveClass('max-w-60')
+  })
+
+  it('keeps a live Gmail watch as "Push active" without a re-register action', () => {
+    const live = buildRow({
+      providerKey: 'gmail',
+      supportsRealtimePush: false,
+      supportsPushRegistration: true,
+      pushStatus: 'active',
+      pushExpiresAt: '2099-01-01T00:00:00.000Z',
+      pushExpired: false,
+    })
+    renderCell('pushStatus', live)
+
+    expect(screen.getByText('Push active')).toBeInTheDocument()
+
+    openRowActions(live)
+    expect(screen.queryByRole('menuitem', { name: 'Re-register push' })).not.toBeInTheDocument()
+  })
+
   it('does not claim polling for a registerable push provider that the hub never polls', () => {
     // A provider that both declares realtimePush and can register push has no
     // polling fallback at all — the idle state must not say "Polling only".
@@ -295,6 +370,18 @@ describe('profile communication channels — row actions menu', () => {
     openRowActions(buildRow({ isPrimary: true }))
 
     expect(screen.queryByRole('menuitem', { name: 'Set as primary' })).not.toBeInTheDocument()
+  })
+
+  it('omits "Set as primary" on a disconnected channel', () => {
+    openRowActions(buildRow({ status: 'disconnected', isActive: false }))
+
+    expect(screen.queryByRole('menuitem', { name: 'Set as primary' })).not.toBeInTheDocument()
+  })
+
+  it.each(['connected', 'requires_reauth', 'error'])('offers "Set as primary" on a %s channel', (status) => {
+    openRowActions(buildRow({ status }))
+
+    expect(screen.getByRole('menuitem', { name: 'Set as primary' })).toBeInTheDocument()
   })
 
   it('offers "Share with team" on a private email channel', () => {

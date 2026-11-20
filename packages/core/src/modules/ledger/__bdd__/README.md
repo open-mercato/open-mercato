@@ -184,6 +184,14 @@ commands, the same way the other five feature files' step definitions
 call their real commands. All 19 scenarios across all 7 feature files
 now pass; none are `pending` any more.
 
+**Update (2026-10-23):** `journal_entry_line_currency.feature` (8 scenarios:
+mixed-currency entry, header defaults, missing original amount, missing rate,
+inconsistent amount, exchange-difference line, account-currency mismatch,
+reversal keeping currency/rate/original amount) and
+`ledger_account_currency.feature` (3 scenarios) cover the currency, rate and
+original amount stored on every line and the immutable account currency.
+All 30 scenarios across 9 feature files pass.
+
 (Kept below for the record — this was accurate when these two feature
 files were first written, before `#generated/entities.ids.generated`
 existed in this checkout.)
@@ -214,7 +222,8 @@ parent in `delete_blocking.feature` is gone together with the parent columns.
 `posted_entry_immutability.feature` checks that no command or API route edits
 or deletes a posted entry. The database trigger behind it
 (`journal_entries` blocks UPDATE and DELETE) cannot run in the in-memory fake,
-so it is covered by the integration suite against a real database.
+so it is covered by `TC-GL-006` in `__integration__/`, which runs against a
+real database.
 
 ### What this doesn't verify
 

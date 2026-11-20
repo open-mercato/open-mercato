@@ -13,7 +13,7 @@ import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/tran
 import { JournalEntry, JournalEntryLine } from '../data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { reverseJournalEntrySchema, type ReverseJournalEntryInput } from '../data/validators'
-import { isComposedPostingCall, runPostJournalEntry, withPostingTransaction, type JournalEntryPostCore, type PostJournalEntryResult } from './postJournalEntry'
+import { isComposedPostingCall, runPostJournalEntry, toPostedLine, withPostingTransaction, type JournalEntryPostCore, type PostJournalEntryResult } from './postJournalEntry'
 import { emitLedgerEvent } from '../events'
 
 type Scope = { organizationId: string; tenantId: string }
@@ -124,9 +124,10 @@ async function loadOriginalEntry(
  * Builds the `REVERSAL` entry's input from the original: every line's
  * `debit`/`credit` swapped (inverting the entry without mutating the
  * original — the original is never persisted to or written back to here),
- * same `accountId`/`amountCurrency`/`contractorSnapshot` per line, same
- * `currencyId`/`exchangeRate` as the original (a reversal restates the same
- * economic event in the same currency). `referenceType`/`referenceId` link
+ * same `accountId`/`currencyId`/`exchangeRate`/`amountCurrency`/
+ * `contractorSnapshot` per line, same header `currencyId`/`exchangeRate` as
+ * the original (a reversal restates the same economic event in the same
+ * currencies, at the original rates). `referenceType`/`referenceId` link
  * back to the original entry — this module has no dedicated
  * "reversalOf"-style column (not in the Data Model), so this reuses the
  * entity's existing generic FK-pointer mechanism, disclosed here as a
@@ -167,6 +168,8 @@ function buildReversalCore(
       // original, which already satisfies the one-sided constraint).
       debit: line.credit,
       credit: line.debit,
+      currencyId: line.currencyId,
+      exchangeRate: line.exchangeRate,
       amountCurrency: line.amountCurrency,
       contractorSnapshot: line.contractorSnapshot ?? null,
     })),
@@ -213,24 +216,14 @@ const reverseJournalEntryCommand: CommandHandler<ReverseJournalEntryInput, PostJ
         tenantId: input.tenantId,
         referenceType: 'journal_entry',
         referenceId: input.journalEntryId,
-        lines: result.lines.map((line) => ({
-          id: line.id,
-          accountId: line.accountId,
-          debit: line.debit,
-          credit: line.credit,
-        })),
+        lines: result.lines.map(toPostedLine),
       }).catch(() => undefined)
     }
 
     return {
       journalEntryId: result.journalEntryId,
       sequenceNumber: result.sequenceNumber,
-      lines: result.lines.map((line) => ({
-        id: line.id,
-        accountId: line.accountId,
-        debit: line.debit,
-        credit: line.credit,
-      })),
+      lines: result.lines.map(toPostedLine),
     }
   },
   buildLog: async ({ input, result, ctx }) => {

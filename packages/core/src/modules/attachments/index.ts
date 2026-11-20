@@ -15,7 +15,73 @@ export {
   type AttachmentService,
   type CreatedScopedAttachment,
   type CreateScopedAttachmentInput,
+  type DescribedScopedAttachment,
+  type DescribeManyScopedAttachmentsInput,
+  type DescribeScopedAttachmentInput,
   type ReadScopedAttachmentInput,
   type ReadScopedAttachmentResult,
   type ReleaseScopedAttachmentInput,
 } from './lib/attachment-service'
+
+export {
+  type AttachmentDocumentStructureService,
+  type DocumentExtractionSummary,
+  type DocumentOutlineNode,
+  type DocumentSection,
+  type DocumentStructure,
+  type DocumentStructureAccessScope,
+  type DocumentStructureStats,
+  type GetDocumentNormalizedTextInput,
+  type GetDocumentSectionInput,
+  type GetDocumentStructureInput,
+  type GetDocumentStructureStatsInput,
+  type ListDocumentSectionsInput,
+  type ListDocumentSectionsResult,
+  type RequestDocumentExtractionInput,
+  type RequestDocumentExtractionResult,
+  type ResolveDocumentCitationInput,
+  type ResolvedDocumentCitation,
+} from './lib/documentStructure/service'
+
+export type { DocumentStructureEngineRegistry } from './lib/documentStructure/engines/registry'
+
+export type {
+  DocumentOcrMode,
+  DocumentSectionKind,
+  DocumentSectionSource,
+  DocumentStructureEngine,
+  DocumentStructureEngineName,
+  ExtractionSkipReason,
+  ExtractionStatus,
+} from './lib/documentStructure/types'
+
+export {
+  AttachmentStorageConfigurationError,
+  getAttachmentStoragePolicy,
+  isAttachmentStorageConfigurationError,
+  registerStorageDriverValidator,
+  type AttachmentStoragePolicy,
+  type AttachmentStorageScope,
+  type AttachmentStorageValidationStage,
+  type AttachmentStorageValidationContext,
+  type AttachmentStorageValidator,
+  type AttachmentStorageConfigurationReason,
+} from './lib/drivers/storageValidation'
+export type {
+  AttachmentAccessAction,
+  AttachmentAccessDecision,
+  AttachmentAccessInput,
+  AttachmentAccessPartition,
+  AttachmentAccessRecord,
+  AttachmentAccessRequirement,
+  AttachmentAccessResolver,
+  AttachmentAccessResolverEntry,
+  AttachmentAccessSubject,
+  AttachmentAccessTarget,
+  ProtectedAttachmentTarget,
+} from './lib/access-types'
+export { registerAttachmentAccessResolvers } from './lib/access-registry'
+export { syncAttachmentAccessProtection } from './lib/access-protection'
+export { createAttachmentAccessContext, evaluateAttachmentAccess } from './lib/access-runner'
+export type { AttachmentAccessContext, AttachmentAccessResult } from './lib/access-runner'
+export { getAttachmentExtension, hasDangerousExecutableExtension } from './lib/security'

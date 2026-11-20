@@ -5,6 +5,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -182,6 +185,11 @@ export type VectorSearchSectionProps = {
   onRefreshEmbeddings: () => Promise<void>
 }
 
+function flashRequestError(err: unknown, fallbackMessage: string) {
+  const message = err instanceof Error && err.message.trim() ? err.message : fallbackMessage
+  flash(message, 'error')
+}
+
 export function VectorSearchSection({
   embeddingSettings,
   embeddingLoading,
@@ -200,6 +208,7 @@ export function VectorSearchSection({
   const [selectedModel, setSelectedModel] = React.useState<string | null>(null)
   const [customModelName, setCustomModelName] = React.useState<string>('')
   const [customDimension, setCustomDimension] = React.useState<number>(768)
+  const [ollamaBaseUrlDraft, setOllamaBaseUrlDraft] = React.useState<string | null>(null)
 
   const [pendingEmbeddingConfig, setPendingEmbeddingConfig] = React.useState<EmbeddingProviderConfig | null>(null)
   const [showEmbeddingConfirmDialog, setShowEmbeddingConfirmDialog] = React.useState(false)
@@ -282,7 +291,8 @@ export function VectorSearchSection({
         autoIndexingPreviousRef.current = body.settings.autoIndexingEnabled
       }
       flash(t('search.settings.messages.saved', 'Settings saved'), 'success')
-    } catch {
+    } catch (err) {
+      flashRequestError(err, t('search.settings.errors.saveFailed', 'Failed to save settings'))
       if (embeddingSettings) {
         onEmbeddingSettingsUpdate({ ...embeddingSettings, autoIndexingEnabled: autoIndexingPreviousRef.current })
       }
@@ -297,6 +307,7 @@ export function VectorSearchSection({
     setSelectedModel(null)
     setCustomModelName('')
     setCustomDimension(768)
+    setOllamaBaseUrlDraft(null)
   }
 
   const handleModelChange = (modelId: string) => {
@@ -334,6 +345,10 @@ export function VectorSearchSection({
       dimension,
       updatedAt: new Date().toISOString(),
     }
+    const ollamaBaseUrl = (ollamaBaseUrlDraft ?? savedOllamaBaseUrl).trim()
+    if (newProviderId === 'ollama' && ollamaBaseUrl) {
+      newConfig.baseUrl = ollamaBaseUrl
+    }
 
     if (embeddingSettings?.indexedDimension || embeddingSettings?.embeddingConfig) {
       setPendingEmbeddingConfig(newConfig)
@@ -348,6 +363,7 @@ export function VectorSearchSection({
     setSelectedModel(null)
     setCustomModelName('')
     setCustomDimension(768)
+    setOllamaBaseUrlDraft(null)
   }
 
   const applyEmbeddingConfig = async (config: EmbeddingProviderConfig) => {
@@ -367,10 +383,11 @@ export function VectorSearchSection({
       )
       setSelectedProvider(null)
       setSelectedModel(null)
+      setOllamaBaseUrlDraft(null)
       flash(t('search.settings.messages.providerSaved', 'Embedding provider saved'), 'success')
       await onRefreshEmbeddings()
-    } catch {
-      // Error handled by readApiResultOrThrow
+    } catch (err) {
+      flashRequestError(err, t('search.settings.errors.saveFailed', 'Failed to save settings'))
     } finally {
       setEmbeddingSaving(false)
     }
@@ -407,22 +424,25 @@ export function VectorSearchSection({
       )
       flash(t('search.settings.messages.reindexStarted', 'Reindex started'), 'success')
       await fetchActivityLogs()
-    } catch {
-      // Error handled by readApiResultOrThrow
+    } catch (err) {
+      flashRequestError(err, t('search.settings.errors.reindexFailed', 'Reindex failed'))
     } finally {
       setVectorReindexing(false)
     }
   }
 
-  const handleVectorReindexCancel = () => {
-    setShowVectorReindexDialog(false)
-  }
+  const handleEmbeddingDialogKeyDown = useDialogKeyHandler({
+    onConfirm: handleEmbeddingConfirmChange,
+    onCancel: handleEmbeddingCancelChange,
+    disabled: embeddingSaving,
+  })
 
   // Computed values
   const savedProvider = embeddingSettings?.embeddingConfig?.providerId ?? 'openai'
   const savedProviderInfo = EMBEDDING_PROVIDERS[savedProvider]
   const savedModel = embeddingSettings?.embeddingConfig?.model ?? savedProviderInfo.defaultModel
   const savedDimension = embeddingSettings?.embeddingConfig?.dimension ?? savedProviderInfo.models[0]?.dimension ?? 768
+  const savedOllamaBaseUrl = savedProvider === 'ollama' ? embeddingSettings?.embeddingConfig?.baseUrl ?? '' : ''
 
   const savedModelIsPredefined = savedProviderInfo.models.some((m) => m.id === savedModel)
   const savedCustomModel = !savedModelIsPredefined && savedModel ? { id: savedModel, name: savedModel, dimension: savedDimension } : null
@@ -444,7 +464,8 @@ export function VectorSearchSection({
   const hasUnsavedEmbeddingChanges = (selectedProvider !== null && selectedProvider !== savedProvider) ||
     (selectedModel !== null && selectedModel !== savedModel) ||
     (selectedProvider !== null && selectedModel === null && displayProviderInfo.defaultModel !== savedModel) ||
-    (isCustomModel && (customModelName.trim() !== '' || customDimension !== 768))
+    (isCustomModel && (customModelName.trim() !== '' || customDimension !== 768)) ||
+    (displayProvider === 'ollama' && ollamaBaseUrlDraft !== null && ollamaBaseUrlDraft.trim() !== savedOllamaBaseUrl)
 
   const isEmbeddingConfigured = embeddingSettings?.configuredProviders?.includes(savedProvider)
   const providerOptions: EmbeddingProviderId[] = ['openai', 'google', 'mistral', 'cohere', 'bedrock', 'ollama']
@@ -478,7 +499,7 @@ export function VectorSearchSection({
   const autoIndexingDisabled = embeddingLoading || embeddingSaving || Boolean(embeddingSettings?.autoIndexingLocked)
 
   return (
-    <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
+    <div className="min-w-0 rounded-lg border border-border bg-card p-5 shadow-sm">
       <h2 className="text-lg font-semibold mb-2">
         {t('search.settings.vector.sectionTitle', 'Vector Search')}
       </h2>
@@ -487,7 +508,7 @@ export function VectorSearchSection({
       </p>
 
       <Tabs defaultValue="configuration">
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 h-auto max-w-full flex-wrap">
           <TabsTrigger value="configuration">
             {t('search.settings.tabs.configuration', 'Configuration')}
           </TabsTrigger>
@@ -628,7 +649,7 @@ export function VectorSearchSection({
                                   {info.models.length} {t('search.settings.vector.modelsAvailable', 'models available')}
                                 </p>
                               ) : availability?.reason ? (
-                                <p className="mt-1 text-xs text-status-warning-text">
+                                <p className="mt-1 break-words text-xs text-status-warning-text">
                                   {availability.reason}
                                 </p>
                               ) : (
@@ -686,6 +707,27 @@ export function VectorSearchSection({
                                 </SelectContent>
                               </Select>
                             </div>
+
+                            {providerId === 'ollama' && (
+                              <div className="space-y-1">
+                                <Label htmlFor="ollama-base-url" className="text-xs font-medium">
+                                  {t('search.settings.ollama.baseUrl.label', 'Base URL')}
+                                </Label>
+                                <Input
+                                  id="ollama-base-url"
+                                  type="url"
+                                  size="sm"
+                                  value={ollamaBaseUrlDraft ?? savedOllamaBaseUrl}
+                                  onChange={(e) => setOllamaBaseUrlDraft(e.target.value)}
+                                  placeholder="http://localhost:11434"
+                                  aria-describedby="ollama-base-url-hint"
+                                  disabled={embeddingLoading || embeddingSaving}
+                                />
+                                <p id="ollama-base-url-hint" className="text-xs text-muted-foreground">
+                                  {t('search.settings.ollama.baseUrl.hint', 'Leave empty to use the OLLAMA_BASE_URL environment variable.')}
+                                </p>
+                              </div>
+                            )}
 
                             {isCustomModel && (
                               <div className="space-y-2 rounded border border-input bg-muted/30 p-2">
@@ -956,33 +998,27 @@ export function VectorSearchSection({
       </Tabs>
 
       {/* Vector Reindex Confirmation Dialog */}
-      {showVectorReindexDialog && (
-        <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/50">
-          <div className="mx-4 max-w-md rounded-lg border border-border bg-card p-6 shadow-lg">
-            <h3 className="text-lg font-semibold mb-2">{t('search.settings.reindex.confirmTitle', 'Confirm Reindex')}</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              {t('search.settings.reindex.confirmDescription', 'This will rebuild all vector embeddings. Existing data will be purged first.')}
-            </p>
-            <div className="flex justify-end gap-3">
-              <Button type="button" variant="outline" onClick={handleVectorReindexCancel}>
-                {t('search.settings.actions.cancel', 'Cancel')}
-              </Button>
-              <Button type="button" variant="default" onClick={handleVectorReindexConfirm}>
-                {t('search.settings.reindex.confirmButton', 'Start Reindex')}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={showVectorReindexDialog}
+        onOpenChange={setShowVectorReindexDialog}
+        onConfirm={handleVectorReindexConfirm}
+        title={t('search.settings.reindex.confirmTitle', 'Confirm Reindex')}
+        text={t('search.settings.reindex.confirmDescription', 'This will rebuild all vector embeddings. Existing data will be purged first.')}
+        confirmText={t('search.settings.reindex.confirmButton', 'Start Reindex')}
+        cancelText={t('search.settings.actions.cancel', 'Cancel')}
+        loading={vectorReindexing}
+      />
 
       {/* Embedding Provider Change Confirmation Dialog */}
       {showEmbeddingConfirmDialog && pendingEmbeddingConfig && (
-        <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/50">
-          <div className="mx-4 max-w-lg rounded-lg border border-border bg-card p-6 shadow-lg">
-            <h3 className="text-lg font-semibold mb-2">{t('search.settings.change.title', 'Confirm Provider Change')}</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              {t('search.settings.change.description', 'Changing the embedding provider will require reindexing all data.')}
-            </p>
+        <Dialog open={showEmbeddingConfirmDialog} onOpenChange={(open) => { if (!open) handleEmbeddingCancelChange() }}>
+          <DialogContent onKeyDown={handleEmbeddingDialogKeyDown}>
+            <DialogHeader>
+              <DialogTitle>{t('search.settings.change.title', 'Confirm Provider Change')}</DialogTitle>
+              <DialogDescription>
+                {t('search.settings.change.description', 'Changing the embedding provider will require reindexing all data.')}
+              </DialogDescription>
+            </DialogHeader>
             <div className="mb-4 p-3 rounded-md bg-muted/50 text-sm">
               <p className="font-medium">
                 {embeddingSettings?.embeddingConfig
@@ -1005,7 +1041,7 @@ export function VectorSearchSection({
                 <span>{t('search.settings.change.bullet2', 'Vector search will be unavailable during reindex')}</span>
               </li>
             </ul>
-            <div className="flex justify-end gap-3">
+            <DialogFooter>
               <Button type="button" variant="outline" onClick={handleEmbeddingCancelChange} disabled={embeddingSaving}>
                 {t('search.settings.actions.cancel', 'Cancel')}
               </Button>
@@ -1013,9 +1049,9 @@ export function VectorSearchSection({
                 {embeddingSaving ? <Spinner size="sm" className="mr-2" /> : null}
                 {t('search.settings.actions.confirm', 'Confirm')}
               </Button>
-            </div>
-          </div>
-        </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )

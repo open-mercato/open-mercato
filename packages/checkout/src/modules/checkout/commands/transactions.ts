@@ -2,17 +2,20 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CheckoutLink, CheckoutTransaction } from '../data/entities'
 import { transactionCreateSchema, transactionUpdateStatusSchema } from '../data/validators'
 import { emitCheckoutEvent } from '../events'
 import {
-  applyTerminalTransactionState,
   isTerminalCheckoutStatus,
   mapGatewayStatusToCheckoutStatus,
   parseCheckoutInput,
   toMoneyString,
 } from '../lib/utils'
 import { assertValidCheckoutStatusTransition } from '../lib/transaction-status-machine'
+import { decimalToString, roundDecimal } from '@open-mercato/shared/lib/decimal'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
+import { DEFAULT_CHECKOUT_DECIMAL_PLACES } from '../lib/amountPrecision'
 
 function resolveTransactionScope(input: { tenantId?: string | null; organizationId?: string | null }) {
   if (!input.organizationId || !input.tenantId) {
@@ -32,6 +35,7 @@ type CheckoutTerminalEventPayload = {
   status: CheckoutTransaction['status']
   paymentStatus: string | null
   amount: number
+  amountExact?: string | null
   currency: string
   gatewayProvider: string | null
   gatewayTransactionId: string | null
@@ -46,6 +50,13 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
     const { parsed } = parseCheckoutInput(rawInput, transactionCreateSchema.parse)
     const scope = resolveTransactionScope(parsed)
     const em = ctx.container.resolve('em') as EntityManager
+    const currencyDecimalPlaces =
+      (await resolveCurrencyDecimalPlaces(ctx.container, {
+        code: parsed.currencyCode,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })) ?? DEFAULT_CHECKOUT_DECIMAL_PLACES
+    const chargedAmount = roundDecimal(parsed.amountExact ?? parsed.amount, currencyDecimalPlaces)
     let lockedLinkId: string | null = null
     let lockedLinkSlug: string | null = null
     let lockedLinkTemplateId: string | null = null
@@ -64,12 +75,21 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       if (currentLink.status !== 'active') {
         throw new CrudHttpError(422, { error: 'This payment link is not currently accepting payments' })
       }
-      const reserved = await tx.getConnection().execute<Array<{ id: string }>>(
+      const transaction = tx.create(CheckoutTransaction, {
+        ...parsed,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        amount: decimalToString(chargedAmount),
+        status: 'processing',
+      })
+      tx.persist(transaction)
+      await tx.flush()
+      const reserved = await tx.execute<Array<{ active_reservation_count: number }>>(
         `
           UPDATE checkout_links
           SET active_reservation_count = active_reservation_count + 1,
               is_locked = true,
-              updated_at = now()
+              updated_at = clock_timestamp()
           WHERE id = ?
             AND organization_id = ?
             AND tenant_id = ?
@@ -79,27 +99,18 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
               max_completions IS NULL
               OR completion_count + active_reservation_count < max_completions
             )
-          RETURNING id
+          RETURNING active_reservation_count
         `,
         [parsed.linkId, scope.organizationId, scope.tenantId],
       )
-      if (!reserved[0]?.id) {
+      if (!reserved[0]) {
         throw new CrudHttpError(422, { error: 'This payment link is no longer available' })
       }
       lockedLinkId = currentLink.id
       lockedLinkSlug = currentLink.slug
       lockedLinkTemplateId = currentLink.templateId ?? null
       lockedLinkGatewayProvider = currentLink.gatewayProviderKey ?? null
-      shouldEmitLockedEvent = !currentLink.isLocked
-      const transaction = tx.create(CheckoutTransaction, {
-        ...parsed,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        amount: toMoneyString(parsed.amount) ?? '0.00',
-        status: 'processing',
-      })
-      tx.persist(transaction)
-      await tx.flush()
+      shouldEmitLockedEvent = Number(reserved[0].active_reservation_count) === 1
       return transaction
     })
     if (shouldEmitLockedEvent && lockedLinkId && lockedLinkSlug) {
@@ -115,6 +126,7 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       linkId: transaction.linkId,
       status: transaction.status,
       amount: Number(transaction.amount),
+      amountExact: toMoneyString(transaction.amount),
       currency: transaction.currencyCode,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
@@ -127,6 +139,7 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       status: transaction.status,
       paymentStatus: transaction.paymentStatus ?? null,
       amount: Number(transaction.amount),
+      amountExact: toMoneyString(transaction.amount),
       currency: transaction.currencyCode,
       gatewayProvider: lockedLinkGatewayProvider,
       gatewayTransactionId: transaction.gatewayTransactionId ?? null,
@@ -227,9 +240,33 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       // status actually changes — prevents double-notification on idempotent
       // redeliveries (e.g. authorized → captured, both mapping to 'completed').
       if (!previousTerminal && nextTerminal) {
-        const { usageLimitReached } = applyTerminalTransactionState(link, nextStatus)
-        await tx.flush()
-        if (usageLimitReached) {
+        const released = await tx.execute<Array<{ completion_count: number; max_completions: number | null }>>(
+          `
+            UPDATE checkout_links
+            SET active_reservation_count = GREATEST(active_reservation_count - 1, 0),
+                completion_count = completion_count + ?,
+                is_locked = GREATEST(active_reservation_count - 1, 0) > 0,
+                updated_at = clock_timestamp()
+            WHERE id = ?
+              AND organization_id = ?
+              AND tenant_id = ?
+              AND deleted_at IS NULL
+            RETURNING completion_count, max_completions
+          `,
+          [nextStatus === 'completed' ? 1 : 0, link.id, scope.organizationId, scope.tenantId],
+        )
+        if (!released[0]) {
+          const { translate } = await resolveTranslations()
+          throw new CrudHttpError(404, {
+            error: translate('checkout.errors.links.notFound', 'Payment link not found'),
+          })
+        }
+        const maxCompletions = released[0].max_completions
+        if (
+          nextStatus === 'completed'
+          && maxCompletions != null
+          && Number(released[0].completion_count) === Number(maxCompletions)
+        ) {
           emitUsageLimitReached = true
           usageLimitReachedLinkId = link.id
           usageLimitReachedLinkSlug = link.slug
@@ -244,6 +281,7 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
           status: transaction.status,
           paymentStatus: transaction.paymentStatus ?? null,
           amount: Number(transaction.amount),
+          amountExact: toMoneyString(transaction.amount),
           currency: transaction.currencyCode,
           gatewayProvider: link.gatewayProviderKey ?? null,
           gatewayTransactionId: transaction.gatewayTransactionId ?? null,

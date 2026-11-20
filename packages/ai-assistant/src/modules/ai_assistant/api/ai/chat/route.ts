@@ -1,6 +1,7 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { UIMessage } from 'ai'
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -15,6 +16,8 @@ import {
   type AiAgentLoopBudgetPreset,
 } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
+import type { AiAgentRunChannel } from '../../../lib/agent-call-contract'
+import { CORRELATION_ID_HEADER, resolveCorrelationId } from '../../../lib/mcp-audit'
 import { AiModerationBlockedError, AiModerationUnavailableError } from '../../../lib/moderation'
 import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
 import {
@@ -111,7 +114,8 @@ const agentQuerySchema = z.object({
   model: z.string().optional(),
   /**
    * Per-request base URL override. Must parse as a URL and match
-   * `AI_RUNTIME_BASEURL_ALLOWLIST` (comma-separated host patterns). When the
+   * `AI_RUNTIME_BASEURL_ALLOWLIST` (comma-separated hosts, meaning https on
+   * port 443, or full `scheme://host[:port]` origins). When the
    * env var is unset or empty, any non-empty value is rejected.
    *
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
@@ -208,6 +212,10 @@ function statusForDenyCode(code: AgentPolicyDenyCode): number {
     default:
       return 409
   }
+}
+
+function resolveChatChannel(pageContext: AiChatRequest['pageContext']): AiAgentRunChannel {
+  return pageContext?.source === 'playground' ? 'playground' : 'chat'
 }
 
 function extractDataPayload(eventBlock: string): string | null {
@@ -352,6 +360,7 @@ function persistAssistantOnStreamCompletion(input: {
   userId: string
   conversationId: string
   userClientMessageId: string | null
+  runId: string
 }): Response {
   if (!input.response.body || !input.tenantId) return input.response
   const tenantId = input.tenantId
@@ -384,6 +393,7 @@ function persistAssistantOnStreamCompletion(input: {
             role: 'assistant',
             content: assistant.content,
             uiParts: assistant.uiParts,
+            metadata: { runId: input.runId },
           },
           {
             tenantId,
@@ -622,7 +632,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (!isBaseurlAllowlisted(rawBaseUrl.trim(), allowlist)) {
         return jsonError(
           400,
-          `baseUrl "${rawBaseUrl}" is not in the AI_RUNTIME_BASEURL_ALLOWLIST. Set that env var to a comma-separated list of allowed host patterns to enable per-request baseUrl overrides.`,
+          `baseUrl "${rawBaseUrl}" is not in the AI_RUNTIME_BASEURL_ALLOWLIST. Set that env var to a comma-separated list of allowed hosts (https only) or full origins such as http://localhost:11434 to enable per-request baseUrl overrides.`,
           'baseurl_not_allowlisted',
         )
       }
@@ -667,8 +677,14 @@ export async function POST(req: NextRequest): Promise<Response> {
       logger.error('AI Chat Agent — Failed to persist user message', { err: error })
     }
 
+    const runId = randomUUID()
     const response = await runAiAgentText({
       agentId,
+      runId,
+      trace: {
+        channel: resolveChatChannel(bodyResult.data.pageContext),
+        correlationId: resolveCorrelationId(req.headers.get(CORRELATION_ID_HEADER)),
+      },
       messages: bodyResult.data.messages as unknown as UIMessage[],
       attachmentIds: bodyResult.data.attachmentIds,
       pageContext: bodyResult.data.pageContext,
@@ -696,6 +712,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       userId: auth.sub,
       conversationId: persistedTurn.conversationId,
       userClientMessageId: persistedTurn.userClientMessageId,
+      runId,
     })
   } catch (error) {
     if (error instanceof AgentPolicyError) {

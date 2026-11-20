@@ -48,6 +48,7 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const cache = ruleEngine.resolveBusinessRuleDiscoveryCache(container.resolve.bind(container))
+  const rbacService = ruleEngine.resolveBusinessRuleRbacService(container.resolve.bind(container))
   let eventBus: EventBus | null = null
   try {
     eventBus = container.resolve('eventBus') as EventBus
@@ -93,7 +94,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await ruleEngine.executeRules(em, context, { eventBus, cache })
+    const result = await ruleEngine.executeRules(em, context, { eventBus, cache, rbacService })
 
     const response = {
       allowed: result.allowed,

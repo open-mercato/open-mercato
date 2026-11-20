@@ -5,11 +5,14 @@ import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { config as loadEnv } from 'dotenv'
 import { Client } from 'pg'
-import { expect, test } from '@playwright/test'
+import { expect, test as base } from '@playwright/test'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { upsertEncryptionMapSpecs } from '@open-mercato/core/modules/entities/cli'
+import { invalidateEncryptionMapScopes } from '@open-mercato/core/modules/entities/lib/encryption-maps'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import type { ModuleEncryptionFieldRule, ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
 import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Migration20261004120000_encryption_map_scope_uniqueness } from '../migrations/Migration20261004120000_encryption_map_scope_uniqueness'
@@ -26,6 +29,13 @@ const runtimeAppRoot = process.env.OM_TEST_APP_ROOT?.trim()
 if (!process.env.OM_TEST_APP_ROOT?.trim()) {
   loadEnv({ path: path.resolve(appDir, '.env') })
 }
+
+const test = base.extend<object, { appRuntime: typeof createRequestContainer }>({
+  appRuntime: [async ({}, use) => {
+    await bootstrapFromAppRoot(runtimeAppRoot)
+    await use(createRequestContainer)
+  }, { scope: 'worker', timeout: 150_000 }],
+})
 
 type PgClient = InstanceType<typeof Client>
 
@@ -49,6 +59,74 @@ async function deleteMaps(where: { tenantId: string; entityId?: string }): Promi
     }
     await client.query('delete from encryption_maps where tenant_id = $1', [where.tenantId])
   })
+}
+
+type EncryptionMapFixture = {
+  entityId: string
+  tenantId: string | null
+  organizationId: string | null
+  fields: ModuleEncryptionFieldRule[]
+  deleted?: boolean
+}
+
+type EncryptionMapRow = {
+  id: string
+  tenant_id: string | null
+  organization_id: string | null
+  fields_json: ModuleEncryptionFieldRule[]
+  updated_at: Date
+  deleted_at: Date | null
+}
+
+async function insertMaps(fixtures: EncryptionMapFixture[]): Promise<string[]> {
+  return withDatabase(async (client) => {
+    const ids: string[] = []
+    for (const fixture of fixtures) {
+      const id = randomUUID()
+      await client.query(
+        `insert into encryption_maps
+          (id, entity_id, tenant_id, organization_id, fields_json, is_active, created_at, updated_at, deleted_at)
+         values ($1, $2, $3, $4, $5::jsonb, true, now() - interval '1 day', now() - interval '1 day',
+                 case when $6::boolean then now() - interval '1 day' else null end)`,
+        [id, fixture.entityId, fixture.tenantId, fixture.organizationId, JSON.stringify(fixture.fields), fixture.deleted === true],
+      )
+      ids.push(id)
+    }
+    return ids
+  })
+}
+
+async function readMaps(entityId: string): Promise<Map<string, EncryptionMapRow>> {
+  return withDatabase(async (client) => {
+    const result = await client.query<EncryptionMapRow>(
+      `select id, tenant_id, organization_id, fields_json, updated_at, deleted_at
+         from encryption_maps
+        where entity_id = $1`,
+      [entityId],
+    )
+    return new Map(result.rows.map((row) => [row.id, row]))
+  })
+}
+
+async function deleteEntityMaps(entityId: string): Promise<void> {
+  await withDatabase(async (client) => {
+    await client.query('delete from encryption_maps where entity_id = $1', [entityId])
+  })
+}
+
+async function withEncryptionEnabled<T>(run: () => Promise<T>): Promise<T> {
+  const previous = process.env.TENANT_DATA_ENCRYPTION
+  process.env.TENANT_DATA_ENCRYPTION = 'yes'
+  try {
+    return await run()
+  } finally {
+    if (previous === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = previous
+  }
+}
+
+function uniqueEntityId(prefix: string): string {
+  return `entities:${prefix}_${randomUUID().replaceAll('-', '').slice(0, 12)}`
 }
 
 async function collectMigrationSql(): Promise<string[]> {
@@ -203,9 +281,7 @@ test.describe('TC-ENTITIES-009: encryption map materialization is conflict-safe'
     })
   })
 
-  test('an outer upgrade transaction rollback removes its encryption-map write', async () => {
-    // Bootstrapping the full app in-process (module registry, DI, ORM) costs most of the
-    // default budget on a cold worker before the rollback scenario itself runs.
+  test('an outer upgrade transaction rollback removes its encryption-map write', async ({ appRuntime }) => {
     test.slow()
     const tenantId = randomUUID()
     const organizationId = randomUUID()
@@ -213,8 +289,7 @@ test.describe('TC-ENTITIES-009: encryption map materialization is conflict-safe'
     const rollbackError = new Error('TC-ENTITIES-009 deliberate outer transaction rollback')
 
     try {
-      await bootstrapFromAppRoot(runtimeAppRoot)
-      const container = await createRequestContainer()
+      const container = await appRuntime()
       const em = container.resolve<EntityManager>('em')
 
       await expect(em.transactional(async (transactionalEm) => {
@@ -243,6 +318,128 @@ test.describe('TC-ENTITIES-009: encryption map materialization is conflict-safe'
       expect(state).toMatchObject({ live_count: 0 })
     } finally {
       await deleteMaps({ tenantId, entityId })
+    }
+  })
+
+  test('a tenant-wide seed appends a missing rule to existing organization maps exactly once under repeated and overlapping runs', async ({ appRuntime }) => {
+    test.slow()
+    const tenantId = randomUUID()
+    const organizationId = randomUUID()
+    const entityId = uniqueEntityId('org_append')
+    const specs: ModuleEncryptionMap[] = [{
+      entityId,
+      fields: [{ field: 'email', hashField: 'email_hash' }, { field: 'phone' }],
+    }]
+
+    try {
+      const [organizationMapId, ...controlIds] = await insertMaps([
+        {
+          entityId,
+          tenantId,
+          organizationId,
+          fields: [{ field: 'email', hashField: 'legacy_email_hash' }, { field: 'admin_note' }],
+        },
+        { entityId, tenantId: null, organizationId: null, fields: [{ field: 'email' }] },
+        { entityId, tenantId: randomUUID(), organizationId: randomUUID(), fields: [{ field: 'email' }] },
+        { entityId, tenantId, organizationId: randomUUID(), fields: [{ field: 'email' }], deleted: true },
+      ])
+      const before = await readMaps(entityId)
+
+      await withEncryptionEnabled(async () => {
+        const container = await appRuntime()
+        const em = container.resolve<EntityManager>('em')
+        const encryptionService = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+        const resolveOrganizationFields = () => encryptionService.getEncryptedFieldNames(
+          entityId,
+          tenantId,
+          organizationId,
+          { ignoreRuntimeHealth: true },
+        )
+        const seedTenantWide = () => upsertEncryptionMapSpecs(em.fork(), tenantId, null, specs, () => {}, async (scope) => {
+          await invalidateEncryptionMapScopes(encryptionService, [scope])
+        })
+
+        expect(await resolveOrganizationFields()).not.toContain('phone')
+
+        const overlapping = await Promise.all([seedTenantWide(), seedTenantWide(), seedTenantWide()])
+        const organizationReports = overlapping.flat().filter((scope) => scope.organizationId === organizationId)
+        expect(organizationReports).toEqual([{ entityId, tenantId, organizationId }])
+
+        const repeated = await seedTenantWide()
+        expect(repeated).toEqual([{ entityId, tenantId, organizationId: null }])
+
+        expect(await resolveOrganizationFields()).toEqual(['email', 'admin_note', 'phone'])
+      })
+
+      const after = await readMaps(entityId)
+      expect(after.get(organizationMapId)?.fields_json).toEqual([
+        { field: 'email', hashField: 'legacy_email_hash' },
+        { field: 'admin_note' },
+        { field: 'phone' },
+      ])
+      for (const controlId of controlIds) {
+        expect(after.get(controlId)).toEqual(before.get(controlId))
+      }
+      const tenantMaps = [...after.values()].filter((row) => (
+        row.tenant_id === tenantId && row.organization_id === null && row.deleted_at === null
+      ))
+      expect(tenantMaps.map((row) => row.fields_json)).toEqual([specs[0].fields])
+    } finally {
+      await deleteEntityMaps(entityId)
+    }
+  })
+
+  test('an outer transaction rollback discards a tenant-wide organization-map append and its deferred invalidation', async ({ appRuntime }) => {
+    test.slow()
+    const tenantId = randomUUID()
+    const organizationId = randomUUID()
+    const entityId = uniqueEntityId('org_append_rollback')
+    const specs: ModuleEncryptionMap[] = [{ entityId, fields: [{ field: 'email' }, { field: 'phone' }] }]
+    const rollbackError = new Error('TC-ENTITIES-009 deliberate outer transaction rollback')
+
+    try {
+      const [organizationMapId] = await insertMaps([
+        { entityId, tenantId, organizationId, fields: [{ field: 'email' }] },
+      ])
+      const before = await readMaps(entityId)
+
+      await withEncryptionEnabled(async () => {
+        const container = await appRuntime()
+        const em = container.resolve<EntityManager>('em')
+        const encryptionService = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+        const afterCommitCallbacks: Array<() => Promise<void>> = []
+        const invalidatedScopes: unknown[] = []
+        const recordingService = {
+          invalidateMap: async (scopeEntityId: string, scopeTenantId: string | null, scopeOrganizationId: string | null) => {
+            invalidatedScopes.push({ entityId: scopeEntityId, tenantId: scopeTenantId, organizationId: scopeOrganizationId })
+            await encryptionService.invalidateMap(scopeEntityId, scopeTenantId, scopeOrganizationId)
+          },
+        }
+
+        await expect(em.transactional(async (transactionalEm) => {
+          const scopes = await upsertEncryptionMapSpecs(transactionalEm, tenantId, null, specs)
+          expect(scopes).toContainEqual({ entityId, tenantId, organizationId })
+          expect(await encryptionService.getEncryptedFieldNames(entityId, tenantId, organizationId, {
+            ignoreRuntimeHealth: true,
+            em: transactionalEm,
+          })).toEqual(['email', 'phone'])
+          afterCommitCallbacks.push(() => invalidateEncryptionMapScopes(recordingService, scopes))
+          throw rollbackError
+        })).rejects.toBe(rollbackError)
+
+        expect(afterCommitCallbacks).toHaveLength(1)
+        expect(invalidatedScopes).toEqual([])
+        expect(await encryptionService.getEncryptedFieldNames(entityId, tenantId, organizationId, {
+          ignoreRuntimeHealth: true,
+          em: em.fork(),
+        })).toEqual(['email'])
+      })
+
+      const after = await readMaps(entityId)
+      expect(after.size).toBe(1)
+      expect(after.get(organizationMapId)).toEqual(before.get(organizationMapId))
+    } finally {
+      await deleteEntityMaps(entityId)
     }
   })
 })

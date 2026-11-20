@@ -234,7 +234,7 @@ export default function LedgerAccountsPage() {
           rowActions={(row) => (
             <RowActions
               items={canManage ? [
-                { id: 'edit', label: t('common.edit'), href: `/backend/ledger/accounts/${row.id}` },
+                { id: 'edit', label: t('common.edit'), href: `/backend/ledger/accounts/${encodeURIComponent(row.id)}` },
                 { id: 'delete', label: t('common.delete'), destructive: true, onSelect: () => handleDelete(row) },
               ] : []}
             />

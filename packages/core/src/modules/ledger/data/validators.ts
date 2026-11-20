@@ -34,6 +34,16 @@ function toMinorUnits(amount: string | undefined): bigint {
   return BigInt(whole) * 10000n + BigInt(paddedFraction)
 }
 
+// Exchange rate: non-negative decimal, at most 8 decimal places (matches the
+// `numeric(18,8)` columns). Shared by the header and by each line.
+const exchangeRateSchema = z.string().refine((value) => /^\d+(\.\d{1,8})?$/.test(value), {
+  message: 'Exchange rate must be a non-negative decimal with at most 8 decimal places.',
+  params: {
+    i18nKey: 'ledger.errors.exchangeRateInvalidFormat',
+    i18nFallback: 'Exchange rate must be a non-negative decimal with at most 8 decimal places.',
+  },
+})
+
 // One line of a journal entry. Mirrors the DB's
 // `journal_entry_line_one_sided_chk` check constraint at the application
 // layer (see migrations) — exactly one of `debit`/`credit` may be
@@ -43,6 +53,11 @@ export const journalEntryLineInputSchema = z
     accountId: z.uuid(),
     debit: moneyStringSchema.optional(),
     credit: moneyStringSchema.optional(),
+    // Optional on input: `postJournalEntry` takes the header's currency and
+    // rate for a line that omits them (resolved at write time, so a stored
+    // line is never null).
+    currencyId: z.uuid().optional(),
+    exchangeRate: exchangeRateSchema.optional(),
     amountCurrency: moneyStringSchema.optional(),
     contractorSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
   })
@@ -81,18 +96,7 @@ export const postJournalEntrySchema = z
     description: z.string().min(1).max(1000),
     type: z.enum(['NORMAL', 'OPENING', 'CLOSING']).optional(),
     currencyId: z.uuid(),
-    exchangeRate: z
-      .string()
-      // Same rewrite as `moneyStringSchema` above, same reason (m1 residual).
-      .refine((value) => /^\d+(\.\d{1,8})?$/.test(value), {
-        message: 'Exchange rate must be a non-negative decimal with at most 8 decimal places.',
-        params: {
-          i18nKey: 'ledger.errors.exchangeRateInvalidFormat',
-          i18nFallback: 'Exchange rate must be a non-negative decimal with at most 8 decimal places.',
-        },
-      })
-      .nullable()
-      .optional(),
+    exchangeRate: exchangeRateSchema.nullable().optional(),
     // `'journal_entry'` is the internal marker value
     // `reverseJournalEntry.ts`'s `buildReversalCore` writes into a REVERSAL
     // entry's own `referenceType` to point back at the entry it reverses,
@@ -183,8 +187,8 @@ export const createFiscalPeriodSchema = z
 export type CreateFiscalPeriodInput = z.infer<typeof createFiscalPeriodSchema>
 
 // `generateFiscalPeriods` input: twelve consecutive calendar months starting
-// on `startDate`, which must be the first day of a month (PR #5663 review,
-// point 3). The ranges themselves are built in `lib/fiscalPeriodRanges.ts`.
+// on `startDate`, which must be the first day of a month. The ranges
+// themselves are built in `lib/fiscalPeriodRanges.ts`.
 export const generateFiscalPeriodsSchema = z
   .object({
     organizationId: z.uuid(),
@@ -221,6 +225,8 @@ export const ledgerAccountCreateSchema = z.object({
   tenantId: z.uuid(),
   number: z.string().min(1).max(ACCOUNT_NUMBER_MAX_LENGTH),
   accountTypeId: z.uuid(),
+  // Set only on single-currency accounts (bank accounts).
+  currencyId: z.uuid().nullable().optional(),
   description: z.string().max(1000).nullable().optional(),
 })
 
@@ -234,6 +240,9 @@ export const ledgerAccountUpdateSchema = z.object({
   // Immutable once the account has posted entries — enforced at the
   // command layer (commands/ledgerAccounts.ts), not by this schema.
   accountTypeId: z.uuid().optional(),
+  // Immutable once the account has posted lines — enforced at the command
+  // layer (commands/ledgerAccounts.ts), not by this schema.
+  currencyId: z.uuid().nullable().optional(),
   description: z.string().max(1000).nullable().optional(),
 })
 

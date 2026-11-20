@@ -11,7 +11,12 @@ import type { FetchedPage, RawResult } from './results'
  */
 export type OutcomeFailure =
   | { readonly status: 'unavailable'; readonly reason: string }
-  | { readonly status: 'blocked'; readonly reason: string; readonly retryAfterMs?: number }
+  | {
+      readonly status: 'blocked'
+      readonly reason: string
+      readonly retryAfterMs?: number
+      readonly code?: 'domain_blocked'
+    }
   | { readonly status: 'timeout'; readonly reason?: string }
   | { readonly status: 'error'; readonly reason: string; readonly retriable: boolean }
 

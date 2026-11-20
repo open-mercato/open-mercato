@@ -130,6 +130,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
               body: 'Private body',
               visibility: 'private',
               status: 'planned',
+              scheduledAt: '2027-01-01T12:00:00.000Z',
             },
           },
         );
@@ -199,7 +200,12 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
           userBPersonResp.ok(),
           'User B GET /api/customers/people/[id]?include=interactions should succeed',
         ).toBeTruthy();
-        const userBPersonBody = await readJsonSafe<{ interactions?: Array<{ id?: string }> }>(userBPersonResp);
+        const userBPersonBody = await readJsonSafe<{
+          person?: { nextInteractionName?: string | null; nextInteractionRefId?: string | null };
+          interactions?: Array<{ id?: string }>;
+        }>(userBPersonResp);
+        expect(userBPersonBody?.person?.nextInteractionName).toBeNull();
+        expect(userBPersonBody?.person?.nextInteractionRefId).toBe(privateInteractionId);
         const userBPersonInteractions = Array.isArray(userBPersonBody?.interactions)
           ? userBPersonBody.interactions
           : [];
@@ -238,6 +244,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
               body: 'Shared body',
               visibility: 'shared',
               status: 'planned',
+              scheduledAt: '2027-01-01T12:00:00.000Z',
             },
           },
         );
@@ -375,6 +382,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
               body: 'Company private body',
               visibility: 'private',
               status: 'planned',
+              scheduledAt: '2027-01-01T12:00:00.000Z',
             },
           },
         );
@@ -393,7 +401,12 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
           { token: userBToken },
         );
         expect(userBCompanyResp.ok(), 'User B GET company?include=interactions should succeed').toBeTruthy();
-        const userBCompanyBody = await readJsonSafe<{ interactions?: Array<{ id?: string }> }>(userBCompanyResp);
+        const userBCompanyBody = await readJsonSafe<{
+          company?: { nextInteractionName?: string | null; nextInteractionRefId?: string | null };
+          interactions?: Array<{ id?: string }>;
+        }>(userBCompanyResp);
+        expect(userBCompanyBody?.company?.nextInteractionName).toBeNull();
+        expect(userBCompanyBody?.company?.nextInteractionRefId).toBe(companyPrivateInteractionId);
         const userBCompanyInteractions = Array.isArray(userBCompanyBody?.interactions)
           ? userBCompanyBody.interactions
           : [];

@@ -9,6 +9,7 @@ const events = [
   { id: 'wms.location.updated', label: 'Warehouse Location Updated', entity: 'location', category: 'crud' },
   { id: 'wms.inventory_profile.created', label: 'Inventory Profile Created', entity: 'inventory_profile', category: 'crud' },
   { id: 'wms.inventory_profile.updated', label: 'Inventory Profile Updated', entity: 'inventory_profile', category: 'crud' },
+  { id: 'wms.inventory_profile.deleted', label: 'Inventory Profile Deleted', entity: 'inventory_profile', category: 'crud' },
   { id: 'wms.inventory_balance.created', label: 'Inventory Balance Created', entity: 'inventory_balance', category: 'crud' },
   { id: 'wms.inventory_balance.updated', label: 'Inventory Balance Updated', entity: 'inventory_balance', category: 'crud' },
   { id: 'wms.inventory_balance.deleted', label: 'Inventory Balance Deleted', entity: 'inventory_balance', category: 'crud' },
@@ -28,6 +29,17 @@ const events = [
   { id: 'wms.inventory.low_stock', label: 'Inventory Low Stock', entity: 'inventory', category: 'lifecycle' },
   { id: 'wms.inventory.balance_drift', label: 'Inventory Balance Drift', entity: 'inventory', category: 'lifecycle' },
   { id: 'wms.inventory.reservation_shortfall', label: 'Inventory Reservation Shortfall', entity: 'inventory', category: 'lifecycle' },
+  { id: 'wms.inventory.receipt_qc_failed', label: 'Inventory Receipt QC Failed', entity: 'inventory', category: 'custom' },
+  { id: 'wms.asn.created', label: 'ASN Created', entity: 'asn', category: 'crud' },
+  { id: 'wms.asn.updated', label: 'ASN Updated', entity: 'asn', category: 'crud' },
+  { id: 'wms.asn.receiving_started', label: 'ASN Receiving Started', entity: 'asn', category: 'lifecycle' },
+  { id: 'wms.asn.line_received', label: 'ASN Line Received', entity: 'asn', category: 'custom' },
+  { id: 'wms.asn.received', label: 'ASN Received', entity: 'asn', category: 'lifecycle' },
+  { id: 'wms.putaway.created', label: 'Putaway Task Created', entity: 'putaway', category: 'crud' },
+  { id: 'wms.putaway.assigned', label: 'Putaway Task Assigned', entity: 'putaway', category: 'lifecycle' },
+  { id: 'wms.putaway.started', label: 'Putaway Task Started', entity: 'putaway', category: 'lifecycle' },
+  { id: 'wms.putaway.completed', label: 'Putaway Task Completed', entity: 'putaway', category: 'lifecycle' },
+  { id: 'wms.putaway.cancelled', label: 'Putaway Task Cancelled', entity: 'putaway', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

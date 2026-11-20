@@ -20,6 +20,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { FiscalPeriodDto } from '../../../../commands/fiscalPeriods'
 
 const logger = createLogger('ledger').child({ component: 'api/fiscal-periods/unlock' })
@@ -103,6 +104,10 @@ export async function POST(req: Request, context: RouteContext) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('ledger.fiscal_periods.unlock failed', { err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'ledger',
+      attributes: { route: 'fiscal-periods.unlock', errorName: err instanceof Error ? err.name : undefined },
+    })
     return NextResponse.json({ error: translate('ledger.errors.internal', 'Internal server error') }, { status: 500 })
   }
 }

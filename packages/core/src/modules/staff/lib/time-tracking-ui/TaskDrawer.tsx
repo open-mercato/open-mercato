@@ -13,6 +13,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from '@open-mercato/ui/primitives/drawer'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -28,7 +29,11 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import {
+  buildOptimisticLockHeader,
+  extractOptimisticLockConflict,
+  extractRecordLockConflict,
+} from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -41,7 +46,11 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { TaskCommentThread } from './TaskCommentThread'
+import { TaskCommentThread, type CommentVisibility } from './TaskCommentThread'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { SupportRequestPanel } from './SupportRequestPanel'
+import { SupportAttachmentsSection } from './SupportAttachmentsSection'
+import { readSupportTicket, SUPPORT_ACTIVITY_EVENT, type SupportTicketView } from './supportTicketData'
 import { TaskQuickLog, type QuickLogSubmission } from './TaskQuickLog'
 import { TagPicker, tagChipStyle } from './TagPicker'
 import { slugifyProjectName } from '../time-tracking/projectCode'
@@ -70,6 +79,9 @@ import {
   toDrawerEntry,
   todayIsoDate,
   buildEntryClocks,
+  isAssignmentEventForTask,
+  TASK_ASSIGNMENT_CHANGED_EVENT,
+  TASK_DRAWER_QUERY_ROOT,
   type DrawerComment,
   type DrawerEntry,
 } from './taskDrawerData'
@@ -87,11 +99,32 @@ type TaskDetailInjectionContext = {
 }
 
 export const TASK_DRAWER_MUTATION_CONTEXT_ID = 'staff.time_tracking.task_drawer'
+
+/**
+ * The drawer's writes carry no `resourceKind`/`resourceId`, so the enterprise
+ * record-lock widget leaves them alone: every property saves on its own (the
+ * spec's per-field saves), and the `updated_at` version each save sends is what
+ * guards concurrent edits. A lock taken per save, never released and never
+ * resolvable from here, could only block the user (#8045, #8101). The `formId`
+ * is still scoped to the task so no guarded-mutation state crosses tasks.
+ */
+function taskDrawerFormId(taskId: string): string {
+  return `${TASK_DRAWER_MUTATION_CONTEXT_ID}:${taskId}`
+}
+
+const ASSIGNMENT_RACE_CODES = new Set(['task_already_claimed', 'task_assignment_changed'])
+
+function isAssignmentRace(error: unknown): boolean {
+  if (extractOptimisticLockConflict(error) || extractRecordLockConflict(error)) return true
+  if (!error || typeof error !== 'object') return false
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' && ASSIGNMENT_RACE_CODES.has(code)
+}
 export const RATES_FEATURE = 'staff.timesheets.rates.view'
 export const TASKS_MANAGE_FEATURE = 'staff.timesheets.tasks.manage'
 export const ENTRIES_LIST_PATH = '/backend/staff/time-tracking/entries'
 
-const DRAWER_QUERY_ROOT = ['staff', 'time-tracking', 'task-drawer'] as const
+const DRAWER_QUERY_ROOT = TASK_DRAWER_QUERY_ROOT
 const DIRECTORY_PAGE_SIZE = 100
 const CHILD_PAGE_SIZE = 100
 const COMMENT_PAGE_SIZE = 50
@@ -113,7 +146,21 @@ export type TaskDrawerProps = {
   onChanged?: () => void
 }
 
-type LoadedTask = { task: BoardTask; createdAt: string | null }
+type TaskAssignmentAbility = { canClaim: boolean; canRelease: boolean }
+
+type LoadedTask = {
+  task: BoardTask
+  createdAt: string | null
+  support: SupportTicketView | null
+  assignment: TaskAssignmentAbility
+}
+
+function readTaskAssignmentAbility(row: BoardApiRow): TaskAssignmentAbility {
+  const block = (row as Record<string, unknown>)._staffAssignment
+  if (!block || typeof block !== 'object') return { canClaim: false, canRelease: false }
+  const ability = block as Record<string, unknown>
+  return { canClaim: ability.canClaim === true, canRelease: ability.canRelease === true }
+}
 
 type RunningTimer = { entryId: string | null; taskId: string | null; startedAt: string | null }
 
@@ -197,16 +244,22 @@ export function TaskDrawer({
    * with the token the first blur just invalidated.
    */
   const versionRef = React.useRef<string | null>(null)
+  const [notice, setNotice] = React.useState<{ status: 'warning' | 'error'; message: string } | null>(null)
 
-  const { runMutation, retryLastMutation } = useGuardedMutation<{
+  const { runMutation: runGuardedMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
-    resourceKind: string
-    resourceId: string
     retryLastMutation: () => Promise<boolean>
   }>({
     contextId: TASK_DRAWER_MUTATION_CONTEXT_ID,
     blockedMessage: t('staff.time_tracking.taskDrawer.properties.saveError', 'Could not save the change.'),
   })
+  const runMutation = React.useCallback<typeof runGuardedMutation>(
+    (input) => {
+      setNotice(null)
+      return runGuardedMutation(input)
+    },
+    [runGuardedMutation],
+  )
 
   const taskQuery = useQuery<LoadedTask | null>({
     queryKey: [...DRAWER_QUERY_ROOT, 'task', `scope:${scopeVersion}`, taskId],
@@ -220,12 +273,20 @@ export function TaskDrawer({
       const row = readItems(call.result)[0]
       if (!row) return null
       const parsed = toBoardTask(row)
-      return parsed ? { task: parsed, createdAt: readString(row, 'created_at', 'createdAt') } : null
+      return parsed
+        ? {
+            task: parsed,
+            createdAt: readString(row, 'created_at', 'createdAt'),
+            support: readSupportTicket(row),
+            assignment: readTaskAssignmentAbility(row),
+          }
+        : null
     },
   })
 
   const task = taskQuery.data?.task ?? null
   const createdAt = taskQuery.data?.createdAt ?? null
+  const support = taskQuery.data?.support ?? null
   const projectId = task?.timeProjectId ?? null
 
   const taskInjectionContext = React.useMemo<TaskDetailInjectionContext>(
@@ -245,6 +306,10 @@ export function TaskDrawer({
     versionRef.current = task.updatedAt
     setTagIds(task.tagIds)
   }, [task])
+
+  React.useEffect(() => {
+    setNotice(null)
+  }, [taskId])
 
   const statusesQuery = useQuery<BoardStatus[]>({
     queryKey: [...DRAWER_QUERY_ROOT, 'statuses', `scope:${scopeVersion}`, projectId ?? 'none'],
@@ -435,7 +500,7 @@ export function TaskDrawer({
   )
 
   const invalidate = React.useCallback(
-    (part: 'task' | 'children' | 'entries' | 'comments') => {
+    (part: 'task' | 'children' | 'entries' | 'comments' | 'attachments') => {
       queryClient.invalidateQueries({ queryKey: [...DRAWER_QUERY_ROOT, part] }).catch(() => {})
     },
     [queryClient],
@@ -447,17 +512,36 @@ export function TaskDrawer({
     if (updatedAt) versionRef.current = updatedAt
   }, [taskQuery])
 
+  /**
+   * A failed save is reported inside the drawer, which covers the page-level
+   * conflict bar. It is a conflict when the server says so, or when the task
+   * moved underneath the save (a guard can refuse it before any request leaves);
+   * either way the drawer refetches, so the next attempt starts from what it shows.
+   */
   const reportError = React.useCallback(
     (error: unknown, fallback: string) => {
+      const conflictNotice = {
+        status: 'warning' as const,
+        message: t(
+          'staff.time_tracking.taskDrawer.conflict',
+          'Someone else changed this task. It now shows the latest version. Check it and try again.',
+        ),
+      }
+      const seenVersion = versionRef.current
+      invalidate('children')
       if (surfaceRecordConflict(error, t)) {
+        setNotice(conflictNotice)
         invalidate('task')
-        invalidate('children')
         return
       }
       logger.error('staff.time_tracking task drawer mutation failed', { err: error })
-      flash(error instanceof Error && error.message ? error.message : fallback, 'error')
+      setNotice({ status: 'error', message: error instanceof Error && error.message ? error.message : fallback })
+      void taskQuery.refetch().then((refreshed) => {
+        const currentVersion = refreshed.data?.task.updatedAt ?? null
+        if (seenVersion && currentVersion && currentVersion !== seenVersion) setNotice(conflictNotice)
+      })
     },
-    [invalidate, t],
+    [invalidate, t, taskQuery],
   )
 
   const handleQuickLog = React.useCallback(
@@ -503,9 +587,7 @@ export function TaskDrawer({
               { errorMessage: t('staff.time_tracking.taskDrawer.quickLog.error', 'Could not save the time entry.') },
             ),
           context: {
-            formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
-            resourceKind: 'staff.timesheets.time_entry',
-            resourceId: taskId,
+            formId: taskDrawerFormId(taskId),
             retryLastMutation,
           },
         })
@@ -534,14 +616,12 @@ export function TaskDrawer({
             { errorMessage: t('staff.time_tracking.board.timer.stopError', 'Could not stop the timer.') },
           ),
         context: {
-          formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
-          resourceKind: 'staff.timesheets.time_entry',
-          resourceId: entryId,
+          formId: taskDrawerFormId(taskId),
           retryLastMutation,
         },
       })
     },
-    [retryLastMutation, runMutation, t],
+    [retryLastMutation, runMutation, t, taskId],
   )
 
   const handleStopTimer = React.useCallback(async () => {
@@ -596,9 +676,7 @@ export function TaskDrawer({
             { errorMessage: t('staff.time_tracking.board.timer.startError', 'Could not start the timer.') },
           ),
         context: {
-          formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
-          resourceKind: 'staff.timesheets.time_entry',
-          resourceId: taskId,
+          formId: taskDrawerFormId(taskId),
           retryLastMutation,
         },
       })
@@ -681,9 +759,7 @@ export function TaskDrawer({
                 ),
               ),
             context: {
-              formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
-              resourceKind: 'staff.timesheets.task',
-              resourceId: taskId,
+              formId: taskDrawerFormId(taskId),
               retryLastMutation,
             },
           })
@@ -721,9 +797,7 @@ export function TaskDrawer({
                 ),
               ),
             context: {
-              formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
-              resourceKind: 'staff.timesheets.task',
-              resourceId: taskId,
+              formId: taskDrawerFormId(taskId),
               retryLastMutation,
             },
           })
@@ -762,6 +836,85 @@ export function TaskDrawer({
     [saveTaskField],
   )
 
+  const canClaim = taskQuery.data?.assignment.canClaim === true
+  const canRelease = taskQuery.data?.assignment.canRelease === true
+
+  const runAssignmentAction = React.useCallback(
+    (action: 'claim' | 'release') => {
+      if (!task) return
+      const errorMessage =
+        action === 'claim'
+          ? t('staff.time_tracking.taskDrawer.assignment.claimError', 'Could not claim the task.')
+          : t('staff.time_tracking.taskDrawer.assignment.releaseError', 'Could not release the task.')
+      setBusy(true)
+      void runSerialized(async () => {
+        try {
+          // No optimistic-lock header: claim and release are atomic conditional
+          // updates on the assignee, so a lost race answers with its own reason
+          // instead of a generic "record changed".
+          const done = await runMutation({
+            operation: () =>
+              apiCallOrThrow<Record<string, unknown>>(
+                `/api/staff/timesheets/tasks/${encodeURIComponent(taskId)}/${action}`,
+                { method: 'POST' },
+                { errorMessage },
+              ),
+            context: {
+              formId: taskDrawerFormId(taskId),
+              retryLastMutation,
+            },
+          })
+          const updatedAt = typeof done?.result?.updatedAt === 'string' ? done.result.updatedAt : null
+          if (updatedAt) versionRef.current = updatedAt
+          else await refreshVersion()
+          invalidate('task')
+          flash(
+            action === 'claim'
+              ? t('staff.time_tracking.taskDrawer.assignment.claimed', 'Task claimed.')
+              : t('staff.time_tracking.taskDrawer.assignment.released', 'Task released.'),
+            'success',
+          )
+          onChanged?.()
+        } catch (error) {
+          if (!isAssignmentRace(error)) {
+            reportError(error, errorMessage)
+            return
+          }
+          const refreshed = await taskQuery.refetch()
+          const assigneeId = refreshed.data?.task.assigneeStaffMemberId ?? null
+          const takenByOther = action === 'claim' && assigneeId !== null && assigneeId !== selfStaffMemberId
+          setNotice({
+            status: 'warning',
+            message: takenByOther
+              ? t('staff.timesheets.errors.taskAlreadyClaimed', 'Someone else already took this task.')
+              : t(
+                  'staff.time_tracking.taskDrawer.conflict',
+                  'Someone else changed this task. It now shows the latest version. Check it and try again.',
+                ),
+          })
+          invalidate('task')
+          onChanged?.()
+        } finally {
+          setBusy(false)
+        }
+      })
+    },
+    [
+      invalidate,
+      onChanged,
+      refreshVersion,
+      reportError,
+      retryLastMutation,
+      runMutation,
+      runSerialized,
+      selfStaffMemberId,
+      t,
+      task,
+      taskId,
+      taskQuery,
+    ],
+  )
+
   const handleToggleSubtask = React.useCallback(
     async (child: BoardTask, done: boolean) => {
       const targetStatusId = done ? resolveDoneStatusId(statuses) : resolveDefaultStatusId(statuses)
@@ -789,9 +942,7 @@ export function TaskDrawer({
               ),
             ),
           context: {
-            formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
-            resourceKind: 'staff.timesheets.task',
-            resourceId: child.id,
+            formId: taskDrawerFormId(taskId),
             retryLastMutation,
           },
         })
@@ -807,7 +958,7 @@ export function TaskDrawer({
         setBusy(false)
       }
     },
-    [invalidate, onChanged, reportError, retryLastMutation, runMutation, statuses, t],
+    [invalidate, onChanged, reportError, retryLastMutation, runMutation, statuses, t, taskId],
   )
 
   const handleAddSubtask = React.useCallback(async () => {
@@ -838,9 +989,7 @@ export function TaskDrawer({
             },
           ),
         context: {
-          formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
-          resourceKind: 'staff.timesheets.task',
-          resourceId: taskId,
+          formId: taskDrawerFormId(taskId),
           retryLastMutation,
         },
       })
@@ -867,8 +1016,65 @@ export function TaskDrawer({
     taskId,
   ])
 
+  useAppEvent(
+    SUPPORT_ACTIVITY_EVENT,
+    (event) => {
+      const eventTaskId = (event.payload as { taskId?: unknown } | undefined)?.taskId
+      if (!open || eventTaskId !== taskId) return
+      invalidate('task')
+      invalidate('comments')
+      invalidate('attachments')
+    },
+    [invalidate, open, taskId],
+  )
+
+  useAppEvent(
+    TASK_ASSIGNMENT_CHANGED_EVENT,
+    (event) => {
+      if (!open || !isAssignmentEventForTask(event.payload, taskId)) return
+      invalidate('task')
+    },
+    [invalidate, open, taskId],
+  )
+
+  const handleMakeInternal = React.useCallback(
+    async (comment: DrawerComment): Promise<void> => {
+      setBusy(true)
+      try {
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(buildOptimisticLockHeader(comment.updatedAt), () =>
+              apiCallOrThrow(
+                `/api/staff/timesheets/tasks/${encodeURIComponent(taskId)}/comments`,
+                {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ id: comment.id, visibility: 'internal' }),
+                },
+                { errorMessage: t('staff.time_tracking.taskComments.makeInternalError', 'Could not change the reply.') },
+              ),
+            ),
+          context: {
+            formId: taskDrawerFormId(taskId),
+            retryLastMutation,
+          },
+        })
+        invalidate('comments')
+      } catch (error) {
+        if (surfaceRecordConflict(error, t)) {
+          invalidate('comments')
+          return
+        }
+        reportError(error, t('staff.time_tracking.taskComments.makeInternalError', 'Could not change the reply.'))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [invalidate, reportError, retryLastMutation, runMutation, t, taskId],
+  )
+
   const handlePostComment = React.useCallback(
-    async (body: string): Promise<boolean> => {
+    async (body: string, visibility: CommentVisibility = 'internal'): Promise<boolean> => {
       setBusy(true)
       try {
         await runMutation({
@@ -878,14 +1084,12 @@ export function TaskDrawer({
               {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ body }),
+                body: JSON.stringify({ body, visibility }),
               },
               { errorMessage: t('staff.time_tracking.taskDrawer.comments.error', 'Could not post the comment.') },
             ),
           context: {
-            formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
-            resourceKind: 'staff.timesheets.task_comment',
-            resourceId: taskId,
+            formId: taskDrawerFormId(taskId),
             retryLastMutation,
           },
         })
@@ -921,9 +1125,7 @@ export function TaskDrawer({
               { errorMessage: t('staff.time_tracking.taskDrawer.properties.tagError', 'Could not save the tags.') },
             ),
           context: {
-            formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
-            resourceKind: 'staff.timesheets.task_tag',
-            resourceId: taskId,
+            formId: taskDrawerFormId(taskId),
             retryLastMutation,
           },
         })
@@ -1012,6 +1214,13 @@ export function TaskDrawer({
 
     return (
       <div className="flex flex-col gap-6">
+        {notice ? (
+          <Alert status={notice.status} data-testid="task-drawer-notice">
+            <AlertDescription>{notice.message}</AlertDescription>
+          </Alert>
+        ) : null}
+        {support ? <SupportRequestPanel ticket={support} /> : null}
+        {support ? <SupportAttachmentsSection taskId={taskId} /> : null}
         <TaskQuickLog
           onLog={handleQuickLog}
           logging={busy}
@@ -1221,6 +1430,8 @@ export function TaskDrawer({
           posting={busy}
           canComment={canManage}
           onPost={handlePostComment}
+          mode={support ? 'support' : 'internal'}
+          onMakeInternal={support ? handleMakeInternal : undefined}
         />
 
         <section className="flex flex-col gap-3" data-testid="task-drawer-properties">
@@ -1277,6 +1488,30 @@ export function TaskDrawer({
                   ))}
                 </SelectContent>
               </Select>
+              {canClaim ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => runAssignmentAction('claim')}
+                  data-testid="task-drawer-claim"
+                >
+                  {t('staff.time_tracking.taskDrawer.assignment.claim', 'Claim')}
+                </Button>
+              ) : null}
+              {canRelease ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => runAssignmentAction('release')}
+                  data-testid="task-drawer-release"
+                >
+                  {t('staff.time_tracking.taskDrawer.assignment.release', 'Release')}
+                </Button>
+              ) : null}
             </div>
           </div>
 

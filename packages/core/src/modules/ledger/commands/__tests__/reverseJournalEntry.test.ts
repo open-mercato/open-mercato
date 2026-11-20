@@ -91,6 +91,8 @@ function seedOriginalEntry(em: ReturnType<typeof buildFakeEm>) {
     accountId: CASH_ACCOUNT,
     debit: '100.00',
     credit: '0',
+    currencyId: CURRENCY,
+    exchangeRate: '1',
     amountCurrency: '100.00',
     contractorSnapshot: null,
   })
@@ -102,6 +104,8 @@ function seedOriginalEntry(em: ReturnType<typeof buildFakeEm>) {
     accountId: REVENUE_ACCOUNT,
     debit: '0',
     credit: '100.00',
+    currencyId: CURRENCY,
+    exchangeRate: '1',
     amountCurrency: '100.00',
     contractorSnapshot: null,
   })
@@ -109,7 +113,7 @@ function seedOriginalEntry(em: ReturnType<typeof buildFakeEm>) {
   // The reversal re-posts through the same `requireValidPostingReferences`
   // path as a fresh entry — needs the original entry's currency/accounts
   // to resolve as real, scoped, non-deleted rows.
-  em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+  em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, isBase: true, decimalPlaces: 2, deletedAt: null })
   em.seed(LedgerAccount, { id: CASH_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
   em.seed(LedgerAccount, { id: REVENUE_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
 }

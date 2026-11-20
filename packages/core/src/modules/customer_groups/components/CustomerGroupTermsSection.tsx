@@ -3,15 +3,35 @@
 import * as React from 'react'
 import { z } from 'zod'
 import { FileText } from 'lucide-react'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { LookupMultiPicker } from '@open-mercato/ui/backend/inputs/LookupPickers'
+import type { LookupSource } from '@open-mercato/ui/backend/inputs/lookupSources'
+import {
+  categoryLookupSource,
+  productLookupSource,
+  tagLookupSource,
+} from '@open-mercato/core/modules/catalog/components/lookupSources'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  decimalToString,
+  isDecimalInput,
+  isNegativeDecimal,
+  resolveExactDecimal,
+} from '@open-mercato/shared/lib/decimal'
 import { CustomerGroupTermsPriceKindField } from './CustomerGroupTermsPriceKindField'
+import {
+  buildAssortmentScopePayload,
+  mapAssortmentScopeToFormValues,
+  type AssortmentScopeField,
+  type AssortmentScopeFormValues,
+  type GroupAssortmentScope,
+} from './customerGroupAssortmentScope'
 
 export type CustomerGroupTermsDTO = {
   id: string
@@ -22,9 +42,13 @@ export type CustomerGroupTermsDTO = {
   paymentTermsDays: number | null
   allowPurchaseOnAccount: boolean | null
   defaultCreditLimit: number | null
+  defaultCreditLimitExact?: string | null
   creditCurrencyCode: string | null
   approvalRequiredAbove: number | null
+  approvalRequiredAboveExact?: string | null
   minOrderValue: number | null
+  minOrderValueExact?: string | null
+  assortmentScope?: GroupAssortmentScope | null
   metadata: Record<string, unknown> | null
   createdAt: string
   updatedAt: string
@@ -52,14 +76,26 @@ function fromPurchaseOnAccountValue(value: string | undefined): boolean | null {
   return null
 }
 
-type CustomerGroupTermsFormValues = {
+type CustomerGroupTermsFormValues = AssortmentScopeFormValues & {
   priceKindId: string
   paymentTermsDays?: number
   allowPurchaseOnAccount: PurchaseOnAccountValue
-  defaultCreditLimit?: number
+  defaultCreditLimit?: string
   creditCurrencyCode: string
-  approvalRequiredAbove?: number
-  minOrderValue?: number
+  approvalRequiredAbove?: string
+  minOrderValue?: string
+}
+
+function exactAmountOrUndefined(exact: string | null | undefined, legacy: number | null | undefined): string | undefined {
+  return resolveExactDecimal(exact, legacy) ?? undefined
+}
+
+function amountOrNull(value: unknown): string | null {
+  return isDecimalInput(value) ? decimalToString(value) : null
+}
+
+function isEmptyAmount(value: unknown): boolean {
+  return value === undefined || value === null || value === ''
 }
 
 function mapTermsToFormValues(terms: CustomerGroupTermsDTO | null): CustomerGroupTermsFormValues {
@@ -67,10 +103,49 @@ function mapTermsToFormValues(terms: CustomerGroupTermsDTO | null): CustomerGrou
     priceKindId: terms?.priceKindId ?? '',
     paymentTermsDays: terms?.paymentTermsDays ?? undefined,
     allowPurchaseOnAccount: toPurchaseOnAccountValue(terms?.allowPurchaseOnAccount),
-    defaultCreditLimit: terms?.defaultCreditLimit ?? undefined,
+    defaultCreditLimit: exactAmountOrUndefined(terms?.defaultCreditLimitExact, terms?.defaultCreditLimit),
     creditCurrencyCode: terms?.creditCurrencyCode ?? '',
-    approvalRequiredAbove: terms?.approvalRequiredAbove ?? undefined,
-    minOrderValue: terms?.minOrderValue ?? undefined,
+    approvalRequiredAbove: exactAmountOrUndefined(terms?.approvalRequiredAboveExact, terms?.approvalRequiredAbove),
+    minOrderValue: exactAmountOrUndefined(terms?.minOrderValueExact, terms?.minOrderValue),
+    ...mapAssortmentScopeToFormValues(terms?.assortmentScope),
+  }
+}
+
+const TERMS_FIELD_IDS = [
+  'priceKindId',
+  'paymentTermsDays',
+  'allowPurchaseOnAccount',
+  'defaultCreditLimit',
+  'creditCurrencyCode',
+  'approvalRequiredAbove',
+  'minOrderValue',
+]
+
+function toIdList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+}
+
+function scopePickerField(
+  id: AssortmentScopeField,
+  label: string,
+  placeholder: string,
+  source: LookupSource,
+  readOnly: boolean,
+): CrudField {
+  return {
+    id,
+    type: 'custom',
+    label,
+    disabled: readOnly,
+    component: ({ value, setValue, disabled }) => (
+      <LookupMultiPicker
+        source={source}
+        value={toIdList(value)}
+        onChange={(next) => setValue(next)}
+        placeholder={placeholder}
+        disabled={disabled || readOnly}
+      />
+    ),
   }
 }
 
@@ -105,22 +180,33 @@ export function CustomerGroupTermsSection({
 
   const negativeMessage = t('customer_groups.groups.form.terms.errors.negative', 'Must be zero or greater.')
 
-  const schema = React.useMemo(
-    () =>
-      z.object({
+  const schema = React.useMemo(() => {
+    const amountSchema = z
+      .union([z.string(), z.number()])
+      .optional()
+      .refine(
+        (value) => isEmptyAmount(value) || (isDecimalInput(value) && !isNegativeDecimal(value)),
+        negativeMessage,
+      )
+      .transform((value) => (isEmptyAmount(value) ? undefined : amountOrNull(value) ?? undefined))
+    return z.object({
         priceKindId: z.string().trim(),
         paymentTermsDays: z.coerce.number().int().min(0, negativeMessage).optional(),
         allowPurchaseOnAccount: z.enum(PURCHASE_ON_ACCOUNT_VALUES),
-        defaultCreditLimit: z.coerce.number().min(0, negativeMessage).optional(),
+        defaultCreditLimit: amountSchema,
         creditCurrencyCode: z
           .string()
           .trim()
           .max(4, t('customer_groups.groups.form.terms.errors.currencyLength', 'Use up to 4 characters.')),
-        approvalRequiredAbove: z.coerce.number().min(0, negativeMessage).optional(),
-        minOrderValue: z.coerce.number().min(0, negativeMessage).optional(),
-      }),
-    [negativeMessage, t],
-  )
+        approvalRequiredAbove: amountSchema,
+        minOrderValue: amountSchema,
+        categoryIds: z.array(z.string()).default([]),
+        tagIds: z.array(z.string()).default([]),
+        excludeProductIds: z.array(z.string()).default([]),
+        excludeCategoryIds: z.array(z.string()).default([]),
+        excludeTagIds: z.array(z.string()).default([]),
+      })
+  }, [negativeMessage, t])
 
   const fields = React.useMemo<CrudField[]>(
     () => [
@@ -166,7 +252,7 @@ export function CustomerGroupTermsSection({
       {
         id: 'defaultCreditLimit',
         label: t('customer_groups.groups.form.terms.field.defaultCreditLimit', 'Default credit limit'),
-        type: 'number',
+        type: 'decimal',
         layout: 'half',
       },
       {
@@ -180,14 +266,74 @@ export function CustomerGroupTermsSection({
       {
         id: 'approvalRequiredAbove',
         label: t('customer_groups.groups.form.terms.field.approvalRequiredAbove', 'Approval required above'),
-        type: 'number',
+        type: 'decimal',
         layout: 'half',
       },
       {
         id: 'minOrderValue',
         label: t('customer_groups.groups.form.terms.field.minOrderValue', 'Minimum order value'),
-        type: 'number',
+        type: 'decimal',
         layout: 'half',
+      },
+      scopePickerField(
+        'categoryIds',
+        t('customer_groups.groups.form.terms.assortment.field.categoryIds', 'Categories'),
+        t('customer_groups.groups.form.terms.assortment.placeholder.category', 'Search categories'),
+        categoryLookupSource,
+        !canManage,
+      ),
+      scopePickerField(
+        'tagIds',
+        t('customer_groups.groups.form.terms.assortment.field.tagIds', 'Tags'),
+        t('customer_groups.groups.form.terms.assortment.placeholder.tag', 'Search tags'),
+        tagLookupSource,
+        !canManage,
+      ),
+      scopePickerField(
+        'excludeProductIds',
+        t('customer_groups.groups.form.terms.assortment.field.excludeProductIds', 'Products'),
+        t('customer_groups.groups.form.terms.assortment.placeholder.product', 'Search products'),
+        productLookupSource,
+        !canManage,
+      ),
+      scopePickerField(
+        'excludeCategoryIds',
+        t('customer_groups.groups.form.terms.assortment.field.excludeCategoryIds', 'Categories'),
+        t('customer_groups.groups.form.terms.assortment.placeholder.category', 'Search categories'),
+        categoryLookupSource,
+        !canManage,
+      ),
+      scopePickerField(
+        'excludeTagIds',
+        t('customer_groups.groups.form.terms.assortment.field.excludeTagIds', 'Tags'),
+        t('customer_groups.groups.form.terms.assortment.placeholder.tag', 'Search tags'),
+        tagLookupSource,
+        !canManage,
+      ),
+    ],
+    [canManage, t],
+  )
+
+  const groups = React.useMemo<CrudFormGroup[]>(
+    () => [
+      { id: 'terms', fields: TERMS_FIELD_IDS },
+      {
+        id: 'assortmentInclude',
+        title: t('customer_groups.groups.form.terms.assortment.includeTitle', 'Assortment scope: show only products in'),
+        description: t(
+          'customer_groups.groups.form.terms.assortment.includeHint',
+          "A product is visible to this group when it is in any of the chosen categories and carries any of the chosen tags. An empty picker does not filter, so leave both empty for no restriction; clearing a picker never hides everything. The storefront assortment a buyer sees is the channel's scope narrowed by this group's scope, and a buyer in several groups sees the union of their scopes.",
+        ),
+        fields: ['categoryIds', 'tagIds'],
+      },
+      {
+        id: 'assortmentExclude',
+        title: t('customer_groups.groups.form.terms.assortment.excludeTitle', 'Always hide from this group'),
+        description: t(
+          'customer_groups.groups.form.terms.assortment.excludeHint',
+          'Hidden products, categories and tags win over the selection above.',
+        ),
+        fields: ['excludeProductIds', 'excludeCategoryIds', 'excludeTagIds'],
       },
     ],
     [t],
@@ -201,14 +347,14 @@ export function CustomerGroupTermsSection({
         priceKindId: values.priceKindId && values.priceKindId.trim().length ? values.priceKindId : null,
         paymentTermsDays: typeof values.paymentTermsDays === 'number' ? values.paymentTermsDays : null,
         allowPurchaseOnAccount: fromPurchaseOnAccountValue(values.allowPurchaseOnAccount),
-        defaultCreditLimit: typeof values.defaultCreditLimit === 'number' ? values.defaultCreditLimit : null,
+        defaultCreditLimit: amountOrNull(values.defaultCreditLimit),
         creditCurrencyCode:
           values.creditCurrencyCode && values.creditCurrencyCode.trim().length
             ? values.creditCurrencyCode.trim().toUpperCase()
             : null,
-        approvalRequiredAbove:
-          typeof values.approvalRequiredAbove === 'number' ? values.approvalRequiredAbove : null,
-        minOrderValue: typeof values.minOrderValue === 'number' ? values.minOrderValue : null,
+        approvalRequiredAbove: amountOrNull(values.approvalRequiredAbove),
+        minOrderValue: amountOrNull(values.minOrderValue),
+        assortmentScope: buildAssortmentScopePayload(values),
       }
       // `updateCrud` PUTs to `/api/customer_groups/customer-groups/{groupId}/terms`, matching the
       // upsert route (Step 2.4). `optimisticLockUpdatedAt` below is
@@ -253,8 +399,10 @@ export function CustomerGroupTermsSection({
         <CrudForm<CustomerGroupTermsFormValues>
           key={terms?.updatedAt ?? 'new'}
           embedded
+          disableInitialFocus
           schema={schema}
           fields={fields}
+          groups={groups}
           initialValues={initialValues}
           optimisticLockUpdatedAt={terms?.updatedAt ?? TERMS_NOT_YET_CREATED_LOCK_TOKEN}
           readOnly={!canManage}

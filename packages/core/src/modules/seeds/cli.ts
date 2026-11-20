@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -22,17 +23,7 @@ type SeedLoadScopeInput = {
 }
 
 function parseArgs(rest: string[]): Record<string, string> {
-  const args: Record<string, string> = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
-    if (!part?.startsWith('--')) continue
-    const [keyRaw, valueRaw] = part.slice(2).split('=')
-    if (!keyRaw) continue
-    if (valueRaw !== undefined) args[keyRaw] = valueRaw
-    else if (i + 1 < rest.length && !rest[i + 1].startsWith('--')) args[keyRaw] = rest[i + 1]
-    else args[keyRaw] = 'true'
-  }
-  return args
+  return parseModuleCliOptions(rest, { flagValue: 'true', skipEmptyKeys: true, consumeEmptyValues: true, advancePastValue: false })
 }
 
 function flag(value: string | undefined): boolean {

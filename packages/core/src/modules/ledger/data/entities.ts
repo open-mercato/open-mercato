@@ -88,7 +88,7 @@ export class LedgerAccountGroup {
 
 /**
  * Flat chart-of-accounts type, e.g. "Fixed Asset" or "Current Liability"
- * (no parent type: nothing reads one — PR #5663 review). `number`,
+ * (no parent type: nothing reads one). `number`,
  * `normalBalance` and `accountGroupId` are immutable once any account of
  * this type has posted entries, and `number` follows the PL numbering rule
  * for the type's group — both enforced at the command layer
@@ -183,6 +183,14 @@ export class LedgerAccount {
    * account has posted entries. */
   @Property({ name: 'account_type_id', type: 'uuid' })
   accountTypeId!: string
+
+  /** Plain FK-id to `currencies.Currency.id`. Set only on accounts kept in
+   * one currency (bank accounts: the balance in the account's currency must
+   * agree with the bank statement). Null for every other account — a line
+   * then carries the document's currency. Immutable once the account has
+   * posted lines (enforced by `updateLedgerAccount`). */
+  @Property({ name: 'currency_id', type: 'uuid', nullable: true })
+  currencyId?: string | null
 
   @Property({ type: 'text', nullable: true })
   description?: string | null
@@ -410,10 +418,23 @@ export class JournalEntryLine {
   @Property({ type: 'numeric', precision: 19, scale: 4, default: '0' })
   credit: string = '0'
 
-  /** The amount in the entry's original currency (`JournalEntry.currencyId`) —
-   * captured from day one even though Phase 1 balance validation runs
-   * only in the base-currency `debit`/`credit` columns (see Design
-   * decisions: Multi-currency). */
+  /** The line's own currency — plain FK-id to `currencies.Currency.id`, no
+   * ORM relation. Never null: `postJournalEntry` fills it from the entry
+   * header at write time when the caller omits it (see Design decisions:
+   * Multi-currency). */
+  @Property({ name: 'currency_id', type: 'uuid' })
+  currencyId!: string
+
+  /** Base-currency units per one unit of `currencyId`. `1` on a
+   * base-currency line. Stored as given (more than 8 decimal places is
+   * rejected, not rounded). */
+  @Property({ name: 'exchange_rate', type: 'numeric', precision: 18, scale: 8 })
+  exchangeRate!: string
+
+  /** Unsigned magnitude in the line's own currency (`currencyId`); the side
+   * is the `debit`/`credit` column. On a base-currency line it equals
+   * `debit`/`credit`. `debit`/`credit` stay in the base currency and are
+   * the only columns the balance check reads. */
   @Property({ name: 'amount_currency', type: 'numeric', precision: 19, scale: 4, default: '0' })
   amountCurrency: string = '0'
 

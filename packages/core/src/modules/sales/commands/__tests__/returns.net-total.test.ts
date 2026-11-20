@@ -14,6 +14,7 @@
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -76,6 +77,7 @@ function num(value: any): number {
 
 function buildTx() {
   return {
+    getKysely: () => createSalesDocumentLockKyselyFixture(TEST_ORDER_ID),
     create: (_entity: any, data: Record<string, unknown>) => ({ ...data }),
     persist: (entity: any) => {
       // Return credit adjustments must survive into the next command call so a

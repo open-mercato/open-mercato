@@ -287,7 +287,7 @@ export default function LedgerAccountTypesPage() {
           rowActions={(row) => (
             <RowActions
               items={canManage ? [
-                { id: 'edit', label: t('common.edit'), href: `/backend/ledger/account-types/${row.id}` },
+                { id: 'edit', label: t('common.edit'), href: `/backend/ledger/account-types/${encodeURIComponent(row.id)}` },
                 { id: 'delete', label: t('common.delete'), destructive: true, onSelect: () => handleDelete(row) },
               ] : []}
             />

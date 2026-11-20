@@ -75,6 +75,10 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'Exempt — proposal dispose guards the HUMAN dispose path on updated_at only (the auto/threshold path holds no client token and cannot race a stale modal); pending→terminal is a one-shot transition with an idempotent same-verdict re-dispose. record_locks seam migration deferred.',
   'packages/enterprise/src/modules/agent_orchestrator/commands/grants.ts':
     'Exempt — delegation-grant revoke guards updated_at against the caller-supplied expectedUpdatedAt (re-revoke is idempotent, gone-record maps to structured 409); a one-shot revocation, not a collaborative edit surface. record_locks seam migration deferred.',
+  'packages/enterprise/src/modules/agent_orchestrator/commands/traceCapture.ts':
+    'Exempt — trace capture policy update writes one tenant-scoped module_configs row guarded on its updated_at; a single-admin settings form, not a collaborative merge-dialog target, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
+  'packages/enterprise/src/modules/agent_orchestrator/commands/otelExport.ts':
+    'Exempt — OTel export settings update writes one tenant-scoped module_configs row guarded on its updated_at; a single-admin settings form, not a collaborative merge-dialog target, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
   'packages/enterprise/src/modules/agent_orchestrator/api/agents/[id]/settings/route.ts':
     'Exempt — per-agent icon setting write guards the AgentSetting row on its own updated_at only when a row already exists (first write has nothing to conflict with); a single-admin cosmetic config surface, not a collaborative merge-dialog target, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
   'packages/core/src/modules/devices/api/deviceOps.ts':
@@ -83,6 +87,26 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — per-tenant notification-type override (notifications.settings) is single-admin tenant config edited from the Notification Delivery settings table, not a collaborative merge-dialog target; the OSS floor 409s the concurrent admin two-tab race (the PATCH replaces the whole channels array). Enterprise record_locks migration deferred.',
   'packages/core/src/modules/customer_groups/api/customer-groups/[id]/terms/route.ts':
     'OSS-only — commercial terms is a strict 1:1 sub-resource of a group (customer_groups:customer_group_terms) with no list/pagination use case, so it is a hand-written PUT route (no makeCrudRoute decorator) rather than a CRUD-factory route; the synchronous OSS updated_at floor guards the concurrent edit race. Enterprise record_locks migration deferred.',
+  // cart (Release 4) — every `/api/cart/current/*` mutating route locks the CART
+  // aggregate (`resourceKind: 'cart.cart'`, §8.1), which a single buyer's own
+  // token addresses, never a shared record multiple STAFF users edit through an
+  // admin merge-dialog UI; the OSS `updated_at` floor already guards the real
+  // concurrency case here (two tabs/devices racing on the same cart token).
+  // Enterprise record_locks migration deferred.
+  'packages/core/src/modules/cart/api/current/lines/route.ts':
+    'OSS-only — cart.lines.add locks the CART aggregate, addressed by a single buyer token, not a staff collaborative-edit surface. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/cart/api/current/lines/[lineId]/route.ts':
+    'OSS-only — cart.lines.update/.remove lock the CART aggregate, addressed by a single buyer token, not a staff collaborative-edit surface. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/cart/api/current/lines/bulk/route.ts':
+    'OSS-only — cart.lines.bulkAdd locks the CART aggregate, addressed by a single buyer token, not a staff collaborative-edit surface. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/cart/api/current/promotions/route.ts':
+    'OSS-only — cart.promotions.apply locks the CART aggregate, addressed by a single buyer token, not a staff collaborative-edit surface. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/cart/api/current/promotions/[id]/route.ts':
+    'OSS-only — cart.promotions.remove locks the CART aggregate, addressed by a single buyer token, not a staff collaborative-edit surface. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/cart/api/current/merge/route.ts':
+    'OSS-only — cart.merge locks the TARGET cart aggregate, addressed by the buyer\'s own session token, not a staff collaborative-edit surface. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/cart/api/current/undo-merge/route.ts':
+    'OSS-only — cart.mergeUndo locks the cart aggregate, addressed by the buyer\'s own session token, not a staff collaborative-edit surface. Enterprise record_locks migration deferred.',
 }
 
 // `enforceCommandOptimisticLock(` but NOT `enforceCommandOptimisticLockWithGuards(`.

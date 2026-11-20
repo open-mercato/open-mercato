@@ -2,20 +2,24 @@
  * Public/anonymous PDF snapshot download —
  * GET /api/forms/public/submissions/:id/pdf
  *
- * Streams the immutable signed-PDF snapshot back to the participant who
- * submitted the form, so they can download their own copy from the completion
- * screen. Authorized via `resolveRuntimePrincipal` (submission access token OR
- * portal customer session); org/tenant are re-derived from the persisted
+ * Streams the participant's copy of the submission PDF, so they can download
+ * it from the completion screen. The copy holds only the answers the
+ * principal's role can read (same set as the JSON read): the immutable
+ * canonical snapshot when that role reads every field, otherwise an uncached
+ * role-filtered render. Responses are `private, no-store`. Authorized via
+ * `resolveRuntimePrincipal` (submission access token OR portal customer
+ * session); org/tenant are re-derived from the persisted
  * submission (R-2d-4). Cross-tenant ids return 404 (no enumeration).
  *
- * Generates the snapshot lazily on first request when the on-submit subscriber
- * has not yet produced it; generation is idempotent.
+ * The canonical snapshot is generated lazily on first request when the
+ * on-submit subscriber has not yet produced it; generation is idempotent.
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   PdfSnapshotService,
   PdfSnapshotServiceError,
@@ -49,16 +53,18 @@ export async function GET(
   if (!principal) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
 
   try {
-    const snapshot = await snapshots.ensureSnapshot({
+    const snapshot = await snapshots.readSnapshotForViewer({
       organizationId: principal.organizationId,
       tenantId: principal.tenantId,
       submissionId,
+      viewerRole: principal.role,
     })
     return new NextResponse(snapshot.bytes as unknown as BodyInit, {
       status: 200,
       headers: {
         'content-type': snapshot.contentType,
         'content-disposition': `attachment; filename="${sanitizeFilename(snapshot.filename)}"`,
+        'cache-control': 'private, no-store',
         ...SANDBOXED_DOWNLOAD_HEADERS,
       },
     })
@@ -67,6 +73,7 @@ export async function GET(
       const status = error.code === 'NOT_FOUND' ? 404 : 409
       return NextResponse.json({ error: error.code, message: error.message }, { status })
     }
+    getTelemetryRuntime()?.reportError(error, { module: 'forms', code: 'forms.submission_pdf_failed' })
     return NextResponse.json({ error: 'INTERNAL_ERROR' }, { status: 500 })
   }
 }
@@ -78,7 +85,7 @@ function sanitizeFilename(name: string): string {
 const getMethodDoc: OpenApiMethodDoc = {
   summary: 'Download a submission PDF snapshot (public/anonymous)',
   description:
-    'Streams the immutable signed-PDF snapshot for the owning participant. Authorized via access token or portal session. Generates the snapshot on first request when missing.',
+    "Streams the participant's copy of the submission PDF. Authorized via access token or portal session. The copy contains only the answers the principal's role can read: the immutable canonical snapshot (generated on first request when missing) when the role can read every field, otherwise an uncached role-filtered copy.",
   tags: ['Forms Public Runtime'],
   responses: [{ status: 200, description: 'PDF stream', mediaType: 'application/pdf' }],
   errors: [

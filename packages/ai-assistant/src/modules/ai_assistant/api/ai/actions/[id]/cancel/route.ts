@@ -9,6 +9,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { AiPendingActionRepository } from '../../../../../data/repositories/AiPendingActionRepository'
 import { hasRequiredFeatures } from '../../../../../lib/auth'
 import { serializePendingActionForClient } from '../../../../../lib/pending-action-client'
+import { AI_PENDING_ACTION_APPROVE_FEATURE } from '../../../../../lib/pending-action-types'
 import { checkStatusAndExpiry } from '../../../../../lib/pending-action-recheck'
 import { executePendingActionCancel } from '../../../../../lib/pending-action-cancel'
 
@@ -33,11 +34,7 @@ const logger = createLogger('ai_assistant')
 const REQUIRED_FEATURE = 'ai_assistant.view'
 
 const idParamSchema = z.object({
-  id: z
-    .string()
-    .trim()
-    .min(1, 'id must be a non-empty string')
-    .max(128, 'id exceeds the maximum length of 128 characters'),
+  id: z.string().trim().pipe(z.guid('id must be a UUID')),
 })
 
 const bodySchema = z
@@ -72,7 +69,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
-        { status: 400, description: 'Invalid cancel request body (unknown field, reason exceeds 500 chars, wrong type).' },
+        { status: 400, description: 'The `:id` path parameter is not a UUID, or the cancel request body is invalid (unknown field, reason exceeds 500 chars, wrong type).' },
         { status: 401, description: 'Unauthenticated caller.' },
         { status: 403, description: 'Caller lacks `ai_assistant.view`.' },
         { status: 404, description: 'Pending action not found in the caller scope.' },
@@ -114,6 +111,13 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
   const auth = await getAuthFromRequest(req)
   if (!auth) {
     return jsonError(401, 'Unauthorized', 'unauthenticated')
+  }
+  if (auth.isApiKey) {
+    return jsonError(
+      403,
+      'Pending actions are decided by a signed-in user, not an API key.',
+      'api_key_cannot_decide',
+    )
   }
 
   const rawParams = await context.params
@@ -159,11 +163,18 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
 
     const em = container.resolve<EntityManager>('em')
     const repo = new AiPendingActionRepository(em)
-    const row = await repo.getById(pendingActionId, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId ?? null,
-      userId: auth.sub,
-    })
+    const row = await repo.getByIdForApprover(
+      pendingActionId,
+      { tenantId: auth.tenantId, organizationId: auth.orgId ?? null },
+      {
+        userId: auth.sub,
+        canApproveAny: hasRequiredFeatures(
+          [AI_PENDING_ACTION_APPROVE_FEATURE],
+          acl.features,
+          acl.isSuperAdmin,
+        ),
+      },
+    )
     if (!row) {
       return jsonError(
         404,

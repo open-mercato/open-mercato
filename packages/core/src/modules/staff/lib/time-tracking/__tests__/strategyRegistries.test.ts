@@ -22,8 +22,14 @@ import { MAX_STORED_MINUTES } from '../registries/invoke'
 import {
   BUILT_IN_TIME_RATE_RESOLVER_ID,
   applicableRate,
+  applicableRateExact,
   entryAmount,
+  entryAmountExact,
+  getTimeRateResolver,
   registerTimeRateResolver,
+  resolveTimeRate,
+  resolveTimeRateExact,
+  type TimeRateContext,
 } from '../cost'
 import {
   BUILT_IN_BILLABILITY_RESOLVER_ID,
@@ -147,6 +153,88 @@ describe('EP-33 rate resolver chain', () => {
       dispose()
     }
     expect(BUILT_IN_TIME_RATE_RESOLVER_ID).toBe('staff.time_tracking.rate.entry_override_then_project')
+  })
+
+  it('hands a contributed resolver numbers, with exact siblings, even when the caller passes decimal strings', () => {
+    const seen: TimeRateContext[] = []
+    const dispose = registerTimeRateResolver({
+      id: 'test.premium',
+      resolve: (ctx) => {
+        seen.push(ctx)
+        return (ctx.project?.hourlyRate ?? 0) + 5
+      },
+    })
+    try {
+      expect(applicableRate({ rateOverrideAmount: null }, { hourlyRate: '150' }, SCOPE)).toBe(155)
+      expect(entryAmount({ isBillable: true, roundedMinutes: 60 }, { hourlyRate: '150.0000' }, SCOPE)).toBe(155)
+      expect(entryAmountExact({ isBillable: true, roundedMinutes: 60, rateOverrideAmount: '40' }, { hourlyRate: '150' }, SCOPE)).toBe(
+        '155',
+      )
+    } finally {
+      dispose()
+    }
+    expect(seen).toHaveLength(3)
+    for (const ctx of seen) {
+      expect(typeof ctx.project?.hourlyRate).toBe('number')
+      expect(ctx.project?.hourlyRateExact).toBe('150')
+    }
+    expect(seen[2].entry).toEqual(expect.objectContaining({ rateOverrideAmount: 40, rateOverrideAmountExact: '40' }))
+  })
+
+  it('keeps an exact 18-decimal rate through the built-in, with or without an abstaining contribution', () => {
+    const preciseRate = '98.765432109876543212'
+    expect(applicableRateExact({ rateOverrideAmount: preciseRate }, { hourlyRate: 100 })).toBe(preciseRate)
+    expect(applicableRateExact({ rateOverrideAmount: null }, { hourlyRate: preciseRate })).toBe(preciseRate)
+    expect(resolveTimeRateExact({ project: { hourlyRate: Number(preciseRate), hourlyRateExact: preciseRate } })).toBe(preciseRate)
+    expect(getTimeRateResolver(BUILT_IN_TIME_RATE_RESOLVER_ID)?.resolve({ project: { hourlyRateExact: preciseRate } })).toBe(
+      Number(preciseRate),
+    )
+    const dispose = registerTimeRateResolver({ id: 'test.abstain', resolve: () => null })
+    try {
+      expect(applicableRateExact({ rateOverrideAmount: preciseRate }, { hourlyRate: 100 }, SCOPE)).toBe(preciseRate)
+      expect(entryAmountExact({ isBillable: true, roundedMinutes: 60 }, { hourlyRate: preciseRate }, SCOPE, 18)).toBe(preciseRate)
+    } finally {
+      dispose()
+    }
+  })
+
+  it('uses a contributed number as before and ignores a non-number answer from resolve', () => {
+    const numeric = registerTimeRateResolver({ id: 'test.numeric', resolve: () => 123.45 })
+    try {
+      expect(applicableRate({ rateOverrideAmount: 250 }, { hourlyRate: 100 }, SCOPE)).toBe(123.45)
+      expect(entryAmount({ isBillable: true, roundedMinutes: 30 }, { hourlyRate: 100 }, SCOPE)).toBe(61.73)
+      expect(resolveTimeRate({ ...SCOPE, project: { hourlyRate: 100 } })).toBe(123.45)
+    } finally {
+      numeric()
+    }
+    const stringly = registerTimeRateResolver({
+      id: 'test.stringly',
+      resolve: () => '999' as unknown as number,
+    })
+    try {
+      expect(applicableRate({ rateOverrideAmount: null }, { hourlyRate: 100 }, SCOPE)).toBe(100)
+    } finally {
+      stringly()
+    }
+  })
+
+  it('prefers resolveExact over resolve when a contribution offers both', () => {
+    const dispose = registerTimeRateResolver({
+      id: 'test.exact',
+      resolve: () => 1.1,
+      resolveExact: () => '1.123456789012345678',
+    })
+    try {
+      expect(applicableRateExact({ rateOverrideAmount: null }, { hourlyRate: 100 }, SCOPE)).toBe('1.123456789012345678')
+      expect(applicableRate({ rateOverrideAmount: null }, { hourlyRate: 100 }, SCOPE)).toBe(1.1234567890123457)
+    } finally {
+      dispose()
+    }
+  })
+
+  it('serves a pre-exact context of plain numbers unchanged', () => {
+    expect(resolveTimeRate({ entry: { rateOverrideAmount: null }, project: { hourlyRate: 150 } })).toBe(150)
+    expect(resolveTimeRate({ entry: { rateOverrideAmount: 0 }, project: { hourlyRate: 150 } })).toBe(0)
   })
 })
 

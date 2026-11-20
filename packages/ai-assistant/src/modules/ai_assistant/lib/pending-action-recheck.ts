@@ -16,19 +16,25 @@
  * boundary. The Step 5.9 cancel route reuses {@link checkStatusAndExpiry}.
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AiAgentDefinition } from './ai-agent-definition'
 import type { AiToolDefinition, McpToolContext } from './types'
 import type { AiPendingAction } from '../data/entities'
-import type {
-  AiPendingActionFailedRecord,
-  AiPendingActionRecordDiff,
-  AiPendingActionStatus,
+import {
+  AI_RAW_TOOL_AGENT_ID,
+  type AiPendingActionFailedRecord,
+  type AiPendingActionRecordDiff,
+  type AiPendingActionStatus,
 } from './pending-action-types'
 import { resolveEffectiveMutationPolicy } from './agent-policy'
 import { hasRequiredFeatures } from './auth'
+import { isToolExposed, resolveMcpExposureConfig, type McpExposureConfig } from './mcp-exposure'
+import { resolveToolFeaturesDeniedMessage } from './pending-action-messages'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
+import { planPendingActionExecution, resolvePendingActionBatchMessages } from './pending-action-batch'
 
 export type PendingActionRecheckCode =
   | 'invalid_status'
@@ -36,10 +42,15 @@ export type PendingActionRecheckCode =
   | 'agent_unknown'
   | 'agent_features_denied'
   | 'tool_not_whitelisted'
+  | 'tool_features_denied'
   | 'read_only_agent'
   | 'attachment_cross_tenant'
   | 'stale_version'
   | 'schema_drift'
+  | 'tool_not_exposed'
+  | 'approver_features_denied'
+  | 'requester_revoked'
+  | 'requester_features_denied'
 
 export interface PendingActionRecheckOkResult {
   ok: true
@@ -90,6 +101,20 @@ export interface PendingActionRecheckInput {
    * (Step 5.4). Missing / null → agent's code-declared policy stands alone.
    */
   mutationPolicyOverride?: AiAgentMutationPolicy | null
+  /**
+   * Exposure config used for raw MCP / tools-api rows. Defaults to the app
+   * process's config resolved from `process.env`.
+   */
+  exposureConfig?: McpExposureConfig
+}
+
+/**
+ * True for rows queued by a raw MCP / `/tools/execute` mutation call (Step
+ * 3.3). These rows carry the synthetic {@link AI_RAW_TOOL_AGENT_ID} and skip
+ * the agent guards in favour of the raw-tool guards below.
+ */
+export function isRawToolPendingAction(action: AiPendingAction): boolean {
+  return (action.channel ?? 'agent') !== 'agent' && action.agentId === AI_RAW_TOOL_AGENT_ID
 }
 
 /**
@@ -195,6 +220,132 @@ export function checkToolWhitelist(
 }
 
 /**
+ * Raw-tool guard: the tool is still registered, still a mutation tool, and
+ * still exposed by the app process's MCP exposure config.
+ */
+export function checkRawToolExposure(
+  tool: AiToolDefinition | null | undefined,
+  action: AiPendingAction,
+  exposureConfig: McpExposureConfig,
+): PendingActionRecheckResult {
+  if (!tool || tool.isMutation !== true || !isToolExposed(tool, exposureConfig)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'tool_not_exposed',
+      message: `Tool "${action.toolName}" is no longer exposed as a mutation tool.`,
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * Raw-tool guard: the approver holds every `requiredFeatures` entry of the
+ * tool they are about to execute under their own identity.
+ */
+export function checkApproverToolFeatures(
+  tool: AiToolDefinition,
+  ctx: PendingActionAuthContext,
+): PendingActionRecheckResult {
+  const required = tool.requiredFeatures ?? []
+  if (!hasRequiredFeatures(required, ctx.userFeatures, ctx.isSuperAdmin)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'approver_features_denied',
+      message: `Approver lacks one of the tool's required features: ${required.join(', ')}`,
+    }
+  }
+  return { ok: true }
+}
+
+function requesterRevoked(message: string): PendingActionRecheckFailResult {
+  return { ok: false, status: 403, code: 'requester_revoked', message }
+}
+
+function requesterFeaturesDenied(required: string[]): PendingActionRecheckFailResult {
+  return {
+    ok: false,
+    status: 403,
+    code: 'requester_features_denied',
+    message: `Requester no longer holds one of the tool's required features: ${required.join(', ')}`,
+  }
+}
+
+/**
+ * Raw-tool guard: the requester is still valid. When the row was queued
+ * through an API key, the key must still exist, not be deleted and not be
+ * expired. The requester's ACL (the API key ACL, else the creator user's
+ * ACL) must still cover the tool's `requiredFeatures`.
+ */
+export async function checkRawToolRequester(
+  action: AiPendingAction,
+  tool: AiToolDefinition,
+  ctx: PendingActionAuthContext,
+  options: { now?: Date } = {},
+): Promise<PendingActionRecheckResult> {
+  const now = options.now ?? new Date()
+  const container = ctx.container
+  const em = ctx.em ?? (container ? container.resolve<EntityManager>('em') : undefined)
+  let rbacService: RbacService | null = null
+  try {
+    rbacService = container ? container.resolve<RbacService>('rbacService') : null
+  } catch {
+    rbacService = null
+  }
+  const required = tool.requiredFeatures ?? []
+  const apiKeyId = action.apiKeyId ?? null
+  let principalId = action.createdByUserId
+  let aclScope = { tenantId: action.tenantId, organizationId: action.organizationId ?? null }
+  if (apiKeyId) {
+    if (!em) return requesterRevoked('API key validity check requires an EntityManager.')
+    const apiKey = await findOneWithDecryption<ApiKey>(
+      em,
+      ApiKey,
+      { id: apiKeyId, deletedAt: null },
+      {},
+      { tenantId: action.tenantId, organizationId: action.organizationId ?? null },
+    )
+    if (!apiKey || apiKey.deletedAt || (apiKey.tenantId ?? null) !== action.tenantId) {
+      return requesterRevoked('The API key that requested this action no longer exists.')
+    }
+    if (apiKey.expiresAt && new Date(apiKey.expiresAt).getTime() <= now.getTime()) {
+      return requesterRevoked('The API key that requested this action has expired.')
+    }
+    principalId = `api_key:${apiKey.id}`
+    aclScope = { tenantId: apiKey.tenantId ?? action.tenantId, organizationId: apiKey.organizationId ?? null }
+  }
+  if (!principalId) return requesterRevoked('The requester of this action is unknown.')
+  if (!rbacService) return requesterFeaturesDenied(required)
+  const requesterAcl = await rbacService.loadAcl(principalId, aclScope)
+  if (!hasRequiredFeatures(required, requesterAcl.features, requesterAcl.isSuperAdmin)) {
+    return requesterFeaturesDenied(required)
+  }
+  return { ok: true }
+}
+
+/**
+ * Guard 6b: the caller still carries every `requiredFeatures` entry of the
+ * tool. The agent features alone are not enough: a mutation tool usually
+ * needs a stronger feature than the agent that proposes it. Missing → 403.
+ */
+export async function checkToolFeatures(
+  tool: AiToolDefinition,
+  ctx: PendingActionAuthContext,
+): Promise<PendingActionRecheckResult> {
+  const required = tool.requiredFeatures ?? []
+  if (!hasRequiredFeatures(required, ctx.userFeatures, ctx.isSuperAdmin)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'tool_features_denied',
+      message: await resolveToolFeaturesDeniedMessage(required),
+    }
+  }
+  return { ok: true }
+}
+
+/**
  * Guard 7: every attachment id referenced by the pending row belongs to the
  * caller's tenant/org. Any cross-tenant id short-circuits with 403 — we do
  * not leak which specific id was rejected.
@@ -251,12 +402,25 @@ export async function checkAttachmentScope(
   return { ok: true }
 }
 
+async function refusePlan(staleRecordIds: string[]): Promise<PendingActionRecheckResult> {
+  const { batchNotApplicable } = await resolvePendingActionBatchMessages()
+  return {
+    ok: false,
+    status: 412,
+    code: 'stale_version',
+    message: batchNotApplicable,
+    extra: { staleRecords: staleRecordIds },
+  }
+}
+
 /**
  * Guard 8: record version matches the row's captured `recordVersion`. For
  * single-record actions a mismatch is a hard 412. For batch actions we
  * compute per-record and return a `failedRecords[]` entry for each stale
  * record; the caller proceeds with the remaining records. If the batch
- * has NO remaining records (every one is stale) the function returns 412.
+ * has NO remaining records (every one is stale), or its input cannot be
+ * narrowed to the previewed, fresh rows (see `planPendingActionExecution`),
+ * the function returns 412.
  *
  * Also acts as the schema-drift guard: re-parses `action.normalizedInput`
  * through the tool's current zod schema. A shape change between propose
@@ -283,6 +447,8 @@ export async function checkRecordVersion(
   const records = Array.isArray(action.records) ? action.records : null
   if (records && records.length > 0) {
     if (!tool.loadBeforeRecords) {
+      const plan = planPendingActionExecution(action, tool, null)
+      if (plan.kind === 'refuse') return refusePlan(plan.staleRecordIds)
       return { ok: true }
     }
     const currentRows = await tool.loadBeforeRecords(parseResult.data as never, handlerContext)
@@ -290,6 +456,7 @@ export async function checkRecordVersion(
     for (const row of currentRows ?? []) {
       currentVersionById.set(row.recordId, row.recordVersion ?? null)
     }
+    const messages = await resolvePendingActionBatchMessages()
     const stale: AiPendingActionFailedRecord[] = []
     for (const record of records as AiPendingActionRecordDiff[]) {
       const current = currentVersionById.get(record.recordId)
@@ -297,14 +464,14 @@ export async function checkRecordVersion(
       if (current === undefined) {
         stale.push({
           recordId: record.recordId,
-          error: { code: 'stale_version', message: 'Record no longer exists.' },
+          error: { code: 'stale_version', message: messages.recordMissing },
         })
         continue
       }
       if (captured !== null && current !== captured) {
         stale.push({
           recordId: record.recordId,
-          error: { code: 'stale_version', message: 'Record version changed since preview.' },
+          error: { code: 'stale_version', message: messages.recordStale },
         })
       }
     }
@@ -313,15 +480,20 @@ export async function checkRecordVersion(
         ok: false,
         status: 412,
         code: 'stale_version',
-        message: 'All pending records are stale; the model must re-propose the batch.',
+        message: messages.allRecordsStale,
         extra: { staleRecords: stale.map((entry) => entry.recordId) },
       }
     }
+    const plan = planPendingActionExecution(action, tool, stale)
+    if (plan.kind === 'refuse') return refusePlan(plan.staleRecordIds)
     if (stale.length > 0) {
       return { ok: true, failedRecords: stale }
     }
     return { ok: true }
   }
+
+  const plan = planPendingActionExecution(action, tool, null)
+  if (plan.kind === 'refuse') return refusePlan(plan.staleRecordIds)
 
   if (!tool.loadBeforeRecord) {
     return { ok: true }
@@ -335,7 +507,7 @@ export async function checkRecordVersion(
       ok: false,
       status: 412,
       code: 'stale_version',
-      message: 'Record version changed since preview; re-propose the mutation.',
+      message: (await resolvePendingActionBatchMessages()).singleRecordStale,
       extra: { recordId: before.recordId },
     }
   }
@@ -368,6 +540,10 @@ export async function runPendingActionRechecks(
   const statusCheck = checkStatusAndExpiry(action, { now })
   if (!statusCheck.ok) return statusCheck
 
+  if (isRawToolPendingAction(action)) {
+    return runRawToolRechecks(input)
+  }
+
   const agentCheck = checkAgentAndFeatures(agent, ctx)
   if (!agentCheck.ok) return agentCheck
 
@@ -376,11 +552,40 @@ export async function runPendingActionRechecks(
   })
   if (!whitelistCheck.ok) return whitelistCheck
 
+  const toolFeaturesCheck = await checkToolFeatures(tool!, ctx)
+  if (!toolFeaturesCheck.ok) return toolFeaturesCheck
+
+  if ((action.channel ?? 'agent') !== 'agent') {
+    const requesterCheck = await checkRawToolRequester(action, tool!, ctx, { now })
+    if (!requesterCheck.ok) return requesterCheck
+  }
+
   const attachmentCheck = await checkAttachmentScope(action, ctx)
   if (!attachmentCheck.ok) return attachmentCheck
 
   const versionCheck = await checkRecordVersion(action, tool!, ctx)
   return versionCheck
+}
+
+async function runRawToolRechecks(
+  input: PendingActionRecheckInput,
+): Promise<PendingActionRecheckResult> {
+  const { action, tool, ctx, now } = input
+  const exposureConfig = input.exposureConfig ?? resolveMcpExposureConfig(process.env, {})
+
+  const exposureCheck = checkRawToolExposure(tool, action, exposureConfig)
+  if (!exposureCheck.ok) return exposureCheck
+
+  const approverCheck = checkApproverToolFeatures(tool!, ctx)
+  if (!approverCheck.ok) return approverCheck
+
+  const requesterCheck = await checkRawToolRequester(action, tool!, ctx, { now })
+  if (!requesterCheck.ok) return requesterCheck
+
+  const attachmentCheck = await checkAttachmentScope(action, ctx)
+  if (!attachmentCheck.ok) return attachmentCheck
+
+  return checkRecordVersion(action, tool!, ctx)
 }
 
 /**
@@ -393,10 +598,15 @@ export const PENDING_ACTION_RECHECK_CODES: ReadonlyArray<PendingActionRecheckCod
   'agent_unknown',
   'agent_features_denied',
   'tool_not_whitelisted',
+  'tool_features_denied',
   'read_only_agent',
   'attachment_cross_tenant',
   'stale_version',
   'schema_drift',
+  'tool_not_exposed',
+  'approver_features_denied',
+  'requester_revoked',
+  'requester_features_denied',
 ]
 
 export function isPendingActionRecheckCode(

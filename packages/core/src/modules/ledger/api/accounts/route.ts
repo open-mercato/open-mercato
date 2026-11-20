@@ -91,6 +91,7 @@ type LedgerAccountRow = {
   id: string
   number: string
   accountTypeId: string
+  currencyId: string | null
   description: string | null
   createdAt: string | null
   updatedAt: string | null
@@ -102,6 +103,7 @@ const toRow = (account: LedgerAccount): LedgerAccountRow => ({
   id: String(account.id),
   number: String(account.number),
   accountTypeId: String(account.accountTypeId),
+  currencyId: account.currencyId ?? null,
   description: account.description ?? null,
   createdAt: account.createdAt ? account.createdAt.toISOString() : null,
   updatedAt: account.updatedAt ? account.updatedAt.toISOString() : null,
@@ -193,6 +195,7 @@ const ledgerAccountListItemSchema = z.object({
   id: z.uuid(),
   number: z.string(),
   accountTypeId: z.uuid(),
+  currencyId: z.uuid().nullable(),
   description: z.string().nullable(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
