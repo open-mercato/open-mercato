@@ -8,6 +8,7 @@ import {
   clearGatewayAdapters,
   registerGatewayAdapter,
   type CancelResult,
+  type CaptureInput,
   type CaptureResult,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import { GatewayPaymentOperation, GatewayTransaction } from '../../data/entities'
@@ -69,14 +70,14 @@ describeWithPostgres('manual cancel/capture exclusion against PostgreSQL (#8224)
     await postgres?.stop()
   }, 30_000)
 
-  async function fixture() {
+  async function fixture(amount = '100') {
     const em = orm.em.fork()
     const transaction = em.create(GatewayTransaction, {
       ...scope, paymentId: randomUUID(), providerKey, providerSessionId: 'synthetic-session',
-      amount: '100', capturedAmount: '0', currencyCode: 'USD', unifiedStatus: 'authorized',
+      amount, capturedAmount: '0', currencyCode: 'USD', unifiedStatus: 'authorized',
     })
     await em.flush()
-    const capture = jest.fn(async (): Promise<CaptureResult> => ({ status: 'partially_captured', capturedAmount: 60 }))
+    const capture = jest.fn(async (_input: CaptureInput): Promise<CaptureResult> => ({ status: 'partially_captured', capturedAmount: 60 }))
     const cancel = jest.fn(async (): Promise<CancelResult> => ({ status: 'cancelled' }))
     registerGatewayAdapter({
       providerKey, capture, cancel, createSession: jest.fn(), refund: jest.fn(),
@@ -228,5 +229,51 @@ describeWithPostgres('manual cancel/capture exclusion against PostgreSQL (#8224)
     expect(operation).toMatchObject({ status: 'failed', attemptCount: retry ? 2 : 1 })
     await expect(service.cancelPayment(transaction.id, undefined, scope, operationId)).rejects.toMatchObject({ status: 409 })
     expect(cancel).not.toHaveBeenCalled()
+  })
+
+  it('preserves exact capture amounts, ceilings and replay while excluding cancellation', async () => {
+    const { transaction, capture, cancel, captureService, cancelService } = await fixture('1000.000000000000000002')
+    capture.mockImplementation(async (input) => ({
+      status: 'partially_captured', capturedAmount: input.amount ?? 0, capturedAmountExact: input.amountExact,
+    }))
+
+    const result = await captureService.capturePayment(transaction.id, '1000.000000000000000001', scope, 'exact-capture')
+    await expect(captureService.capturePayment(transaction.id, '1000.000000000000000001', scope, 'exact-capture')).resolves.toEqual(result)
+    await expect(captureService.capturePayment(transaction.id, '0.000000000000000002', scope, 'excess-capture'))
+      .rejects.toMatchObject({ status: 409, body: { code: 'payment_capture_ceiling_exceeded' } })
+    await expect(cancelService.cancelPayment(transaction.id, undefined, scope, 'cancel-exact')).rejects.toMatchObject({ status: 409 })
+
+    expect(capture).toHaveBeenCalledTimes(1)
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'synthetic-session', amountExact: '1000.000000000000000001', idempotencyKey: expect.stringMatching(/^om-pg-/),
+    }))
+    expect(cancel).not.toHaveBeenCalled()
+    const current = await findOneWithDecryption(orm.em.fork(), GatewayTransaction, { id: transaction.id, ...scope }, undefined, scope)
+    expect(current?.capturedAmount).toBe('1000.000000000000000001')
+  })
+
+  it.each(['organizationId', 'tenantId'] as const)('rejects foreign %s access and replay before invoking the provider', async (field) => {
+    const { transaction, capture, cancel, captureService, cancelService } = await fixture()
+    await cancelService.cancelPayment(transaction.id, undefined, scope, 'scoped-cancel')
+    const foreignScope = { ...scope, [field]: randomUUID() }
+
+    await expect(cancelService.cancelPayment(transaction.id, undefined, foreignScope, 'scoped-cancel')).rejects.toThrow('Transaction not found')
+    await expect(captureService.capturePayment(transaction.id, 60, foreignScope, 'scoped-capture')).rejects.toThrow('Transaction not found')
+    await expect(captureService.findTransactionBySessionId('synthetic-session', foreignScope, providerKey)).resolves.toBeNull()
+    await expect(captureService.findTransactionBySessionId('synthetic-session', scope, 'other-provider')).resolves.toBeNull()
+    await expect(captureService.findTransactionBySessionId('synthetic-session', scope, providerKey)).resolves.toMatchObject({ id: transaction.id })
+    expect(capture).not.toHaveBeenCalled()
+    expect(cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a missing provider session and releases its capture reservation', async () => {
+    const { transaction, capture, captureService } = await fixture()
+    await orm.em.fork().nativeUpdate(GatewayTransaction, { id: transaction.id, ...scope }, { providerSessionId: null })
+
+    await expect(captureService.capturePayment(transaction.id, 60, scope, 'missing-session')).rejects.toThrow('Transaction is missing provider session id')
+
+    expect(capture).not.toHaveBeenCalled()
+    const current = await findOneWithDecryption(orm.em.fork(), GatewayTransaction, { id: transaction.id, ...scope }, undefined, scope)
+    expect(current).toMatchObject({ unifiedStatus: 'authorized', capturedAmount: '0' })
   })
 })
