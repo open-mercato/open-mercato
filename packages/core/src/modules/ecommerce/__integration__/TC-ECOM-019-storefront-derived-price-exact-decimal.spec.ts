@@ -20,9 +20,10 @@ import {
 } from './storefrontCatalogHelpers';
 
 /**
- * TC-ECOM-019: a price row that carries only its net side (e.g. written by an import) is shown on
- * the storefront with the gross amount cart/checkout charge for it. 22.09 net at 5.5% is exactly
- * 23.30495, which rounds half-up to 23.305; float math gives 23.3049.
+ * TC-ECOM-019: a price row that carries only its net side (written outside the catalog price
+ * commands, e.g. by direct SQL or a custom importer) is shown on the storefront with the gross amount
+ * cart/checkout charge for it. 22.09 net at 5.5% is exactly 23.30495, which rounds half-up to 23.305;
+ * float math gives 23.3049.
  */
 
 const NET_PRICE = 22.09;
@@ -77,6 +78,7 @@ test.describe('TC-ECOM-019: storefront derives a missing gross side with exact d
       const detail = await getStorefrontProduct(store.hostname, handle);
       expect(detail.status, detail.text).toBe(200);
       expect(detail.detail?.price).toMatchObject({ amount: EXPECTED_GROSS, displayMode: 'gross' });
+      expect(detail.detail?.price?.formatted).toContain('23.31');
 
       const list = await getStorefrontProducts(store.hostname);
       expect(list.status, list.text).toBe(200);
