@@ -60,6 +60,26 @@ describe('messages /api/messages/[id]/attachments', () => {
     })
   })
 
+  describe('without the attachments module (#9201)', () => {
+    it('returns 404 from GET, POST and DELETE before reading the message', async () => {
+      const metadata = () => ({ has: () => false })
+      Object.assign(em, { getMetadata: metadata })
+      Object.assign(emFork, { getMetadata: metadata })
+
+      const responses = await Promise.all([
+        GET(new Request('http://localhost'), { params: { id: 'msg-1' } }),
+        POST(new Request('http://localhost', { method: 'POST', body: JSON.stringify({ attachmentIds: [VALID_UUID] }) }), { params: { id: 'msg-1' } }),
+        DELETE(new Request('http://localhost', { method: 'DELETE', body: JSON.stringify({ attachmentId: VALID_UUID }) }), { params: { id: 'msg-1' } }),
+      ])
+
+      expect(responses.map((response) => response.status)).toEqual([404, 404, 404])
+      expect(em.findOne).not.toHaveBeenCalled()
+      expect(emFork.findOne).not.toHaveBeenCalled()
+      expect(getMessageAttachmentsMock).not.toHaveBeenCalled()
+      expect(commandBus.execute).not.toHaveBeenCalled()
+    })
+  })
+
   describe('GET', () => {
     it('returns 404 when message does not exist', async () => {
       em.findOne.mockResolvedValue(null)
