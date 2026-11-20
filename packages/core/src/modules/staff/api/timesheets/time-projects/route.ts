@@ -377,7 +377,7 @@ const crud = makeCrudRoute({
       // resolved project ids partition the list cache (#7529).
       const access = await resolveListProjectAccess(ctx)
       if (access.canManageAll) return 'projects:all'
-      return `projects:${[...access.projectIds].sort().join(',') || 'none'}`
+      return `projects:${[...access.projectIds].sort((left, right) => left.localeCompare(right)).join(',') || 'none'}`
     },
     buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
