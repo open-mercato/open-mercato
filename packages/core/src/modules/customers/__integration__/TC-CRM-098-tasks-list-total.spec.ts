@@ -72,11 +72,12 @@ test.describe('TC-CRM-098: customer task list reports the real total in compatib
         initialContext: { customerId: personId },
       })
 
+      const adminToken = token
       const listUrl = (page: number, pageSize: number) =>
         `/api/customers/interactions/tasks?entityId=${personId}&page=${page}&pageSize=${pageSize}`
       await expect
         .poll(async () => {
-          const response = await apiRequest(request, 'GET', listUrl(1, 100), { token })
+          const response = await apiRequest(request, 'GET', listUrl(1, 100), { token: adminToken })
           const body = await readJsonSafe<TaskListResponse>(response)
           return (body?.items ?? []).filter((item) => item.todoSource === 'workflows:user_task').length
         }, { message: 'the workflow task should be linked to the person', timeout: 10_000 })
