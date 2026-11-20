@@ -34,7 +34,7 @@ export default async function handle(payload: Record<string, unknown>, ctx: Subs
   const entityType = String(payload?.entityType || '')
   if (!entityType) return
   if (!ctx.eventScope) throw new Error('[internal] Query index reindex requires trusted event scope')
-  const allowAllTenants = ctx.eventScope.tenantId === null && payload.allowAllTenants === true
+  const allowAllTenants = ctx.eventScope.tenantId === null && ctx.eventScope.allowAllTenants === true
   const { tenantId, organizationId } = resolveQueryIndexReindexScope({
     tenantId: allowAllTenants ? undefined : ctx.eventScope.tenantId,
     organizationId: ctx.eventScope.organizationId,

@@ -1,7 +1,7 @@
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createEventBus } from '../../../../bus'
-import type { EventBus, SubscriberDescriptor } from '../../../../types'
+import type { EmitOptions, EventBus, SubscriberDescriptor } from '../../../../types'
 import handle, { metadata, EVENTS_QUEUE_NAME } from '../events.worker'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
@@ -23,7 +23,7 @@ const workerLoggerDebug = createLogger('events').debug as jest.Mock
 type WorkerJobPayload = {
   event: string
   payload: unknown
-  options?: { tenantId?: string | null; organizationId?: string | null }
+  options?: Pick<EmitOptions, 'tenantId' | 'organizationId' | 'allowAllTenants'>
   persistentDeliveredInline?: boolean
 }
 
@@ -32,7 +32,7 @@ type WorkerContext = JobContext & { resolve: <T = unknown>(name: string) => T }
 const createMockJob = (
   event: string,
   payload: unknown,
-  options?: { tenantId?: string | null; organizationId?: string | null },
+  options?: WorkerJobPayload['options'],
   extra?: { persistentDeliveredInline?: boolean },
 ): QueuedJob<WorkerJobPayload> => ({
   id: 'test-job-id',
@@ -345,6 +345,9 @@ describe('Events Worker', () => {
 
       await handle(createMockJob('test.event', {}, { tenantId: null }), createMockContext(bus))
       expect(eventScope).toStrictEqual({ tenantId: null, organizationId: undefined })
+
+      await handle(createMockJob('test.event', {}, { tenantId: null, allowAllTenants: true }), createMockContext(bus))
+      expect(eventScope).toStrictEqual({ tenantId: null, organizationId: undefined, allowAllTenants: true })
     })
 
     it('should handle synchronous handlers', async () => {

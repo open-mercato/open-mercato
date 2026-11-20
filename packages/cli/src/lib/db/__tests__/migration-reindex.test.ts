@@ -193,7 +193,7 @@ describe('requestQueryIndexReindex', () => {
       1,
       'query_index.reindex',
       { entityType: 'customers:customer_dictionary_entry', allowAllTenants: true, force: false },
-      { persistent: true, tenantId: null },
+      { persistent: true, tenantId: null, allowAllTenants: true },
     )
     expect(dispose).toHaveBeenCalled()
   })

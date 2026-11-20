@@ -1015,6 +1015,7 @@ export class VectorIndexService {
       await this.opts.eventBus.emitEvent('query_index.reindex', payload, {
         tenantId: args.tenantId ?? null,
         organizationId: args.organizationId,
+        ...(args.tenantId === undefined ? { allowAllTenants: true } : {}),
       })
       return
     }

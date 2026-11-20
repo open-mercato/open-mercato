@@ -98,6 +98,19 @@ describe('query_index privileged subscriber scope', () => {
     expect(mockReindexEntity).not.toHaveBeenCalled()
   })
 
+  it.each([false, true])('uses only the trusted all-tenant flag (%s)', async (allowAllTenants) => {
+    const eventBus = { emitEvent: jest.fn(async () => undefined) }
+    const resolveReindexDependency = <T,>(name: string): T => name === 'eventBus' ? eventBus as T : resolve(name)
+    await handleReindex({ ...payload, allowAllTenants: true }, {
+      resolve: resolveReindexDependency,
+      eventScope: { tenantId: null, allowAllTenants },
+    })
+    expect(mockReindexEntity).toHaveBeenCalledWith(em, expect.objectContaining({
+      entityType,
+      tenantId: allowAllTenants ? undefined : null,
+    }))
+  })
+
   it('purges only the scope in subscriber context', async () => {
     const eventScope = { tenantId: 'tenant-1', organizationId: 'org-1' }
     await handlePurge(payload, { resolve, eventScope })

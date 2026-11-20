@@ -23,7 +23,7 @@ Gateway and query-index producers pass scope in the existing emit options. Check
 reads the subscriber's trusted tenant and organization. Query indexing also uses the
 additive `eventScope` context field so it can distinguish an absent scope from a trusted
 global or tenant-wide reindex. Explicit all-tenant reindex still requires the existing
-all-tenant operation flag and trusted tenant scope of null.
+all-tenant operation flag and tenant scope of null in trusted emit options.
 
 ## Data Models and API Contracts
 

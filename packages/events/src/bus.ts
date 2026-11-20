@@ -77,7 +77,11 @@ function hasTrustedTenantScope(options?: EmitOptions): boolean {
 
 function readSubscriberEventScope(options?: EmitOptions): SubscriberContext['eventScope'] {
   if (options?.tenantId === undefined) return undefined
-  return { tenantId: options.tenantId, organizationId: options.organizationId }
+  return {
+    tenantId: options.tenantId,
+    organizationId: options.organizationId,
+    ...(options.tenantId === null && options.allowAllTenants === true ? { allowAllTenants: true } : {}),
+  }
 }
 
 function normalizePayloadScope(value: unknown): string | null {

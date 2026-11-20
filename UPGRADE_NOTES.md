@@ -5987,4 +5987,5 @@ Upgrade application and event worker processes together. Gateway status and inde
 jobs created before this change may lack trusted scope and will fail closed. Reconcile
 incomplete payment statuses from the gateway provider and resubmit necessary index
 work through the index API or CLI. Custom server-side event producers for these jobs
-must pass trusted scope in emit options.
+must pass trusted scope in emit options. An all-tenant reindex requires
+`tenantId: null` and `allowAllTenants: true` in those options.
