@@ -221,8 +221,11 @@ export function createSyncEngine(deps: EngineDeps) {
   }
 
   async function isRunCancelled(run: SyncRun, scope: SyncScope): Promise<boolean> {
-    if (!progressService) return (await syncRunService.getRun(run.id, scope))?.status === 'cancelled'
-    return !!run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)
+    if (progressService && run.progressJobId) {
+      return progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)
+    }
+    const persistedRun = await syncRunService.getRun(run.id, scope, { disableIdentityMap: true })
+    return persistedRun?.status === 'cancelled'
   }
 
   async function updateProgress(progressJobId: string | null | undefined, processedCount: number, totalCount: number | null, scope: SyncScope): Promise<void> {
@@ -827,6 +830,11 @@ export function createSyncEngine(deps: EngineDeps) {
               },
             })
 
+            if (!streamReportedDone && (cancellation.signal.aborted || await isRunCancelled(run, scope))) {
+              await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
+              return 'stop'
+            }
+
             return 'continue'
           },
         )
@@ -1049,6 +1057,11 @@ export function createSyncEngine(deps: EngineDeps) {
                 cursor: batch.cursor,
               },
             })
+
+            if (!streamReportedDone && (cancellation.signal.aborted || await isRunCancelled(run, scope))) {
+              await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
+              return 'stop'
+            }
 
             return 'continue'
           },
