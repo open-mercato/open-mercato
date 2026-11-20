@@ -225,6 +225,60 @@ describe('module extension facts', () => {
     expect(extensionSurfacesAreOptional).toBe(true)
   })
 
+  it('publishes the bound MarkdownField component host with its source contract', () => {
+    expect(getFrameworkExtensionHosts().find((host) => host.id === 'section:ui.inputs.MarkdownField')).toEqual({
+      key: 'framework.markdown-field',
+      id: 'section:ui.inputs.MarkdownField',
+      resolution: 'framework',
+      family: 'component-handle',
+      ownerModule: 'framework',
+      capabilities: ['component-replacement'],
+      bound: true,
+      stability: 'frozen',
+      source: {
+        kind: 'framework',
+        path: 'packages/ui/src/backend/inputs/MarkdownField.tsx',
+        symbol: 'MARKDOWN_FIELD_COMPONENT_HANDLE',
+      },
+    })
+    expect(renderFrameworkExtensionPointsMarkdown()).toContain(
+      '| section:ui.inputs.MarkdownField | component-handle | component-replacement | FROZEN |',
+    )
+  })
+
+  it('correlates MarkdownField props transforms with the framework host', () => {
+    write(moduleRoot, 'widgets/components.ts', `
+      export const componentOverrides = [{
+        target: { componentId: 'section:ui.inputs.MarkdownField' },
+        propsTransform: (props) => ({ ...props, codeBlockLanguages: { ...props.codeBlockLanguages, rust: 'Rust' } }),
+      }]
+    `)
+    const facts = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'src/modules/alpha',
+      entities: [],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+    })
+    const correlated = correlateModuleExtensionFacts({
+      surfacesByModule: { alpha: facts },
+      entityIds: new Set(),
+      eventIds: new Set(),
+      apiRoutes: new Set(),
+    }).alpha
+
+    expect(correlated.contributions).toEqual([
+      expect.objectContaining({
+        kind: 'component-override',
+        targets: [{ id: 'section:ui.inputs.MarkdownField', resolution: 'framework' }],
+        details: expect.objectContaining({ mode: 'props' }),
+      }),
+    ])
+    expect(correlated.unresolved).toEqual([])
+  })
+
   it('projects every wired unified override key with its supported mode', () => {
     const overrides = getFrameworkExtensionHosts()
       .filter((host) => host.family === 'module-override')
