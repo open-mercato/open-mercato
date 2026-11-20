@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { WORKFLOW_LIST_MAX_OFFSET } from '../../data/pagination'
 import { workflowEventPageSchema } from '../../data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -155,7 +156,7 @@ export async function GET(request: NextRequest) {
       } : null,
     }))
 
-    const totalPages = Math.ceil(total / pageSize)
+    const totalPages = Math.min(Math.ceil(total / pageSize), Math.floor(WORKFLOW_LIST_MAX_OFFSET / pageSize) + 1)
 
     return NextResponse.json({
       items: enrichedEvents,
@@ -180,8 +181,8 @@ export const openApi = {
       description: 'Get a paginated list of all workflow events with filtering options',
       tags: ['Workflows'],
       query: z.object({
-        page: workflowEventPageSchema.shape.page,
-        pageSize: workflowEventPageSchema.shape.pageSize,
+        page: workflowEventPageSchema.shape.page.describe('Positive integer page number. The derived offset cannot exceed 100000.'),
+        pageSize: workflowEventPageSchema.shape.pageSize.describe('Integer page size from 1 to 100.'),
         eventType: z.string().optional(),
         workflowInstanceId: z.string().uuid().optional(),
         userId: z.string().optional(),
@@ -193,7 +194,7 @@ export const openApi = {
       responses: [
         {
           status: 400,
-          description: 'Invalid pagination: page size must be an integer from 1 to 100 and offset an integer from 0 to 100000.',
+          description: 'Invalid pagination: page size must be an integer from 1 to 100 and the derived offset (page - 1) × pageSize cannot exceed 100000.',
           schema: z.object({ error: z.string() }),
         },
         {

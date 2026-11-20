@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { WORKFLOW_LIST_MAX_OFFSET } from '../../data/pagination'
 import { raw } from '@mikro-orm/core'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -213,7 +214,7 @@ export async function GET(request: NextRequest) {
         total,
         limit,
         offset,
-        hasMore: offset + limit < total,
+        hasMore: offset + limit < total && offset + limit <= WORKFLOW_LIST_MAX_OFFSET,
       },
     })
   } catch (error) {
@@ -432,8 +433,8 @@ export const openApi = {
         attention: z.boolean().optional().describe('true = only instances parked by a failure-queue error directive; false = only instances without an attention marker.'),
         startedFrom: z.string().optional().describe('Lower bound on startedAt. A calendar day (YYYY-MM-DD) is taken from 00:00:00.000Z; a full ISO timestamp is taken verbatim.'),
         startedTo: z.string().optional().describe('Upper bound on startedAt, inclusive. A calendar day (YYYY-MM-DD) covers the whole day up to 23:59:59.999Z.'),
-        limit: workflowListPaginationSchema.shape.limit.default(50),
-        offset: workflowListPaginationSchema.shape.offset,
+        limit: workflowListPaginationSchema.shape.limit.default(50).describe("Integer page size from 1 to 100."),
+        offset: workflowListPaginationSchema.shape.offset.describe("Integer result offset from 0 to 100000."),
       }),
       responses: [
         {
@@ -446,7 +447,7 @@ export const openApi = {
         },
         {
           status: 400,
-          description: 'Invalid date range or unknown outcome',
+          description: 'Invalid pagination, date range, or outcome',
           schema: z.object({ error: z.string() }),
         },
         {

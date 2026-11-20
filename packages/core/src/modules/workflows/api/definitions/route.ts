@@ -9,8 +9,10 @@
 import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { raw } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { WORKFLOW_LIST_MAX_OFFSET } from '../../data/pagination'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -89,7 +91,7 @@ function isWorkflowIdUniqueConstraintError(error: unknown): boolean {
 export async function GET(request: NextRequest) {
   try {
     const container = await createRequestContainer()
-    const em = container.resolve('em')
+    const em = container.resolve<EntityManager>('em')
     const auth = await getAuthFromRequest(request)
 
     if (!auth) {
@@ -155,34 +157,32 @@ export async function GET(request: NextRequest) {
     // exclude them from the code-only list) without loading all DB rows.
     const enabledFilter = enabled !== null ? enabled === 'true' : null
     const searchLower = search ? search.toLowerCase() : null
-    const codeWorkflows = getAllCodeWorkflows()
-    const shadowed = new Set<string>()
-    for (const codeWorkflow of codeWorkflows) {
-      const matches = await em.find(
-        WorkflowDefinition,
-        { ...where, workflowId: codeWorkflow.workflowId },
-        { fields: ['workflowId'] as const, limit: 1 },
-      )
-      if (matches.length > 0) shadowed.add(codeWorkflow.workflowId)
-    }
+    const codeWorkflows = getAllCodeWorkflows().filter((cw) => {
+      // Code-based definitions are always kind=workflow / lifecycle=published.
+      if (kind && kind !== 'workflow') return false
+      if (lifecycle && lifecycle !== 'published') return false
+      if (version !== null && cw.version !== version) return false
+      if (searchLower) {
+        const matches =
+          cw.workflowId.toLowerCase().includes(searchLower) ||
+          cw.workflowName.toLowerCase().includes(searchLower)
+        if (!matches) return false
+      }
+      if (enabledFilter !== null && cw.enabled !== enabledFilter) return false
+      if (workflowId && cw.workflowId !== workflowId) return false
+      return true
+    })
+    const codeWorkflowIds = codeWorkflows.map(({ workflowId }) => workflowId)
+    const shadowedRows = codeWorkflowIds.length
+      ? await em.createQueryBuilder(WorkflowDefinition)
+          .select('workflowId', true)
+          .where({ ...where, workflowId: { $in: codeWorkflowIds } })
+          .execute('all')
+      : []
+    const shadowed = new Set(shadowedRows.map(({ workflowId }) => workflowId))
 
     const codeOnly = codeWorkflows
       .filter((cw) => !shadowed.has(cw.workflowId))
-      .filter((cw) => {
-        // Code-based definitions are always kind=workflow / lifecycle=published.
-        if (kind && kind !== 'workflow') return false
-        if (lifecycle && lifecycle !== 'published') return false
-        if (version !== null && cw.version !== version) return false
-        if (searchLower) {
-          const matches =
-            cw.workflowId.toLowerCase().includes(searchLower) ||
-            cw.workflowName.toLowerCase().includes(searchLower)
-          if (!matches) return false
-        }
-        if (enabledFilter !== null && cw.enabled !== enabledFilter) return false
-        if (workflowId && cw.workflowId !== workflowId) return false
-        return true
-      })
       .map((cw) => serializeCodeWorkflowDefinition(cw, `code:${cw.workflowId}`))
 
     const dbCount = await em.count(WorkflowDefinition, where)
@@ -213,7 +213,7 @@ export async function GET(request: NextRequest) {
         total,
         limit,
         offset,
-        hasMore: offset + limit < total,
+        hasMore: offset + limit < total && offset + limit <= WORKFLOW_LIST_MAX_OFFSET,
       },
     })
   } catch (error) {
@@ -400,8 +400,8 @@ export const openApi = {
       query: createWorkflowDefinitionInputSchema.pick({ workflowId: true }).extend({
         enabled: z.boolean().optional(),
         search: z.string().optional(),
-        limit: workflowListPaginationSchema.shape.limit.default(50),
-        offset: workflowListPaginationSchema.shape.offset,
+        limit: workflowListPaginationSchema.shape.limit.default(50).describe("Integer page size from 1 to 100."),
+        offset: workflowListPaginationSchema.shape.offset.describe("Integer result offset from 0 to 100000."),
       }),
       responses: [
         {

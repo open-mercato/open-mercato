@@ -105,16 +105,24 @@ function databaseDefinition(index: number) {
 describe('Workflow list pagination boundaries', () => {
   let mockEm: {
     find: jest.Mock
+    createQueryBuilder: jest.Mock
     findOne: jest.Mock
     findAndCount: jest.Mock
     count: jest.Mock
   }
+  let mockShadowQuery: { select: jest.Mock; where: jest.Mock; execute: jest.Mock }
   let mockRbacService: { userHasAllFeatures: jest.Mock }
 
   beforeEach(() => {
     jest.clearAllMocks()
     mockGetAllCodeWorkflows.mockReturnValue([])
+    mockShadowQuery = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue([]),
+    }
     mockEm = {
+      createQueryBuilder: jest.fn().mockReturnValue(mockShadowQuery),
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue({ id: instanceId }),
       findAndCount: jest.fn().mockResolvedValue([[], 0]),
@@ -138,6 +146,7 @@ describe('Workflow list pagination boundaries', () => {
 
   function expectNoDataLookup() {
     expect(mockEm.find).not.toHaveBeenCalled()
+    expect(mockEm.createQueryBuilder).not.toHaveBeenCalled()
     expect(mockEm.findOne).not.toHaveBeenCalled()
     expect(mockEm.findAndCount).not.toHaveBeenCalled()
     expect(mockEm.count).not.toHaveBeenCalled()
@@ -204,19 +213,23 @@ describe('Workflow list pagination boundaries', () => {
     )
   })
 
-  test('global events accept the maximum derived offset', async () => {
+  test('global events accept the maximum derived offset without advertising an inaccessible page', async () => {
+    mockEm.findAndCount.mockResolvedValue([[], 100101])
     const response = await listEvents(new NextRequest('http://localhost/api/workflows/events?page=1001&pageSize=100'))
 
     expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ total: 100101, page: 1001, totalPages: 1001 })
     expect(mockEm.findAndCount).toHaveBeenCalledWith(
       WorkflowEvent, expect.objectContaining(scopedWhere), expect.objectContaining({ limit: 100, offset: 100000 }),
     )
   })
 
   test('instances accept boundary values without weakening tenant and organization predicates', async () => {
+    mockEm.findAndCount.mockResolvedValue([[], 100101])
     const response = await listInstances(new NextRequest('http://localhost/api/workflows/instances?limit=100&offset=100000'))
 
     expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ pagination: { total: 100101, hasMore: false } })
     expect(mockEm.findAndCount).toHaveBeenCalledWith(
       WorkflowInstance, expect.objectContaining(scopedWhere), expect.objectContaining({ limit: 100, offset: 100000 }),
     )
@@ -249,7 +262,7 @@ describe('Workflow list pagination boundaries', () => {
 
     expect(response.status).toBe(200)
     expect(body.data.map((row: { id: string }) => row.id)).toEqual(definitions.map((row) => row.id))
-    expect(body.pagination).toEqual({ total: 100010, limit: 2, offset: 100000, hasMore: true })
+    expect(body.pagination).toEqual({ total: 100010, limit: 2, offset: 100000, hasMore: false })
     expect(mockEm.find).toHaveBeenCalledTimes(1)
     expect(mockEm.find).toHaveBeenCalledWith(
       WorkflowDefinition,
@@ -277,8 +290,8 @@ describe('Workflow list pagination boundaries', () => {
     mockEm.find.mockImplementation(async (
       _entity: unknown,
       _where: unknown,
-      options: { fields?: string[]; limit: number; offset?: number },
-    ) => options.fields ? [] : definitions.slice(options.offset ?? 0, (options.offset ?? 0) + options.limit))
+      options: { limit: number; offset?: number },
+    ) => definitions.slice(options.offset ?? 0, (options.offset ?? 0) + options.limit))
     const expected = [...definitions, ...codeDefinitions.map((definition) => ({
       ...definition, id: `code:${definition.workflowId}`,
     }))].sort((left, right) => Buffer.compare(Buffer.from(left.workflowName), Buffer.from(right.workflowName))).slice(offset, offset + 3)
@@ -289,8 +302,7 @@ describe('Workflow list pagination boundaries', () => {
     expect(response.status).toBe(200)
     expect(body.data.map((row: { id: string }) => row.id)).toEqual(expected.map((row) => row.id))
     expect(body.pagination).toEqual({ total: 14, limit: 3, offset, hasMore: offset + 3 < 14 })
-    const pageCalls = mockEm.find.mock.calls.filter((call) => !call[2]?.fields)
-    for (const call of pageCalls) {
+    for (const call of mockEm.find.mock.calls) {
       expect(call[2]).toMatchObject({ limit: 7, offset: Math.max(0, offset - 4) })
     }
   })
@@ -305,8 +317,8 @@ describe('Workflow list pagination boundaries', () => {
     mockEm.find.mockImplementation(async (
       _entity: unknown,
       _where: unknown,
-      options: { fields?: string[]; limit: number; offset?: number },
-    ) => options.fields ? [] : definitions.slice(options.offset ?? 0, (options.offset ?? 0) + options.limit))
+      options: { limit: number; offset?: number },
+    ) => definitions.slice(options.offset ?? 0, (options.offset ?? 0) + options.limit))
 
     const response = await listDefinitions(new NextRequest(`http://localhost/api/workflows/definitions?limit=3&offset=${offset}`))
     const body = await response.json()
@@ -323,14 +335,12 @@ describe('Workflow list pagination boundaries', () => {
     const definitions = [databaseDefinition(0), override, databaseDefinition(2)]
     mockGetAllCodeWorkflows.mockReturnValue([shadowedCode, visibleCode])
     mockEm.count.mockResolvedValue(3)
+    mockShadowQuery.execute.mockResolvedValue([{ workflowId: shadowedCode.workflowId }])
     mockEm.find.mockImplementation(async (
       _entity: unknown,
-      where: { workflowId?: string },
-      options: { fields?: string[]; limit: number; offset?: number },
-    ) => {
-      if (options.fields) return where.workflowId === shadowedCode.workflowId ? [{ workflowId: shadowedCode.workflowId }] : []
-      return definitions.slice(options.offset ?? 0, (options.offset ?? 0) + options.limit)
-    })
+      _where: unknown,
+      options: { limit: number; offset?: number },
+    ) => definitions.slice(options.offset ?? 0, (options.offset ?? 0) + options.limit))
 
     const response = await listDefinitions(new NextRequest('http://localhost/api/workflows/definitions?limit=2&offset=1'))
     const body = await response.json()
@@ -338,13 +348,14 @@ describe('Workflow list pagination boundaries', () => {
     expect(response.status).toBe(200)
     expect(body.data.map((row: { id: string }) => row.id)).toEqual([override.id, 'code:code-visible'])
     expect(body.pagination.total).toBe(4)
-    for (const code of [shadowedCode, visibleCode]) {
-      expect(mockEm.find).toHaveBeenCalledWith(
-        WorkflowDefinition,
-        expect.objectContaining({ ...scopedWhere, deletedAt: null, workflowId: code.workflowId }),
-        expect.objectContaining({ fields: ['workflowId'], limit: 1 }),
-      )
-    }
+    expect(mockEm.createQueryBuilder).toHaveBeenCalledTimes(1)
+    expect(mockEm.createQueryBuilder).toHaveBeenCalledWith(WorkflowDefinition)
+    expect(mockShadowQuery.select).toHaveBeenCalledWith('workflowId', true)
+    expect(mockShadowQuery.where).toHaveBeenCalledWith(expect.objectContaining({
+      ...scopedWhere,
+      deletedAt: null,
+      workflowId: { $in: [shadowedCode.workflowId, visibleCode.workflowId] },
+    }))
     expect(mockEm.find).toHaveBeenCalledWith(
       WorkflowDefinition, expect.objectContaining(scopedWhere), expect.objectContaining({ limit: 3, offset: 0 }),
     )

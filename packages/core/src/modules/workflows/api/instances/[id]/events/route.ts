@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { WORKFLOW_LIST_MAX_OFFSET } from '../../../../data/pagination'
 import { workflowListPaginationSchema } from '../../../../data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -111,7 +112,7 @@ export async function GET(
         total,
         limit,
         offset,
-        hasMore: offset + limit < total,
+        hasMore: offset + limit < total && offset + limit <= WORKFLOW_LIST_MAX_OFFSET,
       },
     })
   } catch (error) {
@@ -134,8 +135,8 @@ export const openApi = {
       }),
       query: z.object({
         eventType: z.string().optional(),
-        limit: workflowListPaginationSchema.shape.limit.default(100),
-        offset: workflowListPaginationSchema.shape.offset,
+        limit: workflowListPaginationSchema.shape.limit.default(100).describe("Integer page size from 1 to 100."),
+        offset: workflowListPaginationSchema.shape.offset.describe("Integer result offset from 0 to 100000."),
       }),
       responses: [
         {

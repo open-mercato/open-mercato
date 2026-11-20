@@ -154,7 +154,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Portal task list', schema: portalTaskListResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Requested pagination offset exceeds 100000 (WORKFLOW_LIST_OFFSET_EXCEEDED).', schema: portalTaskErrorSchema },
+        { status: 400, description: 'Derived pagination offset (page - 1) × pageSize exceeds 100000 (WORKFLOW_LIST_OFFSET_EXCEEDED).', schema: portalTaskErrorSchema },
         { status: 401, description: 'Authentication required', schema: portalTaskErrorSchema },
         { status: 403, description: 'Insufficient permissions or no company association', schema: portalTaskErrorSchema },
         { status: 500, description: 'Internal server error', schema: portalTaskErrorSchema },
