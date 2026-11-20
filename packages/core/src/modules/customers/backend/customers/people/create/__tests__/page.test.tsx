@@ -71,9 +71,10 @@ describe('person create extension flow', () => {
     expect(nativePayload).not.toHaveProperty('_example')
     expect(nativePayload).not.toHaveProperty('_example.priority')
 
-    await capturedProps.onSubmitSuccess?.(values, result)
-
-    expect(pushMock).toHaveBeenCalledWith('/backend/customers/people-v2/new-person')
+    expect(typeof capturedProps.successRedirect).toBe('function')
+    if (typeof capturedProps.successRedirect !== 'function') throw new Error('[internal] Missing success redirect resolver')
+    expect(capturedProps.successRedirect(values, result)).toBe('/backend/customers/people-v2/new-person')
+    expect(pushMock).not.toHaveBeenCalled()
     expect(createCrud).toHaveBeenCalledTimes(1)
   })
 })

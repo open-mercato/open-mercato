@@ -35,6 +35,7 @@ import {
   type MitigationActionUpdateInput,
 } from '../data/validators'
 import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
+import { guardUpdateRedo, withUpdateRedoLog } from '../lib/redo-guard'
 
 const MITIGATION_ACTION_ENTITY_ID = 'eudr:eudr_mitigation_action'
 
@@ -374,6 +375,7 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
       const record = await lockForUndo(entityManager, EudrMitigationAction, unlockedRecord)
       if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.mitigationActionNotFound' })
       const before = structuredClone(await buildMitigationActionSnapshot(entityManager, record))
+      await guardUpdateRedo(ctx, before)
       const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
       const wasCompleted = record.status === 'completed'
 
@@ -440,6 +442,7 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
     }
     return result
   },
+  redo: ({ input, ctx, logEntry }) => updateMitigationActionCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
   captureAfter: async (_rawInput, result) => updateMitigationActionSnapshots.get(result)?.after,
   buildLog: async ({ result }) => {
     const lockedSnapshots = updateMitigationActionSnapshots.get(result)
