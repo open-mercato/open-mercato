@@ -3,7 +3,7 @@ import type { EntityManager as PostgresEntityManager } from '@mikro-orm/postgres
 import { MessageRecipient } from '../data/entities'
 import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 import { resolveChannelInboxPredicate } from './channelThreadWidening'
-import { channelInboxWideningClause } from './participantScope'
+import { channelInboxWideningClause, type MessagesParticipantScopeDatabase } from './participantScope'
 import type { MessageScope } from './routeHelpers'
 
 type ContainerLike = { resolve: <T = unknown>(name: string) => T }
@@ -42,7 +42,7 @@ export async function ensureChannelInboxRecipient(
   const predicate = await resolveChannelInboxPredicate(container, scope)
   if (!predicate) return null
 
-  const db = (em as PostgresEntityManager).getKysely<any>()
+  const db = (em as PostgresEntityManager).getKysely<MessagesParticipantScopeDatabase>()
   let query = db
     .selectFrom('messages as m')
     .select('m.id')
@@ -54,7 +54,7 @@ export async function ensureChannelInboxRecipient(
     ? query.where('m.organization_id', '=', scope.organizationId)
     : query.where('m.organization_id', 'is', null)
   const eligible = await query
-    .where((eb: any) => channelInboxWideningClause(eb, scope.userId, predicate))
+    .where((eb) => channelInboxWideningClause(eb, scope.userId, predicate))
     .executeTakeFirst()
   if (!eligible) return null
 
