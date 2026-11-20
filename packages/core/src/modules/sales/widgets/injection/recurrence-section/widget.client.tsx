@@ -35,6 +35,7 @@ type DocumentRecord = {
   id: string
   updatedAt?: string | null
   recurrence?: RecurrenceRecord | null
+  canManageRecurrence?: boolean
 }
 
 type WidgetContext = { kind?: 'order' | 'quote' }
@@ -68,6 +69,7 @@ export default function RecurrenceSectionWidget({
   const kind = context?.kind === 'quote' ? 'quote' : 'order'
   const recurrence = data?.recurrence ?? null
   const locked = recurrence?.locked === true
+  const canEditSchedule = data?.canManageRecurrence === true && !locked
   const runDocumentMutation = useSalesDocumentMutation(kind, data?.id)
 
   const fields = React.useMemo<CrudField[]>(
@@ -102,7 +104,7 @@ export default function RecurrenceSectionWidget({
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
-      if (!data?.id) return
+      if (!data?.id || !canEditSchedule) return
       const resolved = resolveRecurrenceDraft(values.recurrence as RecurrenceDraft | undefined)
       if (!resolved.ok) {
         const firstError = Object.values(resolved.fieldErrors)[0] ?? 'sales.recurring.errors.invalid'
@@ -127,7 +129,7 @@ export default function RecurrenceSectionWidget({
       setDialogOpen(false)
       emitSalesDocumentDataRefresh({ documentId: data.id, kind })
     },
-    [data?.id, kind, runDocumentMutation, t],
+    [canEditSchedule, data?.id, kind, runDocumentMutation, t],
   )
 
   const submitForm = React.useCallback(() => dialogContentRef.current?.querySelector('form')?.requestSubmit(), [])
@@ -177,29 +179,31 @@ export default function RecurrenceSectionWidget({
             : t('sales.recurring.section.emptyQuote', 'This quote is billed once.')}
         </p>
       )}
-      {locked ? null : (
-        <Button type="button" variant="outline" onClick={() => setDialogOpen(true)} data-testid="sales-recurrence-edit">
-          {recurrence
-            ? t('sales.recurring.section.edit', 'Edit schedule')
-            : t('sales.recurring.section.setUp', 'Set up recurring billing')}
-        </Button>
-      )}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-2xl" onKeyDown={handleKeyDown} ref={dialogContentRef}>
-          <DialogHeader>
-            <DialogTitle>{t('sales.recurring.section.dialogTitle', 'Recurring schedule')}</DialogTitle>
-          </DialogHeader>
-          {initialValues ? (
-            <CrudForm<FormValues>
-              embedded
-              fields={fields}
-              initialValues={initialValues}
-              submitLabel={t('sales.recurring.section.save', 'Save schedule')}
-              onSubmit={handleSubmit}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
+      {canEditSchedule ? (
+        <>
+          <Button type="button" variant="outline" onClick={() => setDialogOpen(true)} data-testid="sales-recurrence-edit">
+            {recurrence
+              ? t('sales.recurring.section.edit', 'Edit schedule')
+              : t('sales.recurring.section.setUp', 'Set up recurring billing')}
+          </Button>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogContent className="sm:max-w-2xl" onKeyDown={handleKeyDown} ref={dialogContentRef}>
+              <DialogHeader>
+                <DialogTitle>{t('sales.recurring.section.dialogTitle', 'Recurring schedule')}</DialogTitle>
+              </DialogHeader>
+              {initialValues ? (
+                <CrudForm<FormValues>
+                  embedded
+                  fields={fields}
+                  initialValues={initialValues}
+                  submitLabel={t('sales.recurring.section.save', 'Save schedule')}
+                  onSubmit={handleSubmit}
+                />
+              ) : null}
+            </DialogContent>
+          </Dialog>
+        </>
+      ) : null}
     </div>
   )
 }

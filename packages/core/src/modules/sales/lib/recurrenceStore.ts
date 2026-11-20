@@ -207,26 +207,27 @@ export async function writeQuoteRecurrence(
   em: EntityManager,
   quote: SalesQuote,
   input: RecurrenceSchedule | null | undefined,
-): Promise<void> {
+): Promise<QuoteRecurrenceSnapshot | null | undefined> {
   if (input === undefined) return
   const existing = await findQuoteRecurrence(em, quote)
   if (input === null) {
     if (existing) em.remove(existing)
-    return
+    return null
   }
   const schedule = toSchedule(input)
   if (existing) {
     Object.assign(existing, schedule)
-    return
+  } else {
+    em.persist(
+      em.create(SalesQuoteRecurrence, {
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        quote,
+        ...schedule,
+      }),
+    )
   }
-  em.persist(
-    em.create(SalesQuoteRecurrence, {
-      organizationId: quote.organizationId,
-      tenantId: quote.tenantId,
-      quote,
-      ...schedule,
-    }),
-  )
+  return schedule
 }
 
 /**
@@ -239,15 +240,17 @@ export async function writeOrderRecurrence(
   em: EntityManager,
   order: SalesOrder,
   input: RecurrenceSchedule | null | undefined,
-): Promise<void> {
+): Promise<OrderRecurrenceSnapshot | null | undefined> {
   if (input === undefined) return
   const existing = await findOrderRecurrenceRow(em, order)
   if (input === null) {
     if (isLive(existing)) existing.deletedAt = new Date()
-    return
+    return null
   }
-  if (isLive(existing) && schedulesEqual(existing, input)) return
-  persistOrderRecurrence(em, order, input, existing)
+  if (isLive(existing) && schedulesEqual(existing, input)) {
+    return snapshotOrderRecurrence(existing)
+  }
+  return snapshotOrderRecurrence(persistOrderRecurrence(em, order, input, existing))
 }
 
 /**

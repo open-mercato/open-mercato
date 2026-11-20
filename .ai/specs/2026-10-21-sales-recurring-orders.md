@@ -252,7 +252,7 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
   - `recurrence` is accepted on quote and order create and update (`null` removes it) and carried through `convert_to_order`. Undo snapshots, restores and staleness checks include it, and a restored `scheduleVersion` never moves backwards.
   - Converting, publicly accepting or sending a recurring quote is refused once its start date has passed (`422 recurring_quote_started`) or when it has no lines (`422 recurring_quote_no_lines`).
   - The locks (`recurring_order_locked`), status guard (`recurring_order_use_cancel`, including status changes made through payment and shipment commands) and delete guard (`recurring_order_invoiced`, under the recurrence row lock) are in place.
-  - List and detail responses carry `recurrence`, including a `locked` flag. The PUT response does not include it: the UI refetches the document instead.
+  - List, detail and PUT responses carry the persisted `recurrence` or null when no schedule is configured. POST includes the field when it creates a schedule. The object includes the schedule, derived dates, the order schedule version and the `locked` flag. The UI refetches the document after saving.
   - UI: the create form has a recurrence section with a live date preview; quote and order details have a *Recurring billing* section (spot `sales.document.detail.{kind}:details`) with an edit dialog until the first invoice; the public quote page and quote email show the schedule line.
   - Proration uses exact integer day arithmetic, because the shared decimal toolkit (#7324) is not on `main` yet.
   - Deferred to Phase 2: `GET /api/sales/orders/{id}/recurrence`, the orders-list *Recurring* column and filter, and the missing-scheduler banner.
@@ -306,3 +306,9 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
   - The *Frequency* and *Start date* labels in the recurrence fields are linked to their controls, and their validation messages are the controls' accessible descriptions.
   - `startsOn` and every other recurrence date must be a real calendar date from 1900 on. `0000-01-01` used to pass validation and fail with a 500 when stored; it is now refused with `sales.recurring.errors.invalidStartsOn`.
   - TC-SALES-052 submits the create form for a quarterly quote with six periods and for an open-ended one, and checks the stored `recurrence` (`periodCount: null` when open-ended). The TC-SALES-046 delete test cleans up its order if it fails before the delete.
+
+### 2026-11-20
+- Quote send resolves and validates To and CC against the locked quote. Delivery uses that quote and its schedule after commit. The send OpenAPI schema documents both recurring quote refusals alongside the acceptance schema.
+- Quote and order detail reads expose the actor's manage capability in the document organization. The recurring billing section remains visible to viewers and enables editing only when that capability is granted and the schedule is unlocked. HTTP recurrence writes require manage capability in the target organization, even when the request is scoped to multiple organizations.
+- Quote and order writes return the saved recurrence. PUT returns null when there is no schedule, including after removal. Updates record an audit delta for changes to the editable schedule fields.
+- TC-SALES-045 checks create, replacement and removal write responses. TC-SALES-052 covers read-only access, TC-SALES-053 covers concurrent recipient removal, and TC-SALES-055 exercises recurrence and issued-period access across organizations and tenants.

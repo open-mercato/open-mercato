@@ -104,11 +104,15 @@ test.describe('TC-SALES-045 recurrence on quotes and orders', () => {
     const startsOn = isoDayFromToday(30)
     let quoteId: string | null = null
     try {
-      quoteId = await createDocument(request, token, 'quotes', {
+      const create = await apiRequest(request, 'POST', '/api/sales/quotes', { token, data: {
         currencyCode: 'USD',
         recurrence: { frequency: 'monthly', startsOn, periodCount: 12 },
-      })
+      } })
+      expect(create.status()).toBe(201)
+      const createBody = await readJson(create)
+      quoteId = createBody.id as string
       const created = await readDocument(request, token, 'quotes', quoteId)
+      expect(createBody.recurrence).toEqual(created.recurrence)
       expect(created.recurrence).toMatchObject({
         frequency: 'monthly',
         startsOn,
@@ -125,6 +129,7 @@ test.describe('TC-SALES-045 recurrence on quotes and orders', () => {
       })
       expect(replaced.status(), 'a recurrence-only update is a valid update').toBe(200)
       const afterReplace = await readDocument(request, token, 'quotes', quoteId)
+      expect((await readJson(replaced)).recurrence).toEqual(afterReplace.recurrence)
       expect(afterReplace.recurrence).toMatchObject({
         frequency: 'weekly',
         periodCount: 2,
@@ -133,6 +138,7 @@ test.describe('TC-SALES-045 recurrence on quotes and orders', () => {
 
       const removed = await updateDocument(request, token, 'quotes', { id: quoteId, recurrence: null })
       expect(removed.status()).toBe(200)
+      expect((await readJson(removed)).recurrence).toBeNull()
       expect((await readDocument(request, token, 'quotes', quoteId)).recurrence).toBeNull()
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
@@ -145,12 +151,16 @@ test.describe('TC-SALES-045 recurrence on quotes and orders', () => {
     let orderId: string | null = null
     let plainOrderId: string | null = null
     try {
-      orderId = await createDocument(request, token, 'orders', {
+      const create = await apiRequest(request, 'POST', '/api/sales/orders', { token, data: {
         currencyCode: 'USD',
         lines: [orderLine],
         recurrence: { frequency: 'monthly', startsOn },
-      })
+      } })
+      expect(create.status()).toBe(201)
+      const createBody = await readJson(create)
+      orderId = createBody.id as string
       const created = await readDocument(request, token, 'orders', orderId)
+      expect(createBody.recurrence).toEqual(created.recurrence)
       expect(created.recurrence).toMatchObject({
         frequency: 'monthly',
         startsOn,
@@ -168,7 +178,13 @@ test.describe('TC-SALES-045 recurrence on quotes and orders', () => {
       })
       expect(changed.status()).toBe(200)
       const afterChange = await readDocument(request, token, 'orders', orderId)
+      expect((await readJson(changed)).recurrence).toEqual(afterChange.recurrence)
       expect(afterChange.recurrence).toMatchObject({ frequency: 'quarterly', periodCount: 4, scheduleVersion: 2 })
+
+      const removed = await updateDocument(request, token, 'orders', { id: orderId, recurrence: null })
+      expect(removed.status()).toBe(200)
+      expect((await readJson(removed)).recurrence).toBeNull()
+      expect((await readDocument(request, token, 'orders', orderId)).recurrence).toBeNull()
 
       plainOrderId = await createDocument(request, token, 'orders', { currencyCode: 'USD', lines: [orderLine] })
       expect((await readDocument(request, token, 'orders', plainOrderId)).recurrence).toBeNull()

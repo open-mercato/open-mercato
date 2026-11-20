@@ -12,6 +12,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkRateLimit, getClientIp, RATE_LIMIT_FALLBACK_KEY, rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { recurringQuoteConversionErrorSchema } from '../../openapi'
 import { validateSameOriginMutationRequest } from './originGuard'
 import { hashAuthToken } from '../../../../auth/lib/tokenHash'
 import { SalesOrder, SalesQuote } from '../../../data/entities'
@@ -214,10 +215,7 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 422,
           description: 'Recurring quote has no lines or its start date has passed',
-          schema: z.object({
-            error: z.string(),
-            code: z.enum(['recurring_quote_no_lines', 'recurring_quote_started']),
-          }),
+          schema: recurringQuoteConversionErrorSchema,
         },
         { status: 429, description: 'Too many requests', schema: rateLimitErrorSchema },
       ],

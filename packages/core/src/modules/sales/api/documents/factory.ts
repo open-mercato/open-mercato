@@ -17,6 +17,8 @@ import {
   snapshotOrderRecurrence,
   snapshotQuoteRecurrence,
   toRecurrenceResponse,
+  type OrderRecurrenceSnapshot,
+  type QuoteRecurrenceSnapshot,
 } from '../../lib/recurrenceStore'
 import { SALES_ORDER_RECURRENCE_STATUSES, SALES_RECURRENCE_FREQUENCIES } from '../../lib/recurrence'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -56,11 +58,21 @@ type DocumentBinding = {
   viewFeature: string
 }
 
-type DocumentCreateResult = {
+type DocumentRecurrenceResult = {
+  recurrence?: OrderRecurrenceSnapshot | QuoteRecurrenceSnapshot | null
+  recurrenceLocked?: boolean
+}
+
+type DocumentCreateResult = DocumentRecurrenceResult & {
   orderId?: string
   quoteId?: string
   id?: string
   warnings?: OrderPaymentLedgerWarning[]
+}
+
+function mapWriteRecurrence(result?: DocumentRecurrenceResult | null) {
+  const recurrence = toRecurrenceResponse(result?.recurrence ?? null)
+  return recurrence ? { ...recurrence, locked: result?.recurrenceLocked ?? false } : null
 }
 
 const rawBodySchema = z.object({}).passthrough()
@@ -699,12 +711,16 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           const payload = Object.keys(custom).length ? { ...base, customFields: custom } : base
           return withExactDocumentInput(parseScopedCommandInput(createSchema, payload, ctx, translate), payload)
         },
-        response: ({ result }: { result?: DocumentCreateResult | null }) => ({
-          id: result?.orderId ?? result?.quoteId ?? result?.id ?? null,
-          ...(binding.kind === 'order' && Array.isArray(result?.warnings)
-            ? { warnings: result.warnings }
-            : {}),
-        }),
+        response: ({ result }: { result?: DocumentCreateResult | null }) => {
+          const recurrence = mapWriteRecurrence(result)
+          return {
+            id: result?.orderId ?? result?.quoteId ?? result?.id ?? null,
+            ...(recurrence ? { recurrence } : {}),
+            ...(binding.kind === 'order' && Array.isArray(result?.warnings)
+              ? { warnings: result.warnings }
+              : {}),
+          }
+        },
         status: 201,
       },
       update: {
@@ -723,8 +739,10 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           const payload = Object.keys(custom).length ? { ...base, customFields: custom } : base
           return withExactDocumentInput(parseScopedCommandInput(documentUpdateSchema, payload, ctx, translate), payload)
         },
-        response: ({ result }: { result: any }) =>
-          mapUpdateResponse((result as any)?.order ?? (result as any)?.quote ?? result),
+        response: ({ result }: { result: (DocumentRecurrenceResult & { order?: SalesOrder; quote?: SalesQuote }) | null }) => ({
+          ...mapUpdateResponse(result?.order ?? result?.quote ?? result),
+          recurrence: mapWriteRecurrence(result),
+        }),
       },
       delete: {
         commandId: binding.deleteCommandId,
@@ -738,11 +756,25 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
       },
     },
     hooks: {
-      afterList: async (payload: any, ctx: CrudCtx) => {
+      afterList: async (
+        payload: { items?: Array<Record<string, unknown>> },
+        ctx: CrudCtx & { query?: Pick<ListQuery, 'id'> },
+      ) => {
         await attachTags(payload, { ...ctx, bindingKind: binding.kind })
         await attachChannelNames(payload, ctx)
         await attachRecurrences(payload, ctx, binding.kind)
         await attachContactEmails(binding.entity, payload, ctx)
+        const documentId = ctx.query?.id
+        const item = documentId ? payload.items?.find((candidate) => candidate.id === documentId) : undefined
+        if (!item) return
+        item.canManageRecurrence = Boolean(
+          ctx.auth?.sub && typeof item.tenantId === 'string' && typeof item.organizationId === 'string'
+            && await ctx.container.resolve<RbacService>('rbacService').userHasAllFeatures(
+              ctx.auth.sub,
+              [binding.manageFeature],
+              { tenantId: item.tenantId, organizationId: item.organizationId },
+            ),
+        )
       },
     },
   }
@@ -825,6 +857,7 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     customFields: z.record(z.string(), z.unknown()).optional(),
     customValues: z.record(z.string(), z.unknown()).optional(),
     recurrence: recurrenceResponseSchema.nullable().optional(),
+    canManageRecurrence: z.boolean().optional().describe('Whether the current user may manage this document in its organization. Returned on reads filtered by document ID.'),
   })
 
   const listResponseSchema = createPagedListResponseSchema(itemSchema)
@@ -838,15 +871,24 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
       responseSchema: binding.kind === 'order'
         ? z.object({
             id: z.string().uuid().nullable(),
+            recurrence: recurrenceResponseSchema.optional(),
             warnings: z.array(z.object({
               code: z.literal(ORDER_PAYMENT_LEDGER_WARNING_CODE),
               fields: z.array(z.enum(ORDER_PAYMENT_LEDGER_FIELDS)),
             })).optional(),
           })
-        : z.object({ id: z.string().uuid().nullable() }),
+        : z.object({ id: z.string().uuid().nullable(), recurrence: recurrenceResponseSchema.optional() }),
       description: binding.kind === 'order'
         ? 'Creates a new sales order. paidTotalAmount, refundedTotalAmount, and outstandingAmount are deprecated compatibility inputs: supplied values are ignored and reported in warnings. Record payments through sales.payments.create or POST /api/sales/payments.'
         : 'Creates a new sales quote.',
+    },
+    update: {
+      schema: documentUpdateSchema,
+      responseSchema: z.object({
+        id: z.string().uuid().nullable(),
+        recurrence: recurrenceResponseSchema.nullable(),
+      }).passthrough(),
+      description: 'Updates the document and returns its persisted recurrence, or null if none is configured.',
     },
     del: {
       schema: defaultDeleteRequestSchema,

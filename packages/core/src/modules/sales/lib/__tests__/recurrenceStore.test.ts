@@ -44,7 +44,13 @@ function buildEm(existing: Record<string, unknown> | null = null) {
 describe('writeOrderRecurrence', () => {
   it('creates a scheduled recurrence whose first invoice is due on the start date', async () => {
     const { em, persisted } = buildEm()
-    await writeOrderRecurrence(em, order, { frequency: 'monthly', startsOn: '2027-01-31', periodCount: 3 })
+    const snapshot = await writeOrderRecurrence(em, order, { frequency: 'monthly', startsOn: '2027-01-31', periodCount: 3 })
+    expect(snapshot).toMatchObject({
+      endsOn: '2027-04-29',
+      nextInvoiceOn: '2027-01-31',
+      status: 'scheduled',
+      scheduleVersion: 1,
+    })
     expect(persisted).toHaveLength(1)
     expect(persisted[0]).toMatchObject({
       organizationId: 'org-1',
@@ -63,7 +69,7 @@ describe('writeOrderRecurrence', () => {
 
   it('leaves the recurrence alone when the input is undefined', async () => {
     const { em, mock } = buildEm()
-    await writeOrderRecurrence(em, order, undefined)
+    await expect(writeOrderRecurrence(em, order, undefined)).resolves.toBeUndefined()
     expect(mock.findOne).not.toHaveBeenCalled()
   })
 
@@ -77,7 +83,8 @@ describe('writeOrderRecurrence', () => {
       scheduleVersion: 3,
     } as unknown as SalesOrderRecurrence
     const { em, persisted } = buildEm(existing as never)
-    await writeOrderRecurrence(em, order, { frequency: 'yearly', startsOn: '2027-02-01', periodCount: 2 })
+    const snapshot = await writeOrderRecurrence(em, order, { frequency: 'yearly', startsOn: '2027-02-01', periodCount: 2 })
+    expect(snapshot).toMatchObject({ frequency: 'yearly', periodCount: 2, scheduleVersion: 4 })
     expect(persisted).toHaveLength(0)
     expect(existing).toMatchObject({
       frequency: 'yearly',
@@ -92,14 +99,15 @@ describe('writeOrderRecurrence', () => {
   it('keeps the schedule version when the same schedule is sent again', async () => {
     const existing = { frequency: 'monthly', startsOn: '2027-01-01', anchorDay: null, periodCount: null, scheduleVersion: 3 }
     const { em } = buildEm(existing)
-    await writeOrderRecurrence(em, order, { frequency: 'monthly', startsOn: '2027-01-01' })
+    const snapshot = await writeOrderRecurrence(em, order, { frequency: 'monthly', startsOn: '2027-01-01' })
+    expect(snapshot?.scheduleVersion).toBe(3)
     expect(existing.scheduleVersion).toBe(3)
   })
 
   it('marks the recurrence deleted for null, keeping its schedule version', async () => {
     const existing: Record<string, unknown> = { frequency: 'monthly', startsOn: '2027-01-01', scheduleVersion: 3, deletedAt: null }
     const { em, removed } = buildEm(existing)
-    await writeOrderRecurrence(em, order, null)
+    await expect(writeOrderRecurrence(em, order, null)).resolves.toBeNull()
     expect(removed).toEqual([])
     expect(existing.deletedAt).toBeInstanceOf(Date)
     expect(existing.scheduleVersion).toBe(3)
@@ -302,11 +310,12 @@ describe('sameRecurrenceState', () => {
 describe('writeQuoteRecurrence', () => {
   it('stores only the schedule on a quote', async () => {
     const { em, persisted } = buildEm()
-    await writeQuoteRecurrence(em, { id: 'quote-1', tenantId: 'ten-1', organizationId: 'org-1' } as never, {
+    const snapshot = await writeQuoteRecurrence(em, { id: 'quote-1', tenantId: 'ten-1', organizationId: 'org-1' } as never, {
       frequency: 'quarterly',
       startsOn: '2026-11-30',
       anchorDay: 31,
     })
+    expect(snapshot).toEqual({ frequency: 'quarterly', startsOn: '2026-11-30', anchorDay: 31, periodCount: null })
     expect(persisted[0]).toMatchObject({ frequency: 'quarterly', startsOn: '2026-11-30', anchorDay: 31, periodCount: null })
     expect(persisted[0]).not.toHaveProperty('status')
   })

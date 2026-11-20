@@ -1,8 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext, type APIResponse, type Page } from '@playwright/test'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { acknowledgeGlobalNotices, login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import {
+  createRoleFixture,
+  createUserFixture,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 
@@ -188,6 +196,49 @@ test.describe('TC-SALES-052 recurring billing UI', () => {
       await expect(schedule).toContainText('8 payments')
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+    }
+  })
+
+  test('a viewer can read quote and order schedules without opening the editor', async ({ page, request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'superadmin')
+    const salesAdminToken = await getAuthToken(request, 'admin')
+    const { organizationId, tenantId } = getTokenContext(salesAdminToken)
+    const suffix = randomUUID()
+    const email = `qa-sales-recurring-viewer-${suffix}@example.com`
+    const password = `Qa-Viewer-${suffix}!`
+    const recurrence = { frequency: 'monthly', startsOn: isoDayFromToday(20), periodCount: 12 }
+    let roleId: string | null = null
+    let userId: string | null = null
+    let quoteId: string | null = null
+    let orderId: string | null = null
+
+    try {
+      roleId = await createRoleFixture(request, token, { name: `qa-sales-viewer-${suffix}`, tenantId })
+      await setRoleAclFeatures(request, token, {
+        roleId,
+        features: ['sales.orders.view', 'sales.quotes.view'],
+        organizations: [organizationId],
+      })
+      userId = await createUserFixture(request, token, { email, password, organizationId, roles: [roleId] })
+      quoteId = await createDocument(request, salesAdminToken, 'quotes', { currencyCode: 'USD', recurrence })
+      orderId = await createDocument(request, salesAdminToken, 'orders', { currencyCode: 'USD', lines: [line], recurrence })
+
+      const loginResponse = await page.request.post('/api/auth/login', { form: { email, password, tenantId } })
+      expect(loginResponse.ok(), 'the fixture viewer should be able to sign in').toBeTruthy()
+      await acknowledgeGlobalNotices(page)
+
+      for (const { id, kind } of [{ id: quoteId, kind: 'quote' }, { id: orderId, kind: 'order' }]) {
+        await page.goto(`/backend/sales/documents/${id}?kind=${kind}`, { waitUntil: 'domcontentloaded' })
+        await expect(page.getByTestId('sales-recurrence-schedule')).toContainText('12 payments', { timeout: 60_000 })
+        await expect(page.getByTestId('sales-recurrence-edit')).toHaveCount(0)
+        await expect(page.getByRole('dialog', { name: 'Recurring schedule' })).toHaveCount(0)
+      }
+    } finally {
+      await deleteSalesEntityIfExists(request, salesAdminToken, '/api/sales/orders', orderId)
+      await deleteSalesEntityIfExists(request, salesAdminToken, '/api/sales/quotes', quoteId)
+      await deleteUserIfExists(request, token, userId)
+      await deleteRoleIfExists(request, token, roleId)
     }
   })
 })

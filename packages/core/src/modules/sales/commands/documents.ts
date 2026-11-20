@@ -23,6 +23,7 @@ import {
   invalidateCrudCache,
 } from "@open-mercato/shared/lib/crud/cache";
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
+import type { RbacService } from "@open-mercato/core/modules/auth/services/rbacService";
 import { resolveNotificationService } from "../../notifications/lib/notificationService";
 import { buildFeatureNotificationFromType } from "../../notifications/lib/notificationBuilder";
 import { emitSalesEvent } from "../events";
@@ -143,6 +144,7 @@ import {
   retireOrderRecurrence,
   restoreQuoteRecurrence,
   sameRecurrenceState,
+  schedulesEqual,
   writeOrderRecurrence,
   writeQuoteRecurrence,
   type OrderRecurrenceSnapshot,
@@ -1693,6 +1695,7 @@ async function applyDocumentUpdate({
 async function loadQuoteSnapshot(
   em: EntityManager,
   id: string,
+  recurrence?: QuoteRecurrenceSnapshot | null,
 ): Promise<QuoteGraphSnapshot | null> {
   const quote = await findOneWithDecryption(em, SalesQuote, { id, deletedAt: null });
   if (!quote) return null;
@@ -1958,13 +1961,14 @@ async function loadQuoteSnapshot(
     addresses: addressSnapshots,
     notes: noteSnapshots,
     tags: tagSnapshots,
-    recurrence: await loadQuoteRecurrenceSnapshot(em, quote),
+    recurrence: recurrence === undefined ? await loadQuoteRecurrenceSnapshot(em, quote) : recurrence,
   };
 }
 
 async function loadOrderSnapshot(
   em: EntityManager,
   id: string,
+  recurrence?: OrderRecurrenceSnapshot | null,
 ): Promise<OrderGraphSnapshot | null> {
   const order = await findOneWithDecryption(em, SalesOrder, { id, deletedAt: null });
   if (!order) return null;
@@ -2270,7 +2274,7 @@ async function loadOrderSnapshot(
     tags: tagSnapshots,
     shipments: shipmentSnapshots,
     payments: paymentSnapshots,
-    recurrence: await loadOrderRecurrenceSnapshot(em, order),
+    recurrence: recurrence === undefined ? await loadOrderRecurrenceSnapshot(em, order) : recurrence,
   };
 }
 
@@ -4010,6 +4014,19 @@ function ensureOrderScope(
   ensureOrganizationScope(ctx, organizationId);
 }
 
+async function ensureRecurrenceWritePermission(
+  ctx: CommandRuntimeContext,
+  kind: "quote" | "order",
+  scope: { tenantId: string; organizationId: string },
+): Promise<void> {
+  if (!ctx.request) return;
+  const feature = kind === "order" ? "sales.orders.manage" : "sales.quotes.manage";
+  const rbac = ctx.container.resolve<RbacService>("rbacService");
+  if (ctx.auth?.sub && await rbac.userHasAllFeatures(ctx.auth.sub, [feature], scope)) return;
+  const { translate } = await resolveTranslations();
+  throw new CrudHttpError(403, { error: translate("api.errors.forbidden", "Forbidden") });
+}
+
 function normalizeTagIds(tags?: Array<string | null | undefined>): string[] {
   if (!Array.isArray(tags)) return [];
   const set = new Set<string>();
@@ -4050,6 +4067,21 @@ function buildTagChange(
     return null;
   }
   return { from: beforeIds, to: afterIds };
+}
+
+function auditRecurrenceSchedule(snapshot: QuoteRecurrenceSnapshot | null | undefined): QuoteRecurrenceSnapshot | null {
+  if (!snapshot) return null;
+  const { frequency, startsOn, anchorDay, periodCount } = snapshot;
+  return { frequency, startsOn, anchorDay, periodCount };
+}
+
+function buildRecurrenceAuditChange(
+  before: QuoteRecurrenceSnapshot | null | undefined,
+  after: QuoteRecurrenceSnapshot | null | undefined,
+): { from: QuoteRecurrenceSnapshot | null; to: QuoteRecurrenceSnapshot | null } | null {
+  const from = auditRecurrenceSchedule(before);
+  const to = auditRecurrenceSchedule(after);
+  return schedulesEqual(from, to) ? null : { from, to };
 }
 
 function documentGraphAuditValue(snapshot: OrderGraphSnapshot | QuoteGraphSnapshot) {
@@ -5306,7 +5338,7 @@ async function restoreOrderGraph(
 
 const createQuoteCommand: CommandHandler<
   QuoteCreateInput,
-  { quoteId: string }
+  { quoteId: string; recurrence?: QuoteRecurrenceSnapshot }
 > = {
   id: "sales.quotes.create",
   async execute(rawInput, ctx) {
@@ -5314,6 +5346,13 @@ const createQuoteCommand: CommandHandler<
       "salesDocumentNumberGenerator",
     ) as SalesDocumentNumberGenerator;
     const initial = quoteCreateSchema.parse(rawInput ?? {});
+    if (initial.recurrence) {
+      ensureQuoteScope(ctx, initial.organizationId, initial.tenantId);
+      await ensureRecurrenceWritePermission(ctx, "quote", {
+        organizationId: initial.organizationId,
+        tenantId: initial.tenantId,
+      });
+    }
     const quoteNumber =
       typeof initial.quoteNumber === "string" &&
       initial.quoteNumber.trim().length
@@ -5553,6 +5592,7 @@ const createQuoteCommand: CommandHandler<
     // Persist the quote header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built quote committed (#2336).
+    let recurrence: QuoteRecurrenceSnapshot | null | undefined;
     await withAtomicFlush(
       em,
       [
@@ -5591,7 +5631,7 @@ const createQuoteCommand: CommandHandler<
           });
         },
         async () => {
-          await writeQuoteRecurrence(em, quote, parsed.recurrence);
+          recurrence = await writeQuoteRecurrence(em, quote, parsed.recurrence);
         },
       ],
       { transaction: true },
@@ -5666,11 +5706,11 @@ const createQuoteCommand: CommandHandler<
       "created",
     );
 
-    return { quoteId: quote.id };
+    return { quoteId: quote.id, ...(recurrence ? { recurrence } : {}) };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadQuoteSnapshot(em, result.quoteId);
+    return loadQuoteSnapshot(em, result.quoteId, result.recurrence ?? null);
   },
   buildLog: async ({ result, snapshots }) => {
     const after = snapshots.after as QuoteGraphSnapshot | undefined;
@@ -6111,7 +6151,7 @@ async function captureLockedQuoteGraphAfter(
 
 const updateQuoteCommand: CommandHandler<
   DocumentUpdateInput,
-  { quote: SalesQuote }
+  { quote: SalesQuote; recurrence: QuoteRecurrenceSnapshot | null }
 > = {
   id: "sales.quotes.update",
   async prepare(input, ctx) {
@@ -6136,6 +6176,7 @@ const updateQuoteCommand: CommandHandler<
     documentEditSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let quote!: SalesQuote;
+    let recurrence: QuoteRecurrenceSnapshot | null = null;
     let totalsEvent: TotalsCalculatedPayload | null = null;
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
@@ -6154,6 +6195,12 @@ const updateQuoteCommand: CommandHandler<
       [
         async () => {
           quote = await lockQuoteForTotalsWrite(em, ctx, parsed.id, "Sales quote not found");
+          if (parsed.recurrence !== undefined) {
+            await ensureRecurrenceWritePermission(ctx, "quote", {
+              tenantId: quote.tenantId,
+              organizationId: quote.organizationId,
+            });
+          }
           const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
           await applyDocumentUpdate({
             kind: "quote",
@@ -6176,7 +6223,10 @@ const updateQuoteCommand: CommandHandler<
           }
         },
         async () => {
-          await writeQuoteRecurrence(em, quote, parsed.recurrence);
+          const writtenRecurrence = await writeQuoteRecurrence(em, quote, parsed.recurrence);
+          recurrence = writtenRecurrence === undefined
+            ? await loadQuoteRecurrenceSnapshot(em, quote)
+            : writtenRecurrence;
         },
         // Scalar mutations above are persisted by withAtomicFlush's per-phase
         // flush boundary before the recalc reads below run any query on the same
@@ -6296,11 +6346,11 @@ const updateQuoteCommand: CommandHandler<
       ctx.auth?.tenantId ?? null,
       "updated",
     );
-    return { quote };
+    return { quote, recurrence };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadQuoteSnapshot(em, result.quote.id);
+    return loadQuoteSnapshot(em, result.quote.id, result.recurrence);
   },
   buildLog: async ({ input, snapshots, result }) => {
     const parsed = documentUpdateSchema.parse(input ?? {});
@@ -6318,6 +6368,10 @@ const updateQuoteCommand: CommandHandler<
     if (parsed.tags !== undefined) {
       const tagChange = buildTagChange(before?.tags, after.tags);
       if (tagChange) changes.tags = tagChange;
+    }
+    if (before && parsed.recurrence !== undefined) {
+      const recurrenceChange = buildRecurrenceAuditChange(before.recurrence, after.recurrence);
+      if (recurrenceChange) changes.recurrence = recurrenceChange;
     }
     return {
       actionLabel: translate("sales.audit.quotes.update", "Update sales quote"),
@@ -6392,7 +6446,7 @@ const orderIdOutputSchema = z.object({ orderId: z.string().uuid() });
 
 const updateOrderCommand: CommandHandler<
   DocumentUpdateInput,
-  { order: SalesOrder }
+  { order: SalesOrder; recurrence: OrderRecurrenceSnapshot | null; recurrenceLocked: boolean }
 > = {
   id: "sales.orders.update",
   outputSchema: orderUpdateOutputSchema,
@@ -6417,6 +6471,8 @@ const updateOrderCommand: CommandHandler<
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let order!: SalesOrder;
+    let recurrence: OrderRecurrenceSnapshot | null = null;
+    let recurrenceLocked = false;
     let previousStatus: string | null = null;
     let nextTotalsMode: SalesAmountsMode = "computed";
     let totalsModeChanged = false;
@@ -6441,6 +6497,12 @@ const updateOrderCommand: CommandHandler<
       [
         async () => {
           order = await lockOrderForTotalsWrite(em, ctx, parsed.id, "Sales order not found");
+          if (parsed.recurrence !== undefined) {
+            await ensureRecurrenceWritePermission(ctx, "order", {
+              tenantId: order.tenantId,
+              organizationId: order.organizationId,
+            });
+          }
           const currentTotalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
           nextTotalsMode = parsed.totalsMode ?? currentTotalsMode;
           totalsModeChanged = nextTotalsMode !== currentTotalsMode;
@@ -6492,7 +6554,10 @@ const updateOrderCommand: CommandHandler<
           });
         },
         async () => {
-          await writeOrderRecurrence(em, order, parsed.recurrence);
+          const writtenRecurrence = await writeOrderRecurrence(em, order, parsed.recurrence);
+          recurrence = writtenRecurrence === undefined
+            ? await loadOrderRecurrenceSnapshot(em, order)
+            : writtenRecurrence;
         },
         // Scalar mutations above are persisted by withAtomicFlush's per-phase
         // flush boundary before the recalc reads and the status-change-note
@@ -6608,6 +6673,9 @@ const updateOrderCommand: CommandHandler<
           });
           order.updatedAt = new Date();
         },
+        async () => {
+          recurrenceLocked = recurrence !== null && await hasRecurringPeriods(em, order);
+        },
       ],
       { transaction: true },
     );
@@ -6656,11 +6724,11 @@ const updateOrderCommand: CommandHandler<
       ctx.auth?.tenantId ?? null,
       "updated",
     );
-    return { order };
+    return { order, recurrence, recurrenceLocked };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadOrderSnapshot(em, result.order.id);
+    return loadOrderSnapshot(em, result.order.id, result.recurrence);
   },
   buildLog: async ({ input, snapshots, result }) => {
     const parsed = documentUpdateSchema.parse(input ?? {});
@@ -6678,6 +6746,10 @@ const updateOrderCommand: CommandHandler<
     if (parsed.tags !== undefined) {
       const tagChange = buildTagChange(before?.tags, after.tags);
       if (tagChange) changes.tags = tagChange;
+    }
+    if (before && parsed.recurrence !== undefined) {
+      const recurrenceChange = buildRecurrenceAuditChange(before.recurrence, after.recurrence);
+      if (recurrenceChange) changes.recurrence = recurrenceChange;
     }
     return {
       actionLabel: translate("sales.audit.orders.update", "Update sales order"),
@@ -6709,7 +6781,7 @@ const updateOrderCommand: CommandHandler<
 
 const createOrderCommand: CommandHandler<
   OrderCreateInput,
-  { orderId: string; warnings?: OrderPaymentLedgerWarning[] }
+  { orderId: string; warnings?: OrderPaymentLedgerWarning[]; recurrence?: OrderRecurrenceSnapshot }
 > = {
   id: "sales.orders.create",
   outputSchema: orderIdOutputSchema,
@@ -6719,6 +6791,13 @@ const createOrderCommand: CommandHandler<
     ) as SalesDocumentNumberGenerator;
     const deprecatedPaymentLedgerFields = resolveSuppliedOrderPaymentLedgerFields(rawInput)
     const initial = orderCreateSchema.parse(rawInput ?? {});
+    if (initial.recurrence) {
+      ensureOrderScope(ctx, initial.organizationId, initial.tenantId);
+      await ensureRecurrenceWritePermission(ctx, "order", {
+        organizationId: initial.organizationId,
+        tenantId: initial.tenantId,
+      });
+    }
     if (deprecatedPaymentLedgerFields.length && !warnedDeprecatedOrderPaymentLedgerInput) {
       warnedDeprecatedOrderPaymentLedgerInput = true
       logger.warn("sales.orders.create ignored deprecated payment ledger input", {
@@ -7028,6 +7107,7 @@ const createOrderCommand: CommandHandler<
     // Persist the order header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built order committed (#2336).
+    let recurrence: OrderRecurrenceSnapshot | null | undefined;
     await withAtomicFlush(
       em,
       [
@@ -7066,7 +7146,7 @@ const createOrderCommand: CommandHandler<
           });
         },
         async () => {
-          await writeOrderRecurrence(em, order, parsed.recurrence);
+          recurrence = await writeOrderRecurrence(em, order, parsed.recurrence);
         },
       ],
       { transaction: true },
@@ -7148,6 +7228,7 @@ const createOrderCommand: CommandHandler<
 
     return {
       orderId: order.id,
+      ...(recurrence ? { recurrence } : {}),
       ...(deprecatedPaymentLedgerFields.length
         ? {
             warnings: [
@@ -7162,7 +7243,7 @@ const createOrderCommand: CommandHandler<
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadOrderSnapshot(em, result.orderId);
+    return loadOrderSnapshot(em, result.orderId, result.recurrence ?? null);
   },
   buildLog: async ({ result, snapshots }) => {
     const after = snapshots.after as OrderGraphSnapshot | undefined;

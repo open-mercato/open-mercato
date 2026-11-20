@@ -28,20 +28,21 @@ import RecurrenceSectionWidget from '../widget.client'
 const order = {
   id: 'order-1',
   updatedAt: '2026-11-09T10:00:00.000Z',
+  canManageRecurrence: true,
   recurrence: {
-    frequency: 'monthly',
+    frequency: 'monthly' as const,
     startsOn: '2026-12-01',
     anchorDay: 1,
     periodCount: 6,
     endsOn: '2027-05-31',
     nextInvoiceOn: '2026-12-01',
-    status: 'scheduled',
+    status: 'scheduled' as const,
     locked: false,
   },
 }
 
 async function switchRecurringOff(kind: 'order' | 'quote') {
-  renderWithProviders(<RecurrenceSectionWidget context={{ kind }} data={order as never} />, { dict: {} })
+  renderWithProviders(<RecurrenceSectionWidget context={{ kind }} data={order} />, { dict: {} })
   fireEvent.click(screen.getByTestId('sales-recurrence-edit'))
   const toggle = await screen.findByTestId('sales-recurrence-toggle')
   fireEvent.click(toggle)
@@ -56,6 +57,27 @@ function sentBody(): unknown {
 
 describe('recurring billing section', () => {
   beforeEach(() => jest.clearAllMocks())
+
+  it.each(['order', 'quote'] as const)('shows the %s schedule without editor controls for a viewer', (kind) => {
+    renderWithProviders(
+      <RecurrenceSectionWidget context={{ kind }} data={{ ...order, canManageRecurrence: false }} />,
+      { dict: {} },
+    )
+
+    expect(screen.getByTestId('sales-recurrence-schedule')).toBeVisible()
+    expect(screen.queryByTestId('sales-recurrence-edit')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it.each(['order', 'quote'] as const)('hides setup for a one-time %s the viewer cannot manage', (kind) => {
+    renderWithProviders(
+      <RecurrenceSectionWidget context={{ kind }} data={{ id: order.id, recurrence: null }} />,
+      { dict: {} },
+    )
+
+    expect(screen.getByTestId('sales-recurrence-section')).toBeVisible()
+    expect(screen.queryByTestId('sales-recurrence-edit')).not.toBeInTheDocument()
+  })
 
   it.each(['order', 'quote'] as const)('saves the %s schedule through the document guarded mutation', async (kind) => {
     await switchRecurringOff(kind)

@@ -81,7 +81,10 @@ const mockCache = {
   deleteByTags: jest.fn(async () => 0),
 }
 const mockAccessLog = { log: jest.fn(async () => undefined) }
-const mockRbac = { getGrantedFeatures: jest.fn(async () => mockFeatures) }
+const mockRbac = {
+  getGrantedFeatures: jest.fn(async () => mockFeatures),
+  userHasAllFeatures: jest.fn(async () => false),
+}
 const mockServices: Record<string, unknown> = {
   em: { find: mockFind, getKysely: () => mockPeriodQuery },
   queryEngine: { query: mockQuery },
@@ -260,6 +263,31 @@ describe('Sales document GET response enrichment (#7783)', () => {
     expect(denied.payload.items[0]).not.toHaveProperty('_sales_test')
     expect(denied.payload).not.toHaveProperty('_meta')
     expect(quote.enrichMany).toHaveBeenCalledTimes(1)
+  })
+
+  it('rechecks recurrence manage access for the record organization on detail cache hits', async () => {
+    mockDocuments.set(quoteEntity, [
+      { ...documentFixture(quoteId, 'QUOTE-TEST'), organization_id: otherOrganizationId },
+    ])
+    mockScope = {
+      ...mockScope,
+      filterIds: [organizationId, otherOrganizationId],
+      allowedIds: [organizationId, otherOrganizationId],
+    }
+    mockRbac.userHasAllFeatures.mockResolvedValueOnce(true)
+
+    const path = `?id=${quoteId}`
+    const first = await readQuotes(path)
+    const second = await readQuotes(path)
+
+    expect(first.payload.items[0]).toHaveProperty('canManageRecurrence', true)
+    expect(second.response.headers.get('x-om-cache')).toBe('hit')
+    expect(second.payload.items[0]).toHaveProperty('canManageRecurrence', false)
+    expect(mockRbac.userHasAllFeatures.mock.calls).toEqual(Array.from({ length: 2 }, () => [
+      mockAuth?.sub,
+      ['sales.quotes.manage'],
+      { tenantId, organizationId: otherOrganizationId },
+    ]))
   })
 
   it('retains request scope in records, enrichment context, and cache keys', async () => {

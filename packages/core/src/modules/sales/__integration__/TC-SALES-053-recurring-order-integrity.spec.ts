@@ -277,6 +277,39 @@ test.describe('TC-SALES-053 recurring order state integrity', () => {
     }
   })
 
+  test('refuses quote send when a concurrent edit removes the recipient', async ({ request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    const quoteId = await createQuoteWithLine(request, token, {
+      metadata: { customerEmail: 'previous-recipient@example.test' },
+      recurrence: { frequency: 'monthly', startsOn: isoDayFromToday(5) },
+    })
+    try {
+      const response = await sendWhileAnotherWriterCommits(
+        'sales_quotes',
+        quoteId,
+        () => apiRequest(request, 'POST', '/api/sales/quotes/send', { token, data: { quoteId } }),
+        async (client) => {
+          const updated = await client.query(
+            'update sales_quotes set metadata = null, customer_snapshot = null where id = $1',
+            [quoteId],
+          )
+          expect(updated.rowCount).toBe(1)
+        },
+      )
+
+      expect(response.status()).toBe(400)
+      expect((await readJson(response)).error).toBe('Customer email is required to send a quote.')
+      const quote = await withClient((client) => client.query(
+        'select sent_at, acceptance_token from sales_quotes where id = $1',
+        [quoteId],
+      ))
+      expect(quote.rows[0]).toEqual({ sent_at: null, acceptance_token: null })
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+    }
+  })
+
   test('refuses converting a canceled recurring quote and keeps the quote', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const canceled = await orderStatusEntryId(request, token, 'canceled')
