@@ -265,7 +265,13 @@ describe('catalog.products.update', () => {
     expect(emLookupCall).toBeUndefined()
   })
 
-  it('resolves with the product\'s fresh updatedAt so callers can refresh their optimistic-lock state', async () => {
+  it.each([
+    [{}, 'Existing description'],
+    [{ description: null }, null],
+    [{ description: '' }, ''],
+    [{ description: '   ' }, ''],
+    [{ description: '  New description  ' }, 'New description'],
+  ])('applies description patch %j and returns the fresh updatedAt', async (patch, expectedDescription) => {
     let updateCommand: unknown
     jest.isolateModules(() => {
       require('../products')
@@ -280,7 +286,7 @@ describe('catalog.products.update', () => {
       tenantId: '33333333-3333-4333-8333-333333333333',
       title: 'Old title',
       subtitle: null,
-      description: null,
+      description: 'Existing description',
       sku: null,
       handle: null,
       taxRateId: null,
@@ -357,6 +363,7 @@ describe('catalog.products.update', () => {
         organizationId: '22222222-2222-4222-8222-222222222222',
         tenantId: '33333333-3333-4333-8333-333333333333',
         title: 'New title',
+        ...patch,
         offers: [],
         categoryIds: [],
         tags: [],
@@ -364,6 +371,9 @@ describe('catalog.products.update', () => {
       ctx,
     )
 
+    expect(record.title).toBe('New title')
+    expect(record.description).toBe(expectedDescription)
+    expect(em.flush).toHaveBeenCalled()
     expect(result).toEqual({
       productId: '11111111-1111-4111-8111-111111111113',
       updatedAt: fixedUpdatedAt.toISOString(),
