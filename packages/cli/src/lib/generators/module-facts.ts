@@ -48,6 +48,8 @@ import {
   type ModuleOverrideTarget,
   type ModuleOverrideTargetDiagnostic,
 } from './module-override-targets'
+import { prepareCrudFormSectionRegistries, projectCrudFormSectionContributions, type CrudFormSectionContributionProjection } from './form-sections'
+import { resolveModuleFile } from './scanner'
 import { buildFactSourceLookup, type FactSourceLookup } from './module-fact-sources'
 import { appendLocalReferenceModuleSource } from './module-facts-discovery'
 
@@ -283,9 +285,17 @@ export interface ModuleFacts {
   factSources?: ModuleFactSourceEntry[]
   ownedContracts?: ModuleOwnedContracts
   factDiagnostics?: ModuleFactDiagnostic[]
+  formSectionContributions?: ModuleFormSectionContributionFact[]
   overrideTargets?: ModuleOverrideTarget[]
   overrideTargetDiagnostics?: ModuleOverrideTargetDiagnostic[]
   warnings: string[]
+}
+
+export type ModuleFormSectionContributionFact = {
+  id: string
+  key: string
+  operation: CrudFormSectionContributionProjection['operation']
+  source: ModuleFactSourceRef
 }
 
 export interface ExtractModuleFactsOptions {
@@ -313,6 +323,7 @@ export interface ExtractModuleFactsOptions {
   sourceKind?: ModuleFactProjectionSourceKind
   /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
   factsContractVersion?: 1 | 2
+  formSectionContributions?: readonly CrudFormSectionContributionProjection[]
 }
 
 /** A discovered module and the source directory its facts are extracted from. */
@@ -2339,6 +2350,10 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
       left.id.localeCompare(right.id),
   )
 
+  const formSectionContributions = options.factsContractVersion === 1 ? [] :
+    (options.formSectionContributions ?? []).map(({ id, key, operation, sourceFileName, exportName }) => ({
+      id, key, operation, source: { sourcePath: path.posix.join(sourceRoot, sourceFileName), exportName },
+    }))
   const facts: ModuleFacts = {
     module: moduleId,
     title,
@@ -2365,6 +2380,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     extensionSurfaces,
     ...(provenance.factSources.length > 0 ? { factSources: provenance.factSources } : {}),
     ...(ownedContracts ? { ownedContracts } : {}),
+    ...(formSectionContributions.length ? { formSectionContributions } : {}),
     ...(factDiagnostics.length > 0 ? { factDiagnostics } : {}),
     warnings,
   }
@@ -2414,6 +2430,7 @@ export interface ModuleFactsJsonEntry {
   factSources?: ModuleFactSourceEntry[]
   ownedContracts?: ModuleOwnedContracts
   factDiagnostics?: ModuleFactDiagnostic[]
+  formSectionContributions?: ModuleFormSectionContributionFact[]
   overrideTargets?: ModuleOverrideTarget[]
   overrideTargetDiagnostics?: ModuleOverrideTargetDiagnostic[]
 }
@@ -3159,6 +3176,7 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     ...(facts.factDiagnostics && facts.factDiagnostics.length > 0
       ? { factDiagnostics: facts.factDiagnostics }
       : {}),
+    ...(facts.formSectionContributions?.length ? { formSectionContributions: facts.formSectionContributions } : {}),
     ...(facts.overrideTargets && facts.overrideTargets.length > 0
       ? { overrideTargets: facts.overrideTargets }
       : {}),
@@ -3384,6 +3402,19 @@ export interface LocalReferenceModuleFactsResult {
   unresolvedTargets: string[]
 }
 
+export function prepareReferenceFormSectionContributions(
+  reference: ModuleFactSource,
+): ReadonlyMap<string, readonly CrudFormSectionContributionProjection[]> {
+  const roots = { appBase: reference.moduleRoot, pkgBase: reference.moduleRoot }
+  const sourceRoot = reference.portableSourceRoot ?? toPortableSourceRoot(reference.moduleId, reference.from ?? null)
+  const imports = { appBase: sourceRoot, pkgBase: sourceRoot }
+  return projectCrudFormSectionContributions(prepareCrudFormSectionRegistries({
+    modules: [{ modId: reference.moduleId, roots, resolve: (relativePath) => resolveModuleFile(roots, imports, relativePath) }],
+    identities: [{ id: reference.moduleId }],
+    requiresByModule: new Map(),
+  }))
+}
+
 /**
  * Produces the reference projection of an app-local module from an explicitly activated,
  * disposable selection context: the local source is appended to the package sources and
@@ -3412,6 +3443,7 @@ export function extractLocalReferenceModuleFacts(
   const sources = appendLocalReferenceModuleSource(options.packageSources, reference)
   const activated = extractAllModuleFacts({
     sources,
+    formSectionContributions: prepareReferenceFormSectionContributions(reference),
     registryPath: options.registryPath ?? null,
     registrySource: options.registrySource ?? null,
     coreVersion: options.coreVersion ?? null,
@@ -3473,6 +3505,7 @@ export interface ExtractAllModuleFactsOptions {
    * so a disposable projection can publish the gap instead of silently dropping it.
    */
   unresolvedFirstPartyTargets?: 'throw' | 'collect'
+  formSectionContributions?: ReadonlyMap<string, readonly CrudFormSectionContributionProjection[]>
   /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
   factsContractVersion?: 1 | 2
 }
@@ -3542,6 +3575,7 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
       ...(source.portableSourceRoot ? { portableSourceRoot: source.portableSourceRoot } : {}),
       ...(source.sourceKind ? { sourceKind: source.sourceKind } : {}),
       factsContractVersion: options.factsContractVersion ?? 2,
+      formSectionContributions: options.formSectionContributions?.get(source.moduleId),
     })
     factsByModule[source.moduleId] = facts
     warnings.push(...facts.warnings)
@@ -3760,9 +3794,9 @@ const OVERRIDE_DOMAIN_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> 
   },
   forms: {
     value: 'forms',
-    status: 'pending-emission',
-    pendingEmission: '.ai/specs/2026-10-22-crudform-section-overrides-framework.md',
-    note: 'forms.sections targets require the example section descriptors and generated form facts',
+    status: 'emitted-example',
+    requiresGeneratedRegistry: true,
+    note: 'exact forms.sections targets projected from generated section contributions',
   },
 }
 

@@ -45,7 +45,7 @@ Status: in-progress
 | 5 | 5.6 | Document the wrapper and stable public imports | dispatch | done | 40389cd644 |
 | 6 | 6.1 | Add the example Todo showcase and transaction ownership contract | dispatch | done | this commit |
 | 6 | 6.2 | Cover all showcase cases in Playwright and generator tests | dispatch | done | this commit |
-| 6 | 6.3 | Register example capabilities and verify template parity | dispatch | todo | — |
+| 6 | 6.3 | Register example capabilities and verify template parity | dispatch | done | this commit |
 | 6 | 6.4 | Refresh standalone harness coverage for each showcase case | dispatch | todo | — |
 | 6 | 6.5 | Record example, harness and integration evidence | dispatch | todo | — |
 

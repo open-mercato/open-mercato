@@ -7,6 +7,7 @@ import {
   crudFormSectionClientMutationFactSchema, crudSectionOperationMethods as derivedRouteMethods,
   derivedCrudFormSectionClientMutationFact, derivedCrudFormSectionRetryPath, parseCrudFormSectionClientMutationFacts,
 } from '@open-mercato/shared/lib/crud/form-sections/client-mutation-facts'
+import { crudFormSectionOverrideKey } from '@open-mercato/shared/lib/crud/form-sections/composition'
 import type { CrudFormSectionClientHostFact } from '@open-mercato/shared/modules/form-sections'
 import type { FormSectionOverridesMap } from '@open-mercato/shared/modules/overrides'
 import { writeGeneratedFile, type GeneratorResult } from '../utils'
@@ -45,6 +46,7 @@ type Descriptor = {
 
 type ModuleSections = CompilerModule & {
   hasHandwrittenSections: boolean
+  sourceFileName: string
   descriptors: Descriptor[]
   leafDefaultProviderIds: readonly string[]
   sinkIds: readonly string[]
@@ -453,6 +455,7 @@ function parseModuleSections(module: ModuleSource, checkRevisions = false): Modu
     moduleId: module.modId,
     importPath: declaration.importPath,
     hasHandwrittenSections: Boolean(initializer),
+    sourceFileName: path.basename(sourceFile),
     sourceBase: moduleBase,
     authoredSource,
     extensionSources: extensions,
@@ -702,6 +705,31 @@ export function prepareCrudFormSectionRegistries(options: SectionRegistryDiscove
     modulesById.set(id, moduleId)
   }
   return { modules, compiled }
+}
+
+export type CrudFormSectionContributionProjection = {
+  id: string
+  key: string
+  operation: 'add' | 'hide' | 'replace'
+  sourceFileName: string
+  exportName: 'crudFormSections' | 'crudFormExtensions'
+}
+
+export function projectCrudFormSectionContributions(
+  { modules, compiled }: ReturnType<typeof prepareCrudFormSectionRegistries>,
+): ReadonlyMap<string, readonly CrudFormSectionContributionProjection[]> {
+  return new Map(modules.map((module) => {
+    const rows: CrudFormSectionContributionProjection[] = []
+    for (const { id, address, operation } of module.primitiveContributions) {
+      rows.push({ id, key: crudFormSectionOverrideKey(address), operation,
+        sourceFileName: module.sourceFileName, exportName: 'crudFormSections' })
+    }
+    for (const { contribution: { id, address, operation } } of compiled.contributionsByModule.get(module.moduleId) ?? []) {
+      rows.push({ id, key: crudFormSectionOverrideKey(address), operation,
+        sourceFileName: module.sourceFileName, exportName: 'crudFormExtensions' })
+    }
+    return [module.moduleId, rows.sort((left, right) => compareIds(left.id, right.id))]
+  }))
 }
 
 export function writeCrudFormSectionRegistries(options: SectionRegistryDiscoveryOptions & {

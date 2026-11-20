@@ -160,6 +160,29 @@ Evidence: `__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts`, `widgets/das
 
 Rule owners: `om-backend-ui-design`, `om-system-extension` (page middleware).
 
+## CrudForm section policies
+
+| Capability | Demonstrates | Source | Status |
+|---|---|---|---|
+| `example.crud-form-extensions.c1` | Preserve the required title from the locked record while saving the accepted editable fields. | [`../form-sections.ts`](../form-sections.ts), [`../todo-showcase-update.client.ts`](../todo-showcase-update.client.ts) | readable |
+| `example.crud-form-extensions.c2` | Declare a server default for the required leaf on create. Edit still reads the stored title. | [`../form-sections.ts`](../form-sections.ts), [`../todo-showcase-create.client.ts`](../todo-showcase-create.client.ts) | readable |
+| `example.crud-form-extensions.c3` | A configured host blocks mutation while a required leaf lacks accepted coverage. The executable negative example is QA-only. | [`../form-sections.ts`](../form-sections.ts), [`crud-form-extensions/required-coverage.md`](crud-form-extensions/required-coverage.md) | readable |
+| `example.crud-form-extensions.c4` | Replace the browser renderer with a literal loader whose accepted projection still emits the required completion value. | [`../form-sections.ts`](../form-sections.ts), [`../todo-showcase-status.client.ts`](../todo-showcase-status.client.ts), [`crud-form-extensions/status-primitives.reference.ts`](crud-form-extensions/status-primitives.reference.ts) | readable |
+| `example.crud-form-extensions.c5` | Relabel priority, omit notes without clearing the stored leaf, and return scoped priority rule errors for the exact field. | [`../form-sections.ts`](../form-sections.ts), [`../todo-showcase-sections.client.ts`](../todo-showcase-sections.client.ts) | readable |
+| `example.crud-form-extensions.c6` | Tie an added season selector to the exact scoped native definition set and preserve explicit clears. | [`../form-sections.ts`](../form-sections.ts), [`../todo-showcase-sections.client.ts`](../todo-showcase-sections.client.ts) | readable |
+| `example.crud-form-extensions.c7` | Persist and read back a scoped brand, use its independent optimistic version, and roll back together with the host. | [`../form-sections.ts`](../form-sections.ts), [`../data/entities.ts`](../data/entities.ts), [`../components/TodoShowcaseForm.tsx`](../components/TodoShowcaseForm.tsx) | readable |
+| `example.crud-form-extensions.c8` | Keep the committed record and surface the safe extension warning when the optional observer fails. | [`../form-sections.ts`](../form-sections.ts), [`../components/TodoShowcaseForm.tsx`](../components/TodoShowcaseForm.tsx) | readable |
+| `example.crud-form-extensions.c9` | Declare transactional outbox intent, read-only pre-validation, fenced retries, and a scoped status and Retry UI with a local provider. | [`../form-sections.ts`](../form-sections.ts), [`../lib/exampleExternalErp.ts`](../lib/exampleExternalErp.ts), [`../components/TodoShowcaseSync.tsx`](../components/TodoShowcaseSync.tsx) | readable |
+| `example.crud-form-extensions.c10` | Use a literal section selector in modules.ts to disable only the observer on the edit variant. | [`../form-sections.ts`](../form-sections.ts), [`module-overrides.reference.ts`](module-overrides.reference.ts) | readable |
+| `example.crud-form-extensions.c11` | Refuse unknown extension fields, stale fingerprints, and inconsistent protected resource binding before changing the record. | [`../form-sections.ts`](../form-sections.ts), [`../api/todos/route.ts`](../api/todos/route.ts), [`../lib/todoShowcaseClient.ts`](../lib/todoShowcaseClient.ts) | readable |
+| `example.crud-form-extensions.c12` | The default variant keeps its existing CRUD routes and headers with no section-policy resolution. | [`../form-sections.ts`](../form-sections.ts), [`../components/TodoForm.tsx`](../components/TodoForm.tsx), [`../backend/todos/create/page.tsx`](../backend/todos/create/page.tsx), [`../backend/todos/[id]/edit/page.tsx`](../backend/todos/[id]/edit/page.tsx) | readable |
+
+Repository-only evidence is listed per row in the JSON. The uncovered-required-field fixture lives under `.ai/qa/fixtures/crudform-section-policy/`. The example guide shows how to cover a required field correctly.
+
+For a hand-written status replacement, pair the contribution and its lazy runtime with a finite host alternative. Put `statusAlternative.contributionId` in that alternative's `contributionIds` and use its ownership and required-leaf facts for `is_done`. Keep the host's derived update route, original authorization and parent version check. Add `statusCapability` to the `crudFormSectionCapabilities` of the scoped server guard that supplies the write authority. The active wrapper already compiles this pairing for both operations.
+
+Rule owner: `om-system-extension`.
+
 ## Unified module extension system (UMES)
 
 | Capability | Demonstrates | Source | Status |

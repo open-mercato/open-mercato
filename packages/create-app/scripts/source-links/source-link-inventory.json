@@ -32,12 +32,14 @@
       "targetAuthoringPath": "template/src/modules/example/components/TodoForm.tsx",
       "moduleId": "example",
       "capabilityIds": [
+        "example.crud-form-extensions.c12",
         "ui.form-create",
         "ui.form-edit"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
-        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-001-002.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-014",
@@ -1499,11 +1501,13 @@
       "targetAuthoringPath": "template/src/modules/example/backend/todos/[id]/edit/page.tsx",
       "moduleId": "example",
       "capabilityIds": [
+        "example.crud-form-extensions.c12",
         "ui.form-edit"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
-        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-001-002.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-181",
@@ -1543,11 +1547,13 @@
       "targetAuthoringPath": "template/src/modules/example/backend/todos/create/page.tsx",
       "moduleId": "example",
       "capabilityIds": [
+        "example.crud-form-extensions.c12",
         "ui.form-create"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
-        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-001-002.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-181",
@@ -1587,12 +1593,14 @@
       "targetAuthoringPath": "template/src/modules/example/components/TodoForm.tsx",
       "moduleId": "example",
       "capabilityIds": [
+        "example.crud-form-extensions.c12",
         "ui.form-create",
         "ui.form-edit"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
-        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-001-002.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-181",
@@ -3141,11 +3149,13 @@
       "targetAuthoringPath": "template/src/modules/example/backend/todos/[id]/edit/page.tsx",
       "moduleId": "example",
       "capabilityIds": [
+        "example.crud-form-extensions.c12",
         "ui.form-edit"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
-        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-001-002.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-185",
@@ -3418,10 +3428,12 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.encryption-map",
-        "data.entities"
+        "data.entities",
+        "example.crud-form-extensions.c7"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-007-brand.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
       ],
@@ -3525,12 +3537,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "api.crud-query-engine-custom-fields",
+        "example.crud-form-extensions.c11",
         "search.encrypted-column-list-filter"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-011-policy-mismatch.spec.ts",
         "src/modules/example/__integration__/todo-priority-validation.spec.ts",
         "src/modules/example/api/__tests__/todos.encrypted-search.test.ts",
         "src/modules/example/api/__tests__/todos.request-scope.test.ts"
@@ -3794,10 +3808,12 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.encryption-map",
-        "data.entities"
+        "data.entities",
+        "example.crud-form-extensions.c7"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-007-brand.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
       ],
@@ -4481,12 +4497,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "api.crud-query-engine-custom-fields",
+        "example.crud-form-extensions.c11",
         "search.encrypted-column-list-filter"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-011-policy-mismatch.spec.ts",
         "src/modules/example/__integration__/todo-priority-validation.spec.ts",
         "src/modules/example/api/__tests__/todos.encrypted-search.test.ts",
         "src/modules/example/api/__tests__/todos.request-scope.test.ts"
@@ -4621,10 +4639,12 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.encryption-map",
-        "data.entities"
+        "data.entities",
+        "example.crud-form-extensions.c7"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-007-brand.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
       ],
@@ -6809,11 +6829,13 @@
       "targetAuthoringPath": "template/src/modules/example/backend/todos/[id]/edit/page.tsx",
       "moduleId": "example",
       "capabilityIds": [
+        "example.crud-form-extensions.c12",
         "ui.form-edit"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
-        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-001-002.spec.ts"
       ],
       "affectedCaseIds": [],
       "replacesBaselineBlockIds": [],

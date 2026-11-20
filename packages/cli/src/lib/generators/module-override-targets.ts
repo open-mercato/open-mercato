@@ -809,8 +809,18 @@ const navAdapter: InternalAdapter = {
 
 const formsAdapter: InternalAdapter = {
   domain: 'forms',
-  run() {
-    return { targets: [], diagnostics: [] }
+  run(facts) {
+    const moduleId = moduleIdOf(facts)
+    const targets: ModuleOverrideTarget[] = []
+    const diagnostics: ModuleOverrideTargetDiagnostic[] = []
+    for (const { id, key, source } of facts.formSectionContributions ?? []) {
+      pushTarget(targets, diagnostics, {
+        moduleId, domain: 'forms', key, path: ['forms', 'sections', key], dottedHost: 'forms.sections',
+        factRef: { factSection: 'formSectionContributions', factKey: id },
+        source,
+      })
+    }
+    return { targets, diagnostics }
   },
 }
 

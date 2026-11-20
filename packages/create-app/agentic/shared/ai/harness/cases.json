@@ -16066,7 +16066,7 @@
             "runtime.bulk-operation-progress"
           ],
           "maxFiles": 10,
-          "maxBytes": 180224
+          "maxBytes": 232286
         }
       ],
       "forbidden": [
@@ -18292,7 +18292,7 @@
             "umes.injection-table"
           ],
           "maxFiles": 6,
-          "maxBytes": 180224
+          "maxBytes": 199212
         }
       ],
       "installedVersionFallback": {
@@ -19657,7 +19657,7 @@
             "data.custom-fields"
           ],
           "maxFiles": 10,
-          "maxBytes": 180224
+          "maxBytes": 211012
         }
       ]
     },
@@ -19695,7 +19695,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 248908,
     "relatedCases": [
       "OMH-004",
       "OMH-087",
@@ -19774,7 +19774,7 @@
             "umes.injection.datatable-bulk-action"
           ],
           "maxFiles": 10,
-          "maxBytes": 180224
+          "maxBytes": 197737
         }
       ]
     },
@@ -19816,7 +19816,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 236646,
     "relatedCases": [
       "OMH-026",
       "OMH-027",
@@ -19897,7 +19897,7 @@
             "ui.form-edit"
           ],
           "maxFiles": 12,
-          "maxBytes": 196910
+          "maxBytes": 235224
         }
       ]
     },
@@ -20020,7 +20020,7 @@
             "events.crud-indexer-bridge"
           ],
           "maxFiles": 8,
-          "maxBytes": 180224
+          "maxBytes": 230623
         }
       ]
     },
@@ -20060,7 +20060,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 73728,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 270065,
     "relatedCases": [
       "OMH-031",
       "OMH-219"
@@ -20141,7 +20141,7 @@
             "data.entities"
           ],
           "maxFiles": 10,
-          "maxBytes": 245760
+          "maxBytes": 255472
         }
       ],
       "sourceReferenceIds": [
@@ -20414,7 +20414,7 @@
             "runtime.bulk-operation-progress"
           ],
           "maxFiles": 10,
-          "maxBytes": 180224
+          "maxBytes": 230055
         }
       ]
     },
@@ -20455,7 +20455,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 259637,
     "relatedCases": [
       "OMH-187",
       "OMH-220"
@@ -20528,7 +20528,7 @@
             "ai.agent-extension"
           ],
           "maxFiles": 6,
-          "maxBytes": 180224
+          "maxBytes": 209385
         }
       ]
     },
@@ -20568,7 +20568,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 232201,
     "relatedCases": [
       "OMH-050",
       "OMH-219"
@@ -22095,7 +22095,7 @@
             "umes.component-replacement"
           ],
           "maxFiles": 9,
-          "maxBytes": 204800
+          "maxBytes": 216395
         }
       ],
       "sourceReferenceIds": [
