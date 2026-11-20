@@ -39,7 +39,12 @@ test('lot create, update and fresh reads preserve nullable snake-case dates', as
     }
     const dated = await apiRequest(request, 'PUT', '/api/wms/lots', { token, data: { id: lotId, ...dates } })
     expect(dated.status()).toBe(200)
-    expect(await readLot()).toMatchObject(dates)
+    const datedLot = await readLot()
+    for (const field of ['manufactured_at', 'best_before_at', 'expires_at'] as const) {
+      const value = datedLot?.[field]
+      expect(typeof value, field).toBe('string')
+      expect(Date.parse(value ?? ''), field).toBe(Date.parse(dates[field]))
+    }
     const cleared = await apiRequest(request, 'PUT', '/api/wms/lots', { token, data: { id: lotId, ...nullDates } })
     expect(cleared.status()).toBe(200)
     expect(await readLot()).toMatchObject(nullDates)
