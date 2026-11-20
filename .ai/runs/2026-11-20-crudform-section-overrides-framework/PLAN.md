@@ -59,8 +59,9 @@ Status: in-progress
 | 6 | 6.4-live-routing-fix | Clarify the existing-host, independent table, and ERP recipe tasks | self | done | 226c128279 |
 | 6 | 6.2-bootstrap-test-fix | Verify the new section registry and four Example integrations at bootstrap | self | done | 49a807f701 |
 | 6 | 6.4-verify-harness-fixtures | Verify generated inventories, standalone OpenAPI and routing fixtures | self | done | 8c2c97c79e |
-| 6 | 6.2-concurrency-ci-fix | Assert the winning API operation and both supported browser conflict surfaces | self | done | this commit |
-| 6 | 6.5 | Record example, harness and integration evidence | dispatch | done | this commit |
+| 6 | 6.2-concurrency-ci-fix | Assert the winning API operation and both supported browser conflict surfaces | self | done | 7859e02259 |
+| 6 | 6.2-concurrency-ci-followup | Settle the stale browser action before verifying captured responses | self | done | this commit |
+| 6 | 6.5 | Record example, harness and integration evidence | dispatch | done | 7859e02259 |
 
 ## Goal
 

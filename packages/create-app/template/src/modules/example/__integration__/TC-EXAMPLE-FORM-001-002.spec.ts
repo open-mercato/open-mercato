@@ -1,6 +1,6 @@
 import { captureShowcase, field, saveShowcase, test as configuredTest } from './todoShowcaseFixtures'
 import { randomUUID } from 'node:crypto'
-import { expect, test, type Request } from '@playwright/test'
+import { errors, expect, test, type Request } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
@@ -191,26 +191,25 @@ configuredTest('TC-EXAMPLE-FORM-001 saves a visible field and shows a concurrent
     await other.close()
   }
   const conflict = page.getByTestId(CONFLICT_BANNER_TESTID).or(page.getByTestId(CONFLICT_DIALOG_TESTID)).first()
-  if (!await conflict.isVisible()) {
-    const staleWrites: Request[] = []
-    const captureWrite = (request: Request) => {
-      if (request.method() === 'PUT' && new URL(request.url()).pathname === policyApi) staleWrites.push(request)
-    }
-    const submitStaleEdit = async () => {
-      await field(page, 'cf_priority').getByRole('textbox', { name: 'Priority level' }).fill('4')
-      await field(page, 'is_done').locator('xpath=ancestor::form[1]').locator('button[type="submit"]').first().click()
-    }
-    page.on('request', captureWrite)
-    try {
-      const conflictVisible = expectConflictBanner(page)
-      await Promise.race([submitStaleEdit(), conflictVisible])
-      await conflictVisible
-      for (const request of staleWrites) expect((await request.response())?.status()).toBe(409)
-    } finally {
-      page.off('request', captureWrite)
-    }
+  const staleWrites: Request[] = []
+  const captureWrite = (request: Request) => {
+    if (request.method() === 'PUT' && new URL(request.url()).pathname === policyApi) staleWrites.push(request)
   }
-  await expectConflictBanner(page)
+  page.on('request', captureWrite)
+  try {
+    if (!await conflict.isVisible()) {
+      try {
+        await field(page, 'cf_priority').getByRole('textbox', { name: 'Priority level' }).fill('4', { timeout: 10_000 })
+        await field(page, 'is_done').locator('xpath=ancestor::form[1]').locator('button[type="submit"]').first().click({ timeout: 10_000 })
+      } catch (error) {
+        if (!(error instanceof errors.TimeoutError) || !await conflict.isVisible()) throw error
+      }
+    }
+    await expectConflictBanner(page)
+    for (const request of staleWrites) expect((await request.response())?.status()).toBe(409)
+  } finally {
+    page.off('request', captureWrite)
+  }
   expect(await showcaseTodo.read()).toMatchObject({
     title: showcaseTodo.title, notes: showcaseTodo.notes, is_done: true, cf_priority: 3,
   })
