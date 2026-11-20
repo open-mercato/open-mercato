@@ -361,8 +361,12 @@ behavior before the extraction release.
    prerequisite cannot be unchecked separately. Use the same closure for `--modules`, all bundled
    presets and installer preview. Preserve the scaffold's plan-first behavior. An approved install
    must install compatible packages **and** enable each required module in `modules.ts`, once, in
-   dependency order. Verify the actual closure before generating registries. A rerun must reconcile
-   partial progress without clobbering user entries. Migrations remain a separate explicit action.
+   dependency order. Stage activation changes until all required packages are fetched and verified.
+   Re-read the app state before applying activation and stop if its configuration changed since
+   preview. Verify the actual closure before generating registries. If package installation fails,
+   leave activation unchanged and report any package-manager changes. If activation or generation
+   fails, report which changes landed and how to retry. A rerun must reconcile partial progress
+   without clobbering user entries. Migrations remain a separate explicit action.
 4. Coordinate the external installer changes and verify the compatible released tool in a clean
    app before release. Never add a limitation to the release notes in place of automatic required
    dependency installation. Preserve the external tool's source trust, package quarantine,
@@ -745,7 +749,7 @@ Every extraction unit must also prove:
 | Tests or translations disappear after move | High / undetected regressions | Compare discovered suite counts, locales and packed assets; update harness and configs | External consumer suites remain downstream responsibility |
 | New release policy or staff destination assumed | High / publication and contributor agreement | Preserve synchronized release tooling and the existing staff official-modules agreement | Any later change needs named maintainer approval |
 
-## Final Compliance Report — 2026-11-17
+## Final Compliance Report
 
 This is a design review, not deployment or runtime verification. Reviewed guidance:
 root `AGENTS.md`, `.ai/specs/AGENTS.md`, `packages/core/AGENTS.md`, `packages/cli/AGENTS.md`,
@@ -759,6 +763,7 @@ root `AGENTS.md`, `.ai/specs/AGENTS.md`, `packages/core/AGENTS.md`, `packages/cl
 | Database ownership and rollback | Module-local snapshots/history/ledgers unchanged; disposable upgrade evidence required |
 | Security, encryption and commands | Existing mechanisms preserved; no new schema or mutation design; negative and undo tests required |
 | UI, cache and performance | Existing boundaries/primitives/cache behavior preserved; before/after runtime evidence required |
+| Installer partial failure and recovery | Verify packages before activation, detect app changes since preview, report partial outcomes and test retry |
 | Release and external-module governance | Synchronized publication and staff agreement retained; no automation/pointer changes |
 | Scope and dependency topology | Maintainer chose immediate thin core and one implementation spec; the acyclic topology and physical-absence proofs are explicit prerequisites |
 
