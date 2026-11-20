@@ -146,8 +146,8 @@ export function ConfirmDealLostDialog({
                 </DialogTitle>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {dealTitle}
-                  {dealValue ? ` · ${dealValue}` : ''}
-                  {companyName ? ` · ${companyName}` : ''}
+                  {dealValue ? `, ${dealValue}` : ''}
+                  {companyName ? `, ${companyName}` : ''}
                 </p>
               </div>
             </div>
