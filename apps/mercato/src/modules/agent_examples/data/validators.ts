@@ -44,3 +44,43 @@ export const triageBatchResult = z.object({
 })
 
 export type TriageBatchResult = z.infer<typeof triageBatchResult>
+
+/**
+ * Input of the `support.policy_check` example agent: the support reply to
+ * check and the policy-set version every cited policy must exist at.
+ */
+export const policyCheckInput = z.object({
+  reply: z.string().min(1).max(8000),
+  policySetVersion: z.string().min(1).max(50),
+})
+
+export type PolicyCheckInput = z.infer<typeof policyCheckInput>
+
+/**
+ * Result schema for the `support.policy_check` example agent. Each finding
+ * names the policy the reply breaks and quotes the offending reply text; the
+ * agent's integrity rules verify both (see `lib/policyCheckIntegrity.ts`).
+ */
+export const policyCheckResult = z.object({
+  kind: z.literal('research'),
+  data: z.object({
+    findings: z.array(
+      z.object({
+        policyId: z.string().min(1),
+        explanation: z.string().min(1),
+        evidence: z
+          .array(
+            z.object({
+              quote: z.string().min(1),
+              start: z.number().int().min(0),
+              end: z.number().int().min(0),
+            }),
+          )
+          .min(1),
+        confidence: z.number().min(0).max(1),
+      }),
+    ),
+  }),
+})
+
+export type PolicyCheckResult = z.infer<typeof policyCheckResult>
