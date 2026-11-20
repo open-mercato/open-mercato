@@ -152,5 +152,6 @@ export async function mountMyWorkBrowserFixture(
   const card = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Today’s entries', exact: true }) })
   const table = card.getByRole('table')
   const tableContainer = card.locator(':scope > div').filter({ has: page.getByRole('table') })
-  return { card, table, tableContainer }
+  const tableScroller = table.locator('xpath=..')
+  return { card, table, tableContainer, tableScroller }
 }
