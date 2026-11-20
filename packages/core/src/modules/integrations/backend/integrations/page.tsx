@@ -138,8 +138,9 @@ function LogSparkline({ counts, className }: { counts: number[]; className?: str
 export default function IntegrationsMarketplacePage() {
   const [data, setData] = React.useState<ListResponse | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
-  const [searchInput, setSearchInput] = useUrlSearchState()
-  const [debouncedSearch, setDebouncedSearch] = React.useState(() => searchInput.trim())
+  const [debouncedSearch, setDebouncedSearch] = useUrlSearchState()
+  const [searchInput, setSearchInput] = React.useState(debouncedSearch)
+  const appliedSearchRef = React.useRef(debouncedSearch)
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [sortField, setSortField] = React.useState<'title' | 'category' | 'enabledAt' | 'healthStatus'>('title')
   const [sortOrder, setSortOrder] = React.useState<'asc' | 'desc'>('asc')
@@ -152,9 +153,19 @@ export default function IntegrationsMarketplacePage() {
   })
 
   React.useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchInput.trim()), 300)
+    if (debouncedSearch === appliedSearchRef.current) return
+    appliedSearchRef.current = debouncedSearch
+    setSearchInput(debouncedSearch)
+  }, [debouncedSearch])
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      const next = searchInput.trim()
+      appliedSearchRef.current = next
+      setDebouncedSearch(next)
+    }, 300)
     return () => clearTimeout(timer)
-  }, [searchInput])
+  }, [searchInput, setDebouncedSearch])
 
   const selectedCategory = React.useMemo(() => getIntegrationMarketplaceCategory(filterValues), [filterValues])
 
