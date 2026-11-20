@@ -171,6 +171,27 @@ describe('CrudForm section registry generation', () => {
     })).rejects.toThrow(/Duplicate leaf default provider id/)
   })
 
+  it('discovers sink declarations through the server registry and rejects mismatched owners', async () => {
+    const sinkDeclaration = `
+      export const crudFormSections = defineCrudFormSections({
+        sinks: [defineCrudFormSectionSink({
+          fact: { id: 'example.brand', roundTripId: 'example.brand@v1', ownerModuleId: 'example' },
+          schema: serverOnlySchema,
+          persist: serverOnlyPersistence,
+        })],
+      })
+    `
+    const source = 'app/src/modules/example/form-sections.ts'
+    write(source, sinkDeclaration)
+    await generateModuleRegistryApp({ resolver: resolver([{ id: 'example', from: '@app' }]), quiet: true })
+    expect(generated('facts')).toContain('{ moduleId: "example", sections: sections0 }')
+    expect(generated('runtime')).not.toMatch(/example.brand|serverOnly|\/form-sections"/)
+    write(source, sinkDeclaration.replace("ownerModuleId: 'example'", "ownerModuleId: 'other'"))
+    await expect(generateModuleRegistryApp({
+      resolver: resolver([{ id: 'example', from: '@app' }]), quiet: true,
+    })).rejects.toThrow(/sink "example.brand" must be declared in its owning module/)
+  })
+
   it('reads standalone npm dist .js declarations and runtime exports without a source mirror', async () => {
     const base = 'package/dist/modules/installed'
     write(`${base}/form-sections.js`, declaration('installed.notes')

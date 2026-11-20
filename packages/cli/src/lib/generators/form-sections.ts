@@ -36,6 +36,7 @@ type ModuleSections = {
   importPath: string
   descriptors: Descriptor[]
   leafDefaultProviderIds: readonly string[]
+  sinkIds: readonly string[]
   clientHosts: readonly unknown[]
   contributedOverrides: unknown
 }
@@ -216,6 +217,21 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
     literalData(factProperty.initializer, invalid)
     return readIdentity(fieldsOf(factProperty.initializer, invalid), invalid).id
   }).sort(compareIds)
+  const sinkIds = arrayField(fields, 'sinks', invalid).map((entry) => {
+    const declaration = unwrap(helperArgument(entry, 'defineCrudFormSectionSink', invalid))
+    if (!ts.isObjectLiteralExpression(declaration)) return invalid('expected a sink declaration object')
+    const fact = declaration.properties.find((property): property is ts.PropertyAssignment =>
+      ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))
+      && property.name.text === 'fact')
+    if (!fact) return invalid('missing literal sink fact')
+    const properties = fieldsOf(fact.initializer, invalid)
+    const { id } = readIdentity(properties, invalid)
+    literalData(fact.initializer, invalid)
+    if (literalValue(properties.get('ownerModuleId'), 'ownerModuleId', invalid) !== module.modId) {
+      return invalid(`sink "${id}" must be declared in its owning module`)
+    }
+    return id
+  }).sort(compareIds)
   const descriptors: Descriptor[] = []
   const clientHosts: Array<{ id: string; roundTripId: string; hostResourceKind?: string; alternatives: unknown[] }> = []
   const factIds = new Set<string>()
@@ -257,6 +273,7 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
       ? literalData(fields.get('contributedOverrides')!, invalid)
       : {},
     leafDefaultProviderIds,
+    sinkIds,
     descriptors: descriptors.sort((left, right) => compareIds(left.id, right.id)),
   }
 }
@@ -357,7 +374,13 @@ export function writeCrudFormSectionRegistries(options: {
   const modules = orderedSectionModules(sections, options.identities, options.requiresByModule)
   const modulesById = new Map<string, string>()
   const defaultModulesById = new Map<string, string>()
+  const sinkModulesById = new Map<string, string>()
   for (const module of modules) {
+    for (const id of module.sinkIds) {
+      const owner = sinkModulesById.get(id)
+      if (owner) throw new Error(`[generate] Duplicate CrudForm section sink id "${id}" in "${owner}" and "${module.moduleId}"`)
+      sinkModulesById.set(id, module.moduleId)
+    }
     for (const id of module.leafDefaultProviderIds) {
       const owner = defaultModulesById.get(id)
       if (owner) {

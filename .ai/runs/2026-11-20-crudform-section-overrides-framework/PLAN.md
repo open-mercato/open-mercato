@@ -20,7 +20,7 @@ Status: in-progress
 | 2 | 2.4 | Enforce required leaves and scoped default providers | dispatch | done | db7c2bde2d |
 | 2 | 2.5 | Compose ambient command lifecycle with the final-input transaction boundary | group:A | done | 744cddf999 |
 | 2 | 2.5-review-fix | Keep create-only entity writes and pending effects within the ambient lifecycle | inline | done | bf3c4b1d7a |
-| 2 | 2.6 | Add transactional sink discovery, lifecycles and read-back | group:A | todo | — |
+| 2 | 2.6 | Add transactional sink discovery, lifecycles and read-back | group:A | done | this commit |
 | 2 | 2.7 | Derive section hosts for qualifying CRUD routes | dispatch | todo | — |
 | 2 | 2.8 | Deliver outbox revisions with monotonic fencing and retry | dispatch | todo | — |
 | 3 | 3.1 | Introduce optional explicit CrudForm identity and composition props | dispatch | todo | — |

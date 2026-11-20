@@ -27,6 +27,13 @@ import {
   OPTIMISTIC_LOCK_HEADER_NAME,
 } from '../optimistic-lock-headers'
 import { crudFormSectionHostKey } from './composition'
+import {
+  appendCrudFormSectionSinkSnapshot,
+  persistCrudFormSectionSink,
+  prepareCrudFormSectionSinks,
+  reportCrudFormSectionSinkFailure,
+  type PreparedCrudFormSectionSinks,
+} from './extension-sinks'
 import { getCrudFormSectionManifest, type CrudFormSectionAcceptedPolicy } from './manifest'
 import { parseCrudFormSectionPolicyHeaders } from './policy-headers'
 import { decodeCrudFormSectionPolicyToken, encodeCurrentCrudFormSectionPolicyToken } from './policy-token'
@@ -80,6 +87,13 @@ type AuthorizedContext = {
 type MutableCommandContext = Required<Pick<CommandRuntimeContext,
   'transactionalEm' | 'transactionLifetime' | 'beforeTransactionalWrite'>>
 
+type ExtensionAuditService = {
+  updateTransactionalContext(
+    input: { id: string; tenantId: string; organizationId: string | null; context: PayloadRecord },
+    em: EntityManager,
+  ): Promise<boolean>
+}
+
 export type CrudFormSectionMutationFacadeOptions<Payload extends PayloadRecord, Result> = {
   request: Request
   auth: AuthContext
@@ -107,7 +121,7 @@ export type CrudFormSectionMutationFacadeOptions<Payload extends PayloadRecord, 
   }>
   hiddenLeafErrorPath?(error: unknown, context: AuthorizedContext): string | undefined
   validateDomain(payload: Payload, context: AuthorizedContext): void | Promise<void>
-  validateFields?(payload: Payload, context: AuthorizedContext): Promise<Record<string, string>>
+  validateFields?(payload: Payload & { extensions?: PayloadRecord }, context: AuthorizedContext): Promise<Record<string, string>>
   projectFinalInput(input: unknown, context: AuthorizedContext): (CrudFormSectionMutationIdentity & {
     payload: PayloadRecord
     targetOrganizationId: string | null
@@ -123,8 +137,18 @@ export type CrudFormSectionMutationFacadeOptions<Payload extends PayloadRecord, 
   }): Promise<Result | AmbientCommandExecution<Result>>
 } & (
   | { operation: 'create'; resolveCommittedResourceId(result: Result): string }
-  | { operation: 'update' | 'delete' }
+  | { operation: 'update' }
+  | { operation: 'delete'; deleteMode?: 'hard' | 'soft' }
 )
+
+function withExtensions<Payload extends PayloadRecord>(payload: Payload, envelope: PayloadRecord): Payload & { extensions?: PayloadRecord } {
+  return Object.keys(envelope).length ? { ...payload, extensions: envelope } : payload
+}
+
+function sinkVersions(sinks: PreparedCrudFormSectionSinks): Map<string, string> {
+  return new Map(sinks.work.flatMap(({ runtime, expectedUpdatedAt }) =>
+    expectedUpdatedAt ? [[runtime.fact.id, expectedUpdatedAt] as const] : []))
+}
 
 function policyDiagnosticAddress({ hostId, formVariant, formOperation }: HostAddress): HostAddress {
   return { hostId, formVariant, formOperation }
@@ -438,8 +462,26 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
   const context = Object.freeze({ auth, container, scope, route, policy })
   const callbackContext = Object.freeze({ ...context, route: snapshotRoute(route) })
   const surface = checkPolicyIdentity(options, context, fingerprint, requestHeaders)
-  const initial = await readPayload(request, options.maxBodyBytes)
-  assertActivePayload(initial, context)
+  const acceptedSinks = policy.sinks ?? []
+  const sinkRuntimes = manifest.sinkRuntimes ?? new Map()
+  if (options.operation === 'delete' && acceptedSinks.length && !options.deleteMode) {
+    return rejectPolicy(route.address, 'extension_sink_delete_mode_missing')
+  }
+  const hardDeleteSinks = options.operation === 'delete' && options.deleteMode === 'hard'
+    ? acceptedSinks.flatMap(({ fact }) => {
+      const runtime = sinkRuntimes.get(fact.id)
+      if (!runtime || runtime.fact.roundTripId !== fact.roundTripId) {
+        return rejectPolicy(route.address, 'extension_sink_delete_unavailable')
+      }
+      return runtime.onHostDeleted ? [runtime] : []
+    })
+    : []
+  const splitPayload = (payload: PayloadRecord) => prepareCrudFormSectionSinks({
+    payload, accepted: acceptedSinks, runtimes: sinkRuntimes,
+    allowWrites: surface.kind === 'parent-submit', creating: options.operation === 'create',
+  })
+  const initial = await splitPayload(await readPayload(request, options.maxBodyBytes))
+  assertActivePayload(initial.hostPayload, context)
   if (surface.kind === 'parent-submit' && !policy.surface.ownershipFacts.some(({ payloadPaths, customFieldOwnership }) =>
     payloadPaths.length || customFieldOwnership.mode === 'all'
       || (customFieldOwnership.mode === 'ids' && customFieldOwnership.ids.length),
@@ -447,7 +489,7 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
     return rejectPolicy(route.address, 'parent_submit_not_writable')
   }
   const requiredLeaves = policy.requiredLeaves.filter((leaf) => leaf.mutationSurfaceId === surface.id)
-  await options.prevalidateProjectedPayload?.(structuredClone(initial), callbackContext)
+  await options.prevalidateProjectedPayload?.(structuredClone(withExtensions(initial.hostPayload, initial.extensionEnvelope)), callbackContext)
   const userFeatures = await rbac.getGrantedFeatures(actorId, scope)
   const guards = [...getAllMutationGuardInstances()]
   const legacyGuard = bridgeLegacyGuard(container)
@@ -482,6 +524,7 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
     resourceId: string | undefined
     callbacks: Awaited<ReturnType<typeof runMutationGuards>>['afterSuccessCallbacks']
     guardInput: MutationGuardInput
+    afterCommitSinks: PreparedCrudFormSectionSinks['work']
   } | undefined
   try {
     await withAtomicFlush(em, [async () => {
@@ -494,7 +537,7 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
         : null
       if (needsLockedRecord && !lockedRecord) return rejectUnauthorized()
       const prepared = await prepareCrudFormRequiredLeaves({
-        payload: initial, leaves: requiredLeaves, lockedRecord: lockedRecord ?? null, scope,
+        payload: initial.hostPayload, leaves: requiredLeaves, lockedRecord: lockedRecord ?? null, scope,
         transactionalEm: em, providers: manifest.leafDefaultProviders,
       })
       if (!prepared.ok) return hiddenLeafError(route.address, prepared.leaf)
@@ -504,7 +547,8 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
         return rejectPolicy(route.address, 'server_payload_declaration_mismatch')
       }
 
-      async function validate(value: PayloadRecord): Promise<Payload> {
+      async function validate(value: PayloadRecord, extensionEnvelope: PayloadRecord): Promise<Payload> {
+        if (Object.hasOwn(value, 'extensions')) return rejectPolicy(route.address, 'extension_sink_in_host_payload')
         assertActivePayload(value, context, serverValues)
         const parsed = await options.bodySchema.safeParseAsync(value)
         if (!parsed.success) {
@@ -512,6 +556,7 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
           if (hidden) return hiddenLeafError(executionContext.route.address, hidden)
           throw new CrudHttpError(400, { error: 'invalid_request' })
         }
+        if (Object.hasOwn(parsed.data, 'extensions')) return rejectPolicy(route.address, 'extension_sink_in_host_payload')
         const changedHiddenLeaf = requiredLeaves.find((leaf): leaf is HiddenLeaf => leaf.mode !== 'section'
           && !isDeepStrictEqual(readCrudFormRequiredLeaf(parsed.data, leaf.payloadPath), serverValues.get(leaf.payloadPath)))
         if (changedHiddenLeaf) return hiddenLeafError(executionContext.route.address, changedHiddenLeaf)
@@ -521,12 +566,14 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
           throw new CrudHttpError(400, { error: 'invalid_request' })
         }
         await options.validateDomain(parsed.data, executionContext)
-        const fieldErrors = await options.validateFields?.(parsed.data, executionContext)
+        const fieldErrors = await options.validateFields?.(withExtensions(parsed.data, extensionEnvelope), executionContext)
         if (fieldErrors && Object.keys(fieldErrors).length) throw guardRejection({ fieldErrors })
         return parsed.data
       }
 
-      let payload = await validate(additional?.payload ?? prepared.payload)
+      let sinks = initial
+      let payload = await validate(additional?.payload ?? prepared.payload, sinks.extensionEnvelope)
+      const guardedPayload = withExtensions(payload, sinks.extensionEnvelope)
       const guardInput: MutationGuardInput = {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
@@ -536,16 +583,21 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
         operation: options.operation,
         requestMethod: request.method,
         requestHeaders: new Headers(requestHeaders),
-        mutationPayload: payload,
+        mutationPayload: guardedPayload,
       }
-      const beforeGuardPayload = structuredClone(payload)
+      const beforeGuardPayload = structuredClone(guardedPayload)
+      const beforeGuardVersions = sinkVersions(sinks)
       const guardResult = await runMutationGuards(guards, guardInput, { userFeatures })
       if (!guardResult.ok) {
         logger.warn('CrudForm section mutation guard rejected', { ...policyDiagnosticAddress(route.address), status: guardResult.errorStatus })
         throw guardRejection(guardResult.errorBody ?? {})
       }
-      if (guardResult.modifiedPayload || !isDeepStrictEqual(beforeGuardPayload, payload)) {
-        payload = await validate(guardResult.modifiedPayload ?? payload)
+      if (guardResult.modifiedPayload || !isDeepStrictEqual(beforeGuardPayload, guardedPayload)) {
+        sinks = await splitPayload(guardResult.modifiedPayload ?? guardedPayload)
+        if (!isDeepStrictEqual(beforeGuardVersions, sinkVersions(sinks))) {
+          return rejectPolicy(route.address, 'extension_sink_version_rewritten')
+        }
+        payload = await validate(sinks.hostPayload, sinks.extensionEnvelope)
       }
       await options.beforeExecute?.(payload, executionContext)
       const expectedUpdatedAt = expectedVersion(requestHeaders, surface, route.address, options.operation)
@@ -566,8 +618,16 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
             || projected.expectedUpdatedAt !== expectedUpdatedAt) {
           return rejectPolicy(route.address, 'final_resource_binding_mismatch')
         }
-        const normalized = await validate(projected.payload)
+        if (Object.hasOwn(projected.payload, 'extensions')) {
+          return rejectPolicy(route.address, 'extension_sink_in_host_payload')
+        }
+        const normalizedSinks = await splitPayload(withExtensions(projected.payload, sinks.extensionEnvelope))
+        if (!isDeepStrictEqual(sinks.extensionEnvelope, normalizedSinks.extensionEnvelope)) {
+          return rejectPolicy(route.address, 'final_extension_payload_not_normalized')
+        }
+        const normalized = await validate(normalizedSinks.hostPayload, normalizedSinks.extensionEnvelope)
         if (!isDeepStrictEqual(normalized, projected.payload)) return rejectPolicy(route.address, 'final_payload_not_normalized')
+        sinks = normalizedSinks
         verified = true
       }
       const value = await options.execute({
@@ -576,7 +636,7 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
       })
       if (!verified || !ownsTransactionLifetime(em, transactionLifetime) || !em.isInTransaction()) return rejectPolicy(route.address, 'transactional_input_unverified')
       let resourceId = route.target.resourceId
-      if (options.operation === 'create' && guardResult.afterSuccessCallbacks.length) {
+      if (options.operation === 'create' && (guardResult.afterSuccessCallbacks.length || sinks.work.length)) {
         try {
           const tentative = isAmbientCommandExecution(value) ? value.tentativeResult : value
           const created = resourceIdSchema.safeParse(options.resolveCommittedResourceId(tentative))
@@ -585,7 +645,45 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
           resourceId = undefined
         }
       }
-      committed = { value, resourceId, callbacks: guardResult.afterSuccessCallbacks, guardInput }
+      const atomicSinks = sinks.work.filter(({ runtime }) => runtime.fact.atomicity === 'host-transaction')
+      const afterCommitSinks = sinks.work.filter(({ runtime }) => runtime.fact.atomicity === 'after-commit')
+      if (atomicSinks.length || hardDeleteSinks.length) {
+        if (!resourceId || !isAmbientCommandExecution(value)) {
+          return rejectPolicy(route.address, 'extension_sink_host_result_unavailable')
+        }
+        const log = value.logEntry
+        if (!log?.id || log.commandId !== surface.delegatedTarget.id
+            || log.resourceId !== resourceId || log.resourceKind !== route.target.resourceKind
+            || log.tenantId !== scope.tenantId || log.organizationId !== scope.organizationId
+            || (log.undoToken && !value.supportsAtomicUndo)) {
+          return rejectPolicy(route.address, 'extension_sink_audit_unavailable')
+        }
+        if (!container.hasRegistration('actionLogService')) {
+          return rejectPolicy(route.address, 'extension_sink_audit_unavailable')
+        }
+        const audit = container.resolve<ExtensionAuditService>('actionLogService')
+        if (typeof audit.updateTransactionalContext !== 'function') {
+          return rejectPolicy(route.address, 'extension_sink_audit_unavailable')
+        }
+        const sinkContext = { hostResourceId: resourceId, em, scope, auth, container }
+        for (const work of atomicSinks) {
+          if (options.operation === 'delete') return rejectPolicy(route.address, 'extension_sink_delete_payload_invalid')
+          const snapshot = await persistCrudFormSectionSink(work, sinkContext, options.operation)
+          appendCrudFormSectionSinkSnapshot(log, work.runtime, resourceId, snapshot)
+        }
+        for (const runtime of hardDeleteSinks) {
+          await runtime.lockRow?.(sinkContext)
+          const snapshot = await runtime.onHostDeleted!(sinkContext)
+          appendCrudFormSectionSinkSnapshot(log, runtime, resourceId, snapshot)
+        }
+        if (!log.contextJson || !await audit.updateTransactionalContext({
+          id: log.id, tenantId: scope.tenantId, organizationId: scope.organizationId, context: log.contextJson,
+        }, em)) return rejectPolicy(route.address, 'extension_sink_audit_unavailable')
+      }
+      if (afterCommitSinks.length && (!resourceId || !isRecord(isAmbientCommandExecution(value) ? value.tentativeResult : value))) {
+        return rejectPolicy(route.address, 'extension_sink_host_result_unavailable')
+      }
+      committed = { value, resourceId, callbacks: guardResult.afterSuccessCallbacks, guardInput, afterCommitSinks }
     }], { transaction: true, label: 'crud-form-section-mutation' })
   } catch (error) {
     if (isCrudHttpError(error) && error.body.code === 'crud_form_section_hidden_field_invalid') throw error
@@ -610,5 +708,20 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
       }
     }
   }
-  return isAmbientCommandExecution(committed.value) ? committed.value.finalizedResult() : committed.value
+  const result = isAmbientCommandExecution(committed.value) ? committed.value.finalizedResult() : committed.value
+  const extensionWarnings = []
+  if (resourceId && options.operation !== 'delete') {
+    const operation = options.operation
+    for (const work of committed.afterCommitSinks) {
+      try {
+        const sinkEm = container.resolve<EntityManager>('em').fork()
+        await withAtomicFlush(sinkEm, [async () => {
+          await persistCrudFormSectionSink(work, { hostResourceId: resourceId, em: sinkEm, scope, auth, container }, operation)
+        }], { transaction: true, label: 'crud-form-section-after-commit-sink' })
+      } catch {
+        extensionWarnings.push(reportCrudFormSectionSinkFailure(work.runtime))
+      }
+    }
+  }
+  return extensionWarnings.length && isRecord(result) ? { ...result, extensionWarnings } : result
 }

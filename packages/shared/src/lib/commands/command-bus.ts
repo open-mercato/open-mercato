@@ -34,6 +34,9 @@ import { CommandInterceptorError } from './errors'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
 import { withAtomicFlush } from './flush'
+import { readCrudFormSectionSinkSnapshots, restoreCrudFormSectionSinks } from '../crud/form-sections/extension-sinks'
+import { getCrudFormSectionManifest } from '../crud/form-sections/manifest'
+import { CrudHttpError } from '../crud/errors'
 import { getAmbientAuditCorrelation } from './auditCorrelationScope'
 import { getTelemetryRuntime, reportTelemetryError } from '../telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -390,6 +393,9 @@ export class CommandBus {
       })
     }
     const handler = await this.resolveHandler<TInput, TResult>(commandId)
+    if (replayLogEntry && readCrudFormSectionSinkSnapshots(replayLogEntry).length) {
+      throw new CrudHttpError(409, { error: 'extension_policy_mismatch', code: 'extension_policy_mismatch' })
+    }
     const isAtomicReplay = replayLogEntry !== null && handler.atomicReplay === true
     const allInterceptors = getAllCommandInterceptorInstances()
     let interceptorMetadata = new Map<string, Record<string, unknown>>()
@@ -672,6 +678,9 @@ export class CommandBus {
         [ambientCommandExecutionMarker]: true as const,
         tentativeResult: result,
         logEntry,
+        ...(handler.atomicReplay === true && handler.undo && this.isUndoable(handler)
+          ? { supportsAtomicUndo: true as const }
+          : {}),
         finalizedResult() {
           if (ambientOutcome !== 'committed') {
             throw new Error('[internal] Ambient command has no committed result')
@@ -710,6 +719,23 @@ export class CommandBus {
     }
 
     const isAtomicReplay = handler.atomicReplay === true
+    const sinkSnapshots = readCrudFormSectionSinkSnapshots(log)
+    const sinkAuth = ctx.auth
+    const sinkTenant = log.tenantId
+    const sinkOrganization = log.organizationId ?? null
+    if (sinkSnapshots.length) {
+      const organizationScope = ctx.organizationScope
+      const selectedId = organizationScope ? organizationScope.selectedId : ctx.selectedOrganizationId ?? sinkAuth?.orgId
+      const restrictions = [ctx.organizationIds, organizationScope?.filterIds, organizationScope?.allowedIds]
+        .filter((ids): ids is string[] => Array.isArray(ids))
+      const scopedOrganization = restrictions.length
+        ? restrictions.every((ids) => ids.length && (sinkOrganization === null || ids.includes(sinkOrganization)))
+        : (organizationScope && selectedId === null) || sinkOrganization === selectedId
+      if (!isAtomicReplay || !sinkAuth || !sinkTenant || sinkAuth.tenantId !== sinkTenant || !scopedOrganization
+          || (organizationScope && (organizationScope.tenantId !== sinkTenant || organizationScope.selectionRejected))) {
+        throw new CrudHttpError(409, { error: 'extension_policy_mismatch', code: 'extension_policy_mismatch' })
+      }
+    }
     const allInterceptors = getAllCommandInterceptorInstances()
     let undoInterceptorMetadata = new Map<string, Record<string, unknown>>()
     let userFeatures: string[] = []
@@ -772,6 +798,16 @@ export class CommandBus {
         ctx: replayCtx,
         logEntry: log,
       })
+      if (sinkSnapshots.length && replayEm && sinkTenant && sinkAuth) {
+        await restoreCrudFormSectionSinks({
+          snapshots: sinkSnapshots,
+          runtimes: getCrudFormSectionManifest().sinkRuntimes ?? new Map(),
+          context: {
+            auth: sinkAuth, scope: { tenantId: sinkTenant, organizationId: sinkOrganization },
+            em: replayEm, container: replayCtx.container,
+          },
+        })
+      }
       const traceLog = this.buildUndoTraceLog(log, replayCtx)
       if (replayEm) {
         await service.markUndone(log.id, traceLog, replayEm)

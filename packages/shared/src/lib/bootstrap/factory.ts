@@ -1,4 +1,5 @@
-import { registerCrudFormSectionManifest } from '../crud/form-sections/manifest'
+import { buildCrudFormSectionSinkEnrichers } from '../crud/form-sections/extension-sinks'
+import { getCrudFormSectionManifest, registerCrudFormSectionManifest } from '../crud/form-sections/manifest'
 import type { BootstrapData, BootstrapOptions } from './types'
 import { registerOrmEntities } from '../db/mikro'
 import { registerAppDiRegistrar, registerDiRegistrars } from '../di/container'
@@ -112,6 +113,8 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
 
     if (data.crudFormSectionServerModules) {
       registerCrudFormSectionManifest(data.crudFormSectionServerModules)
+      const sinkEnrichers = buildCrudFormSectionSinkEnrichers(getCrudFormSectionManifest())
+      if (sinkEnrichers.length) registerResponseEnrichers([...(data.enricherEntries ?? []), ...sinkEnrichers])
     }
 
     // === 6f.1. Command loaders (for lazy command handler registration) ===

@@ -17,6 +17,7 @@ import {
   deriveActionLogProjection,
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   TenantDataEncryptionService,
   parseDecryptedFieldValue,
@@ -273,6 +274,21 @@ export class ActionLogService {
     if (transactionalEm) return this.decryptDetachedEntry(log)
     await this.decryptEntries(log)
     return log
+  }
+
+  async updateTransactionalContext(
+    input: { id: string; tenantId: string; organizationId: string | null; context: Record<string, unknown> },
+    em: EntityManager,
+  ): Promise<boolean> {
+    if (!em.isInTransaction()) return false
+    const { id, tenantId, organizationId, context } = input
+    const entry = await findOneWithDecryption(em, ActionLog, { id, tenantId, organizationId }, undefined, {
+      tenantId, organizationId, encryptionService: this.tenantEncryptionService,
+    })
+    if (!entry) return false
+    entry.contextJson = context
+    await em.flush()
+    return true
   }
 
   private parseCreateInput(input: ActionLogCreateInput): ActionLogCreateInput {

@@ -4,11 +4,12 @@ import { CommandBus, registerCommand, unregisterCommand } from '../../../command
 import { registerCommandInterceptors } from '../../../commands/command-interceptor-store'
 import { registerTelemetryErrorReporter } from '../../../telemetry/runtime'
 import type { CrudFormSectionMutationSurfaceFact } from '../../../../modules/form-section-facts'
-import type { CrudFormSectionHostProvider, CrudFormSectionServerModule } from '../../../../modules/form-sections'
+import { defineCrudFormSectionSink, type CrudFormSectionHostProvider, type CrudFormSectionServerModule, type CrudFormSectionSink } from '../../../../modules/form-sections'
 import { isUniqueViolation } from '../../errors'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '../../optimistic-lock-headers'
 import { registerMutationGuards } from '../../mutation-guard-store'
 import { crudFormSectionHostKey } from '../composition'
+import { buildCrudFormSectionSinkEnrichers, readCrudFormSectionSinkSnapshots } from '../extension-sinks'
 import { getCrudFormSectionManifest, registerCrudFormSectionManifest } from '../manifest'
 import { runCrudFormSectionMutation, type CrudFormSectionMutationFacadeOptions, type CrudFormSectionMutationIdentity } from '../mutation-facade'
 import { buildCrudFormSectionPolicyHeaders, crudFormSectionPolicyHeaderNames, parseCrudFormSectionPolicyHeaders } from '../policy-headers'
@@ -48,6 +49,8 @@ function addManifest(
   proof = true,
   selected = surface,
   readLockedRecord?: CrudFormSectionHostProvider['readLockedRecord'],
+  sink?: CrudFormSectionSink,
+  pairedDelete?: CrudFormSectionMutationSurfaceFact,
 ): void {
   if (readLockedRecord) registerMutationGuards([{ moduleId: 'example', guards: [{
     id: 'example.parent-domain', targetEntity: 'example.product', operations: ['update'],
@@ -61,6 +64,17 @@ function addManifest(
         ...address, schemaId: 'exampleProductUpdate', payloadPath: 'code', coverage: ['preserve-from-record'],
       }],
       extensionSinkSupport: 'none',
+    }],
+  }] }])
+  if (sink) registerMutationGuards([{ moduleId: 'example', guards: [{
+    id: 'example.sink-guard', targetEntity: 'example.product', operations: ['update'],
+    validate: async () => ({ ok: true }),
+    crudFormSectionCapabilities: [{
+      ...address, capabilityId: sink.capabilityId, protocol: 'crud-form-sections/v1',
+      roundTripId: 'example.display@v1', modes: ['extension-sink'],
+      payloadPaths: sink.fact.payloadPaths, customFieldOwnership: { mode: 'none' },
+      mutationSurfaces: [selected], providedDataContractIds: [], allowNoopSubmit: false,
+      requiredLeaves: [], extensionSinkSupport: sink.fact.atomicity === 'after-commit' ? 'after-commit' : 'host-transaction',
     }],
   }] }])
   const section = { ...address, sectionId: 'notes' }
@@ -87,9 +101,12 @@ function addManifest(
             id: 'example.with-notes',
             orderedSectionIds: ['details', 'notes'],
             contributionIds: [contributionId],
-            mutationSurfaceIds: [selected.id],
+            mutationSurfaceIds: [selected.id, ...(pairedDelete ? [pairedDelete.id] : [])],
+            ...(sink && { ownershipFacts: [...base.ownershipFacts, {
+              sectionId: 'notes', payloadPaths: sink.fact.payloadPaths, customFieldOwnership: { mode: 'none' },
+            }] }),
           },
-          mutationSurfaces: [selected],
+          mutationSurfaces: [selected, ...(pairedDelete ? [pairedDelete] : [])],
           ...(readLockedRecord && {
             preservedLeafPaths: ['code'],
             requiredLeafLabelKeys: { code: 'example.products.fields.code' },
@@ -102,15 +119,16 @@ function addManifest(
         requireFeatures: [requiredFeature],
         authorizeHost: authority,
         readLockedRecord,
-        mutationProviders: proof ? [{
-          mutationSurfaceId: selected.id,
-          delegatedTarget: selected.delegatedTarget,
+        mutationProviders: proof ? [selected, ...(pairedDelete ? [pairedDelete] : [])].map((candidate) => ({
+          mutationSurfaceId: candidate.id,
+          delegatedTarget: candidate.delegatedTarget,
           finalInput: 'transactional-final-input/v1',
-          ...(selected.optimisticLock === 'none' ? {} : {
+          ...(sink && { extensionSinkSupport: sink.fact.atomicity === 'after-commit' ? 'after-commit' : 'host-transaction' }),
+          ...(candidate.optimisticLock === 'none' ? {} : {
             atomicity: 'compare-and-swap' as const,
             contenderCoverage: ['update/update', 'update/delete'] as const,
           }),
-        }] : [],
+        })) : [],
       }],
       contributedOverrides: { 'example.product/showcase/update/notes': { operation: 'add', contributionId } },
       contributionFacts: [{
@@ -118,8 +136,13 @@ function addManifest(
         roundTripId: 'example.display@v1',
         address: section,
         operation: 'add',
-        requiredCapabilities: [{ capabilityId: 'example.display-policy', protocol: 'crud-form-sections/v1', modes: ['display-only'] }],
+        requiredCapabilities: sink ? [{
+          capabilityId: sink.capabilityId, protocol: 'crud-form-sections/v1', modes: ['extension-sink'],
+          payloadPaths: sink.fact.payloadPaths, mutationSurfaceIds: [selected.id],
+          allowAfterCommitSink: sink.fact.atomicity === 'after-commit',
+        }] : [{ capabilityId: 'example.display-policy', protocol: 'crud-form-sections/v1', modes: ['display-only'] }],
       }],
+      sinks: sink ? [sink] : [],
       displayPolicies: [{
         ...address,
         capabilityId: 'example.display-policy',
@@ -198,7 +221,7 @@ function fixture(
     getGrantedFeatures: jest.fn(async () => ['example.*']),
   }
   container.register({ em: asValue({ fork: () => em }), rbacService: asValue(rbac) })
-  const path = selected.kind === 'parent-submit' ? '/api/example/products/product-1'
+  const path = selected.kind === 'parent-submit' || selected.kind === 'parent-delete' ? '/api/example/products/product-1'
     : targetId ? `/api/example/products/product-1/offers/${targetId}` : '/api/example/products/product-1/offers'
   const request = new Request('https://example.invalid' + path, {
     method: selected.guardedFacade.method,
@@ -232,7 +255,7 @@ function fixture(
   const options: FacadeOptions = selected.requestOperation === 'create'
     ? { ...common, operation: 'create', resolveCommittedResourceId: ({ id }) => id }
     : { ...common, operation: 'update' }
-  return { options, request, container, route, events, rbac, execute }
+  return { options, request, container, route, events, rbac, execute, em }
 }
 
 beforeEach(() => {
@@ -679,5 +702,233 @@ describe('real command interception at the write boundary', () => {
     })).resolves.toEqual({ id: 'response-id' })
     expect(afterSuccess).toHaveBeenCalledWith(expect.objectContaining({ resourceId: 'created-offer' }))
     expect(setup.events).toEqual(['begin', 'existing-hook', 'write', 'flush', 'commit', 'after-execute', 'after-success'])
+  })
+})
+
+describe('scoped extension sinks', () => {
+  const parent: CrudFormSectionMutationSurfaceFact = {
+    ...surface,
+    id: 'example.product-extension-update',
+    kind: 'parent-submit',
+    guardedFacade: { method: 'PATCH', routePattern: '/example/products/[productId]' },
+    delegatedTarget: { kind: 'command', id: 'example.products.extension-update' },
+    mutationResourceKind: 'example.product',
+    resourceBindingIds: [],
+  }
+  const remove: CrudFormSectionMutationSurfaceFact = {
+    ...parent,
+    id: 'example.product-extension-delete',
+    kind: 'parent-delete',
+    requestOperation: 'delete',
+    guardedFacade: { ...parent.guardedFacade, method: 'DELETE' },
+    delegatedTarget: { kind: 'command', id: 'example.products.extension-delete' },
+  }
+  const values = { brand: 'ORBIT' }
+  const extensionPayload = { sku: 'VALID', extensions: { example: { ...values, __updatedAt: expectedDate } } }
+
+  function installSink(
+    atomicity: 'host-transaction' | 'after-commit' = 'host-transaction',
+  ) {
+    const undo = jest.fn(async () => undefined)
+    const onHostDeleted = jest.fn(async () => ({ before: values, after: null }))
+    const persist = jest.fn(async (input: Parameters<CrudFormSectionSink['persist']>[0]) => {
+      expect(input.em.isInTransaction()).toBe(true)
+      expect(input.hostResourceId).toBe('product-1')
+      expect(input.scope).toMatchObject({ tenantId: 'tenant', organizationId: 'org' })
+      expect(input.values).toEqual(values)
+      return { before: { brand: 'OLD' }, after: input.values }
+    })
+    const lockRow = jest.fn(async () => ({ values: { brand: 'OLD' }, updatedAt: expectedDate }))
+    const load = jest.fn(async () => ({ values: { ...values, undeclared: 'internal' }, updatedAt: expectedDate }))
+    const sink = defineCrudFormSectionSink({
+      fact: {
+        ...address, id: 'example.product-brand', roundTripId: 'example.product-brand@v1',
+        ownerModuleId: 'example', targetEntityId: 'example.product-brand',
+        payloadPaths: ['extensions.example.brand'], optimisticLock: 'sink-version', atomicity,
+        undo: atomicity === 'after-commit' ? 'unsupported' : 'snapshot',
+      },
+      capabilityId: 'example.product-extension',
+      hostDetailEntityId: 'example.product',
+      schema: z.object({ brand: z.string().min(1) }).strict(),
+      persist, load, lockRow, ...(atomicity === 'host-transaction' ? { undo, onHostDeleted } : {}),
+    })
+    addManifest(true, parent, undefined, sink, atomicity === 'host-transaction' ? remove : undefined)
+    return { undo, persist, lockRow, load, onHostDeleted }
+  }
+
+  function scopedFixture(body: unknown = extensionPayload) {
+    return fixture(parent, 'product-1', policyHeaders('product-1', parent), body)
+  }
+
+  afterEach(() => {
+    unregisterCommand(parent.delegatedTarget.id)
+    unregisterCommand(remove.delegatedTarget.id)
+  })
+
+  it('returns policy conflict for undeclared extension leaves and the flat 422 for sink schema failures', async () => {
+    installSink()
+    const invalidPath = scopedFixture({ sku: 'VALID', extensions: { example: { ...values, hidden: 'INVALID' } } })
+    await expect(runCrudFormSectionMutation(invalidPath.options)).rejects.toMatchObject(expectedMismatch)
+    expect(invalidPath.events).toEqual([])
+    const invalidValue = scopedFixture({ sku: 'VALID', extensions: { example: { brand: '' } } })
+    await expect(runCrudFormSectionMutation(invalidValue.options)).rejects.toMatchObject({
+      status: 422, body: {
+        error: 'validation_failed', code: 'validation_failed',
+        fieldErrors: { 'extensions.example.brand': 'crud_form_section_sink_field_invalid' },
+      },
+    })
+    expect(invalidValue.events).toEqual([])
+  })
+
+  function installHost(setup: ReturnType<typeof scopedFixture>, selected = parent) {
+    const auditUpdate = jest.fn(async (_input: unknown, em: { isInTransaction(): boolean }) => {
+      expect(em.isInTransaction()).toBe(true)
+      setup.events.push('update-audit')
+      return true
+    })
+    const logEntry = { id: 'log-1', tenantId: 'tenant', organizationId: 'org', commandId: selected.delegatedTarget.id,
+      resourceId: 'product-1', resourceKind: 'example.product', undoToken: 'undo-1',
+      contextJson: { host: 'metadata' } as Record<string, unknown> }
+    const markUndone = jest.fn(async () => { setup.events.push('mark-undone') })
+    setup.container.register('actionLogService', asValue({
+      log: jest.fn(async (_input: unknown, em: { isInTransaction(): boolean }) => {
+        expect(em.isInTransaction()).toBe(true)
+        setup.events.push('log')
+        return logEntry
+      }),
+      updateTransactionalContext: auditUpdate,
+      findByUndoToken: jest.fn(async () => logEntry),
+      claimForUndo: jest.fn(async () => true),
+      markUndone,
+    }))
+    registerCommand<OfferCommandInput, Result>({
+      id: selected.delegatedTarget.id,
+      atomicReplay: true,
+      buildLog: () => ({ resourceKind: 'example.product', resourceId: 'product-1' }),
+      async execute(input, context) {
+        if (!context.transactionalEm) throw new Error('[internal] Expected a transaction')
+        await context.beforeTransactionalWrite?.(context.transactionalEm, input)
+        expect(input.payload).toEqual({ sku: 'VALID' })
+        setup.events.push('host-write')
+        return { id: 'product-1' }
+      },
+      undo: async ({ ctx }) => {
+        expect(ctx.transactionalEm?.isInTransaction()).toBe(true)
+        setup.events.push('undo-host')
+      },
+    })
+    registerCommandInterceptors([{ moduleId: 'example', interceptors: [{
+      id: 'example.sink-effects', targetCommand: selected.delegatedTarget.id,
+      afterExecute: async () => { setup.events.push('after-execute'); return {} },
+    }] }])
+    return { auditUpdate, logEntry, markUndone }
+  }
+
+  it('commits the combined host and sink snapshot once and restores it inside scoped host undo', async () => {
+    const { undo, persist } = installSink()
+    const setup = scopedFixture()
+    const { auditUpdate, logEntry, markUndone } = installHost(setup)
+    const validateFields = jest.fn(async () => ({}))
+    await expect(runCrudFormSectionMutation({
+      ...setup.options, ...runThroughCommandBus(setup, parent, 'product-1'), validateFields,
+    })).resolves.toEqual({ id: 'product-1' })
+    expect(validateFields).toHaveBeenCalledWith(extensionPayload, expect.anything())
+    expect(persist).toHaveBeenCalledTimes(1)
+    expect(auditUpdate).toHaveBeenCalledWith({
+      id: 'log-1', tenantId: 'tenant', organizationId: 'org', context: logEntry.contextJson,
+    }, expect.anything())
+    expect(logEntry.contextJson.host).toBe('metadata')
+    expect(readCrudFormSectionSinkSnapshots(logEntry)).toEqual([{
+      owner: 'example', snapshot: expect.objectContaining({
+        sinkId: 'example.product-brand', roundTripId: 'example.product-brand@v1', hostResourceId: 'product-1',
+        before: { brand: 'OLD' }, after: values,
+      }),
+    }])
+    expect(setup.events).toEqual(['begin', 'existing-hook', 'host-write', 'log', 'update-audit', 'flush', 'commit', 'after-execute'])
+    const bus = new CommandBus()
+    setup.container.register('em', asValue(setup.em))
+    const replayContext = {
+      container: setup.container, auth, selectedOrganizationId: 'org', organizationIds: ['org'], organizationScope: null,
+    }
+    await expect(bus.undo('undo-1', { ...replayContext, auth: { ...auth, tenantId: 'different' } })).rejects.toMatchObject(expectedMismatch)
+    await expect(bus.undo('undo-1', { ...replayContext, selectedOrganizationId: null, organizationIds: null,
+      organizationScope: { tenantId: 'tenant', selectedId: null, allowedIds: null, filterIds: null },
+    })).resolves.toBeUndefined()
+    expect(undo).toHaveBeenCalledTimes(1)
+    expect(undo).toHaveBeenCalledWith(expect.objectContaining({
+      hostResourceId: 'product-1', scope: { tenantId: 'tenant', organizationId: 'org' },
+      snapshot: { before: { brand: 'OLD' }, after: values },
+    }))
+    expect(markUndone).toHaveBeenCalledTimes(1)
+  })
+
+  it('rolls the host write back and suppresses effects after a sink failure or own-version conflict', async () => {
+    const { persist, lockRow } = installSink()
+    const failedSink = scopedFixture()
+    const { auditUpdate } = installHost(failedSink)
+    persist.mockRejectedValueOnce(new Error('[internal] Sink write failed'))
+    await expect(runCrudFormSectionMutation({
+      ...failedSink.options, ...runThroughCommandBus(failedSink, parent, 'product-1'),
+    })).rejects.toThrow('Sink write failed')
+    expect(auditUpdate).not.toHaveBeenCalled()
+    expect(failedSink.events).toEqual(['begin', 'existing-hook', 'host-write', 'log', 'rollback'])
+    unregisterCommand(parent.delegatedTarget.id)
+
+    const staleSink = scopedFixture()
+    installHost(staleSink)
+    lockRow.mockResolvedValueOnce({ values: { brand: 'CHANGED' }, updatedAt: '2026-11-21T00:00:00.000Z' })
+    await expect(runCrudFormSectionMutation({
+      ...staleSink.options, ...runThroughCommandBus(staleSink, parent, 'product-1'),
+    })).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict', expectedUpdatedAt: expectedDate } })
+    expect(persist).toHaveBeenCalledTimes(1)
+    expect(staleSink.events).toEqual(['begin', 'existing-hook', 'host-write', 'log', 'rollback'])
+  })
+
+  it('keeps successful host response with an additive warning after an opted-in sink fails', async () => {
+    const { persist } = installSink('after-commit')
+    const setup = scopedFixture()
+    persist.mockRejectedValueOnce(new Error('[internal] Sink write failed'))
+    await expect(runCrudFormSectionMutation(setup.options)).resolves.toEqual({
+      id: 'product-1', extensionWarnings: [{ sinkId: 'example.product-brand', code: 'extension_sink_failed' }],
+    })
+    expect(setup.events).toEqual(['begin', 'existing-hook', 'write', 'flush', 'commit', 'begin', 'rollback'])
+  })
+
+  it.each(['hard', 'soft'] as const)('runs sink deletion inside a %s host-delete policy only when hard', async (deleteMode) => {
+    const { onHostDeleted } = installSink()
+    const setup = fixture(remove, 'product-1')
+    const { auditUpdate, logEntry } = installHost(setup, remove)
+    await expect(runCrudFormSectionMutation({
+      ...setup.options, operation: 'delete', deleteMode, ...runThroughCommandBus(setup, remove, 'product-1'),
+    })).resolves.toEqual({ id: 'product-1' })
+    if (deleteMode === 'hard') {
+      expect(onHostDeleted).toHaveBeenCalledWith(expect.objectContaining({
+        hostResourceId: 'product-1', em: setup.em, scope,
+      }))
+      expect(auditUpdate).toHaveBeenCalledTimes(1)
+      expect(readCrudFormSectionSinkSnapshots(logEntry)[0]?.snapshot).toMatchObject({ before: values, after: null })
+    } else {
+      expect(onHostDeleted).not.toHaveBeenCalled()
+      expect(auditUpdate).not.toHaveBeenCalled()
+    }
+  })
+
+  it('only enriches detail with declared fields for the authorized tenant, organization, and feature', async () => {
+    const { load } = installSink()
+    const [{ enrichers: [enricher] }] = buildCrudFormSectionSinkEnrichers(getCrudFormSectionManifest())
+    const setup = scopedFixture()
+    const detail = { id: 'product-1', tenantId: 'tenant', organizationId: 'org' }
+    const context = {
+      tenantId: 'tenant', organizationId: 'org', userId: 'actor', em: setup.container.resolve('em'),
+      container: setup.container, userFeatures: ['example.*'],
+    }
+    expect(enricher.detailOnly).toBe(true)
+    await expect(enricher.enrichOne(detail, { ...context, organizationId: 'another' })).resolves.toEqual(detail)
+    await expect(enricher.enrichOne(detail, { ...context, userFeatures: [] })).resolves.toEqual(detail)
+    expect(load).not.toHaveBeenCalled()
+    await expect(enricher.enrichOne(detail, context)).resolves.toEqual({
+      ...detail, _extensions: { example: { ...values, __updatedAt: expectedDate } },
+    })
+    expect(load).toHaveBeenCalledTimes(1)
   })
 })

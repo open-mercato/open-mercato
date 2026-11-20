@@ -170,6 +170,7 @@ export type AmbientCommandExecution<TResult> = {
   readonly [ambientCommandExecutionMarker]: true
   readonly tentativeResult: TResult
   readonly logEntry: CommandUndoLogEntry | null
+  readonly supportsAtomicUndo?: true
   finalizedResult(): TResult
 }
 

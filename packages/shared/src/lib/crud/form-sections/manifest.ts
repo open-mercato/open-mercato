@@ -15,6 +15,7 @@ import type {
   CrudFormSectionHostProvider,
   CrudFormSectionMutationProviderProof,
   CrudFormSectionServerModule,
+  CrudFormSectionSink,
 } from '../../../modules/form-sections'
 import {
   canonicalCrudFormSectionMutationSurface,
@@ -32,6 +33,10 @@ import {
   type CrudFormSectionConfiguredHostLedger,
 } from './composition'
 import { symbolicIdSchema } from './protocol'
+import {
+  collectCrudFormSectionSinks, crudFormSectionSinkAtomicities, selectCrudFormSectionSinks,
+  type AcceptedCrudFormSectionSink,
+} from './extension-sinks'
 import { selectCrudFormRequiredLeaves, type CrudFormRequiredLeafCoverage } from './required-leaves'
 
 export type CrudFormSectionAcceptedPolicy = {
@@ -42,6 +47,7 @@ export type CrudFormSectionAcceptedPolicy = {
   mutationSurfaces: readonly CrudFormSectionMutationSurfaceFact[]
   mutationProviders: readonly CrudFormSectionMutationProviderProof[]
   requiredLeaves: readonly CrudFormRequiredLeafCoverage[]
+  sinks?: readonly AcceptedCrudFormSectionSink[]
   bindings: NonNullable<CrudFormSectionHostAlternative['resourceBindings']>
   requireFeatures: readonly string[]
   roundTripIds: readonly string[]
@@ -53,6 +59,7 @@ export type CrudFormSectionManifest = {
   policies: ReadonlyMap<string, CrudFormSectionAcceptedPolicy>
   providers: ReadonlyMap<string, CrudFormSectionHostProvider & { hostResourceKind: string }>
   leafDefaultProviders: ReadonlyMap<string, CrudFormLeafDefaultProvider>
+  sinkRuntimes?: ReadonlyMap<string, CrudFormSectionSink>
 }
 
 type ExistingHost = {
@@ -165,7 +172,8 @@ export function buildCrudFormSectionManifest(
   const defaults = modules.flatMap(({ sections }) => sections.leafDefaultProviders ?? [])
     .filter((provider) => Boolean(provider?.fact?.id))
   const leafDefaultProviders = uniqueIndex(defaults, ({ fact }) => fact.id)
-  if (!configuredEntries.length) return { ledger: { hosts: [], fingerprint: hash('[]') }, policies, providers, leafDefaultProviders }
+  const sinkRuntimes = collectCrudFormSectionSinks(modules)
+  if (!configuredEntries.length) return { ledger: { hosts: [], fingerprint: hash('[]') }, policies, providers, leafDefaultProviders, sinkRuntimes }
 
   const capabilityRegistry = collectCrudFormSectionCapabilities(modules.flatMap(({ moduleId, sections }) =>
     (sections.displayPolicies ?? []).map((fact) => ({ moduleId, fact })),
@@ -247,6 +255,12 @@ export function buildCrudFormSectionManifest(
       continue
     }
 
+    const effectiveSinkAtomicities = crudFormSectionSinkAtomicities(sinkRuntimes.values(), address)
+    if (Object.entries(sinkAtomicityByCapability).some(([id, modes]) =>
+      !hasSameIds(modes, [...(effectiveSinkAtomicities.get(id) ?? [])].sort()))) {
+      fail('invalid_sink_atomicity')
+      continue
+    }
     const matchedCapabilities = new Map<string, CrudFormSectionCapabilityEntry>()
     let policyValid = true
     for (const contribution of selectedContributions) {
@@ -256,7 +270,7 @@ export function buildCrudFormSectionManifest(
         mutationSurfaces: new Map(mutationSurfaces.map((candidate) => [candidate.id, candidate])),
         resourceBindingIds: new Set(resourceBindings.map((binding) => binding.id)),
         providedDataContractIdsByCapability: new Map(Object.entries(providedDataContractIdsByCapability)),
-        sinkAtomicityByCapability: new Map(Object.entries(sinkAtomicityByCapability)),
+        sinkAtomicityByCapability: effectiveSinkAtomicities,
         hasActiveWritableLeaves: surface.ownershipFacts.some((entry) => entry.payloadPaths.length > 0
           || entry.customFieldOwnership.mode === 'all'
           || (entry.customFieldOwnership.mode === 'ids' && entry.customFieldOwnership.ids.length > 0)),
@@ -285,6 +299,25 @@ export function buildCrudFormSectionManifest(
     const canonicalSurface = canonicalCrudFormSectionAlternative(surface)
     const capabilities = [...matchedCapabilities.values()]
       .sort((left, right) => compareSectionIds(left.fact.capabilityId, right.fact.capabilityId))
+    const sinks = selectCrudFormSectionSinks({
+      candidates: sinkRuntimes.values(), address, capabilities, hostResourceKind: resourceKind.data,
+      ownedPaths: new Set(surface.ownershipFacts.flatMap(({ payloadPaths }) => payloadPaths)),
+    })
+    if (!sinks) {
+      fail('invalid_extension_sink')
+      continue
+    }
+    const supportsAtomicSinks = sinks.some(({ fact }) => fact.atomicity === 'host-transaction')
+    const parentSurfaces = canonicalSurfaces.filter(({ kind }) => kind === 'parent-submit' || kind === 'parent-delete')
+    if (sinks.length && (!parentSurfaces.some(({ kind }) => kind === 'parent-submit') || parentSurfaces.some((candidate) => {
+      const support = mutationProviders.get(candidate.id)?.extensionSinkSupport
+      return supportsAtomicSinks
+        ? support !== 'host-transaction' || candidate.delegatedTarget.kind !== 'command'
+        : support !== 'host-transaction' && support !== 'after-commit'
+    }))) {
+      fail('unsupported_extension_sink_lifecycle')
+      continue
+    }
     policies.set(key, {
       hostDescriptorId: host.fact.id,
       hostResourceKind: resourceKind.data,
@@ -292,6 +325,7 @@ export function buildCrudFormSectionManifest(
       capabilities,
       mutationSurfaces: canonicalSurfaces,
       requiredLeaves: required.leaves,
+      ...(sinks.length ? { sinks } : {}),
       mutationProviders: canonicalSurfaces.map((candidate) => {
         const proof = mutationProviders.get(candidate.id)!
         return {
@@ -300,6 +334,7 @@ export function buildCrudFormSectionManifest(
           finalInput: proof.finalInput,
           atomicity: proof.atomicity,
           contenderCoverage: proof.contenderCoverage?.slice().sort(),
+          extensionSinkSupport: proof.extensionSinkSupport,
         }
       }),
       bindings: [...resourceBindings].sort((left, right) => compareSectionIds(left.id, right.id)),
@@ -320,6 +355,7 @@ export function buildCrudFormSectionManifest(
     policies,
     providers,
     leafDefaultProviders,
+    sinkRuntimes,
   }
 }
 

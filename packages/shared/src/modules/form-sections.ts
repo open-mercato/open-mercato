@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityName, FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { z } from 'zod'
 import type { AuthContext } from '../lib/auth/server'
 import type {
   CrudFormExtensionSinkFact,
@@ -64,6 +65,7 @@ export type CrudFormSectionMutationProviderProof = {
   finalInput: 'transactional-final-input/v1'
   atomicity?: 'pessimistic-write' | 'compare-and-swap'
   contenderCoverage?: readonly ('update/update' | 'update/delete')[]
+  extensionSinkSupport?: 'after-commit' | 'host-transaction'
 }
 
 type CrudFormSectionProviderScope = {
@@ -86,6 +88,49 @@ export type CrudFormLeafDefaultProvider = {
     scope: CrudFormSectionProviderScope
     readEm: CrudFormLeafDefaultReadEntityManager
   }): unknown | Promise<unknown>
+}
+
+export type CrudFormSectionSinkScope = {
+  tenantId: string
+  organizationId: string | null
+}
+
+type SinkRecord = Record<string, unknown>
+type SinkMutationContext = {
+  hostResourceId: string
+  em: EntityManager
+  scope: CrudFormSectionSinkScope
+  auth: NonNullable<AuthContext>
+  container: AwilixContainer
+}
+
+export type CrudFormSectionSinkSnapshot = { before: SinkRecord | null; after: SinkRecord | null }
+export type CrudFormSectionSinkRow = { values: SinkRecord; updatedAt?: string | Date }
+
+export type CrudFormSectionSink = {
+  fact: CrudFormExtensionSinkFact
+  capabilityId: string
+  hostDetailEntityId: string
+  appendOnly?: true
+  schema: z.ZodType<SinkRecord>
+  persist(input: SinkMutationContext & {
+    values: SinkRecord
+    hostOperation: 'create' | 'update'
+    lockedRow: CrudFormSectionSinkRow | null
+  }): Promise<CrudFormSectionSinkSnapshot>
+  load(input: Omit<SinkMutationContext, 'auth'> & { userId: string }): Promise<CrudFormSectionSinkRow | null>
+  lockRow?(input: SinkMutationContext): Promise<CrudFormSectionSinkRow | null>
+  undo?(input: SinkMutationContext & { snapshot: CrudFormSectionSinkSnapshot }): Promise<void>
+  onHostDeleted?(input: SinkMutationContext): Promise<CrudFormSectionSinkSnapshot>
+}
+
+export function defineCrudFormSectionSink<Values extends SinkRecord>(
+  declaration: Omit<CrudFormSectionSink, 'schema' | 'persist'> & {
+    schema: z.ZodType<Values>
+    persist(input: Omit<Parameters<CrudFormSectionSink['persist']>[0], 'values'> & { values: Values }): Promise<CrudFormSectionSinkSnapshot>
+  },
+): CrudFormSectionSink {
+  return { ...declaration, persist: (input) => declaration.persist({ ...input, values: input.values as Values }) }
 }
 
 export type CrudFormSectionHostProvider = {
@@ -128,6 +173,7 @@ export type CrudFormSectionsDeclaration = {
   contributionFacts?: readonly CrudFormSectionContributionFact[]
   hostProviders?: readonly CrudFormSectionHostProvider[]
   leafDefaultProviders?: readonly CrudFormLeafDefaultProvider[]
+  sinks?: readonly CrudFormSectionSink[]
   displayPolicies?: readonly CrudFormSectionCapabilityProviderFact[]
   contributedOverrides?: Readonly<FormSectionOverridesMap>
   runtimes?: readonly CrudFormSectionRuntimeDeclaration[]

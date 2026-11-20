@@ -61,6 +61,8 @@ export interface ResponseEnricher<TRecord = any, TEnriched = any> {
   /** Target entity to enrich: `<module>.<entity>` (e.g., 'customers.person') or `*` for all entities. */
   targetEntity: string
 
+  detailOnly?: boolean
+
   /** ACL features required for this enricher to run */
   features?: string[]
 
