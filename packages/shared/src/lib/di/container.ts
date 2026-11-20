@@ -37,13 +37,6 @@ const APP_DI_REGISTER_WARNING_KEY = '__openMercatoAppDiRegisterWarningEmitted__'
 // exist, so retrying the import per request container only repeats a failed module resolution
 // (and its log line) once per job.
 const APP_DI_MODULE_UNRESOLVABLE_KEY = '__openMercatoAppDiModuleUnresolvable__'
-// Phase 5 — process-scoped bootstrap cache. The cache/event-bus/encryption
-// services bootstrap() creates are inherently process-scoped (they hold
-// state across requests). Caching them on globalThis after the first
-// successful bootstrap call lets every subsequent request skip the
-// `await bootstrap(container)` body and just re-register the cached
-// instances. Same globalThis pattern as registerDiRegistrars so HMR
-// keeps working.
 const BOOTSTRAP_CACHE_KEY = '__openMercatoBootstrapCache__'
 const ENCRYPTION_ENABLED_KEY = '__openMercatoEncryptionEnabledCache__'
 
@@ -57,11 +50,10 @@ const BOOTSTRAP_CACHE_KEYS = [
   'searchIndexer',
 ] as const
 
-type BootstrapCacheEntry = Partial<Record<(typeof BOOTSTRAP_CACHE_KEYS)[number], unknown>>
+type BootstrapCacheEntry = Partial<Record<(typeof BOOTSTRAP_CACHE_KEYS)[number], unknown>> & { eventBus?: Resolver<unknown> }
 
 // Phase 5 is opt-in. Some bootstrap services close over per-request state
-// (e.g. tenantEncryptionService captures the first request's `em.fork`, the
-// event-bus's resolver closes over the first container) so naively replaying
+// (e.g. tenantEncryptionService captures the first request's `em.fork`) so replaying
 // them on later requests yields stale references — observed as a 500 from
 // CRUD list endpoints in `next start`. Default OFF preserves develop's
 // per-request bootstrap. Set `OM_BOOTSTRAP_CACHE=1` to opt in once each
@@ -79,7 +71,10 @@ function isBootstrapCacheEnabled(): boolean {
 function getBootstrapCache(): BootstrapCacheEntry | null {
   if (!isBootstrapCacheEnabled()) return null
   const existing = (globalThis as any)[BOOTSTRAP_CACHE_KEY]
-  return existing && typeof existing === 'object' ? (existing as BootstrapCacheEntry) : null
+  if (!existing || typeof existing !== 'object') return null
+  const entry = existing as BootstrapCacheEntry
+  if (entry.eventBus && typeof entry.eventBus.resolve !== 'function') return null
+  return entry
 }
 
 function setBootstrapCache(entry: BootstrapCacheEntry): void {
@@ -91,8 +86,12 @@ function harvestBootstrapCache(container: AwilixContainer): BootstrapCacheEntry 
   const entry: BootstrapCacheEntry = {}
   for (const key of BOOTSTRAP_CACHE_KEYS) {
     try {
-      const value: unknown = container.resolve(key as never)
-      if (value !== undefined && value !== null) entry[key] = value
+      if (key === 'eventBus') {
+        entry.eventBus = container.registrations.eventBus
+      } else {
+        const value: unknown = container.resolve(key as never)
+        if (value !== undefined && value !== null) entry[key] = value
+      }
     } catch {
       // not registered — skip
     }
@@ -690,9 +689,11 @@ async function buildLegacyRequestContainer(): Promise<AppContainer> {
   if (!alreadyBootstrappedOnThisContainer) {
     const cached = getBootstrapCache()
     if (cached) {
-      const replay: Record<string, any> = {}
+      const replay: Record<string, Resolver<unknown>> = {}
       for (const [key, value] of Object.entries(cached)) {
-        if (value !== undefined && value !== null) replay[key] = asValue(value)
+        if (value !== undefined && value !== null) {
+          replay[key] = key === 'eventBus' ? cached.eventBus! : asValue(value)
+        }
       }
       if (Object.keys(replay).length > 0) container.register(replay)
     } else {

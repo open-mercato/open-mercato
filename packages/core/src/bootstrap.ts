@@ -2,7 +2,7 @@ import type { AwilixContainer } from 'awilix'
 import { asValue } from 'awilix'
 import { getDefaultEncryptionMaps, type ModuleSubscriber } from '@open-mercato/shared/modules/registry'
 import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
-import { createEventBus, createScopedEventBusFactory, type EventBus } from '@open-mercato/events/index'
+import { createScopedEventBusFactory, type EventBus } from '@open-mercato/events/index'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { createCacheService } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
@@ -21,6 +21,7 @@ import { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { readRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { asScopedService, runProcessEventSetups } from '@open-mercato/shared/lib/di/process-registrar'
 import { runInRequestScope, runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 import { registerSyncSubscribers } from '@open-mercato/shared/lib/crud/sync-subscriber-store'
@@ -131,31 +132,43 @@ export async function bootstrap(container: AwilixContainer) {
   }
   container.register({ cache: asValue(cache) })
 
-  // Create and register the DI-aware event bus
-  let eventBus: any
+  const registerEventBus = (queueStrategy: 'local' | 'async'): EventBus => {
+    const createScopedBus = createScopedEventBusFactory({ queueStrategy })
+    container.register({
+      eventBus: asScopedService((caller) => createScopedBus(caller.resolve.bind(caller))),
+    })
+    return createScopedBus.definitions
+  }
+  let definitions: EventBus
   try {
-    // Support both QUEUE_STRATEGY and legacy EVENTS_STRATEGY env vars
     const strategyEnv = process.env.QUEUE_STRATEGY || process.env.EVENTS_STRATEGY
-    const queueStrategy = strategyEnv === 'async' || strategyEnv === 'redis' ? 'async' : 'local'
-    eventBus = createEventBus({ resolve: container.resolve, queueStrategy })
-  } catch (err: any) {
-    // Fall back to local strategy to avoid breaking the app on misconfiguration
-    logger.warn('Event bus initialization failed; falling back to local strategy', { err })
+    definitions = registerEventBus(strategyEnv === 'async' || strategyEnv === 'redis' ? 'async' : 'local')
+  } catch (error) {
+    logger.warn('Event bus initialization failed; falling back to local strategy', { err: error })
     try {
-      eventBus = createEventBus({ resolve: container.resolve, queueStrategy: 'local' })
-    } catch {
-      // In extreme cases, provide a no-op bus to avoid crashes. It deliberately
-      // omits `dispatchQueued` so the events worker fails its job loudly instead
-      // of quietly completing it with zero subscribers dispatched.
-      eventBus = {
+      getTelemetryRuntime()?.reportError(error, { module: 'core', code: 'core.event_bus_init_failed' })
+    } catch (telemetryError) {
+      logger.warn('Failed to report event bus initialization error', { err: telemetryError })
+    }
+    try {
+      definitions = registerEventBus('local')
+    } catch (error) {
+      try {
+        getTelemetryRuntime()?.reportError(error, { module: 'core', code: 'core.event_bus_fallback_failed' })
+      } catch (telemetryError) {
+        logger.warn('Failed to report event bus fallback error', { err: telemetryError })
+      }
+      definitions = {
         emit: async () => {},
+        emitEvent: async () => {},
         on: () => {},
         registerModuleSubscribers: () => {},
         clearQueue: async () => ({ removed: 0 }),
       }
+      container.register({ eventBus: asValue(definitions) })
     }
   }
-  container.register({ eventBus: asValue(eventBus) })
+  const eventBus = container.resolve<EventBus>('eventBus')
   // Wire the global event bus so createModuleEvents().emit works outside DI context
   setGlobalEventBus(eventBus)
   // Auto-register discovered module subscribers
@@ -176,7 +189,7 @@ export async function bootstrap(container: AwilixContainer) {
         moduleId: subscriber.moduleId ?? m.id,
       })),
     )
-    if (subs.length) (container.resolve as any)('eventBus').registerModuleSubscribers(subs)
+    if (subs.length) definitions.registerModuleSubscribers(subs)
 
     // Extract sync subscribers and register in the sync-subscriber-store
     const syncSubs = subs.filter((s: any) => s.sync === true)
@@ -268,11 +281,16 @@ export async function bootstrap(container: AwilixContainer) {
     try {
       const searchIndexer = container.resolve('searchIndexer') as any
       if (searchIndexer && eventBus) {
-        eventBus.registerModuleSubscribers([
+        definitions.registerModuleSubscribers([
           {
+            id: 'search.delete_record',
+            moduleId: 'search',
             event: searchDeleteMetadata.event,
             persistent: searchDeleteMetadata.persistent,
-            handler: createSearchDeleteSubscriber(searchIndexer),
+            handler: async (payload, context) => {
+              const callerIndexer = context.resolve<SearchIndexer>('searchIndexer')
+              await createSearchDeleteSubscriber(callerIndexer)(payload as SearchDeletePayload)
+            },
           },
         ])
       }

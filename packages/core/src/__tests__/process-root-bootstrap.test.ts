@@ -5,7 +5,7 @@ import { getGlobalEventBus, setGlobalEventBus } from '@open-mercato/shared/modul
 import { getAllSyncSubscribers } from '@open-mercato/shared/lib/crud/sync-subscriber-store'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { runInRequestScope, runWithRequestScopeContainer, getRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
-import { bootstrapProcessRoot, finalizeProcessRoot } from '../bootstrap'
+import { bootstrap, bootstrapProcessRoot, finalizeProcessRoot } from '../bootstrap'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
@@ -28,6 +28,9 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
 jest.mock('@open-mercato/shared/lib/encryption/subscriber', () => ({ registerTenantEncryptionSubscriber: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/encryption/toggles', () => ({ isTenantDataEncryptionEnabled: () => false }))
 jest.mock('@open-mercato/shared/lib/modules/registry', () => ({ getModules: jest.fn(() => []) }))
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  getModules: () => jest.requireMock('@open-mercato/shared/lib/modules/registry').getModules(),
+}))
 jest.mock('@open-mercato/shared/modules/search', () => ({ getSearchModuleConfigs: () => [] }))
 jest.mock('@open-mercato/search/di', () => ({ registerScopedSearchModule: jest.fn() }), { virtual: true })
 jest.mock('@open-mercato/search', () => ({
@@ -208,4 +211,55 @@ it('keeps hooks from an obsolete generation out of the replacement bus', async (
   await caller.resolve<EventBus>('eventBus').emit('generation.created', {})
   expect(seen).toEqual(['current'])
   await Promise.all([caller.dispose(), current.dispose(), obsolete.dispose()])
+})
+
+it('rebinds cached legacy event definitions to a later caller after the original is disposed', async () => {
+  const observed: unknown[] = []
+  modulesMock.mockReturnValue([{
+    id: 'probe',
+    subscribers: [{
+      id: 'legacy-probe',
+      event: 'probe.created',
+      persistent: false,
+      handler: (_payload, context) => { observed.push(context.resolve('em')) },
+    }],
+  }])
+  const first = createContainer().register({ em: asValue({ caller: 'first' }) })
+  await bootstrap(first)
+  const cachedResolver = first.registrations.eventBus
+  const firstBus = first.resolve<EventBus>('eventBus')
+  await first.dispose()
+  const secondEm = { caller: 'second' }
+  const second = createContainer().register({ em: asValue(secondEm), eventBus: cachedResolver })
+  const secondBus = second.resolve<EventBus>('eventBus')
+
+  await secondBus.emit('probe.created', {})
+
+  expect(secondBus).not.toBe(firstBus)
+  expect(observed).toEqual([secondEm])
+  await second.dispose()
+})
+
+it('resolves the search-delete indexer from the later legacy caller', async () => {
+  const firstIndexer = { deleteRecord: jest.fn().mockResolvedValue(undefined) }
+  const secondIndexer = { deleteRecord: jest.fn().mockResolvedValue(undefined) }
+  const first = createContainer().register({
+    em: asValue({ caller: 'first' }),
+    searchIndexer: asValue(firstIndexer),
+  })
+  await bootstrap(first)
+  const cachedResolver = first.registrations.eventBus
+  await first.dispose()
+  const second = createContainer().register({
+    em: asValue({ caller: 'second' }),
+    searchIndexer: asValue(secondIndexer),
+    eventBus: cachedResolver,
+  })
+  const payload = { entityId: 'probe:record', recordId: 'second-record' }
+
+  await second.resolve<EventBus>('eventBus').emit('search.delete_record', payload)
+
+  expect(firstIndexer.deleteRecord).not.toHaveBeenCalled()
+  expect(secondIndexer.deleteRecord).toHaveBeenCalledWith(payload)
+  await second.dispose()
 })

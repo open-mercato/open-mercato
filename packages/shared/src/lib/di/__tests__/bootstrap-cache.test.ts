@@ -9,6 +9,8 @@
 
 import { asValue } from 'awilix'
 import type { AwilixContainer } from 'awilix'
+import { asScopedService } from '../process-registrar'
+import { createEventBus, type EventBus } from '@open-mercato/events'
 
 // Mock the deep ORM/engine imports BEFORE importing container.ts so we can
 // exercise the bootstrap once-guard without pulling in MikroORM decorators.
@@ -77,10 +79,13 @@ const {
   resetBootstrapCache,
 } = require('@open-mercato/shared/lib/di/container')
 
-const bootstrapMock = jest.fn(async (container: any) => {
+const bootstrapMock = jest.fn(async (container: AwilixContainer) => {
   container.register({
     cache: asValue({ __value: 'cache-value' }),
-    eventBus: asValue({ __value: 'event-bus-value' }),
+    eventBus: asScopedService((caller) => Object.assign(
+      createEventBus({ resolve: caller.resolve.bind(caller), queueStrategy: 'local' }),
+      { __value: 'event-bus-value' },
+    )),
     tenantEncryptionService: asValue({ isEnabled: () => true, __value: 'enc' }),
   })
 })
@@ -89,7 +94,7 @@ jest.mock(
   '@open-mercato/core/bootstrap',
   () => ({
     __esModule: true,
-    bootstrap: (...args: unknown[]) => bootstrapMock(...args as [any]),
+    bootstrap: (container: AwilixContainer) => bootstrapMock(container),
   }),
   { virtual: true },
 )
@@ -141,6 +146,31 @@ describe('bootstrap once-guard cache', () => {
     expect(bootstrapMock).toHaveBeenCalledTimes(1)
     expect(second.resolve('cache')).toMatchObject({ __value: 'cache-value' })
     expect(second.resolve('eventBus')).toMatchObject({ __value: 'event-bus-value' })
+  })
+
+  it('replays a caller-scoped event bus resolver after the first caller is disposed', async () => {
+    process.env.OM_BOOTSTRAP_CACHE = '1'
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    const first = await createRequestContainer()
+    first.register({ em: asValue({ caller: 'first' }) })
+    const firstBus = first.resolve<EventBus>('eventBus')
+    await first.dispose()
+
+    const second = await createRequestContainer()
+    const secondEm = { caller: 'second' }
+    second.register({ em: asValue(secondEm) })
+    const secondBus = second.resolve<EventBus>('eventBus')
+    const observed: unknown[] = []
+    secondBus.on('bootstrap.probe', (_payload, context) => {
+      observed.push(context.resolve('em'))
+    })
+
+    await secondBus.emit('bootstrap.probe', {})
+
+    expect(bootstrapMock).toHaveBeenCalledTimes(1)
+    expect(secondBus).not.toBe(firstBus)
+    expect(observed).toEqual([secondEm])
+    await second.dispose()
   })
 
   it('runs bootstrap() on every createRequestContainer() when OM_BOOTSTRAP_CACHE is unset (default)', async () => {
