@@ -381,7 +381,7 @@ The `delivery_method` rule and the `DELIVERY_DISCOUNT` effect are authorable in 
 The cart is locked **from submit until the outcome**, including payment, and never for the whole funnel. Locking at session creation would strand a cart behind every abandoned checkout, and abandoned checkouts are the majority.
 
 **Lock input (cart contract, C1, C2, D-R5-23).** `cartService.lock({ cartId, tenantId, organizationId, checkoutSessionId, lockTtlMs?, purpose, routeContext? })`:
-- `checkoutSessionId` is the session id. A second `lock` with the **same** `checkoutSessionId` on a locked cart is an idempotent extend: it returns the cart and sets the new expiry, with no re-price and no visibility pass (X15). A different session gets `423 cart_locked`.
+- `checkoutSessionId` is the session id. A second `lock` with the **same** `checkoutSessionId` on a locked cart is an idempotent extend: it returns the cart and sets the new expiry, with no re-price and no visibility pass (X15). A different session gets `423 cart_locked`. Checkout makes every extend with `extendOnly: true`, so an extend of a lock that lapsed answers `409 cart_lock_lost` instead of taking a fresh lock (cart §9.1, D-R5-SF4).
 - `purpose` is `'quote'` when `payment_method_code = 'request_quote'`, else `'order'`. `'quote'` skips the approval gate and `min_order_value`; the visibility pass, store/channel checks and re-price still run (D-R5-23).
 - `routeContext`: for a `storefront` cart checkout passes the buyer's request so the cart builds a fresh `ResolvedCartRouteContext` itself (C2); checkout imports nothing from `cart/lib`. A storefront cart without a context is refused by the cart with `400 assortment_scope_required_for_storefront_channel`; checkout never sends one without. Recovery (no request) never takes a fresh lock, so it never needs a context: it only extends a lock its session still holds (§12.1, D-R5-SF4).
 - `lockTtlMs`: the cart default (30 min) at step 1; at step 7 checkout extends to `payment_expires_at − now + 15 min`, within the cart's bound.
@@ -486,7 +486,7 @@ Each step is a separate transaction (every `commandBus.execute()` commits its ow
  7. IF gateway:
        paymentGatewayService.createPaymentSession(...); CheckoutTransaction with session_id,
        order_id; payment_intent_ref, payment_expires_at (provider expiry, default 60 min);
-       cartService.lock(same checkoutSessionId,
+       cartService.lock(same checkoutSessionId, extendOnly: true,
                         lockTtlMs = payment_expires_at − now + 15 min)          (C1 extend)
        status = awaiting_payment;
        progress = payment_initiated; emit checkout.payment.initiated
@@ -756,7 +756,7 @@ All via the `queue` worker contract.
 
 ### 12.1 Recovery decision table (C24)
 
-Recovery runs under `buildTrustedCommandContext({ tenantId, organizationId, actor: { type: 'system' }, reason: 'checkout.recovery:' + sessionId })` with the session's own scope. Recovery never takes a fresh cart lock and never calls `resolveForBuyer` (D-R5-SF4, SPEC-029 §6.3). It only unlocks, extends or converts a cart this session still holds (cart §9.1). Each probe reads by the attempt's key.
+Recovery runs under `buildTrustedCommandContext({ tenantId, organizationId, actor: { type: 'system' }, reason: 'checkout.recovery:' + sessionId })` with the session's own scope. Recovery never takes a fresh cart lock and never calls `resolveForBuyer` (D-R5-SF4, SPEC-029 §6.3). It only unlocks, converts, or extends with `extendOnly: true` a cart this session still holds (cart §9.1). The extend-only call is the probe: it checks and extends the lock atomically, so a lock released by the cart's stale-lock sweeper between a check and an extend cannot turn into a fresh lock. Each probe reads by the attempt's key.
 
 | `submit_progress` | Probe | Action |
 |---|---|---|
@@ -765,7 +765,7 @@ Recovery runs under `buildTrustedCommandContext({ tenantId, organizationId, acto
 | `stock_reserved` | Credit ledger by `credit_reservation_key` (on account) | Release credit if reserved; release stock; unlock; status `open` |
 | `credit_reserved` or crash in step 5 | Quote by `external_reference` | Quote absent → release credit, release stock, unlock, `open`. Quote present, not converted, order outcome → resume forward from 5b (idempotent). Quote outcome → resume 5b and the quote branch |
 | `document_created` | Hold status, credit entry `orderId`, promotion usage by `orderId` | Resume step 6 forward; each sub-step is idempotent under its key |
-| `finalized` | Gateway transaction by session; cart lock holder | No intent, cart still locked by this session → resume step 7 (extend lock, create intent). No intent, cart no longer locked by this session → compensate per §7.3 and fail with `submit_recovery_failed`; never re-lock (D-R5-SF4). Intent exists → status `awaiting_payment` |
+| `finalized` | Gateway transaction by session | No intent → `cart.lock({ extendOnly: true })`, then resume step 7 (create intent). The extend answers `409 cart_lock_lost` (the lock lapsed or was swept) → compensate per §7.3 and fail with `submit_recovery_failed`; never re-lock (D-R5-SF4). Intent exists → status `awaiting_payment` |
 | any, attempt older than the payment TTL without an intent | — | Compensate per §7.3 and fail with `submit_recovery_failed` |
 
 A recovery that resumes forward never creates a second document: the quote lookup by `external_reference` and the `convert_to_order` check guarantee it (C3, D-R5-30).
@@ -839,7 +839,7 @@ All checkout changes are new or additive. The contract changes in other modules 
 | 5 | Events (5) | New `checkout.session.*`, `checkout.payment.*`, `checkout.compensation.*`, `checkout.cartTemplate.*` | Additive | this spec |
 | 6 | ACL (10) | `checkout.sessions.view`, `checkout.sessions.manage`; Phase A features unchanged | Additive; run `yarn mercato auth sync-role-acls` | this spec |
 | 7 | Encryption map | `checkout:checkout_session` entry | Additive | this spec |
-| 8 | Signatures (3) | `cart.lock` gains `lockTtlMs`, `purpose`, idempotent same-session extend; `unlock`/`markConverted` require `checkoutSessionId`; `markConverted` gains `salesOrderId`, `salesQuoteId`, `lineMap`; storefront lock without context refused | Additive (C1, C2, K8, D-R5-16, D-R5-23, D-R5-26) | cart spec |
+| 8 | Signatures (3) | `cart.lock` gains `lockTtlMs`, `purpose`, idempotent same-session extend, atomic `extendOnly` (`409 cart_lock_lost`); `unlock`/`markConverted` require `checkoutSessionId`; `markConverted` gains `salesOrderId`, `salesQuoteId`, `lineMap`; storefront lock without context refused | Additive (C1, C2, K8, D-R5-16, D-R5-23, D-R5-26) | cart spec |
 | 9 | Signatures (3) | Trusted pay-link cart creation path | Additive, Ask First approved (D-R5-19) | cart spec §6a.4 |
 | 10 | Signatures / events (3, 5) | `promotionsService.revertCodeUse`; promotions subscriber on `sales.order.cancelled`; delivery promotions authorable | Additive (C5, D-R5-17) | SPEC-055 |
 | 11 | Signatures / DI (3, 9) | `customerCreditService.linkCreditReservationToOrder`; terms `allow_quote_requests`, `requires_po_number`, `terms_currency_code`, `approval_policy` | Additive (C6, D-R5-20, D-R5-28, D-R5-4, D-R5-1) | customer-groups spec |
@@ -907,6 +907,7 @@ Integration tests are self-contained: each creates its tenant, store, products, 
 - `availability.commit` returning `stock_lost` (expiry sweep forced to win before step 6a, stock taken by another order): the order is cancelled, no payment intent is created, submit answers `409 stock_shortfall` (D-R5-8).
 - Injected failure at each of steps 1, 2, 3, 4, 5a, 5b, 5c, 6a, 6b, 6c, 7 (intent) and payment failure: no stock held, no credit reserved, codes and usage reverted, the order (if any) cancelled, and the cart unlocked.
 - A process killed after each of steps 1–7 is reconciled by `recover-stuck-submits` per §12.1 **without a duplicate quote or order** (C3, C24).
+- **Lost lock at `finalized` (D-R5-SF4).** For a storefront cart and for a pay-link cart each: a session stuck at `finalized` with no intent whose cart lock lapsed, or was cleared by `release-stale-locks` before recovery ran, is compensated (order cancelled, stock and credit released) and fails with `submit_recovery_failed`; the cart is `active` and not re-locked, no re-price runs, and the storefront cart produces no `400 assortment_scope_required_for_storefront_channel`. With the lock still live, recovery extends it and creates the intent.
 - A failing compensation raises the notification and is retried (R9).
 - Credit released by `customer_groups` when the order is cancelled (C6).
 - Code reuse refused; code returned on payment failure; budget overrun aborts with `409 promotion_unavailable` before payment (C5).
@@ -1088,7 +1089,8 @@ Every refusal names what went wrong and what the buyer can do instead (§9.2).
 Applies SPEC-029 decision D-R5-SF4 (owner, 2026-11-19): no recovery path takes a fresh cart lock.
 
 - §3.3, §6 `routeContext`, §12.1 and R14: recovery no longer builds a cart context through `resolveForBuyer`. It only unlocks, extends or converts a cart its session still holds.
-- §12.1 `finalized` row: a cart whose lock lapsed is compensated per §7.3 and fails with `submit_recovery_failed` instead of being re-locked.
+- §7.2 step 7 and §12.1: every extend uses cart's atomic `cart.lock({ extendOnly: true })` (cart rev 10.1 §9.1). The `finalized` row no longer probes the lock holder separately; `409 cart_lock_lost` from the extend routes to compensation per §7.3 and `submit_recovery_failed`, never a re-lock.
+- §16: lost-lock-at-`finalized` coverage for a storefront and a pay-link cart.
 - Supersedes the v2.3 line "recovery builds it through `resolveForBuyer` (D-R5-22, X15)".
 
 ### 2026-10-26 — v2.3 (Release 5 spec revision)
