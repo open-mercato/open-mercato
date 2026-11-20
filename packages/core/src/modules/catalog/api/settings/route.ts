@@ -14,7 +14,9 @@ import {
   UNIT_PRICE_DISPLAY_ENABLED_DEFAULT,
   UNIT_PRICE_DISPLAY_ENABLED_KEY,
 } from '../../lib/settings'
+import { tryResolve } from '../../lib/tryResolve'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('catalog')
 
@@ -60,7 +62,8 @@ async function resolveSettingsContext(req: Request): Promise<SettingsContext> {
 }
 
 async function readUnitPriceDisplayEnabled(context: SettingsContext): Promise<boolean> {
-  const configService = context.container.resolve('moduleConfigService') as ModuleConfigService
+  const configService = tryResolve<ModuleConfigService>(context.container, 'moduleConfigService')
+  if (!configService) return UNIT_PRICE_DISPLAY_ENABLED_DEFAULT
   const value = await configService.getValue<boolean>(
     CATALOG_SETTINGS_MODULE_ID,
     UNIT_PRICE_DISPLAY_ENABLED_KEY,
@@ -88,6 +91,20 @@ async function PUT(req: Request) {
     const context = await resolveSettingsContext(req)
     const body = bodySchema.parse(await req.json())
 
+    const configService = tryResolve<ModuleConfigService>(context.container, 'moduleConfigService')
+    if (!configService) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        {
+          error: translate(
+            'catalog.settings.errors.storageUnavailable',
+            'Catalog settings cannot be saved because the configs module is not enabled.',
+          ),
+        },
+        { status: 503 },
+      )
+    }
+
     const guardResult = await validateCrudMutationGuard(context.container, {
       tenantId: context.tenantId,
       organizationId: context.organizationId,
@@ -103,7 +120,6 @@ async function PUT(req: Request) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    const configService = context.container.resolve('moduleConfigService') as ModuleConfigService
     await configService.setValue(
       CATALOG_SETTINGS_MODULE_ID,
       UNIT_PRICE_DISPLAY_ENABLED_KEY,
@@ -153,7 +169,10 @@ const putDoc: OpenApiMethodDoc = {
   responses: [
     { status: 200, description: 'Updated catalog settings', schema: responseSchema },
   ],
-  errors: [{ status: 400, description: 'Invalid request body' }],
+  errors: [
+    { status: 400, description: 'Invalid request body' },
+    { status: 503, description: 'Settings storage unavailable (configs module disabled)' },
+  ],
 }
 
 export const openApi: OpenApiRouteDoc = {

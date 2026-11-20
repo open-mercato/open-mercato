@@ -130,11 +130,15 @@ The core module ships skills as `skills/*.md` files loaded by `ai-skills.ts`
 ### Sub-agents (`delegate_agent`)
 
 An in-process agent that declares `subAgents` gains the `delegate_agent` tool
-(`ai-tools.ts:40 delegateAgentTool`). The model calls it with `{ agentId, input }`;
+(`ai-tools.ts` `delegateAgentTool`). The model calls it with `{ agentId, input }`;
 multiple calls in one step fan out in parallel. Hard constraints enforced in the
-tool handler: the target must be `informative`, must NOT itself declare
-`subAgents` (depth cap = 1), runs under the SAME caller scope, and errors are
-returned as data (`{ ok: false }`) so one failed sub-task never crashes the parent.
+tool handler: the target must be listed in the `subAgents` of the CALLING agent
+(resolved server-side by `resolveActiveAgentId` — the native run context or the
+OpenCode run session — never from the model; no resolvable parent →
+`no_active_run`, an undeclared target → `sub_agent_not_allowed`), must be
+`research` (formerly `informative`), must NOT itself declare `subAgents` (depth
+cap = 1), runs under the SAME caller scope, and errors are returned as data
+(`{ ok: false }`) so one failed sub-task never crashes the parent.
 
 ---
 
@@ -324,6 +328,10 @@ is a pure function of its args (no fs/net/imports). Errors are returned as data
   sanitized names under `permission.task`; sub-agent files render `mode: subagent`
   with `permission.task: deny`. The in-process `delegate_agent` enforces the same
   informative + non-delegating constraints (`ai-tools.ts:60`).
+  *Superseded:* file agents now render `permission.task: deny` for every agent and
+  delegate through `delegate_agent` (#4641); the per-primary whitelist that
+  `permission.task` gave is enforced in the `delegate_agent` handler instead — the
+  target must be in the calling agent's declared `subAgents` (B-13 in #9648).
 - **parent_run_id trace.** The in-process `delegate_agent` path stamps the parent
   run's id onto the nested `AgentRun` via `runContext` AsyncLocalStorage
   (`lib/runtime/runContext.ts`, `ai-tools.ts:73`). **Documented limitation:**
