@@ -530,6 +530,37 @@ describe('RuleExpressionEvaluator', () => {
       expect(evaluateExpression(condition, { count: '10' }, {})).toBe(true)
     })
 
+    test('should not treat a blank field as numeric 0 for equality', () => {
+      const equalsZero: SimpleCondition = { field: 'discountPercent', operator: '=', value: 0 }
+      const doubleEqualsZero: SimpleCondition = { field: 'discountPercent', operator: '==', value: 0 }
+      const notEqualsZero: SimpleCondition = { field: 'discountPercent', operator: '!=', value: 0 }
+      const inZero: SimpleCondition = { field: 'discountPercent', operator: 'IN', value: [0, 5] }
+      expect(evaluateExpression(equalsZero, { discountPercent: '' }, {})).toBe(false)
+      expect(evaluateExpression(equalsZero, { discountPercent: '   ' }, {})).toBe(false)
+      expect(evaluateExpression(doubleEqualsZero, { discountPercent: '' }, {})).toBe(false)
+      expect(evaluateExpression(notEqualsZero, { discountPercent: '' }, {})).toBe(true)
+      expect(evaluateExpression(inZero, { discountPercent: '' }, {})).toBe(false)
+      expect(evaluateExpression(equalsZero, { discountPercent: 0 }, {})).toBe(true)
+      expect(evaluateExpression(equalsZero, { discountPercent: '0' }, {})).toBe(true)
+      expect(evaluateExpression({ field: 'discountPercent', operator: '=', value: '' }, { discountPercent: 0 }, {})).toBe(false)
+      expect(evaluateExpression({ field: 'discountPercent', operator: '!=', value: '' }, { discountPercent: 0 }, {})).toBe(true)
+    })
+
+    test('should not order a blank field as numeric 0', () => {
+      const operators: SimpleCondition['operator'][] = ['>', '>=', '<', '<=']
+      for (const operator of operators) {
+        expect(evaluateExpression({ field: 'quantity', operator, value: 0 }, { quantity: '' }, {})).toBe(false)
+        expect(evaluateExpression({ field: 'quantity', operator, value: 0 }, { quantity: ' ' }, {})).toBe(false)
+        expect(
+          evaluateExpression({ field: 'quantity', operator, value: null, valueField: 'limit' }, { quantity: '', limit: 0 }, {}),
+        ).toBe(false)
+        expect(evaluateExpression({ field: 'quantity', operator, value: '0' }, { quantity: '' }, {})).toBe(false)
+        expect(evaluateExpression({ field: 'quantity', operator, value: '' }, { quantity: 0 }, {})).toBe(false)
+      }
+      expect(evaluateExpression({ field: 'quantity', operator: '>=', value: 0 }, { quantity: '3' }, {})).toBe(true)
+      expect(evaluateExpression({ field: 'quantity', operator: 'IS_EMPTY', value: null }, { quantity: '' }, {})).toBe(true)
+    })
+
     test('should handle date string comparisons', () => {
       const condition: SimpleCondition = {
         field: 'date',
