@@ -108,12 +108,12 @@ export function CustomerTodosTable(): React.JSX.Element {
   const customerId = readCustomerIdParam(searchParams)
 
   const [search, setSearch] = React.useState('')
-  const [page, setPage] = React.useState(1)
-  const [pageSize] = React.useState(50)
-
-  React.useEffect(() => {
-    setPage(1)
+  const [pageState, setPageState] = React.useState<{ customerId: string | null; page: number }>({ customerId, page: 1 })
+  const page = pageState.customerId === customerId ? pageState.page : 1
+  const setPage = React.useCallback((next: number) => {
+    setPageState({ customerId, page: next })
   }, [customerId])
+  const [pageSize] = React.useState(50)
 
   const params = React.useMemo(() => buildCustomerTasksQueryString({
     page,

@@ -33,6 +33,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 
 type ExportSection = { prepare?: (format: string) => Promise<{ prepared: { rows: Array<Record<string, unknown>> } }> }
 let latestExporter: { view?: ExportSection; full?: ExportSection } | false | undefined
+let latestOnPageChange: ((page: number) => void) | undefined
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   DataTable: (props: {
@@ -40,8 +41,10 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
     emptyState?: React.ReactNode
     data?: Array<{ id: string; customer?: { displayName?: string } }>
     exporter?: { view?: ExportSection; full?: ExportSection } | false
+    pagination?: { onPageChange?: (page: number) => void }
   }) => {
     latestExporter = props.exporter
+    latestOnPageChange = props.pagination?.onPageChange
     return (
       <div data-testid="data-table">
         {props.activeFilterChips}
@@ -97,6 +100,7 @@ describe('CustomerTodosTable customer filter', () => {
     jest.clearAllMocks()
     activeQuery = ''
     latestExporter = undefined
+    latestOnPageChange = undefined
   })
 
   it('lists every customer\'s tasks and shows no filter chip without a customerId parameter', async () => {
@@ -184,5 +188,27 @@ describe('CustomerTodosTable customer filter', () => {
     const exportedNames = exported.prepared.rows.map((row) => JSON.stringify(row))
     expect(exportedNames.join(' ')).toContain('Globex')
     expect(exportedNames.join(' ')).not.toContain('Acme Corp')
+  })
+
+  it('requests only the first page of the newly selected customer when the filter changes on a later page', async () => {
+    activeQuery = `customerId=${CUSTOMER_ID}`
+    respondWith([taskRow(CUSTOMER_ID, 'Acme Corp', 'task-acme')])
+
+    const { rerender } = renderWithProviders(<CustomerTodosTable />)
+
+    await waitFor(() => expect(latestOnPageChange).toBeDefined())
+    act(() => latestOnPageChange!(3))
+    await waitFor(() => expect(requestedUrl().searchParams.get('page')).toBe('3'))
+
+    const callsBeforeSwitch = readApiResultOrThrowMock.mock.calls.length
+    respondWith([taskRow(OTHER_CUSTOMER_ID, 'Globex', 'task-globex')])
+    activeQuery = `customerId=${OTHER_CUSTOMER_ID}`
+    rerender(<CustomerTodosTable />)
+
+    await waitFor(() => expect(screen.getByTestId('rendered-rows')).toHaveTextContent('Globex'))
+    const switchCalls = readApiResultOrThrowMock.mock.calls.slice(callsBeforeSwitch).map(([url]) => new URL(url as string, 'http://localhost').searchParams)
+    expect(switchCalls).toHaveLength(1)
+    expect(switchCalls[0].get('entityId')).toBe(OTHER_CUSTOMER_ID)
+    expect(switchCalls[0].get('page')).toBe('1')
   })
 })
