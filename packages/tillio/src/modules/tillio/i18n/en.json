@@ -62,6 +62,7 @@
   "tillio.pull.envNotReady": "Configure the Tillio credentials and run the health check on the integration page first.",
   "tillio.pull.failed": "Could not pull calls from Tillio.",
   "tillio.pull.notReadyTitle": "Tillio is not ready",
+  "tillio.pull.progressUnavailable": "Pulling calls requires the progress module. Enable it to continue.",
   "tillio.pull.operatorMissing": "Attach a Tillio operator on the integration page before pulling calls.",
   "tillio.pull.pulling": "Pulling...",
   "tillio.pull.queued": "Pulling calls from Tillio. Track it in the progress bar.",

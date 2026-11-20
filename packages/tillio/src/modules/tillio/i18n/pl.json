@@ -62,6 +62,7 @@
   "tillio.pull.envNotReady": "Najpierw skonfiguruj poświadczenia Tillio i uruchom Check na stronie integracji.",
   "tillio.pull.failed": "Nie udało się pobrać połączeń z Tillio.",
   "tillio.pull.notReadyTitle": "Tillio niegotowe",
+  "tillio.pull.progressUnavailable": "Pobieranie połączeń wymaga modułu progress. Włącz go, aby kontynuować.",
   "tillio.pull.operatorMissing": "Podepnij operatora Tillio na stronie integracji, zanim pobierzesz połączenia.",
   "tillio.pull.pulling": "Pobieranie...",
   "tillio.pull.queued": "Pobieranie połączeń z Tillio. Postęp śledzisz na pasku postępu.",

@@ -56,6 +56,10 @@ export const openApi = {
   },
 }
 
+function resolveProgressService(container: Awaited<ReturnType<typeof createRequestContainer>>) {
+  return container.resolve<ProgressService | undefined>('progressService', { allowUnregistered: true })
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
@@ -72,6 +76,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     ...readiness,
+    blocker: readiness.blocker ?? (resolveProgressService(container) ? null : 'progress_unavailable'),
     // The dialog states which zone the picked days are read in, and that zone is per
     // environment, so it comes from here rather than from a string baked into the widget.
     timeZone: environment?.timeZone ?? null,
@@ -94,7 +99,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const credentialsService = container.resolve('integrationCredentialsService') as TillioCredentialsService
-  const progressService = container.resolve('progressService') as ProgressService
+  const progressService = resolveProgressService(container)
   const em = container.resolve('em') as EntityManager
   const scope: IntegrationScope = { organizationId: auth.orgId, tenantId: auth.tenantId }
   const progressContext = {
@@ -106,13 +111,14 @@ export async function POST(req: Request) {
   // Checked here as well as in the worker so an unconfigured provider answers immediately
   // instead of parking a job that can only fail.
   const { readiness } = await resolvePullContext(credentialsService, em, scope)
-  if (readiness.blocker) {
+  if (readiness.blocker || !progressService) {
+    const blocker = readiness.blocker ?? 'progress_unavailable'
     return NextResponse.json(
       {
         ok: false,
-        code: readiness.blocker,
-        section: blockerSection(readiness.blocker),
-        message: PULL_BLOCKER_MESSAGES[readiness.blocker],
+        code: blocker,
+        section: blockerSection(blocker),
+        message: PULL_BLOCKER_MESSAGES[blocker],
       },
       { status: 409 },
     )

@@ -109,6 +109,7 @@ describe('evaluatePullReadiness', () => {
   it('maps blockers to the section the UI highlights', () => {
     expect(blockerSection('integration_disabled')).toBe('environment')
     expect(blockerSection('environment_not_ready')).toBe('environment')
+    expect(blockerSection('progress_unavailable')).toBe('environment')
     expect(blockerSection('operator_missing')).toBe('operator')
     expect(blockerSection('environment_drift')).toBe('operator')
   })
@@ -123,6 +124,7 @@ describe('PULL_BLOCKER_COPY', () => {
     'environment_not_ready',
     'operator_missing',
     'environment_drift',
+    'progress_unavailable',
   ]
 
   it('gives every blocker its own wording', () => {
