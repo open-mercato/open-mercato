@@ -1,21 +1,61 @@
 import { z } from 'zod'
 
+// Validation messages. zod's built-in checks (`.min`/`.max`/`.uuid`) carry no
+// `params` bag onto their issue, so `translateZodIssues` (crud/factory.ts)
+// cannot translate them; a rule a user can trip from a form is written as a
+// `.refine()` with `params: { i18nKey, i18nFallback }` (the ledger validators'
+// convention). Ids are picked from lists or set by the route from the request
+// scope, never typed by a user, so their shape messages carry the `[internal]`
+// prefix instead.
+function idSchema(field: string) {
+  return z.uuid(`[internal] ${field} must be a UUID`)
+}
+
+function boundedText(max: number, requiredKey: string, requiredFallback: string, tooLongKey: string, tooLongFallback: string) {
+  return z
+    .string('[internal] expected a string')
+    .refine((value) => value.length >= 1, {
+      message: requiredFallback,
+      params: { i18nKey: requiredKey, i18nFallback: requiredFallback },
+    })
+    .refine((value) => value.length <= max, {
+      message: tooLongFallback,
+      params: { i18nKey: tooLongKey, i18nFallback: tooLongFallback },
+    })
+}
+
+const costCenterCodeSchema = boundedText(
+  100,
+  'posting_rules.errors.costCenterCodeRequired',
+  'Code is required.',
+  'posting_rules.errors.costCenterCodeTooLong',
+  'Code must be at most 100 characters.',
+)
+
+const costCenterNameSchema = boundedText(
+  200,
+  'posting_rules.errors.costCenterNameRequired',
+  'Name is required.',
+  'posting_rules.errors.costCenterNameTooLong',
+  'Name must be at most 200 characters.',
+)
+
 export const costCenterCreateSchema = z.object({
-  organizationId: z.uuid(),
-  tenantId: z.uuid(),
-  code: z.string().min(1).max(100),
-  name: z.string().min(1).max(200),
-  isActive: z.boolean().optional(),
+  organizationId: idSchema('organizationId'),
+  tenantId: idSchema('tenantId'),
+  code: costCenterCodeSchema,
+  name: costCenterNameSchema,
+  isActive: z.boolean('[internal] isActive must be a boolean').optional(),
 })
 export type CostCenterCreateInput = z.infer<typeof costCenterCreateSchema>
 
 export const costCenterUpdateSchema = z.object({
-  id: z.uuid(),
-  organizationId: z.uuid().optional(),
-  tenantId: z.uuid().optional(),
-  code: z.string().min(1).max(100).optional(),
-  name: z.string().min(1).max(200).optional(),
-  isActive: z.boolean().optional(),
+  id: idSchema('id'),
+  organizationId: idSchema('organizationId').optional(),
+  tenantId: idSchema('tenantId').optional(),
+  code: costCenterCodeSchema.optional(),
+  name: costCenterNameSchema.optional(),
+  isActive: z.boolean('[internal] isActive must be a boolean').optional(),
 })
 export type CostCenterUpdateInput = z.infer<typeof costCenterUpdateSchema>
 
@@ -24,27 +64,27 @@ export type CostCenterUpdateInput = z.infer<typeof costCenterUpdateSchema>
 // convention of declaring a full CRUD triple (see ledger's own events.ts
 // comment on `ledger_account.deleted`).
 export const costCenterDeleteSchema = z.object({
-  id: z.uuid(),
-  organizationId: z.uuid().optional(),
-  tenantId: z.uuid().optional(),
+  id: idSchema('id'),
+  organizationId: idSchema('organizationId').optional(),
+  tenantId: idSchema('tenantId').optional(),
 })
 export type CostCenterDeleteInput = z.infer<typeof costCenterDeleteSchema>
 
 export const defaultAccountPostingRuleCreateSchema = z.object({
-  organizationId: z.uuid(),
-  tenantId: z.uuid(),
-  sourceAccountId: z.uuid(),
-  targetAccountId: z.uuid(),
-  defaultCostCenterId: z.uuid().nullable().optional(),
+  organizationId: idSchema('organizationId'),
+  tenantId: idSchema('tenantId'),
+  sourceAccountId: idSchema('sourceAccountId'),
+  targetAccountId: idSchema('targetAccountId'),
+  defaultCostCenterId: idSchema('defaultCostCenterId').nullable().optional(),
 })
 export type DefaultAccountPostingRuleCreateInput = z.infer<typeof defaultAccountPostingRuleCreateSchema>
 
 export const defaultAccountPostingRuleUpdateSchema = z.object({
-  id: z.uuid(),
-  organizationId: z.uuid().optional(),
-  tenantId: z.uuid().optional(),
-  targetAccountId: z.uuid().optional(),
-  defaultCostCenterId: z.uuid().nullable().optional(),
+  id: idSchema('id'),
+  organizationId: idSchema('organizationId').optional(),
+  tenantId: idSchema('tenantId').optional(),
+  targetAccountId: idSchema('targetAccountId').optional(),
+  defaultCostCenterId: idSchema('defaultCostCenterId').nullable().optional(),
 })
 export type DefaultAccountPostingRuleUpdateInput = z.infer<typeof defaultAccountPostingRuleUpdateSchema>
 
@@ -56,9 +96,9 @@ export type DefaultAccountPostingRuleUpdateInput = z.infer<typeof defaultAccount
 // can be created should also be removable), same posture as
 // `CostCenter`'s own delete command.
 export const defaultAccountPostingRuleDeleteSchema = z.object({
-  id: z.uuid(),
-  organizationId: z.uuid().optional(),
-  tenantId: z.uuid().optional(),
+  id: idSchema('id'),
+  organizationId: idSchema('organizationId').optional(),
+  tenantId: idSchema('tenantId').optional(),
 })
 export type DefaultAccountPostingRuleDeleteInput = z.infer<typeof defaultAccountPostingRuleDeleteSchema>
 
@@ -67,20 +107,20 @@ export type DefaultAccountPostingRuleDeleteInput = z.infer<typeof defaultAccount
 // Decisions, "New settings: `PostingRulesSettings`"). Both account fields
 // are nullable and independently settable/clearable.
 export const updatePostingRulesSettingsSchema = z.object({
-  organizationId: z.uuid(),
-  tenantId: z.uuid(),
-  clearingAccountId: z.uuid().nullable().optional(),
-  unallocatedCostAccountId: z.uuid().nullable().optional(),
+  organizationId: idSchema('organizationId'),
+  tenantId: idSchema('tenantId'),
+  clearingAccountId: idSchema('clearingAccountId').nullable().optional(),
+  unallocatedCostAccountId: idSchema('unallocatedCostAccountId').nullable().optional(),
 })
 export type UpdatePostingRulesSettingsInput = z.infer<typeof updatePostingRulesSettingsSchema>
 
 export const reconcileCostRingSchema = z.object({
-  organizationId: z.uuid(),
-  tenantId: z.uuid(),
+  organizationId: idSchema('organizationId'),
+  tenantId: idSchema('tenantId'),
   // Optional — omitted means "every fiscal period", matching
   // `findUnreclassifiedEntries`'s own unbounded absence-based scan (see
   // the spec's Design Decisions, "A repair mechanism").
-  periodId: z.uuid().nullable().optional(),
+  periodId: idSchema('periodId').nullable().optional(),
 })
 export type ReconcileCostRingInput = z.infer<typeof reconcileCostRingSchema>
 
@@ -88,8 +128,8 @@ export type ReconcileCostRingInput = z.infer<typeof reconcileCostRingSchema>
 // close, distinct from `ledger.lockFiscalPeriod`. Same input shape as the
 // underlying `ledger` command it delegates to on success.
 export const postingRulesLockFiscalPeriodSchema = z.object({
-  organizationId: z.uuid(),
-  tenantId: z.uuid(),
-  periodId: z.uuid(),
+  organizationId: idSchema('organizationId'),
+  tenantId: idSchema('tenantId'),
+  periodId: idSchema('periodId'),
 })
 export type PostingRulesLockFiscalPeriodInput = z.infer<typeof postingRulesLockFiscalPeriodSchema>
