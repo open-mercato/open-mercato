@@ -9,8 +9,8 @@ import type { SubscriberContext } from '../lib/subscriber-forward.js'
  * one. `sales.order.confirmed` is the event this module already trusts for that "now it counts" moment —
  * `subscribers/sales-order-confirmed.ts` forwards it to campaign triggers for the same reason.
  *
- * See `lib/referral-events.ts` for why `sales.order.updated` is not used instead: the update command does
- * not currently put that event on the bus at all.
+ * See `sales-order-updated-referral-conversion.ts` for the remaining shape neither this nor
+ * `sales.order.created` covers: an order placed by a plain update with no status transition.
  */
 export const metadata = {
   event: 'sales.order.confirmed',

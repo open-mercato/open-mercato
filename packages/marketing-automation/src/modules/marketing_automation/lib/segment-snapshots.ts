@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ConditionExpression } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
+import { reportError } from '@open-mercato/telemetry'
 import { MarketingSegmentSnapshot } from '../data/entities.js'
 import { loadSegmentDefinitions } from './segments.js'
 import { resolveSegmentMembers, SCREEN_MAX_CHECKED } from './segment-members.js'
@@ -84,10 +85,17 @@ export async function takeSegmentSnapshots(
       em.persist(snapshot)
       await em.flush()
       taken += 1
-    } catch {
+    } catch (error) {
       // One segment's snapshot is never worth failing the sweep for; the missing point is visible as a gap.
+      // But the gap itself must be visible somewhere other than the trend chart, or nobody ever finds out
+      // this segment stopped reporting — the sweep's own outer catch never sees it, because it is caught here.
       em.clear()
       skipped += 1
+      reportError(error, {
+        module: 'marketing_automation',
+        code: 'marketing_automation.segment_snapshot_failed',
+        attributes: { segmentId: definition.id },
+      })
     }
   }
 

@@ -10,21 +10,20 @@ import type { SubscriberContext } from './subscriber-forward.js'
 /**
  * Converts a pending referral when an order event says the referred customer's order now counts.
  *
- * Two events reach this, deliberately, not one. `sales.order.created` covers an order that is already
- * placed the moment it exists — the common storefront shape, where `placedAt` arrives in the same request
- * that creates the row. `sales.order.confirmed` covers the other shape: an order created first (a draft, a
- * quote turned into an order, a submission awaiting review) and placed or confirmed afterwards, which fires
- * no `.created` a second time. Listening to `created` alone missed every order of the second shape: the
- * referral stayed `pending` forever, because nothing ever asked the question again after the order
- * actually became eligible.
+ * Three events reach this. `sales.order.created` covers an order that is already placed the moment it
+ * exists — the common storefront shape, where `placedAt` arrives in the same request that creates the row.
+ * `sales.order.confirmed` covers an order created first (a draft, a quote turned into an order, a
+ * submission awaiting review) and placed or confirmed afterwards: `emitOrderLifecycleEventsForTransition`
+ * emits it unconditionally on an actual status transition, on both create (an order already confirmed when
+ * it is made) and update (one confirmed later).
  *
- * `sales.order.updated` is NOT a third option here, deliberately. The update command's own
- * `emitCrudSideEffects` call omits `events:`, so the domain event never reaches the bus at all — fixing
- * that is a `sales` module change, out of this module's boundary, and `sales.order.confirmed` already
- * covers the one path this module can reach without it: `emitOrderLifecycleEventsForTransition` emits it
- * unconditionally, on both create (an order already confirmed when it is made) and update (one confirmed
- * later), which is exactly why `subscribers/sales-order-confirmed.ts` already trusts it for campaign
- * triggers.
+ * Neither covers an order created already `confirmed` but not yet `placedAt` — a backoffice order awaiting
+ * fulfilment, say — that later has `placedAt` set by itself, with `status` unchanged:
+ * `emitOrderLifecycleEventsForTransition`'s own transition guard (`previousStatus === nextStatus`) means
+ * `.confirmed` does not fire a second time, and `.created` only ever fires once. `sales.order.updated`
+ * closes that gap — the update command now passes `events: orderCrudEvents` to `emitCrudSideEffects`
+ * (`packages/core/src/modules/sales/commands/documents.ts`), so every order update reaches the bus, not
+ * only ones that changed `status`.
  *
  * The eligibility check stays the SAME question regardless of which event asked it — the module's own
  * definition of a placed order (`lib/order-filter.ts`'s `PLACED_ORDER_FILTER_SQL`, read directly off the

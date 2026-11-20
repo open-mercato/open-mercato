@@ -101,34 +101,40 @@ export default function ScoreRulesPage() {
   const [draft, setDraft] = React.useState<Draft>(EMPTY_DRAFT)
   const [baseline, setBaseline] = React.useState<string>(JSON.stringify(EMPTY_DRAFT))
   const [saving, setSaving] = React.useState(false)
-  // Count of ALL rules (enabled and off), so the table and its "showing X of Y" footer stay honest even
-  // though only the enabled ones are ever evaluated.
+  // Count of ALL rules (enabled and off), for the table's "showing X of Y" footer.
   const [total, setTotal] = React.useState(0)
+  // Count of ENABLED rules only — the number the evaluation cap below actually applies to.
+  const [enabledTotal, setEnabledTotal] = React.useState(0)
   const [page, setPage] = React.useState(1)
 
   /**
    * Whether the engine stops before the end of the list.
    *
-   * `total` here counts every non-deleted rule, enabled or not, so this is a conservative trigger: it can
-   * show the note on an installation with, say, 210 rules where only 150 are enabled and nothing is actually
-   * truncated. That is the safe direction to be wrong in — the alternative is a second request just to count
-   * the enabled ones, for a note that otherwise reads correctly either way.
+   * The engine filters to `isEnabled: true` BEFORE ordering and limiting (`loadScoreRules` in
+   * `lib/score-rules.ts`), so the cap applies to the enabled count, not `total` (every non-deleted rule). An
+   * installation with 210 rules of which only 150 are enabled must not see this warning — all 150 evaluate.
    */
-  const truncated = total > MAX_EVALUATED_RULES
+  const truncated = enabledTotal > MAX_EVALUATED_RULES
 
-  const load = React.useCallback(async (nextPage: number) => {
+  // Returns the freshly-loaded enabled count so a caller (the save handler) can react to it in the
+  // same tick — `enabledTotal` state only lands on the NEXT render, too late for a post-save warning.
+  const load = React.useCallback(async (nextPage: number): Promise<number | null> => {
     setLoading(true)
     setLoadFailed(false)
     try {
-      const result = await apiCall<{ items?: ScoreRuleRow[]; total?: number }>(`${RULES_PATH}?pageSize=${PAGE_SIZE}&page=${nextPage}`)
+      const result = await apiCall<{ items?: ScoreRuleRow[]; total?: number; enabledTotal?: number }>(`${RULES_PATH}?pageSize=${PAGE_SIZE}&page=${nextPage}`)
       if (!result.ok || !Array.isArray(result.result?.items)) {
         setLoadFailed(true)
-        return
+        return null
       }
+      const nextEnabledTotal = typeof result.result.enabledTotal === 'number' ? result.result.enabledTotal : result.result.items.filter((row) => row.isEnabled).length
       setRows(result.result.items)
       setTotal(typeof result.result.total === 'number' ? result.result.total : result.result.items.length)
+      setEnabledTotal(nextEnabledTotal)
+      return nextEnabledTotal
     } catch {
       setLoadFailed(true)
+      return null
     } finally {
       setLoading(false)
     }
@@ -219,8 +225,21 @@ export default function ScoreRulesPage() {
         )
       }
       flash(t('marketing_automation.scoreRules.saved', 'Rule saved. Scores are being recalculated in the background.'), 'success')
+      const savedAsEnabled = draft.isEnabled
       resetDraft()
-      await load(page)
+      const nextEnabledTotal = await load(page)
+      // The cap is on the ENABLED set, by name — saving an enabled rule can push an installation that was
+      // already at the cap further past it, and there is no cheap way from here to know this particular
+      // rule's own rank, only that the set it just joined is now oversized.
+      if (savedAsEnabled && nextEnabledTotal !== null && nextEnabledTotal > MAX_EVALUATED_RULES) {
+        flash(
+          t(
+            'marketing_automation.scoreRules.mayNotEvaluate',
+            'There are now {enabledTotal} enabled rules, past the {cap} evaluated for a customer. Rules after the first {cap} by name award nothing until others are disabled.',
+          ).replace('{enabledTotal}', String(nextEnabledTotal)).replace(/\{cap\}/g, String(MAX_EVALUATED_RULES)),
+          'warning',
+        )
+      }
     } catch (error) {
       if (!extractOptimisticLockConflict(error)) {
         const code = readApiErrorField(error, 'code')
@@ -331,8 +350,8 @@ export default function ScoreRulesPage() {
               <div className="text-xs text-muted-foreground">
                 {t(
                   'marketing_automation.scoreRules.truncated',
-                  'All {total} rules are listed, but only the first {cap} by name — the enabled ones — are evaluated for a customer. Rules after that are saved and visible, but award nothing.',
-                ).replace('{total}', String(total)).replace('{cap}', String(MAX_EVALUATED_RULES))}
+                  'There are {enabledTotal} enabled rules, but only the first {cap} by name are evaluated for a customer. The rest are saved and visible, but award nothing until others are disabled.',
+                ).replace('{enabledTotal}', String(enabledTotal)).replace('{cap}', String(MAX_EVALUATED_RULES))}
               </div>
             ) : null}
           </div>

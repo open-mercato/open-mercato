@@ -7,7 +7,6 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { MarketingReferralCode } from '../../data/entities.js'
 import { ensureReferralCode, loadReferralUrlTemplate } from '../../lib/referrals.js'
 import { referralUrlFor } from '../../lib/engine/referral-code.js'
 import { CUSTOMER_ENTITIES } from '../../lib/external/tables.js'
@@ -27,7 +26,13 @@ export const metadata = routeMetadata
 
 const issueSchema = z.object({ customerId: z.string().uuid() })
 
-type CountRow = { referrer_entity_id: string; claimed: string; converted: string }
+type RankedCodeRow = {
+  code: string
+  referrer_entity_id: string
+  created_at: string
+  claimed: string
+  converted: string
+}
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -51,49 +56,37 @@ export async function GET(req: Request) {
   const scope = { tenantId: auth.tenantId, organizationId }
 
   /**
-   * Newest first, explicitly.
+   * Ranked by conversions in the SAME query that picks the window, not after it.
    *
-   * A `limit` with no `orderBy` takes whichever rows Postgres hands back, which is stable until it is not —
-   * an update, a vacuum or a plan change silently reshuffles the page, so the "top fifty codes" screen shows
-   * a different fifty for no reason anybody can see. The list is re-sorted by performance below; this decides
-   * WHICH fifty are read.
+   * Selecting "the newest `limit` codes" and only THEN sorting by performance ranks within a window chosen
+   * by recency — past the window, an older code that converts well never gets a chance to outrank a newer
+   * one that does not convert at all. The redemption counts are joined and the `order by`/`limit` applied
+   * together, so the page is the best-performing `limit` codes among every live one, not the best-performing
+   * `limit` among the newest. Only codes whose owner is still a customer are eligible, decided in the same
+   * query rather than after it, so a deleted customer's code cannot crowd a live one off the page.
    */
-  /**
-   * Only codes whose owner is still a customer, decided in the query rather than after it: the page is the newest
-   * `limit` codes, and filtering after the limit let deleted customers' codes crowd live ones off the page.
-   */
-  const liveIds = await em.getConnection().execute<Array<{ id: string }>>(
-    `select c.id
+  const ranked = await em.getConnection().execute<RankedCodeRow[]>(
+    `select c.code, c.referrer_entity_id, c.created_at,
+            coalesce(r.claimed, 0)::text as claimed,
+            coalesce(r.converted, 0)::text as converted
        from marketing_referral_codes c
        join ${CUSTOMER_ENTITIES} e
          on e.id = c.referrer_entity_id and e.tenant_id = c.tenant_id
         and e.organization_id = c.organization_id and e.deleted_at is null
+       left join (
+         select referrer_entity_id,
+                count(*) as claimed,
+                count(*) filter (where status = 'converted') as converted
+           from marketing_referral_redemptions
+          where tenant_id = ? and organization_id = ?
+          group by referrer_entity_id
+       ) r on r.referrer_entity_id = c.referrer_entity_id
       where c.tenant_id = ? and c.organization_id = ? and c.deleted_at is null
-      order by c.created_at desc, c.id asc
+      order by converted desc, claimed desc, c.created_at desc, c.id asc
       limit ${limit}`,
-    [scope.tenantId, scope.organizationId],
+    [scope.tenantId, scope.organizationId, scope.tenantId, scope.organizationId],
   )
-  if (liveIds.length === 0) return NextResponse.json({ items: [] })
-  const order = new Map(liveIds.map((row, index) => [row.id, index]))
-  const codes = (await em.find(MarketingReferralCode, { ...scope, id: { $in: liveIds.map((row) => row.id) } }))
-    .sort((left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0))
-
-  /**
-   * Counted in ONE grouped query rather than per code.
-   *
-   * A list of fifty codes would otherwise be a hundred queries, and this endpoint exists precisely to be
-   * looked at often.
-   */
-  const counts = await em.getConnection().execute<CountRow[]>(
-    `select referrer_entity_id,
-            count(*)::text as claimed,
-            count(*) filter (where status = 'converted')::text as converted
-       from marketing_referral_redemptions
-      where tenant_id = ? and organization_id = ?
-      group by referrer_entity_id`,
-    [scope.tenantId, scope.organizationId],
-  )
-  const countsById = new Map(counts.map((row) => [row.referrer_entity_id, row]))
+  if (ranked.length === 0) return NextResponse.json({ items: [] })
 
   /**
    * The referrer's NAME, which is what makes this a list rather than fifty identical links.
@@ -102,7 +95,7 @@ export async function GET(req: Request) {
    * personal data, and a marketing-only principal has no business reading it. Without the grant the field is
    * null and the screen falls back to a plain link, which is what it showed everybody before.
    */
-  const referrerIds = [...new Set(codes.map((code) => code.referrerEntityId).filter((id): id is string => !!id))]
+  const referrerIds = [...new Set(ranked.map((row) => row.referrer_entity_id).filter((id): id is string => !!id))]
   const rbac = container.resolve<RbacService>('rbacService')
   const mayReadNames = referrerIds.length > 0 && await rbac.userHasAllFeatures(
     auth.sub,
@@ -121,20 +114,20 @@ export async function GET(req: Request) {
   const nameById = new Map(referrers.map((row) => [row.id, row.displayName ?? null]))
 
   const template = await loadReferralUrlTemplate(container, scope)
-  const items = codes.flatMap((code) => {
-    if (!code.referrerEntityId) return []
-    const row = countsById.get(code.referrerEntityId)
+  // Already in the right order — `ranked` was sorted by conversions, then claims, then recency, before
+  // `limit` was applied, so nothing here needs to re-sort what the query already decided.
+  const items = ranked.flatMap((row) => {
+    if (!row.referrer_entity_id) return []
     return [{
-      customerId: code.referrerEntityId,
-      customerName: nameById.get(code.referrerEntityId) ?? null,
-      code: code.code,
-      url: referralUrlFor(template, code.code),
-      claimed: Number.parseInt(row?.claimed ?? '0', 10) || 0,
-      converted: Number.parseInt(row?.converted ?? '0', 10) || 0,
-      createdAt: code.createdAt.toISOString(),
+      customerId: row.referrer_entity_id,
+      customerName: nameById.get(row.referrer_entity_id) ?? null,
+      code: row.code,
+      url: referralUrlFor(template, row.code),
+      claimed: Number.parseInt(row.claimed, 10) || 0,
+      converted: Number.parseInt(row.converted, 10) || 0,
+      createdAt: new Date(row.created_at).toISOString(),
     }]
   })
-  items.sort((left, right) => right.converted - left.converted || right.claimed - left.claimed)
 
   return NextResponse.json({ items })
 }

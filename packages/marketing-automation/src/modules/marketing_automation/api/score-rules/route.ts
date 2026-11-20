@@ -50,7 +50,12 @@ export async function GET(req: Request) {
     { ...scope, deletedAt: null },
     { orderBy: { name: 'ASC', id: 'ASC' }, limit: pageSize, offset: (page - 1) * pageSize },
   )
-  return NextResponse.json({ items: items.map(presentScoreRule), total, page, pageSize })
+  // The evaluation cap (`MAX_EVALUATED_SCORE_RULES` in `lib/score-rules.ts`) applies to ENABLED rules only
+  // (`loadScoreRules` filters `isEnabled: true` before ordering and limiting) — the screen's "not every rule
+  // is evaluated" note must compare against this count, not `total`, or an installation with many disabled
+  // rules sees a false warning.
+  const enabledTotal = await em.count(MarketingScoreRule, { ...scope, deletedAt: null, isEnabled: true })
+  return NextResponse.json({ items: items.map(presentScoreRule), total, enabledTotal, page, pageSize })
 }
 
 export async function POST(req: Request) {

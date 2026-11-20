@@ -199,6 +199,86 @@ test.describe('TC-MA-023 referrals', () => {
     }
   })
 
+  /**
+   * An order created unplaced, then placed later by a plain update with no status change, must still
+   * convert the referral. `sales.order.created` fires with `placedAt` still null — not eligible yet — and
+   * `sales.order.confirmed` never fires for this order at all, because its status never transitions.
+   * Only `sales.order.updated` reaches `convertReferralFromOrderEvent` once `placedAt` is set. This is the
+   * gap `subscribers/sales-order-updated-referral-conversion.ts` closes; see `lib/referral-events.ts`.
+   */
+  test('an order placed later by a plain update converts the referral too', async ({ request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    const stamp = Date.now()
+    const referrerId = await createPersonFixture(request, token, {
+      firstName: 'PlacedLater',
+      lastName: `Referrer${stamp}`,
+      displayName: `PlacedLater Referrer ${stamp}`,
+      primaryEmail: `qa-ma-conv-later-a-${stamp}@example.com`,
+    })
+    const referredId = await createPersonFixture(request, token, {
+      firstName: 'PlacedLater',
+      lastName: `Buyer${stamp}`,
+      displayName: `PlacedLater Buyer ${stamp}`,
+      primaryEmail: `qa-ma-conv-later-b-${stamp}@example.com`,
+    })
+    let orderId: string | null = null
+
+    try {
+      const code = (await readJsonSafe<CodeBody>(
+        await apiRequest(request, 'POST', REFERRALS_PATH, { token, data: { customerId: referrerId } }),
+      ))?.code
+      expect(code).toBeTruthy()
+
+      const claimed = await apiRequest(request, 'POST', CLAIM_PATH, { token, data: { code, customerId: referredId } })
+      expect(claimed.status()).toBe(200)
+
+      // NOT placed yet — the order exists, but `sales.order.created` finds no `placedAt` and converts
+      // nothing, same as the other test's documented reason.
+      const created = await apiRequest(request, 'POST', '/api/sales/orders', {
+        token,
+        data: {
+          currencyCode: 'USD',
+          customerEntityId: referredId,
+          lines: [{ currencyCode: 'USD', quantity: 1, name: `QA referral later-placed line ${stamp}`, unitPriceNet: 100, unitPriceGross: 123 }],
+        },
+      })
+      test.skip(!created.ok(), 'this installation does not allow creating sales orders through the API')
+      const orderBody = await readJsonSafe<{ id?: string; orderId?: string }>(created)
+      orderId = orderBody?.id ?? orderBody?.orderId ?? null
+      expect(orderId).toBeTruthy()
+
+      // A plain update that only sets `placedAt` — no `statusEntryId`, so `status` does not change and
+      // `sales.order.confirmed` does not fire either. Only `sales.order.updated` is left to ask the
+      // eligibility question again.
+      const placed = await apiRequest(request, 'PUT', '/api/sales/orders', {
+        token,
+        data: { id: orderId, placedAt: new Date().toISOString() },
+      })
+      expect(placed.ok(), `Failed to place the order: ${placed.status()}`).toBeTruthy()
+
+      let converted = 0
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const listed = await readJsonSafe<{ items?: Array<{ customerId?: string; converted?: number }> }>(
+          await apiRequest(request, 'GET', `${REFERRALS_PATH}?limit=100`, { token }),
+        )
+        converted = (listed?.items ?? []).find((item) => item.customerId === referrerId)?.converted ?? 0
+        if (converted > 0) break
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
+      expect(converted, 'placing the order later should still have converted the referral').toBe(1)
+
+      const referredProfile = await readJsonSafe<{ referral?: { referredBy?: { status?: string } | null } }>(
+        await apiRequest(request, 'GET', `/api/marketing_automation/customers/${referredId}/profile`, { token }),
+      )
+      expect(referredProfile?.referral?.referredBy?.status).toBe('converted')
+    } finally {
+      if (orderId) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', referredId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', referrerId)
+    }
+  })
+
   test('the palette offers the step and the trigger', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const body = await readJsonSafe<{
