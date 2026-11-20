@@ -1,5 +1,14 @@
 /** @jest-environment node */
 import { GET } from '@open-mercato/core/modules/entities/api/relations/options'
+import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
+
+const mockResolveOrganizationScopeForRequest = jest.fn<Promise<OrganizationScope>, [unknown]>()
+const mockGetSelectedOrganizationFromRequest = jest.fn((_request: Request): string | null => null)
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: (args: unknown) => mockResolveOrganizationScopeForRequest(args),
+  getSelectedOrganizationFromRequest: (request: Request) => mockGetSelectedOrganizationFromRequest(request),
+}))
 
 const mockQE = {
   query: jest.fn(async () => ({
@@ -56,6 +65,8 @@ describe('GET /api/entities/relations/options', () => {
     jest.clearAllMocks()
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: true })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({ tenantId: 't1', selectedId: 'org', filterIds: ['org'], allowedIds: ['org'] })
+    mockGetSelectedOrganizationFromRequest.mockReturnValue(null)
   })
 
   it('supports id-scoped lookups through the existing relation options permission surface', async () => {
@@ -82,6 +93,82 @@ describe('GET /api/entities/relations/options', () => {
         page: { page: 1, pageSize: 2 },
       }),
     )
+  })
+
+  it('uses the selected organization for target permissions and relation records', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      tenantId: 't1', selectedId: 'selected-org', filterIds: ['selected-org'], allowedIds: ['org', 'selected-org'],
+    })
+    const request = new Request('http://x/api/entities/relations/options?entityId=sales:sales_order&labelField=title', {
+      headers: { cookie: 'om_selected_org=selected-org' },
+    })
+
+    const response = await GET(request)
+
+    expect(response.status).toBe(200)
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledWith(expect.objectContaining({ request }))
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('actor', ['sales.orders.view'], { tenantId: 't1', organizationId: 'selected-org' })
+    expect(mockQE.query).toHaveBeenCalledWith('sales:sales_order', expect.objectContaining({ tenantId: 't1', organizationId: 'selected-org' }))
+    expect(mockEm.findOne).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      $or: [
+        { tenantId: 't1', organizationId: 'selected-org' },
+        { tenantId: 't1', organizationId: null },
+        { tenantId: null, organizationId: null },
+      ],
+    }), expect.anything())
+  })
+
+  it('does not reuse home-organization target permissions for the selected organization', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      tenantId: 't1', selectedId: 'selected-org', filterIds: ['selected-org'], allowedIds: ['org', 'selected-org'],
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValueOnce(false)
+
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=sales:sales_order&labelField=title'))
+
+    expect(response.status).toBe(403)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('actor', ['sales.orders.view'], { tenantId: 't1', organizationId: 'selected-org' })
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('rejects a concrete selection lost while binding the feature-filtered organization scope', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      tenantId: 't1', selectedId: null, filterIds: ['org', 'selected-org'], allowedIds: ['org', 'selected-org'],
+    })
+    mockGetSelectedOrganizationFromRequest.mockReturnValueOnce('unavailable-org')
+
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=virtual:example&labelField=title'))
+
+    expect(response.status).toBe(403)
+    expect(mockEm.findOne).not.toHaveBeenCalled()
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it.each<OrganizationScope>([
+    { tenantId: 't1', selectedId: 'org', filterIds: ['org'], allowedIds: ['org'], selectionRejected: true },
+    { tenantId: 't1', selectedId: null, filterIds: [], allowedIds: ['org'] },
+    { tenantId: 't1', selectedId: null, filterIds: null, allowedIds: [] },
+    { tenantId: null, selectedId: null, filterIds: null, allowedIds: null },
+  ])('denies rejected or empty organization scope before querying data: %j', async (scope) => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce(scope)
+
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=virtual:example&labelField=title'))
+
+    expect(response.status).toBe(403)
+    expect(mockEm.findOne).not.toHaveBeenCalled()
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('retains finite allowed organization filters for an all-organization selection', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      tenantId: 't1', selectedId: null, filterIds: ['org', 'selected-org'], allowedIds: ['org', 'selected-org'],
+    })
+
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=virtual:example&labelField=title'))
+
+    expect(response.status).toBe(200)
+    expect(mockQE.query).toHaveBeenCalledWith('virtual:example', expect.objectContaining({ tenantId: 't1', organizationIds: ['org', 'selected-org'] }))
+    expect(mockQE.query).toHaveBeenCalledWith('virtual:example', expect.not.objectContaining({ organizationId: expect.anything() }))
   })
 
   it('returns only the requested safe route context fields', async () => {

@@ -17,6 +17,9 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { classifyRecordsEntity } from '../../lib/entityClassification'
 import { assertEntityAclForRequest, resolveEntityAclRequirement } from '../../lib/entityAcl'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { getSelectedOrganizationFromRequest, resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
+import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
@@ -64,12 +67,17 @@ export async function GET(req: Request) {
   const qe = container.resolve('queryEngine') as QueryEngine
   const em = container.resolve('em') as EntityManager
 
-  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? null }
+  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const forbidden = () => NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+  if (!organizationScope.tenantId || organizationScope.selectionRejected || isExplicitlyEmptyOrganizationScope(organizationScope)) return forbidden()
+  const requestedOrganizationId = getSelectedOrganizationFromRequest(req)?.trim()
+  if (requestedOrganizationId && !isAllOrganizationsSelection(requestedOrganizationId) && organizationScope.selectedId !== requestedOrganizationId) return forbidden()
+  const scope = { tenantId: organizationScope.tenantId, organizationId: organizationScope.selectedId }
+  const scopedAuth = { ...auth, tenantId: scope.tenantId, orgId: scope.organizationId }
   const classification = await classifyRecordsEntity(em, entityId, scope)
   const declared = getModules().flatMap((entry) => entry.customEntities ?? []).find((entry) => entry.id === entityId) as CustomEntitySpec | undefined
   const requirement = resolveEntityAclRequirement(entityId)
   const registeredTable = resolveRegisteredEntityTableName(em, entityId)
-  const forbidden = () => NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 })
 
   if (requirement?.platformOnly || (classification.kind === 'system' && !requirement && !declared)) return forbidden()
   if (classification.kind === 'unknown' || (classification.kind === 'system' && !registeredTable)) {
@@ -81,12 +89,12 @@ export async function GET(req: Request) {
   if (classification.kind === 'custom' && !(await rbac.userHasAllFeatures(
     auth.sub,
     ['entities.records.view'],
-    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+    scope,
   ))) return forbidden()
 
   try {
     await assertEntityAclForRequest({
-      auth,
+      auth: scopedAuth,
       entityId,
       action: 'view',
       isCustomEntity: classification.kind === 'custom',
@@ -103,8 +111,8 @@ export async function GET(req: Request) {
     isActive: true,
     deletedAt: null,
     $or: [
-      { tenantId: auth.tenantId, organizationId: auth.orgId ?? null },
-      { tenantId: auth.tenantId, organizationId: null },
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+      { tenantId: scope.tenantId, organizationId: null },
       { tenantId: null, organizationId: null },
     ],
   }, { orderBy: { tenantId: 'desc nulls last', organizationId: 'desc nulls last' } }, scope)
@@ -125,8 +133,10 @@ export async function GET(req: Request) {
   if (q) filters[labelField] = { $ilike: `%${escapeLikePattern(q)}%` }
   const fields = Array.from(new Set(['id', labelField, ...routeContextFields]))
   const res = await qe.query<Record<string, unknown>>(entityId, {
-    tenantId: auth.tenantId ?? undefined,
-    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
+    tenantId: scope.tenantId,
+    ...(scope.organizationId
+      ? { organizationId: scope.organizationId }
+      : Array.isArray(organizationScope.filterIds) ? { organizationIds: organizationScope.filterIds } : {}),
     fields,
     filters,
     ...(classification.kind === 'custom' ? { forceCustomEntityStorage: true } : {}),
