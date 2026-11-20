@@ -17,7 +17,7 @@ import { normalizeIsoToken } from '../optimistic-lock'
 import { assertOptimisticLock, enforceRecordGoneIsConflict } from '../optimistic-lock-command'
 import type { CrudFormSectionCapabilityEntry } from '../form-section-capabilities'
 import { compareSectionIds, crudFormSectionHostKey } from './composition'
-import { resourceIdSchema, roundTripIdSchema, symbolicIdSchema } from './protocol'
+import { crudFormSectionSinkSnapshotProtocol, resourceIdSchema, roundTripIdSchema, symbolicIdSchema } from './protocol'
 import { collectCrudFormSectionOutboxRuntimes, crudFormSectionOutboxRevisionSchema, crudFormSectionOutboxSyncSchema, validCrudFormSectionExternalDelivery } from './outbox'
 
 type Payload = Record<string, unknown>
@@ -337,7 +337,7 @@ const hostAddressSchema = z.object({
 }).strict()
 
 const snapshotSchema = z.object({
-  protocol: z.literal('crud-form-section-sink/v1'),
+  protocol: z.literal(crudFormSectionSinkSnapshotProtocol),
   sinkId: symbolicIdSchema,
   roundTripId: roundTripIdSchema,
   capabilityId: symbolicIdSchema,
@@ -368,7 +368,7 @@ export function appendCrudFormSectionSinkSnapshot(
       || (runtime.tableVersioned === true) !== (snapshot.tableBeforeUpdatedAt !== undefined)) return mismatch()
   const entry = snapshotSchema.safeParse({
     ...snapshot,
-    protocol: 'crud-form-section-sink/v1',
+    protocol: crudFormSectionSinkSnapshotProtocol,
     sinkId: runtime.fact.id,
     roundTripId: runtime.fact.roundTripId,
     capabilityId: runtime.capabilityId,
@@ -402,7 +402,7 @@ export function readCrudFormSectionSinkSnapshots(log: CommandUndoLogEntry): Arra
   for (const [owner, entries] of Object.entries(raw)) {
     if (!isRecord(entries)) continue
     for (const [id, entry] of Object.entries(entries)) {
-      if (!isRecord(entry) || entry.protocol !== 'crud-form-section-sink/v1') continue
+      if (!isRecord(entry) || entry.protocol !== crudFormSectionSinkSnapshotProtocol) continue
       const parsed = snapshotSchema.safeParse(entry)
       if (!parsed.success || parsed.data.sinkId !== id || parsed.data.hostResourceId !== log.resourceId
           || parsed.data.hostResourceKind !== log.resourceKind

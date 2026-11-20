@@ -48,6 +48,7 @@ Status: in-progress
 | 6 | 6.3 | Register example capabilities and verify template parity | dispatch | done | 9f4313cdc7 |
 | 6 | 6.2-lint-fix | Distinguish the Playwright fixture callback from a React hook | self | done | f5510f5eb1 |
 | 6 | 6.4 | Refresh standalone harness coverage for each showcase case | dispatch | todo | — |
+| 6 | 6.2-audit-review-fix | Keep private sink replay data out of audit responses | self | done | this commit |
 | 6 | 6.5 | Record example, harness and integration evidence | dispatch | todo | — |
 
 ## Goal

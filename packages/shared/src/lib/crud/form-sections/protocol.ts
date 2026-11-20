@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+export const crudFormSectionSinkSnapshotProtocol = 'crud-form-section-sink/v1'
+
 function reportNonCanonicalIds(
   ids: readonly string[],
   path: string,
