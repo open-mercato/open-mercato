@@ -45,6 +45,7 @@
   "sso.admin.empty.cta": "Skonfiguruj SSO",
   "sso.admin.empty.description": "Skonfiguruj Single Sign-On, aby umożliwić użytkownikom logowanie przez dostawcę tożsamości.",
   "sso.admin.empty.title": "Brak konfiguracji SSO",
+  "sso.admin.error.activationDiscoveryFailed": "Nie można aktywować — wykrywanie nie powiodło się: {error}",
   "sso.admin.error.activationFailed": "Nie udało się zmienić statusu aktywacji",
   "sso.admin.error.alreadyExists": "Konfiguracja SSO już istnieje dla tej organizacji",
   "sso.admin.error.createFailed": "Nie udało się utworzyć konfiguracji SSO",

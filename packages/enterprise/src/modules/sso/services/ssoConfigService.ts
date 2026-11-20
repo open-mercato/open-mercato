@@ -9,6 +9,7 @@ import { emitSsoEvent } from '../events'
 import { validateDomain, normalizeDomain, uniqueDomains, checkDomainLimit } from '../lib/domains'
 import type { SsoProviderRegistry } from '../lib/registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('sso').child({ component: 'config' })
 
@@ -210,8 +211,9 @@ export class SsoConfigService {
       const config = await this.resolveConfig(scope, id, tx)
 
       if (active) {
+        const { t } = await resolveTranslations()
         if (config.allowedDomains.length === 0) {
-          throw new SsoConfigError('Cannot activate SSO configuration with no allowed domains', 400)
+          throw new SsoConfigError(t('sso.admin.error.noDomainsForActivation', 'Add at least one allowed email domain before activating'), 400)
         }
 
         await this.lockActiveDomains(tx, config.allowedDomains)
@@ -219,7 +221,9 @@ export class SsoConfigService {
 
         const testResult = await this.testConnectionInternal(config)
         if (!testResult.ok) {
-          throw new SsoConfigError(`Cannot activate — discovery failed: ${testResult.error}`, 400)
+          throw new SsoConfigError(t('sso.admin.error.activationDiscoveryFailed', 'Cannot activate — discovery failed: {error}', {
+            error: testResult.error ?? t('sso.admin.test.failed', 'Discovery failed'),
+          }), 400)
         }
       }
 
@@ -396,7 +400,11 @@ export class SsoConfigService {
   }
 }
 
+const SSO_CONFIG_ERROR_MARKER = Symbol.for('@open-mercato/sso/SsoConfigError')
+
 export class SsoConfigError extends Error {
+  readonly [SSO_CONFIG_ERROR_MARKER] = true
+
   constructor(
     message: string,
     public readonly statusCode: number,
@@ -404,4 +412,15 @@ export class SsoConfigError extends Error {
     super(message)
     this.name = 'SsoConfigError'
   }
+}
+
+export function isSsoConfigError(error: unknown): error is SsoConfigError {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as Record<PropertyKey, unknown>
+  return candidate[SSO_CONFIG_ERROR_MARKER] === true
+    && typeof candidate.message === 'string'
+    && typeof candidate.statusCode === 'number'
+    && Number.isInteger(candidate.statusCode)
+    && candidate.statusCode >= 400
+    && candidate.statusCode <= 599
 }

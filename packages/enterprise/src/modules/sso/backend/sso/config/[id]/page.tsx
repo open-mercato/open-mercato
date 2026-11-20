@@ -167,8 +167,10 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
       setShowActivationBanner(false)
       fetchConfig()
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      const isNoDomains = message.toLowerCase().includes('no allowed domains')
+      const message = err instanceof Error && err.message
+        ? err.message
+        : t('sso.admin.error.activationFailed', 'Failed to update activation status')
+      const isNoDomains = !config.isActive && config.allowedDomains.length === 0
       if (isNoDomains) {
         setActivationError(t('sso.admin.error.noDomainsForActivation', 'Add at least one allowed email domain before activating'))
         setActiveTab('domains')
@@ -310,9 +312,6 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
               <p className="text-sm font-medium text-status-info-text mb-3">
                 {t('sso.admin.banner.created', 'Your SSO configuration has been created. Would you like to activate it now?')}
               </p>
-              {activationError && (
-                <p className="text-sm text-destructive mb-3">{activationError}</p>
-              )}
               <div className="flex items-center gap-2">
                 <Button size="sm" onClick={handleToggleActivation} disabled={isActivating}>
                   {isActivating
@@ -325,6 +324,8 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
               </div>
             </div>
           )}
+
+          {activationError && <ErrorMessage label={activationError} />}
 
           <FormHeader
             mode="detail"

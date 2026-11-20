@@ -45,6 +45,7 @@
   "sso.admin.empty.cta": "SSO 구성",
   "sso.admin.empty.description": "사용자가 자격 증명 제공업체로 인증할 수 있도록 싱글 사인온을 구성하세요.",
   "sso.admin.empty.title": "구성된 SSO 없음",
+  "sso.admin.error.activationDiscoveryFailed": "활성화할 수 없습니다 — 검색 실패: {error}",
   "sso.admin.error.activationFailed": "활성화 상태 업데이트에 실패했습니다",
   "sso.admin.error.alreadyExists": "이 조직에 대한 SSO 구성이 이미 존재합니다",
   "sso.admin.error.createFailed": "SSO 구성 생성에 실패했습니다",

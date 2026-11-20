@@ -45,6 +45,7 @@
   "sso.admin.empty.cta": "Configurar SSO",
   "sso.admin.empty.description": "Configure el inicio de sesión único para permitir a sus usuarios autenticarse con su proveedor de identidad.",
   "sso.admin.empty.title": "SSO no configurado",
+  "sso.admin.error.activationDiscoveryFailed": "No se puede activar — falló el descubrimiento: {error}",
   "sso.admin.error.activationFailed": "Error al actualizar el estado de activación",
   "sso.admin.error.alreadyExists": "Ya existe una configuración SSO para esta organización",
   "sso.admin.error.createFailed": "Error al crear la configuración SSO",

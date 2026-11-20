@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { SsoAdminAuthError } from './admin-context'
-import { SsoConfigError } from '../services/ssoConfigService'
+import { isSsoConfigError } from '../services/ssoConfigService'
 import { ScimTokenError } from '../services/scimTokenService'
 import { ScimServiceError } from '../services/scimService'
 import { scimJson, buildScimError } from '../lib/scim-response'
@@ -16,7 +16,7 @@ interface SsoHttpError {
 function isSsoHttpError(err: unknown): err is SsoHttpError {
   return (
     err instanceof SsoAdminAuthError ||
-    err instanceof SsoConfigError ||
+    isSsoConfigError(err) ||
     err instanceof ScimTokenError ||
     err instanceof ScimServiceError
   )
