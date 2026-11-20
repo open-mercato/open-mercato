@@ -24,7 +24,7 @@ export type TodoRecord = {
 export const test = base.extend<{
   showcaseTodo: { id: string; title: string; notes: string; token: string; read(): Promise<TodoRecord>; open(): Promise<void> }
 }>({
-  showcaseTodo: async ({ request, page }, use) => {
+  showcaseTodo: async ({ request, page }, run) => {
     const token = await getAuthToken(request, 'admin')
     const title = `Form sections ${randomUUID()}`
     const notes = `Preserved ${title}`
@@ -37,7 +37,7 @@ export const test = base.extend<{
     const { id } = created
 
     try {
-      await use({
+      await run({
         id, title, notes, token,
         async read() {
           const response = await apiRequest(request, 'GET', `${todoApi}?id=${id}&pageSize=1&sectionDetail=showcase`, { token })
