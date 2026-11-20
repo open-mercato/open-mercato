@@ -1909,6 +1909,16 @@ Integration tests for this module must be implemented under the existing QA harn
 
 ## Migration & Backward Compatibility
 
+TOTP setup error maintenance (#10013, #10014) keeps the provider confirmation route,
+payloads and `{ error: string }` response shape. Expected setup failures use the existing
+localized error messages: invalid codes and expired setups return 400; missing setups
+return 404. Clients should display these errors and allow retry or setup restart instead
+of treating them as unexpected server failures. Unknown failures retain the generic 500.
+No operator migration, schema, verifier, authentication or rate-limit changes are needed.
+Polish setup/login labels and the built-in TOTP page title use existing translation keys.
+Registration and last-used relative times on MFA method lists follow the UI locale via the
+existing `useDateFnsLocale` helper; no tenant date/time settings are involved.
+
 The emergency-bypass notification change (#5523) corrects shared enabled-module ownership
 for nested ACL wildcards such as `security.mfa.*`. Existing stored role and per-user grants
 can therefore authorize matching features previously discarded by the initialized registry
@@ -2147,3 +2157,16 @@ Existing login, enrollment-redirect and sudo bypass branches also request a pers
 ### 2026-10-25 — Address emergency-bypass notification review
 
 Page middleware requests persistent notification delivery without awaiting the enqueue, including unavailable-service and failed-compliance paths. Login and sudo retain their two-second fail-open enqueue bound; the helper still reports enqueue failures and the durable subscriber still owns daily deduplication. The nested-wildcard effective-permission correction and operator ACL audit are documented in Migration & Backward Compatibility and UPGRADE_NOTES. Unrelated CI workflow and workflow UI test corrections are excluded from this feature PR.
+
+### 2026-11-18 — Make recovery-code use and enrollment confirmation atomic (#9673)
+
+Recovery verification claims the matched code with a user- and tenant-scoped conditional update that succeeds only while the code is unused. Concurrent losers return the existing invalid-code result and emit no usage event. Enrollment confirmation serializes by user with a PostgreSQL transaction advisory lock, refreshes pending and invariant reads under the lock, and commits activation before emitting the existing enrollment event. Single-instance provider limits, duplicate-label checks and same-setup rejection retain their existing errors; multi-instance providers still accept distinct labels. Unit and real PostgreSQL lock-barrier regressions cover concurrent recovery use, different and identical setups, duplicate and distinct labels, stale identity-map state, and event emission after commit. No schema, configuration, startup, dependency or public-contract change is required.
+
+### 2026-11-19 — TOTP setup errors and Polish MFA labels (#10013, #10014)
+
+Expected TOTP setup failures use the existing localized HTTP error path without changing
+verification or cleanup. Mocked unit tests cover invalid-code retry, missing/expired setup,
+unknown-error redaction, Polish labels and page title, and custom-provider label fallback.
+The errors are raised with the shared `badRequest`/`notFound` helpers, and PUT route→service→provider
+tests assert failed confirmations neither activate, flush nor emit enrollment. MFA method-list
+relative times are passed the active date-fns locale; `ui.table.registeredAt` is translated in de/es.

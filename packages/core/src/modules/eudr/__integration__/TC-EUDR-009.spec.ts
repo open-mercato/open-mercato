@@ -154,13 +154,12 @@ test.describe('TC-EUDR-009: EUDR batch-2 UI smoke', () => {
     await expectNoErrorState(page)
   })
 
-  test('renders evidence submission detail fields and statement risk lifecycle UI', async ({ page, request }) => {
+  test('renders evidence submission detail fields', async ({ page, request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = `${Date.now()}-${randomUUID()}`
     let supplierId: string | null = null
     let submissionId: string | null = null
     let statementId: string | null = null
-    let assessmentId: string | null = null
 
     try {
       supplierId = await createCompanyFixture(request, token, `TC-EUDR-009 Supplier ${stamp}`)
@@ -182,6 +181,21 @@ test.describe('TC-EUDR-009: EUDR batch-2 UI smoke', () => {
       await expect(page.locator('[data-crud-field-id="geolocation"]').first()).toBeVisible()
       await expect(page.locator('[data-crud-field-id="attachmentIds"]')).toHaveCount(0)
       await expectNoErrorState(page, 'Could not load evidence submission.')
+    } finally {
+      await deleteByCrudPath(request, token, EVIDENCE_SUBMISSIONS_PATH, submissionId)
+      await deleteByCrudPath(request, token, STATEMENTS_PATH, statementId)
+      await deleteEntityIfExists(request, token, CUSTOMERS_COMPANIES_PATH, supplierId)
+    }
+  })
+
+  test('renders statement risk lifecycle UI', async ({ page, request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}-${randomUUID()}`
+    let statementId: string | null = null
+    let assessmentId: string | null = null
+
+    try {
+      statementId = await createStatement(request, token, `TC-EUDR-009 Statement ${stamp}`)
 
       await page.goto(`/backend/eudr/statements/${encodeURIComponent(statementId)}`, {
         waitUntil: 'domcontentloaded',
@@ -194,6 +208,21 @@ test.describe('TC-EUDR-009: EUDR batch-2 UI smoke', () => {
       await page.reload({ waitUntil: 'domcontentloaded' })
       await expect(page.getByText(/negligible/i).first()).toBeVisible()
       await expectNoErrorState(page, 'Could not load statement.')
+    } finally {
+      await deleteByCrudPath(request, token, RISK_ASSESSMENTS_PATH, assessmentId)
+      await deleteByCrudPath(request, token, STATEMENTS_PATH, statementId)
+    }
+  })
+
+  test('renders risk assessments and statement risk columns', async ({ page, request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}-${randomUUID()}`
+    let statementId: string | null = null
+    let assessmentId: string | null = null
+
+    try {
+      statementId = await createStatement(request, token, `TC-EUDR-009 Statement ${stamp}`)
+      assessmentId = await createRiskAssessment(request, token, statementId)
 
       await page.goto('/backend/eudr/risk-assessments', { waitUntil: 'domcontentloaded' })
       await expect(page.getByRole('heading', { name: 'Risk assessments', level: 1 }).first()).toBeVisible()
@@ -208,9 +237,7 @@ test.describe('TC-EUDR-009: EUDR batch-2 UI smoke', () => {
       await expectNoErrorState(page, 'Could not load statements.')
     } finally {
       await deleteByCrudPath(request, token, RISK_ASSESSMENTS_PATH, assessmentId)
-      await deleteByCrudPath(request, token, EVIDENCE_SUBMISSIONS_PATH, submissionId)
       await deleteByCrudPath(request, token, STATEMENTS_PATH, statementId)
-      await deleteEntityIfExists(request, token, CUSTOMERS_COMPANIES_PATH, supplierId)
     }
   })
 

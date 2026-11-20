@@ -14,7 +14,18 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('audit_logs').child({ component: 'access-log-service' })
 
-const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
+const DEFAULT_CORE_RESOURCE_KINDS: readonly string[] = Object.freeze(['auth.user', 'auth.role'])
+
+export function resolveCoreResourceKinds(env: Record<string, string | undefined> = process.env): Set<string> {
+  const kinds = new Set<string>(DEFAULT_CORE_RESOURCE_KINDS)
+  const extra = env.AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA
+  if (!extra) return kinds
+  for (const entry of extra.split(',')) {
+    const kind = entry.trim()
+    if (kind) kinds.add(kind)
+  }
+  return kinds
+}
 
 function toPositiveNumber(value: string | undefined, fallback: number): number {
   if (!value) return fallback
@@ -30,6 +41,7 @@ function toNonNegativeNumber(value: string | undefined, fallback: number): numbe
   return parsed
 }
 
+const CORE_RESOURCE_KINDS = resolveCoreResourceKinds(process.env)
 const CORE_RETENTION_DAYS = toPositiveNumber(process.env.AUDIT_LOGS_CORE_RETENTION_DAYS, 7)
 const NON_CORE_RETENTION_HOURS = toPositiveNumber(process.env.AUDIT_LOGS_NON_CORE_RETENTION_HOURS, 8)
 const CORE_RETENTION_MS = CORE_RETENTION_DAYS * 24 * 60 * 60 * 1000
@@ -347,24 +359,30 @@ export class AccessLogService {
       ...query,
     })
 
+    const pageSize = parsed.pageSize ?? parsed.limit ?? 50
+    const page = parsed.page ?? 1
+
     const where: FilterQuery<AccessLog> = { deletedAt: null }
     if (parsed.tenantId) where.tenantId = parsed.tenantId
-    if (parsed.organizationId) where.organizationId = parsed.organizationId
+    if (parsed.organizationId) {
+      where.organizationId = parsed.organizationId
+    } else if (parsed.organizationIds) {
+      if (parsed.organizationIds.length === 0) return { items: [], total: 0, page, pageSize, totalPages: 1 }
+      where.organizationId = { $in: Array.from(new Set(parsed.organizationIds)) }
+    }
     if (parsed.actorUserId) where.actorUserId = parsed.actorUserId
     if (parsed.resourceKind) where.resourceKind = parsed.resourceKind
     if (parsed.accessType) where.accessType = parsed.accessType
     if (parsed.before) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $lt: parsed.before } as any
     if (parsed.after) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $gt: parsed.after } as any
 
-    const pageSize = parsed.pageSize ?? parsed.limit ?? 50
-    const page = parsed.page ?? 1
     const offset = (page - 1) * pageSize
 
     const [items, total] = await this.em.findAndCount(
       AccessLog,
       where,
       {
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: 'desc', id: 'desc' },
         limit: pageSize,
         offset,
       },

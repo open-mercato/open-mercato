@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { build } from 'esbuild'
 import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const repoRoot = path.resolve(__dirname, '../../../..')
@@ -54,5 +55,31 @@ describe('default-unloaded host wiring', () => {
       expect(source).toContain("from '@open-mercato/telemetry/nextjs-config'")
       expect(source).not.toContain("from '@open-mercato/telemetry/nextjs'")
     }
+  })
+
+  it('keeps span redaction out of the initial browser entry bundle', async () => {
+    const entryPoint = 'packages/telemetry/src/browser/index.ts'
+    const processorPath = 'packages/telemetry/src/provider/redacting-span-processor.ts'
+    const redactionPath = 'packages/telemetry/src/facade/redact.ts'
+    const result = await build({
+      absWorkingDir: repoRoot,
+      entryPoints: [entryPoint],
+      bundle: true,
+      packages: 'external',
+      platform: 'browser',
+      format: 'esm',
+      splitting: true,
+      write: false,
+      outdir: 'telemetry-browser-test',
+      metafile: true,
+    })
+    const outputs = Object.values(result.metafile.outputs)
+    const browserEntry = outputs.find((output) => output.entryPoint === entryPoint)
+
+    expect(browserEntry).toBeDefined()
+    expect(Object.keys(browserEntry!.inputs)).not.toContain(processorPath)
+    expect(Object.keys(browserEntry!.inputs)).not.toContain(redactionPath)
+    expect(outputs.some((output) => processorPath in output.inputs)).toBe(true)
+    expect(outputs.some((output) => redactionPath in output.inputs)).toBe(true)
   })
 })

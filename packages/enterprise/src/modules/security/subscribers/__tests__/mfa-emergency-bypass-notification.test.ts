@@ -1,3 +1,4 @@
+import { EntityMetadata, MetadataStorage } from '@mikro-orm/core'
 import { Notification } from '@open-mercato/core/modules/notifications/data/entities'
 import type { CreateBatchNotificationInput } from '@open-mercato/core/modules/notifications/data/validators'
 import emergencyBypassSubscriber, { metadata } from '../mfa-emergency-bypass-notification'
@@ -29,14 +30,18 @@ const scope = {
 const payload = { ...scope, observedAt: '2026-10-18T23:59:00.000Z' }
 const dailyGroupKey = 'security.mfa.emergency_bypass_detected:2026-10-18'
 
-function createContext(scopeOverrides: ScopeOverrides = {}) {
+function createContext(scopeOverrides: ScopeOverrides = {}, notificationsAvailable = true) {
+  const registeredClass = class Notification {}
+  const ormMetadata = new MetadataStorage(notificationsAvailable ? {
+    Notification: new EntityMetadata({ class: registeredClass, className: 'Notification' }),
+  } : {})
   const database = { connection: Symbol('database connection') }
   const transactional = jest.fn()
   const emFork = { getKysely: jest.fn(() => database), transactional }
   const fork = jest.fn(() => emFork)
   const userHasAllFeatures = jest.fn(async (_userId: string, _features: string[], _scope: Scope) => true)
   const resolve = jest.fn((name: string): unknown => {
-    if (name === 'em') return { fork }
+    if (name === 'em') return { fork, getMetadata: () => ormMetadata }
     if (name === 'rbacService') return { userHasAllFeatures }
     return undefined
   })
@@ -56,6 +61,19 @@ describe('MFA emergency bypass notification subscriber', () => {
     getScopedNotificationRecipientUserIdsMock.mockResolvedValue(['admin-1'])
     createBatchMock.mockResolvedValue([])
     resolveNotificationServiceMock.mockReturnValue({ createBatch: createBatchMock })
+  })
+
+  it('skips all notification lookups and delivery when notifications metadata is absent', async () => {
+    const { ctx, fork } = createContext({}, false)
+
+    await emergencyBypassSubscriber(payload, ctx)
+
+    expect(fork).not.toHaveBeenCalled()
+    expect(findOneWithDecryptionMock).not.toHaveBeenCalled()
+    expect(getRecipientUserIdsForFeatureMock).not.toHaveBeenCalled()
+    expect(getScopedNotificationRecipientUserIdsMock).not.toHaveBeenCalled()
+    expect(resolveNotificationServiceMock).not.toHaveBeenCalled()
+    expect(createBatchMock).not.toHaveBeenCalled()
   })
 
   it('registers persistent delivery and creates an in-app warning for the trusted scope', async () => {
