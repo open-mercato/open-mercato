@@ -161,6 +161,10 @@ function createFakeEntityManager(store: FakeStore) {
     const heads = mergedTodoHeads(store)
     if (isCountQuery(query)) return [{ total: String(heads.length) }]
     const [limit, offset] = query.parameters.slice(-2) as number[]
+    const fractional = [limit, offset].find((value) => !Number.isInteger(value))
+    if (fractional !== undefined) {
+      throw new Error(`[internal] invalid input syntax for type bigint: "${fractional}"`)
+    }
     return heads.slice(offset, offset + limit)
   })
 
@@ -536,6 +540,28 @@ describe('GET /api/customers/interactions/tasks', () => {
 
       const last = await callRoute('?page=25&pageSize=100')
       expect(last.body.items.map((item) => item.id)).toEqual(links.slice(2400).map((link) => link.id))
+    })
+
+    it('truncates fractional page and pageSize the same way the in-memory slice did', async () => {
+      const links = Array.from({ length: 12 }, (_, index) =>
+        makeTodoLink({
+          id: uuid('cccccccc', index),
+          todoId: uuid('dddddddd', index),
+          createdAt: new Date(newest - index * minute),
+        }),
+      )
+      primeRequestContext({ interactions: [], links })
+      setUnified(false)
+
+      for (const [page, pageSize] of [[1, 2.5], [2, 2.5], [1.5, 3], [2.5, 3.5]]) {
+        const start = (page - 1) * pageSize
+        const response = await callRoute(`?page=${page}&pageSize=${pageSize}`)
+        expect(response.status).toBe(200)
+        expect(response.body).toMatchObject({ total: 12, page, pageSize })
+        expect(response.body.items.map((item) => item.id)).toEqual(
+          links.slice(start, start + pageSize).map((link) => link.id),
+        )
+      }
     })
 
     it('lists a bridged legacy link once when the link is newer than its task', async () => {

@@ -685,8 +685,10 @@ export async function listMergedTodoPage(
     .select((builder) => builder.fn.countAll<string | number>().as('total'))
     .executeTakeFirst()
   const total = Number(counted?.total ?? 0)
-  const start = (options.page - 1) * options.pageSize
-  if (start >= total) {
+  const rawStart = (options.page - 1) * options.pageSize
+  const start = Math.trunc(rawStart)
+  const limit = Math.trunc(rawStart + options.pageSize) - start
+  if (start >= total || limit <= 0) {
     return { items: [], total }
   }
   const pageHeads = await db
@@ -694,7 +696,7 @@ export async function listMergedTodoPage(
     .select(['heads.id', 'heads.legacy'])
     .orderBy('heads.created_at', 'desc')
     .orderBy('heads.id', 'desc')
-    .limit(options.pageSize)
+    .limit(limit)
     .offset(start)
     .execute()
   const pageLegacyIds = pageHeads.filter((head) => head.legacy).map((head) => head.id)
