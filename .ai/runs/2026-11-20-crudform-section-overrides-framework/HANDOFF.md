@@ -5,8 +5,8 @@ PR: https://github.com/open-mercato/open-mercato/pull/10067
 
 ## Completed
 
-Phases 1–5 are published. The paired generator compiles the public authoring builders into the primitive runtime, with revision checks, exact scoped storage, and a fixture proving fingerprint and submission parity. See [checkpoint 6](checkpoint-6-checks.md) for the synced-base rebuild, package suites, documentation checks, and ordinary Todo browser evidence.
+The framework, Todo showcase, C1–C12 integration matrix, and disabled Example reference are published. See [checkpoint 7](checkpoint-7-checks.md) for the managed app and packed scaffold tests, exact target verification, and screenshots.
 
 ## Next concrete action
 
-Finish Step 6.1, the configured Todo showcase and ambient transaction adaptation. Continue with the twelve API and browser cases, example and template registration, the standalone harness and its required proof, exact final validation, independent review, and configured UI evidence.
+Apply the twelve standalone harness cases and exact source links in Step 6.4. Record the focused, packed and release evidence in Step 6.5, then run the ordered validation and full integration gates, design-system pass, independent review, and UI evidence review.

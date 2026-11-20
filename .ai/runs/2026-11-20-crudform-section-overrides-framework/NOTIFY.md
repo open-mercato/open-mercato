@@ -40,3 +40,8 @@
 - Verified Steps 5.1–5.6 and synced main into the feature branch.
 - Generator parity, backend rules and scoped storage, package tests, docs, and standalone budgets passed.
 - Three ordinary Todo tests passed in the isolated app. Two screenshots are on the PR. Step 6.1 started after the checkpoint app was built.
+
+## 2026-11-20T18:42:27Z — checkpoint 7
+
+- Verified the real Todo showcase and the two standalone fixture cases. Five verified screenshots are on the PR.
+- Verified the exact disabled-scaffold targets, source links, context reachability, and template parity.
