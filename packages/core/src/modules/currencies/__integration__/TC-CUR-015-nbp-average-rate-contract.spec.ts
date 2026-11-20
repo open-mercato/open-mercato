@@ -32,7 +32,7 @@ async function setPublicationReference(rateId: string, reference: string): Promi
   await client.connect();
   try {
     await client.query(
-      'update exchange_rates set external_reference = $1 where id = $2',
+      'update exchange_rates set source = \'nbp_average\', external_reference = $1 where id = $2',
       [reference, rateId],
     );
   } finally {
@@ -106,6 +106,20 @@ test.describe('TC-CUR-015: NBP average-rate contract', () => {
       expect(createResponse.status(), 'average-rate fixture create').toBe(201);
       rateId = ((await createResponse.json()) as { id?: string }).id ?? null;
       expect(rateId).toBeTruthy();
+      const manualRead = await apiRequest(request, 'GET', `/api/currencies/exchange-rates?id=${encodeURIComponent(rateId as string)}`, { token });
+      expect(manualRead.status()).toBe(200);
+      expect(((await manualRead.json()) as { items?: unknown[] }).items).toEqual([expect.objectContaining({
+        source: 'manual', type: 'average', externalReference: null,
+      })]);
+      const sourceUpdate = await apiRequest(request, 'PUT', '/api/currencies/exchange-rates', {
+        token, data: { id: rateId, source: 'nbp_average' },
+      });
+      expect(sourceUpdate.status()).toBe(200);
+      const afterUpdate = await apiRequest(request, 'GET', `/api/currencies/exchange-rates?id=${encodeURIComponent(rateId as string)}`, { token });
+      expect(afterUpdate.status()).toBe(200);
+      expect(((await afterUpdate.json()) as { items?: unknown[] }).items).toEqual([expect.objectContaining({
+        source: 'manual', type: 'average', externalReference: null,
+      })]);
       await setPublicationReference(rateId as string, reference);
 
       const selectedResponse = await apiRequest(
