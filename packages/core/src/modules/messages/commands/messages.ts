@@ -1679,8 +1679,9 @@ async function handOffReleasedMessage(
 
 /**
  * A previous attempt that already linked the message counts as delivered. A
- * mailbox that cannot deliver (or no mailbox module) fails the participants
- * instead of retrying; any other refusal throws so the release is reverted.
+ * mailbox that cannot deliver (or no mailbox module) or cannot carry the
+ * message's attachments fails the participants instead of retrying; any other
+ * refusal throws so the release is reverted.
  */
 async function handOffReleasedToMailbox(
   container: ReleaseContainer,
@@ -1695,9 +1696,10 @@ async function handOffReleasedToMailbox(
     { senderChannelId, messageId: message.id },
   )
   if (result.ok || result.code === 'already_linked') return
-  if (result.code !== 'channel_unavailable') {
+  if (!result.code) {
     throw new Error(`[internal] mailbox hand-off refused (${result.status}): ${result.error}`)
   }
+  const failureReason = result.code === 'channel_unavailable' ? MAILBOX_UNAVAILABLE_ERROR : result.error
   // Marked as mailbox-routed like a delivered one, so "resend to failed" retries through the mailbox, not the platform sender.
   await em.fork().nativeUpdate(
     Message,
@@ -1714,7 +1716,7 @@ async function handOffReleasedToMailbox(
   await settleExternalParticipants(
     em.fork(),
     { messageId: message.id, ...scope },
-    { failed: pending.map((participant) => ({ id: participant.id, error: MAILBOX_UNAVAILABLE_ERROR })) },
+    { failed: pending.map((participant) => ({ id: participant.id, error: failureReason })) },
     { pendingOnly: true },
   )
 }

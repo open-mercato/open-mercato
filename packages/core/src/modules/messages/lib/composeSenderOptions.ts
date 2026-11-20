@@ -13,6 +13,7 @@ export type ComposeSenderChannel = {
   displayName?: unknown
   externalIdentifier?: unknown
   isPrimary?: unknown
+  supportsAttachments?: unknown
 }
 
 /**
@@ -49,6 +50,7 @@ export function toComposeSenderOptions(items: unknown): MessageSenderOption[] {
       label: displayName,
       description: externalIdentifier,
       isDefault: channel.isPrimary === true,
+      supportsAttachments: channel.supportsAttachments === true,
     })
   }
 

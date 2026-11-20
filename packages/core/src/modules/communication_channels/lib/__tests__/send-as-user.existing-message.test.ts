@@ -6,6 +6,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
 }))
 
+jest.mock('../../../messages/lib/attachments', () => ({
+  getMessageAttachments: jest.fn(async () => []),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ t: (key: string) => `translated:${key}` }),
 }))
@@ -53,6 +57,7 @@ function makeContainer(options: { scheduler?: boolean } = {}) {
     resolve: (name: string) => {
       if (name === 'em') return em
       if (name === 'commandBus') return { execute: commandExecuteMock }
+      if (name === 'channelAdapterRegistry') return { get: () => ({ capabilities: { fileSharing: true } }) }
       throw new Error(`unexpected resolve: ${name}`)
     },
     hasRegistration: (name: string) => name === 'schedulerService' && options.scheduler === true,
@@ -257,7 +262,7 @@ describe('validateSenderChannel', () => {
 
   it('accepts an owned connected channel and refuses another user\'s', async () => {
     prime()
-    await expect(validateSenderChannel(makeContainer().container, actor, 'ch-1')).resolves.toEqual({ ok: true })
+    await expect(validateSenderChannel(makeContainer().container, actor, 'ch-1')).resolves.toEqual({ ok: true, supportsAttachments: true })
     await expect(validateSenderChannel(makeContainer().container, { ...actor, userId: 'user-2' }, 'ch-1'))
       .resolves.toMatchObject({ ok: false, status: 403, code: 'channel_unavailable' })
   })

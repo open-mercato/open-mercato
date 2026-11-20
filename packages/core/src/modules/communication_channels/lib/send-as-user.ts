@@ -8,6 +8,8 @@ import { Message, MessageExternalParticipant } from '../../messages/data/entitie
 import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../../messages/lib/messageSourceEntityTypes'
 import { renderMarkdownEmailBody } from '../../messages/lib/markdownEmailBody'
 import { isSchedulingAvailable } from '../../messages/lib/scheduledSend'
+import { getMessageAttachments } from '../../messages/lib/attachments'
+import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../../messages/lib/constants'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -417,10 +419,48 @@ export async function validateSenderChannel(
   container: AppContainer,
   actor: SendAsUserActor,
   channelId: string,
-): Promise<{ ok: true } | SendAsUserFailure> {
+): Promise<{ ok: true; supportsAttachments: boolean } | SendAsUserFailure> {
   const em = (container.resolve('em') as EntityManager).fork()
   const resolved = await resolveSendableChannel(em, actor, channelId)
-  return resolved.ok ? { ok: true } : resolved
+  if (!resolved.ok) return resolved
+  const adapterRegistry = container.resolve('channelAdapterRegistry') as ChannelAdapterRegistry
+  return { ok: true, supportsAttachments: adapterRegistry.get(resolved.channel.providerKey)?.capabilities.fileSharing === true }
+}
+
+/**
+ * The files an existing message carries at hand-off: its current attachments
+ * plus the references a scheduled compose stored. A file removed before the
+ * send is not sent; any other refusal (no file support, limits) fails the send.
+ */
+async function resolveExistingMessageAttachments(
+  container: AppContainer,
+  em: EntityManager,
+  actor: SendAsUserActor,
+  channel: CommunicationChannel,
+  message: Message,
+): Promise<{ ok: true; stored: StoredOutboundAttachment[] } | SendAsUserFailure> {
+  const { tenantId, organizationId } = actor
+  const current = await getMessageAttachments(em, message.id, organizationId, tenantId)
+  const storedRefs = readStoredOutboundAttachments(message.senderDeliveryOptions?.channelMetadata)
+  if (!current.length && !storedRefs.length) return { ok: true, stored: [] }
+  const adapterRegistry = container.resolve('channelAdapterRegistry') as ChannelAdapterRegistry
+  const adapter = adapterRegistry.get(channel.providerKey)
+  if (!adapter) return { ok: false, status: 409, error: '[internal] No channel adapter registered for this provider' }
+  const scope = { userId: actor.userId, tenantId, organizationId }
+  const refs: OutboundAttachmentRef[] = current.map((attachment) => ({
+    kind: 'attachment',
+    attachmentId: attachment.id,
+    owner: { entityId: MESSAGE_ATTACHMENT_ENTITY_ID, recordId: message.id },
+  }))
+  for (const storedRef of storedRefs) {
+    if (refs.some((ref) => ref.attachmentId === storedRef.attachmentId)) continue
+    const ref: OutboundAttachmentRef = { kind: 'attachment', ...storedRef }
+    const check = await validateOutboundAttachments({ container, scope, refs: [ref], capabilities: adapter.capabilities })
+    if (check.ok || check.code !== 'attachment_not_found') refs.push(ref)
+  }
+  const validation = await validateOutboundAttachments({ container, scope, refs, capabilities: adapter.capabilities })
+  if (!validation.ok) return { ok: false, status: validation.status, error: validation.error, code: validation.code }
+  return { ok: true, stored: validation.stored }
 }
 
 async function sendExistingMessageAsUser(
@@ -482,6 +522,8 @@ async function sendExistingMessageAsUser(
     ? toParticipants.map((participant) => ({ externalParticipantId: participant.id, to: [participant.email] }))
     : [{ externalParticipantId: null, to }]
   const stored = message.senderDeliveryOptions ?? null
+  const attachments = await resolveExistingMessageAttachments(container, em, actor, channel, message)
+  if (!attachments.ok) return attachments
   const html = message.bodyFormat === 'markdown' && message.body.trim()
     ? await renderMarkdownEmailBody(message.body)
     : undefined
@@ -502,8 +544,7 @@ async function sendExistingMessageAsUser(
       references: input.channelMetadata ? [] : stored?.references ?? [],
       channelMetadata: input.channelMetadata ?? stored?.channelMetadata,
       parentMessageId: message.parentMessageId ?? null,
-      // Validated when the message was scheduled; only the hub writes this key.
-      attachments: readStoredOutboundAttachments(stored?.channelMetadata),
+      attachments: attachments.stored,
       deliveries,
     },
     async () => {

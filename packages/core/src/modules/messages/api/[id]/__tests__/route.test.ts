@@ -614,7 +614,11 @@ describe('messages /api/messages/[id] PATCH', () => {
     const messageId = '22222222-2222-4222-8222-222222222222'
     const channelId = '33333333-3333-4333-8333-333333333333'
 
-    function setup(options: { storedChannelId?: string | null; validation?: { ok: true } | { ok: false; status: number; error: string } }) {
+    function setup(options: {
+      storedChannelId?: string | null
+      validation?: { ok: true; supportsAttachments?: boolean } | { ok: false; status: number; error: string }
+      storedAttachmentIds?: string[]
+    }) {
       const draftMessage = {
         id: messageId,
         tenantId,
@@ -629,6 +633,7 @@ describe('messages /api/messages/[id] PATCH', () => {
       const em = {
         fork: jest.fn().mockReturnThis(),
         findOne: jest.fn().mockResolvedValue(draftMessage),
+        find: jest.fn().mockResolvedValue((options.storedAttachmentIds ?? []).map((id) => ({ id }))),
       }
       const commandBus = {
         execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
@@ -684,6 +689,32 @@ describe('messages /api/messages/[id] PATCH', () => {
       const body = await response.json()
       expect(body.fieldErrors?.senderChannelId).toBe('Channel requires re-authentication')
       expect(commandBus.execute).not.toHaveBeenCalled()
+    })
+
+    it('refuses a draft whose stored attachments the mailbox cannot send', async () => {
+      const { commandBus } = setup({
+        validation: { ok: true, supportsAttachments: false },
+        storedAttachmentIds: ['44444444-4444-4444-8444-444444444444'],
+      })
+
+      const response = await sendDraft({ senderChannelId: channelId })
+
+      expect(response.status).toBe(422)
+      const body = await response.json()
+      expect(body.fieldErrors?.senderChannelId).toBe('The selected mailbox cannot send attachments. Remove the attachments or choose another sender.')
+      expect(commandBus.execute).not.toHaveBeenCalled()
+    })
+
+    it('sends a draft with stored attachments through a mailbox that can carry them', async () => {
+      const { commandBus } = setup({
+        validation: { ok: true, supportsAttachments: true },
+        storedAttachmentIds: ['44444444-4444-4444-8444-444444444444'],
+      })
+
+      const response = await sendDraft({ senderChannelId: channelId })
+
+      expect(response.status).toBe(200)
+      expect(commandBus.execute).toHaveBeenCalledWith('messages.messages.update_draft', expect.anything())
     })
   })
 })

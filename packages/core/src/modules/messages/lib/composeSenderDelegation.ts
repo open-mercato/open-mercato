@@ -33,7 +33,8 @@ type SendAsUserFailure = {
   status: number
   error: string
   fieldErrors?: Record<string, string>
-  code?: 'already_linked' | 'channel_unavailable'
+  /** `already_linked`, `channel_unavailable`, or an attachment refusal such as `attachments_unsupported`. */
+  code?: string
   headers?: Record<string, string>
 }
 
@@ -63,7 +64,7 @@ type ValidateSenderChannelService = (
   container: ContainerLike,
   actor: SendAsUserActor,
   channelId: string,
-) => Promise<{ ok: true } | SendAsUserFailure>
+) => Promise<{ ok: true; supportsAttachments?: boolean } | SendAsUserFailure>
 
 /** The composer field the selector renders, so a failure lands on that control. */
 export const COMPOSE_SENDER_FIELD = 'senderChannelId'
@@ -103,6 +104,10 @@ export type ComposeSenderRequest = {
   attachmentIds?: string[]
   attachmentRecordId?: string
   objects?: unknown[]
+}
+
+export function hasSenderAttachments(input: ComposeSenderRequest): boolean {
+  return (input.attachmentIds?.length ?? 0) > 0 || Boolean(input.attachmentRecordId)
 }
 
 /** Whether this compose asked to be routed through one of the caller's mailboxes now (a scheduled one is handed off at release). */
@@ -146,21 +151,15 @@ async function refuseSenderRequest(input: ComposeSenderRequest): Promise<Extract
       ),
     )
   }
-  // `SendAsUserInput.attachments` takes files by owning record, but the
-  // composer has not decided which owner its uploads carry on this path or
-  // whether a mailbox send re-parents them to the message (#6261). Until it
-  // does, refusing is the only honest answer — accepting would drop the files
-  // after the message had already been sent.
-  if (
-    (input.attachmentIds?.length ?? 0) > 0 ||
-    (input.objects?.length ?? 0) > 0 ||
-    input.attachmentRecordId
-  ) {
+  // Linked records have no mailbox representation yet (#6261); refusing beats
+  // dropping them after the message was sent. Attachments are checked against
+  // the mailbox's capabilities instead.
+  if ((input.objects?.length ?? 0) > 0) {
     return senderFailure(
       422,
       t(
         'messages.errors.senderPayloadUnsupported',
-        'Sending from your own mailbox does not support attachments or linked records yet.',
+        'Sending from your own mailbox does not support linked records yet.',
       ),
     )
   }
@@ -191,13 +190,25 @@ export async function validateMessageSender(
     { userId: actor.userId, tenantId: actor.tenantId, organizationId: actor.organizationId },
     input.senderChannelId as string,
   )
-  if (result.ok) return result
-  return senderFailure(result.status, result.error, Object.values(result.fieldErrors ?? {})[0])
+  if (!result.ok) return senderFailure(result.status, result.error, Object.values(result.fieldErrors ?? {})[0])
+  if (hasSenderAttachments(input) && result.supportsAttachments !== true) return senderAttachmentsUnsupported()
+  return { ok: true }
+}
+
+async function senderAttachmentsUnsupported(): Promise<Extract<ComposeSenderResult, { ok: false }>> {
+  const { t } = await resolveTranslations()
+  return senderFailure(
+    422,
+    t(
+      'messages.errors.senderAttachmentsUnsupported',
+      'The selected mailbox cannot send attachments. Remove the attachments or choose another sender.',
+    ),
+  )
 }
 
 export type MessageHandOffResult =
   | { ok: true }
-  | { ok: false; status: number; error: string; fieldErrors: Record<string, string>; code?: 'already_linked' | 'channel_unavailable' }
+  | { ok: false; status: number; error: string; fieldErrors: Record<string, string>; code?: string }
 
 /**
  * Deliver an existing, already sent message through the author's mailbox
@@ -237,6 +248,8 @@ export async function delegateComposeToSender(
   const senderChannelId = input.senderChannelId as string
   const refusal = await refuseSenderRequest(input)
   if (refusal) return refusal
+  // Compose mode has no message to own the files yet; the compose route sends attachments as a draft through the mailbox instead.
+  if (hasSenderAttachments(input)) return senderAttachmentsUnsupported()
   const toAddresses = input.externalEmails ?? (input.externalEmail ? [input.externalEmail] : [])
 
   const sendAsUser = tryResolveSendAsUserService(container)

@@ -430,6 +430,9 @@ Decisions taken while implementing, with their reasons. They refine the design a
 - Compose UI: "Send separately" is a plain switch field placed after "Send from" (no bordered row, one-line hint "Each recipient gets a private copy."); without a mailbox selector it sits left-aligned.
 - TC-CHANNEL-EMAIL-HUB-012 asserts the CC on the link snapshot: the interactions API loses `_integrations.email` because the `integrations.external-id-mapping` enricher (`*`, lower priority) overwrites `_integrations` with `{}` — pre-existing on `main`, reported separately.
 
+### 2026-11-21 — Attachments through a user mailbox
+- Mailbox sends carry attachments when the adapter can send files; every "send separately" copy gets them. Partially addresses upstream #6261 (attachments only). Details in `2026-11-19-messages-scheduled-send.md` → Changelog 2026-11-21 "Attachments through a user mailbox".
+
 ### Review — 2026-11-19
 - **Reviewer**: Agent (fresh context)
 - **Security**: Passed

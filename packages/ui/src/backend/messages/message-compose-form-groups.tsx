@@ -342,19 +342,39 @@ function ComposeModeFields({ compose }: ComposeProps) {
         textareaClassName="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
 
+      <ComposeAttachmentsField compose={compose} />
+    </>
+  )
+}
+
+function ComposeAttachmentsField({ compose }: ComposeProps) {
+  const sender = compose.senderOptions.find((option) => option.id === compose.senderChannelId)
+  if (sender?.supportsAttachments === false) {
+    return (
       <div className="space-y-2">
         <Label>{compose.t('messages.attachedFiles', 'Attachments')}</Label>
-        <AttachmentsSection
-          entityId={compose.attachmentEntityId}
-          recordId={compose.attachmentRecordId}
-          showHeader={false}
-          compact
-          onChanged={() => {
-            void compose.loadAttachmentIds().catch(() => null)
-          }}
-        />
+        <p className="text-sm text-muted-foreground">
+          {compose.t(
+            'messages.composer.senderAttachmentsUnsupported',
+            'The selected mailbox cannot send attachments. Choose another sender to add or remove files.',
+          )}
+        </p>
       </div>
-    </>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      <Label>{compose.t('messages.attachedFiles', 'Attachments')}</Label>
+      <AttachmentsSection
+        entityId={compose.attachmentEntityId}
+        recordId={compose.attachmentRecordId}
+        showHeader={false}
+        compact
+        onChanged={() => {
+          void compose.loadAttachmentIds().catch(() => null)
+        }}
+      />
+    </div>
   )
 }
 
@@ -378,18 +398,7 @@ function ReplyModeFields({ compose }: ComposeProps) {
         textareaClassName="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
 
-      <div className="space-y-2">
-        <Label>{compose.t('messages.attachedFiles', 'Attachments')}</Label>
-        <AttachmentsSection
-          entityId={compose.attachmentEntityId}
-          recordId={compose.attachmentRecordId}
-          showHeader={false}
-          compact
-          onChanged={() => {
-            void compose.loadAttachmentIds().catch(() => null)
-          }}
-        />
-      </div>
+      <ComposeAttachmentsField compose={compose} />
     </>
   )
 }

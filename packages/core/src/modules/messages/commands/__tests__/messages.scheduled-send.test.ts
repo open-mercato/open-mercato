@@ -642,6 +642,22 @@ describe('messages scheduled send commands', () => {
         expect(eventIds()).toEqual(['messages.message.sent'])
       })
 
+      it('fails the participants with the reason when the mailbox cannot send the attachments', async () => {
+        const error = 'This mailbox cannot send attachments.'
+        const sendAsUser = jest.fn(async () => ({ ok: false, status: 422, error, code: 'attachments_unsupported' }))
+        const { em, ctx } = setup({ communicationChannelsSendAsUser: sendAsUser })
+
+        const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+        expect(result).toEqual({ released: [messageId], reverted: [], returnedToDraft: [] })
+        expect(settleExternalParticipantsMock).toHaveBeenCalledWith(
+          em,
+          { messageId, ...scope },
+          { failed: [{ id: 'participant-1', error }, { id: 'participant-2', error }] },
+          { pendingOnly: true },
+        )
+      })
+
       it('reverts the release when the mailbox refuses for another reason', async () => {
         const sendAsUser = jest.fn(async () => ({ ok: false, status: 500, error: '[internal] boom' }))
         const { em, ctx } = setup({ communicationChannelsSendAsUser: sendAsUser })

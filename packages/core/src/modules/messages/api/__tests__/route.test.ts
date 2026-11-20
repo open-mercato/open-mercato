@@ -408,6 +408,73 @@ describe('messages /api/messages POST', () => {
     })
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
+
+  describe('mailbox send with attachments', () => {
+    const senderChannelId = '22222222-2222-4222-8222-222222222222'
+    const attachmentId = '33333333-3333-4333-8333-333333333333'
+
+    function withMailbox(supportsAttachments: boolean) {
+      const validateSenderChannel = jest.fn(async () => ({ ok: true, supportsAttachments }))
+      resolveMessageContextMock.mockResolvedValue({
+        ctx: {
+          auth: { orgId: organizationId },
+          container: {
+            resolve: (name: string) => {
+              if (name === 'commandBus') return commandBus
+              if (name === 'communicationChannelsValidateSenderChannel') return validateSenderChannel
+              return null
+            },
+          },
+        },
+        scope: { tenantId, organizationId, userId },
+      })
+    }
+
+    function composeWithAttachment() {
+      return POST(new Request('http://localhost', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'default',
+          visibility: 'public',
+          externalEmail: 'client@example.com',
+          subject: 'Quote',
+          body: 'Attached',
+          senderChannelId,
+          attachmentIds: [attachmentId],
+        }),
+      }))
+    }
+
+    it('composes a draft that owns the files, then sends it through the mailbox', async () => {
+      withMailbox(true)
+
+      const response = await composeWithAttachment()
+
+      expect(response.status).toBe(201)
+      expect(delegateComposeToSenderMock).not.toHaveBeenCalled()
+      expect(commandBus.execute).toHaveBeenCalledTimes(2)
+      expect(commandBus.execute.mock.calls[0][0]).toBe('messages.messages.compose')
+      expect((commandBus.execute.mock.calls[0] as unknown[])[1]).toMatchObject({
+        input: { isDraft: true, senderChannelId, attachmentIds: [attachmentId] },
+      })
+      expect(commandBus.execute.mock.calls[1][0]).toBe('messages.messages.update_draft')
+      expect((commandBus.execute.mock.calls[1] as unknown[])[1]).toMatchObject({
+        input: { messageId, isDraft: false, tenantId, organizationId, userId },
+      })
+    })
+
+    it('refuses attachments the selected mailbox cannot send as a field error', async () => {
+      withMailbox(false)
+
+      const response = await composeWithAttachment()
+
+      expect(response.status).toBe(422)
+      const body = await response.json()
+      expect(body.fieldErrors?.senderChannelId).toEqual(expect.any(String))
+      expect(commandBus.execute).not.toHaveBeenCalled()
+      expect(delegateComposeToSenderMock).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('messages /api/messages GET hasActions', () => {

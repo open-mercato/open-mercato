@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Messages sent through a user mailbox carry attachments
+
+Composing, sending a draft or releasing a scheduled message through a user mailbox no longer refuses attachments with `messages.errors.senderPayloadUnsupported` when the mailbox adapter declares `capabilities.fileSharing` (Gmail and IMAP do). The files are taken from the message's current attachments at hand-off; a file deleted before the send is not sent, and a CRM scheduled send skips a stored attachment whose file is gone. Linked records (`objects`) are still refused. A mailbox without file support refuses attachments with 422 `messages.errors.senderAttachmentsUnsupported` on `senderChannelId`; at release the external participants fail with that reason.
+
+Additive fields: `supportsAttachments` on `GET /api/communication_channels/me/channels` items, on the `communicationChannelsValidateSenderChannel` result and on `MessageSenderOption` (`@open-mercato/ui/backend/messages`). Custom hosts that pass `senderOptions` and omit it keep the attachments section visible.
+
 ## Scheduled messages charge the external email budget at release
 
 A scheduled message (Messages compose or draft "Send later", and `sendAsUser` with `scheduledAt`) no longer charges the external email budget (`message_external_email_windows`, `message_external_recipient_days`) when it is scheduled or rescheduled. The release worker charges it once, for every external addressee (to, cc, bcc, every "send separately" copy), before anything is delivered. When the budget refuses, nothing is sent: the message goes back to the author's drafts (scheduled time cleared, content, recipients and sender kept) and the author gets a `messages.scheduled_send_failed` notification with the `messages.notifications.scheduledSendFailed.budgetExceeded` body. This is not retried. Immediate sends, draft "Send now" and "Resend to failed" charge as before.

@@ -13,11 +13,18 @@ jest.mock('../queue', () => ({
   getCommunicationChannelsQueue: jest.fn(() => ({ enqueue: jest.fn(async () => undefined) })),
 }))
 
+const mockGetMessageAttachments = jest.fn(async (..._args: unknown[]): Promise<Array<{ id: string }>> => [])
+
+jest.mock('../../../messages/lib/attachments', () => ({
+  getMessageAttachments: (...args: unknown[]) => mockGetMessageAttachments(...args),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ t: (_key: string, fallback: string) => fallback }),
 }))
 
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { MessageChannelLink } from '../../data/entities'
 import { baseEmailCapabilities } from '../email-capabilities'
 import { OUTBOUND_ATTACHMENTS_METADATA_KEY } from '../outbound-attachments'
@@ -245,5 +252,72 @@ describe('sendAsUser — attachments', () => {
     expect(result).toMatchObject({ ok: true })
     const link = created.find((row) => row.entity === MessageChannelLink)
     expect(link?.data.channelMetadata).toMatchObject({ crmVisibility: 'private', [OUTBOUND_ATTACHMENTS_METADATA_KEY]: stored })
+  })
+
+  describe('existing message', () => {
+    const MESSAGE_ATTACHMENT_ID = '550e8400-e29b-41d4-a716-446655440041'
+    const MESSAGE_OWNER = { entityId: 'messages:message', recordId: 'msg-1' }
+
+    function primeExistingMessage(senderDeliveryOptions: Record<string, unknown> | null = null) {
+      mockFindOne.mockReset()
+      mockFindOne
+        .mockResolvedValueOnce({
+          id: 'msg-1',
+          threadId: 'msg-1',
+          senderUserId: 'u-1',
+          visibility: 'public',
+          isDraft: false,
+          subject: 'Order 42',
+          body: 'Attached.',
+          bodyFormat: 'text',
+          emailSendSeparately: false,
+          senderDeliveryOptions,
+        } as never)
+        .mockResolvedValueOnce(null as never)
+        .mockResolvedValueOnce({ id: 'ch-1', userId: 'u-1', providerKey: 'gmail', channelType: 'email', isActive: true, status: 'connected' } as never)
+        .mockResolvedValue(null as never)
+      mockFind.mockReset()
+      mockFind.mockResolvedValueOnce([{ id: 'p-1', role: 'to', email: 'buyer@example.org' }] as never)
+    }
+
+    afterEach(() => mockGetMessageAttachments.mockResolvedValue([]))
+
+    it('sends the message\'s current attachments, owned by the message, at hand-off', async () => {
+      const { container, created, describeScoped } = makeContainer({ fileSharing: true })
+      primeExistingMessage()
+      mockGetMessageAttachments.mockResolvedValue([{ id: MESSAGE_ATTACHMENT_ID }])
+
+      const result = await sendAsUser(container, actor, { userChannelId: 'ch-1', messageId: 'msg-1' })
+
+      expect(result).toMatchObject({ ok: true })
+      expect(describeScoped).toHaveBeenCalledWith(expect.objectContaining({ attachmentId: MESSAGE_ATTACHMENT_ID, expectedOwner: MESSAGE_OWNER }))
+      const link = created.find((row) => row.entity === MessageChannelLink)
+      expect(link?.data.channelMetadata).toMatchObject({
+        [OUTBOUND_ATTACHMENTS_METADATA_KEY]: [{ attachmentId: MESSAGE_ATTACHMENT_ID, owner: MESSAGE_OWNER }],
+      })
+    })
+
+    it('skips a stored scheduled-send file that was deleted before the release', async () => {
+      const { container, created, describeScoped } = makeContainer({ fileSharing: true })
+      primeExistingMessage({ channelMetadata: { [OUTBOUND_ATTACHMENTS_METADATA_KEY]: [{ attachmentId: ATTACHMENT_ID, owner: OWNER }] } })
+      describeScoped.mockRejectedValueOnce(new CrudHttpError(404, { error: 'Not found' }))
+
+      const result = await sendAsUser(container, actor, { userChannelId: 'ch-1', messageId: 'msg-1' })
+
+      expect(result).toMatchObject({ ok: true })
+      const link = created.find((row) => row.entity === MessageChannelLink)
+      expect(link?.data.channelMetadata ?? {}).not.toHaveProperty(OUTBOUND_ATTACHMENTS_METADATA_KEY)
+    })
+
+    it('refuses the hand-off when the mailbox cannot send the message\'s attachments', async () => {
+      const { container, created } = makeContainer({ fileSharing: false })
+      primeExistingMessage()
+      mockGetMessageAttachments.mockResolvedValue([{ id: MESSAGE_ATTACHMENT_ID }])
+
+      const result = await sendAsUser(container, actor, { userChannelId: 'ch-1', messageId: 'msg-1' })
+
+      expect(result).toMatchObject({ ok: false, status: 422, code: 'attachments_unsupported' })
+      expect(created.find((row) => row.entity === MessageChannelLink)).toBeUndefined()
+    })
   })
 })

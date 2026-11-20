@@ -15,6 +15,7 @@ import {
   COMPOSE_SENDER_FIELD,
   delegateComposeToSender,
   requiresSenderDelegation,
+  validateMessageSender,
 } from '../composeSenderDelegation'
 
 const CHANNEL_ID = '22222222-2222-2222-2222-222222222222'
@@ -257,5 +258,44 @@ describe('delegateComposeToSender', () => {
 
     expect(result).toMatchObject({ ok: false, status: 422 })
     expect(sendAsUser).not.toHaveBeenCalled()
+  })
+})
+
+describe('validateMessageSender', () => {
+  function validatorContainer(supportsAttachments: boolean) {
+    return {
+      resolve: <T>(name: string): T => {
+        if (name === 'communicationChannelsValidateSenderChannel') return (async () => ({ ok: true, supportsAttachments })) as T
+        throw new Error(`[internal] unexpected resolve: ${name}`)
+      },
+    }
+  }
+
+  it('accepts attachments when the mailbox can send them', async () => {
+    await expect(validateMessageSender(validatorContainer(true), actor, { ...publicCompose, attachmentIds: ['a-1'] }))
+      .resolves.toEqual({ ok: true })
+  })
+
+  it('refuses attachments as a field error when the mailbox cannot send them', async () => {
+    const result = await validateMessageSender(validatorContainer(false), actor, { ...publicCompose, attachmentRecordId: 'library-record-1' })
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 422,
+      fieldErrors: { [COMPOSE_SENDER_FIELD]: 'The selected mailbox cannot send attachments. Remove the attachments or choose another sender.' },
+    })
+  })
+
+  it('accepts a mailbox without file support when nothing is attached', async () => {
+    await expect(validateMessageSender(validatorContainer(false), actor, publicCompose)).resolves.toEqual({ ok: true })
+  })
+
+  it('still refuses linked records', async () => {
+    const result = await validateMessageSender(validatorContainer(true), actor, {
+      ...publicCompose,
+      objects: [{ entityModule: 'sales', entityType: 'order', entityId: 'order-1' }],
+    })
+
+    expect(result).toMatchObject({ ok: false, status: 422 })
   })
 })

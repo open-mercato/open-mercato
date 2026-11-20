@@ -23,7 +23,7 @@ import {
   composeSourceHintSchema,
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
-import { delegateComposeToSender, requiresSenderDelegation, validateMessageSender } from '../lib/composeSenderDelegation'
+import { delegateComposeToSender, hasSenderAttachments, requiresSenderDelegation, validateMessageSender } from '../lib/composeSenderDelegation'
 import { getExternalEmailBudgetErrorResponse } from '../lib/externalEmailBudget'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
@@ -566,9 +566,13 @@ export async function POST(req: Request) {
     throw err
   }
 
-  if (input.scheduledAt) {
-    const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container)
-    if (scheduleRefusal) return scheduleRefusal
+  // Attachments need the message to own them before a mailbox can send them, so such a send is composed as a draft and sent right after.
+  const sendsDraftThroughMailbox = requiresSenderDelegation(input) && hasSenderAttachments(input)
+  if (input.scheduledAt || sendsDraftThroughMailbox) {
+    if (input.scheduledAt) {
+      const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container)
+      if (scheduleRefusal) return scheduleRefusal
+    }
     if (input.senderChannelId) {
       const senderCheck = await validateMessageSender(
         ctx.container,
@@ -707,7 +711,7 @@ export async function POST(req: Request) {
   // communication-channels facade, which writes the conversation, thread mapping
   // and outbound channel link the inbound thread matcher needs. Without the
   // field this stays the platform-sender path, unchanged.
-  if (requiresSenderDelegation(input)) {
+  if (requiresSenderDelegation(input) && !sendsDraftThroughMailbox) {
     const delegated = await delegateComposeToSender(
       ctx.container,
       {
@@ -742,25 +746,40 @@ export async function POST(req: Request) {
   }
 
   let execution: Awaited<ReturnType<CommandBus['execute']>>
+  const commandCtx = {
+    container: ctx.container,
+    auth: ctx.auth ?? null,
+    organizationScope: null,
+    selectedOrganizationId: scope.organizationId,
+    organizationIds: scope.organizationId ? [scope.organizationId] : null,
+    request: req,
+  }
   try {
     execution = await commandBus.execute('messages.messages.compose', {
       input: {
         ...input,
+        ...(sendsDraftThroughMailbox ? { isDraft: true } : {}),
         parentMessageId: composeParentMessageId,
         sendViaEmail,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         userId: scope.userId,
       },
-      ctx: {
-        container: ctx.container,
-        auth: ctx.auth ?? null,
-        organizationScope: null,
-        selectedOrganizationId: scope.organizationId,
-        organizationIds: scope.organizationId ? [scope.organizationId] : null,
-        request: req,
-      },
+      ctx: commandCtx,
     })
+    if (sendsDraftThroughMailbox) {
+      const { id: draftId } = execution.result as unknown as MessageCommandExecuteResultWithThreadId
+      await commandBus.execute('messages.messages.update_draft', {
+        input: {
+          messageId: draftId,
+          isDraft: false,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          userId: scope.userId,
+        },
+        ctx: commandCtx,
+      })
+    }
   } catch (error) {
     const budgetResponse = getExternalEmailBudgetErrorResponse(error)
     if (budgetResponse) return budgetResponse
@@ -771,7 +790,8 @@ export async function POST(req: Request) {
     throw error
   }
   const { result, logEntry } = execution
-  const { id: messageId, threadId: responseThreadId } = result as unknown as MessageCommandExecuteResultWithThreadId
+  const { id: messageId, threadId: composedThreadId } = result as unknown as MessageCommandExecuteResultWithThreadId
+  const responseThreadId = sendsDraftThroughMailbox ? composedThreadId ?? messageId : composedThreadId
 
   const response = Response.json({ id: messageId, threadId: responseThreadId }, { status: 201 })
   attachOperationMetadataHeader(response, logEntry, {

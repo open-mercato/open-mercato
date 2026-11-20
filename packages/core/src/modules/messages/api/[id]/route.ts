@@ -23,6 +23,7 @@ import {
   resolveMessageReadAccess,
 } from '../../lib/routeHelpers'
 import { validateMessageSender } from '../../lib/composeSenderDelegation'
+import { getMessageAttachments } from '../../lib/attachments'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../guards'
 import {
   errorResponseSchema,
@@ -455,7 +456,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         visibility: finalVisibility,
         externalEmails: input.externalEmails
           ?? (input.externalEmail ? [input.externalEmail] : message.externalEmail ? [message.externalEmail] : []),
-        attachmentIds: input.attachmentIds,
+        attachmentIds: input.attachmentIds
+          ?? (await getMessageAttachments(em, message.id, message.organizationId ?? null, message.tenantId)).map((attachment) => attachment.id),
         objects: input.objects,
       },
     )

@@ -46,6 +46,8 @@ export type MessageSenderOption = {
    * sender stays the default.
    */
   isDefault?: boolean
+  /** `false` hides the composer's attachments while this sender is selected. Omitted means the sender can carry attachments. */
+  supportsAttachments?: boolean
 }
 
 export type MessageComposerContextObject = {
