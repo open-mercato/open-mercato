@@ -263,7 +263,9 @@ function buildDocumentCreateReplay(
     const exactInput = inputLine as Partial<OrderLineCreateInput> & Record<string, unknown>;
     return positions.filter((rowIndex) => {
       const line = orderedLines[rowIndex];
-      return fields.every((field) => inputLine[field] === undefined || isDeepStrictEqual(inputLine[field], line[field]))
+      return fields.every((field) => inputLine[field] === undefined || (field === 'quantityUnit'
+        ? canonicalizeUnitCode(inputLine[field]) === canonicalizeUnitCode(line[field])
+        : isDeepStrictEqual(inputLine[field], line[field])))
         && amounts.every((field) => inputLine[field] === undefined || decimalsEqual(resolveExactDecimal(exactInput[`${field}Exact`], inputLine[field]), line[field]));
     });
   });

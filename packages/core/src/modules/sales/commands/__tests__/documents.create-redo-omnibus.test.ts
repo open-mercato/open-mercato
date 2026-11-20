@@ -100,7 +100,8 @@ function makeEm(lineIds: string[] = []): TestEm {
   const trace: string[] = []
   let inTransaction = false
   let nextLineId = 0
-  const matches = (row: Row, where: Row) => Object.entries(where).every(([key, value]) => {
+  const matches = (row: Row, where: Row): boolean => Object.entries(where).every(([key, value]) => {
+    if (key === '$or' && Array.isArray(value)) return value.some((clause: Row) => matches(row, clause))
     const current = row[key]
     if (value && typeof value === 'object' && '$in' in value) return true
     if (value && typeof value === 'object' && 'id' in value) return current === value || (current as Row | null)?.id === value.id
@@ -145,6 +146,14 @@ function makeEm(lineIds: string[] = []): TestEm {
     transactional: async (work: (tx: TestEm) => Promise<void>) => { await em.begin(); try { await work(em); await em.commit() } catch (error) { await em.rollback(); throw error } },
   }
   return em
+}
+
+function registerUnits(em: TestEm) {
+  const dictionary = { id: randomUUID(), organizationId, tenantId, key: 'units', deletedAt: null, isActive: true }
+  em.rows.set('Dictionary', [dictionary])
+  em.rows.set('DictionaryEntry', ['kg', 'pc', 'l'].map((value) => ({
+    id: randomUUID(), dictionary, organizationId, tenantId, value, normalizedValue: value,
+  })))
 }
 
 function harness(lineIds?: string[]) {
@@ -201,13 +210,15 @@ describe.each(['order', 'quote'] as const)('sales %s create through command bus'
   beforeAll(async () => { await import('../documents') })
   beforeEach(() => { jest.clearAllMocks(); registerCommandInterceptors([]) })
 
-  async function expectReplayRefused(test: ReturnType<typeof harness>, replayInput: unknown) {
+  async function expectReplayRefused(test: ReturnType<typeof harness>, replayInput: unknown, message?: string) {
     const { bus, ctx, em, logs, service, actionLogService } = test
     const writes = (['create', 'persist', 'nativeDelete', 'remove', 'flush', 'begin', 'commit', 'rollback', 'transactional'] as const)
       .map((method) => jest.spyOn(em, method))
     em.trace.length = 0
     jest.clearAllMocks()
-    await expect(bus.execute(commandId, { input: replayInput, ctx, redoLogEntry: logs[0] })).rejects.toMatchObject({ status: 400 })
+    await expect(bus.execute(commandId, { input: replayInput, ctx, redoLogEntry: logs[0] })).rejects.toMatchObject({
+      status: 400, ...(message === undefined ? {} : { message }),
+    })
     for (const write of writes) expect(write).not.toHaveBeenCalled()
     expect(em.rows.get(documentEntity)).toEqual([])
     expect(em.rows.get(lineEntity)).toEqual([])
@@ -334,6 +345,90 @@ describe.each(['order', 'quote'] as const)('sales %s create through command bus'
     payload.undo.after.lines.reverse()
     await bus.execute(commandId, { input: duplicateNumbers, ctx, redoLogEntry: logs[0] })
     expect(JSON.parse(JSON.stringify((em.rows.get(lineEntity) ?? []).map(identity)))).toEqual(original)
+  })
+
+  it.each([
+    { unit: 'KG', storedUnit: 'kg' },
+    { unit: ' kg ', storedUnit: 'kg' },
+    { unit: 'QTY', storedUnit: 'pc' },
+    { unit: 'kg', storedUnit: 'kg', historicalUnit: ' KG ' },
+    { unit: undefined, storedUnit: null },
+  ].flatMap((units) => [false, true].flatMap((reverseInput) => [false, true].map((reverseSnapshot) => ({
+    ...units, reverseInput, reverseSnapshot,
+  })))))('replays legacy tied units $unit with input reversed=$reverseInput and snapshot reversed=$reverseSnapshot', async ({ unit, storedUnit, historicalUnit, reverseInput, reverseSnapshot }) => {
+    const { bus, ctx, em, logs, service, actionLogService } = harness(fixedLineIds(2))
+    registerUnits(em)
+    const lines = input.lines.map((line) => ({ ...line, lineNumber: 2, ...(unit === undefined ? {} : { quantityUnit: unit }) }))
+    const replayInput = { ...input, lines: reverseInput ? [...lines].reverse() : lines }
+    const created = await bus.execute(commandId, { input: { ...input, lines }, ctx })
+    const identity = (line: Row) => Object.fromEntries(
+      ['id', 'name', 'quantityUnit', ...Object.keys(frozen)].map((key) => [key, line[key] ?? null]),
+    )
+    const original = JSON.parse(JSON.stringify((em.rows.get(lineEntity) ?? []).map(identity))) as Row[]
+    expect(original.map((line) => line.quantityUnit)).toEqual([storedUnit, storedUnit])
+    expect(original.find((line) => line.name === 'priced')).toMatchObject({
+      ...frozen, omnibusPromotionAnchorAt: frozen.omnibusPromotionAnchorAt.toISOString(),
+    })
+    expect(original.find((line) => line.name === 'manual')).toMatchObject(Object.fromEntries(Object.keys(frozen).map((key) => [key, null])))
+    await bus.undo(logs[0].undoToken, ctx)
+    expect(em.rows.get(lineEntity)).toEqual([])
+    expect(em.rows.get(documentEntity)).toEqual([])
+    const legacy = legacyPayload(logs[0])
+    if (historicalUnit !== undefined) for (const line of legacy.after.lines) line.quantityUnit = historicalUnit
+    if (reverseSnapshot) legacy.after.lines.reverse()
+    service.getConfig.mockClear()
+    service.resolveOmnibusBlocks.mockClear()
+    const redone = await bus.execute(commandId, { input: replayInput, ctx, redoLogEntry: logs[0] })
+    expect(redone.result).toEqual(created.result)
+    const byName = (left: Row, right: Row) => String(left.name).localeCompare(String(right.name))
+    expect(JSON.parse(JSON.stringify((em.rows.get(lineEntity) ?? []).map(identity).sort(byName)))).toEqual([...original].sort(byName))
+    expect(actionLogService.claimForRedo).toHaveBeenCalledWith(logs[0].id)
+    expect((logs[1].commandPayload as { undo: { lineIds: string[] } }).undo.lineIds).toEqual(
+      replayInput.lines.map((line) => original.find((saved) => saved.name === line.name)?.id),
+    )
+    expect(service.getConfig).not.toHaveBeenCalled()
+    expect(service.resolveOmnibusBlocks).not.toHaveBeenCalled()
+    await bus.undo(logs[1].undoToken, ctx)
+    expect(em.rows.get(lineEntity)).toEqual([])
+    expect(em.rows.get(documentEntity)).toEqual([])
+  })
+
+  it('keeps an omitted legacy unit unconstrained when the saved unit is present', async () => {
+    const { bus, ctx, em, logs } = harness(fixedLineIds(2))
+    registerUnits(em)
+    em.rows.set('CatalogProduct', [{ id: productId, organizationId, tenantId, deletedAt: null, defaultUnit: 'KG' }])
+    const replayInput = { ...input, lines: input.lines.map((line) => ({ ...line, lineNumber: 2 })) }
+    await bus.execute(commandId, { input: replayInput, ctx })
+    const identity = (line: Row) => Object.fromEntries(
+      ['id', 'name', 'quantityUnit', ...Object.keys(frozen)].map((key) => [key, line[key] ?? null]),
+    )
+    const expected = JSON.parse(JSON.stringify((em.rows.get(lineEntity) ?? []).map(identity))) as Row[]
+    expect(expected.find((line) => line.name === 'priced')?.quantityUnit).toBe('kg')
+    expect(expected.find((line) => line.name === 'manual')?.quantityUnit).toBeNull()
+    await bus.undo(logs[0].undoToken, ctx)
+    const legacy = legacyPayload(logs[0])
+    legacy.after.lines.reverse()
+    await bus.execute(commandId, { input: replayInput, ctx, redoLogEntry: logs[0] })
+    expect(JSON.parse(JSON.stringify((em.rows.get(lineEntity) ?? []).map(identity)))).toEqual(expected)
+  })
+
+  it.each(['different unit', 'different frozen snapshot'] as const)('refuses legacy canonical-unit replay with a %s before any writes', async (change) => {
+    const test = harness(fixedLineIds(2))
+    const { bus, ctx, em, logs } = test
+    registerUnits(em)
+    const replayInput = {
+      ...input,
+      lines: [input.lines[0], input.lines[0]].map((line) => ({ ...line, lineNumber: 2, quantityUnit: 'KG' })),
+    }
+    await bus.execute(commandId, { input: replayInput, ctx })
+    await bus.undo(logs[0].undoToken, ctx)
+    const legacy = legacyPayload(logs[0])
+    for (const line of legacy.after.lines) Object.assign(line, frozen, { omnibusPromotionAnchorAt: frozen.omnibusPromotionAnchorAt.toISOString() })
+    if (change === 'different unit') legacy.after.lines[0].quantityUnit = 'l'
+    else legacy.after.lines[0].omnibusReferenceGross = '124'
+    await expectReplayRefused(test, replayInput, change === 'different unit'
+      ? '[internal] sales document redo line unavailable'
+      : '[internal] sales document redo line correspondence is ambiguous')
   })
 
   it.each(['absent', 'null', 'mixed', 'frozen'] as const)('replays interchangeable legacy tied lines with %s frozen fields', async (mode) => {
