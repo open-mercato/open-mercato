@@ -1,20 +1,14 @@
-/**
- * @jest-environment jsdom
- */
+/** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render, screen } from '@testing-library/react'
-
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (key: string, fallback?: string) => fallback ?? key,
-}))
-
+import { screen } from '@testing-library/react'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CollapsibleGroup } from '../CollapsibleGroup'
 
 const LONG_TITLE = 'My roles with QA Invitation 0123456789ab'
 
-function renderGroup(chevronPosition: 'left' | 'right') {
-  render(
+function renderLongTitle(chevronPosition: 'left' | 'right') {
+  renderWithProviders(
     <CollapsibleGroup groupId="roles" title={LONG_TITLE} pageType="test-page" chevronPosition={chevronPosition}>
       <p>content</p>
     </CollapsibleGroup>,
@@ -22,11 +16,21 @@ function renderGroup(chevronPosition: 'left' | 'right') {
   return screen.getByRole('button', { name: LONG_TITLE })
 }
 
-describe('CollapsibleGroup heading', () => {
+describe('CollapsibleGroup', () => {
+  it('keeps accepting the deprecated fieldCount prop without rendering it', () => {
+    renderWithProviders(
+      <CollapsibleGroup groupId="details" pageType="test-page" title="Details" fieldCount={7}>
+        <span>Group content</span>
+      </CollapsibleGroup>,
+    )
+    expect(screen.getByRole('button', { name: /Details/ })).toBeInTheDocument()
+    expect(screen.queryByText('7')).not.toBeInTheDocument()
+  })
+
   it.each(['left', 'right'] as const)(
     'lets a long title wrap inside its row with the chevron on the %s',
     (chevronPosition) => {
-      const trigger = renderGroup(chevronPosition)
+      const trigger = renderLongTitle(chevronPosition)
       const title = screen.getByText(LONG_TITLE)
 
       expect(trigger.className).toContain('min-w-0')
@@ -39,7 +43,7 @@ describe('CollapsibleGroup heading', () => {
   )
 
   it('keeps the whole title as the accessible name', () => {
-    const trigger = renderGroup('right')
+    const trigger = renderLongTitle('right')
 
     expect(trigger.getAttribute('aria-expanded')).toBe('true')
     expect(trigger.textContent).toBe(LONG_TITLE)
