@@ -9,7 +9,7 @@ import {
   waitForCapturedSystemEmail,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { composeMessageWithToken, deleteMessageIfExists } from './helpers'
-import { QA_RECIPIENTS } from './scheduledSendFixtures'
+import { QA_RECIPIENTS, useRaisedExternalEmailBudget } from './scheduledSendFixtures'
 
 type ParticipantRow = { email: string; deliveryStatus: string | null }
 
@@ -18,6 +18,7 @@ type ParticipantRow = { email: string; deliveryStatus: string | null }
  * each carrying a single "to", and marks every participant as sent.
  */
 test.describe('TC-MSG-EMAIL-004: send separately to multiple external recipients', () => {
+  useRaisedExternalEmailBudget()
   test('each address gets its own captured email', async ({ request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')

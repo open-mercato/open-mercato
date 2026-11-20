@@ -21,6 +21,7 @@ import {
   runScheduledRelease,
   scheduledAtInMinutes,
   QA_BLIND_RECIPIENT, QA_COPY_RECIPIENT, QA_RECIPIENTS,
+  useRaisedExternalEmailBudget,
 } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
@@ -69,6 +70,7 @@ async function readInteractionVisibilities(linkId: string): Promise<Array<string
 }
 
 test.describe('TC-CHANNEL-EMAIL-HUB-016: scheduled CRM email', () => {
+  useRaisedExternalEmailBudget()
   test('keeps CRM person, visibility and CC through the scheduled release', async ({ request }) => {
     test.slow()
     const stamp = Date.now()

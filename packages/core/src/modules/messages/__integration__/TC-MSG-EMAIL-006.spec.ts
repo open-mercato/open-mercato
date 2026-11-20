@@ -8,13 +8,14 @@ import {
   waitForCapturedSystemEmail,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { composeMessageWithToken, deleteMessageIfExists } from './helpers'
-import { QA_RECIPIENTS } from './scheduledSendFixtures'
+import { QA_RECIPIENTS, useRaisedExternalEmailBudget } from './scheduledSendFixtures'
 
 /**
  * TC-MSG-EMAIL-006 — a public message to several external addresses is delivered as
  * ONE system email whose "to" lists every address (joint send).
  */
 test.describe('TC-MSG-EMAIL-006: joint send to multiple external recipients', () => {
+  useRaisedExternalEmailBudget()
   test('one captured email carries every "to" address', async ({ request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')

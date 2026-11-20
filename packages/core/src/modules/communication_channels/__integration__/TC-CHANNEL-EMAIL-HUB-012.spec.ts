@@ -15,7 +15,7 @@ import {
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
-import { QA_COPY_RECIPIENT, QA_RECIPIENTS } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
+import { QA_COPY_RECIPIENT, QA_RECIPIENTS, useRaisedExternalEmailBudget } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
  * TC-CHANNEL-EMAIL-HUB-012 — mailbox CC and CRM interactions per link.
@@ -77,6 +77,7 @@ async function countInteractionsForLinks(linkIds: string[]): Promise<number> {
 }
 
 test.describe('TC-CHANNEL-EMAIL-HUB-012: mailbox CC and CRM interactions', () => {
+  useRaisedExternalEmailBudget()
   test('a joint send delivers CC, records it as a participant and on the CRM interaction', async ({ request }) => {
     test.slow()
     const stamp = Date.now()

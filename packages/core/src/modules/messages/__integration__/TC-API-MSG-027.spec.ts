@@ -4,7 +4,7 @@ import { deleteChannelIfExists, isChannelSeedingAvailable } from '@open-mercato/
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { deleteMessageIfExists } from './helpers'
 import { drainDeliveryUntil, readMessageParticipants, sendThroughSeededMailbox } from './deliveryFixtures'
-import { QA_RATELIMIT_RECIPIENT } from './scheduledSendFixtures'
+import { QA_RATELIMIT_RECIPIENT, useRaisedExternalEmailBudget } from './scheduledSendFixtures'
 
 /**
  * TC-API-MSG-027: a transient 429 with a retry time keeps the participant pending.
@@ -12,6 +12,7 @@ import { QA_RATELIMIT_RECIPIENT } from './scheduledSendFixtures'
  * `pending`, carries the error, and `next_attempt_at` is the provider's retry time.
  */
 test.describe('TC-API-MSG-027: transient rate limit', () => {
+  useRaisedExternalEmailBudget()
   test('keeps the participant pending with next_attempt_at from the provider retry time', async ({ request }) => {
     const stamp = Date.now()
     const recipient = QA_RATELIMIT_RECIPIENT

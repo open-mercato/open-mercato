@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/authFixtures'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { QA_COPY_RECIPIENT, QA_RECIPIENTS } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
+import { QA_COPY_RECIPIENT, QA_RECIPIENTS, useRaisedExternalEmailBudget } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
  * TC-CHANNEL-EMAIL-HUB-011 — "send separately" cannot be combined with copies.
@@ -13,6 +13,7 @@ import { QA_COPY_RECIPIENT, QA_RECIPIENTS } from '@open-mercato/core/modules/mes
  * no channel needs to be connected for this check.
  */
 test.describe('TC-CHANNEL-EMAIL-HUB-011: send separately with cc/bcc', () => {
+  useRaisedExternalEmailBudget()
   const userChannelId = '00000000-0000-4000-8000-0000000000aa'
 
   for (const field of ['cc', 'bcc'] as const) {

@@ -18,6 +18,7 @@ import {
   runScheduledRelease,
   scheduledAtInMinutes,
   QA_RECIPIENTS,
+  useRaisedExternalEmailBudget,
 } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
@@ -28,6 +29,7 @@ import {
  * mapping) and the test-seed adapter delivers it exactly once.
  */
 test.describe('TC-CHANNEL-EMAIL-HUB-013: scheduled mailbox message', () => {
+  useRaisedExternalEmailBudget()
   test('has no channel link before release and is delivered through the mailbox after', async ({ request }) => {
     test.slow()
     const stamp = Date.now()

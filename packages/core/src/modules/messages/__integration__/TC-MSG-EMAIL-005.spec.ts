@@ -9,7 +9,7 @@ import {
   waitForCapturedSystemEmail,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { composeMessageWithToken, deleteMessageIfExists } from './helpers'
-import { isSchedulingAvailable, makeScheduledMessageDue, runScheduledRelease, scheduledAtInMinutes } from './scheduledSendFixtures'
+import { isSchedulingAvailable, makeScheduledMessageDue, runScheduledRelease, scheduledAtInMinutes, useRaisedExternalEmailBudget } from './scheduledSendFixtures'
 import { QA_RECIPIENTS } from './scheduledSendFixtures'
 
 /**
@@ -17,6 +17,7 @@ import { QA_RECIPIENTS } from './scheduledSendFixtures'
  * email before release and exactly one after the release worker runs.
  */
 test.describe('TC-MSG-EMAIL-005: scheduled external email on the system transport', () => {
+  useRaisedExternalEmailBudget()
   test('captures nothing before release and one email after', async ({ request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')

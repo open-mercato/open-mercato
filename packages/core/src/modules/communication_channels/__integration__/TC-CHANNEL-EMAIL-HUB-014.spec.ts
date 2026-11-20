@@ -11,7 +11,7 @@ import {
   seedConnectedChannel,
   waitForCapturedSystemEmail,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
-import { readMessageScheduleRow, QA_RECIPIENTS } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
+import { readMessageScheduleRow, QA_RECIPIENTS, useRaisedExternalEmailBudget } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
  * TC-CHANNEL-EMAIL-HUB-014 — a saved draft is sent through the sender's mailbox.
@@ -21,6 +21,7 @@ import { readMessageScheduleRow, QA_RECIPIENTS } from '@open-mercato/core/module
  * of the former 422 and delivers the same message once.
  */
 test.describe('TC-CHANNEL-EMAIL-HUB-014: saved draft sent via mailbox', () => {
+  useRaisedExternalEmailBudget()
   test('sends the stored draft through the mailbox it was saved with', async ({ request }) => {
     test.slow()
     const stamp = Date.now()

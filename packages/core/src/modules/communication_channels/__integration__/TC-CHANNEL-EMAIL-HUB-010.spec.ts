@@ -15,7 +15,7 @@ import {
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
-import { QA_RECIPIENTS } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
+import { QA_RECIPIENTS, useRaisedExternalEmailBudget } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
  * TC-CHANNEL-EMAIL-HUB-010 — "send separately" through a connected mailbox.
@@ -58,6 +58,7 @@ type MessageDetail = {
 }
 
 test.describe('TC-CHANNEL-EMAIL-HUB-010: send separately through a mailbox', () => {
+  useRaisedExternalEmailBudget()
   test('creates one link and one delivery per recipient, and a recipient reply threads onto the message', async ({ request }) => {
     const stamp = Date.now()
     const firstRecipient = QA_RECIPIENTS[0]

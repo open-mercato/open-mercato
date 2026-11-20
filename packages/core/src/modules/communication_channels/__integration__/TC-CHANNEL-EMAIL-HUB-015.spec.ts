@@ -18,6 +18,7 @@ import {
   runScheduledRelease,
   scheduledAtInMinutes,
   QA_RECIPIENTS,
+  useRaisedExternalEmailBudget,
 } from '@open-mercato/core/modules/messages/__integration__/scheduledSendFixtures'
 
 /**
@@ -28,6 +29,7 @@ import {
  * `messages.delivery_failed` notification.
  */
 test.describe('TC-CHANNEL-EMAIL-HUB-015: mailbox requires reauth at release', () => {
+  useRaisedExternalEmailBudget()
   test('fails the participants and notifies the author instead of sending', async ({ request }) => {
     test.slow()
     const stamp = Date.now()

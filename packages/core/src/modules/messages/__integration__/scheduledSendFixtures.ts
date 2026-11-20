@@ -1,7 +1,8 @@
 import path from 'node:path'
-import { expect, type APIRequestContext } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 import { createQueue } from '@open-mercato/queue'
-import { apiRequest } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
@@ -95,3 +96,65 @@ export const QA_COPY_RECIPIENT = 'qa-copy@example.com'
 export const QA_BLIND_RECIPIENT = 'qa-blind@example.com'
 export const QA_REJECT_RECIPIENT = 'qa-recipient+reject@example.com'
 export const QA_RATELIMIT_RECIPIENT = 'qa-recipient+ratelimit@example.com'
+
+const DAILY_LIMIT_NAME = 'externalEmailDailyRecipientLimit'
+
+/**
+ * Registers hooks (call inside a describe) that lift the admin tenant's daily external-recipient limit for each test and
+ * restore the previous module_configs row afterwards. Earlier specs spend the new-tenant limit of 20 distinct recipients.
+ * Config reads are cached for 60 s (also "not found"), so the tenant cache is purged after every change.
+ */
+export function useRaisedExternalEmailBudget(limit = 1000): void {
+  let restore: (() => Promise<void>) | null = null
+  const purgeCache = async (request: APIRequestContext, token: string) => {
+    const response = await apiRequest(request, 'POST', '/api/configs/cache', { token, data: { action: 'purgeAll' } })
+    expect(response.ok(), 'module config cache purge').toBeTruthy()
+  }
+
+  test.beforeEach(async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const { tenantId } = getTokenScope(token)
+    const previous = await withClient(async (client) => {
+      const existing = await client.query<{ value_json: unknown }>(
+        'select value_json from module_configs where tenant_id = $1 and module_id = $2 and name = $3',
+        [tenantId, 'messages', DAILY_LIMIT_NAME],
+      )
+      const value = JSON.stringify(limit)
+      if (existing.rows.length > 0) {
+        await client.query(
+          'update module_configs set value_json = $4::jsonb where tenant_id = $1 and module_id = $2 and name = $3',
+          [tenantId, 'messages', DAILY_LIMIT_NAME, value],
+        )
+        return { exists: true as const, value: existing.rows[0].value_json }
+      }
+      await client.query(
+        'insert into module_configs (id, module_id, name, value_json, tenant_id, organization_id, created_at, updated_at) values ($1, $2, $3, $4::jsonb, $5, null, now(), now())',
+        [randomUUID(), 'messages', DAILY_LIMIT_NAME, value, tenantId],
+      )
+      return { exists: false as const }
+    })
+    restore = async () => {
+      await withClient(async (client) => {
+        if (previous.exists) {
+          await client.query(
+            'update module_configs set value_json = $4::jsonb where tenant_id = $1 and module_id = $2 and name = $3',
+            [tenantId, 'messages', DAILY_LIMIT_NAME, JSON.stringify(previous.value)],
+          )
+        } else {
+          await client.query(
+            'delete from module_configs where tenant_id = $1 and module_id = $2 and name = $3',
+            [tenantId, 'messages', DAILY_LIMIT_NAME],
+          )
+        }
+      })
+      await purgeCache(request, token)
+    }
+    await purgeCache(request, token)
+  })
+
+  test.afterEach(async () => {
+    const run = restore
+    restore = null
+    if (run) await run()
+  })
+}

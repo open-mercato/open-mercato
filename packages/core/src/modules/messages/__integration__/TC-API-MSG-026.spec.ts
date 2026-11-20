@@ -5,7 +5,7 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
 import { deleteChannelIfExists, isChannelSeedingAvailable } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { deleteMessageIfExists } from './helpers'
 import { drainDeliveryUntil, readMessageParticipants, sendThroughSeededMailbox } from './deliveryFixtures'
-import { QA_RECIPIENTS, QA_REJECT_RECIPIENT } from './scheduledSendFixtures'
+import { QA_RECIPIENTS, QA_REJECT_RECIPIENT, useRaisedExternalEmailBudget } from './scheduledSendFixtures'
 
 /**
  * TC-API-MSG-026: resend to failed recipients.
@@ -14,6 +14,7 @@ import { QA_RECIPIENTS, QA_REJECT_RECIPIENT } from './scheduledSendFixtures'
  * message with nothing failed, answers 409.
  */
 test.describe('TC-API-MSG-026: resend-failed', () => {
+  useRaisedExternalEmailBudget()
   test('resends only to failed participants and refuses when nothing failed', async ({ request }) => {
     const stamp = Date.now()
     const accepted = QA_RECIPIENTS[0]

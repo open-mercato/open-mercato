@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { deleteMessageIfExists } from './helpers';
-import { QA_RECIPIENTS } from './scheduledSendFixtures';
+import { QA_RECIPIENTS, useRaisedExternalEmailBudget } from './scheduledSendFixtures';
 
 type ParticipantRow = { role: string; email: string; deliveryStatus: string | null };
 
@@ -12,6 +12,7 @@ type ParticipantRow = { role: string; email: string; deliveryStatus: string | nu
  * not only by the first one kept in `external_email`.
  */
 test.describe('TC-API-MSG-033: Search messages by a second outbound recipient', () => {
+  useRaisedExternalEmailBudget()
   test('finds the message by its 2nd "to" address and exposes all participants on detail', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin');
     const stamp = Date.now();
