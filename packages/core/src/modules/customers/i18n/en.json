@@ -1439,7 +1439,7 @@
   "customers.deals.kanban.filter.status.lost": "Lost",
   "customers.deals.kanban.filter.status.open": "Open",
   "customers.deals.kanban.filter.status.title": "Filter: Status",
-  "customers.deals.kanban.filter.status.title.label": "Filter :",
+  "customers.deals.kanban.filter.status.title.label": "Filter:",
   "customers.deals.kanban.filter.status.won": "Won",
   "customers.deals.kanban.filter.title": "Filter: {label}",
   "customers.deals.kanban.filter.to": "To",

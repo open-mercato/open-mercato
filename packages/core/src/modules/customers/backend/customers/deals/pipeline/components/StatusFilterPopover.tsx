@@ -183,7 +183,7 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
           title={
             <>
               <span className="font-bold">
-                {translateWithFallback(t, 'customers.deals.kanban.filter.status.title.label', 'Filter :')}
+                {translateWithFallback(t, 'customers.deals.kanban.filter.status.title.label', 'Filter:')}
               </span>
               {' '}
               <span className="font-normal">
