@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { createPersonFixture } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { resolveTrackingSecret, trackingSecretEnvNames } from '../lib/tracking/secret'
 import { signTrackingToken } from '../lib/tracking/token'
 import { TRACKING_TOKEN_PARAM, UNSUBSCRIBE_PATH } from '../lib/tracking/urls'
@@ -231,6 +232,61 @@ test.describe('TC-MA-015b suppression import', () => {
     expect(body?.skipped).toBe(1)
     expect(body?.unmatchedSample).toContain(stranger)
     expect(body?.truncated).toBe(false)
+  })
+
+  /**
+   * The one import path with a real effect: a matching address is actually suppressed, with a trail entry,
+   * and importing the same file again is idempotent on the counters rather than silently re-suppressing.
+   *
+   * `recordConsent` always appends a trail row, even on a repeat import (`lib/consent.ts`'s own doc comment
+   * says so) — there is no endpoint that reads the trail array back directly, so that write is verified here
+   * only indirectly, through `alreadySuppressed` proving a second write happened on the re-import.
+   */
+  test('a matching address is suppressed, with a trail entry, and a repeat import is idempotent', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = Date.now()
+    const email = `qa-ma-015-match-${stamp}@example.invalid`
+    const customerId = await createPersonFixture(request, token, {
+      firstName: 'QA',
+      lastName: `Match${stamp}`,
+      displayName: `QA Match ${stamp}`,
+      primaryEmail: email,
+    })
+
+    try {
+      const first = await apiRequest(request, 'POST', IMPORT_PATH, {
+        token,
+        data: { csv: `email\n${email}\n`, reason: 'QA import — first pass' },
+      })
+      expect(first.status()).toBe(200)
+      const firstBody = await readJsonSafe<{ suppressed: number; alreadySuppressed: number; unmatched: number }>(first)
+      expect(firstBody?.suppressed).toBe(1)
+      expect(firstBody?.alreadySuppressed).toBe(0)
+      expect(firstBody?.unmatched).toBe(0)
+
+      const profileAfterFirst = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
+      expect(profileAfterFirst.ok(), await profileAfterFirst.text()).toBe(true)
+      const profileBodyAfterFirst = await readJsonSafe<{ consent?: { email?: string | null } }>(profileAfterFirst)
+      expect(profileBodyAfterFirst?.consent?.email).toBe('unsubscribed')
+
+      // Re-importing the identical file writes a second trail entry (the state does not change, but the
+      // decision to suppress was made again) and reports it as `alreadySuppressed`, not `suppressed` again.
+      const second = await apiRequest(request, 'POST', IMPORT_PATH, {
+        token,
+        data: { csv: `email\n${email}\n`, reason: 'QA import — second pass' },
+      })
+      expect(second.status()).toBe(200)
+      const secondBody = await readJsonSafe<{ suppressed: number; alreadySuppressed: number; unmatched: number }>(second)
+      expect(secondBody?.suppressed).toBe(0)
+      expect(secondBody?.alreadySuppressed).toBe(1)
+      expect(secondBody?.unmatched).toBe(0)
+
+      const profileAfterSecond = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
+      const profileBodyAfterSecond = await readJsonSafe<{ consent?: { email?: string | null } }>(profileAfterSecond)
+      expect(profileBodyAfterSecond?.consent?.email).toBe('unsubscribed')
+    } finally {
+      await deleteOwnPerson(request, token, customerId)
+    }
   })
 
   /** There is no `state` to send: the endpoint can only ever suppress, and an extra field is not a way in. */

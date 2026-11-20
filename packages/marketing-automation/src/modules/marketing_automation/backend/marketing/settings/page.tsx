@@ -12,11 +12,8 @@ import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
-import { canImportSuppressionList as resolveCanImportSuppressionList } from '../../../lib/settings-permissions.js'
 import { useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { readApiErrorField } from '../../../components/apiError'
@@ -35,35 +32,10 @@ type Settings = {
   valueHorizonYears: number
 }
 
-/**
- * The two settings the engine already honoured and nothing could change.
- *
- * Not a `CrudForm`: there is no record and no version — these are two per-tenant values, last write wins,
- * and a concurrent edit of a tier ladder is not a conflict worth a dialogue about.
- */
-type ImportResult = {
-  suppressed: number
-  alreadySuppressed: number
-  unmatched: number
-  unmatchedSample: string[]
-  skipped: number
-  truncated: boolean
-}
-
 export default function MarketingSettingsPage() {
   const t = useT()
   const runMutation = useMarketingMutation('settings')
-  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
-  /**
-   * The page as a whole is gated on `campaigns.manage`, but the suppression import POSTs to
-   * `/api/marketing_automation/consent/import`, which is gated on `consent.manage` — its own grant on
-   * purpose (see `acl.ts`), so an author has no particular business editing consent. Without this
-   * check a campaign manager without consent rights saw a working-looking file picker that always
-   * answered 403, and the menu/page gate alone could not tell them that in advance.
-   */
-  const { payload: chromePayload } = useBackendChrome()
-  const canImportSuppressionList = resolveCanImportSuppressionList(chromePayload?.grantedFeatures)
 
   const [settings, setSettings] = React.useState<Settings | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -71,55 +43,6 @@ export default function MarketingSettingsPage() {
   const [saving, setSaving] = React.useState(false)
   /** The staff directory, so the pool is picked from real people rather than typed as uuids. */
   const [staff, setStaff] = React.useState<Array<{ userId: string; displayName: string }>>([])
-  const [importReason, setImportReason] = React.useState('')
-  const [importing, setImporting] = React.useState(false)
-  const [importResult, setImportResult] = React.useState<ImportResult | null>(null)
-
-  /**
-   * Reads the file in the browser and posts its text, rather than uploading it.
-   *
-   * The reason travels in the same payload that way, which matters because the reason is recorded on every row it
-   * suppresses — a multipart upload with the reason in a separate field is two things that can disagree.
-   */
-  const importSuppressionList = async (file: File) => {
-    const reason = importReason.trim()
-    if (!reason) {
-      flash(t('marketing_automation.settings.suppressionNeedsReason', 'Say where this list came from first — it is recorded on every customer it unsubscribes.'), 'error')
-      return
-    }
-    /**
-     * Asked between choosing the file and applying it, because a file chooser is one mis-click and this
-     * import has no undo: every address it matches is unsubscribed, and nothing in the module can put
-     * somebody back on a list they were taken off. The file's name is in the question so a wrong pick is
-     * visible at the moment it still costs nothing.
-     */
-    const confirmed = await confirm({
-      text: t(
-        'marketing_automation.settings.confirmSuppressionImport',
-        'Unsubscribe everybody in {file}? This cannot be undone — nothing here can put somebody back on a list.',
-      ).replace('{file}', file.name),
-      variant: 'destructive',
-    })
-    if (!confirmed) return
-
-    setImporting(true)
-    setImportResult(null)
-    try {
-      const csv = await file.text()
-      const response = await runMutation(
-        () => apiCallOrThrow<ImportResult>('/api/marketing_automation/consent/import', {
-          method: 'POST',
-          body: JSON.stringify({ csv, reason }),
-          headers: { 'content-type': 'application/json' },
-        }),
-      )
-      setImportResult(response.result ?? null)
-    } catch {
-      flash(t('marketing_automation.settings.suppressionFailed', 'Could not import that file.'), 'error')
-    } finally {
-      setImporting(false)
-    }
-  }
 
   /**
    * What the server last said, so a repeat of the same answer leaves the form alone.
@@ -373,69 +296,23 @@ export default function MarketingSettingsPage() {
           </div>
 
           {/*
-            * Importing somebody else's suppression list.
-            *
-            * On the settings screen rather than a page of its own because it is a once-per-migration action, and
-            * it is an ACTION rather than a setting — so it saves itself on its own button instead of travelling
-            * with the form below.
+            * Importing somebody else's suppression list now lives on its own page
+            * (`/backend/marketing/suppression-import`), gated on `consent.manage` alone — this screen is
+            * gated on `campaigns.manage`, and its own GET requires `campaigns.view`, neither of which a
+            * consent-only admin holds. Folding the control in here hid it from exactly the role it exists
+            * for; a plain link costs nothing and reaches everybody who can act on it.
             */}
           <div className="space-y-2">
             <SectionHeader title={t('marketing_automation.settings.suppression', 'Suppression list')} />
             <div className="text-xs text-muted-foreground">
               {t(
-                'marketing_automation.settings.suppressionHint',
-                'A CSV of email addresses from the tool you are leaving. Every address that matches a customer here is recorded as unsubscribed, with your reason on it. It can only take people OFF the list: a CSV is not consent, so there is no way to import anybody as subscribed.',
+                'marketing_automation.settings.suppressionMovedHint',
+                'Importing a suppression list now has its own page, reachable by anyone with consent-management rights, with or without campaign-management rights.',
               )}
             </div>
-            {canImportSuppressionList ? (
-              <>
-                <Label htmlFor="suppression-reason">
-                  {t('marketing_automation.settings.suppressionReason', 'Where this list came from')}
-                </Label>
-                <Input
-                  id="suppression-reason"
-                  value={importReason}
-                  placeholder={t('marketing_automation.settings.suppressionReasonPlaceholder', 'Unsubscribes exported from our previous tool')}
-                  onChange={(event) => setImportReason(event.target.value)}
-                />
-                <Input
-                  id="suppression-file"
-                  type="file"
-                  accept=".csv,text/csv,text/plain"
-                  disabled={importing}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null
-                    // The input is reset so choosing the same file twice runs twice — a retry after fixing the reason.
-                    event.target.value = ''
-                    if (file) void importSuppressionList(file)
-                  }}
-                />
-                {importing ? <Spinner /> : null}
-                {importResult ? (
-                  <div className="text-xs text-muted-foreground">
-                    {t(
-                      'marketing_automation.settings.suppressionResult',
-                      'Suppressed {suppressed}. {already} were already unsubscribed. {unmatched} addresses matched no customer here, and {skipped} rows held no address.',
-                    )
-                      .replace('{suppressed}', String(importResult.suppressed))
-                      .replace('{already}', String(importResult.alreadySuppressed))
-                      .replace('{unmatched}', String(importResult.unmatched))
-                      .replace('{skipped}', String(importResult.skipped))}
-                    {importResult.truncated
-                      ? ` ${t('marketing_automation.settings.suppressionTruncated', 'The file was longer than one import applies — upload the rest separately.')}`
-                      : ''}
-                    {/* A sample, so a typo is distinguishable from somebody who was never a customer here. */}
-                    {importResult.unmatchedSample.length > 0 ? (
-                      <div className="mt-1 font-mono">{importResult.unmatchedSample.join(', ')}</div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <div className="text-xs text-muted-foreground">
-                {t('marketing_automation.settings.suppressionNeedsConsentManage', 'Importing a suppression list needs consent-management rights.')}
-              </div>
-            )}
+            <a className="text-xs underline text-foreground" href="/backend/marketing/suppression-import">
+              {t('marketing_automation.settings.suppressionMovedLink', 'Import a suppression list')}
+            </a>
           </div>
 
           <div className="space-y-2">
@@ -512,7 +389,6 @@ export default function MarketingSettingsPage() {
             </Button>
           </div>
         </div>
-        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )

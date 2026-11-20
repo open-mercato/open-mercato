@@ -5,6 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { loadConsentState, recordConsent } from '../../../../lib/consent.js'
 import { readPathUuid } from '../../../shared.js'
@@ -32,6 +33,8 @@ const routeMetadata = {
 export const metadata = routeMetadata
 
 const logger = createLogger('marketing_automation')
+
+const RESOURCE_KIND = 'marketing_automation.consent'
 
 const bodySchema = z.object({
   channel: z.literal('email'),
@@ -84,16 +87,37 @@ export async function PUT(req: Request) {
   const customer = await em.findOne(CustomerEntity, { id: customerId, ...scope, deletedAt: null })
   if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // Custom write route → wired through the shared mutation-guard wrapper (AGENTS → API Routes),
+  // same as every other non-CRUD mutating route in the module. An operator overriding a
+  // customer's consent is an `update` on the consent resource, keyed by the customer the decision
+  // is about.
+  const guardResult = await runRouteMutationGuards({
+    container,
+    req,
+    auth: { userId: auth.sub, tenantId: auth.tenantId, organizationId },
+    input: {
+      resourceKind: RESOURCE_KIND,
+      resourceId: customerId,
+      operation: 'update',
+      mutationPayload: parsed.data,
+    },
+  })
+  if (!guardResult.ok) return guardResult.response
+
+  const writePayload = { ...parsed.data, ...(guardResult.modifiedPayload ?? {}) } as typeof parsed.data
+
   await recordConsent(em, {
     scope,
     subjectEntityId: customerId,
-    channel: parsed.data.channel,
-    state: parsed.data.state,
-    reason: parsed.data.reason,
+    channel: writePayload.channel,
+    state: writePayload.state,
+    reason: writePayload.reason,
     source: 'operator',
     campaignId: null,
     now: new Date(),
   })
+
+  await guardResult.runAfterSuccess()
 
   /**
    * Logged deliberately, and with `sub`.
@@ -104,12 +128,12 @@ export async function PUT(req: Request) {
    */
   logger.info('marketing consent recorded by an operator', {
     subjectEntityId: customerId,
-    channel: parsed.data.channel,
-    state: parsed.data.state,
+    channel: writePayload.channel,
+    state: writePayload.state,
     actor: auth.sub,
   })
 
-  return NextResponse.json({ channel: parsed.data.channel, state: await loadConsentState(em, customerId, scope, 'email') })
+  return NextResponse.json({ channel: writePayload.channel, state: await loadConsentState(em, customerId, scope, 'email') })
 }
 
 export const openApi = {
