@@ -1,7 +1,9 @@
 import { asValue, createContainer } from 'awilix'
 import { z } from 'zod'
+import { registerTelemetryErrorReporter } from '../../../telemetry/runtime'
 import type { CrudFormSectionMutationSurfaceFact } from '../../../../modules/form-section-facts'
-import type { CrudFormSectionServerModule } from '../../../../modules/form-sections'
+import type { CrudFormSectionHostProvider, CrudFormSectionServerModule } from '../../../../modules/form-sections'
+import { isUniqueViolation } from '../../errors'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '../../optimistic-lock-headers'
 import { registerMutationGuards } from '../../mutation-guard-store'
 import { crudFormSectionHostKey } from '../composition'
@@ -40,7 +42,25 @@ const surface: CrudFormSectionMutationSurfaceFact = {
   optimisticLock: 'target-required',
 }
 
-function addManifest(proof = true, selected = surface): void {
+function addManifest(
+  proof = true,
+  selected = surface,
+  readLockedRecord?: CrudFormSectionHostProvider['readLockedRecord'],
+): void {
+  if (readLockedRecord) registerMutationGuards([{ moduleId: 'example', guards: [{
+    id: 'example.parent-domain', targetEntity: 'example.product', operations: ['update'],
+    validate: async () => ({ ok: true }),
+    crudFormSectionCapabilities: [{
+      ...address, capabilityId: 'example.parent-domain', protocol: 'crud-form-sections/v1',
+      roundTripId: 'example.parent-domain@v1', modes: ['merge-server-leaves'],
+      payloadPaths: ['sku'], customFieldOwnership: { mode: 'none' },
+      mutationSurfaces: [selected], providedDataContractIds: [], allowNoopSubmit: false,
+      requiredLeaves: [{
+        ...address, schemaId: 'exampleProductUpdate', payloadPath: 'code', coverage: ['preserve-from-record'],
+      }],
+      extensionSinkSupport: 'none',
+    }],
+  }] }])
   const section = { ...address, sectionId: 'notes' }
   const base = {
     ...address,
@@ -68,6 +88,10 @@ function addManifest(proof = true, selected = surface): void {
             mutationSurfaceIds: [selected.id],
           },
           mutationSurfaces: [selected],
+          ...(readLockedRecord && {
+            preservedLeafPaths: ['code'],
+            requiredLeafLabelKeys: { code: 'example.products.fields.code' },
+          }),
           resourceBindings: [{ id: 'example.offer-product.v1', definition: 'offer belongs to selected product' }],
         }],
       }],
@@ -75,6 +99,7 @@ function addManifest(proof = true, selected = surface): void {
         hostDescriptorId: 'example.host',
         requireFeatures: [requiredFeature],
         authorizeHost: authority,
+        readLockedRecord,
         mutationProviders: proof ? [{
           mutationSurfaceId: selected.id,
           delegatedTarget: selected.delegatedTarget,
@@ -112,12 +137,12 @@ function addManifest(proof = true, selected = surface): void {
   registerCrudFormSectionManifest(modules)
 }
 
-function identity(targetId?: string): CrudFormSectionMutationIdentity {
+function identity(targetId?: string, selected = surface): CrudFormSectionMutationIdentity {
   return {
     address,
     host,
-    target: { resourceKind: surface.mutationResourceKind, resourceId: targetId },
-    resourceBindingIds: surface.resourceBindingIds ?? [],
+    target: { resourceKind: selected.mutationResourceKind, resourceId: targetId },
+    resourceBindingIds: selected.resourceBindingIds ?? [],
   }
 }
 
@@ -162,13 +187,14 @@ function fixture(
     getGrantedFeatures: jest.fn(async () => ['example.*']),
   }
   container.register({ em: asValue({ fork: () => em }), rbacService: asValue(rbac) })
-  const path = targetId ? `/api/example/products/product-1/offers/${targetId}` : '/api/example/products/product-1/offers'
+  const path = selected.kind === 'parent-submit' ? '/api/example/products/product-1'
+    : targetId ? `/api/example/products/product-1/offers/${targetId}` : '/api/example/products/product-1/offers'
   const request = new Request('https://example.invalid' + path, {
     method: selected.guardedFacade.method,
     headers,
     body: JSON.stringify(body),
   })
-  const route = jest.fn(async () => identity(targetId))
+  const route = jest.fn(async () => ({ ...identity(targetId, selected), targetOrganizationId: 'org' }))
   const existingHook = jest.fn(async () => { events.push('existing-hook') })
   const execute: FacadeOptions['execute'] = jest.fn(async ({ commandContext, payload, expectedUpdatedAt }) => {
     expect(expectedUpdatedAt).toBe(targetId ? expectedDate : null)
@@ -188,7 +214,7 @@ function fixture(
     maxBodyBytes: 4096,
     authorizeRoute: route,
     validateDomain: jest.fn(),
-    projectFinalInput: (payload: unknown) => ({ ...identity(targetId), payload: payload as Payload }),
+    projectFinalInput: (payload: unknown) => ({ ...identity(targetId, selected), payload: payload as Payload }),
     beforeTransactionalWrite: existingHook,
     execute,
   }
@@ -239,6 +265,32 @@ describe('CrudForm section guarded mutation', () => {
     expect(setup.execute).not.toHaveBeenCalled()
   })
 
+  it('binds feature checks and guard callbacks to the resolved target organization', async () => {
+    const setup = fixture()
+    const guard = jest.fn(async () => ({ ok: true, shouldRunAfterSuccess: true }))
+    const afterSuccess = jest.fn(async () => {})
+    registerMutationGuards([{ moduleId: 'example', guards: [{
+      id: 'example.scope-guard', targetEntity: 'example.offer', operations: ['update'], validate: guard, afterSuccess,
+    }] }])
+    await expect(runCrudFormSectionMutation({
+      ...setup.options,
+      scope: { ...scope, organizationId: 'selected', allowedOrganizationIds: ['selected', 'org'] },
+    })).resolves.toEqual({ id: 'offer-1' })
+    expect(setup.rbac.userHasAllFeatures).toHaveBeenLastCalledWith('actor', [requiredFeature],
+      expect.objectContaining({ organizationId: 'org' }))
+    expect(guard).toHaveBeenCalledWith(expect.objectContaining({ organizationId: 'org' }))
+    expect(afterSuccess).toHaveBeenCalledWith(expect.objectContaining({ organizationId: 'org' }))
+  })
+
+  it('rejects a target organization outside the authorized set before checking headers', async () => {
+    const setup = fixture(surface, 'offer-1', new Headers())
+    await expect(runCrudFormSectionMutation({
+      ...setup.options,
+      authorizeRoute: async () => ({ ...identity('offer-1'), targetOrganizationId: 'outside' }),
+    })).rejects.toMatchObject({ status: 404 })
+    expect(authority).not.toHaveBeenCalled()
+  })
+
   it('requires an atomic provider proof for a versioned mutation during manifest publication', async () => {
     addManifest(false)
     const manifest = getCrudFormSectionManifest()
@@ -252,7 +304,10 @@ describe('CrudForm section guarded mutation', () => {
     const afterSuccess = jest.fn(async () => { setup.events.push('after-success') })
     registerMutationGuards([{ moduleId: 'example', guards: [{
       id: 'example.offer-guard', targetEntity: 'example.offer', operations: ['update'], features: [requiredFeature],
-      validate: async () => ({ ok: true, modifiedPayload: { sku: 'CHANGED' }, shouldRunAfterSuccess: true }),
+      validate: async ({ requestHeaders }) => {
+        requestHeaders.set(OPTIMISTIC_LOCK_HEADER_NAME, '2020-01-01T00:00:00.000Z')
+        return { ok: true, modifiedPayload: { sku: 'CHANGED' }, shouldRunAfterSuccess: true }
+      },
       afterSuccess,
     }] }])
     const legacyValidate = jest.fn(async () => ({ ok: true }))
@@ -264,6 +319,10 @@ describe('CrudForm section guarded mutation', () => {
     expect(setup.execute).toHaveBeenCalledWith(expect.objectContaining({ payload: { sku: 'CHANGED' } }))
     expect(setup.events).toEqual(['begin', 'existing-hook', 'write', 'flush', 'commit', 'after-success'])
     expect(afterSuccess).toHaveBeenCalledWith(expect.objectContaining({ resourceId: 'offer-1' }))
+    expect(afterSuccess.mock.calls[0]).toEqual([expect.objectContaining({
+      requestHeaders: expect.any(Headers),
+    })])
+    expect(setup.request.headers.get(OPTIMISTIC_LOCK_HEADER_NAME)).toBe(expectedDate)
   })
 
   it.each([
@@ -284,7 +343,7 @@ describe('CrudForm section guarded mutation', () => {
   it.each([
     ['route pattern', { routePattern: '/example/products/[otherId]/offers/[offerId]' }],
     ['delegated target', { delegatedTarget: { kind: 'command' as const, id: 'example.other.update' } }],
-    ['binding IDs', { authorizeRoute: async () => ({ ...identity('offer-1'), resourceBindingIds: [] }) }],
+    ['binding IDs', { authorizeRoute: async () => ({ ...identity('offer-1'), resourceBindingIds: [], targetOrganizationId: 'org' }) }],
   ] as const)('rejects a mismatched %s from the route configuration', async (_name, override) => {
     const setup = fixture()
     await expect(runCrudFormSectionMutation({ ...setup.options, ...override })).rejects.toMatchObject(expectedMismatch)
@@ -388,8 +447,93 @@ describe('CrudForm section guarded mutation', () => {
       validate: async () => ({ ok: true, shouldRunAfterSuccess: true }),
       afterSuccess: callback,
     })) }])
-    await expect(runCrudFormSectionMutation(setup.options)).resolves.toEqual({ id: 'created-offer' })
+    const unregister = registerTelemetryErrorReporter(() => { throw new Error('[internal] Test reporter failed') })
+    try {
+      await expect(runCrudFormSectionMutation(setup.options)).resolves.toEqual({ id: 'created-offer' })
+    } finally {
+      unregister()
+    }
     expect(setup.events).toEqual(['begin', 'existing-hook', 'write', 'flush', 'commit', 'after-success'])
     expect(afterSuccess).toHaveBeenCalledWith(expect.objectContaining({ resourceId: 'created-offer' }))
   })
+})
+
+describe('server-required hidden leaves', () => {
+  const parent: CrudFormSectionMutationSurfaceFact = {
+    ...surface,
+    id: 'example.product-update',
+    kind: 'parent-submit',
+    guardedFacade: { method: 'PATCH', routePattern: '/example/products/[productId]' },
+    delegatedTarget: { kind: 'command', id: 'example.products.update' },
+    mutationResourceKind: 'example.product',
+    resourceBindingIds: [],
+  }
+  const hiddenFailure = {
+    status: 422,
+    body: {
+      error: 'crud_form_section_hidden_field_invalid',
+      code: 'crud_form_section_hidden_field_invalid',
+      fieldLabelKey: 'example.products.fields.code',
+    },
+  }
+
+  it('validates a wire-required value from the scoped locked record before guards execute', async () => {
+    const readLockedRecord = jest.fn<ReturnType<NonNullable<CrudFormSectionHostProvider['readLockedRecord']>>,
+      Parameters<NonNullable<CrudFormSectionHostProvider['readLockedRecord']>>>(async ({ scope, host, transactionalEm }) => {
+        expect(scope.tenantId).toBe('tenant')
+        expect(host.hostResourceId).toBe('product-1')
+        expect(transactionalEm.isInTransaction()).toBe(true)
+        return { code: 'LOCKED' }
+      })
+    addManifest(true, parent, readLockedRecord)
+    const setup = fixture(parent, 'product-1')
+    const validateDomain = jest.fn()
+    await expect(runCrudFormSectionMutation({
+      ...setup.options,
+      bodySchema: dataSchema.extend({ code: z.string().min(1) }),
+      validateDomain,
+    })).resolves.toEqual({ id: 'product-1' })
+    expect(readLockedRecord).toHaveBeenCalledTimes(1)
+    expect(validateDomain).toHaveBeenCalledWith({ sku: 'VALID', code: 'LOCKED' }, expect.anything())
+    expect(setup.execute).toHaveBeenCalledWith(expect.objectContaining({ payload: { sku: 'VALID', code: 'LOCKED' } }))
+  })
+
+  it('returns a label-only error for an invalid hidden stored value', async () => {
+    addManifest(true, parent, async () => ({ code: 'PRIVATE' }))
+    const setup = fixture(parent, 'product-1')
+    await expect(runCrudFormSectionMutation({
+      ...setup.options,
+      bodySchema: dataSchema.extend({ code: z.string().startsWith('PUBLIC-') }),
+    })).rejects.toMatchObject(hiddenFailure)
+    expect(setup.events).toEqual(['begin', 'rollback'])
+    expect(setup.execute).not.toHaveBeenCalled()
+  })
+
+  it('returns the same label-only error for an identified uniqueness conflict', async () => {
+    addManifest(true, parent, async () => ({ code: 'SECRET' }))
+    const setup = fixture(parent, 'product-1')
+    await expect(runCrudFormSectionMutation({
+      ...setup.options,
+      bodySchema: dataSchema.extend({ code: z.string().min(1) }),
+      hiddenLeafErrorPath: (error) => isUniqueViolation(error, 'example_products_code_unique') ? 'code' : undefined,
+      execute: async ({ commandContext, payload }) => {
+        await commandContext.beforeTransactionalWrite(commandContext.transactionalEm, payload)
+        throw Object.assign(new Error('[internal] Example duplicate'), { code: '23505', constraint: 'example_products_code_unique' })
+      },
+    })).rejects.toMatchObject(hiddenFailure)
+    expect(setup.events).toEqual(['begin', 'existing-hook', 'rollback'])
+  })
+})
+
+it('keeps authorized bindings and ownership immutable when a callback tries to change its context', async () => {
+  const setup = fixture()
+  await expect(runCrudFormSectionMutation({
+    ...setup.options,
+    projectFinalInput: (_value, context) => {
+      expect(Reflect.set(context.route.target, 'resourceId', 'other-offer')).toBe(false)
+      expect(Reflect.set(context.policy.surface.ownershipFacts[0].payloadPaths, 1, 'cost')).toBe(false)
+      return { ...identity('offer-1'), payload: { sku: 'VALID', cost: 120 } }
+    },
+  })).rejects.toMatchObject(expectedMismatch)
+  expect(setup.events).toEqual(['begin', 'existing-hook', 'rollback'])
 })

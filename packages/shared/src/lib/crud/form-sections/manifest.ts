@@ -8,6 +8,7 @@ import type {
   CrudFormSectionSurfaceAlternativeFact,
 } from '../../../modules/form-section-facts'
 import type {
+  CrudFormLeafDefaultProvider,
   CrudFormSectionClientHostFact,
   CrudFormSectionHostAlternative,
   CrudFormSectionHostFact,
@@ -31,6 +32,7 @@ import {
   type CrudFormSectionConfiguredHostLedger,
 } from './composition'
 import { symbolicIdSchema } from './protocol'
+import { selectCrudFormRequiredLeaves, type CrudFormRequiredLeafCoverage } from './required-leaves'
 
 export type CrudFormSectionAcceptedPolicy = {
   hostDescriptorId: string
@@ -39,6 +41,7 @@ export type CrudFormSectionAcceptedPolicy = {
   capabilities: readonly CrudFormSectionCapabilityEntry[]
   mutationSurfaces: readonly CrudFormSectionMutationSurfaceFact[]
   mutationProviders: readonly CrudFormSectionMutationProviderProof[]
+  requiredLeaves: readonly CrudFormRequiredLeafCoverage[]
   bindings: NonNullable<CrudFormSectionHostAlternative['resourceBindings']>
   requireFeatures: readonly string[]
   roundTripIds: readonly string[]
@@ -49,6 +52,7 @@ export type CrudFormSectionManifest = {
   ledger: CrudFormSectionConfiguredHostLedger
   policies: ReadonlyMap<string, CrudFormSectionAcceptedPolicy>
   providers: ReadonlyMap<string, CrudFormSectionHostProvider & { hostResourceKind: string }>
+  leafDefaultProviders: ReadonlyMap<string, CrudFormLeafDefaultProvider>
 }
 
 type ExistingHost = {
@@ -158,7 +162,10 @@ export function buildCrudFormSectionManifest(
   }))
   const configured = crudFormSectionConfiguredHosts(hostFacts, overrides)
   const configuredEntries = [...configured.entries()].sort(([left], [right]) => compareSectionIds(left, right))
-  if (!configuredEntries.length) return { ledger: { hosts: [], fingerprint: hash('[]') }, policies, providers }
+  const defaults = modules.flatMap(({ sections }) => sections.leafDefaultProviders ?? [])
+    .filter((provider) => Boolean(provider?.fact?.id))
+  const leafDefaultProviders = uniqueIndex(defaults, ({ fact }) => fact.id)
+  if (!configuredEntries.length) return { ledger: { hosts: [], fingerprint: hash('[]') }, policies, providers, leafDefaultProviders }
 
   const capabilityRegistry = collectCrudFormSectionCapabilities(modules.flatMap(({ moduleId, sections }) =>
     (sections.displayPolicies ?? []).map((fact) => ({ moduleId, fact })),
@@ -196,8 +203,9 @@ export function buildCrudFormSectionManifest(
       fail('invalid_alternative')
       continue
     }
+    const { alternative } = matches[0]
     const { surface, mutationSurfaces = [], resourceBindings = [], activeDataContractIds = [],
-      providedDataContractIdsByCapability = {}, sinkAtomicityByCapability = {} } = matches[0].alternative
+      providedDataContractIdsByCapability = {}, sinkAtomicityByCapability = {} } = alternative
     const mutationProviders = uniqueIndex(provider?.mutationProviders ?? [], (proof) => proof.mutationSurfaceId)
     const canonicalSurfaces = mutationSurfaces.flatMap((candidate) => {
       const normalized = canonicalCrudFormSectionMutationSurface(candidate)
@@ -263,6 +271,16 @@ export function buildCrudFormSectionManifest(
     }
     if (!policyValid) continue
 
+    const required = selectCrudFormRequiredLeaves({
+      alternative, surfaces: canonicalSurfaces, capabilities: capabilityRegistry.capabilities.values(),
+      defaultProviders: defaults, canReadLockedRecord: typeof provider?.readLockedRecord === 'function',
+    })
+    if (!required.ok) {
+      fail(required.reason)
+      continue
+    }
+    for (const entry of required.capabilities) matchedCapabilities.set(entry.fact.capabilityId, entry)
+
     const descriptors = [host.fact, ...selectedContributions]
     const canonicalSurface = canonicalCrudFormSectionAlternative(surface)
     const capabilities = [...matchedCapabilities.values()]
@@ -273,6 +291,7 @@ export function buildCrudFormSectionManifest(
       surface: canonicalSurface,
       capabilities,
       mutationSurfaces: canonicalSurfaces,
+      requiredLeaves: required.leaves,
       mutationProviders: canonicalSurfaces.map((candidate) => {
         const proof = mutationProviders.get(candidate.id)!
         return {
@@ -300,6 +319,7 @@ export function buildCrudFormSectionManifest(
     },
     policies,
     providers,
+    leafDefaultProviders,
   }
 }
 
@@ -308,6 +328,7 @@ const defaultManifest: CrudFormSectionManifest = {
   ledger: { hosts: [], fingerprint: hash('[]') },
   policies: new Map(),
   providers: new Map(),
+  leafDefaultProviders: new Map(),
 }
 const registry = globalThis as typeof globalThis & { [manifestKey]?: CrudFormSectionManifest }
 

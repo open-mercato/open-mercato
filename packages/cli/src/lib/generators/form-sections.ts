@@ -35,6 +35,7 @@ type ModuleSections = {
   moduleId: string
   importPath: string
   descriptors: Descriptor[]
+  leafDefaultProviderIds: readonly string[]
   clientHosts: readonly unknown[]
   contributedOverrides: unknown
 }
@@ -205,6 +206,16 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
     runtimes.set(id, { roundTripId, runtimePath: readRuntimePath(properties.get('load'), declaration, { id, roundTripId }, invalid) })
   }
 
+  const leafDefaultProviderIds = arrayField(fields, 'leafDefaultProviders', invalid).map((entry) => {
+    const provider = unwrap(entry)
+    if (!ts.isObjectLiteralExpression(provider)) return invalid('expected a leaf default provider object')
+    const factProperty = provider.properties.find((property): property is ts.PropertyAssignment =>
+      ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))
+      && property.name.text === 'fact')
+    if (!factProperty) return invalid('missing literal leaf default provider fact')
+    literalData(factProperty.initializer, invalid)
+    return readIdentity(fieldsOf(factProperty.initializer, invalid), invalid).id
+  }).sort(compareIds)
   const descriptors: Descriptor[] = []
   const clientHosts: Array<{ id: string; roundTripId: string; hostResourceKind?: string; alternatives: unknown[] }> = []
   const factIds = new Set<string>()
@@ -245,6 +256,7 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
     contributedOverrides: fields.has('contributedOverrides')
       ? literalData(fields.get('contributedOverrides')!, invalid)
       : {},
+    leafDefaultProviderIds,
     descriptors: descriptors.sort((left, right) => compareIds(left.id, right.id)),
   }
 }
@@ -344,7 +356,15 @@ export function writeCrudFormSectionRegistries(options: {
   }
   const modules = orderedSectionModules(sections, options.identities, options.requiresByModule)
   const modulesById = new Map<string, string>()
+  const defaultModulesById = new Map<string, string>()
   for (const module of modules) {
+    for (const id of module.leafDefaultProviderIds) {
+      const owner = defaultModulesById.get(id)
+      if (owner) {
+        throw new Error(`[generate] Duplicate leaf default provider id "${id}" in "${owner}" and "${module.moduleId}"`)
+      }
+      defaultModulesById.set(id, module.moduleId)
+    }
     for (const { id } of module.descriptors) {
       const owner = modulesById.get(id)
       if (owner) {

@@ -1,10 +1,10 @@
 import { isDeepStrictEqual } from 'node:util'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { z } from 'zod'
+import { z } from 'zod'
 import type { AuthContext } from '../../auth/server'
 import { withAtomicFlush } from '../../commands/flush'
-import { getTransactionLifetime } from '../../commands/transaction-lifetime'
+import { getTransactionLifetime, ownsTransactionLifetime } from '../../commands/transaction-lifetime'
 import type { CommandRuntimeContext } from '../../commands/types'
 import { createLogger } from '../../logger'
 import { reportTelemetryError } from '../../telemetry/runtime'
@@ -13,7 +13,7 @@ import { readBoundedRequestBytes, WebhookBodyTooLargeError } from '../../webhook
 import type { CrudFormSectionAddress, CrudFormSectionMutationSurfaceFact } from '../../../modules/form-section-facts'
 import type { CrudFormSectionHostAssertion } from '../../../modules/form-sections'
 import { matchRoutePattern, type RouteMatchParams } from '../../../modules/registry'
-import { CrudHttpError } from '../errors'
+import { CrudHttpError, isCrudHttpError } from '../errors'
 import { bridgeLegacyGuard, runMutationGuards, type MutationGuardInput } from '../mutation-guard-registry'
 import { getAllMutationGuardInstances } from '../mutation-guard-store'
 import { normalizeIsoToken } from '../optimistic-lock'
@@ -27,11 +27,18 @@ import { getCrudFormSectionManifest, type CrudFormSectionAcceptedPolicy } from '
 import { parseCrudFormSectionPolicyHeaders } from './policy-headers'
 import { decodeCrudFormSectionPolicyToken, encodeCurrentCrudFormSectionPolicyToken } from './policy-token'
 import { resourceIdSchema, symbolicIdSchema } from './protocol'
+import {
+  hasRequiredLeafValue,
+  prepareCrudFormRequiredLeaves,
+  readCrudFormRequiredLeaf,
+  type CrudFormRequiredLeafCoverage,
+} from './required-leaves'
 
 const logger = createLogger('shared:crud-form-sections')
 
 type HostAddress = Omit<CrudFormSectionAddress, 'sectionId'>
 type PayloadRecord = Record<string, unknown>
+type HiddenLeaf = Exclude<CrudFormRequiredLeafCoverage, { mode: 'section' }>
 type Scope = {
   tenantId: string
   organizationId: string | null
@@ -53,6 +60,7 @@ export type CrudFormSectionMutationIdentity = {
 }
 
 type AuthorizedRoute = CrudFormSectionMutationIdentity & {
+  targetOrganizationId: string | null
   customFieldDefinitions?: ReadonlyMap<string, ReadonlySet<string>>
 }
 
@@ -88,10 +96,12 @@ export type CrudFormSectionMutationFacadeOptions<Payload extends PayloadRecord, 
     params: RouteMatchParams
     query: URLSearchParams
   }): Promise<AuthorizedRoute | null>
+  prevalidateProjectedPayload?(payload: Readonly<PayloadRecord>, context: AuthorizedContext): Promise<void>
   preparePayload?(payload: PayloadRecord, context: AuthorizedContext): Promise<{
     payload: PayloadRecord
     serverPayloadPaths: readonly string[]
   }>
+  hiddenLeafErrorPath?(error: unknown, context: AuthorizedContext): string | undefined
   validateDomain(payload: Payload, context: AuthorizedContext): void | Promise<void>
   validateFields?(payload: Payload, context: AuthorizedContext): Promise<Record<string, string>>
   projectFinalInput(input: unknown, context: AuthorizedContext): (CrudFormSectionMutationIdentity & {
@@ -134,6 +144,31 @@ function rejectUnauthorized(): never {
   throw new CrudHttpError(404, { error: 'not_found' })
 }
 
+function freezeFacts<Value>(value: Value): Value {
+  if (value !== null && typeof value === 'object') {
+    for (const entry of Object.values(value)) freezeFacts(entry)
+    Object.freeze(value)
+  }
+  return value
+}
+
+function copyCustomFieldDefinitions(source: AuthorizedRoute['customFieldDefinitions']): AuthorizedRoute['customFieldDefinitions'] {
+  return source && new Map([...source].map(([id, paths]) => [id, new Set(paths)]))
+}
+
+function snapshotRoute(authorized: AuthorizedRoute): AuthorizedRoute {
+  const { hostResourceKind, hostResourceId } = authorized.host
+  const { resourceKind, resourceId } = authorized.target
+  return Object.freeze({
+    address: Object.freeze(policyDiagnosticAddress(authorized.address)),
+    targetOrganizationId: authorized.targetOrganizationId,
+    host: Object.freeze({ hostResourceKind, hostResourceId }),
+    target: Object.freeze({ resourceKind, resourceId }),
+    resourceBindingIds: Object.freeze([...authorized.resourceBindingIds]),
+    customFieldDefinitions: copyCustomFieldDefinitions(authorized.customFieldDefinitions),
+  })
+}
+
 function validResource(kind: string, id?: string): boolean {
   return symbolicIdSchema.safeParse(kind).success && (id === undefined || resourceIdSchema.safeParse(id).success)
 }
@@ -171,10 +206,11 @@ function checkPolicyIdentity<Payload extends PayloadRecord, Result>(
   options: CrudFormSectionMutationFacadeOptions<Payload, Result>,
   context: AuthorizedContext,
   fingerprint: string,
+  requestHeaders: Headers,
 ): CrudFormSectionMutationSurfaceFact {
   const { address, host, target, resourceBindingIds } = context.route
   const { policy } = context
-  const headers = parseCrudFormSectionPolicyHeaders(options.request.headers)
+  const headers = parseCrudFormSectionPolicyHeaders(requestHeaders)
   const token = headers && decodeCrudFormSectionPolicyToken(headers.policyToken)
   if (!headers || !token
       || headers.fingerprint !== fingerprint || !sameHost(headers, host)
@@ -200,12 +236,12 @@ function checkPolicyIdentity<Payload extends PayloadRecord, Result>(
 }
 
 function expectedVersion(
-  request: Request,
+  headers: Headers,
   surface: CrudFormSectionMutationSurfaceFact,
   address: HostAddress,
   operation: MutationGuardInput['operation'],
 ): string | null {
-  const value = request.headers.get(OPTIMISTIC_LOCK_HEADER_NAME)
+  const value = headers.get(OPTIMISTIC_LOCK_HEADER_NAME)
   if ((value === null && surface.optimisticLock === 'target-required') || (value !== null && operation === 'create')) {
     return rejectPolicy(address, 'target_version_mismatch')
   }
@@ -215,13 +251,31 @@ function expectedVersion(
   return normalized
 }
 
-function readPath(payload: PayloadRecord, path: string): unknown {
-  let current: unknown = payload
-  for (const segment of path.split('.')) {
-    if (!isRecord(current) || !Object.hasOwn(current, segment)) return undefined
-    current = current[segment]
-  }
-  return current
+function hiddenLeafError(address: HostAddress, leaf: HiddenLeaf): never {
+  logger.warn('CrudForm section hidden leaf is invalid', {
+    ...policyDiagnosticAddress(address), payloadPath: leaf.payloadPath, coverage: leaf.mode,
+  })
+  throw new CrudHttpError(422, {
+    error: 'crud_form_section_hidden_field_invalid',
+    code: 'crud_form_section_hidden_field_invalid',
+    fieldLabelKey: leaf.fieldLabelKey,
+  })
+}
+
+function validationErrorPaths(error: unknown): string[] {
+  if (error instanceof z.ZodError) return error.issues.map(({ path }) => path.join('.'))
+  if (!isCrudHttpError(error)) return []
+  const issues = error.body.details?.fieldErrors ?? error.body.fieldErrors
+  return isRecord(issues) ? Object.keys(issues) : []
+}
+
+function reportedHiddenLeaf(
+  leaves: readonly CrudFormRequiredLeafCoverage[],
+  paths: readonly string[],
+): HiddenLeaf | undefined {
+  return leaves.find((leaf): leaf is HiddenLeaf => leaf.mode !== 'section'
+    && paths.some((path) => path && (path === leaf.payloadPath
+      || path.startsWith(`${leaf.payloadPath}.`) || leaf.payloadPath.startsWith(`${path}.`))))
 }
 
 function payloadLeaves(value: PayloadRecord, prefix = ''): string[] {
@@ -274,7 +328,7 @@ function assertActivePayload(
     }
   }
   for (const [path, value] of serverValues ?? []) {
-    if (!isDeepStrictEqual(readPath(payload, path), value)) {
+    if (!isDeepStrictEqual(readCrudFormRequiredLeaf(payload, path), value)) {
       rejectPolicy(context.route.address, 'server_payload_leaf_changed')
     }
   }
@@ -305,41 +359,62 @@ async function readPayload(request: Request, maxBytes: number): Promise<PayloadR
 
 function reportCallbackFailure(reason: string, attributes: Record<string, string>): void {
   const error = new Error('[internal] CrudForm section mutation callback failed')
-  logger.error('CrudForm section mutation callback failed', { ...attributes, reason })
-  reportTelemetryError(error, {
-    module: 'shared',
-    code: 'crud_form_sections.guard_callback_failed',
-    attributes: { ...attributes, reason },
-  })
+  try {
+    logger.error('CrudForm section mutation callback failed', { ...attributes, reason })
+  } catch {}
+  try {
+    reportTelemetryError(error, {
+      module: 'shared',
+      code: 'crud_form_sections.guard_callback_failed',
+      attributes: { ...attributes, reason },
+    })
+  } catch {}
 }
 
 export async function runCrudFormSectionMutation<Payload extends PayloadRecord, Result>(
   options: CrudFormSectionMutationFacadeOptions<Payload, Result>,
 ): Promise<Result> {
-  const { request, container, auth, scope } = options
+  const { request, container, auth } = options
+  const requestHeaders = new Headers(request.headers)
+  const suppliedScope = options.scope
   if (!auth) throw new CrudHttpError(401, { error: 'unauthorized' })
-  if (!scope?.tenantId || scope.tenantId !== auth.tenantId || scope.allowedOrganizationIds?.length === 0) {
+  if (!suppliedScope?.tenantId || suppliedScope.tenantId !== auth.tenantId || suppliedScope.allowedOrganizationIds?.length === 0) {
     return rejectUnauthorized()
   }
+  const actorId = auth.sub
+  const requestedScope = Object.freeze({
+    tenantId: suppliedScope.tenantId,
+    organizationId: suppliedScope.organizationId,
+    allowedOrganizationIds: suppliedScope.allowedOrganizationIds ? Object.freeze([...suppliedScope.allowedOrganizationIds]) : null,
+  })
   const rbac = container.resolve<RbacService>('rbacService')
-  if (!await rbac.userHasAllFeatures(auth.sub, [...options.requiredFeatures], scope)) {
+  if (!await rbac.userHasAllFeatures(actorId, [...options.requiredFeatures], requestedScope)) {
     throw new CrudHttpError(403, { error: 'forbidden' })
   }
   const url = new URL(request.url)
   const params = matchRoutePattern(options.routePattern, url.pathname.replace(/^\/api(?=\/|$)/, ''))
   if (!params || request.method !== options.method) return rejectUnauthorized()
-  const route = await options.authorizeRoute({ auth, container, scope, params, query: url.searchParams })
-  if (!route || !validResource(route.host.hostResourceKind, route.host.hostResourceId)
-      || !validResource(route.target.resourceKind, route.target.resourceId)
-      || (route.address.formOperation === 'create') !== (route.host.hostResourceId === undefined)) {
+  const authorizedRoute = await options.authorizeRoute({ auth, container, scope: requestedScope, params, query: url.searchParams })
+  if (!authorizedRoute || !validResource(authorizedRoute.host.hostResourceKind, authorizedRoute.host.hostResourceId)
+      || !validResource(authorizedRoute.target.resourceKind, authorizedRoute.target.resourceId)
+      || (authorizedRoute.address.formOperation === 'create') !== (authorizedRoute.host.hostResourceId === undefined)) {
     return rejectUnauthorized()
   }
+  const route = snapshotRoute(authorizedRoute)
+  const { targetOrganizationId } = route
+  if (targetOrganizationId !== null && (!resourceIdSchema.safeParse(targetOrganizationId).success
+      || (requestedScope.allowedOrganizationIds && !requestedScope.allowedOrganizationIds.includes(targetOrganizationId)))) {
+    return rejectUnauthorized()
+  }
+  const scope = Object.freeze({ ...requestedScope, organizationId: targetOrganizationId })
   const manifest = getCrudFormSectionManifest()
+  const fingerprint = manifest.ledger.fingerprint
   const hostKey = crudFormSectionHostKey(route.address)
   const provider = manifest.providers.get(hostKey)
-  const policy = manifest.policies.get(hostKey)
+  const accepted = manifest.policies.get(hostKey)
   if (!provider || provider.hostResourceKind !== route.host.hostResourceKind) return rejectUnauthorized()
-  if (!await rbac.userHasAllFeatures(auth.sub, [...(policy?.requireFeatures ?? provider.requireFeatures)], scope)) {
+  if (!await rbac.userHasAllFeatures(actorId,
+    [...new Set([...options.requiredFeatures, ...(accepted?.requireFeatures ?? provider.requireFeatures)])], scope)) {
     throw new CrudHttpError(403, { error: 'forbidden' })
   }
   let host
@@ -352,9 +427,11 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
     return rejectUnauthorized()
   }
   if (!host || !sameHost(host, route.host)) return rejectUnauthorized()
-  if (!policy) return rejectPolicy(route.address, 'policy_unavailable')
-  const context = { auth, container, scope, route, policy }
-  const surface = checkPolicyIdentity(options, context, manifest.ledger.fingerprint)
+  if (!accepted) return rejectPolicy(route.address, 'policy_unavailable')
+  const policy = freezeFacts(structuredClone(accepted))
+  const context = Object.freeze({ auth, container, scope, route, policy })
+  const callbackContext = Object.freeze({ ...context, route: snapshotRoute(route) })
+  const surface = checkPolicyIdentity(options, context, fingerprint, requestHeaders)
   const initial = await readPayload(request, options.maxBodyBytes)
   assertActivePayload(initial, context)
   if (surface.kind === 'parent-submit' && !policy.surface.ownershipFacts.some(({ payloadPaths, customFieldOwnership }) =>
@@ -363,27 +440,9 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
   ) && !policy.capabilities.some(({ fact }) => fact.allowNoopSubmit)) {
     return rejectPolicy(route.address, 'parent_submit_not_writable')
   }
-  const prepared = await options.preparePayload?.(structuredClone(initial), context) ?? { payload: initial, serverPayloadPaths: [] }
-  const serverValues = new Map(prepared.serverPayloadPaths.map((path) => [path, structuredClone(readPath(prepared.payload, path))]))
-  const serverLeaves = new Set(policy.capabilities.flatMap(({ fact }) => fact.requiredLeaves)
-    .filter(({ coverage }) => coverage.includes('server-default') || coverage.includes('preserve-from-record'))
-    .map(({ payloadPath }) => payloadPath))
-  if ([...serverValues.entries()].some(([path, value]) => !serverLeaves.has(path) || value === undefined
-    || readPath(initial, path) !== undefined)) return rejectPolicy(route.address, 'server_payload_declaration_mismatch')
-
-  async function validate(value: PayloadRecord, validationContext: AuthorizedContext = context): Promise<Payload> {
-    assertActivePayload(value, context, serverValues)
-    const parsed = await options.bodySchema.safeParseAsync(value)
-    if (!parsed.success) throw new CrudHttpError(400, { error: 'invalid_request' })
-    assertActivePayload(parsed.data, context, serverValues)
-    await options.validateDomain(parsed.data, validationContext)
-    const fieldErrors = await options.validateFields?.(parsed.data, validationContext)
-    if (fieldErrors && Object.keys(fieldErrors).length) throw guardRejection({ fieldErrors })
-    return parsed.data
-  }
-
-  let payload = await validate(prepared.payload)
-  const userFeatures = await rbac.getGrantedFeatures(auth.sub, scope)
+  const requiredLeaves = policy.requiredLeaves.filter((leaf) => leaf.mutationSurfaceId === surface.id)
+  await options.prevalidateProjectedPayload?.(structuredClone(initial), callbackContext)
+  const userFeatures = await rbac.getGrantedFeatures(actorId, scope)
   const guards = [...getAllMutationGuardInstances()]
   const legacyGuard = bridgeLegacyGuard(container)
   if (legacyGuard) {
@@ -410,62 +469,114 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
       },
     })
   }
-  const guardInput: MutationGuardInput = {
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    userId: auth.sub,
-    resourceKind: route.target.resourceKind,
-    resourceId: route.target.resourceId ?? null,
-    operation: options.operation,
-    requestMethod: request.method,
-    requestHeaders: request.headers,
-    mutationPayload: payload,
-  }
-  const beforeGuardPayload = structuredClone(payload)
-  const guardResult = await runMutationGuards(guards, guardInput, { userFeatures })
-  if (!guardResult.ok) {
-    logger.warn('CrudForm section mutation guard rejected', { ...policyDiagnosticAddress(route.address), status: guardResult.errorStatus })
-    throw guardRejection(guardResult.errorBody ?? {})
-  }
-  if (guardResult.modifiedPayload || !isDeepStrictEqual(beforeGuardPayload, payload)) {
-    payload = await validate(guardResult.modifiedPayload ?? payload)
-  }
-  await options.beforeExecute?.(payload, context)
-  const expectedUpdatedAt = expectedVersion(request, surface, route.address, options.operation)
-
   const em = container.resolve<EntityManager>('em').fork()
-  let committed: { value: Result } | undefined
-  await withAtomicFlush(em, [async () => {
-    const transactionLifetime = getTransactionLifetime(em)
-    if (!transactionLifetime) throw new Error('[internal] CrudForm section mutation requires an owned transaction')
-    let verified = false
-    const executionContext = { ...context, transactionalEm: em }
-    const beforeTransactionalWrite: MutableCommandContext['beforeTransactionalWrite'] = async (transactionalEm, input) => {
-      verified = false
-      if (transactionalEm !== em || !em.isInTransaction() || input === undefined) {
-        return rejectPolicy(route.address, 'transactional_input_unavailable')
+  const executionContext = Object.freeze({ ...callbackContext, transactionalEm: em })
+  let committed: {
+    value: Result
+    callbacks: Awaited<ReturnType<typeof runMutationGuards>>['afterSuccessCallbacks']
+    guardInput: MutationGuardInput
+  } | undefined
+  try {
+    await withAtomicFlush(em, [async () => {
+      const transactionLifetime = getTransactionLifetime(em)
+      if (!transactionLifetime) throw new Error('[internal] CrudForm section mutation requires an owned transaction')
+      const needsLockedRecord = route.address.formOperation === 'update'
+        && requiredLeaves.some(({ mode }) => mode !== 'section')
+      const lockedRecord = needsLockedRecord
+        ? await provider.readLockedRecord?.({ auth, container, scope, host: route.host, surface, transactionalEm: em })
+        : null
+      if (needsLockedRecord && !lockedRecord) return rejectUnauthorized()
+      const prepared = await prepareCrudFormRequiredLeaves({
+        payload: initial, leaves: requiredLeaves, lockedRecord: lockedRecord ?? null, scope,
+        transactionalEm: em, providers: manifest.leafDefaultProviders,
+      })
+      if (!prepared.ok) return hiddenLeafError(route.address, prepared.leaf)
+      const { serverValues } = prepared
+      const additional = await options.preparePayload?.(structuredClone(prepared.payload), executionContext)
+      if (additional?.serverPayloadPaths.some((path) => !serverValues.has(path))) {
+        return rejectPolicy(route.address, 'server_payload_declaration_mismatch')
       }
-      await options.beforeTransactionalWrite?.(transactionalEm, input)
-      if (getCrudFormSectionManifest().ledger.fingerprint !== manifest.ledger.fingerprint) {
-        return rejectPolicy(route.address, 'transactional_manifest_mismatch')
+
+      async function validate(value: PayloadRecord): Promise<Payload> {
+        assertActivePayload(value, context, serverValues)
+        const parsed = await options.bodySchema.safeParseAsync(value)
+        if (!parsed.success) {
+          const hidden = reportedHiddenLeaf(requiredLeaves, validationErrorPaths(parsed.error))
+          if (hidden) return hiddenLeafError(executionContext.route.address, hidden)
+          throw new CrudHttpError(400, { error: 'invalid_request' })
+        }
+        const changedHiddenLeaf = requiredLeaves.find((leaf): leaf is HiddenLeaf => leaf.mode !== 'section'
+          && !isDeepStrictEqual(readCrudFormRequiredLeaf(parsed.data, leaf.payloadPath), serverValues.get(leaf.payloadPath)))
+        if (changedHiddenLeaf) return hiddenLeafError(executionContext.route.address, changedHiddenLeaf)
+        assertActivePayload(parsed.data, context, serverValues)
+        if (requiredLeaves.some(({ mode, payloadPath }) => mode === 'section'
+            && !hasRequiredLeafValue(readCrudFormRequiredLeaf(parsed.data, payloadPath)))) {
+          throw new CrudHttpError(400, { error: 'invalid_request' })
+        }
+        await options.validateDomain(parsed.data, executionContext)
+        const fieldErrors = await options.validateFields?.(parsed.data, executionContext)
+        if (fieldErrors && Object.keys(fieldErrors).length) throw guardRejection({ fieldErrors })
+        return parsed.data
       }
-      const projected = options.projectFinalInput(input, executionContext)
-      if (!projected || !sameIdentity(route, projected)) return rejectPolicy(route.address, 'final_resource_binding_mismatch')
-      const normalized = await validate(projected.payload, executionContext)
-      if (!isDeepStrictEqual(normalized, projected.payload)) return rejectPolicy(route.address, 'final_payload_not_normalized')
-      verified = true
-    }
-    const value = await options.execute({
-      payload, context: executionContext, expectedUpdatedAt,
-      commandContext: { transactionalEm: em, transactionLifetime, beforeTransactionalWrite },
-    })
-    if (!verified || !em.isInTransaction()) return rejectPolicy(route.address, 'transactional_input_unverified')
-    committed = { value }
-  }], { transaction: true, label: 'crud-form-section-mutation' })
+
+      let payload = await validate(additional?.payload ?? prepared.payload)
+      const guardInput: MutationGuardInput = {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        userId: actorId,
+        resourceKind: route.target.resourceKind,
+        resourceId: route.target.resourceId ?? null,
+        operation: options.operation,
+        requestMethod: request.method,
+        requestHeaders: new Headers(requestHeaders),
+        mutationPayload: payload,
+      }
+      const beforeGuardPayload = structuredClone(payload)
+      const guardResult = await runMutationGuards(guards, guardInput, { userFeatures })
+      if (!guardResult.ok) {
+        logger.warn('CrudForm section mutation guard rejected', { ...policyDiagnosticAddress(route.address), status: guardResult.errorStatus })
+        throw guardRejection(guardResult.errorBody ?? {})
+      }
+      if (guardResult.modifiedPayload || !isDeepStrictEqual(beforeGuardPayload, payload)) {
+        payload = await validate(guardResult.modifiedPayload ?? payload)
+      }
+      await options.beforeExecute?.(payload, executionContext)
+      const expectedUpdatedAt = expectedVersion(requestHeaders, surface, route.address, options.operation)
+
+      let verified = false
+      const beforeTransactionalWrite: MutableCommandContext['beforeTransactionalWrite'] = async (transactionalEm, input) => {
+        verified = false
+        if (transactionalEm !== em || !ownsTransactionLifetime(em, transactionLifetime) || !em.isInTransaction() || input === undefined) {
+          return rejectPolicy(route.address, 'transactional_input_unavailable')
+        }
+        await options.beforeTransactionalWrite?.(transactionalEm, input)
+        if (getCrudFormSectionManifest().ledger.fingerprint !== fingerprint) {
+          return rejectPolicy(route.address, 'transactional_manifest_mismatch')
+        }
+        const projected = options.projectFinalInput(input, executionContext)
+        if (!projected || !sameIdentity(route, projected)) return rejectPolicy(route.address, 'final_resource_binding_mismatch')
+        const normalized = await validate(projected.payload)
+        if (!isDeepStrictEqual(normalized, projected.payload)) return rejectPolicy(route.address, 'final_payload_not_normalized')
+        verified = true
+      }
+      const value = await options.execute({
+        payload, context: executionContext, expectedUpdatedAt,
+        commandContext: { transactionalEm: em, transactionLifetime, beforeTransactionalWrite },
+      })
+      if (!verified || !ownsTransactionLifetime(em, transactionLifetime) || !em.isInTransaction()) return rejectPolicy(route.address, 'transactional_input_unverified')
+      committed = { value, callbacks: guardResult.afterSuccessCallbacks, guardInput }
+    }], { transaction: true, label: 'crud-form-section-mutation' })
+  } catch (error) {
+    if (isCrudHttpError(error) && error.body.code === 'crud_form_section_hidden_field_invalid') throw error
+    const reportedPath = options.hiddenLeafErrorPath?.(error, executionContext)
+    const hidden = reportedHiddenLeaf(requiredLeaves, [...validationErrorPaths(error), ...(reportedPath ? [reportedPath] : [])])
+    if (hidden) return hiddenLeafError(route.address, hidden)
+    throw error
+  }
   if (!committed) throw new Error('[internal] CrudForm section mutation completed without a result')
 
   let resourceId = route.target.resourceId
-  if (options.operation === 'create' && guardResult.afterSuccessCallbacks.length) {
+  if (options.operation === 'create' && committed.callbacks.length) {
     try {
       const created = resourceIdSchema.safeParse(options.resolveCommittedResourceId(committed.value))
       resourceId = created.success ? created.data : undefined
@@ -475,10 +586,10 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
     if (!resourceId) reportCallbackFailure('committed_resource_id_unavailable', policyDiagnosticAddress(route.address))
   }
   if (resourceId) {
-    const { mutationPayload: _validatedPayload, ...callbackInput } = guardInput
-    for (const { guard, metadata } of guardResult.afterSuccessCallbacks) {
+    const { mutationPayload: _validatedPayload, ...callbackInput } = committed.guardInput
+    for (const { guard, metadata } of committed.callbacks) {
       try {
-        await guard.afterSuccess?.({ ...callbackInput, resourceId, metadata })
+        await guard.afterSuccess?.({ ...callbackInput, requestHeaders: new Headers(requestHeaders), resourceId, metadata })
       } catch {
         reportCallbackFailure('after_success_failed', { ...policyDiagnosticAddress(route.address), guardId: guard.id })
       }

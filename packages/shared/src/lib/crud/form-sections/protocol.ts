@@ -117,3 +117,9 @@ export const crudFormSectionMutationGuardRejectedResponseSchema = z.object({
   code: z.literal('mutation_guard_rejected'),
   details: z.unknown().optional(),
 }).strict()
+
+export const crudFormSectionHiddenFieldInvalidResponseSchema = z.object({
+  error: z.literal('crud_form_section_hidden_field_invalid'),
+  code: z.literal('crud_form_section_hidden_field_invalid'),
+  fieldLabelKey: z.string(),
+}).strict()

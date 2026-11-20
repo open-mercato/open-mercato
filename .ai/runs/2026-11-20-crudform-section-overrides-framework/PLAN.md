@@ -17,7 +17,7 @@ Status: in-progress
 | 2 | 2.1 | Match final server capabilities by canonical facts | dispatch | done | this commit |
 | 2 | 2.2 | Build the accepted manifest, host ledger and authenticated resolver | dispatch | done | this commit |
 | 2 | 2.3 | Bind guarded mutation requests to reauthorized providers and resources | dispatch | done | this commit |
-| 2 | 2.4 | Enforce required leaves and scoped default providers | dispatch | todo | — |
+| 2 | 2.4 | Enforce required leaves and scoped default providers | dispatch | done | this commit |
 | 2 | 2.5 | Compose ambient command lifecycle with the final-input transaction boundary | group:A | todo | — |
 | 2 | 2.6 | Add transactional sink discovery, lifecycles and read-back | group:A | todo | — |
 | 2 | 2.7 | Derive section hosts for qualifying CRUD routes | dispatch | todo | — |

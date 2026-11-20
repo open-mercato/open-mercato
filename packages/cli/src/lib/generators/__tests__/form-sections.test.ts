@@ -150,6 +150,27 @@ describe('CrudForm section registry generation', () => {
     expect(generated('runtime')).not.toContain('/form-sections"')
   })
 
+  it('discovers a server-only leaf default without a browser descriptor or loader', async () => {
+    const onlyDefaults = `
+      import { defineCrudFormSections } from '@open-mercato/shared/modules/form-sections'
+      export const crudFormSections = defineCrudFormSections({
+        leafDefaultProviders: [{
+          fact: { id: 'example.code-default', roundTripId: 'example.code-default@v1',
+            hostId: 'example.todo', formVariant: 'default', formOperation: 'create', payloadPath: 'code', readsPayloadPaths: [] },
+          resolve() { return 'server-default-value' },
+        }],
+      })
+    `
+    write('app/src/modules/example/form-sections.ts', onlyDefaults)
+    await generateModuleRegistryApp({ resolver: resolver([{ id: 'example', from: '@app' }]), quiet: true })
+    expect(generated('facts')).toContain('{ moduleId: "example", sections: sections0 }')
+    expect(generated('runtime')).not.toMatch(/code-default|server-default-value|\/form-sections"/)
+    write('app/src/modules/other/form-sections.ts', onlyDefaults)
+    await expect(generateModuleRegistryApp({
+      resolver: resolver([{ id: 'example', from: '@app' }, { id: 'other', from: '@app' }]), quiet: true,
+    })).rejects.toThrow(/Duplicate leaf default provider id/)
+  })
+
   it('reads standalone npm dist .js declarations and runtime exports without a source mirror', async () => {
     const base = 'package/dist/modules/installed'
     write(`${base}/form-sections.js`, declaration('installed.notes')

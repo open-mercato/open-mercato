@@ -53,6 +53,7 @@ beforeEach(() => {
   authorizeHost.mockResolvedValue({ hostResourceKind: 'example.todo', hostResourceId: 'todo-1' })
   jest.mocked(getCrudFormSectionManifest).mockReturnValue({
     ledger: { hosts: [address], fingerprint: 'b'.repeat(64) },
+    leafDefaultProviders: new Map(),
     providers: new Map([[key, {
       hostDescriptorId: 'example.host',
       hostResourceKind: 'example.todo',
@@ -71,6 +72,7 @@ beforeEach(() => {
       requireFeatures: ['example.manage'],
       mutationSurfaces: [],
       mutationProviders: [],
+      requiredLeaves: [],
       roundTripIds: payload.clientRoundTripIds,
       clientFingerprint: payload.clientManifestFingerprint,
     }]]),
