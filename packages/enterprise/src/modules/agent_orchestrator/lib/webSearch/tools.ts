@@ -10,6 +10,7 @@ import {
 import { applyAnswerDomainPolicy, hostnameOf, isHostAllowed, resolveWebSearchSettings } from './policy'
 import { buildWebSearchEngine } from './registry'
 import { createStepEmitter } from './steps'
+import { resolveActiveAgentId } from '../runtime/activeAgent'
 
 export const WEB_SEARCH_TOOL_ID = 'agent_orchestrator.web_search'
 export const WEB_FETCH_TOOL_ID = 'agent_orchestrator.web_fetch'
@@ -102,15 +103,7 @@ async function disposeQuietly(engine: { dispose(): Promise<void> }): Promise<voi
 }
 
 async function resolveAgentId(ctx: McpToolContext): Promise<string | null> {
-  if (!ctx.sessionId) return null
-  try {
-    const store = ctx.container.resolve('agentRunSessionStore') as {
-      resolveActiveAgentId(token: string): Promise<string | null>
-    }
-    return await store.resolveActiveAgentId(ctx.sessionId)
-  } catch {
-    return null
-  }
+  return resolveActiveAgentId(ctx.container, ctx.sessionId)
 }
 
 /**

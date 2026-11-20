@@ -11,7 +11,9 @@
  * PDF total never finds a discrepancy.
  */
 
-import { formatReportMinutes, resolveEntryValues, sumAmounts } from './reportTotals'
+import { decimalToNumber } from '@open-mercato/shared/lib/decimal'
+import { DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES } from '../time-tracking/cost'
+import { formatReportMinutes, resolveEntryValues, sumResolvedAmounts } from './reportTotals'
 import type { ReportDirectory, ReportInputEntry, ReportInputProject } from './reportTotals'
 
 export type ReportRow = {
@@ -27,7 +29,9 @@ export type ReportRow = {
   hours: string
   isBillable: boolean
   rate: number | null
+  rateExact?: string | null
   amount: number | null
+  amountExact?: string | null
   hasOverride: boolean
   isFrozen: boolean
 }
@@ -37,13 +41,15 @@ export type BuildReportRowsInput = {
   projects: readonly ReportInputProject[]
   directory: ReportDirectory
   labels: { unassignedTask: string; unassignedPerson: string }
+  /** Decimals amounts round to (the report currency's); defaults to 2. */
+  amountDecimalPlaces?: number
 }
 
 export function buildReportRows(input: BuildReportRowsInput): ReportRow[] {
   const projectById = new Map(input.projects.map((project) => [project.id, project]))
   const rows = input.entries.map((entry) => {
     const project = projectById.get(entry.timeProjectId) ?? null
-    const values = resolveEntryValues(entry, project)
+    const values = resolveEntryValues(entry, project, input.amountDecimalPlaces)
     const taskId = entry.taskId ?? null
     return {
       entryId: entry.id,
@@ -60,7 +66,9 @@ export function buildReportRows(input: BuildReportRowsInput): ReportRow[] {
       hours: formatReportMinutes(values.minutes),
       isBillable: values.isBillable,
       rate: values.rate,
+      rateExact: values.rateExact,
       amount: values.amount,
+      amountExact: values.amountExact,
       hasOverride: values.hasOverride,
       isFrozen: values.isFrozen,
     } satisfies ReportRow
@@ -76,12 +84,27 @@ export function buildReportRows(input: BuildReportRowsInput): ReportRow[] {
 }
 
 /**
- * The rows' amounts add up to the report's grand total by construction — same
- * per-entry values, summed in integer cents. Exposed so the export and the
- * screen can assert it rather than assume it.
+ * The rows' amounts summed the way the grand total is (`sumResolvedAmounts`):
+ * live amounts at the currency decimals, frozen amounts exactly as billed. Built
+ * from the same rows and decimals, it equals `totalAmountExact`, so the export
+ * and the screen can assert that rather than assume it.
  */
-export function sumReportRowAmounts(rows: readonly ReportRow[]): number {
-  return sumAmounts(rows.map((row) => row.amount))
+export function sumReportRowAmountsExact(
+  rows: readonly ReportRow[],
+  amountDecimalPlaces: number = DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES,
+): string {
+  const values = rows.map((row) => ({
+    isFrozen: row.isFrozen,
+    amountExact: row.amountExact ?? (row.amount === null ? null : String(row.amount)),
+  }))
+  return sumResolvedAmounts(values, amountDecimalPlaces)
+}
+
+export function sumReportRowAmounts(
+  rows: readonly ReportRow[],
+  amountDecimalPlaces: number = DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES,
+): number {
+  return decimalToNumber(sumReportRowAmountsExact(rows, amountDecimalPlaces))
 }
 
 export function sumReportRowMinutes(rows: readonly ReportRow[], billable: boolean): number {

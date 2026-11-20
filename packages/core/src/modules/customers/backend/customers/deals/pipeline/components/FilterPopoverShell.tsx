@@ -6,6 +6,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { cn } from '@open-mercato/shared/lib/utils'
 
 type FilterPopoverShellProps = {
   /** Title rendered in the header (e.g. "Filter · Status", "Sort by") */
@@ -51,8 +52,11 @@ export function FilterPopoverShell({
 }: FilterPopoverShellProps): React.ReactElement {
   const t = useT()
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl bg-card">
-      <div className="flex items-center justify-between border-b border-border bg-card px-5 py-4">
+    <div
+      className="flex flex-col overflow-hidden rounded-2xl bg-card"
+      style={{ maxHeight: 'var(--radix-popover-content-available-height)' }}
+    >
+      <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-5 py-4">
         <div className="flex items-center gap-2">
           {leadingIcon ? (
             <span className="flex size-4 items-center justify-center text-muted-foreground" aria-hidden="true">
@@ -72,9 +76,9 @@ export function FilterPopoverShell({
         </IconButton>
       </div>
 
-      <div className={bodyClassName ?? 'flex flex-col gap-4 bg-card px-5 py-4'}>{children}</div>
+      <div className={cn('min-h-0 overflow-y-auto', bodyClassName ?? 'flex flex-col gap-4 bg-card px-5 py-4')}>{children}</div>
 
-      <div className="flex items-center justify-between border-t border-border bg-muted px-5 py-3.5">
+      <div className="flex shrink-0 items-center justify-between border-t border-border bg-muted px-5 py-3.5">
         <div className="text-xs leading-normal text-muted-foreground">{footerLeft ?? null}</div>
         <div className="flex items-center gap-6">
           <Button

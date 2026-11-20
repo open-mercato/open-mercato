@@ -117,7 +117,7 @@ export default function MfaProviderMethodsPage({ params }: MfaProviderMethodsPag
         mode="detail"
         backHref="/backend/profile/security/mfa"
         backLabel={t('security.profile.mfa.backToList', 'Back to MFA settings')}
-        title={provider.label}
+        title={providerType === 'totp' ? t('security.profile.mfa.providers.totp.title', provider.label) : provider.label}
         subtitle={t('security.profile.mfa.methods.description', 'Manage your MFA methods for this provider.')}
       />
       <PageBody>
