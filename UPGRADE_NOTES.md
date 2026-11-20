@@ -5949,3 +5949,11 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+# CRUD sort-map boundary (#3827)
+
+When a CRUD route supplies `list.sortFieldMap`, ordinary requested sort fields
+outside its own keys now fall back to the route's default order. Clients should
+use a mapped alias; module authors should add an alias for each intended sortable
+ordinary column. Dynamic `cf_`/`cf:` sorts and routes without maps are unchanged.
+Operators do not need a database migration or startup/configuration change.

@@ -586,6 +586,30 @@ describe('CRUD Factory', () => {
     } as any,
   })
 
+  it.each(['secret_column', 'toString', 'constructor', '__proto__'])(
+    'GET ignores unmapped ordinary sort field %s when a map is configured',
+    async (sortField) => {
+      const response = await makeSortedRoute({ defaultSort: { field: 'lineNumber', dir: 'asc' } }).GET(
+        new Request(`http://x/api/example/todos?sortField=${sortField}&sortDir=desc`),
+      )
+
+      expect(response.status).toBe(200)
+      expect(queryEngine.query.mock.calls.at(-1)?.[1]?.sort).toEqual([
+        { field: 'line_number', dir: 'asc' },
+      ])
+    },
+  )
+
+  it('GET preserves raw ordinary sort fields when no map is configured', async () => {
+    await makeSortedRoute({ sortFieldMap: undefined }).GET(
+      new Request('http://x/api/example/todos?sortField=created_at&sortDir=desc'),
+    )
+
+    expect(queryEngine.query.mock.calls.at(-1)?.[1]?.sort).toEqual([
+      { field: 'created_at', dir: 'desc' },
+    ])
+  })
+
   it('GET forwards list.decryptEncryptedFields=false to the query engine (#5430)', async () => {
     await makeSortedRoute({ decryptEncryptedFields: false }).GET(
       new Request('http://x/api/example/todos?page=1&pageSize=10'),
