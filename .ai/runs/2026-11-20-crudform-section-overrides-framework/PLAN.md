@@ -26,7 +26,7 @@ Status: in-progress
 | 2 | 2.7-review-fix | Preserve original CRUD lifecycle and generated route authority | inline | done | this commit |
 | 2 | 2.8 | Deliver outbox revisions with monotonic fencing and retry | dispatch | done | this commit |
 | 2 | 2.8-review-fix | Pin durable outbox contracts and recover terminal reporting | inline | done | this commit |
-| 3 | 3.1 | Introduce optional explicit CrudForm identity and composition props | dispatch | todo | — |
+| 3 | 3.1 | Introduce optional explicit CrudForm identity and composition props | dispatch | done | this commit |
 | 3 | 3.2 | Resolve policies and block mutations until the host is ready | dispatch | todo | — |
 | 3 | 3.3 | Validate and project section fields and payload leaves | dispatch | todo | — |
 | 3 | 3.4 | Bind submit, delete and action clients to their own resource versions | dispatch | todo | — |

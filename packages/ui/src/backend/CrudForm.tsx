@@ -104,6 +104,10 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { mergeInjectionEventParticipants } from './injection/injectionEventParticipants'
 import { useRegisteredComponent } from './injection/useRegisteredComponent'
+import type { CrudFormSectionIdentityProps } from './injection/crud-form-section-identity'
+import type {
+  CrudFormSectionCompositionValidator, CrudFormSectionRuntime, CrudFormSectionValues,
+} from './injection/crud-form-section-runtime'
 import { isResponseEnricherNamespace } from '@open-mercato/shared/lib/crud/response-enricher-namespaces'
 import { CollapsibleGroup, type CollapsibleGroupHandle } from './crud/CollapsibleGroup'
 import { SortableGroupHandleProvider, type SortableGroupHandleProps } from './crud/SortableGroupHandle'
@@ -310,7 +314,7 @@ export type CrudCustomField = CrudFieldBase & {
 
 export type CrudField = CrudBuiltinField | CrudCustomField
 
-type CrudFormValues<TValues extends Record<string, unknown>> = Partial<TValues> & Record<string, unknown>
+type CrudFormValues<TValues extends Record<string, unknown>> = CrudFormSectionValues<TValues>
 
 export type CrudFormSubmitResult = {
   resourceId?: string
@@ -325,7 +329,10 @@ export type CrudFormSubmitContext = {
   }
 }
 
-export type CrudFormProps<TValues extends Record<string, unknown>> = {
+export type CrudFormProps<
+  TValues extends Record<string, unknown>,
+  TSectionPayload extends Record<string, unknown> = Record<string, unknown>,
+> = CrudFormSectionIdentityProps & {
   schema?: z.ZodType<TValues>
   fields: CrudField[]
   initialValues?: Partial<TValues>
@@ -392,7 +399,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   entityId?: string
   entityIds?: string[]
   resourceKind?: string
-  resourceId?: string
+  sectionDescriptors?: readonly CrudFormSectionRuntime<CrudFormValues<TValues>, TSectionPayload>[]
+  compositionValidator?: CrudFormSectionCompositionValidator<CrudFormValues<TValues>, TSectionPayload>
   injectionGroupAliases?: Readonly<Record<string, string>>
   // Optional grouped layout rendered in two responsive columns (1 on mobile).
   groups?: CrudFormGroup[]
@@ -804,21 +812,25 @@ function SortableGroupItem({ id, children, disabled }: { id: string; children: R
   )
 }
 
-const CrudFormFallback = CrudFormImpl as React.ComponentType<CrudFormProps<Record<string, unknown>>>
-
-export function CrudForm<TValues extends Record<string, unknown>>(props: CrudFormProps<TValues>) {
+export function CrudForm<
+  TValues extends Record<string, unknown>,
+  TSectionPayload extends Record<string, unknown> = Record<string, unknown>,
+>(props: CrudFormProps<TValues, TSectionPayload>) {
   const entityKey = buildResolvedEntityIdsKey(props.entityId, props.entityIds)
   const primaryEntityId = entityKey.split('\0')[0]
   const [handle] = React.useState(() => props.replacementHandle
     ?? ComponentReplacementHandles.crudForm(primaryEntityId ? primaryEntityId.replace(/[:]+/g, '.') : 'unknown'))
-  const Resolved = useRegisteredComponent<CrudFormProps<TValues>>(
+  const Resolved = useRegisteredComponent<CrudFormProps<TValues, TSectionPayload>>(
     handle,
-    CrudFormFallback as unknown as React.ComponentType<CrudFormProps<TValues>>,
+    CrudFormImpl<TValues, TSectionPayload>,
   )
   return <Resolved {...props} />
 }
 
-function CrudFormImpl<TValues extends Record<string, unknown>>({
+function CrudFormImpl<
+  TValues extends Record<string, unknown>,
+  TSectionPayload extends Record<string, unknown>,
+>({
   schema,
   fields,
   initialValues,
@@ -869,7 +881,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   collapsibleGroups,
   sortableGroups,
   shouldBypassUnsavedChangesGuard,
-}: CrudFormProps<TValues>) {
+}: CrudFormProps<TValues, TSectionPayload>) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
