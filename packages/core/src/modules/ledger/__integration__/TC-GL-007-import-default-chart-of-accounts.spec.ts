@@ -27,7 +27,8 @@ import { deleteGeneralEntityIfExists, readJsonSafe } from '@open-mercato/core/he
  * TC-GL-007: `POST /api/ledger/accounts/import-default-chart-of-accounts` —
  * 200 (happy path on a Directory-created organization, which also provisions
  * the PL groups, OQ-R1), 409 (non-empty and types-only chart, R3), 403
- * (missing `ledger.accounts.manage`), the undo-versus-post lock (OQ-R2) — plus the button's UI path (hidden for
+ * (missing `ledger.accounts.manage`), 422 with "All organizations" selected,
+ * the undo-versus-post lock (OQ-R2) — plus the button's UI path (hidden for
  * view-only and for a types-only chart, table refresh on success, not offered
  * once the chart has accounts) and search over the imported accounts (PR
  * #6439 review). Numbered 007: TC-GL-006 is the posting lock protocol spec.
@@ -374,6 +375,39 @@ test.describe('TC-GL-007: import-default-chart-of-accounts 200/409/403, groups p
       }
       await deleteOrganizationIfExists(request, token, organizationId);
       await deleteGeneralEntityIfExists(request, token, '/api/directory/tenants', tenantId);
+    }
+  });
+
+  test('422 with "All organizations" selected: nothing is imported into any organization', async ({ request }) => {
+    const superadminToken = await getAuthToken(request, 'superadmin');
+    const stamp = randomUUID();
+    let tenantId: string | null = null;
+    let organizationId: string | null = null;
+    try {
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-007h Tenant ${stamp}`);
+      organizationId = await createOrganizationFixture(request, superadminToken, {
+        name: `QA TC-GL-007h Organization ${stamp}`,
+        tenantId,
+      });
+      const allOrganizationsHeaders = {
+        Cookie: `om_selected_tenant=${encodeURIComponent(tenantId)}; om_selected_org=__all__`,
+      };
+
+      const res = await apiRequest(request, 'POST', IMPORT_PATH, { token: superadminToken, headers: allOrganizationsHeaders });
+      expect(res.status(), 'import without a single selected organization should return 422').toBe(422);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/select a single organization/i);
+
+      // The organization of this tenant stayed empty.
+      const accounts = await apiRequest(request, 'GET', '/api/ledger/accounts?pageSize=1', {
+        token: superadminToken,
+        headers: scopedHeaders({ tenantId, organizationId }),
+      });
+      const accountsBody = (await accounts.json()) as { total: number };
+      expect(accountsBody.total).toBe(0);
+    } finally {
+      await deleteOrganizationIfExists(request, superadminToken, organizationId);
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
     }
   });
 

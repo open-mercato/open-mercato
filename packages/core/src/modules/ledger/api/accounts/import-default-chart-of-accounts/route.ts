@@ -66,12 +66,35 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: translate('ledger.errors.unauthorized', 'Unauthorized') }, { status: 401 })
     }
 
+    // The import writes a whole chart into exactly one organization, so it
+    // needs an explicit, valid selection. Unlike this module's other routes it
+    // does not fall back to the caller's home `auth.orgId`: with "All
+    // organizations" selected (or a super admin with no selection)
+    // `selectedId` is null, and importing into the home organization would
+    // write somewhere the user did not choose. Same refusal shape as
+    // `catalog/api/products/bulk-create`.
     const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
+    if (organizationScope.selectionRejected) {
+      return NextResponse.json(
+        {
+          error: translate(
+            'ledger.errors.importOrganizationSelectionUnavailable',
+            'Your selected organization is no longer available. Select an organization and try again.',
+          ),
+        },
+        { status: 422 },
+      )
+    }
+    const organizationId = organizationScope.selectedId ?? null
     if (!organizationId) {
       return NextResponse.json(
-        { error: translate('ledger.errors.organizationRequired', 'Organization context is required') },
-        { status: 400 },
+        {
+          error: translate(
+            'ledger.errors.importRequiresSingleOrganization',
+            'Select a single organization before importing the default chart of accounts.',
+          ),
+        },
+        { status: 422 },
       )
     }
     const tenantId = auth.tenantId
@@ -94,7 +117,7 @@ export async function POST(req: Request) {
       auth,
       organizationScope,
       selectedOrganizationId: organizationId,
-      organizationIds: organizationScope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
+      organizationIds: organizationScope.filterIds ?? [organizationId],
       request: req,
     }
 
@@ -148,7 +171,7 @@ export const openApi: OpenApiRouteDoc = {
         'Bulk-creates the hardcoded Phase 1 "wzorcowy plan kont" template (see `lib/defaultChartOfAccounts.ts` for its exact contents) as ordinary, editable LedgerAccountType/LedgerAccount rows in one transaction, provisioning any missing Polish account groups (zespoły 0-8) first. Refuses to run against a non-empty chart of accounts. Requires ledger.accounts.manage. See 2026-09-15-default-chart-of-accounts.md.',
       responses: [{ status: 200, description: 'Template imported', schema: importResponseSchema }],
       errors: [
-        { status: 400, description: 'Missing organization context' },
+        { status: 422, description: 'No single organization selected ("All organizations"), or the selected organization is no longer available' },
         { status: 401, description: 'Unauthorized' },
         { status: 403, description: 'Missing ledger.accounts.manage' },
         { status: 409, description: 'Chart of accounts already has account types and/or accounts, or a concurrent import won the race' },

@@ -117,6 +117,8 @@
   "ledger.errors.fiscalPeriodOverlap": "이 날짜 범위는 이 조직의 기존 회계기간과 겹칩니다.",
   "ledger.errors.fiscalPeriodStartNotFirstOfMonth": "시작일은 해당 월의 1일이어야 합니다.",
   "ledger.errors.fiscalPeriodStartRequired": "시작일은 필수입니다.",
+  "ledger.errors.importOrganizationSelectionUnavailable": "선택한 조직을 더 이상 사용할 수 없습니다. 조직을 선택한 후 다시 시도하세요.",
+  "ledger.errors.importRequiresSingleOrganization": "기본 계정과목표를 가져오기 전에 하나의 조직을 선택하세요.",
   "ledger.errors.internal": "내부 서버 오류",
   "ledger.errors.invalidId": "잘못된 회계기간 ID",
   "ledger.errors.journalEntryAlreadyReversed": "이 전표는 이미 역분개되었습니다.",

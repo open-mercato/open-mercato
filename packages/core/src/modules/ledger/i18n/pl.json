@@ -117,6 +117,8 @@
   "ledger.errors.fiscalPeriodOverlap": "Ten zakres dat pokrywa się z istniejącym okresem obrachunkowym tej organizacji.",
   "ledger.errors.fiscalPeriodStartNotFirstOfMonth": "Data początkowa musi być pierwszym dniem miesiąca.",
   "ledger.errors.fiscalPeriodStartRequired": "Data początkowa jest wymagana.",
+  "ledger.errors.importOrganizationSelectionUnavailable": "Wybrana organizacja nie jest już dostępna. Wybierz organizację i spróbuj ponownie.",
+  "ledger.errors.importRequiresSingleOrganization": "Przed importem domyślnego planu kont wybierz jedną organizację.",
   "ledger.errors.internal": "Błąd wewnętrzny serwera",
   "ledger.errors.invalidId": "Nieprawidłowy identyfikator okresu fiskalnego",
   "ledger.errors.journalEntryAlreadyReversed": "Ten zapis księgowy został już zastornowany.",

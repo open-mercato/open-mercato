@@ -84,6 +84,37 @@ describe('ledger accounts/import-default-chart-of-accounts route', () => {
     expect(mockReportError).not.toHaveBeenCalled()
   })
 
+  it('refuses with 422 when no single organization is selected ("All organizations"), never falling back to the home organization', async () => {
+    mockResolveOrganizationScope.mockResolvedValue({ tenantId: TENANT_ID, selectedId: null, filterIds: null, allowedIds: null })
+
+    const response = await postHandler(buildRequest())
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Select a single organization before importing the default chart of accounts.',
+    })
+    expect(mockExecute).not.toHaveBeenCalled()
+    expect(mockRunRouteMutationGuards).not.toHaveBeenCalled()
+  })
+
+  it('refuses with 422 when the selected organization could not be honored', async () => {
+    mockResolveOrganizationScope.mockResolvedValue({
+      tenantId: TENANT_ID,
+      selectedId: HOME_ORG_ID,
+      filterIds: [HOME_ORG_ID],
+      allowedIds: [HOME_ORG_ID],
+      selectionRejected: true,
+    })
+
+    const response = await postHandler(buildRequest())
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Your selected organization is no longer available. Select an organization and try again.',
+    })
+    expect(mockExecute).not.toHaveBeenCalled()
+  })
+
   it('passes a command refusal (409) through without reporting it as an error', async () => {
     const { conflict } = jest.requireActual('@open-mercato/shared/lib/crud/errors') as typeof import('@open-mercato/shared/lib/crud/errors')
     mockExecute.mockRejectedValue(conflict('The chart of accounts already has 1 account type(s)'))

@@ -117,6 +117,8 @@
   "ledger.errors.fiscalPeriodOverlap": "This date range overlaps an existing fiscal period for this organization.",
   "ledger.errors.fiscalPeriodStartNotFirstOfMonth": "startDate must be the first day of a month.",
   "ledger.errors.fiscalPeriodStartRequired": "A start date is required.",
+  "ledger.errors.importOrganizationSelectionUnavailable": "Your selected organization is no longer available. Select an organization and try again.",
+  "ledger.errors.importRequiresSingleOrganization": "Select a single organization before importing the default chart of accounts.",
   "ledger.errors.internal": "Internal server error",
   "ledger.errors.invalidId": "Invalid fiscal period id",
   "ledger.errors.journalEntryAlreadyReversed": "This journal entry has already been reversed.",

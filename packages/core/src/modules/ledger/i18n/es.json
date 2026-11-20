@@ -117,6 +117,8 @@
   "ledger.errors.fiscalPeriodOverlap": "Este intervalo de fechas se solapa con un periodo fiscal existente de esta organización.",
   "ledger.errors.fiscalPeriodStartNotFirstOfMonth": "La fecha de inicio debe ser el primer día de un mes.",
   "ledger.errors.fiscalPeriodStartRequired": "La fecha de inicio es obligatoria.",
+  "ledger.errors.importOrganizationSelectionUnavailable": "La organización seleccionada ya no está disponible. Selecciona una organización e inténtalo de nuevo.",
+  "ledger.errors.importRequiresSingleOrganization": "Selecciona una sola organización antes de importar el plan de cuentas predeterminado.",
   "ledger.errors.internal": "Error interno del servidor",
   "ledger.errors.invalidId": "ID de periodo fiscal no válido",
   "ledger.errors.journalEntryAlreadyReversed": "Este asiento contable ya ha sido revertido.",

@@ -117,6 +117,8 @@
   "ledger.errors.fiscalPeriodOverlap": "Dieser Zeitraum überschneidet sich mit einer bestehenden Buchungsperiode dieser Organisation.",
   "ledger.errors.fiscalPeriodStartNotFirstOfMonth": "Das Startdatum muss der erste Tag eines Monats sein.",
   "ledger.errors.fiscalPeriodStartRequired": "Ein Startdatum ist erforderlich.",
+  "ledger.errors.importOrganizationSelectionUnavailable": "Die ausgewählte Organisation ist nicht mehr verfügbar. Wählen Sie eine Organisation aus und versuchen Sie es erneut.",
+  "ledger.errors.importRequiresSingleOrganization": "Wählen Sie eine einzelne Organisation aus, bevor Sie den Standard-Kontenplan importieren.",
   "ledger.errors.internal": "Interner Serverfehler",
   "ledger.errors.invalidId": "Ungültige ID der Buchungsperiode",
   "ledger.errors.journalEntryAlreadyReversed": "Dieser Buchungssatz wurde bereits storniert.",
