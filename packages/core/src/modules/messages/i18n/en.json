@@ -128,6 +128,7 @@
   "messages.detail.showDetails": "Show details",
   "messages.detail.source": "Source",
   "messages.detail.thread": "Thread",
+  "messages.detail.to": "To",
   "messages.detail.type": "Type",
   "messages.email.attachments": "Attachments",
   "messages.email.footer": "Open Mercato messages",

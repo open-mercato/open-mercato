@@ -128,6 +128,7 @@
   "messages.detail.showDetails": "상세 정보 표시",
   "messages.detail.source": "소스",
   "messages.detail.thread": "스레드",
+  "messages.detail.to": "받는 사람",
   "messages.detail.type": "유형",
   "messages.email.attachments": "첨부 파일",
   "messages.email.footer": "Open Mercato 메시지",

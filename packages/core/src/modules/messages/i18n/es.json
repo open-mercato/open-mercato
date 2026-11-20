@@ -128,6 +128,7 @@
   "messages.detail.showDetails": "Mostrar detalles",
   "messages.detail.source": "Origen",
   "messages.detail.thread": "Hilo",
+  "messages.detail.to": "Para",
   "messages.detail.type": "Tipo",
   "messages.email.attachments": "Adjuntos",
   "messages.email.footer": "Mensajes de Open Mercato",

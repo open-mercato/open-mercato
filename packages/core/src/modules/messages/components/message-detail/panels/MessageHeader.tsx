@@ -37,11 +37,31 @@ type MessageHeaderProps = {
   }
 }
 
+const ADDRESSEE_LABEL_LIMIT = 3
+
+/** External "to" and "cc" addresses for the header; BCC stays out of the visible header. */
+export function formatExternalAddressees(detail: Pick<MessageDetail, 'externalParticipants'>): string | null {
+  const participants = (detail.externalParticipants ?? []).filter((participant) => participant.role !== 'bcc')
+  const emails = participants.length > 0
+    ? [...participants].sort((left, right) => (left.role === right.role ? 0 : left.role === 'to' ? -1 : 1)).map((participant) => participant.email)
+    : []
+  if (emails.length === 0) return null
+  const shown = emails.slice(0, ADDRESSEE_LABEL_LIMIT).join(', ')
+  return emails.length > ADDRESSEE_LABEL_LIMIT ? `${shown} +${emails.length - ADDRESSEE_LABEL_LIMIT}` : shown
+}
+
 export function MessageHeader(props: MessageHeaderProps) {
   const t = useT()
   const showSubject = props.showSubject !== false
   const canReply = !props.detail.isDraft && props.detail.typeDefinition.allowReply
   const senderLabel = getMessageParticipantLabel(props.detail)
+  const unknownDate = t('messages.unknownDate', 'Unknown date')
+  const dateLabel = props.detail.status === 'scheduled' && props.detail.scheduledAt
+    ? t('messages.detail.scheduledFor', 'Scheduled for {date}', { date: formatDateTime(props.detail.scheduledAt, unknownDate) })
+    : props.detail.isDraft
+      ? t('messages.status.draft', 'Draft')
+      : formatDateTime(props.detail.sentAt, unknownDate)
+  const toLabel = formatExternalAddressees(props.detail)
   const actionItems = React.useMemo(() => {
     const items: ActionItem[] = []
 
@@ -123,10 +143,10 @@ export function MessageHeader(props: MessageHeaderProps) {
         <FormHeader
           mode="detail"
           title={showSubject ? props.detail.subject : undefined}
-          subtitle={`${t('messages.detail.from', 'From')}: ${senderLabel}`}
-          statusBadge={<p className="text-xs text-muted-foreground">{props.detail.isDraft
-            ? '—'
-            : formatDateTime(props.detail.sentAt, t('messages.unknownDate', 'Unknown date'))}</p>}
+          subtitle={toLabel
+            ? `${t('messages.detail.from', 'From')}: ${senderLabel} · ${t('messages.detail.to', 'To')}: ${toLabel}`
+            : `${t('messages.detail.from', 'From')}: ${senderLabel}`}
+          statusBadge={<p className="text-xs text-muted-foreground">{dateLabel}</p>}
           utilityActions={canReply ? (
             <IconButton
               type="button"

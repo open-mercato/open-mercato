@@ -139,6 +139,7 @@ export type UseMessageComposeResult = {
   canSchedule: boolean
   scheduleMaxDays: number
   handleSchedule: (scheduledAt: string) => Promise<boolean>
+  validateBeforeSchedule: () => boolean
   handleDialogOpenChange: (nextOpen: boolean) => void
   handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
 }
@@ -839,6 +840,15 @@ export function useMessageCompose({
     [handleSubmit],
   )
 
+  const validateBeforeSchedule = React.useCallback(() => {
+    const operation = messageId ? sendDraftOperation : composeSendOperation
+    const validationMessage = operation.validate()
+    if (!validationMessage) return true
+    setSubmitError(validationMessage)
+    flash(validationMessage, 'error')
+    return false
+  }, [messageId, sendDraftOperation, composeSendOperation])
+
   const handleSaveDraft = React.useCallback(() => {
     if (variant !== 'compose') return
     void handleSubmit({ saveAsDraft: true })
@@ -953,6 +963,7 @@ export function useMessageCompose({
     canSchedule,
     scheduleMaxDays,
     handleSchedule,
+    validateBeforeSchedule,
     handleDialogOpenChange,
     handleKeyDown,
   }

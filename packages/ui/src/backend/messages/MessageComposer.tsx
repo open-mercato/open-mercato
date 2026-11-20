@@ -88,7 +88,7 @@ export function MessageComposer(props: MessageComposerProps) {
           <Button
             type="button"
             variant="outline"
-            onClick={() => setScheduleOpen(true)}
+            onClick={() => { if (compose.validateBeforeSchedule()) setScheduleOpen(true) }}
             disabled={compose.submitting}
           >
             <Clock className="mr-2 size-4" />
@@ -126,7 +126,7 @@ export function MessageComposer(props: MessageComposerProps) {
           <Button
             type="button"
             variant="outline"
-            onClick={() => setScheduleOpen(true)}
+            onClick={() => { if (compose.validateBeforeSchedule()) setScheduleOpen(true) }}
             disabled={compose.submitting}
           >
             <Clock className="mr-2 size-4" />
