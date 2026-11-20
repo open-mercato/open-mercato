@@ -53,54 +53,74 @@ TODO: Fix that latter to have reference by the package names
   line-height: var(--font-size-overline--line-height, 1rem);
 }
 
-@theme {
-  --color-start-graphite: #252723;
-  --color-start-night: #101010;
-}
-
-@theme inline {
-  --color-start-page: var(--start-page);
-  --color-start-panel: var(--start-panel);
-  --color-start-panel-border: var(--start-panel-border);
-  --color-start-terminal: var(--start-terminal);
-  --color-start-terminal-bar: var(--start-terminal-bar);
-  --color-start-surface: var(--start-surface);
-  --color-start-cell: var(--start-cell);
-  --color-start-action: var(--start-action);
-  --color-start-action-foreground: var(--start-action-foreground);
-  --color-start-control-ring: var(--start-control-ring);
+.start-page {
+  --start-graphite: #252723;
+  --start-night: #101010;
+  --start-panel: var(--start-graphite);
+  --start-panel-edge: transparent;
+  --start-terminal: var(--start-graphite);
+  --start-terminal-bar: transparent;
+  --start-surface: #ffffff;
+  --start-cell: color-mix(in oklab, var(--start-graphite) 7%, transparent);
+  --start-action: var(--start-graphite);
+  --start-action-foreground: #ffffff;
+  background-color: color-mix(in oklab, var(--start-graphite) 25%, transparent);
 }
 
 .start-page:not(.dark *) {
-  --foreground: var(--color-start-graphite);
-}
-
-.start-page {
-  --start-page: color-mix(in oklab, var(--color-start-graphite) 25%, transparent);
-  --start-panel: var(--color-start-graphite);
-  --start-panel-border: transparent;
-  --start-terminal: var(--color-start-graphite);
-  --start-terminal-bar: transparent;
-  --start-surface: #ffffff;
-  --start-cell: color-mix(in oklab, var(--color-start-graphite) 7%, transparent);
-  --start-action: var(--color-start-graphite);
-  --start-action-foreground: #ffffff;
-  --start-control-ring: transparent;
+  --foreground: var(--start-graphite);
 }
 
 .dark .start-page {
   color-scheme: dark;
   --background: #1b1b1b;
-  --start-page: var(--color-start-night);
   --start-panel: var(--background);
-  --start-panel-border: color-mix(in oklab, var(--foreground) 20%, transparent);
-  --start-terminal: var(--color-start-night);
+  --start-panel-edge: color-mix(in oklab, var(--foreground) 20%, transparent);
+  --start-terminal: var(--start-night);
   --start-terminal-bar: var(--muted);
   --start-surface: var(--muted);
   --start-cell: var(--muted);
   --start-action: #ffffff;
-  --start-action-foreground: var(--color-start-night);
-  --start-control-ring: #909090;
+  --start-action-foreground: var(--start-night);
+  background-color: var(--start-night);
+}
+
+.start-page .start-panel {
+  background-color: var(--start-panel);
+}
+
+.start-page .start-panel-edge {
+  border-color: var(--start-panel-edge);
+}
+
+.start-page .start-terminal {
+  background-color: var(--start-terminal);
+}
+
+.start-page .start-terminal-bar {
+  background-color: var(--start-terminal-bar);
+}
+
+.start-page .start-surface {
+  background-color: var(--start-surface);
+}
+
+.start-page .start-cell {
+  background-color: var(--start-cell);
+}
+
+.start-page .start-chip {
+  color: var(--start-graphite);
+}
+
+.start-page .start-action,
+.start-page .start-action:hover {
+  background-color: var(--start-action);
+  color: var(--start-action-foreground);
+}
+
+.dark .start-page .start-control:not(:focus-visible) {
+  box-shadow: inset 0 0 0 1px #909090;
 }
 
 .start-logo-grid {
