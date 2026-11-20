@@ -73,6 +73,7 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
+import { resolveExactDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
 const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
@@ -243,6 +244,7 @@ type CompanySnapshot = {
     websiteUrl: string | null
     industry: string | null
     sizeBucket: string | null
+    taxId: string | null
     annualRevenue: string | null
   }
   tagIds: string[]
@@ -346,6 +348,7 @@ async function loadCompanySnapshot(
       websiteUrl: profile.websiteUrl ?? null,
       industry: profile.industry ?? null,
       sizeBucket: profile.sizeBucket ?? null,
+      taxId: profile.taxId ?? null,
       annualRevenue: profile.annualRevenue ?? null,
     },
     tagIds,
@@ -512,7 +515,8 @@ function normalizeHexColor(value: string | null | undefined): string | null {
 const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: string; companyId: string }> = {
   id: 'customers.companies.create',
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(companyCreateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(companyCreateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, ['annualRevenue'] as const)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
@@ -563,9 +567,10 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       websiteUrl: parsed.websiteUrl ?? null,
       industry: parsed.industry ?? null,
       sizeBucket: parsed.sizeBucket ?? null,
+      taxId: parsed.taxId ?? null,
       annualRevenue:
         parsed.annualRevenue !== undefined && parsed.annualRevenue !== null
-          ? String(parsed.annualRevenue)
+          ? resolveExactDecimal(parsed.annualRevenueExact, parsed.annualRevenue)
           : null,
     })
 
@@ -730,6 +735,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
         websiteUrl: after.profile.websiteUrl,
         industry: after.profile.industry,
         sizeBucket: after.profile.sizeBucket,
+        taxId: after.profile.taxId,
         annualRevenue: after.profile.annualRevenue,
       })
       em.persist(profile)
@@ -740,6 +746,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       profile.websiteUrl = after.profile.websiteUrl
       profile.industry = after.profile.industry
       profile.sizeBucket = after.profile.sizeBucket
+      profile.taxId = after.profile.taxId
       profile.annualRevenue = after.profile.annualRevenue
     }
     const restoredProfile = profile
@@ -781,7 +788,8 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(companyUpdateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(companyUpdateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, ['annualRevenue'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: parsed.id, deletedAt: null })
     const record = assertFound(entity, 'Company not found')
@@ -824,13 +832,16 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         if (parsed.websiteUrl !== undefined) profile.websiteUrl = parsed.websiteUrl ?? null
         if (parsed.industry !== undefined) profile.industry = parsed.industry ?? null
         if (parsed.sizeBucket !== undefined) profile.sizeBucket = parsed.sizeBucket ?? null
+        if (parsed.taxId !== undefined) profile.taxId = parsed.taxId ?? null
         if (parsed.annualRevenue !== undefined) {
-          profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
+          profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined
+            ? resolveExactDecimal(parsed.annualRevenueExact, parsed.annualRevenue)
+            : null
         }
 
         const profileFieldsUpdated = [
           parsed.legalName, parsed.brandName, parsed.domain, parsed.websiteUrl,
-          parsed.industry, parsed.sizeBucket, parsed.annualRevenue,
+          parsed.industry, parsed.sizeBucket, parsed.annualRevenue, parsed.taxId,
         ].some((value) => value !== undefined)
         if (shouldBumpOptimisticLockVersion(profileFieldsUpdated, custom, parsed.tags)) {
           record.updatedAt = new Date()
@@ -955,6 +966,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         websiteUrl: before.profile.websiteUrl,
         industry: before.profile.industry,
         sizeBucket: before.profile.sizeBucket,
+        taxId: before.profile.taxId,
         annualRevenue: before.profile.annualRevenue,
       })
       em.persist(profile)
@@ -965,6 +977,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       profile.websiteUrl = before.profile.websiteUrl
       profile.industry = before.profile.industry
       profile.sizeBucket = before.profile.sizeBucket
+      profile.taxId = before.profile.taxId
       profile.annualRevenue = before.profile.annualRevenue
     }
 
@@ -1287,6 +1300,7 @@ const deleteCompanyCommand: CommandHandler<
           websiteUrl: before.profile.websiteUrl,
           industry: before.profile.industry,
           sizeBucket: before.profile.sizeBucket,
+          taxId: before.profile.taxId,
           annualRevenue: before.profile.annualRevenue,
         })
         em.persist(profile)
@@ -1297,6 +1311,7 @@ const deleteCompanyCommand: CommandHandler<
         profile.websiteUrl = before.profile.websiteUrl
         profile.industry = before.profile.industry
         profile.sizeBucket = before.profile.sizeBucket
+        profile.taxId = before.profile.taxId
         profile.annualRevenue = before.profile.annualRevenue
       }
 

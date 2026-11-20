@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -21,7 +21,6 @@ import {
 
 export default function CreatePersonPage() {
   const t = useT()
-  const router = useRouter()
   const searchParams = useSearchParams()
   const { organizationId } = useOrganizationScopeDetail()
 
@@ -140,11 +139,9 @@ export default function CreatePersonPage() {
             flash(t('customers.people.form.success'), 'success')
             return newId ? { resourceId: newId } : undefined
           }}
-          onSubmitSuccess={async (_values, result) => {
+          successRedirect={(_values, result) => {
             const newId = result?.resourceId
-            if (returnTo) router.push(returnTo)
-            else if (newId) router.push(`/backend/customers/people-v2/${newId}`)
-            else router.push('/backend/customers/people')
+            return returnTo || (newId ? `/backend/customers/people-v2/${newId}` : '/backend/customers/people')
           }}
         />
       </PageBody>

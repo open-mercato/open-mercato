@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
@@ -427,7 +428,7 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
     await service.capturePayment(transaction.id, 30, scope, 'capture-b')
 
     expect(captureFn).toHaveBeenCalledTimes(2)
-    expect(transaction.capturedAmount).toBe('90.0000')
+    expect(transaction.capturedAmount).toBe('90')
   })
 
   it('rejects a second partial capture that would push the running total past the authorization', async () => {
@@ -442,7 +443,7 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
     })
 
     expect(captureFn).toHaveBeenCalledTimes(1)
-    expect(transaction.capturedAmount).toBe('60.0000')
+    expect(transaction.capturedAmount).toBe('60')
   })
 
   it('replays a completed capture for a repeated operation id instead of capturing again', async () => {
@@ -455,7 +456,7 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
 
     expect(second).toEqual(first)
     expect(captureFn).toHaveBeenCalledTimes(1)
-    expect(transaction.capturedAmount).toBe('60.0000')
+    expect(transaction.capturedAmount).toBe('60')
   })
 
   it('asks the provider only for the remaining amount when a later capture omits it', async () => {
@@ -470,7 +471,7 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
 
     expect((captureFn.mock.calls[0]?.[0] as { amount?: number }).amount).toBe(60)
     expect((captureFn.mock.calls[1]?.[0] as { amount?: number }).amount).toBe(40)
-    expect(transaction.capturedAmount).toBe('100.0000')
+    expect(transaction.capturedAmount).toBe('100')
   })
 
   it('releases the reservation when the provider call fails so the amount stays capturable', async () => {
@@ -481,10 +482,10 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
       .mockResolvedValueOnce({ status: 'captured', capturedAmount: 100 })
 
     await expect(service.capturePayment(transaction.id, 60, scope, 'capture-fails')).rejects.toThrow('provider timeout')
-    expect(transaction.capturedAmount).toBe('0.0000')
+    expect(transaction.capturedAmount).toBe('0')
 
     await service.capturePayment(transaction.id, 100, scope, 'capture-retry')
-    expect(transaction.capturedAmount).toBe('100.0000')
+    expect(transaction.capturedAmount).toBe('100')
   })
 
   it('settles the ledger to what the provider actually captured', async () => {
@@ -494,11 +495,11 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
 
     await service.capturePayment(transaction.id, 60, scope, 'capture-short')
 
-    expect(transaction.capturedAmount).toBe('50.0000')
+    expect(transaction.capturedAmount).toBe('50')
 
     captureFn.mockResolvedValueOnce({ status: 'captured', capturedAmount: 50 })
     await service.capturePayment(transaction.id, 50, scope, 'capture-rest')
-    expect(transaction.capturedAmount).toBe('100.0000')
+    expect(transaction.capturedAmount).toBe('100')
   })
 
   it('keeps a settled capture settled when the post-completion event emission fails', async () => {
@@ -514,7 +515,7 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
       setGlobalEventBus({ emit: async () => {} })
     }
 
-    expect(transaction.capturedAmount).toBe('60.0000')
+    expect(transaction.capturedAmount).toBe('60')
 
     const replay = await service.capturePayment(transaction.id, 60, scope, 'capture-event-fails')
     expect(replay).toMatchObject({ status: 'captured', capturedAmount: 60 })
@@ -522,7 +523,7 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
 
     await expect(service.capturePayment(transaction.id, 60, scope, 'capture-after-event-failure'))
       .rejects.toMatchObject({ status: 409, body: { code: 'payment_capture_ceiling_exceeded' } })
-    expect(transaction.capturedAmount).toBe('60.0000')
+    expect(transaction.capturedAmount).toBe('60')
   })
 
   it('keeps the reservation when the provider captured but the completion transaction failed', async () => {
@@ -534,11 +535,11 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
     await expect(service.capturePayment(transaction.id, 60, scope, 'capture-completion-fails'))
       .rejects.toThrow('database unavailable')
 
-    expect(transaction.capturedAmount).toBe('60.0000')
+    expect(transaction.capturedAmount).toBe('60')
 
     await expect(service.capturePayment(transaction.id, 60, scope, 'capture-after-completion-failure'))
       .rejects.toMatchObject({ status: 409, body: { code: 'payment_capture_ceiling_exceeded' } })
-    expect(transaction.capturedAmount).toBe('60.0000')
+    expect(transaction.capturedAmount).toBe('60')
     expect(captureFn).toHaveBeenCalledTimes(1)
   })
 
@@ -552,7 +553,7 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
       scope,
     )
 
-    expect(transaction.capturedAmount).toBe('100.0000')
+    expect(transaction.capturedAmount).toBe('100')
     await expect(service.capturePayment(transaction.id, 100, scope, 'capture-after-webhook'))
       .rejects.toMatchObject({ status: 409, body: { code: 'payment_capture_ceiling_exceeded' } })
     expect(captureFn).not.toHaveBeenCalled()
@@ -571,7 +572,7 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
 
     expect(transaction.capturedAmount).toBe('0.0000')
     await service.capturePayment(transaction.id, 40, scope, 'capture-remainder')
-    expect(transaction.capturedAmount).toBe('40.0000')
+    expect(transaction.capturedAmount).toBe('40')
   })
 
   it('keeps fractional captures exact instead of accumulating floating-point drift', async () => {
@@ -583,7 +584,54 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
       await service.capturePayment(transaction.id, 0.1, scope, `capture-${operationId}`)
     }
 
-    expect(transaction.capturedAmount).toBe('0.3000')
+    expect(transaction.capturedAmount).toBe('0.3')
+  })
+
+  it('keeps the exact reserved amount when a float-only provider reports the same captured float', async () => {
+    const transaction = makeTransaction('authorized')
+    transaction.amount = '1234.567890123456789012'
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn
+      .mockResolvedValueOnce({ status: 'captured', capturedAmount: 1000 })
+      .mockResolvedValueOnce({ status: 'captured', capturedAmount: Number('234.567890123456789011') })
+
+    const first = await service.capturePayment(transaction.id, '1000.000000000000000001', scope, 'capture-exact-a')
+
+    expect(first).toMatchObject({ capturedAmount: 1000, capturedAmountExact: '1000.000000000000000001' })
+    expect(transaction.capturedAmount).toBe('1000.000000000000000001')
+    await expect(service.capturePayment(transaction.id, '234.567890123456789012', scope, 'capture-exact-over'))
+      .rejects.toMatchObject({ status: 409, body: { code: 'payment_capture_ceiling_exceeded' } })
+
+    const rest = await service.capturePayment(transaction.id, undefined, scope, 'capture-exact-rest')
+
+    expect((captureFn.mock.calls[1]?.[0] as { amountExact?: string }).amountExact).toBe('234.567890123456789011')
+    expect(rest).toMatchObject({ capturedAmountExact: '234.567890123456789011' })
+    expect(transaction.capturedAmount).toBe('1234.567890123456789012')
+  })
+
+  it('falls back to the provider float when it reports a different captured amount', async () => {
+    const transaction = makeTransaction('authorized')
+    transaction.amount = '1234.567890123456789012'
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn.mockResolvedValueOnce({ status: 'captured', capturedAmount: 999.5 })
+
+    const result = await service.capturePayment(transaction.id, '1000.000000000000000001', scope, 'capture-short-exact')
+
+    expect(result).toMatchObject({ capturedAmountExact: '999.5' })
+    expect(transaction.capturedAmount).toBe('999.5')
+  })
+
+  it('returns the exact requested refund amount when a float-only provider echoes its float', async () => {
+    const transaction = makeTransaction('captured', '1234.567890123456789012')
+    transaction.amount = '1234.567890123456789012'
+    const { service, refundFn } = buildService(transaction, {
+      refund: { status: 'partially_refunded', refundedAmount: 100, refundId: 're_exact' },
+    })
+
+    const result = await service.refundPayment(transaction.id, '100.000000000000000001', 'return', scope, 'refund-exact')
+
+    expect((refundFn.mock.calls[0]?.[0] as { amountExact?: string }).amountExact).toBe('100.000000000000000001')
+    expect(result).toMatchObject({ refundedAmount: 100, refundedAmountExact: '100.000000000000000001' })
   })
 })
 
@@ -624,7 +672,7 @@ describe('payment gateway service — refund webhook that overtakes the capture'
     }, scope)
 
     expect(transaction.unifiedStatus).toBe(refundStatus)
-    expect(transaction.capturedAmount).toBe('100.0000')
+    expect(transaction.capturedAmount).toBe('100')
     const expectedEvents = [{ eventId: 'payment_gateways.payment.captured', previousStatus: initialStatus }]
     if (refundStatus === 'refunded') {
       expectedEvents.push({ eventId: 'payment_gateways.payment.refunded', previousStatus: 'captured' })
@@ -683,4 +731,116 @@ describe('payment gateway service — refund webhook that overtakes the capture'
       expect(emitted).toEqual([])
     },
   )
+})
+
+describe('payment gateway service — operations recorded before exact amounts', () => {
+  beforeAll(() => {
+    setGlobalEventBus({ emit: async () => {} })
+  })
+
+  beforeEach(() => {
+    clearGatewayAdapters()
+    findOneMock.mockReset()
+  })
+
+  afterEach(() => {
+    clearGatewayAdapters()
+  })
+
+  function legacyDigest(value: unknown): string {
+    return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+  }
+
+  async function seedLegacyOperation(
+    em: ReturnType<typeof buildService>['em'],
+    transaction: GatewayTransaction,
+    action: 'capture' | 'refund',
+    payload: Record<string, unknown>,
+    result: Record<string, unknown>,
+    explicitOperationId?: string,
+  ) {
+    const requestHash = legacyDigest({
+      transactionId: transaction.id,
+      providerKey: PROVIDER_KEY,
+      action,
+      payload,
+    })
+    const operationId = explicitOperationId ?? `auto_${requestHash}`
+    const providerIdempotencyKey = `om-pg-${legacyDigest({
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      transactionId: transaction.id,
+      action,
+      operationId,
+    })}`
+    const record = {
+      id: `legacy_${action}_${operationId}`,
+      operationId,
+      transactionId: transaction.id,
+      operationType: action,
+      providerKey: PROVIDER_KEY,
+      requestHash,
+      providerIdempotencyKey,
+      status: 'succeeded',
+      attemptToken: 'legacy-attempt',
+      attemptCount: 1,
+      result,
+      leaseExpiresAt: null,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    }
+    await (em.persist as unknown as (entity: typeof record) => { flush: () => Promise<void> })(record).flush()
+    return record
+  }
+
+  it.each([
+    ['an automatic', undefined],
+    ['an explicit', 'legacy-capture'],
+  ])('replays a pre-upgrade partial capture under %s operation id without capturing again', async (_label, operationId) => {
+    const transaction = makeTransaction('partially_captured', '60.0000')
+    const { service, captureFn, em } = buildService(transaction, {})
+    const legacyResult = { status: 'partially_captured', capturedAmount: 60 }
+    await seedLegacyOperation(em, transaction, 'capture', { amount: 60 }, legacyResult, operationId)
+
+    const replayed = await service.capturePayment(transaction.id, '60', scope, operationId)
+
+    expect(replayed).toEqual(legacyResult)
+    expect(captureFn).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+    expect(transaction.capturedAmount).toBe('60.0000')
+  })
+
+  it.each([
+    ['an automatic', undefined],
+    ['an explicit', 'legacy-refund'],
+  ])('replays a pre-upgrade partial refund under %s operation id without refunding again', async (_label, operationId) => {
+    const transaction = makeTransaction('partially_refunded', '100.0000')
+    const { service, refundFn, em } = buildService(transaction, {})
+    const legacyResult = { status: 'partially_refunded', refundedAmount: 10.5, refundId: 're_legacy' }
+    await seedLegacyOperation(em, transaction, 'refund', { amount: 10.5, reason: 'damaged' }, legacyResult, operationId)
+
+    const replayed = await refundWithOperation(
+      service,
+      transaction.id,
+      '10.50' as unknown as number,
+      'damaged',
+      operationId,
+    )
+
+    expect(replayed).toEqual(legacyResult)
+    expect(refundFn).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+  })
+
+  it('keeps an amount with more digits than a number holds a distinct operation', async () => {
+    const transaction = makeTransaction('partially_captured', '60.0000')
+    const { service, captureFn, em } = buildService(transaction, {})
+    captureFn.mockResolvedValue({ status: 'captured', capturedAmount: 10 })
+    await seedLegacyOperation(em, transaction, 'capture', { amount: 10 }, { status: 'partially_captured', capturedAmount: 10 })
+
+    await service.capturePayment(transaction.id, '10.00000000000000000001', scope)
+
+    expect(captureFn).toHaveBeenCalledTimes(1)
+    expect(em.create).toHaveBeenCalledTimes(1)
+  })
 })
