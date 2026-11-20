@@ -294,9 +294,6 @@ formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | n
   /** FOR VECTOR: Generate text for embeddings */
   buildSource: async (ctx) => ({ text: [...], presenter: {...}, checksumSource: {...} }),
 
-  /** Optional: return true when a loadable record must not be searchable (e.g. parent soft-deleted); the search indexer removes it from every strategy (tokens, fulltext, vector) */
-  isRecordExcluded: async (ctx) => false,
-
   /** FOR TOKENS: Format result at search time */
   formatResult: async (ctx) => ({ title: '...', subtitle: '...', icon: '...' }),
 

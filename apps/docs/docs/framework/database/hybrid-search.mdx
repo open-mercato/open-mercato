@@ -182,7 +182,7 @@ export default searchConfig
 | Callback | Purpose |
 |----------|---------|
 | `buildSource` | Returns text to index and optional presenter metadata |
-| `isRecordExcluded` | Optional. Return `true` for a record that loads but must not be searchable (for example a profile whose parent is soft-deleted); the search indexer removes it from every strategy (tokens, fulltext, vector) instead of indexing it. If it throws, the record is not indexed and the operation fails (or reports the error in the reindex result) so it can be retried |
+| `shouldIndex` | Optional per-record gate. Return `false` for a record that must not be searchable (for example a customer profile whose parent is soft-deleted); the search indexer removes it from every strategy (tokens, fulltext, vector) and the query index deletes its search tokens instead of writing them. A throw counts as `false` (fail closed) |
 | `formatResult` | Shapes the result payload for UI consumers |
 | `resolveUrl` | Primary URL when a result is clicked |
 | `resolveLinks` | Additional action links (edit, view) |

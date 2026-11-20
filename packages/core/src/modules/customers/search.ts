@@ -324,10 +324,14 @@ async function hydrateProfileContext(ctx: SearchContext, kind: CustomerProfileKi
 }
 
 async function resolveProfileParentGone(ctx: SearchContext, kind: CustomerProfileKind): Promise<boolean> {
-  const loaded = await loadCustomerEntityForProfile(ctx, kind)
-  if (loaded?.entity) return loaded.entity.deleted_at != null
+  const preloaded = profileEntityCache.get(ctx.record)?.[kind]
+  if (preloaded?.entity) return preloaded.entity.deleted_at != null
   const entityId = resolveCustomerEntityId(ctx.record)
-  if (!entityId || !ctx.queryEngine) return false
+  if (!entityId) {
+    const loaded = await loadCustomerEntityForProfile(ctx, kind)
+    return loaded?.entity ? loaded.entity.deleted_at != null : false
+  }
+  if (!ctx.queryEngine) return false
   const result = await ctx.queryEngine.query('customers:customer_entity', {
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId ?? undefined,
@@ -714,7 +718,7 @@ export const searchConfig: SearchModuleConfig = {
       enabled: true,
       priority: 10,
 
-      isRecordExcluded: (ctx: SearchBuildContext) => isProfileParentGone(ctx, 'person'),
+      shouldIndex: async (ctx: SearchBuildContext) => !(await isProfileParentGone(ctx, 'person')),
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)
@@ -817,7 +821,7 @@ export const searchConfig: SearchModuleConfig = {
       enabled: true,
       priority: 10,
 
-      isRecordExcluded: (ctx: SearchBuildContext) => isProfileParentGone(ctx, 'company'),
+      shouldIndex: async (ctx: SearchBuildContext) => !(await isProfileParentGone(ctx, 'company')),
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)

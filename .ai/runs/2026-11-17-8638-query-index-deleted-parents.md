@@ -6,12 +6,13 @@
 
 ## 🎯 Goal
 
-Make the PR mergeable again: bring in current `main` and keep the #8638 exclusion handling working inside the `SearchIndexer` restructured by #8410.
+Make the PR mergeable again: bring in current `main` and keep the #8638 exclusion handling working. Since #8251 added the `shouldIndex(ctx)` gate to `SearchEntityConfig`, the customer profile exclusion is expressed through that gate and this PR no longer adds a hook of its own.
 
 ## Scope
 
-- `packages/search/src/indexer/search-indexer.ts` — conflict resolution only.
-- `packages/search/src/__tests__/search-indexer-excluded-records.test.ts` — pass `encryptedCustomFieldKeysResolver`.
+- `packages/search/src/indexer/search-indexer.ts` — taken from `main` unchanged (its `shouldIndex` gate replaces this PR's indexer changes).
+- `packages/core/src/modules/customers/search.ts` — person/company profiles declare `shouldIndex`, rejecting profiles whose parent `customer_entities` row is soft-deleted or missing.
+- `packages/core/src/modules/query_index/**` — projection, coverage and CLI handling of deleted-parent profiles (not covered by the `shouldIndex` gate, which only governs search strategies and `search_tokens`).
 
 ## Non-goals
 
@@ -24,11 +25,12 @@ Make the PR mergeable again: bring in current `main` and keep the #8638 exclusio
 |---|---|---|
 | The only remaining blocker is the merge conflict with `main` | review 5933256004 by @haxiorz and its completion comment (earlier findings rechecked and fixed) | high |
 | Tests must pass `encryptedCustomFieldKeysResolver` | same review; `packages/search/AGENTS.md` Always #1 | high |
+| `shouldIndex` duplicates the indexer hook this PR added | #8251 on `main` (`SearchIndexer.passesIndexGate`, `query_index/lib/search-entity-policy.ts`) | high |
 
 ## Assumptions
 
 - Merging `main` (not rebasing) is acceptable: it preserves the reviewed history and follows the no-history-rewrite rule.
-- `buildIndexableRecords` is private, so extending its `{ records, dropped }` result with `excludedRecordIds` / `checkFailures` keeps the contract.
+- `shouldIndex` (from #8251) is the stable contract for per-record exclusion; this PR uses it without changing it, so `SearchEntityConfig` gains no new member.
 
 ## Risks
 
@@ -44,6 +46,10 @@ Make the PR mergeable again: bring in current `main` and keep the #8638 exclusio
 
 ### Phase 2: Resolve the conflict with main
 
-- [x] 2.1 Merge main and re-integrate isRecordExcluded into the restructured SearchIndexer — 6672475780
+- [x] 2.1 Merge main and re-integrate the profile exclusion into the restructured SearchIndexer — 6672475780
 - [x] 2.2 Pass encryptedCustomFieldKeysResolver in the excluded-record tests — 6672475780
 - [x] 2.3 Run the full validation gate and request re-review — 4edbc4d760
+
+### Phase 3: Rebuild on main's shouldIndex gate
+
+- [x] 3.1 Merge main and express the deleted-parent exclusion through shouldIndex, dropping the PR's own indexer hook

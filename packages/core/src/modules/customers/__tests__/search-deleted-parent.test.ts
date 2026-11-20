@@ -41,34 +41,42 @@ function makeContext(kind: 'person' | 'company', queryEngine?: QueryEngine): Sea
 describe.each(['person', 'company'] as const)('customers %s profile search with a deleted parent (#8638)', (kind) => {
   const config = searchConfig.entities.find((entity) => entity.entityId === `customers:customer_${kind}_profile`)!
 
-  it.each(['soft-deleted', 'missing'] as const)('excludes the profile and builds no source when the parent is %s', async (state) => {
+  it.each(['soft-deleted', 'missing'] as const)('rejects the profile in shouldIndex and builds no source when the parent is %s', async (state) => {
     const { engine, calls } = makeQueryEngine(state)
 
-    await expect(config.isRecordExcluded!(makeContext(kind, engine))).resolves.toBe(true)
+    await expect(config.shouldIndex!(makeContext(kind, engine))).resolves.toBe(false)
     await expect(config.buildSource!(makeContext(kind, engine))).resolves.toBeNull()
     expect(calls.some((opts) => opts.withDeleted === true)).toBe(true)
   })
 
-  it('keeps the profile searchable while the parent is active, without an extra lookup', async () => {
-    const { engine, calls } = makeQueryEngine('active')
+  it('keeps the profile searchable while the parent is active', async () => {
+    const { engine } = makeQueryEngine('active')
 
-    await expect(config.isRecordExcluded!(makeContext(kind, engine))).resolves.toBe(false)
+    await expect(config.shouldIndex!(makeContext(kind, engine))).resolves.toBe(true)
     await expect(config.buildSource!(makeContext(kind, engine))).resolves.toEqual(expect.objectContaining({ text: expect.any(Array) }))
-    expect(calls.some((opts) => opts.withDeleted === true)).toBe(false)
   })
 
-  it('does not exclude the profile when only the withDeleted lookup finds an active parent', async () => {
+  it('checks the parent without adding keys to the record it gates', async () => {
+    const { engine } = makeQueryEngine('active')
+    const ctx = makeContext(kind, engine)
+    const before = { ...ctx.record }
+
+    await expect(config.shouldIndex!(ctx)).resolves.toBe(true)
+    expect(ctx.record).toEqual(before)
+  })
+
+  it('indexes the profile when the withDeleted lookup finds an active parent', async () => {
     const { engine, calls } = makeQueryEngine('first-lookup-empty')
 
-    await expect(config.isRecordExcluded!(makeContext(kind, engine))).resolves.toBe(false)
+    await expect(config.shouldIndex!(makeContext(kind, engine))).resolves.toBe(true)
     expect(calls.some((opts) => opts.withDeleted === true)).toBe(true)
   })
 
-  it('runs the withDeleted lookup once per record across isRecordExcluded and buildSource', async () => {
+  it('runs the withDeleted lookup once per record across shouldIndex and buildSource', async () => {
     const { engine, calls } = makeQueryEngine('soft-deleted')
     const ctx = makeContext(kind, engine)
 
-    await expect(config.isRecordExcluded!(ctx)).resolves.toBe(true)
+    await expect(config.shouldIndex!(ctx)).resolves.toBe(false)
     await expect(config.buildSource!(ctx)).resolves.toBeNull()
     expect(calls.filter((opts) => opts.withDeleted === true)).toHaveLength(1)
   })
@@ -81,16 +89,16 @@ describe.each(['person', 'company'] as const)('customers %s profile search with 
       }) as QueryEngine['query'],
     }
 
-    await expect(config.isRecordExcluded!(makeContext(kind, failing))).rejects.toThrow('lookup failed')
+    await expect(config.shouldIndex!(makeContext(kind, failing))).rejects.toThrow('lookup failed')
     await expect(config.buildSource!(makeContext(kind, failing))).rejects.toThrow('lookup failed')
 
     const { engine } = makeQueryEngine('first-lookup-empty')
     const retryCtx = makeContext(kind, engine)
-    await expect(config.isRecordExcluded!(retryCtx)).resolves.toBe(false)
+    await expect(config.shouldIndex!(retryCtx)).resolves.toBe(true)
     await expect(config.buildSource!(retryCtx)).resolves.toEqual(expect.objectContaining({ text: expect.any(Array) }))
   })
 
-  it('does not exclude the profile when no query engine is available', async () => {
-    await expect(config.isRecordExcluded!(makeContext(kind))).resolves.toBe(false)
+  it('indexes the profile when no query engine is available', async () => {
+    await expect(config.shouldIndex!(makeContext(kind))).resolves.toBe(true)
   })
 })
