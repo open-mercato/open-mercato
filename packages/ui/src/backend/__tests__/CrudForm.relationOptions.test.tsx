@@ -69,6 +69,15 @@ describe('relation option feedback', () => {
     expect(screen.getByRole('combobox', { name: 'Related record' })).toBeEnabled()
   })
 
+  it('falls back to static options when the loader fails', async () => {
+    const fields: CrudField[] = [
+      { id: 'target', label: 'Related record', type: 'select', options: [{ value: 'static', label: 'Static choice' }], loadOptions: async () => { throw new Error('[internal] HTTP 500') } },
+    ]
+    renderWithProviders(<CrudForm fields={fields} onSubmit={() => {}} />, { dict })
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Related record' })).toBeEnabled())
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('ignores a superseded loader rejection after the new target loads', async () => {
     let rejectOld: (reason: Error) => void = () => {}
     const oldRequest = new Promise<CrudFieldOption[]>((_resolve, reject) => { rejectOld = reject })

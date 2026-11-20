@@ -514,6 +514,7 @@ export class HybridQueryEngine implements QueryEngine {
 
       const db = this.getDb()
       profiler.mark('query:db_ready')
+      const normalizedFilters = normalizeFilters(opts.filters)
       const baseTable = resolveEntityTableName(this.em, entity)
       profiler.mark('query:base_table_resolved')
       const searchConfig = resolveSearchConfig()
@@ -539,7 +540,6 @@ export class HybridQueryEngine implements QueryEngine {
         return await applyAfterExtensions(fallbackResult)
       }
 
-      const normalizedFilters = normalizeFilters(opts.filters)
       const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:') || filter.field.startsWith('l10n:'))
       // `applySort` orders `cf:` sorts off the left-joined index doc, so a
       // sort-only custom-field query depends on the index just as much as a cf

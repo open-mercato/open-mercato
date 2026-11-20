@@ -338,8 +338,7 @@ describe('HybridQueryEngine', () => {
         omitAutomaticTenantOrgScope: mode === 'fallback',
         filters,
       })).rejects.toBeInstanceOf(TypeError)
-      if (mode === 'fallback') expect(fallbackQuery).toHaveBeenCalled()
-      else expect(fallbackQuery).not.toHaveBeenCalled()
+      expect(fallbackQuery).not.toHaveBeenCalled()
     }
   })
 

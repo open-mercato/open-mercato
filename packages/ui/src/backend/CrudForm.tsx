@@ -3536,7 +3536,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         }
         return fetched
       } catch (error) {
-        if (builtin.type === 'select') throw error
+        if (builtin.type === 'select' && !builtin.options?.length) throw error
         return builtin.options ?? EMPTY_OPTIONS
       }
     }
@@ -5127,11 +5127,6 @@ const FieldControl = React.memo(function FieldControlImpl({
             </SelectValue>
           </SelectTrigger>
           <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-content-available-width)]">
-            {hasLoader && optionLoadState === 'ready' && options.length === 0 ? (
-              <div role="status" className="px-2 py-1 text-sm text-muted-foreground">
-                {t('ui.forms.select.noOptions')}
-              </div>
-            ) : null}
             {!field.required && value != null && value !== '' && (
               <SelectItem value={SELECT_CLEAR_SENTINEL}>
                 {t('ui.forms.select.clearOption', '— Clear —')}

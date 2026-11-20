@@ -163,6 +163,7 @@ export async function resolveTranslationTargetFields(
   const projectColumn = action === 'view' && entityType === STAFF_TASK_STATUS_TYPE
     ? metadata.properties.timeProjectId?.fieldNames[0]
     : undefined
+  if (!source.tenantColumn && !source.organizationColumn) throw await translationTargetNotFound()
   let query = db.selectFrom(source.table).where(idColumn, '=', entityId)
   if (source.tenantColumn) query = query.where(source.tenantColumn, '=', tenantId)
   if (source.organizationColumn) {
