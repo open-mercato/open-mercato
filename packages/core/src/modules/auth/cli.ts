@@ -263,6 +263,21 @@ const rotateEncryptionKey: ModuleCli = {
     }
     const printedDek = new Set<string>()
     const oldDekCache = new Map<string, TenantDek | null>()
+    const unrecoverableRows: Array<{ rowId: string; tenantId: string; organizationId: string }> = []
+    const reportUnrecoverableRows = (): void => {
+      if (!unrecoverableRows.length) return
+      const maxListed = 20
+      console.warn(
+        `[internal] ${unrecoverableRows.length} auth user email(s) could not be rotated: their ciphertext opens under neither the previous nor the current tenant key. Those rows were left untouched. Retain the previous keys and re-run with the key that sealed them.`,
+      )
+      for (const row of unrecoverableRows.slice(0, maxListed)) {
+        console.warn(`[internal] auth:user.email row=${row.rowId} tenant=${row.tenantId} org=${row.organizationId}`)
+      }
+      if (unrecoverableRows.length > maxListed) {
+        console.warn(`[internal] ... and ${unrecoverableRows.length - maxListed} more`)
+      }
+      throw new Error(`[internal] ${unrecoverableRows.length} auth user email(s) could not be rotated. The command did not complete successfully; earlier successful updates remain applied.`)
+    }
     const processScope = async (scopeTenantId: string, scopeOrganizationId: string): Promise<number> => {
       if (debug && !printedDek.has(scopeTenantId)) {
         printedDek.add(scopeTenantId)
@@ -289,6 +304,7 @@ const rotateEncryptionKey: ModuleCli = {
         `Found ${pending.length} auth user records to process for org=${scopeOrganizationId}${dryRun ? ' (dry-run)' : ''}.`
       )
       if (dryRun) return 0
+      let currentDek: TenantDek | null | undefined
       let updated = 0
       for (const row of pending) {
         const rawEmail = typeof row.email === 'string' ? row.email : String(row.email ?? '')
@@ -311,7 +327,12 @@ const rotateEncryptionKey: ModuleCli = {
             oldDekCache.set(scopeTenantId, oldDek)
           }
           const maybeEmail = decryptWithOldKey(rawEmail, oldDek)
-          if (typeof maybeEmail !== 'string' || isEncryptedPayload(maybeEmail)) continue
+          if (typeof maybeEmail !== 'string' || isEncryptedPayload(maybeEmail)) {
+            if (currentDek === undefined) currentDek = await encryptionService.getDek(scopeTenantId)
+            if (currentDek && decryptWithAesGcm(rawEmail, currentDek.key) !== null) continue
+            unrecoverableRows.push({ rowId: row.id, tenantId: scopeTenantId, organizationId: scopeOrganizationId })
+            continue
+          }
           plainEmail = maybeEmail
         }
         if (!plainEmail) continue
@@ -339,6 +360,7 @@ const rotateEncryptionKey: ModuleCli = {
 
     if (tenantId && organizationId) {
       const updated = await processScope(String(tenantId), String(organizationId))
+      reportUnrecoverableRows()
       if (!updated) {
         console.log('All auth user emails already encrypted for the selected scope.')
       } else {
@@ -359,6 +381,7 @@ const rotateEncryptionKey: ModuleCli = {
       if (!scopeTenantId || !scopeOrganizationId) continue
       total += await processScope(scopeTenantId, scopeOrganizationId)
     }
+    reportUnrecoverableRows()
     if (total > 0) {
       console.log(`Encrypted ${total} auth user email(s) across all organizations.`)
     } else {

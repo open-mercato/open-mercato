@@ -255,11 +255,6 @@ Do not infer the answer from `persistsSharedCursor`. Where a cursor is stored an
 ### The page size an operator did not choose
 
 A control that applies still has to start somewhere. **Batch size** starts at 100, which is a safe number for a source paged over HTTP and a starving one for a batch you apply across parallel workers — and core has no way to tell the two apart. Say so:
-## Describing the progress job a run creates
-
-By default, every run creates a progress job (a caller can opt out with `createProgressJob: false`), and the top bar shows every active one to every user with `progress.view` — and its Cancel works for the user who started the run (`progress.cancel`) or anyone holding `progress.manage`. That is right for a run that finishes, and wrong for one that is meant to keep going: a continuously running feed never reaches 100%, so the bar reads *"1 operations running (0%)"* forever and its Cancel stops the feed.
-
-Declare how the job should read, per entity type:
 
 ```ts
 const adapter: DataSyncAdapter = {
@@ -267,8 +262,6 @@ const adapter: DataSyncAdapter = {
   direction: 'import',
   supportedEntities: ['orders.feed', 'orders.backfill'],
   defaultBatchSize: (entityType) => (entityType === 'orders.backfill' ? 500 : undefined),
-  describeProgressJob: ({ entityType }) =>
-    entityType === 'orders.feed' ? { meta: { hiddenFromTopBar: true } } : undefined,
   // ...
 }
 ```
@@ -280,6 +273,24 @@ It is a default, not a ceiling. An explicit `batchSize` on the run request still
 `GET /api/data_sync/options` ships the resolved values as a sparse `defaultBatchSizes` map, which the dashboard uses to seed the field, so the operator sees the number their run will actually use before they start it.
 
 One thing the declaration cannot recover: the run row does not record the page size a run used, so **Retry** re-resolves your default rather than replaying the original value. A retry of a run started with an explicit `batchSize` therefore gets your default, not that value.
+
+## Describing the progress job a run creates
+
+By default, every run creates a progress job (a caller can opt out with `createProgressJob: false`), and the top bar shows every active one to every user with `progress.view` — and its Cancel works for the user who started the run (`progress.cancel`) or anyone holding `progress.manage`. That is right for a run that finishes, and wrong for one that is meant to keep going: a continuously running feed never reaches 100%, so the bar reads *"1 operations running (0%)"* forever and its Cancel stops the feed.
+
+Declare how the job should read, per entity type:
+
+```ts
+const adapter: DataSyncAdapter = {
+  providerKey: 'my_provider',
+  direction: 'import',
+  supportedEntities: ['orders.feed', 'orders.backfill'],
+  describeProgressJob: ({ entityType }) =>
+    entityType === 'orders.feed' ? { meta: { hiddenFromTopBar: true } } : undefined,
+  // ...
+}
+```
+
 The answer may set `name`, `description` and `meta`. It is consulted once per run by the helper every start path goes through — the dashboard's run route, Retry, the scheduled worker and your own provider routes — so a start path that passes no progress-job details of its own still gets it.
 
 - **Precedence** is core default < adapter < the caller's own `progressJob`; `meta` merges key by key in that order, so a provider route that passes `progressJob.meta` keeps the last word. The keys that identify the run — `integrationId`, `entityType`, `direction` — are the exception: an adapter's `meta` cannot overwrite them.
