@@ -405,7 +405,8 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       notes,
     }, scope, notes === undefined ? null : tryResolveTodoEncryptionService(ctx))
     const customUpdates = configured && ctx.transactionalEm
-      ? await changedTodoCustomFields(ctx.transactionalEm, configured.id, scope, custom)
+      && !await hasTodoCustomFieldChanges(ctx.transactionalEm, configured.id, scope, custom)
+      ? {}
       : custom
     const touchVersion = !!ctx.transactionalEm && Object.keys(customUpdates).length > 0
     const todo = configured && !touchVersion && !Object.keys(patch).length
@@ -730,13 +731,13 @@ async function beforeTodoTransactionalWrite(ctx: CommandRuntimeContext, input: u
   return current ?? undefined
 }
 
-async function changedTodoCustomFields(
+async function hasTodoCustomFieldChanges(
   em: EntityManager, id: string, scope: { tenantId: string; organizationId: string }, custom: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  if (!Object.keys(custom).length) return custom
+): Promise<boolean> {
+  if (!Object.keys(custom).length) return false
   const stored = await loadTodoCustomSnapshot(em, id, scope.tenantId, scope.organizationId)
-  return Object.fromEntries(Object.entries(normalizeCustomFieldValues(custom)).filter(([key, value]) =>
-    value !== undefined && !isDeepStrictEqual(value, stored[key] ?? null)))
+  return Object.entries(normalizeCustomFieldValues(custom)).some(([key, value]) =>
+    value !== undefined && !isDeepStrictEqual(value, stored[key] ?? null))
 }
 
 function isConfiguredTodoHardDelete(ctx: CommandRuntimeContext): boolean {

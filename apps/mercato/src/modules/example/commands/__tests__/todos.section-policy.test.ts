@@ -134,15 +134,15 @@ describe('configured Todo transaction', () => {
   })
 
   it('advances the host version when a submitted custom field actually clears a stored value', async () => {
-    const { bus, em, context, nativeUpdate, setCustomFields, state } = setup({ priority: 2, season: 'winter' })
+    const { bus, em, context, nativeUpdate, setCustomFields, state } = setup({ priority: 2, severity: 'medium', season: 'winter' })
     await withAtomicFlush(em, [async () => {
       await bus.execute('example.todos.update', {
-        input: { id, expected_updated_at: currentVersion.toISOString(), customFields: { priority: 2, season: null } },
+        input: { id, expected_updated_at: currentVersion.toISOString(), customFields: { priority: 2, severity: 'medium', season: null } },
         ctx: context(),
       })
     }], { transaction: true })
     expect(nativeUpdate).toHaveBeenCalledWith(Todo, { id, ...scope, deletedAt: null }, { updatedAt: expect.any(Date) })
-    expect(setCustomFields).toHaveBeenCalledWith(expect.objectContaining({ values: { season: null } }))
+    expect(setCustomFields).toHaveBeenCalledWith(expect.objectContaining({ values: { priority: 2, severity: 'medium', season: null } }))
     expect(state().row?.updatedAt.getTime()).toBeGreaterThan(currentVersion.getTime())
   })
 
