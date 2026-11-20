@@ -41,7 +41,7 @@ test('Markdown customization measures its complete context within tightly bounde
     fs.copyFileSync(new URL('../../../../BACKWARD_COMPATIBILITY.md', import.meta.url), path.join(fixture, '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'))
     stageMarkdownSources(fixture)
     const evaluator = await loadEvaluator()
-    const record = cases.find(record => record.id === 'OMH-242')
+    const record = cases.find(record => record.id === 'OMH-243')
     assert.ok(record)
     const instructionPaths = [...new Set([...record.context.required, ...(record.context.allowedExtra ?? [])])]
     assert.ok(instructionPaths.every(relative => !/[?*]/.test(relative)))
@@ -52,7 +52,7 @@ test('Markdown customization measures its complete context within tightly bounde
     const initialBytes = sumBytes(fixture, initialPaths)
     context.diagnostic(`${paths.length} files / ${bytes} total bytes; ${initialPaths.length} initial files / ${initialBytes} initial bytes`)
     assert.equal(record.maxInitialContextBytes, 73728)
-    assert.equal(record.maxTotalContextBytes, 348160)
+    assert.equal(record.maxTotalContextBytes, 356352)
     assert.ok(bytes <= record.maxTotalContextBytes)
     assert.ok(record.maxTotalContextBytes - bytes <= 4096)
     assert.ok(initialPaths.length <= record.maxContextFiles)
@@ -103,7 +103,7 @@ test('Markdown customization budgets cover exact example and installed contracts
   try {
     generateShared({ targetDir: fixture, projectName: 'markdown-context-budget' })
     stageMarkdownSources(fixture)
-    const record = cases.find(record => record.id === 'OMH-242')
+    const record = cases.find(record => record.id === 'OMH-243')
     assert.ok(record)
     const evaluator = await loadEvaluator()
     const paths = evaluator.exampleReadAllowlist(record, fixture)

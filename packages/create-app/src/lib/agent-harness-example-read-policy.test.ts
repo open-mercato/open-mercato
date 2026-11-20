@@ -1071,7 +1071,7 @@ test('path normalization accepts Windows-style separators and rejects every esca
 // declaring case must be a deliberate edit here, not a silent catalog drift.
 // ---------------------------------------------------------------------------------------------
 
-const DECLARING_CASE_IDS = ['OMH-181', 'OMH-203', 'OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223', 'OMH-225', 'OMH-226', 'OMH-238', 'OMH-242']
+const DECLARING_CASE_IDS = ['OMH-181', 'OMH-203', 'OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223', 'OMH-225', 'OMH-226', 'OMH-238', 'OMH-243']
 
 /**
  * The exact capability set each declaring case may read.
@@ -1105,7 +1105,7 @@ const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
   'OMH-225': ['runtime.bulk-operation-progress'],
   'OMH-226': ['ai.agent', 'ai.agent-extension', 'ai.tool-pack'],
   'OMH-238': ['umes.customers.calendar-event-types'],
-  'OMH-242': ['umes.component-replacement'],
+  'OMH-243': ['umes.component-replacement'],
 }
 const REFERENCE_SHEET = '.ai/guides/reference-modules/example/index.md'
 
@@ -1225,7 +1225,7 @@ test('reachability: AGENT-HARNESS.md names exactly the declaring case set, which
   assert.ok(stated, 'AGENT-HARNESS.md must state the example-root declaring set')
   assert.equal(stated[1], 'Eleven')
   assert.equal(DECLARING_CASE_IDS.length, 11)
-  assert.deepEqual([stated[2], stated[3], stated[4], stated[5], stated[6]], ['OMH-181', 'OMH-203', 'OMH-226', 'OMH-238', 'OMH-242'])
+  assert.deepEqual([stated[2], stated[3], stated[4], stated[5], stated[6]], ['OMH-181', 'OMH-203', 'OMH-226', 'OMH-238', 'OMH-243'])
   // The read-only/writable split is the reviewable half of that sentence: a writable declarer is
   // exactly what immutability precedence has to defend against, so the doc names it by ID.
   const writable = declaringShippedCases().filter((entry) => ['implementation', 'regression'].includes(entry.evaluationKind))

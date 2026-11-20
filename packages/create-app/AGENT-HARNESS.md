@@ -86,7 +86,7 @@ The release gate wraps this in a larger ordered sequence.
    files — entrypoints, the inventory, and each declared capability's mapped sources —
    and the root is resolved as immutable *before* any writable pattern, so a
     `src/modules/**` grant can never reach inside it. Eleven cases,
-    `OMH-181`, `OMH-203`…`OMH-226`, `OMH-238` and `OMH-242`, declare it today; every other case is byte-identical to
+    `OMH-181`, `OMH-203`…`OMH-226`, `OMH-238` and `OMH-243`, declare it today; every other case is byte-identical to
     before. Nine are read-only. `OMH-181` and `OMH-223` are the two writable declarers:
     the former adapts the canonical DataTable bulk-action and operation-progress seams while
     proving their shared `progressJobId`; the latter writes only `.ai/specs/**`. Immutability

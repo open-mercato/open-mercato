@@ -269,7 +269,7 @@ describe.each(strategies)('Stripe refund webhooks through the %s and the real pa
 
       expect(await deliver(stripeEvent('charge.refunded', charge({ amount_refunded: 400 })).request)).toBe(202)
       expect(transaction.unifiedStatus).toBe('partially_refunded')
-      expect(transaction.capturedAmount).toBe('10.0000')
+      expect(transaction.capturedAmount).toBe('10')
 
       expect(await deliver(stripeEvent('payment_intent.succeeded', paymentIntent('succeeded')).request)).toBe(202)
       expect(transaction.unifiedStatus).toBe('partially_refunded')
