@@ -34,6 +34,7 @@
   "customers.activities.errors.phoneInvalid": "Enter a valid phone number with country code (e.g. +1 212 555 1234)",
   "customers.activities.errors.phoneRequired": "Phone number is required for Call activities",
   "customers.activities.errors.timeRequired": "Time is required",
+  "customers.activities.errors.timeRequiresDate": "Provide a valid date when changing the time.",
   "customers.activities.filters.clearAll": "Clear filters",
   "customers.activities.filters.dateRange": "Date range",
   "customers.activities.loadFailed": "Failed to load activities.",

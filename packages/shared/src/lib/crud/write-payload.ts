@@ -199,7 +199,7 @@ function snakeToCamel(key: string): string {
 export function inspectWritePayload(
   payload: unknown,
   writableKeys: Set<string> | null,
-  options: { immutableFields?: readonly string[] } = {}
+  options: { immutableFields?: readonly string[]; aliasSnakeCaseKeys?: boolean } = {}
 ): WritePayloadInspection {
   const source =
     payload && typeof payload === 'object' && !Array.isArray(payload)
@@ -220,8 +220,10 @@ export function inspectWritePayload(
   for (const key of Object.keys(source)) {
     if (!key.includes('_')) continue
     const camel = snakeToCamel(key)
+    if (writableKeys.has(key) && !immutable.has(camel)) continue
     if (camel === key) continue
     if (!writableKeys.has(camel) && !immutable.has(camel)) continue
+    if (options.aliasSnakeCaseKeys === false && !immutable.has(camel)) continue
     if (Object.prototype.hasOwnProperty.call(source, camel)) {
       if (!sameWriteValue(source[camel], source[key])) conflicts.push({ camel, snake: key })
       delete source[key]
@@ -237,7 +239,13 @@ export function inspectWritePayload(
       unwritable.push({ key, reason: 'immutable' })
       continue
     }
-    if (!writableKeys.has(key)) unwritable.push({ key, reason: 'unknown' })
+    if (!writableKeys.has(key)) {
+      const camel = snakeToCamel(key)
+      const reason = options.aliasSnakeCaseKeys === false && camel !== key && writableKeys.has(camel)
+        ? 'misspelled'
+        : 'unknown'
+      unwritable.push({ key, reason })
+    }
   }
 
   return { payload: source, aliased, unwritable, conflicts }
@@ -360,6 +368,7 @@ export function guardWriteBody(
   }
   const inspection = inspectWritePayload(declarable, collectWritableKeys(schema), {
     immutableFields: config?.immutableFields,
+    aliasSnakeCaseKeys: config?.aliasSnakeCaseKeys,
   })
 
   if (inspection.conflicts.length > 0) {
@@ -393,10 +402,7 @@ export function guardWriteBody(
       })
     }
   }
-  const misspelled: UnwritableKey[] = aliasing
-    ? []
-    : inspection.aliased.map((entry) => ({ key: entry.from, reason: 'misspelled' as const }))
-  const unapplied = [...inspection.unwritable, ...misspelled]
+  const unapplied = inspection.unwritable
 
   if (config?.rejectUnknownFields && unapplied.length > 0) {
     throw new CrudHttpError(400, {
