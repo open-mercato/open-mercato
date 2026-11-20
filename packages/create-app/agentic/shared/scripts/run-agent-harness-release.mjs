@@ -41,6 +41,20 @@ const SENSITIVE_AUTH_DATA_FILE = /^(?:auth|credentials?|secrets?|tokens?)(?:\.(?
 const SENSITIVE_ENV_KEY = /(?:^|_)(?:api_?key|auth|credential|credentials|password|passwd|private_?key|secret|token)(?:_|$)/i
 const GENERATED_YARN_CONFIG_PATH = '.yarnrc.yml'
 const GENERATED_YARN_CONFIG_LIMIT = 16_384
+const GENERATED_YARN_COOLDOWN = [
+  "# Yarn refuses versions younger than `npmMinimalAgeGate` (default 1 day) with",
+  "# \"All versions satisfying ... are quarantined\". Raised to 5 days to close the",
+  "# supply-chain window where a compromised maintainer account pushes a malicious",
+  "# patch before any advisory exists. For urgent patches use --no-time-gate.",
+  "# This app pins the exact @open-mercato release it was scaffolded from, which",
+  "# is usually minutes old, so the first-party scope opts out while every",
+  "# third-party package keeps the cooldown. A per-scope `npmRegistryServer` entry",
+  "# shadows a top-level `npmMinimalAgeGate: 0`, so the opt-out has to be",
+  "# expressed as a preapproval.",
+  "npmMinimalAgeGate: 5d",
+  "npmPreapprovedPackages:",
+  "  - \"@open-mercato/*\"",
+]
 // The deterministic step invokes no model, so its ceiling must not ride --case-timeout. Timed on
 // Linux x86_64, the complete catalog finished in 768-998 ms, and narrowing the selection
 // down to a single case measured 842-890 ms, inside the same spread, so the run is dominated by
@@ -212,6 +226,11 @@ function validGeneratedYarnConfig(contents) {
   }
   if (lines.shift() !== 'nodeLinker: node-modules') return false
   if (migrated && lines.shift() !== 'npmMinimalAgeGate: 0') return false
+  if (!migrated && lines[0] === GENERATED_YARN_COOLDOWN[0]) {
+    // Keep the comments exact because this file is copied verbatim into each target.
+    if (!GENERATED_YARN_COOLDOWN.every((line, index) => lines[index] === line)) return false
+    lines.splice(0, GENERATED_YARN_COOLDOWN.length)
+  }
   if (!lines.length) return true
 
   const unsafeHttpHosts = []
@@ -1169,6 +1188,7 @@ export function createMinimalValidationEnvironment(tempRoot, pathValue = process
     XDG_CACHE_HOME: cache,
     XDG_DATA_HOME: path.join(home, '.local', 'share'),
     CI: '1',
+    NODE_ENV: 'production',
     NO_COLOR: '1',
     NEXT_TELEMETRY_DISABLED: '1',
     YARN_ENABLE_TELEMETRY: '0',

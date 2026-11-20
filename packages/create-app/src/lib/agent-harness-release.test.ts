@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { buildRegistryConfig } from '../index.ts'
 
 const releaseScript = fileURLToPath(new URL('../../agentic/shared/scripts/run-agent-harness-release.mjs', import.meta.url))
 const releaseSchema = fileURLToPath(new URL('../../agentic/shared/ai/harness/release-result.schema.json', import.meta.url))
@@ -438,8 +439,16 @@ test('automatic target preparation rejects local environment, auth-store, creden
   }
 })
 
+function generatedScaffoldYarnConfig(registry?: string): string {
+  const template = fs.readFileSync(new URL('../../template/.yarnrc.yml.template', import.meta.url), 'utf8')
+  return template.replace('{{REGISTRY_CONFIG}}', registry ? buildRegistryConfig(registry) : '')
+}
+
 test('automatic target preparation accepts generated and Yarn-migrated credential-free config', { skip: process.platform === 'win32' }, () => {
   const safeConfigs = [
+    generatedScaffoldYarnConfig(),
+    generatedScaffoldYarnConfig('http://localhost:4873'),
+    generatedScaffoldYarnConfig('https://registry.example.com/npm'),
     `nodeLinker: node-modules
 unsafeHttpWhitelist:
   - "localhost"
@@ -512,7 +521,18 @@ unsafeHttpWhitelist:
 })
 
 test('automatic target preparation rejects auth-bearing or non-generated Yarn config', { skip: process.platform === 'win32' }, () => {
+  const generated = generatedScaffoldYarnConfig('http://localhost:4873')
   const unsafeConfigs = [
+    generated.replace('npmMinimalAgeGate: 5d', 'npmMinimalAgeGate: 1d'),
+    generated.replace('  - "@open-mercato/*"', '  - "@open-mercato/*"\n  - "**"'),
+    generated.replace('  - "@open-mercato/*"', '  - "@other/*"'),
+    generated.replace('  - "host.docker.internal"', '  - "host.docker.internal"\n  - "another.example.com"'),
+    generated.replace('npmScopes:', 'npmRegistryServer: "https://registry.example.com"\nnpmScopes:'),
+    generated.replace('  open-mercato:', '  other:'),
+    generated.replace('    npmMinimalAgeGate: 0', '    npmAuthToken: "fixture-token"\n    npmMinimalAgeGate: 0'),
+    generated.replace('nodeLinker: node-modules', 'nodeLinker: node-modules\n# fixture-secret'),
+    generatedScaffoldYarnConfig('https://fixture:fixture@registry.example.com'),
+    generatedScaffoldYarnConfig('https://registry.example.com?token=fixture'),
     `nodeLinker: node-modules
 npmScopes:
   open-mercato:
@@ -783,6 +803,7 @@ test('minimal validation environment omits provider secrets and process diagnost
   const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 if (process.env.FAKE_PROVIDER_SECRET) process.exit(21)
+if (process.env.NODE_ENV !== 'production') process.exit(22)
 console.error(${JSON.stringify(`${scalar} ${databaseUrl}`)})
 process.exit(7)
 `)
