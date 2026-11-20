@@ -10,6 +10,7 @@ import {
   fetchPickerCatalog,
   installCommandFor,
   modulesWithoutLineInstall,
+  parseInstallCommand,
   parsePickerIndex,
   resolvePickerUrl,
   selectableModules,
@@ -139,6 +140,9 @@ test('catalogLineFor maps create-mercato-app versions to catalog lines', () => {
   assert.equal(catalogLineFor('0.9.0', index.lines), '0.9')
   assert.equal(catalogLineFor('0.8.3', index.lines), '0.8')
   assert.equal(catalogLineFor('0.10.1-develop.7583.1.0c886d0a14', index.lines), 'next')
+  assert.equal(catalogLineFor('0.10.1-canary.8700.1.g0bc6c3288a', index.lines), 'next', 'a preview of a pull request into main runs the unreleased line')
+  assert.equal(catalogLineFor('0.9.1-canary.8700.1.g0bc6c3288a', index.lines), '0.9', 'a preview of a pull request into release/v0.9.x keeps its line')
+  assert.equal(catalogLineFor('0.9.1-rc.1', index.lines), '0.9')
   assert.equal(catalogLineFor('0.10.0', index.lines), null)
   assert.equal(catalogLineFor('not-a-version', index.lines), null)
 })
@@ -461,7 +465,7 @@ function fixtureWithSharedIdInMultiModulePackage(): Record<string, unknown> {
   const body = fixture() as { modules: Record<string, unknown>[] }
   const work = body.modules.find((entry) => entry.id === 'durable_work') as Record<string, unknown>
   const publisher = (from: string, id: string, title: string) => {
-    const install = `yarn mercato module add ${from}@1.0.0 --module ${id} --allow-third-party`
+    const install = `yarn mercato module add ${from}@1.0.0 --allow-third-party --module ${id}`
     return { ...work, id, from, locator: `npm:${from}`, title, install, installByLine: { '0.9': install } }
   }
   body.modules = body.modules.filter((entry) => entry !== work)
@@ -475,9 +479,9 @@ function fixtureWithSharedIdInMultiModulePackage(): Record<string, unknown> {
 
 test('runCatalogStep gives advice that ends when a shared module id lives in a package with several modules', async () => {
   const shared = fakeFetch(['ok'], fixtureWithSharedIdInMultiModulePackage).fetchImpl
-  const A_WORK = 'yarn mercato module add @publisher-a/work@1.0.0 --module durable_work --allow-third-party'
-  const A_OTHER = 'yarn mercato module add @publisher-a/work@1.0.0 --module other_mod --allow-third-party'
-  const B_WORK = 'yarn mercato module add @publisher-b/work@1.0.0 --module durable_work --allow-third-party'
+  const A_WORK = 'yarn mercato module add @publisher-a/work@1.0.0 --allow-third-party --module durable_work'
+  const A_OTHER = 'yarn mercato module add @publisher-a/work@1.0.0 --allow-third-party --module other_mod'
+  const B_WORK = 'yarn mercato module add @publisher-b/work@1.0.0 --allow-third-party --module durable_work'
   const run = async (requested: string[]) => {
     const step = stepOptions({ requested, fetchImpl: shared })
     return { ...(await runCatalogStep(step.options)), warnings: step.warnings }
@@ -531,7 +535,7 @@ test('runCatalogStep plans the package picked in the picker when a shared module
     fetchImpl: fakeFetch(['ok'], fixtureWithSharedIdInMultiModulePackage).fetchImpl,
   })
   const result = await runCatalogStep(options)
-  assert.deepEqual(result.commands, ['yarn mercato module add @publisher-a/work@1.0.0 --module durable_work --allow-third-party'])
+  assert.deepEqual(result.commands, ['yarn mercato module add @publisher-a/work@1.0.0 --allow-third-party --module durable_work'])
   assert.ok(logs.some((line) => /durable_work +Durable Work A {2}\(@publisher-a\/work · third-party/.test(line)))
   assert.deepEqual(warnings, [])
 })
@@ -956,12 +960,20 @@ test('runCatalogStep answers a core module ID with core, not with the package th
   assert.deepEqual((await runCatalogStep(byName.options)).commands, [WORK_A, DURABLE_SYNC])
 })
 
-for (const command of [
-  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0',
-  'yarn mercato module enable @open-mercato/core --module sales',
-]) {
+for (const [from, command] of [
+  ['@open-mercato/gateway-stripe', 'yarn mercato module add @open-mercato/gateway-stripe@0.9.0'],
+  ['@open-mercato/core', 'yarn mercato module enable @open-mercato/core --module sales'],
+  ['@open-mercato/storage-s3', 'yarn add @open-mercato/storage-s3@0.9.0 && echo OM_ENABLE_STORAGE_S3=true >> .env && yarn generate'],
+  ['@publisher-a/work', 'yarn mercato module add @publisher-a/work@1.0.0 --allow-third-party --module durable_work && yarn mercato module add @publisher-a/work@1.0.0 --allow-third-party --module other_mod'],
+  ['@open-mercato/ai-assistant', 'yarn mercato module add @open-mercato/ai-assistant@0.9.0 --module ai_assistant'],
+  ['@open-mercato/web-research-brave', 'yarn add @open-mercato/web-research-core@0.9.0 @open-mercato/web-research-brave@0.9.0 && yarn generate'],
+  ['@publisher-a/adapter', 'yarn add @open-mercato/web-research@0.9.0 @publisher-a/adapter@1.0.0 && yarn generate'],
+  ['@open-mercato/channel-smtp', 'yarn add @open-mercato/channel-smtp@0.10.1-develop.7749.1.ea3edf75e3'],
+  ['@open-mercato/enterprise', 'echo OM_ENABLE_ENTERPRISE_MODULES=true >> .env && echo OM_ENABLE_ENTERPRISE_MODULES_SSO=true >> .env && yarn generate'],
+] as const) {
   test(`installCommandFor accepts ${command}`, () => {
-    const entry = index.modules[0]!
+    const entry = { ...index.modules[0]!, from }
+    assert.equal(parseInstallCommand(command), command)
     assert.equal(installCommandFor({ ...entry, install: command, installByLine: null }, '0.9', index.lines), command)
     assert.equal(installCommandFor({ ...entry, installByLine: { '0.8': command } }, '0.8', index.lines), command)
   })
@@ -973,9 +985,71 @@ for (const command of [
   'yarn mercato module add ',
   ...['; echo injected', '& echo injected', '| cat', '`id`', '$(id)', '> output', '< input', '$HOME', '\\; echo injected', '\necho injected']
     .map((suffix) => `yarn mercato module add example ${suffix}`),
+  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 !',
+  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0!',
+  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 @evil/pkg@1.0.0',
+  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 --registry=https://example.com',
+  'yarn add @open-mercato/storage-s3@0.9.0 --registry=https://example.com',
+  'yarn mercato module add @open-mercato/gateway-stripe@^1.0.0',
+  'yarn mercato module add @open-mercato/gateway-stripe@latest',
+  'yarn add @open-mercato/storage-s3@latest',
+  'yarn add @open-mercato/storage-s3',
+  'yarn mercato module add -evil@1.0.0',
+  'yarn add -evil@1.0.0',
+  'yarn add .evil@1.0.0',
+  'yarn mercato module add  @open-mercato/gateway-stripe@0.9.0',
+  'yarn mercato module add\t@open-mercato/gateway-stripe@0.9.0',
+  'yarn mercato module add "@open-mercato/gateway-stripe@0.9.0"',
+  "yarn mercato module add '@open-mercato/gateway-stripe@0.9.0'",
+  'yarn mercato module add @open-mercato/*@0.9.0',
+  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 --module sales --allow-third-party',
+  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 --module Sales',
+  'yarn mercato module enable @open-mercato/core',
+  'yarn mercato module enable @open-mercato/core --module sales --force',
+  'yarn add @open-mercato/storage-s3@0.9.0 && echo OM_ENABLE_STORAGE_S3=1 >> .env',
+  'yarn add @open-mercato/storage-s3@0.9.0 && echo DATABASE_URL=true >> .env',
+  'yarn add @open-mercato/storage-s3@0.9.0 && echo OM_ENABLE_STORAGE_S3=true >> .bashrc',
+  'yarn add @open-mercato/storage-s3@0.9.0 && echo OM_ENABLE_STORAGE_S3=true > .env',
+  'yarn add @open-mercato/storage-s3@0.9.0 && echo OM_ENABLE_STORAGE_S3=true',
+  'yarn generate',
+  'yarn generate && yarn generate',
+  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 && ',
+  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 && && yarn generate',
+  ' && yarn mercato module add @open-mercato/gateway-stripe@0.9.0',
+  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 &&yarn generate',
+  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 || yarn generate',
+  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 ',
+  `yarn add @scope/${'a'.repeat(214)}@1.0.0`,
+  `yarn mercato module enable @open-mercato/core --module ${'a'.repeat(65)}`,
+  `yarn add ${Array.from({ length: 300 }, (_, position) => `@open-mercato/p${position}@1.0.0`).join(' ')}`,
+  '',
+  ...['; echo injected', '& echo injected', '&& echo injected', '| cat', '`id`', '$(id)', '> output', '< input', '$HOME', '\\; echo injected', '\necho injected', '\n', '\r']
+    .map((suffix) => `yarn mercato module add @open-mercato/gateway-stripe@0.9.0 ${suffix}`),
+  ...[';', '|', '`id`', '$(id)', '>', '\n']
+    .map((suffix) => `yarn mercato module add @open-mercato/gateway-stripe@0.9.0${suffix}`),
 ]) {
   test(`installCommandFor rejects ${JSON.stringify(command)} without a latest-line fallback`, () => {
     const entry = index.modules[0]!
+    assert.equal(parseInstallCommand(command), null)
+    assert.equal(installCommandFor({ ...entry, install: command, installByLine: null }, '0.9', index.lines), null)
+    assert.equal(installCommandFor({ ...entry, installByLine: { '0.9': command } }, '0.9', index.lines), null)
+  })
+}
+
+for (const [from, command] of [
+  ['@open-mercato/gateway-stripe', 'yarn add evil-pkg@1.0.0'],
+  ['@open-mercato/gateway-stripe', 'yarn add @open-mercato/gateway-stripe@0.9.0 evil-pkg@1.0.0'],
+  ['@open-mercato/gateway-stripe', 'yarn mercato module add @evil/pkg@1.0.0 --allow-third-party'],
+  ['@open-mercato/core', 'yarn mercato module enable @evil/pkg --module sales'],
+  ['@publisher-a/work', 'yarn mercato module add @publisher-a/work@1.0.0'],
+  ['@publisher-a/work', 'yarn mercato module add @publisher-a/work@1.0.0 --module durable_work'],
+  ['@open-mercato/gateway-stripe', 'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 --allow-third-party'],
+  ['@open-mercato/gateway-stripe', 'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 && echo OM_ENABLE_ENTERPRISE_MODULES=true >> .env'],
+  ['@open-mercato/storage-s3', 'echo OM_ENABLE_ENTERPRISE_MODULES=true >> .env && yarn generate'],
+] as const) {
+  test(`installCommandFor rejects ${command} for an entry from ${from}`, () => {
+    assert.equal(parseInstallCommand(command), command, 'the grammar alone accepts it')
+    const entry = { ...index.modules[0]!, from }
     assert.equal(installCommandFor({ ...entry, install: command, installByLine: null }, '0.9', index.lines), null)
     assert.equal(installCommandFor({ ...entry, installByLine: { '0.9': command } }, '0.9', index.lines), null)
   })
@@ -1000,5 +1074,36 @@ test('unsafe catalog commands are omitted from the picker and reported as missin
     assert.deepEqual(result.commands, [])
     assert.equal(result.selectionFile, null)
     assert.ok(requested.warnings.some((warning) => warning.includes('gives no install command for 0.9')))
+  }
+})
+
+const livePicker = (): unknown =>
+  JSON.parse(readFileSync(join(__dirname, '__fixtures__', 'picker-live-2026-11-05.json'), 'utf8'))
+
+test('every install command of a verified module in the live picker.json (fetched 2026-11-05) is accepted unchanged', () => {
+  const live = parsePickerIndex(livePicker()) as PickerIndex
+  let checked = 0
+  for (const entry of live.modules.filter((candidate) => candidate.verifiedOn.length > 0)) {
+    for (const command of [entry.install, ...Object.values(entry.installByLine ?? {})]) {
+      assert.equal(parseInstallCommand(command), command, `${entry.id}: ${command}`)
+      checked += 1
+    }
+  }
+  assert.ok(checked > 0)
+  for (const line of live.lines) assert.deepEqual(modulesWithoutLineInstall(live, line).map((entry) => entry.id), [], line)
+  const storage = selectableModules(live, '0.9').find((entry) => entry.id === 'storage_s3')
+  assert.equal(storage?.install, 'yarn add @open-mercato/storage-s3@0.9.0 && echo OM_ENABLE_STORAGE_S3=true >> .env && yarn generate')
+  assert.equal(
+    selectableModules(live, '0.8').find((entry) => entry.id === 'storage_s3')?.install,
+    'yarn add @open-mercato/storage-s3@0.8.0 && echo OM_ENABLE_STORAGE_S3=true >> .env && yarn generate',
+  )
+})
+
+test('installCommandFor accepts every command of the live picker.json, verified or not', () => {
+  const live = parsePickerIndex(livePicker()) as PickerIndex
+  for (const entry of live.modules) {
+    for (const command of [entry.install, ...Object.values(entry.installByLine ?? {})]) {
+      assert.equal(installCommandFor({ ...entry, install: command, installByLine: null }, live.lines[0]!, live.lines), command, `${entry.id}: ${command}`)
+    }
   }
 })

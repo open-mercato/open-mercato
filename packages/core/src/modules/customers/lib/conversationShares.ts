@@ -1,5 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerEmailConversationShare, CustomerInteraction } from '../data/entities'
 
 const logger = createLogger('customers')
@@ -246,5 +248,113 @@ export async function listSharedChannelIds(
   } catch {
     // Fail closed: no ids means the strict predicate, never a wider one.
     return []
+  }
+}
+
+/** The CURRENT authority of a live `customer_interactions` row, for revocation checks. */
+export type LiveInteractionAuthority = {
+  visibility: string | null
+  authorUserId: string | null
+  channelId: string | null
+  /**
+   * The Person/Company this interaction CURRENTLY belongs to — an interaction
+   * can be re-linked to a different parent after the audit entry describing
+   * it was recorded, so this is the only `entityId` safe to use for matching
+   * a conversation-share grant against a historical representation.
+   */
+  entityId: string | null
+}
+
+/**
+ * Upper bound on interaction ids resolved in one batch — mirrors `SHARE_ARM_MAX`;
+ * a single audit page cannot reference more rows than it lists.
+ */
+export const LIVE_INTERACTION_ARM_MAX = 500
+
+/**
+ * `CustomerInteraction.entity` is a ManyToOne reference (`entity_id` FK) — MikroORM
+ * returns either the raw FK string or a `Reference`-shaped object exposing `.id`,
+ * depending on hydration. Mirrors the same ternary `loadInteractionSnapshot` uses.
+ */
+function resolveEntityId(entityRef: unknown): string | null {
+  if (typeof entityRef === 'string') return entityRef
+  if (entityRef && typeof entityRef === 'object' && 'id' in (entityRef as Record<string, unknown>)) {
+    const id = (entityRef as Record<string, unknown>).id
+    return typeof id === 'string' ? id : null
+  }
+  return null
+}
+
+/**
+ * Batched CURRENT (live) visibility/author/channel for a set of interaction ids,
+ * scoped to tenant/organization. An email interaction's `visibility` can be
+ * revoked (shared → private) after an audit entry already recorded the OLD
+ * value in its stored snapshot — callers MUST use this live authority, never
+ * the stored snapshot fields, to decide whether a historical audit
+ * representation of that same interaction is visible today.
+ *
+ * Soft-deleted rows are excluded on purpose: a deleted interaction has no live
+ * authority to resolve, so its id is simply absent from the returned map and
+ * the caller's conservative historical fallback applies.
+ *
+ * Fails CLOSED: an empty map means every id falls back to that same
+ * conservative path, never to the (unverifiable) stored visibility.
+ */
+export async function loadLiveInteractionAuthority(
+  em: EntityManager,
+  scope: ConversationShareScope,
+  interactionIds: readonly string[],
+): Promise<Map<string, LiveInteractionAuthority>> {
+  const ids = Array.from(
+    new Set(interactionIds.filter((id): id is string => typeof id === 'string' && id.length > 0)),
+  )
+  if (!ids.length) return new Map()
+  try {
+    const where: Record<string, unknown> = { id: { $in: ids }, tenantId: scope.tenantId, deletedAt: null }
+    if (scope.organizationId) where.organizationId = scope.organizationId
+    const rows = (await findWithDecryption(
+      em,
+      CustomerInteraction,
+      where as never,
+      { limit: LIVE_INTERACTION_ARM_MAX + 1 },
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )) as unknown as Array<{
+      id: string
+      visibility?: string | null
+      authorUserId?: string | null
+      channelId?: string | null
+      entity?: unknown
+    }>
+    if (!Array.isArray(rows)) return new Map()
+
+    if (rows.length > LIVE_INTERACTION_ARM_MAX) {
+      logger.warn('[internal] live interaction authority lookup truncated', {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        limit: LIVE_INTERACTION_ARM_MAX,
+        dropped: rows.length - LIVE_INTERACTION_ARM_MAX,
+      })
+    }
+
+    const map = new Map<string, LiveInteractionAuthority>()
+    for (const row of rows.slice(0, LIVE_INTERACTION_ARM_MAX)) {
+      if (!row || typeof row.id !== 'string' || !row.id) continue
+      map.set(row.id, {
+        visibility: row.visibility ?? null,
+        authorUserId: row.authorUserId ?? null,
+        channelId: row.channelId ?? null,
+        entityId: resolveEntityId(row.entity),
+      })
+    }
+    return map
+  } catch (err) {
+    logger.warn('[internal] failed to resolve live interaction authority; failing closed', { err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'customers',
+      code: 'customers.live_interaction_authority_load_failed',
+    })
+    // Fail closed: an empty map routes every id through the caller's
+    // conservative historical fallback, never through the stored snapshot.
+    return new Map()
   }
 }

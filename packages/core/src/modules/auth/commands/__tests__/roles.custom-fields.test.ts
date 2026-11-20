@@ -83,6 +83,65 @@ describe('auth.roles.create duplicate names', () => {
 })
 
 describe('auth.roles.update', () => {
+  it.each([
+    ['write', { code: '23505', constraint: 'roles_tenant_id_name_unique' }],
+    ['flush', { cause: { code: '23505', constraint: 'roles_tenant_id_name_unique' } }],
+  ])('rolls back a duplicate name from %s before returning field validation', async (failurePoint, error) => {
+    const handler = commandRegistry.get<Record<string, unknown>, Role>('auth.roles.update')!
+    const existingRole = { id: roleId, name: 'Original Role', tenantId, deletedAt: null } as Role
+    const updateOrmEntity = jest.fn().mockImplementation(async () => {
+      if (failurePoint === 'write') throw error
+      return { ...existingRole, name: 'Duplicate Role' }
+    })
+    const markOrmEntityChange = jest.fn()
+    const em = {
+      findOne: jest.fn(async () => existingRole),
+      count: jest.fn(async () => 0),
+      flush: jest.fn().mockImplementation(async () => {
+        if (failurePoint === 'flush') throw error
+      }),
+      rollback: jest.fn(async () => undefined),
+      commit: jest.fn(async () => undefined),
+    }
+    const ctx = makeExecuteCtx({ updateOrmEntity, markOrmEntityChange }, em)
+
+    await expect(handler.execute({ id: roleId, name: 'Duplicate Role' }, ctx)).rejects.toMatchObject({
+      status: 400,
+      body: {
+        error: 'A role with this name already exists',
+        fieldErrors: { name: 'A role with this name already exists' },
+        details: [{ path: ['name'], code: 'duplicate', origin: 'validation' }],
+      },
+    })
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
+    expect(markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    new Error('Database unavailable'),
+    { code: '23505', constraint: 'roles_pkey' },
+    new CrudHttpError(409, { error: 'Record changed' }),
+  ])('preserves unrelated update failures: %j', async (error) => {
+    const handler = commandRegistry.get<Record<string, unknown>, Role>('auth.roles.update')!
+    const existingRole = { id: roleId, name: 'Original Role', tenantId, deletedAt: null } as Role
+    const markOrmEntityChange = jest.fn()
+    const em = {
+      findOne: jest.fn(async () => existingRole),
+      count: jest.fn(async () => 0),
+      flush: jest.fn().mockRejectedValue(error),
+      rollback: jest.fn(async () => undefined),
+    }
+    const ctx = makeExecuteCtx({
+      updateOrmEntity: jest.fn().mockResolvedValue(existingRole),
+      markOrmEntityChange,
+    }, em)
+
+    await expect(handler.execute({ id: roleId, name: 'New Role' }, ctx)).rejects.toBe(error)
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
   it('allows updating the built-in admin role when the name is unchanged', async () => {
     const handler = commandRegistry.get<Record<string, unknown>, unknown>('auth.roles.update') as CommandHandler<Record<string, unknown>, Role>
     expect(handler).toBeDefined()
@@ -196,6 +255,7 @@ describe('auth.roles.update', () => {
       findOne: async (entity: unknown) => (entity === Role
         ? { id: 'role-1', name: 'After Role', tenantId: 'tenant-1', deletedAt: null }
         : null),
+      count: async () => 0,
       nativeDelete: async () => 0,
       flush: async () => undefined,
       getReference: () => ({}),

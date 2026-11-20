@@ -1,3 +1,4 @@
+import { redactRestoredNextInteractionName } from '../lib/interactionProjection'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -54,6 +55,7 @@ import {
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
+  shouldBumpOptimisticLockVersion,
   ensureDictionaryEntry,
   invalidateDictionaryKindCaches,
   emitQueryIndexDeleteEvents,
@@ -873,6 +875,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for person create' })
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await redactRestoredNextInteractionName(em, after.entity)
     let entity = await findOneWithDecryption(
       em,
       CustomerEntity,
@@ -1084,7 +1087,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           parsed.department, parsed.seniority, parsed.timezone, parsed.linkedInUrl,
           parsed.twitterUrl, parsed.companyEntityId,
         ].some((v) => v !== undefined)
-        if (profileFieldsUpdated) {
+        if (shouldBumpOptimisticLockVersion(profileFieldsUpdated, custom, parsed.tags)) {
           record.updatedAt = new Date()
         }
 
@@ -1191,6 +1194,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await redactRestoredNextInteractionName(em, before.entity)
     const entity = await findOneWithDecryption(em, CustomerEntity, { id: before.entity.id }, undefined, {
       tenantId: before.entity.tenantId,
       organizationId: before.entity.organizationId,
@@ -1513,6 +1517,7 @@ const deletePersonCommand: CommandHandler<
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
+      await redactRestoredNextInteractionName(em, before.entity)
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
       const decryptionScope = {

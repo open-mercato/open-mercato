@@ -1,5 +1,308 @@
 # Upgrade Notes
 
+## CRM preset enables the scheduler (#8804)
+
+New apps scaffolded with `create-mercato-app --preset crm` now enable the
+`scheduler` module. Without it, `communication_channels` registers no polling
+schedules, so connected IMAP and Gmail mailboxes received new mail only after a
+manual "Poll now", and Gmail push watches were never renewed. With the default
+`QUEUE_STRATEGY=local`, `mercato server dev` and `mercato server start` start the
+scheduler automatically once the module is enabled (`AUTO_SPAWN_SCHEDULER`
+defaults to on), so new apps need no extra step.
+
+**Existing `crm` apps:** add `{ id: 'scheduler', from: '@open-mercato/scheduler' }`
+to `src/modules.ts` (the package is already a template dependency), then run
+`yarn generate` and `yarn db:migrate` for the scheduler tables. The schedules are
+registered when defaults are seeded or an organization is created, so
+organizations that already exist need them seeded once:
+
+```bash
+yarn mercato seed:defaults --module communication_channels
+yarn mercato seed:defaults --module integrations
+yarn mercato seed:defaults --module ai_assistant
+yarn mercato auth sync-role-acls
+```
+
+Each command is idempotent. The `integrations` and `ai_assistant` runs register
+the integration health probes and the AI assistant cleanup jobs, which those
+modules also skip without a scheduler. `auth sync-role-acls` grants the
+scheduler's default role features (`scheduler.*` for admins,
+`scheduler.jobs.view` for employees) to existing tenants, which `seed:defaults`
+does not do for the built-in roles. The profile page "My communication channels"
+now warns when a connected channel relies on polling but no scheduler is enabled
+or the organization's poll schedule is missing or disabled, and
+`GET /api/communication_channels/me/channels` returns an additive
+`automaticSyncEnabled` boolean that drives that warning.
+## Eval cases may declare tool mocks (#9648, A-4)
+
+**Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.
+
+**Action:** none. An older CLI rejects an eval-set file that uses `mocks` (the file schema is strict), so upgrade every CLI that runs such files.
+
+## Trace content retention resumes from a cursor and can be scheduled for existing organizations (#9648, C-4)
+
+**Fixed (enterprise `agent_orchestrator`).** The daily `trace-content-retention` worker used to scan only rows created in the seven days before the retention cutoff, at most 10,000 per run. Content stayed in storage when the worker did not run for a week, when `retentionDays` was lowered, or when an organization produced more rows than one run could read. The worker now keeps a per-organization cursor (tenant-scoped module config rows `agent_orchestrator` / `trace_content_retention_cursor:<organizationId>:<llm_span|context_bundle>`; no migration) and walks every `llm` span and context bundle created before the cutoff, resuming where the previous run stopped. A key that has not expired yet holds the cursor so the next run retries it (a failed delete does not; see below). The first run after the upgrade walks the whole history in batches over the following days and deletes content that the old window missed.
+
+**Action:** organizations created before the retention worker shipped have no retention schedule, because setup registers it only for new tenants and organizations. Register it once with `yarn mercato agent_orchestrator trace-retention:schedule` (every organization; `--tenant <id>` / `--org <id>` narrow the set). It is an idempotent upsert, so running it again is safe. It needs the scheduler module.
+
+**Behaviour change.** When deleting one expired storage key fails, retention now reports it (`reportError` code `agent_orchestrator.trace_content_retention_delete_failed`, plus a scoped warning log), moves the cursor past that row and does not retry the key on later runs. Before, such a key held the cursor and stalled retention for that tenant and organization. A scope whose storage is unavailable is still skipped without moving the cursor. **Action:** watch for that error code and remove the reported object from storage by hand if needed.
+
+## `delegate_agent` only reaches the calling agent's declared sub-agents (#9648, B-13)
+
+**Behaviour change (enterprise `agent_orchestrator`).** `agent_orchestrator.delegate_agent` used to run any registered `research` agent without `subAgents`, whichever agent called it. It now resolves the calling agent server-side (the native run context, or the OpenCode run session) and runs the target only when that agent lists it in `subAgents`. A call that belongs to no agent run returns `{ ok: false, error: 'no_active_run' }`; a target the calling agent did not declare returns `{ ok: false, error: 'sub_agent_not_allowed' }`. Both are returned as data, like the existing refusals.
+
+**Action:** none for agents that delegate only to their declared `subAgents`. A client that called `delegate_agent` directly, outside an agent run (for example through `/api/ai_assistant/tools/execute` or an MCP client), must run the agent through its run route or an agent tool instead.
+
+## File agents run on the native runtime by default (#9648, lightweight agent runtime Phase 3)
+
+**Behaviour change (enterprise `agent_orchestrator`, additive `ai-assistant` seam).** File-defined agents (`agents/<id>/`, including their sub-agents) used to run on the OpenCode container. The loader now registers them with `runtime: 'native'` and builds a read-only ai-assistant definition for each one: object execution mode, `readOnly: true` with `mutationPolicy: 'read-only'` (mutation tools are stripped), and an allowlist of the agent's own tools plus `load_skill`/`run_skill_script` (when it has skills or local tools) and `delegate_agent` (when it declares sub-agents). The model gets a strict variant of the OUTCOME schema, but answers are still validated against the authored schema. OpenCode MCP tool names written in `AGENT.md` (`open-mercato_<module>_<tool>`) are rewritten to native names for allowlisted tools. The generated manifest is unchanged, so you do not need to regenerate it.
+
+These agents stay on OpenCode:
+- agents with an `artifact` outcome (they write files to `out/` and return through `submit_outcome`);
+- every file agent when `OM_AGENT_FILE_AGENT_RUNTIME=opencode` is set;
+- an agent whose native definition could not be built, or that the ai-assistant registry did not accept (registry unavailable, or the id already belongs to another agent). A warning names the agent.
+
+An agent that falls back to OpenCode is not registered at all if it declares governance OpenCode cannot enforce (see the `GOVERNANCE.json` entry below).
+
+**The file plane is OpenCode-only.** The native runtime has no sandbox filesystem. The generated manifest does not carry a `files` config, so an agent loaded from `agents/<id>/` runs natively even if its `AGENT.md` opts into files. The native runner drops a `__files` input envelope (with a warning) before the input is persisted or sent to the model. Only an entry registered directly with `registerFileAgent` and `files.enabled` stays on OpenCode.
+
+**Timeout.** Native file-agent runs are bounded by `OM_AGENT_RUN_TIMEOUT_MS`, not `OM_OPENCODE_RUN_TIMEOUT_MS`. Both default to 5 minutes. If you raised the OpenCode value for slow file agents, raise `OM_AGENT_RUN_TIMEOUT_MS` too.
+
+**No output repair.** On OpenCode, a file agent whose outcome failed validation got the errors back from `submit_outcome` and could resubmit, and an agent that stopped without an outcome got one reminder. On native, neither happens. An answer that the agent's OUTCOME schema rejects, or a tool loop that reaches its step limit without a final answer, fails the run as `AgentOutputInvalidError` with a `schema` guardrail check. Answers that the strict model schema rejected but the authored schema accepts still complete. A repair step may be added in a later release.
+
+**Run label.** New file-agent runs persist `agent_runs.runtime = 'native'` instead of `'opencode'`. Older rows keep their label. Reports or dashboards that select file-agent runs by `runtime = 'opencode'` must also count `'native'`, along with the legacy `'in-process'` label from earlier native runs.
+
+**Deprecated bridge.** `OM_AGENT_FILE_AGENT_RUNTIME=opencode` sends every file agent back to OpenCode and logs a deprecation warning once per process. Any other value, or no value, keeps the native default. The bridge lasts one minor version. It goes away with the OpenCode runtime in the decommission phase (Phase 6 of `.ai/specs/enterprise/agent-orchestrator/2026-07-07-lightweight-agent-runtime.md`), which also removes `submit_outcome`, the session store and the file plane.
+
+**Action:** for file agents with a `proposal` or `research` outcome, raise `OM_AGENT_RUN_TIMEOUT_MS` if they need more than 5 minutes. If a file agent now fails because it runs out of steps before answering, raise `maxSteps` in its `AGENT.md` frontmatter and run `yarn generate`. Nothing else is required. Set `OM_AGENT_FILE_AGENT_RUNTIME=opencode` only as a temporary fallback while you fix an agent that misbehaves on the native runtime.
+
+## File-defined agents declare governance in `GOVERNANCE.json` (#9648, B-3)
+
+**New (enterprise `agent_orchestrator`).** A file agent (`agents/<id>/`, also its sub-agents) can ship an optional `GOVERNANCE.json` with the `principal`, `integrity`, `untrustedInputs` and `modelSettings` keys `defineAgent` accepts. They are validated with the same parsers and enforced by the native runtime: principal provisioning and `toolAcl: 'intersect'`, output-integrity rules, untrusted-input screening and agent-level model settings. Agents without the file are unchanged, including their agent version.
+
+**Behaviour change.** Fail-closed cases: an agent whose `GOVERNANCE.json` does not validate is not registered (a warning names the agent and the rule). An agent that has to run on OpenCode — `artifact` outcome, `OM_AGENT_FILE_AGENT_RUNTIME=opencode`, or a failed native registration — and declares `untrustedInputs`, `modelSettings`, a principal in `intersect` mode (declared, or inherited from `OM_AGENT_TOOL_ACL_MODE=intersect`) or a `prepare_step` integrity rule is not registered either, because OpenCode cannot enforce them. Call-time `callSettings` sent to an agent on OpenCode used to be dropped silently; the run now refuses with `agent_call_settings_unsupported` before any run row is written, and `POST /api/ai_assistant/ai/run-object` answers `422 dispatch_option_unsupported`. `AiAgentDispatchDeniedCode` (and so the exported `AgentToolDenyCode`) gains the additive `agent_call_settings_unsupported` member; an exhaustive `switch` over it needs a new case.
+
+**Action:** none unless you run file agents on OpenCode and send `callSettings` to them — drop the settings or move the agent to the native runtime.
+
+## Agent traces stop reporting settings the provider dropped (#9648, B-10)
+
+**Behaviour change (enterprise `agent_orchestrator`, additive `ai-assistant` field).** A native agent trace used to record every requested call setting under `gen_ai.request.*`, even one the provider dropped with an `unsupported` warning. The OpenAI Responses API drops `seed`, and OpenAI reasoning models drop `temperature` and `topP`. Those settings are now left out of `gen_ai.request.*` and listed in the new span attribute `om.params.ignored`. The trace page shows them as "Ignored by the model", and OTLP exports the same key. `runAiAgentObject` exposes the toolless call's provider warnings as an optional `warnings` field. Traces recorded before this change are not rewritten.
+
+## Agent run doors accept call-time model settings (#9648, B-10)
+
+**Additive (enterprise `agent_orchestrator`, core `workflows`).** `POST /agents/{id}/run`, `POST /agent-api/agents/{id}/run`, `POST /runs/{id}/rerun` (optional body) and the workflow `INVOKE_AGENT` activity (`config.callSettings`) accept `callSettings`, using the same contract as `POST /api/ai_assistant/ai/run-object`: strict keys, capped values, no `providerOptions`. The Playground gains a **Model settings** section. Before this change these doors ignored a `callSettings` key without a word. They now validate it (422 on a bad value) and apply it.
+
+**Behaviour change:** when a caller sends non-empty `callSettings` to an agent that runs on OpenCode (an `artifact` file agent, any file agent under `OM_AGENT_FILE_AGENT_RUNTIME=opencode`, or one that fell back from native registration) through these doors, it now gets `422 agent_call_settings_unsupported` instead of a run on the agent's defaults. A workflow step with `callSettings` on such an agent fails. Calls without `callSettings` are unchanged. The ai-assistant dispatcher path (`run-object`, MCP agent tools) preserves the B-3 refusal for OpenCode agents. A stored workflow definition whose `INVOKE_AGENT` config already carried a `callSettings` key (ignored until now) is validated when the step runs. Out-of-range values, unknown keys and `{{context.*}}` tokens (they interpolate to strings) fail the step. A rerun does not reuse the original run's call settings: pass them again in the body. `modelSettings.maxOutputTokens` is a default, not a ceiling. Callers allowed to run an agent can raise it up to 32768. `allowRuntimeOverride: false` does not apply to `callSettings`.
+
+## Refused MCP calls are audited on the HTTP and dev servers (#9648, B-2)
+
+**Behaviour change (`ai_assistant`).** `mcp:serve-http` and `mcp:dev` now write the `ai_assistant.mcp_tool_call` access-log row for calls the MCP SDK refuses before the tool handler runs, as the stdio server already did. A call for an unknown tool, or for a tool hidden by the exposure config, the mutation mode or the caller's ACL, records `outcome: 'denied'` / `errorCode: 'NOT_FOUND'`; arguments rejected by the input schema record `outcome: 'invalid_input'` / `errorCode: 'VALIDATION_ERROR'`. The result returned to the client is unchanged apart from an added `_meta.correlationId`. On all MCP servers and `/tools/execute`, `argKeys` in the audit row is now capped at 64 argument names of at most 128 characters. On `mcp:serve-http` the row is attributed to the request's verified principal (the `x-om-session-token` header user, else the API key), never to a `_sessionToken` argument.
+
+**Action:** none. Expect more audit rows from clients that probe for tools; dashboards that read `outcome: 'denied'` as "permission denied" should also check `errorCode`.
+
+## Agent trace artifacts are never stored unencrypted while encryption is on (#9648, B-6)
+
+**Behaviour change (enterprise `agent_orchestrator`).** Offloads to `storage_s3` used to upload the payload as plaintext JSON whenever encryption did not take effect, even with tenant data encryption on. This covered full-content trace capture (LLM request/response and context payload), full run output, tool request/response, integrity evidence and agent-produced file artifacts. With `TENANT_DATA_ENCRYPTION` on, these writes now fail closed when the `tenantEncryptionService` is not registered, the KMS is unhealthy, or no DEK can be resolved. Nothing is uploaded and the caller degrades as it does when storage is unavailable. Trace steps record the new `om.content.status = encryption_unavailable` value (the trace UI says so), the context bundle keeps `payloadRef = null`, and file artifacts are reported as failed captures. Runs never fail because of this.
+
+**Where you see it.** The run's **Files** card on the trace page says how many agent-produced files were not stored and why, for example "2 file(s) produced by the agent were not stored: tenant data encryption was unavailable" (or "file storage was unavailable"). The count and reason are stored on an `artifact.capture` system span of the run (no migration) and returned as the additive `captureFailure` field of `GET /api/agent_orchestrator/runs/:id/artifacts`. A run output or tool request/response that was too large to keep inline and could not be offloaded shows the same reason under its preview; the truncated summary carries the additive `offloadStatus` key. Run compare labels such a step `encryption_unavailable` instead of `not_captured`. The warning log `agent artifact capture did not store files` carries `runId`, `tenantId`, `organizationId`, `count` and `reason`, never file names or content.
+
+With `TENANT_DATA_ENCRYPTION=false` nothing changes: artifacts are stored unencrypted, like every other encrypted column in that mode.
+
+**Action:** none for deployments with a healthy KMS. With encryption on, a KMS outage now pauses content and file-artifact capture instead of writing plaintext. Blobs stored as plaintext by earlier versions stay readable; to remove them, delete them from the `agent-trace-content`, `agent-trace-artifacts` and `agent-run-artifacts` namespaces. Content retention expires only the `agent-trace-content` blobs (LLM request/response and context payload).
+
+## Invoice delete checks the expected version under the row lock
+
+`DELETE /api/sales/invoices` now locks the invoice row and compares the
+`x-om-ext-optimistic-lock-expected-updated-at` header with the `updated_at` of the
+locked row, as order delete already does. A delete whose invoice another request
+edited after the route's version check now answers 409 `optimistic_lock_conflict`
+instead of deleting the edited invoice. Deleting a missing or already deleted
+invoice answers 404 instead of 500.
+No migration or configuration change.
+
+## Catalog price-kind seed keeps existing price kinds (#8104)
+
+`seedCatalogPriceKinds`, `mercato catalog seed-price-kinds` and catalog
+`seed:defaults` now only create a missing `regular` or `sale` price kind and no
+longer change existing price kinds. On tenants with several organizations,
+`regular`/`sale` keep their current `organization_id` instead of moving to the
+organization being seeded (relevant to `sales/api/price-kinds`, which filters by
+organization). A soft-deleted `regular` or `sale` is not restored, so restore it
+before `mercato catalog seed-examples` or `seed-examples-bundle`.
+
+A kind an admin deleted can be undone from the action log. Kinds soft-deleted by
+earlier seed runs have no action-log entry and cannot be recreated through the API
+(the `(tenant_id, code)` constraint covers deleted rows). Find them first, matching
+`deleted_at` to the times `seed:defaults` ran:
+
+```sql
+select id, code, title, is_active, deleted_at from catalog_price_kinds
+where tenant_id = '<tenant>' and deleted_at is not null;
+```
+
+Then restore each one:
+
+```sql
+update catalog_price_kinds set deleted_at = null, is_active = true, updated_at = now()
+where tenant_id = '<tenant>' and code = '<code>';
+```
+
+The earlier active state is unknown, so check `is_active` after restoring. The SQL
+bypasses cache invalidation: clear the CRUD/API cache (or restart the app)
+afterwards. No migration is needed.
+
+## Event-triggered workflow execution identity (#9137)
+
+Event payload `userId` and `actorUserId` remain data and no longer supply
+workflow execution authority. Configure the workflow definition's explicit grant
+for event-driven effects; manually authenticated starts retain their identity.
+
+Persisted event-labelled instances whose initiator differs from their canonical
+`trigger:<trigger_id>` marker now fail closed before execution or queued effect
+dispatch, including inherited sub-workflows. Stop/drain workflow writers and
+workers and update every app/worker replica together. Inventory affected records
+within each tenant/organization, cancel through supported workflow controls,
+audit prior effects, and restart required work with a trusted manual initiator or
+a fresh configured event. Repeated retry, editing metadata or replaying an old
+queue message as a user is not a repair. Historical effects are not undone.
+No schema migration or automatic data rewrite is performed.
+
+[Rollout, inventory predicate and coverage](.ai/specs/2026-11-16-workflow-event-identity-rollout.md).
+
+## EUDR update undo conflicts (#9128)
+
+Update undos for EUDR plots, risk assessments, product mappings, mitigation actions,
+evidence submissions and statements now return HTTP 409 with code
+`eudr.errors.undoConflict` when the record changed or was soft-deleted after the
+logged update, or the action log has no `after` snapshot. Previously these undos
+could return 200 and overwrite later edits. Clients must treat this refusal as
+final: reload the record and re-apply the wanted change by hand. Do not retry the
+same stale undo automatically. Edits lost to earlier undos are not recovered.
+
+Undoing an evidence-submission update also recomputes its completeness score.
+Forward updates and update undos now keep entity and custom-field writes in the
+same parent-row transaction. Custom-field-only updates wait for an in-flight undo;
+a failed reset rolls back both the row and its custom values before retry.
+Own updates can still be undone newest first when their recorded content matches;
+create/delete undos and forward commands are unchanged. No database migration,
+configuration change, route, event or response-field migration is needed for this
+fix. Restart application and worker processes together when deploying.
+
+[Specification and coverage](.ai/specs/2026-07-06-eudr-compliance-module.md#migration--backward-compatibility).
+
+## Production Compose tenant encryption key (#7231)
+
+**Operators:** the production Docker starter, root compatibility copy and create-app
+Compose template no longer provide a tenant encryption key; copied env examples are
+blank too. Before initialization/serving, a shared preflight requires a unique key of
+at least 32 UTF-8 bytes or configured HashiCorp Vault (`VAULT_ADDR` + `VAULT_TOKEN`).
+It rejects the published key even if explicitly supplied. The effective lookup secret
+must also be unique and at least 32 bytes: Vault-only installations require a dedicated
+`LOOKUP_HASH_PEPPER`, and a weak explicit pepper cannot override a strong derived key.
+Remote Vault requires HTTPS; HTTP is allowed only for exact `localhost`, `127.0.0.1`
+and `[::1]` hosts, even when a fallback key is supplied. Existing strong preferred
+and legacy keys retain their precedence; supported Vault configuration, its mount and
+timeouts, and `LOOKUP_HASH_PEPPER` now reach all app/sidecar consumers consistently.
+The check also applies when the encryption toggle is off; do not disable encryption
+to bypass it. Generate new random material only for an installation without existing
+encrypted data. Never regenerate keys on restart. Keys made only of a few repeated
+characters, and other secrets published in this repository, are rejected as well.
+
+**Local development:** when `yarn setup`, `yarn dev`, `yarn dev:ephemeral`, the
+standalone `setup`/`dev` scripts or the `mercato` CLI create a missing `.env` from
+`.env.example`, they now write a unique random `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`
+into it only when neither the example nor process environment supplies a preferred
+or legacy encryption key (`yarn setup` reuses the compose `.env` key), alongside the secrets the
+starter already generated. An existing `.env` is never modified; one still carrying
+the old published key keeps it until migrated.
+
+**Existing data:** retain the old root/DEKs and lookup pepper securely. Replacing a
+root alone makes tenant and system ciphertext unreadable; replacing the effective
+pepper breaks old keyed lookups/login. Stop all writers and rehearse backup/restore
+and the complete migration before cutover. The existing entity rotation command
+supports previous derived roots through `TENANT_DATA_ENCRYPTION_OLD_KEY`, but does
+not cover every system record, keyed hash, Vault DEK or inner credential envelope.
+Affected installations need an audited owner-assisted migration for those cases;
+keep them in maintenance until verified. Do not print secrets or pass old keys as
+CLI arguments. Historical database copies sealed with the published key remain
+suspect after rotation.
+
+**Downstream app/module authors:** adopt the updated Compose environment and
+preflight dependency together, keep every replica/sidecar consistent, and account
+for custom ciphertext and hash fields in the operator's inventory. Existing weak/missing peppers require the documented hash inventory/backfill, and
+remote HTTP Vault must move to trusted HTTPS while retaining its existing DEKs. No
+runtime API, crypto format, KMS interface or schema changes are required. Do not bypass the
+preflight when starting servers. A missing/unsafe configuration now prevents startup.
+
+[Migration and rollback runbook](starters/docker/encryption-migration.md) ·
+[Specification](.ai/specs/2026-11-01-7231-compose-encryption-key.md).
+This narrow security removal requires a named human maintainer's emergency
+compatibility waiver before merge; automated review cannot grant it.
+
+## Communication channel concurrent writes (#8712)
+
+Gmail history sync and push register/unregister now re-read channel state under a
+row lock before committing. Stale Gmail pages no longer regress the sync cursor or
+spawn another drain; push lifecycle writes preserve sync progress made while the
+provider request was running. Late poll failures no longer replace a concurrently
+recovered channel's status or error, emit stale reauth events, or schedule stale retries.
+No API, schema, configuration, or client migration is required. Restart all workers
+when deploying. Poll-success concurrency protection is tracked separately in #8711;
+this fix does not replace it. Already ingested messages remain idempotent on replay.
+
+## Starter reuse and optional AI
+
+`yarn setup` can continue with pre-existing services after an explicit interactive confirmation. It shows port owners and restart/health states and then leaves those containers untouched, using the URLs already configured in `.env`. Declining shows `yarn om stop` guidance for the original checkout. Non-interactive users must explicitly pass `--no-infra` to use external services.
+
+AI provider setup is optional: press Enter or choose `0` to skip. Missing credentials no longer block non-interactive setup; configure them later to enable AI chat.
+
+Before database setup, both setup entrypoints verify the configured PostgreSQL connection with a read-only query, every configured Redis consumer with authenticated PING, and Meilisearch through a protected API read. Incorrect credentials, missing access, and unreachable services stop setup with a service-specific error that omits credentials. Accepting existing services does not bypass this verification; pre-existing unhealthy services are offered for reuse before any container preparation or startup. Direct infrastructure startup retains its explicit retry behavior.
+
+Reinstall behavior is unchanged: monorepo `yarn dev:greenfield` resets the configured database by default. Standalone `yarn setup` retains initialized data unless `--reinstall` is explicitly supplied.
+
+The development diagnostics banner’s Retry button now invokes runtime recovery; a page reload alone no longer leaves the historical incident as the only outcome. Existing generation/health checks still determine whether recovery succeeded.
+
+The CLI starts Next development processes with `NODE_ENV=development` so development CSP/debugging features work. Production server and background-process environment behavior is unchanged.
+
+## `PersonCard` and `sectionSubtitle` deprecated (#7493)
+
+`LinkedPeopleSection` now renders linked people through `DataTable` (extension table id
+`customers.linked_people.list`) instead of mapping `PersonCard`, and its row actions are
+`RowActions` items with the ids `open` and `unlink`.
+
+`PersonCard` stays exported from `components/detail/PersonCard` with the same props and the same
+standalone card markup, so existing callers need no change, and is marked `@deprecated`. New tables
+should compose the exported `Person*Cell` components and `buildPersonRowActionItems` as `DataTable`
+columns and row actions.
+
+`LinkedPeopleSectionProps.sectionSubtitle` is still accepted and rendered, and is marked
+`@deprecated`. The built-in company and deal sections no longer pass it, so their subtitle is gone.
+Move any custom text out of the section, for example into `header`.
+
+Both stay for at least one minor release. No database migration is required.
+
+## Search writes honor entity strategy pins (#5930)
+
+SearchService direct and bulk writes now honor each registered entity's existing
+`strategies` restriction; an explicit empty list writes to no strategy. Unpinned
+entities, fulltext content, and null-source behavior are unchanged. No client,
+configuration, or database migration is required. After upgrading all workers,
+operators whose entities previously reached an excluded writer should purge those
+entities from that index using the existing cleanup operations. Existing vectors
+and embedding-provider retention are not removed automatically.
+
+## Archive limits for imported apps in create-mercato-app
+
+`create-mercato-app --app` and `--app-url` now import through the same safe archive path as the new `--template`
+flag. The download is streamed with a 64 MiB cap, and the archive may hold at most 10,000 entries (files and
+directories) and 128 MiB of unpacked files. Only files and directories are allowed: a symbolic link, hard link,
+device, FIFO, absolute path or `..` segment fails the import and names the path. The archive is inspected before
+the target directory is created, so a rejected archive leaves nothing behind. Measured ready apps are far below
+the limits (`ready-app-oss-prm`: 19.1 MB, 392 entries), and links were never part of the ready-app snapshot
+contract. An app that hits a limit must be trimmed or have its links replaced by files; there is no override.
+
+[Implementation specification](.ai/specs/2026-11-04-create-app-template-flag.md).
+
 ## Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings
@@ -77,7 +380,104 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.9.0 → 0.10.0 (Unreleased)
+
+### Outbound email attachments: the hub fills `attachments` with bytes; `assembleRfc2822` is deprecated (#7098)
+
+`send-as-user` accepts `attachments` (attachments-module ids with their owning record), and the
+delivery command now passes them to `ChannelAdapter.convertOutbound({ attachments })` for adapters
+whose capabilities advertise `fileSharing: true`. Each item carries the file bytes in the new optional
+`NormalizedAttachment.content` and an empty `url`. The IMAP/SMTP and Gmail adapters now advertise
+`fileSharing: true`; `baseEmailCapabilities` keeps `false`.
+
+`assembleRfc2822` from `communication_channels/lib/email-mime` is deprecated in favor of the async
+`composeEmailMessage` (nodemailer `MailComposer`), which the Gmail adapter now uses. Gmail messages
+therefore fold long encoded headers and quote a display name only when it needs quoting
+(`From: Alice <a@example.com>`).
+
+`channelMetadata.outboundAttachments` is now a hub-owned key: `send-as-user` drops any value a
+caller puts there. The integration helper `CapturedTestSeedEmail` (and `TestSeedCapturedMessage` in
+`communication_channels/lib/test-seed`) keeps `content.attachments` unchanged: it records the
+attachments handed to the adapter as before. The only items left out are the files the hub read from
+the attachments module, which carry bytes and no URL. The new `content.attachmentDigests` holds a
+version 1 digest (`version`, `fileName`, `mimeType`, `fileSize`, `sha256`) for every attachment
+whose bytes the adapter holds — those hub-read files and decodable `data:` URLs; a remote URL is never
+fetched or digested. Assert on the digests to check what was sent.
+
+A `send-as-user` request that carried an `attachments` field used to be accepted with the field
+silently dropped; the field is now validated, and the request is refused with 422 when it is malformed
+or the mailbox cannot send it. A refusal carries a stable `code` next to `error`. A display-name
+`filename` must keep the stored file's extension and follow the upload rules (no executable
+extension, no control or bidirectional characters). `baseEmailCapabilities.supportedMimeTypes` gains
+xlsx, docx, pptx, xls and doc. A channel connected before the upgrade keeps `fileSharing: false` in
+its stored capability snapshot until it is reconnected; the hub reads the live adapter, so sending
+works either way.
+
+Adapters called directly (not through the hub): IMAP/SMTP now sends `attachment.content` and `data:`
+URLs, and reports a server size rejection as `{ status: 'failed', error: '…message_too_large…' }`
+instead of throwing; Gmail refuses an attachment that only has a remote `url` instead of dropping it.
+
+`assembleRfc2822` is deprecated since 0.10.0 and kept unchanged; removal no earlier than 0.11.0.
+
+**Action for module authors:** a custom adapter that advertises `fileSharing: true` must send
+`attachment.content` when it is set (or use `resolveOutboundAttachmentBytes` from
+`communication_channels/lib/outbound-attachments`) and must not fetch `attachment.url`. Tests that
+assert the exact bytes of a Gmail outbound message may need the new header formatting. An
+`attachmentService` override does not need the new optional `describeManyScoped` or `describeScoped`:
+without them the hub validates attachments one by one through `describeScoped`, then `readScoped`.
+An adapter whose provider allows a different total per message declares it in the new optional
+`ChannelCapabilities.maxTotalBytes` (raw bytes; 25 MB when unset); `maxFileSize` stays the per-file
+limit.
+
 ## 0.9.0 → 0.9.1 (unreleased)
+
+### Money and exchange-rate amounts are arbitrary precision (exact decimals)
+
+Money columns and `exchange_rates.rate` are now unconstrained `numeric`, and all built-in money math
+uses exact decimals. Public contracts keep their `number` fields (a float copy) and gain
+`<field>Exact` decimal strings, e.g. `SalesDocumentAmounts.grandTotalGrossAmountExact`,
+`SalesLineCalculationResult.netAmountExact`, `CaptureResult.capturedAmountExact`.
+
+**Action for module authors:**
+- Calculation hooks / shipping or payment providers that only change `number` fields keep working; to
+  keep full precision set the matching `<field>Exact` string too and do the math with
+  `@open-mercato/shared/lib/decimal` instead of JS numbers.
+- Payment gateway adapters should prefer `input.amountExact` and may return `capturedAmountExact` /
+  `refundedAmountExact` / `amountExact`.
+- Callers of `catalogBuyerPricingService.resolveLinePrice` should read `amountNetExact` /
+  `amountGrossExact` and pass the tenant's currency decimals as `currencyDecimalPlaces`; the
+  `number` fields stay as float copies. Cart and promotion money columns are unconstrained `numeric`.
+- Code that compared stored amount strings literally (`'40.0000'`) must compare numerically: new rows
+  are stored without scale padding. Catalog history responses retain at least four decimal places
+  without truncating additional digits.
+- The existing capture-ledger exports keep their fixed four-decimal bigint fields and signatures,
+  including `CaptureAmounts`, `resolveCaptureAmounts`, `assertCaptureWithinRemaining`, and the
+  reserve/settle/release helpers. They are deprecated and remain available until no earlier than
+  0.11.0. Migrate to `ExactCaptureAmounts` and the corresponding `*Exact` helpers for exact decimals;
+  exact reserve/release use decimal strings instead of bigint units.
+- Staff rate resolvers keep receiving numbers in `ctx.entry.rateOverrideAmount` / `ctx.project.hourlyRate`
+  and returning `number | null` from `resolve`. A resolver that needs digits beyond float precision can
+  read `rateOverrideAmountExact` / `hourlyRateExact` and implement the optional `resolveExact(ctx)`.
+- UI helpers keep their numeric results (`resolveCatalogPriceAmount`, `toSubmittedAmount`,
+  `validateExchangeRateForm(...).rate`, `AdjustmentSubmitPayload.amountNet` / `amountGross`). Use
+  `resolveCatalogPriceAmountExact`, `toSubmittedAmountExact`, `rateExact` and
+  `amountNetExact` / `amountGrossExact` for the exact decimal strings.
+- Payment gateway session, capture and refund requests with more decimals than the currency allows
+  (e.g. `10.005` USD) now get a 400. Money inputs with more than 1000 significant digits or 300
+  integer digits get a 400 on CRUD money endpoints (`withDecimalCaps` guards the number-coercing schemas); invalid payment gateway payloads get a 422.
+- Positive gateway amounts whose required numeric copy underflows to zero, such as `1e-400`,
+  are rejected with 422 as invalid payloads before a provider is called.
+- The money migrations' `down()` narrows the columns back to their old precision: extra decimals are
+  rounded away, and values beyond the old integer digits make the rollback fail with
+  "numeric field overflow". Back up before rolling back.
+
+### Encryption maintenance safety confirmations (#6767)
+
+Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.
+
+`entities decrypt-database --deactivate-maps` now requires `--confirm-offline-maintenance <tenantUuid>`. Operators must stop all application, worker and integration writers, run the operation, and restart every replica before resuming writes. The CLI cannot discover every external writer or invalidate another process's cached policy. An organization-only sweep preserves tenant-wide fallback policies; use a complete tenant sweep for their retirement. Concurrent edits, changed policies or remaining ciphertext fail closed and keep policies active.
+
+Existing scripts must supply the new explicit safety confirmations or use the safe environment-key path. Schemas, ciphertext formats, key derivation, routes and ordinary encrypted writes are unchanged. See [the safety specification](.ai/specs/2026-09-30-encryption-key-rotation-hardening.md) for the remaining online-retirement coordination limitation.
 
 ### `SearchResultPresenter.badge` is deprecated — no search UI renders it (#5716)
 
@@ -599,6 +999,31 @@ Explicit external `MCP_URL` and `OPENCODE_MCP_URL` values remain authoritative. 
 or environment-variable name changed. See
 `.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md` for the lifecycle details.
 
+### `yarn dev` starts the MCP server on its first request
+
+The root and standalone `yarn dev` launchers still provision the MCP API key at startup and own
+`MCP_PORT`, but they now keep the MCP server process (~500 MB) down until a client sends its first
+non-health request; that request is held (up to 60 s, at most 16 at once, `429` beyond) until the
+server is ready and every later request is proxied unchanged. Until then `GET /health` is answered
+by the launcher with the server's response shape plus an additive `lazy: true`: `503
+{"status":"starting","tools":0,...}` before the key is provisioned, then `200
+{"status":"ok","tools":0,...}`; `tools` reports `0` because no tools are loaded yet and becomes the
+real count once the server runs. A request with an `x-api-key` matching the provisioned key or
+`MCP_SERVER_API_KEY` (constant-time comparison) may wake the server from any peer. User-created
+Open Mercato keys (`omk_<8 hex>.<48 hex>`) may also wake it, but only from loopback (`127.0.0.1`,
+`::1`) or explicitly trusted socket peers. Untrusted peers with unknown keys get `401` before
+waking or occupying a queue slot, regardless of forwarded headers. The real server still
+authenticates every key; trusting a peer authorizes startup work, not MCP access. The MCP CLI
+now runs as a direct Node child from the app workspace instead of through a Yarn wrapper.
+
+**Operator action:** the shipped OpenCode sidecar uses the provisioned key and needs no change.
+For a trusted container using a user-created key, set `OM_DEV_MCP_TRUSTED_PEERS=172.18.0.2`
+on the `yarn dev` process to allow that exact source IP (comma-separated IPv4/IPv6 addresses;
+no hostnames, CIDRs, or wildcards). Private networks are not automatically trusted. Only trust
+peers you control; a trusted reverse proxy must reject untrusted callers itself. Alternatively,
+use the provisioned key, connect through loopback, or set `OM_DEV_MCP_LAZY=0` to restore the
+eager start. `--no-mcp` and `OM_DEV_WITH_MCP=0` keep disabling MCP entirely.
+
 ### Auth ACL live-row canonicalization
 
 Only live ACL rows and live role memberships now grant authorization. A super-admin grant must belong to the user's own tenant. Users whose `users.tenant_id` is NULL no longer obtain global super-admin access from legacy ACL rows; assign an owning tenant and a valid live grant before deploying, especially if that user is your only platform administrator. Foreign-tenant super-admin rows no longer confer super-admin access.
@@ -655,6 +1080,26 @@ continue to omit the bundled Traefik overlay; their base-file port mappings
 are unchanged. Host-local proxies and diagnostics can use a final loopback-only
 override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
 No application API, database, or module-code migration is required.
+
+### Search sources no longer receive the plaintext of encrypted custom fields (#7872)
+
+`SearchIndexer` and the exported opt-in `VectorIndexService` now leave custom fields whose definition is `encrypted` out of the records and custom fields they hand to search sources (`buildSource`, `formatResult`, `resolveUrl`, `resolveLinks`), including records a source loads through `ctx.queryEngine`. Before, the customers Company and Person sources wrote such values into their search text, which the vector strategy sends to the embedding provider and stores with the vector document, and any source could copy them into the presenter or links stored in the fulltext and vector indexes. The record fields an index receives (`IndexableRecord.fields`) are unchanged so the hashed `search_tokens` index still covers encrypted custom fields. The `plaintextExcludedCustomFields` metadata added in #7894 separately keeps those values out of fulltext document fields and vector fallback text.
+
+A custom-field key declared `encrypted` by the record's tenant (or globally) is left out for every organization of that tenant, since a build context does not know which organization's definition applies. This follows the Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`: there is no deprecation window, because keeping the old context for a release would keep the plaintext flowing.
+
+**What stops working:** a search source that put an encrypted custom field into its text, presenter, URL or links no longer gets its value, so results stop matching or showing it. Either indexer constructed without the new `encryptedCustomFieldKeysResolver` option leaves out every custom field, encrypted or not; the `searchIndexer` resolved from DI is wired and keeps non-encrypted custom fields.
+
+**Action for module authors:** resolve `searchIndexer` from the container. If you construct `SearchIndexer` or `VectorIndexService` yourself, pass `encryptedCustomFieldKeysResolver: createEncryptedCustomFieldKeysResolver(em.getKysely())` (from `@open-mercato/search/di`). Do not read encrypted custom fields back into a source some other way.
+
+**Action for operators:** text, presenters and links indexed before the upgrade keep their values until their records are reindexed. If you declare encrypted custom fields on searchable entities, reindex those entities from the search settings page (or the vector and fulltext reindex routes) after upgrading. Values of such fields may already have been sent to the configured embedding provider and stored in the fulltext and vector indexes; treat them as disclosed to those services and apply your data-retention or deletion process to them.
+
+### Canonical module origins and duplicate enabled IDs (#8309)
+
+Module generation now rejects duplicate enabled runtime IDs before writing generated artifacts, including duplicate entries from the same package or different dependency aliases. If an existing app fails this check, keep one intended provider for each ID in `src/modules.ts` (including conditional registrations), preserve local overlay files, then rerun `yarn mercato generate`. A single package-backed registration with an app-local overlay remains supported; an explicitly empty enabled-module list does not rediscover disabled local modules.
+
+`locator` and `packageName` are optional provenance fields; existing entries do not need a bulk migration. npm and GitHub sources remain distinct: a package's `repository` field alone does not satisfy a GitHub-qualified requirement. Correct stale retained provenance or restore the intended package binding when it disagrees with the installed source. Before replacing a binding, disable every enabled module that consumes it, then install and enable the new provider explicitly. Disabling discovery preserves source and data and does not remove manual imports; review those before removing the old dependency. See [module installation and recovery](apps/docs/docs/cli/module-add.mdx).
+
+Module descriptors that declare `metadata.requires` must now use a static array of string literals; computed values, spreads, identifiers, and non-string entries fail enablement. npm preflight uses `npm pack` and therefore needs the `npm` executable plus registry access even when Yarn has a cached artifact; offline operators can install with Yarn and then run `yarn mercato module enable <packageName>`. GitHub preflight checks repository layout and export-map coverage but cannot prove that build output exists until Yarn installs the pinned commit, after which the CLI performs the full installed-package validation.
 
 ### `yarn setup` in generated apps starts Docker infrastructure first (#7791)
 
@@ -746,6 +1191,26 @@ Module dependency check failed:
 then re-run `yarn generate`. `apps/mercato/src/modules.ts` and the `create-app` template already
 enable the full default module set, so this repo's own apps and freshly scaffolded apps are
 unaffected.
+
+### `yarn generate` reads `metadata.requires` without executing module code (#6239)
+
+The module dependency check described in
+[Module dependency graph](apps/docs/docs/architecture/module-dependencies.mdx) (see "`yarn generate`
+now enforces a module's declared `requires` dependencies" in the 0.8.0 → 0.9.0 section) collected
+`metadata.requires` by importing each module's `index` with `import()` and falling back to a static
+read when the import failed, so module side effects ran at generation time. The generator now reads
+`metadata.requires` purely syntactically from the module's `index.ts` (or the compiled `index.js`
+of a packaged module): the file is parsed and never executed, and only the exported `metadata`
+object counts. The complete enforced set is the edge list in the docs page above.
+
+**Action for app authors:** if `yarn generate` now stops with `Module dependency check failed`,
+enable the listed modules in `src/modules.ts` (or disable the module that requires them). Such a
+configuration was already broken — it typically surfaced later as
+`Metadata for entity … not found` during `mercato init`.
+
+**Action for module authors:** write `requires` as an array of string literals in the exported
+`metadata` object. A dynamically built or re-exported list is no longer evaluated: it is skipped
+with a `[generate] ⚠` warning naming the file, and that module's dependency check does not run.
 
 ### Portal form submissions are limited to the caller's own `customer` subject (#7224)
 
@@ -1163,6 +1628,26 @@ default.
   explicitly.
 - Price kinds already changed by a partial update are not repaired. Check the display mode in the
   catalog price kind settings and set it again where needed.
+
+<a id="integration-state-default-enabled"></a>
+
+### Integration state writes keep a default-enabled integration enabled (#6915)
+
+`integrationStateService.upsert` (and so `setReauthRequired`, `PUT /api/integrations/:id/state`,
+`PUT /api/integrations/:id/version`, health checks and `data_sync` run telemetry) used to create a
+missing integration state row with `isEnabled: false` when the write did not send `isEnabled`. For an
+integration that declares `defaultState: { isEnabled: true }` — `sync_excel` and `webhook_custom` —
+the first such write in an organization turned it off. The row is now created with the integration's
+default state, which is what `resolveState` and the integrations page reported before the write.
+
+- No caller change is needed. To create a disabled row, send `isEnabled: false` explicitly; that
+  worked before and still does. Signatures, the `PUT /api/integrations/:id/state` request and
+  response shape and the `integrations.state.updated` payload are unchanged; `isEnabled` now reports
+  `true` in that case.
+- Integrations already turned off this way are not repaired. Check **Excel / CSV Import** and
+  **Custom Webhooks** on the integrations page of each organization and enable them again where
+  needed.
+
 ### Reaction routes answer 404 for messages outside your personal mailbox (#3833)
 
 `POST /api/communication_channels/messages/:messageId/reactions` now answers
@@ -1349,6 +1834,214 @@ the same check, for at most three hops. Any other redirect fails with
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
+### MCP: filtered `tools/list`, owner-scoped pending actions, and `OM_MCP_MUTATION_MODE`
+
+Spec: [`.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`](.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md). Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Exposure, audit and mutation modes".
+
+**`tools/list` on `mercato ai_assistant mcp:serve-http` is ACL-filtered.** It used to list every registered tool and check ACL only on `tools/call`. It now lists only the tools that pass the new exposure config (`OM_MCP_TOOL_ALLOWLIST`, `OM_MCP_TOOL_DENYLIST`, `OM_MCP_AGENT_TOOLS`, `--tools`, `--exclude-tools`, `--no-agent-tools`) **and** the list principal's ACL: the session user when the request carries `x-om-session-token`, otherwise the server API key's ACL. A server key with no features now lists only `context_whoami`. **Action:** OpenCode does not send `x-om-session-token` (its MCP config carries only `x-api-key`), so the web chat relies on the server key's roles: the key must carry roles. The key provisioned by `mercato ai_assistant mcp:ensure-api-key` copies its owner's roles and needs no change; if you set `MCP_SERVER_API_KEY` by hand to a key with no roles, grant it the roles the chat needs. Custom clients that discover tools with a featureless server key can instead send `x-om-session-token: <sess_…>` (the same token they pass as `_sessionToken`). Check the effective set with `yarn mercato ai_assistant mcp:list-tools --as-api-key <secret>`.
+
+**Pending AI actions are scoped to their owner.** Before this release `GET /api/ai_assistant/ai/actions/:id`, `/confirm` and `/cancel` checked only `ai_assistant.view` plus tenant/organization, so any user in the same tenant and organization with that feature could read, confirm, or cancel another user's pending action. Now chat rows (`channel = 'agent'`) are reachable only by the user who created them, and MCP / `/tools/execute` rows (`channel = 'mcp' | 'tools-api'`) by their creator or a user holding the new `ai_assistant.pending_actions.approve` feature. Everyone else gets `404 pending_action_not_found`. **Action:** none for the chat UI (users only ever act on their own rows); custom integrations that confirmed other users' actions through these routes must act as the creator.
+
+**New `ai_pending_actions` columns (additive).** `Migration20261022130536_ai_assistant` adds `channel text not null default 'agent'`, `api_key_id uuid null`, `correlation_id text null` and an index on `(tenant_id, organization_id, status, channel, created_at)`. Existing rows read as `agent`. Run `yarn db:migrate`.
+
+**`OM_MCP_MUTATION_MODE` (`direct` | `deny` | `approval`).** Applies to `isMutation` tools called over the three MCP servers. `POST /api/ai_assistant/tools/execute` is not governed by it: that endpoint refuses mutation tools with `403` in every mode (see the issue #3805 entry above) and audits the refusal. Unset keeps `direct`, which is today's behaviour, so nothing changes until you set it; an invalid value falls back to `direct` with a warning. `deny` hides mutation tools and refuses calls with `MUTATION_REQUIRES_APPROVAL`. `approval` queues the write as a pending action that a human approves on **Pending AI actions** (`/backend/config/ai-assistant/pending-actions`); rows expire after `OM_MCP_PENDING_ACTION_TTL_SECONDS` (default `86400`). **Recommendation:** set `OM_MCP_MUTATION_MODE=approval` in production when MCP clients can reach write tools.
+
+**New ACL feature `ai_assistant.pending_actions.approve`**, granted to `admin` through `setup.ts` `defaultRoleFeatures`. New tenants get it automatically. **Action for existing tenants:** run `yarn mercato auth sync-role-acls` (idempotent, additive) so admins can approve MCP pending actions.
+
+**Audit.** Every MCP `tools/call` and `/tools/execute` call now writes an `access_logs` row of kind `ai_assistant.mcp_tool_call` (argument names only, never values). These rows follow the non-core retention window; add the kind to `AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA` to keep them longer.
+
+### AI agent runs are now recorded, and `tool-loop-agent` agents receive their system prompt
+
+**Run recording.** ai-assistant now writes one record per agent run to three new encrypted tables: `ai_agent_runs`, `ai_agent_run_steps` and `ai_agent_run_tool_calls`. This covers chat, `run-object` and internal callers of `runAiAgentText` / `runAiAgentObject`. The tables come from migration `Migration20261026192929_ai_assistant`, which `yarn db:migrate` applies.
+
+- **Capture env vars:** `OM_AI_RUN_TRACE_CAPTURE` (`full` by default, or `metadata` / `off`), `OM_AI_RUN_TRACE_CAPTURE_PROMPT` and `OM_AI_RUN_TRACE_MAX_PAYLOAD_BYTES`.
+- **Retention:** a daily `ai-agent-run-prune` worker deletes runs after `AI_AGENT_RUNS_RETENTION_DAYS` (30). On existing tenants, refresh the structural cache so the schedule registers.
+- **Action for custom runners** that call `runAiAgentText` / `runAiAgentObject` and persist their own trace: pass `trace: { persist: false }`, or each run is recorded twice. The Agent Orchestrator native runner already does this.
+- **Runs API and pages:** `GET /api/ai_assistant/ai/runs`, `/ai/runs/:id` and `/ai/conversations/:conversationId/runs`, plus **Agent runs** under `/backend/config/ai-assistant/runs`. They need the new ACL features `ai_assistant.runs.view` (`admin` and `employee`) and `ai_assistant.runs.view_all` (`admin`; lifts the own-or-shared-conversation scope). **Action for existing tenants:** run `yarn mercato auth sync-role-acls` (idempotent, additive).
+- **Citations:** read tools can call `emitCitations(ctx, [...])` to attach sources; the chat shows them as a Sources list and runs captured at `full` keep up to 50 in `ai_agent_runs.citations` (no migration). `search.hybrid_search` and `search.get_record_context` now emit `record` citations. See `apps/docs/docs/framework/ai-assistant/citations.mdx`.
+
+**`tool-loop-agent` system prompt.** Agents with `executionEngine: 'tool-loop-agent'` previously ran without their composed system prompt. They now receive it, so their responses can change. Re-check any prompt-level workaround you added to compensate.
+
+### Agent invoke permission, AO agent dispatch from ai-assistant, agent tools and output integrity
+
+Specs: [`.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`](.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md) (Phase 4), [`.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md) (Phases 1 and 5), [`.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md) (Phases 1–2), [`.ai/specs/2026-10-21-document-structure-extraction.md`](.ai/specs/2026-10-21-document-structure-extraction.md) (Phase 3). Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Agent tools".
+
+**Agent Orchestrator agents can require features to be invoked.** An agent that declares `requiredFeatures` (in `defineAgent` or `AGENT.md` frontmatter) is now checked in `AgentRuntimeService.run()` for every entry point: the run and rerun routes (`403 { code: 'agent_invoke_denied' }`), `delegate_agent` (`{ ok: false, error: 'agent_invoke_denied' }`), workflow `INVOKE_AGENT` steps, eval replays, ai-assistant `run-object` and agent tools. Agents that declare nothing behave as before. `GET /api/agent_orchestrator/agents` now lists only agents the caller can invoke unless the caller holds `agent_orchestrator.agents.manage`; items gain `invocable`, and managers also receive each item's `requiredFeatures` (other callers never see feature names). The bundled example agent `support.ticket_triage` now requires `agent_orchestrator.agents.view`. **Action:** if an agent you ship starts declaring `requiredFeatures`, make sure the roles that run it (and workflow grants that invoke it — saving such a workflow now returns a `warnings` entry `agent_invoke_not_covered`) hold those features. `OM_AGENT_INVOKE_ENFORCEMENT=off` turns the check into a logged warning while you adjust roles.
+
+**`POST /api/ai_assistant/ai/run-object` runs Agent Orchestrator agents through the orchestrator.** It previously ran them as plain ai-assistant agents, outside `agentRuntime.run()` (no `AgentRun`, guardrails or trace). They now go through the `aiAgentRunDispatcher` port: the response keeps `{ object, finishReason, usage }`, returns `runId: null` and adds `agentRunId`, and a caller without the agent's features gets `403 agent_features_denied`. **Action:** callers that read `runId` for these agents should read `agentRunId`.
+
+**Agents as tools.** `defineAgentTool` and `defineAiAgent({ mcpTool })` (from `@open-mercato/ai-assistant`) publish an object-mode agent as one tool for chat, MCP and `/tools/execute`; MCP results carry `structuredContent: { result, agentId, runId, agentRunId }`. `OM_MCP_AGENT_TOOLS=off` hides them.
+
+**Agent-token door (opt-in).** `POST /api/agent_orchestrator/agent-api/agents/:id/run` accepts bearer agent tokens when `OM_AGENT_API_ENABLED=true` (404 otherwise), rate-limited by `RATE_LIMIT_AGENT_ORCH_AGENT_API_RUN_*`.
+
+**Output integrity (opt-in per agent).** Agents can declare `integrity` rules (`evidence_quote`, `reference_exists`, `tool_consulted`, `custom`); the native runner then checks and may drop, repair, flag or block the structured output before it is stored or turned into a proposal. Agents without `integrity` are unchanged. Reference resolvers implement the type-only contract `@open-mercato/shared/lib/ai/referenceResolver` and register in DI as `agentReferenceResolver:<id>`; custom checkers register with `registerIntegrityChecker`. `OM_AGENT_INTEGRITY=off` records checks without changing outputs (shadow mode). `guardrailSetBodySchema` keeps validating grounding sets; read stored set bodies, which may now be integrity sets, with the new `agentGuardrailSetBodySchema`.
+
+**Fixed:** `GET /api/agent_orchestrator/guardrail-checks` and `GET /api/agent_orchestrator/context-bundles` returned `500 DATABASE_ERROR` on every request; they now list rows.
+
+### Agent run step metadata, trace capture policy and OpenTelemetry export
+
+Specs: [`.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-run-observability-full-fidelity.md`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-run-observability-full-fidelity.md) (Phase 2), [`.ai/specs/enterprise/agent-orchestrator/2026-10-21-otel-genai-trace-export.md`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-otel-genai-trace-export.md) (Phase 1). Docs: `apps/docs/docs/framework/ai-assistant/agent-trace-capture.mdx` and `agent-trace-otel-export.mdx`.
+
+**Agent Orchestrator `llm` spans carry per-step model-call metadata.** Native runs now write `gen_ai.*` / `om.*` attributes on each `llm` span: parameters as sent, token usage including cached and reasoning tokens, `om.cost.micros`, latency, response id, request/response hashes and `om.capture.fidelity`. The legacy `inputTokens` / `outputTokens` / `finishReason` keys are kept. The trace page shows a "Model calls" card. Readers should use `readLlmSpanMetadata` rather than reading keys directly.
+
+**Trace capture policy.** Each tenant can choose `off`, `metadata` (default) or `full` at `/backend/settings/trace-capture`, with per-agent time-boxed overrides and a separate level for eval runs. `full` records metadata only until content capture ships. Deployment defaults come from `OM_AGENT_TRACE_CONTENT_DEFAULT` and the ceiling from `OM_AGENT_TRACE_CONTENT_MAX`. The new ACL feature `agent_orchestrator.trace.view_content` (admin and superadmin through the module wildcard; not granted to narrower roles) is required to change the policy. **Action:** grant `agent_orchestrator.trace.view_content` to any custom role that should manage capture.
+
+**OpenTelemetry export (opt-in, off by default).** With `OM_AGENT_OTEL_EXPORT=on` and an endpoint (`OM_AGENT_OTEL_EXPORT_ENDPOINT`, or the platform `OTEL_EXPORTER_OTLP_*` variables), tenants that opt in at `/backend/settings/otel-export` export finished runs as OTLP/HTTP JSON with GenAI semantic conventions. Exports carry metadata only, never prompts, responses or encrypted fields. Delivery is at-least-once with deterministic trace and span ids. Backfill with `yarn mercato agent_orchestrator otel:export`. A local collector and Jaeger profile ships in `starters/docker/compose.agent-otel.yml`. `GET /api/agent_orchestrator/runs/:id` gains an additive `otel` field.
+
+**Fixed:** module configuration cached by `moduleConfigService` was scoped by the caller's cache tenant, so persistent subscribers and workers could read settings up to 60 s stale after a change made through an API route (this affected the agent auto-approval policy). Cache entries are now scoped by the configuration row; the cache key version changed, so existing entries are simply re-read.
+
+### Agent integrity routing, agent principals, trace content capture and portable eval sets
+
+Specs: [`output-integrity-guardrails`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md) (Phases 3–5), [`agent-invocation-access-and-identity-binding`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md) (Phases 2–4), [`agent-run-observability-full-fidelity`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-run-observability-full-fidelity.md) (Phases 3–4), [`chat-run-tracing-and-citations`](.ai/specs/2026-10-21-chat-run-tracing-and-citations.md) (Phases 3–4) and [`eval-reports-and-reproducible-regression`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-eval-reports-and-reproducible-regression.md) (Phases 3–5). Docs: `agent-trace-capture.mdx`, `citations.mdx`, `agent-eval-ci.mdx` under `apps/docs/docs/framework/ai-assistant/`.
+
+**Database migration (`audit_logs`).** `Migration20261028052954_audit_logs` adds `action_logs.correlation_keys text[]` and a GIN index. On a large `action_logs` table, create the index ahead of the deploy with `create index concurrently if not exists "action_logs_correlation_keys_idx" on "action_logs" using gin ("correlation_keys");` so the migration's `create index if not exists` becomes a no-op. Correlation is forward-looking: action logs written before the upgrade carry no run correlation.
+
+**New ACL features.** `ai_assistant.runs.view` (`admin`, `employee`) and `ai_assistant.runs.view_all` (`admin`). **Action for existing tenants:** run `yarn mercato auth sync-role-acls` (idempotent, additive), and grant the features to any custom role that should see chat runs.
+
+**OAuth identity routes are public.** `POST /api/agent_orchestrator/identity/token` and `/identity/agent/auth` now declare `requireAuth: false`; each handler authenticates and rate-limits the client itself. Callers no longer need a staff session. Bad client credentials (including a malformed `client_id`) answer `401 invalid_client`.
+
+**Agents with a declared principal act as that principal.** `defineAgent({ principal })` provisions one principal per organization (`yarn mercato agent_orchestrator principals:sync`, also run by the setup hook). Writes made by such an agent are attributed to its principal rather than to the user who started the run, and a `required` principal that is missing or disabled refuses the run with `409 agent_principal_missing`. With `OM_AGENT_TOOL_ACL_MODE=intersect` (default `caller`) or `principal.toolAcl`, the tool set narrows to features both the caller and the principal hold. `agentPrincipalService.resolve` now returns only enabled principals; **action for custom callers** of that DI service: a disabled principal now resolves to `null` instead of the disabled row.
+
+**Integrity review routing.** An `abstain_or_review` rule with `route: 'review'` emits `agent_orchestrator.run.review_requested` (new event, `clientBroadcast: true`). Auto-approval now honours `holdsAutoApproval` on `warn` checks: a proposal held this way stays pending with `auto_disposition_block='guardrail'`, and the Caseload names the holding rule. **Action:** if you relied on auto-approval for runs whose checks warn, review which rules set `holdsAutoApproval`.
+
+**Trace content capture.** At the `full` capture level, native runs store redacted request and response artifacts in the `agent-trace-content` storage namespace, capped per artifact by `OM_AGENT_TRACE_CONTENT_MAX_BYTES` (default 1 MiB), readable only with `agent_orchestrator.trace.view_content`, and deleted by a daily per-organization retention worker. This needs a tenant storage integration; without one the status is `storage_unavailable`. Keep a bucket lifecycle rule as a backstop for missed retention days. `GET /api/agent_orchestrator/runs` gains an additive `createdBefore` filter, and runs can be compared via `GET /runs/:id/compare`.
+
+**Chat runs and citations.** See the two bullets added under "AI agent runs are now recorded" above.
+
+**Portable eval sets.** New production dependency **`yaml` 2.9.0** in `@open-mercato/enterprise`. Eval sets can be validated, exported and imported as YAML/JSON (`yarn mercato agent_orchestrator eval-set validate|export`, `eval --cases <file>`, `POST /api/agent_orchestrator/eval-sets/import`, `GET /api/agent_orchestrator/eval-sets/:version/export`). Files refuse `gate` severity on `llm_judge` assertions; export writes those as `warn` and reports the keys. Tool fixtures can be recorded and replayed from the CLI only (`--record`, `--replay`, `--on-fixture-miss`), capped by the new `OM_AGENT_EVAL_TOOL_FIXTURE_MAX_BYTES` (default 5 MiB); fixture files contain tenant data and are written with mode `0600`. `defineAgent` accepts `modelSettings` and `evalRubrics`; judge assertions can reference a rubric with `rubricRef`. Eval reports' `environment` block now carries effective settings (never `providerOptions` values), seed `honored`, providers and `toolMode`.
+
+**Additive package exports.** `@open-mercato/ai-assistant` exports `emitCitations`, `aiCitationSchema`, `isSafeHref`, `withToolReplayContext` and related types; `@open-mercato/ui` exports the citation resolver registry (`registerCitationResolver`) and `CitationsPart`; `@open-mercato/shared` exports `intersectFeatureGrants`. `McpToolContext` gains an optional per-call `uiParts` collector. No existing signature changed.
+
+### OTel content export, OTLP protobuf, tenant OTLP endpoints and per-section document search
+
+Specs: [`otel-genai-trace-export`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-otel-genai-trace-export.md) (Phase 2) and [`document-structure-extraction`](.ai/specs/2026-10-21-document-structure-extraction.md) (Phase 4). Docs: `apps/docs/docs/framework/ai-assistant/agent-trace-otel-export.mdx` and `apps/docs/docs/api/attachments.mdx`.
+
+**OTel content export is now possible (off by default).** Prompt and completion content leaves only when all three locks hold: `OM_AGENT_OTEL_EXPORT_CONTENT=allow`, the tenant sets `content: full` (requires `agent_orchestrator.trace.view_content`), and the run was captured at `full`. Exported content gets a second redaction pass that follows the run's captured `redactPii` (secrets always; emails, IBANs, cards and phones only with `redactPii` on), per-attribute and per-run caps, and an access-log entry per exported artifact. Tool arguments/results export only when a tool span carries a tool call id (native and OpenCode runs don't record it yet). The `otel:export --dry-run` output never contains content.
+
+**OTLP/HTTP protobuf.** `OM_AGENT_OTEL_EXPORT_PROTOCOL` accepts `http/protobuf` in addition to `http/json` (hand-encoded; no new dependency).
+
+**Per-tenant OTLP endpoints (off by default).** New integration `agent_orchestrator_otel_export` (credentials per organization: endpoint, secret headers, protocol) and the additive tenant setting `destination: deployment | integration`. Enable with `OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS=allow`; private collectors need `OM_AGENT_OTEL_EXPORT_PRIVATE_HOSTS`. Tenant endpoints are SSRF-vetted and DNS-pinned, never follow redirects, and fail closed (no fallback to the deployment endpoint). With tenant endpoints allowed, export counts as enabled even without a deployment endpoint. The settings API gains `integration: { configured, enabled }` and `deployment.tenantEndpointsAllowed` (additive).
+
+**`SearchEntityConfig.shouldIndex` (additive, `@open-mercato/shared`).** An optional per-record gate honoured by `SearchIndexer` and the `query_index` token writer: a non-`true` result or a throw removes the record from search instead of indexing it. Configs without the hook behave as before. **Action for custom search modules:** none, unless you want per-record opt-in.
+
+**Per-section document search (off by default).** New search entity `attachments:attachment_document_section`, indexed only for partitions with `indexDocumentSections` on; section text then reaches the fulltext/vector stores in plaintext (the partition UI warns about this). Toggling the flag now enqueues a sync job; `mercato attachments structure search-sync --partition <code>` re-syncs on demand. `releaseScoped(…, { flush: false })` may now return a search-only cleanup callback when the stored file is still shared — callers must still invoke a returned callback after commit. `attachments.get_document_sections` now emits `attachment` citations.
+
+**Rolling deploys:** the `attachments-document-structure` queue now also carries `section-search` jobs. Drain the queue or roll workers before web nodes so an older worker never receives the new job kind (it would fail it). Enabling `OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS=allow` without a deployment endpoint makes export count as enabled; tenants left on `destination: deployment` then record `deployment_unconfigured` per run.
+
+### Agent platform follow-ups: enforced output guardrails, principal sync, attachment lifecycle and caller-filtered section search
+
+Specs: the [agent platform roadmap](.ai/specs/2026-10-21-agent-platform-capabilities-roadmap.md) (findings F10–F12, F23), [`output-integrity-guardrails`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md), [`agent-invocation-access-and-identity-binding`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md) and [`document-structure-extraction`](.ai/specs/2026-10-21-document-structure-extraction.md).
+
+**`tool_scope` now enforces for every native agent with tools.** Previously the check passed structurally unless the agent declared `integrity`. The native runner now collects the run's tool calls whenever the agent has a non-empty effective allowlist (own + skill + delegate tools) and passes them to `checkOutput`, so a run that called a tool outside that list (or a mutation tool) is **blocked**. Toolless agents are unchanged. **Action:** before upgrading, check that each agent's `tools` lists every tool it really calls; review `agent_guardrail_checks` rows with `kind = 'tool_scope'` and `result = 'block'` after the rollout.
+
+**OpenCode runs now run base output guardrails.** An OpenCode run of an agent without `integrity` runs `checkOutput` (schema + `tool_scope`) on the submitted outcome, persists one check row per check and **fails the run on a block**; the guard results reach the proposal as for native runs. Agents with `integrity` keep running only the integrity rules on the outcome.
+
+**Sync principal endpoint.** New `POST /api/agent_orchestrator/agents/:id/principal/sync` (feature `agent_orchestrator.identity.manage`) and a "Sync principal" button in the agent's Access section re-run the same idempotent provisioning as the setup hook and `principals:sync`; it has no undo. `syncAgentPrincipals` gains an optional `disableUndeclared` flag (additive). Grant `agent_orchestrator.identity.manage` to the roles that should use it.
+
+**Audit projection backfill now applies its filters.** `mercato audit_logs projections:backfill` previously ignored the tenant/organization scope, the not-forced filter and its keyset cursor (a `--force` run re-processed the first batch forever). It now honours them, and a non-forced run also picks up rows whose `correlation_keys` is null. **Action:** if you ran it before for run-to-action correlation, run it again without `--force` (optionally scoped with `--tenant` / `--org`) to fill `correlation_keys`. `GET /api/agent_orchestrator/audit/by-instigator/:humanUserId` now returns decrypted `command_id` / `action_label`.
+
+**`releaseScoped` emits the delete event and always returns the cleanup callback with `flush: false`.** `attachmentService.releaseScoped` now emits `attachments.attachment.deleted` (plus the query-index and thumbnail-cache side effects the DELETE route has) once per removed attachment after commit. With `flush: false` the post-commit cleanup callback is **always** returned, not only when the stored file is shared. **Action for custom modules:** invoke the returned callback after your transaction commits, or the delete event is never emitted. `DefaultAttachmentService` accepts an optional fifth constructor argument (data-engine resolver; additive).
+
+**OCR runs on a durable queue.** LLM OCR is enqueued as an idempotent `attachments-ocr` job (worker `attachments/workers/ocr.ts`, coalesced per attachment) instead of `setImmediate` in the web process, so a restart no longer drops pending OCR. `OM_ATTACHMENT_OCR_MAX_CONCURRENCY` (default `2`) now sets the worker concurrency, capped at 20; the in-process scheduler remains only as a fallback when enqueueing fails. Failed OCR jobs are not retried. **Action:** run a worker that consumes `attachments-ocr` (the default `yarn dev` / worker processes auto-discover it); size `OM_ATTACHMENT_OCR_MAX_CONCURRENCY` per worker, not per web replica.
+
+**Search: `filterResults` visibility hook and caller-filtered section hits.** `SearchEntityConfig.filterResults(ctx)` (optional, `@open-mercato/shared`) and `SearchOptions.viewer` (`{ auth, container }`) are additive. For an entity that declares the hook, `SearchService` drops all of its results when no `viewer` is passed or the hook throws (fail closed). `/api/search/search` and `/api/search/search/global` pass the viewer. `attachments:attachment_document_section` declares the hook: section hits are filtered by the same rule as opening the file (including owner resolvers). **Behaviour change:** `searchService.search()` callers without a `viewer` (AI search tools, CLI, agent retrieval, catalog merchandising) no longer receive section hits — use `attachments.get_document_sections`. Filtering runs after the strategy limit, so a page can come back shorter than requested. **Action for custom code:** pass `viewer` when searching on behalf of a user.
+
+### MCP: an invalid `OM_MCP_MUTATION_MODE` now refuses to start
+
+Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Exposure, audit and mutation modes".
+
+Until now, a value other than `direct`, `deny` or `approval` fell back to `direct` with a startup warning. A typo such as `OM_MCP_MUTATION_MODE=aproval` therefore turned approval off and let MCP write tools run with no human in the loop. Now `mcp:serve`, `mcp:serve-http`, `mcp:dev` and `mcp:list-tools --effective` exit with an error naming the bad value, the same way an invalid `--mutation-mode` already did. A valid `--mutation-mode` flag still overrides the env var. Code that reads the setting without starting a server (the `/api/ai_assistant/tools` view, the pending-action re-check) treats an invalid value as `deny`. `collectMcpExposureWarnings` is deprecated in favour of `findMcpExposureConfigError` / `assertValidMcpExposureConfig`.
+
+**Action:** before upgrading, check that `OM_MCP_MUTATION_MODE` is unset or one of `direct`, `deny`, `approval` on every host that runs an MCP server.
+
+### MCP: agent tools are rate-limited
+
+Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Agent tools" → "Rate limit".
+
+Calls to agent tools (`defineAgentTool` / `mcpTool`) over `mcp:serve-http`, `mcp:serve`, `mcp:dev` and `POST /api/ai_assistant/tools/execute` now consume a rate-limit bucket per tenant and API key (per user for session-token callers): 30 calls per 60 seconds by default, tunable with `RATE_LIMIT_AI_AGENT_TOOL_POINTS` / `_DURATION` / `_BLOCK_DURATION`. Over the limit the call returns `RATE_LIMITED` without running the agent (`429` + `Retry-After` on `/tools/execute`). When the registered limiter cannot decide (e.g. Redis unreachable) the call returns `RATE_LIMIT_UNAVAILABLE` (`503`). Plain tools, agent tools called inside an agent loop, and workers are not affected; with `RATE_LIMIT_ENABLED=false` nothing is limited. The new `errorCode` values are additive.
+
+**Action:** if an MCP client runs agent tools in bulk with one API key, raise `RATE_LIMIT_AI_AGENT_TOOL_POINTS` for that deployment.
+### `staff` EP-40 capacity providers now drive the timesheet targets and may answer asynchronously (#6934)
+
+**Who is affected:** apps that register a capacity provider, or that replaced the
+`timeCapacityResolver` DI key. No change is required. The provider contract is additive.
+
+**What changed:**
+
+- The Timesheet footer, load bars, default expanded day and My Work KPIs now resolve their
+  target through `timeCapacityResolver.resolveCapacityAsync`, via the new
+  `GET /api/staff/timesheets/capacity` route. With no provider registered, every number
+  and the "Target (d × h)" caption are unchanged.
+- `CapacityProvider` gained an optional `resolveAsync`, for providers that read their own
+  data. `resolve` stays synchronous and required.
+- `CapacityResult` gained an optional `label` and `labelKey` for the footer caption.
+- Answers are now validated more strictly. Any of these falls back to the built-in:
+  negative minutes, a date key that is not a real calendar day, or a missing map. Days
+  outside the requested range are dropped. The total is recomputed as the sum of the
+  per-day targets, and a `null` total clears the per-day map.
+
+**Recommended:**
+
+- Move synchronous callers from `resolveTimesheetCapacity` /
+  `timeCapacityResolver.resolveCapacity` (both now `@deprecated`, and they never consult
+  `resolveAsync`) to `resolveTimesheetCapacityAsync` / `resolveCapacityAsync`.
+- A `timeCapacityResolver` override that implements, or replaces, only `resolveCapacity`
+  keeps working. Its answer is treated as contributed, so the footer shows a neutral
+  "Target". To report `isBuiltIn` yourself, also replace `resolveCapacityAsync`.
+
+### Time tracking: a new built-in setting key `defaults.entryMode` (#6989)
+
+The staff time-tracking settings gain a new built-in key, `defaults.entryMode`
+(`'task' | 'project'`, default `'task'`). It switches the time entry dialog between logging
+time against a task (today's behaviour) and against a project with an optional task. Tenants
+that never change it see no difference.
+
+**Action for module authors:** none, unless your module already contributes a key with the
+same id through `registerTimeTrackingSettingKey({ group: 'defaults', key: 'entryMode', … })`.
+A contribution cannot replace a built-in, so that registration now throws at load; rename
+your key. Code that asserted the exact `defaults` group shape or counted
+`TIME_TRACKING_SETTING_KEYS` should expect the extra key, and an exhaustive
+`Record<TimeTrackingSettingKey, …>` needs an entry for `'defaults.entryMode'`. Payloads sent to
+`PUT /api/staff/timesheets/settings` and `writeTimeTrackingSettings` may still omit it — the
+registry fills in the default.
+
+The time entry dialog's `propsSchema` is now a named export,
+`timeEntryDialogPropsSchema` from
+`@open-mercato/core/modules/staff/lib/time-tracking-ui/TimeEntryDialog`. A replacement can
+import its contract instead of copying it.
+
+### `TimeReportingSettings.lastProjectId` deprecated in favour of a shared staff timesheet preference (#3750)
+
+The Time Reporting dashboard widget used to remember the member's last-used project privately, in its own widget settings (`TimeReportingSettings.lastProjectId`, persisted by the dashboard host into `dashboard_layouts.layout_json`). The timesheets page's `TimerBar` had no memory at all, so the product's two timer surfaces disagreed about the same fact.
+
+That memory now lives in a `staff`-owned store shared by both surfaces:
+
+- Table `staff_timesheet_preferences`, one row per `(organization_id, tenant_id, staff_member_id)`.
+- `GET` / `PUT /api/staff/timesheets/my-preferences` — self-scoped (there is no member parameter), gated on `staff.timesheets.manage_own`, and written on a **successful timer start only**.
+
+`TimeReportingSettings.lastProjectId` is **retained and still dual-written** for at least one minor version:
+
+- **Read**: the shared preference wins; the legacy setting is a read-through fallback used only when the shared value is null. Members whose only memory is the legacy setting keep it, and the next successful start writes it through to the shared store.
+- **Write**: a successful start **from the dashboard widget** writes both stores, so rolling this change back leaves that member's widget default intact. A start from the timesheets-page `TimerBar` writes the shared store **only** — the legacy field belongs to the widget's own settings and the `TimerBar` has no access to them. A member who only ever starts timers from the timesheets page therefore has no legacy value to roll back to, and after a rollback the widget would fall back to whatever `lastProjectId` it last wrote itself (possibly nothing). That is a one-click cost, not data loss: the shared row survives the rollback and is read again on roll-forward.
+
+**Action for downstream:** none required during the deprecation window. Module authors reading `TimeReportingSettings.lastProjectId` directly should move to `GET /api/staff/timesheets/my-preferences` (or the `useTimesheetPreference` hook in `packages/core/src/modules/staff/lib/timesheets-ui/`) before the field is removed. Authors who *write* it should note that the shared preference now takes precedence on read, so a write to the legacy field alone will not change what the widget preselects for a member who already has a shared row.
+
+### Staff orphan-segment backfill is not reversible (#6409)
+
+Soft-deleting a time entry used to leave its work segments live, some of them still open. #6409 cascades every soft-delete to the segments and ships a one-off data migration, `Migration20260826193000_staff_segment_orphan_backfill`, that repairs the rows written before the fix: each segment of a soft-deleted entry takes the entry's `deleted_at`, and a still-open segment is closed at that same instant.
+
+The migration's `down()` is intentionally a no-op. A rollback cannot tell the rows the backfill stamped from the ones the runtime cascade has stamped since, so rolling the migration back leaves the repaired segments as they are. That is safe: every row it touches belongs to an entry that is already soft-deleted, so no scoped read returns it.
+
+**Action for operators:** none required. To size the repair before deploying, count the affected segments:
+
+```sql
+select count(*) from staff_time_entry_segments s
+join staff_time_entries e on e.id = s.time_entry_id
+where e.deleted_at is not null and s.deleted_at is null;
+```
+
+Take a backup first if you may need the pre-repair rows back; rolling the migration back will not restore them.
+
 ### Staff time-entries totals cover the whole filtered set and render inside the table (#6990)
 
 The time-entries list (`/backend/staff/time-tracking/entries`) now asks
@@ -1382,6 +2075,33 @@ Sales quote header reads now run registered response enrichers for `sales:sales_
 The four advertised `detail:sales.{order|quote}:{stage-bar|closure}` IDs now mount real render-widget hosts on the Sales document page. Existing registrations for these IDs may begin rendering after upgrade. Their context follows the document detail host (`kind`, `record`, `formId`, `resourceKind`, `resourceId`, `retryLastMutation`) plus `documentId`, `organizationId`, and `tenantId` from the scoped record, with current document data and the standard local data-change callback. Contributors persist their own data through authorized, guarded APIs; the hosts do not introduce native status/closure mutations or automatically save contributed fields. Empty hosts show no placeholder UI.
 
 **Action for widget authors:** check feature gates and order/quote assumptions before enabling previously dormant widgets. Existing tabs/details/shipping IDs and native document behavior remain available.
+
+### Planner availability replace refuses invalid windows (#9171)
+
+`POST /api/planner/availability-weekly`, and `POST /api/planner/availability-date-specific` for
+availability, now return `400` with the translated `planner.availability.errors.invalidWindow`
+message when a window's end is not after its start (after resolving it in the given timezone) or a
+time is outside `00:00`-`23:59`, such as `24:00`. Before, the request returned `200` and still
+deleted the hours the bad window was meant to replace. URLs and request/response shapes are
+unchanged, and nothing is written when the request is refused.
+
+One bad window refuses the whole request: a batch that mixes valid and invalid windows, which used
+to save the valid ones, now saves nothing, and a request whose bad window met no existing rules,
+a no-op before, also gets `400`. A date-specific availability request with windows that lists an
+impossible date such as `2026-02-30`, which used to be skipped, is refused too. Date-specific
+`kind: 'unavailability'` requests still ignore their windows. Because the check uses resolved
+instants, a date-specific window that a DST gap collapses or inverts (`02:30`-`03:30` on a
+spring-forward day) is refused as well; the availability editor can still send one and now shows
+this error instead of deleting that day's hours. Redo of an action log recorded before this change
+that contains such a window now fails instead of deleting hours.
+
+**Action for API callers:** split an overnight window into two windows on consecutive days, send
+`23:59` instead of `24:00` for the end of the day, send only real calendar dates, and treat a `400`
+as "nothing changed" and resend the corrected full set of windows. There is no warn-first bridge
+because a bad window never produced a rule; it only deleted existing hours.
+
+Existing data is not repaired: hours already lost through this path are not restored by the
+upgrade and have to be re-entered through the editor or the API. No database migration is needed.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
@@ -2495,6 +3215,25 @@ index `encryption_maps_entity_scope_live_unique`. Saving an encryption map now u
 new application version serves traffic. Until it has run, saving an encryption map in the admin UI
 or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
 migrating must migrate first.
+
+### Saved views keep their legacy filter record; `maybeMigrateLegacyFilterValues` is deprecated (#7046)
+
+Every perspective read path (`GET /api/perspectives/<tableId>`, `loadPerspectivesState`, and the
+save responses) used to run `maybeMigrateLegacyFilterValues`, which dropped `settings.filters`
+unless it was a v2 advanced-filter tree (`v: 2` or a `root` key). Every `DataTable` page still on
+the legacy `FilterBar` (`filterValues` / `onFiltersApply`) saves a flat `FilterValues` record, so
+views saved from those pages came back without their filters. The read path now returns
+`settings.filters` exactly as stored. No data migration is needed, because the records were
+always persisted.
+
+**Action for module authors:** none for code that reads perspectives through the API or the
+service: flat records now come back where they were missing before, and `DataTable` already
+applies each shape only on pages that handle it. If you imported `maybeMigrateLegacyFilterValues`
+from `@open-mercato/core/modules/perspectives/services/perspectiveService`, it still behaves as
+before but is `@deprecated` and will be removed in a future minor release. Use the stored settings
+as-is, or keep `filters` only when it has `v === 2` or a `root` key if you really need the
+tree-only view. See "`maybeMigrateLegacyFilterValues` — deprecated" in
+[`.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md`](.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md).
 
 ### Timesheet undos respect the closed-report lock (#7507)
 
@@ -5132,3 +5871,81 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
+
+
+## Setup service isolation and remote database acknowledgement
+
+Without a service flag `yarn setup` reuses configured services that answer and
+verify, starts Compose on the configured ports when nothing answers, and starts
+an isolated stack on free ports when the configured ports are held by something
+unusable (another checkout's containers, rejected credentials). Without Docker
+and without usable services it stops with a link to the README "Without Docker"
+guide. Explicit flags (`--infra`, `--random-ports`, `--ephemeral`, `--no-infra` /
+`--reuse-services`) are unchanged. Setup now claims the workspace dev session
+before touching `.env` or containers; a second setup in a running checkout stops.
+
+Before migrations or initialization against a non-loopback PostgreSQL target,
+provide `--allow-remote-database=host:port/database` matching the target printed
+by the guard. A bare flag prompts only in a terminal. Actual driver connection
+parameters and the authorized connection snapshot determine the child target.
+
+Isolated services use independent generated credentials and pinned images.
+Random-stack v2 credentials are saved in ignored `.env` values and reused on
+reruns. The `mercato-local-v2-*` namespace starts separate volumes; old random
+stacks/data remain available and are not deleted or migrated. Development
+bindings default to loopback. Explicit nonlocal Redis bindings require a Redis
+password and matching URLs. Full-Docker deployment bindings are unchanged.
+
+## Staff logout redirect status correction (2026-11-05, #7383)
+
+`POST /api/auth/logout` now returns `303 See Other` with the same login Location, so browsers navigate with GET and reloading the login page does not resubmit a form. This supersedes the 307 status in the earlier logout notes, including refresh-cookie-only and cookieless requests.
+
+**Action for integrators:** accept 303 instead of asserting 307 and follow Location with GET. Operators need no configuration or database migration. Session revocation, cookie expiry and events retain their current behavior, and other users of the shared redirect helper still default to 307. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md).
+
+## Production bootstrap superadmin credentials (#7809)
+
+With `NODE_ENV=production`, `mercato init` now rejects missing, blank, or built-in placeholder superadmin passwords and enforces the configured `OM_PASSWORD_*` policy. `--skip-password-policy` and `--allow-weak-password` no longer bypass it in production. Development and test defaults remain unchanged.
+
+Operators using starter or generated-app full-app Compose deployments must set a unique `OM_INIT_SUPERADMIN_PASSWORD` securely before first initialization or reinstall; the Compose `password` fallback is only usable outside production. Existing initialized databases still support `--skip-if-initialized` without bootstrap credentials. Bootstrap scripts must supply the secret via environment or `--password` and handle initialization failures. Do not store secrets in source control or logs.
+
+This does not rotate existing credentials. If a deployment previously initialized with a predictable password, rotate the superadmin credential and review account access separately. No schema migration is needed. See [the specification](.ai/specs/2026-11-06-production-bootstrap-credentials.md#migration--backward-compatibility). Maintainer @pkarw approved the production-only emergency security exception on 2026-11-06; see the specification for the approval record. QA and validation remain required.
+
+## Private next-interaction subjects (#8888)
+
+Shared customer projections now return a NULL name for explicitly private email
+interactions. The owner and temporarily authorized shared-mail readers still see
+the subject in authorized interaction views. Historical undo/redo also redacts a
+private or unresolved linked name. Clients should retain their unnamed-interaction
+fallback; public/legacy/non-email subjects and manual names remain supported.
+
+Apply the accompanying forward-only data migration and complete its declared
+customer entity/profile query-index rebuilds before reopening affected reads.
+Rebuild any configured fulltext/vector provider that previously indexed these
+fields and verify synthetic old subjects are gone before reopening search. The
+migration clears opaque encrypted values without decrypting them; rollback does
+not restore private subjects. No schema, startup or configuration-format change.
+See `.ai/specs/2026-11-07-private-next-interaction-projections.md` for validation limits.
+
+## Setup verifies encryption before database reuse (#8913)
+
+Setup migrations, initialization, reinstall and development recovery migrations now inspect existing database ciphertext with the configured tenant KMS and Forms key adapter before writes. Correct PostgreSQL credentials alone no longer permit reuse. Both monorepo and refreshed standalone setup scripts include this guard, including container initialization, migrations and role-ACL synchronization.
+
+Keep the original `TENANT_DATA_ENCRYPTION` configuration, fallback/application key, historical Vault tenant keys and Forms master key. The starter preserves existing key/KMS configuration. Only a fresh, unconfigured environment with neither env file receives a unique new fallback key, shared by root and app configuration. Restore the original configuration; do not regenerate keys, rotate them, or use reinstall to bypass a rejection. No key or ciphertext migration is performed by the preflight.
+
+Empty/new databases and migration-bookkeeping-only databases proceed normally. Populated plaintext-only databases need read-only resolution of existing tenant keys when encryption is enabled; they are reported as having no ciphertext proof. Unavailable KMS, missing keys, unknown scopes/formats, denied reads, RLS/foreign tables, unsupported binary stores, or proof exceeding 100,000 sampled candidate rows / 64 MiB / 60 seconds or 32 nesting levels block reuse. Custom Forms DI adapters and custom system encryption stores require administrator review; app bootstrap is deliberately not invoked. Use a separate empty database when the existing environment cannot be verified. Stop concurrent application writers during setup; a preflight snapshot cannot prevent external key rotation or subsequent concurrent writes. External encrypted files/object stores are outside the database proof.
+
+Existing standalone applications must refresh `scripts/dev.mjs` and add `scripts/dev-encryption-preflight.mjs` together with the matching installed helper packages. No production dependency or database migration is required.
+
+Container compatibility refusals exit with status `78` and are fatal even before role-ACL synchronization. Custom `SYNC_ROLE_ACLS_COMMAND` implementations should reserve status `78` for fatal configuration failures; other nonzero ACL-sync statuses retain the existing warning behavior.
+
+The compatibility proof authenticates at most five candidate rows per store/key scope using server-side filtering; total plaintext table size is not a transfer limit. Known Documents CRDT binary columns are excluded. This is not a full historical ciphertext audit: unreadable values outside a sample may remain, and normal per-record runtime guards still apply. Optional dev auto-migrations warn and skip writes on a compatibility refusal; explicit setup/container initialization and migrations remain blocking.
+
+## Customer comment update attribution (#8759)
+
+Customer-comment body edits preserve the persisted author when `authorUserId` is omitted. Ordinary staff and API keys can no longer reassign or clear attribution through `customers.comments.update` / `PUT /api/customers/comments`; supplied author input is ignored while authorized body edits continue. API keys cannot override this even with superadmin privileges.
+
+**Client migration:** omit `authorUserId` for body edits. Intentional corrections require a non-API-key superadmin session and an explicit active user in the comment's tenant, or explicit null to clear attribution. Omitted authors and unchanged historical authors remain intact.
+
+**Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
+
+**Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
