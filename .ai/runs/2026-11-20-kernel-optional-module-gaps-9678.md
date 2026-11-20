@@ -66,8 +66,8 @@ Phase 1 merges the existing community PRs. Phases 2–5 run as parallel child ta
 
 ### Phase 5: enterprise modules
 
-- [ ] 5.1 Fix #9205 record_locks without audit_logs/configs
-- [ ] 5.2 Fix #9188 agent_orchestrator without workflows/customers
+- [x] 5.1 Fix #9205 record_locks without audit_logs/configs — cb1a5c2c6d
+- [x] 5.2 Fix #9188 agent_orchestrator without workflows/customers — afa92cd66a
 
 ### Phase 6: Gate and umbrella
 
