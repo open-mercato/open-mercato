@@ -1,6 +1,17 @@
 # Upgrade Notes
 
-<<<<<<< HEAD
+## `sync_akeneo` no longer requires `sales` (#9211)
+
+`sync_akeneo` now declares `requires: ['integrations', 'data_sync', 'catalog', 'progress']`.
+`sales` is an optional peer: with it disabled, product import still runs and skips
+channel-bound offers and prices, logging the `sync_akeneo.sales_channels_unavailable`
+warning. `progress`, which import jobs already used, is now an explicit requirement; it was
+previously enabled transitively through `sales` → `customers`. Apps that pass
+`yarn generate` today are not newly rejected, and no action is needed unless your app
+relied on `sync_akeneo` to force `sales` (and its `customers` chain) on. No API, schema
+or configuration change. See
+[module dependencies](apps/docs/docs/architecture/module-dependencies.mdx).
+
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
 
 The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
@@ -194,19 +205,6 @@ queue message as a user is not a repair. Historical effects are not undone.
 No schema migration or automatic data rewrite is performed.
 
 [Rollout, inventory predicate and coverage](.ai/specs/2026-11-16-workflow-event-identity-rollout.md).
-=======
-## `sync_akeneo` no longer requires `sales` (#9211)
-
-`sync_akeneo` now declares `requires: ['integrations', 'data_sync', 'catalog', 'progress']`.
-`sales` is an optional peer: with it disabled, product import still runs and skips
-channel-bound offers and prices, logging the `sync_akeneo.sales_channels_unavailable`
-warning. `progress`, which import jobs already used, is now an explicit requirement; it was
-previously enabled transitively through `sales` → `customers`. Apps that pass
-`yarn generate` today are not newly rejected, and no action is needed unless your app
-relied on `sync_akeneo` to force `sales` (and its `customers` chain) on. No API, schema
-or configuration change. See
-[module dependencies](apps/docs/docs/architecture/module-dependencies.mdx).
->>>>>>> 1c62f24af (docs(sync_akeneo): update module dependency docs for optional peers (#9211))
 
 ## EUDR update undo conflicts (#9128)
 
