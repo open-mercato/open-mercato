@@ -53,8 +53,11 @@ or CLI commands. Do not treat historical event payload scope as trusted.
 ## Coverage and Final Compliance Report
 
 - Workflow executor and activity picker tests cover allowed and refused event names.
-- The existing asynchronous rerun integration test verifies stamped scope and removal of
-  authored organization audiences via the workflow definition, instance, and rerun APIs.
+- TC-WF-071 verifies stamped scope and removes authored organization audiences in an
+  asynchronous activity rerun. TC-WF-082 verifies rejection through the workflow
+  definition, execution, and event history APIs.
+- TC-CHKT-019 and TC-CHKT-043 cover actual gateway webhook delivery to checkout.
+  TC-QIDX-5723 covers API reindex through the event worker and into the index projection.
 - Subscriber tests exercise checkout command scope and query-index scope, including
   legacy jobs that have no trusted scope. Producer tests cover runtime/API and CLI dispatch.
 - The privileged state transitions and index operations retain their existing contracts.
