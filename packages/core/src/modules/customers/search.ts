@@ -323,15 +323,26 @@ async function hydrateProfileContext(ctx: SearchContext, kind: CustomerProfileKi
   }
 }
 
+async function loadProfileParentId(ctx: SearchContext, kind: CustomerProfileKind): Promise<string | null> {
+  const profileId = ctx.record.id != null ? String(ctx.record.id) : ''
+  if (!ctx.queryEngine || !profileId) return null
+  const result = await ctx.queryEngine.query(`customers:customer_${kind}_profile`, {
+    tenantId: ctx.tenantId,
+    organizationId: ctx.organizationId ?? undefined,
+    filters: { id: { $eq: profileId } },
+    fields: ['id', 'entity_id'],
+    page: { page: 1, pageSize: 1 },
+  })
+  const profile = result.items[0] as Record<string, unknown> | undefined
+  return profile ? resolveCustomerEntityId(profile) : null
+}
+
 async function resolveProfileParentGone(ctx: SearchContext, kind: CustomerProfileKind): Promise<boolean> {
   const preloaded = profileEntityCache.get(ctx.record)?.[kind]
   if (preloaded?.entity) return preloaded.entity.deleted_at != null
-  const entityId = resolveCustomerEntityId(ctx.record)
-  if (!entityId) {
-    const loaded = await loadCustomerEntityForProfile(ctx, kind)
-    return loaded?.entity ? loaded.entity.deleted_at != null : false
-  }
   if (!ctx.queryEngine) return false
+  const entityId = resolveCustomerEntityId(ctx.record) ?? (await loadProfileParentId(ctx, kind))
+  if (!entityId) return false
   const result = await ctx.queryEngine.query('customers:customer_entity', {
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId ?? undefined,

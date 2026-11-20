@@ -98,6 +98,41 @@ describe.each(['person', 'company'] as const)('customers %s profile search with 
     await expect(config.buildSource!(retryCtx)).resolves.toEqual(expect.objectContaining({ text: expect.any(Array) }))
   })
 
+  it('resolves the parent through the profile row when the record carries no entity id, without mutating it', async () => {
+    const calls: Array<{ entity: string; opts: QueryOptions }> = []
+    const engine: QueryEngine = {
+      query: jest.fn(async (entity: string, opts: QueryOptions = {}) => {
+        calls.push({ entity, opts })
+        const items = entity.endsWith('_profile')
+          ? [{ id: `profile-${kind}`, entity_id: 'parent-1' }]
+          : opts.withDeleted === true
+            ? [{ id: 'parent-1', deleted_at: '2026-11-01T00:00:00Z' }]
+            : []
+        return { items, page: 1, pageSize: 1, total: items.length } as QueryResult<Record<string, unknown>>
+      }) as QueryEngine['query'],
+    }
+    const ctx = makeContext(kind, engine)
+    delete ctx.record.entity_id
+    const before = { ...ctx.record }
+
+    await expect(config.shouldIndex!(ctx)).resolves.toBe(false)
+    expect(ctx.record).toEqual(before)
+    expect(calls.map((call) => call.entity)).toEqual([`customers:customer_${kind}_profile`, 'customers:customer_entity'])
+    expect(calls[1].opts.withDeleted).toBe(true)
+  })
+
+  it('fails closed when the profile lookup for a record without an entity id throws', async () => {
+    const failing: QueryEngine = {
+      query: jest.fn(async () => {
+        throw new Error('[internal] profile lookup failed')
+      }) as QueryEngine['query'],
+    }
+    const ctx = makeContext(kind, failing)
+    delete ctx.record.entity_id
+
+    await expect(config.shouldIndex!(ctx)).rejects.toThrow('profile lookup failed')
+  })
+
   it('indexes the profile when no query engine is available', async () => {
     await expect(config.shouldIndex!(makeContext(kind))).resolves.toBe(true)
   })
