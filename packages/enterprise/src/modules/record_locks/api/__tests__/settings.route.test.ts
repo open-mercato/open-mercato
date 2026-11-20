@@ -30,14 +30,24 @@ const VALID_SETTINGS = {
   notifyOnConflict: true,
 }
 
+type AssertCurrent = (currentUpdatedAt: string | null) => void
+
 function mockService(currentUpdatedAt: string | null) {
-  const getSettingsRecord = jest.fn().mockResolvedValue({ settings: VALID_SETTINGS, updatedAt: currentUpdatedAt })
-  const saveSettingsRecord = jest.fn().mockResolvedValue({ settings: VALID_SETTINGS, updatedAt: SAVED_AT })
+  const persist = jest.fn()
+  const saveSettingsRecord = jest.fn(async (
+    input: unknown,
+    _tenantId: string,
+    options?: { assertCurrent?: AssertCurrent },
+  ) => {
+    options?.assertCurrent?.(currentUpdatedAt)
+    persist(input)
+    return { settings: VALID_SETTINGS, updatedAt: SAVED_AT }
+  })
   jest.mocked(resolveRecordLocksApiContext).mockResolvedValue({
     auth: { tenantId: TENANT_ID },
-    recordLockService: { getSettingsRecord, saveSettingsRecord },
+    recordLockService: { saveSettingsRecord },
   } as unknown as Awaited<ReturnType<typeof resolveRecordLocksApiContext>>)
-  return { getSettingsRecord, saveSettingsRecord }
+  return { saveSettingsRecord, persist }
 }
 
 describe('record_locks settings route', () => {
@@ -80,13 +90,12 @@ describe('record_locks settings route', () => {
   })
 
   test('POST saves and returns settings with the new version', async () => {
-    const { getSettingsRecord, saveSettingsRecord } = mockService(STORED_AT)
+    const { saveSettingsRecord } = mockService(STORED_AT)
 
     const response = await POST(makeRequest(VALID_SETTINGS))
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body).toEqual({ settings: VALID_SETTINGS, updatedAt: SAVED_AT })
-    expect(getSettingsRecord).toHaveBeenCalledWith(TENANT_ID)
     expect(saveSettingsRecord).toHaveBeenCalledWith(expect.objectContaining({
       enabled: true,
       strategy: 'pessimistic',
@@ -95,20 +104,20 @@ describe('record_locks settings route', () => {
       enabledResources: ['sales.quote'],
       allowForceUnlock: true,
       notifyOnConflict: true,
-    }), TENANT_ID)
+    }), TENANT_ID, { assertCurrent: expect.any(Function) })
   })
 
   test('POST saves when the expected version matches the stored settings', async () => {
-    const { saveSettingsRecord } = mockService(STORED_AT)
+    const { persist } = mockService(STORED_AT)
 
     const response = await POST(makeRequest(VALID_SETTINGS, { [LOCK_HEADER]: STORED_AT }))
     expect(response.status).toBe(200)
-    expect(saveSettingsRecord).toHaveBeenCalledTimes(1)
+    expect(persist).toHaveBeenCalledTimes(1)
   })
 
   test('POST refuses a stale save with 409 and keeps the stored settings', async () => {
     const staleAt = '2026-11-20T09:00:00.000Z'
-    const { saveSettingsRecord } = mockService(STORED_AT)
+    const { persist } = mockService(STORED_AT)
 
     const response = await POST(makeRequest(VALID_SETTINGS, { [LOCK_HEADER]: staleAt }))
     expect(response.status).toBe(409)
@@ -119,6 +128,6 @@ describe('record_locks settings route', () => {
       currentUpdatedAt: STORED_AT,
       expectedUpdatedAt: staleAt,
     })
-    expect(saveSettingsRecord).not.toHaveBeenCalled()
+    expect(persist).not.toHaveBeenCalled()
   })
 })

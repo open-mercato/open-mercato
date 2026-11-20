@@ -36,21 +36,20 @@ export async function POST(req: Request) {
   }
 
   const tenantId = ctxOrResponse.auth.tenantId
-  const current = await ctxOrResponse.recordLockService.getSettingsRecord(tenantId)
   try {
-    enforceCommandOptimisticLock({
-      resourceKind: RECORD_LOCK_SETTINGS_RESOURCE_KIND,
-      resourceId: tenantId,
-      current: current.updatedAt,
-      request: req,
+    const { settings, updatedAt } = await ctxOrResponse.recordLockService.saveSettingsRecord(parsed.data, tenantId, {
+      assertCurrent: (currentUpdatedAt) => enforceCommandOptimisticLock({
+        resourceKind: RECORD_LOCK_SETTINGS_RESOURCE_KIND,
+        resourceId: tenantId,
+        current: currentUpdatedAt,
+        request: req,
+      }),
     })
+    return NextResponse.json({ settings, updatedAt })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     throw err
   }
-
-  const { settings, updatedAt } = await ctxOrResponse.recordLockService.saveSettingsRecord(parsed.data, tenantId)
-  return NextResponse.json({ settings, updatedAt })
 }
 
 export const openApi: OpenApiRouteDoc = {

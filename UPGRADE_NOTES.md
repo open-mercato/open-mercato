@@ -19,7 +19,10 @@ heartbeats, releases and conflict notifications read the settings of the operati
   `x-om-ext-optimistic-lock-expected-updated-at` header and returns the standard
   `409 optimistic_lock_conflict` body when the settings changed since they were loaded. Clients that
   do not send the header are not affected. The backend settings page sends it and shows the conflict
-  bar on a stale save.
+  bar on a stale save. The version check and the write run in one transaction under a per-tenant
+  lock, so of two concurrent saves carrying the same version exactly one succeeds and the other
+  gets the 409. `saveSettingsRecord` accepts an optional third argument
+  `{ assertCurrent(currentUpdatedAt) }` that runs this check inside the transaction.
 
 No database migration is required: `module_configs` already has a `tenant_id` column and `updated_at`.
 

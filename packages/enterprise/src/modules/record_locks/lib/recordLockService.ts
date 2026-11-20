@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import { ModuleConfig } from '@open-mercato/core/modules/configs/data/entities'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -200,6 +201,10 @@ export type ParsedRecordLockHeaders = Partial<RecordLockMutationHeaders>
 export type RecordLockSettingsRecord = {
   settings: RecordLockSettings
   updatedAt: string | null
+}
+
+export type SaveRecordLockSettingsOptions = {
+  assertCurrent?: (currentUpdatedAt: string | null) => void
 }
 
 function normalizeDate(value: Date): string {
@@ -459,10 +464,17 @@ export class RecordLockService {
     return settings
   }
 
-  async saveSettingsRecord(input: RecordLockSettingsInput, tenantId: string): Promise<RecordLockSettingsRecord> {
+  async saveSettingsRecord(
+    input: RecordLockSettingsInput,
+    tenantId: string,
+    options?: SaveRecordLockSettingsOptions,
+  ): Promise<RecordLockSettingsRecord> {
     if (!tenantId?.trim()) throw new Error('[internal] Record-lock settings require a tenant')
     const settings = normalizeRecordLockSettings(input)
     if (!this.moduleConfigService) return { settings, updatedAt: null }
+    if (options?.assertCurrent) {
+      return this.saveSettingsRecordAtomically(settings, tenantId, options.assertCurrent)
+    }
 
     const record = await this.moduleConfigService.setValue(
       RECORD_LOCKS_MODULE_ID,
@@ -471,6 +483,45 @@ export class RecordLockService {
       { tenantId },
     )
     return { settings, updatedAt: record?.updatedAt ?? null }
+  }
+
+  private async saveSettingsRecordAtomically(
+    settings: RecordLockSettings,
+    tenantId: string,
+    assertCurrent: (currentUpdatedAt: string | null) => void,
+  ): Promise<RecordLockSettingsRecord> {
+    const key = { moduleId: RECORD_LOCKS_MODULE_ID, name: RECORD_LOCKS_SETTINGS_NAME }
+    const updatedAt = await this.em.transactional(async (tx) => {
+      const lockKey = ['record_locks', 'settings', tenantId].join(':')
+      await tx.execute('select pg_advisory_xact_lock(hashtext(?))', [lockKey])
+
+      const tenantRow = await tx.findOne(ModuleConfig, { ...key, tenantId }, { refresh: true })
+      const effectiveRow = tenantRow ?? await tx.findOne(ModuleConfig, { ...key, tenantId: null }, { refresh: true })
+      assertCurrent(effectiveRow ? normalizeDate(effectiveRow.updatedAt) : null)
+
+      const now = new Date()
+      let saved: ModuleConfig
+      if (tenantRow) {
+        tenantRow.valueJson = settings
+        tenantRow.organizationId = null
+        tenantRow.updatedAt = now
+        saved = tenantRow
+      } else {
+        saved = tx.create(ModuleConfig, {
+          ...key,
+          valueJson: settings,
+          tenantId,
+          organizationId: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        tx.persist(saved)
+      }
+      await tx.flush()
+      return normalizeDate(saved.updatedAt)
+    })
+    await this.moduleConfigService?.invalidate(RECORD_LOCKS_MODULE_ID, RECORD_LOCKS_SETTINGS_NAME, { tenantId })
+    return { settings, updatedAt }
   }
 
   /**
