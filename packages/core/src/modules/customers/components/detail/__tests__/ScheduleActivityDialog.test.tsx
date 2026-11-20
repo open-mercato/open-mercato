@@ -639,6 +639,41 @@ describe('ScheduleActivityDialog', () => {
 
       expect(lastSavedPayload().recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=MO,WE')
     })
+
+    it.each([
+      ['call', 'an empty occurrences count', { recurrenceCount: '' }],
+      ['task', 'an empty occurrences count', { recurrenceCount: '' }],
+      ['call', 'an end date before the first date', { date: '2026-11-13', recurrenceEndType: 'date' as const, recurrenceEndDate: '2026-10-30' }],
+      ['task', 'an end date before the first date', { date: '2026-11-13', recurrenceEndType: 'date' as const, recurrenceEndDate: '2026-10-30' }],
+    ])('saves a %s without recurrence when the hidden series draft has %s', async (activityType, _label, draft) => {
+      mockScheduleState = createScheduleState({
+        activityType,
+        title: 'Follow up',
+        recurrenceEnabled: true,
+        recurrenceDays: [true, false, true, false, false, false, false],
+        recurrenceEndType: 'count' as const,
+        ...draft,
+      })
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+      const saveButton = screen.getByRole('button', { name: /^(Log call|Save task)$/ })
+      expect(saveButton).not.toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+      expect(lastSavedPayload().recurrenceRule).toBeNull()
+      expect(lastSavedPayload().recurrenceEnd).toBeNull()
+      expect(flashMock).not.toHaveBeenCalledWith(expect.anything(), 'error')
+    })
   })
 
   describe('activity status on save (regression #6481)', () => {

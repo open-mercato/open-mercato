@@ -392,10 +392,11 @@ export function ScheduleActivityDialog({
   const isDateMissing = isDateRequired(presentationType) && !trimmedDate
   const isTimeMissing = isTimeRequired(presentationType) && !state.allDay && !trimmedStartTime
   const recurrenceCountValue = parseRecurrenceCount(state.recurrenceCount)
+  const recurrenceApplies = state.recurrenceEnabled && visibleFields.has('recurrence')
   const isRecurrenceCountInvalid =
-    state.recurrenceEnabled && state.recurrenceEndType === 'count' && recurrenceCountValue === null
+    recurrenceApplies && state.recurrenceEndType === 'count' && recurrenceCountValue === null
   const recurrenceEndsBeforeStart =
-    state.recurrenceEnabled && isRecurrenceEndBeforeStart(state.recurrenceEndType, state.recurrenceEndDate, trimmedDate)
+    recurrenceApplies && isRecurrenceEndBeforeStart(state.recurrenceEndType, state.recurrenceEndDate, trimmedDate)
   const isSubmitDisabled =
     catalogPending ||
     state.saving ||
