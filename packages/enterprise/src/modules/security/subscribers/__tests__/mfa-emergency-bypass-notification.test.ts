@@ -1,3 +1,4 @@
+import { EntityMetadata, MetadataStorage } from '@mikro-orm/core'
 import { Notification } from '@open-mercato/core/modules/notifications/data/entities'
 import type { CreateBatchNotificationInput } from '@open-mercato/core/modules/notifications/data/validators'
 import emergencyBypassSubscriber, { metadata } from '../mfa-emergency-bypass-notification'
@@ -30,14 +31,17 @@ const payload = { ...scope, observedAt: '2026-10-18T23:59:00.000Z' }
 const dailyGroupKey = 'security.mfa.emergency_bypass_detected:2026-10-18'
 
 function createContext(scopeOverrides: ScopeOverrides = {}, notificationsAvailable = true) {
-  const hasMetadata = jest.fn(() => notificationsAvailable)
+  const registeredClass = class Notification {}
+  const ormMetadata = new MetadataStorage(notificationsAvailable ? {
+    Notification: new EntityMetadata({ class: registeredClass, className: 'Notification' }),
+  } : {})
   const database = { connection: Symbol('database connection') }
   const transactional = jest.fn()
   const emFork = { getKysely: jest.fn(() => database), transactional }
   const fork = jest.fn(() => emFork)
   const userHasAllFeatures = jest.fn(async (_userId: string, _features: string[], _scope: Scope) => true)
   const resolve = jest.fn((name: string): unknown => {
-    if (name === 'em') return { fork, getMetadata: () => ({ has: hasMetadata }) }
+    if (name === 'em') return { fork, getMetadata: () => ormMetadata }
     if (name === 'rbacService') return { userHasAllFeatures }
     return undefined
   })

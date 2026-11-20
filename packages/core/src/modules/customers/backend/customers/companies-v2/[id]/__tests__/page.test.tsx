@@ -298,7 +298,7 @@ describe('CompanyDetailV2Page', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('attachments-section')).toHaveTextContent(
-        'e1:company-123:Files:Upload and manage files linked to this company.',
+        'e1:company-123:Files:',
       )
     })
   })

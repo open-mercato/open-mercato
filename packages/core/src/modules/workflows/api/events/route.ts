@@ -7,6 +7,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { getWorkflowListPageBounds } from '../../data/pagination'
+import { workflowEventPageSchema } from '../../data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -67,8 +69,14 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
 
     // Pagination
-    const page = parseInt(searchParams.get('page') || '1')
-    const pageSize = parseInt(searchParams.get('pageSize') || '50')
+    const pagination = workflowEventPageSchema.safeParse({
+      page: searchParams.get('page') ?? undefined,
+      pageSize: searchParams.get('pageSize') ?? undefined,
+    })
+    if (!pagination.success) {
+      return NextResponse.json({ error: pagination.error.message }, { status: 400 })
+    }
+    const { page, pageSize } = pagination.data
     const offset = (page - 1) * pageSize
 
     // Filters
@@ -148,7 +156,7 @@ export async function GET(request: NextRequest) {
       } : null,
     }))
 
-    const totalPages = Math.ceil(total / pageSize)
+    const { totalPages } = getWorkflowListPageBounds(total, pageSize)
 
     return NextResponse.json({
       items: enrichedEvents,
@@ -173,8 +181,8 @@ export const openApi = {
       description: 'Get a paginated list of all workflow events with filtering options',
       tags: ['Workflows'],
       query: z.object({
-        page: z.number().int().positive().default(1).optional(),
-        pageSize: z.number().int().positive().default(50).optional(),
+        page: workflowEventPageSchema.shape.page.describe('Positive integer page number. The derived offset cannot exceed 100000.'),
+        pageSize: workflowEventPageSchema.shape.pageSize.describe('Integer page size from 1 to 100.'),
         eventType: z.string().optional(),
         workflowInstanceId: z.string().uuid().optional(),
         userId: z.string().optional(),
@@ -184,6 +192,11 @@ export const openApi = {
         sortDir: z.enum(['asc', 'desc']).default('desc').optional(),
       }),
       responses: [
+        {
+          status: 400,
+          description: 'Invalid pagination: page size must be an integer from 1 to 100 and the derived offset (page - 1) × pageSize cannot exceed 100000.',
+          schema: z.object({ error: z.string() }),
+        },
         {
           status: 200,
           description: 'List of workflow events',
