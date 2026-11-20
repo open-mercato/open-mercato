@@ -19,6 +19,7 @@ type FormProps = {
 }
 
 let mockForm: FormProps | null = null
+let mockStoredPrice = '246.0000'
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
@@ -45,6 +46,7 @@ describe.each(['create', 'edit'] as const)('Variant %s price submission', (mode)
   beforeEach(() => {
     jest.clearAllMocks()
     mockForm = null
+    mockStoredPrice = '246.0000'
     jest.mocked(createCrud).mockResolvedValue({ result: { id: 'variant-1' } } as never)
     jest.mocked(readApiResultOrThrow).mockResolvedValue({ items: [
       { id: 'retail', code: 'regular', title: 'Retail', currency_code: 'USD', display_mode: 'including-tax' },
@@ -55,7 +57,7 @@ describe.each(['create', 'edit'] as const)('Variant %s price submission', (mode)
       const items = path.includes('/catalog/variants?')
         ? [{ id: 'variant-1', product_id: 'product-1', name: 'Variant', option_values: {}, updated_at: '2026-11-19T10:00:00.000Z' }]
         : path.includes('/catalog/prices?')
-          ? [{ id: 'price-1', price_kind_id: 'retail', unit_price_gross: '246.0000', updated_at: priceVersion }]
+          ? [{ id: 'price-1', price_kind_id: 'retail', unit_price_gross: mockStoredPrice, updated_at: priceVersion }]
           : path.includes('/catalog/products?') ? [{ id: 'product-1', title: 'Product' }] : []
       return { ok: true, result: { items } } as never
     })
@@ -67,6 +69,27 @@ describe.each(['create', 'edit'] as const)('Variant %s price submission', (mode)
       : <CreateVariantPage params={{ productId: 'product-1' }} />)
     await waitFor(() => expect(mockForm?.isLoading).toBe(false))
     return mockForm!
+  }
+
+  if (mode === 'edit') {
+    it.each([
+      ['en', '19.99'], ['pl', '19.99'], ['pl', '0.000000000000000001'],
+    ])('reopens the exact stored decimal string in the %s text input (%s)', async (locale, exact) => {
+      const previousLanguage = document.documentElement.lang
+      document.documentElement.lang = locale
+      mockStoredPrice = exact
+      try {
+        const form = await loadForm()
+        const pricesGroup = form.groups.find((group) => group.id === 'prices')!
+        render(<>{pricesGroup.component!({ values: form.initialValues, setValue: jest.fn(), errors: {} })}</>)
+        const amount = screen.getByLabelText('Retail')
+        expect(amount).toHaveAttribute('type', 'text')
+        expect(amount).toHaveAttribute('inputmode', 'decimal')
+        expect(amount).toHaveValue(exact)
+      } finally {
+        document.documentElement.lang = previousLanguage
+      }
+    })
   }
 
   it.each([

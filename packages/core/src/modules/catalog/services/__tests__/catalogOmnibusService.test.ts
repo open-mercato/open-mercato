@@ -23,6 +23,7 @@ import type {
   OmnibusWindowLookup,
 } from '../../lib/omnibusHistoryQueries'
 import { invalidateOmnibusCache } from '../../lib/omnibusCache'
+import { createOmnibusOverflowObservations } from '../../__integration__/omnibusOverflowFixture'
 import { omnibusConfigSchema } from '../../lib/omnibusTypes'
 import type {
   OmnibusHistoryRow,
@@ -133,10 +134,17 @@ jest.mock('../../lib/omnibusHistoryQueries', () => ({
         row.currencyCode === lookup.currencyCode &&
         row.changeType !== 'delete'
       const campaign = mockHistoryStore
-        .filter((row) => sameKind(row) && row.offerId === lookup.offerId)
+        .filter((row) =>
+          sameKind(row) &&
+          row.offerId === lookup.offerId &&
+          mockScopeValue(row, lookup.baselineScopeColumn) === lookup.baselineScopeId &&
+          (lookup.baselineScopeColumn !== 'product_id' || row.variantId === null) &&
+          row.recordedAt.getTime() <= (lookup.asOf ?? new Date()).getTime(),
+        )
         .sort(mockNewestFirst)
         .reverse()
-      if (!campaign.length) return { campaignIds: [], baselineId: null }
+        .slice(0, OMNIBUS_IN_WINDOW_LIMIT + 1)
+      if (!campaign.length) return { campaignIds: [], baselineId: null, campaignTruncated: false }
       const startedAt = campaign[0].recordedAt.getTime()
       const baseline = mockHistoryStore
         .filter(
@@ -147,7 +155,11 @@ jest.mock('../../lib/omnibusHistoryQueries', () => ({
             row.recordedAt.getTime() < startedAt,
         )
         .sort(mockNewestFirst)[0]
-      return { campaignIds: campaign.map((row) => row.id), baselineId: baseline ? baseline.id : null }
+      return {
+        campaignIds: campaign.map((row) => row.id),
+        baselineId: baseline ? baseline.id : null,
+        campaignTruncated: campaign.length > OMNIBUS_IN_WINDOW_LIMIT,
+      }
     }),
   ),
   fetchOmnibusPrecedingIds: jest.fn(async (_em: unknown, lookups: OmnibusPrecedingLookup[]) =>
@@ -846,6 +858,39 @@ describe('catalogOmnibusService member-state derogations', () => {
     )
     expect(block).toMatchObject({ applicabilityReason: 'announced_promotion', lowestPriceGross: '100.0000' })
     expect(windowIdsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back for the integration fixture overflowing the campaign at runtime', async () => {
+    const day = 24 * 60 * 60 * 1000
+    const current = addProgressiveCampaign([20, 16, 12].map((days, index) => [
+      String(90 - index * 10), new Date(TODAY.getTime() - days * day).toISOString(),
+    ]))
+    for (const row of createOmnibusOverflowObservations(TODAY.getTime())) {
+      addRow({ gross: row.unitPriceGross, net: row.unitPriceNet, recordedAt: row.recordedAt.toISOString(), offerId: OFFER })
+    }
+    const block = await buildService(derogationConfig({ progressiveReductionRule: true })).resolveOmnibusBlock(
+      em, ctx(), presentedFrom(current),
+    )
+    expect(block).toMatchObject({ applicabilityReason: 'announced_promotion', lowestPriceGross: '100.0000' })
+    expect(campaignIdsMock).toHaveBeenCalledWith(em, [expect.objectContaining({ asOf: TODAY })])
+    expect((await campaignIdsMock.mock.results[0].value)[0]).toMatchObject({ campaignTruncated: true })
+    expect(windowIdsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores future observations instead of calling an in-cap campaign overflowed', async () => {
+    const current = addProgressiveCampaign([
+      ['90.00', '2026-05-01T00:00:00.000Z'],
+      ['80.00', '2026-05-05T00:00:00.000Z'],
+    ])
+    for (let index = 0; index <= OMNIBUS_IN_WINDOW_LIMIT; index += 1) {
+      addRow({ gross: '70.00', recordedAt: new Date(TODAY.getTime() + (index + 1) * 60 * 60 * 1000).toISOString(), offerId: OFFER })
+    }
+    const block = await buildService(derogationConfig({ progressiveReductionRule: true })).resolveOmnibusBlock(
+      em, ctx(), presentedFrom(current),
+    )
+    expect((await campaignIdsMock.mock.results[0].value)[0].campaignIds).toHaveLength(2)
+    expect(block).toMatchObject({ applicabilityReason: 'progressive_reduction_frozen', lowestPriceGross: '100.0000' })
+    expect(windowIdsMock).not.toHaveBeenCalled()
   })
 
   it('falls back to the standard window when a pause exceeds progressiveMaxGapDays', async () => {
