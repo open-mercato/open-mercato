@@ -1349,6 +1349,18 @@ a validation failure returns the standard 400 shape (see API Contracts).
   ledger preserves original entries and links a `REVERSAL` through
   `referenceType: 'journal_entry'`, `referenceId: originalEntry.id`
   ([reversal linkage](https://github.com/open-mercato/open-mercato/blob/61bc044f43c7d8db963849fc16c1734a9795dacf/.ai/specs/2026-08-18-general-ledger-core-engine.md#L819-L827)).
+  The reference tuple is not unique. From those scoped, unreversed
+  capitalization candidates, explicitly exclude every journal id referenced
+  by this asset's accrued `DepreciationScheduleEntry.journalEntryReferenceId`,
+  including the second posting created by `ONE_TIME` acceptance. Resolve the
+  schedule rows under the same tenant/org/asset lock and scope; keep their
+  linked entries in the depreciation posting-date checks above. Exactly one
+  current capitalization must remain after both exclusions. If none or more
+  than one remains, reject with 409 `capitalization_history_inconsistent`
+  (translated through `fixed_assets.errors.capitalization_history_inconsistent`)
+  before any catch-up, journal, disposal-number, disposal or status write.
+  Do not choose the first row or an earliest/latest date, and do not create,
+  retag, delete or rewrite ledger/schedule history to resolve the ambiguity.
   After reopening and reaccepting, resolve the new committed capitalization
   entry under the same asset lock; neither the old reversed acceptance nor
   `acquisitionDate`/`otDate` substitutes for that entry's `operationDate`.
@@ -1889,7 +1901,9 @@ Custom write route (`disposeAsset`), mapped to `update`.
   posting-date preflight above finds the current acceptance's committed
   capitalization, or any committed depreciation, impairment or
   impairment-reversal `JournalEntry.operationDate` later
-  than `disposalDate`; or a required account is unset in
+  than `disposalDate`; `capitalization_history_inconsistent` when the scoped
+  current-capitalization lookup has zero or multiple results after excluding
+  reversed acceptances and accrued schedule-linked entries; or a required account is unset in
   `FixedAssetSettings` —
   `saleProceedsAccountId` for `SALE`, or either
   `otherOperatingExpenseAccountId`/`otherOperatingIncomeAccountId`
@@ -1900,6 +1914,9 @@ Custom write route (`disposeAsset`), mapped to `update`.
   catchUpAccrual: { posted: [], skippedLockedPeriod: [], failed: [] } }`;
   this request makes zero new catch-up or disposal writes and leaves all
   previously committed history intact.
+  The capitalization-cardinality refusal has the same `disposalPerformed: false`
+  and empty `catchUpAccrual` arrays, with `code: 'capitalization_history_inconsistent'`;
+  it likewise leaves every existing record unchanged and exposes no journal ids.
 - **Response 403**: caller lacks `fixed_assets.disposals.manage`.
 
 ### `POST /api/fixed_assets/assets/:id/impairments`
@@ -1988,7 +2005,8 @@ All user-facing strings resolve through `useT()` client-side /
   `.offset_account_required`, `.useful_life_required`,
   `.exchange_rate_unavailable`, `.cannot_reopen_after_accrual`,
   `.cannot_reopen_with_impairment_history`, `.disposal_catch_up_failed`,
-  `.disposal_post_failed`,
+  `.disposal_post_failed`, `.disposal_precedes_existing_posting`,
+  `.capitalization_history_inconsistent`,
   `.salvage_value_exceeds_acquisition_value`,
   `.cannot_revise_inactive_asset`, `.cannot_revise_one_time_asset`,
   `.no_unaccrued_periods_to_revise`, `.revision_yields_negative_base`,
@@ -2431,6 +2449,24 @@ All user-facing strings resolve through `useT()` client-side /
   must still be refused. Assert the current ledger `operationDate`, rather
   than the reversed original, `postedAt`, `acquisitionDate` or `otDate`, decides
   this floor. Another tenant/org/asset's capitalization does not affect it.
+- Integration: accept a `ONE_TIME` asset whose capitalization and separate
+  schedule-linked depreciation posting have different `operationDate` values,
+  with both periods open and the same reference tuple allowed on both entries.
+  Resolve exactly the capitalization id after excluding the accrued schedule's
+  linked journal id; retain that second id in the depreciation history checks.
+  A date before capitalization fails its floor, and a date between the earlier
+  capitalization and later depreciation fails the depreciation-date guard.
+  A date equal to or after both passes only those guards. Repeat with the
+  dates in the opposite order: a date after depreciation but before the later
+  capitalization must fail the capitalization floor. Both roles are checked
+  independently, without choosing the first row or an earliest/latest date. Reversed old
+  acceptances remain excluded after eligible reopen/reaccept. With valid
+  accounts and periods, separately arrange zero and two capitalization
+  candidates after exclusions: require 409 `capitalization_history_inconsistent`,
+  empty catch-up arrays and zero writes or history changes. Another
+  tenant/org/asset's schedule links and capitalization cannot affect either
+  the candidate exclusions or cardinality. These are future implementation
+  acceptance cases, not executed runtime evidence.
 - Integration: with valid accounts, unlocked periods and a current optimistic
   header, reject a January disposal after a committed February depreciation
   posting with 409 `disposal_precedes_existing_posting`. Repeat separately
@@ -2948,6 +2984,11 @@ gates, not defects in this document.
   maintainer decision.
 
 ## Changelog
+
+### 2026-11-20 — deterministic capitalization role (PR #9786)
+
+- Address the new lookup finding in [review 5993391114](https://github.com/open-mercato/open-mercato/pull/9786#pullrequestreview-5993391114): exclude scoped accrued schedule-linked journal ids, explicitly including the `ONE_TIME` second posting, from unreversed capitalization candidates. Require exactly one remaining capitalization before any write; a zero/multiple-result refusal uses localized 409 `capitalization_history_inconsistent` and the existing empty catch-up response shape.
+- Retain each excluded depreciation entry in its own posting-date guard. Add separate-operation-date role, reversed-acceptance, zero/multiple-candidate and cross-scope acceptance cases. Existing ledger links suffice; no posting tags, storage, runtime or accounting-policy change is introduced. Inherited zero-value completion, impairment/reversal chronology, uncertain catch-up outcomes and all previously recorded implementation/human gates remain unresolved.
 
 ### 2026-11-20 — current-acceptance capitalization floor (PR #9786)
 
