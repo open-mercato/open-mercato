@@ -68,6 +68,7 @@ const KIND_BG_COLORS = {
 }
 
 export const CHANGED_FIELD_LABELS: Record<string, { key: string; fallback: string }> = {
+  lines: { key: 'sales.documents.items.title', fallback: 'Items' },
   productId: { key: 'sales.documents.history.fields.product', fallback: 'Product' },
   productVariantId: { key: 'sales.documents.history.fields.variant', fallback: 'Variant' },
   name: { key: 'sales.documents.history.fields.name', fallback: 'Name' },
@@ -141,6 +142,7 @@ function humanizeChangedField(field: string): string {
 export function translateChangedField(t: TranslateFn, field: string): string {
   const normalized = normalizeChangedField(field)
   const translation = CHANGED_FIELD_LABELS[normalized]
+    ?? (normalized.endsWith('Exact') ? CHANGED_FIELD_LABELS[normalized.slice(0, -'Exact'.length)] : undefined)
   return translation ? t(translation.key, translation.fallback) : humanizeChangedField(field)
 }
 
