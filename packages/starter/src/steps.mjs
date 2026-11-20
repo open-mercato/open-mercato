@@ -14,6 +14,7 @@ import { addEnvValue, readEnvValue } from './env-file.mjs'
 import { describeInfraProblem, startInfra } from './infra.mjs'
 import { configureServiceMode } from './service-modes.mjs'
 import { assertDatabaseWriteAllowed } from './database-write-guard.mjs'
+import { assertEncryptionCompatible } from './encryption-preflight.mjs'
 import { WITHOUT_DOCKER_GUIDE_URL, findUnhealthyServices, requestExistingServicesConsent } from './infra-preflight.mjs'
 import { ensureLlmProvider } from './providers.mjs'
 import { verifyServiceConnections } from './service-connections.mjs'
@@ -710,6 +711,13 @@ export const databaseStep = {
         })
         if (result?.connectionEnv) ctx.env = { ...ctx.env, ...result.connectionEnv }
         if (result?.argument) ctx.remoteDatabaseArgument = result.argument
+        const compatibility = await (ctx.assertEncryptionCompatibleImpl ?? assertEncryptionCompatible)({
+          projectDir: path.join(ctx.repoRoot, 'apps', 'mercato'),
+          envFiles: [path.join(ctx.repoRoot, '.env')],
+          env: ctx.env,
+        })
+        ctx.env = { ...ctx.env, ...compatibility.settings }
+        ctx.log(`   encryption preflight: ${compatibility.status}`)
       } finally {
         ctx.logs?.resume()
         ctx.logs?.resumeActivity?.()

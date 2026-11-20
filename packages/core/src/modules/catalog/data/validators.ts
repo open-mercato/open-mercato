@@ -194,7 +194,7 @@ function productUomCrossFieldRefinement(
 const productBaseSchema = scoped.extend({
   title: z.string().trim().min(1).max(255),
   subtitle: z.string().trim().max(255).nullable().optional(),
-  description: z.string().trim().max(4000).optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   sku: skuSchema.nullable().optional(),
   handle: handleSchema.optional(),
   taxRateId: uuid().nullable().optional(),

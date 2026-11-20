@@ -24,6 +24,7 @@ import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
 import { lockAttachmentStorageReferences, resolveAttachmentStorageRelease } from '../lib/storageReferences'
+import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from '../lib/documentStructure/purge'
 import { assertAttachmentScopeInvariant } from '../lib/access'
 import { resolveAttachmentRequestScope } from '../lib/requestScope'
 import {
@@ -46,6 +47,7 @@ import {
   detectAttachmentMimeType,
   hasDangerousExecutableExtension,
   isActiveContentAttachment,
+  sanitizeAttachmentDisplayName,
   sanitizeUploadedFileName,
 } from '../lib/security'
 import {
@@ -444,6 +446,7 @@ async function uploadAttachment(req: Request) {
   }
   const buf = Buffer.from(await file.arrayBuffer())
   const safeName = sanitizeUploadedFileName(file.name)
+  const displayName = sanitizeAttachmentDisplayName(file.name)
   const fileMimeType = detectAttachmentMimeType(buf, safeName, (file as any).type)
   if (isActiveContentAttachment(buf, safeName, fileMimeType)) {
     return NextResponse.json({ error: t('attachments.errors.activeContentBlocked', 'Active content uploads are not allowed.') }, { status: 400 })
@@ -607,7 +610,7 @@ async function uploadAttachment(req: Request) {
     recordId,
     organizationId: orgId,
     tenantId: auth.tenantId!,
-    fileName: safeName,
+    fileName: displayName,
     mimeType: fileMimeType,
     fileSize: buf.length,
     partitionCode: partition.code,
@@ -651,8 +654,9 @@ async function uploadAttachment(req: Request) {
   }
 
   if (useLlmOcr) {
-    // Await so wait-queue overflow can finish the inline text fallback before
-    // the response returns (background LLM OCR still schedules via setImmediate).
+    // Await so the durable `attachments-ocr` job is enqueued (or, when the queue is
+    // unavailable, an in-process wait-queue overflow finishes its inline text
+    // fallback) before the response returns.
     try {
       await requestOcrProcessing(em, att, uploadDriver, storedPath)
     } catch (error) {
@@ -683,7 +687,7 @@ async function uploadAttachment(req: Request) {
     item: {
       id: attachmentId,
       url: att.url,
-      fileName: safeName,
+      fileName: displayName,
       fileSize: buf.length,
       partitionCode: partition.code,
       thumbnailUrl: buildAttachmentImageUrl(attachmentId, {
@@ -758,11 +762,16 @@ async function deleteAttachment(req: Request) {
     const driver = record.storagePath ? await storageDriverFactory.resolveForPartition(record.partitionCode, {
       tenantId: record.tenantId ?? auth.tenantId!, organizationId: record.organizationId ?? orgId ?? '',
     }) : null
+    const purgeScope = { tenantId: record.tenantId ?? null, organizationId: record.organizationId ?? null }
+    const purge = await purgeDocumentStructure(tx, { attachmentId: record.id, ...purgeScope }, { flush: false })
     tx.remove(record)
     await tx.flush()
-    return { record, driver, guard, releaseStorage: removal.releaseStorage }
+    return { record, driver, guard, releaseStorage: removal.releaseStorage, purgeScope, indexedSectionIds: purge.indexedSectionIds }
   })
   const { record } = outcome
+  if (outcome.indexedSectionIds.length > 0) {
+    await enqueuePurgedSectionSearchDelete(outcome.purgeScope, outcome.indexedSectionIds)
+  }
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
     logger.error('Failed to cleanup cached thumbnails', { err: error })
   })
