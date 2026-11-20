@@ -2153,7 +2153,7 @@ describe('BasicQueryEngine all-of caller compatibility (#7996)', () => {
     const fakeDb = createFakeKysely({
       users: [],
       custom_field_defs: [{ key: 'labels', entity_id: 'auth:user', is_active: true, config_json: '{}', kind: 'select' }],
-      'information_schema.columns': [{ table_name: 'users', column_name: 'id' }],
+      'information_schema.columns': [{ table_name: 'users', column_name: 'id' }, { table_name: 'users', column_name: 'tenant_id' }],
     })
     const engine = new BasicQueryEngine(
       {} as ConstructorParameters<typeof BasicQueryEngine>[0],

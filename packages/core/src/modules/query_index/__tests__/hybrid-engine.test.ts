@@ -2743,6 +2743,7 @@ test('HybridQueryEngine shares joined overlap metadata across request engines an
     customFieldKeys: {},
     columns: [
       { table_name: 'staff_team_members', column_name: 'id', data_type: 'uuid' },
+      { table_name: 'staff_team_members', column_name: 'tenant_id', data_type: 'uuid' },
       { table_name: 'staff_member_labels', column_name: 'member_id', data_type: 'uuid' },
       { table_name: 'staff_member_labels', column_name: 'labels', data_type: 'jsonb' },
     ],
@@ -2771,6 +2772,7 @@ test('HybridQueryEngine shares joined overlap metadata across request engines an
       customFieldKeys: {},
       columns: [
         { table_name: 'staff_team_members', column_name: 'id', data_type: 'uuid' },
+        { table_name: 'staff_team_members', column_name: 'tenant_id', data_type: 'uuid' },
         { table_name: 'staff_member_labels', column_name: 'member_id', data_type: 'uuid' },
         { table_name: 'staff_member_labels', column_name: 'labels', data_type: 'ARRAY' },
       ],
