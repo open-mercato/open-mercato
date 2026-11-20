@@ -64,14 +64,42 @@ const frozen = {
   personalizationReason: 'customer_specific_price',
 }
 
+function fixedLineIds(count: number): string[] {
+  return Array.from({ length: count }, (_, index) => `00000000-0000-4000-8000-${(count - index).toString(16).padStart(12, '0')}`)
+}
+
+function legacyPayload(source: StoredLog) {
+  const payload = source.commandPayload as { undo: { lineIds?: string[]; after: { lines: Row[] } } }
+  delete payload.undo.lineIds
+  return payload.undo
+}
+
+function lineIdentity(line: Row): Row {
+  return JSON.parse(JSON.stringify(Object.fromEntries(
+    ['id', 'comment', 'description', 'metadata', 'configuration', ...Object.keys(frozen)].map((key) => [key, line[key] ?? null]),
+  ))) as Row
+}
+
+function permute<T>(values: T[], seed: number): T[] {
+  const result = [...values]
+  let state = seed
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+    const target = state % (index + 1)
+    ;[result[index], result[target]] = [result[target], result[index]]
+  }
+  return result
+}
+
 function entityName(entity: unknown): string {
   return (entity as { name: string }).name
 }
 
-function makeEm(): TestEm {
+function makeEm(lineIds: string[] = []): TestEm {
   const rows = new Map<string, Row[]>()
   const trace: string[] = []
   let inTransaction = false
+  let nextLineId = 0
   const matches = (row: Row, where: Row) => Object.entries(where).every(([key, value]) => {
     const current = row[key]
     if (value && typeof value === 'object' && '$in' in value) return true
@@ -103,7 +131,11 @@ function makeEm(): TestEm {
     count: async () => 0,
     clear: () => undefined,
     flush: async () => {
-      for (const stored of rows.values()) for (const row of stored) row.id ??= randomUUID()
+      for (const stored of rows.values()) for (const row of stored) {
+        if (row.id === undefined || row.id === null) row.id = ['SalesOrderLine', 'SalesQuoteLine'].includes(String(row.__entity))
+          ? lineIds[nextLineId++] ?? randomUUID()
+          : randomUUID()
+      }
       trace.push('flush')
     },
     isInTransaction: () => inTransaction,
@@ -115,8 +147,8 @@ function makeEm(): TestEm {
   return em
 }
 
-function harness() {
-  const em = makeEm()
+function harness(lineIds?: string[]) {
+  const em = makeEm(lineIds)
   const logs: StoredLog[] = []
   const log = jest.fn(async (input: StoredLog) => {
     const stored = JSON.parse(JSON.stringify({ ...input, id: randomUUID() })) as StoredLog
@@ -168,6 +200,26 @@ describe.each(['order', 'quote'] as const)('sales %s create through command bus'
   const documentEntity = kind === 'order' ? 'SalesOrder' : 'SalesQuote'
   beforeAll(async () => { await import('../documents') })
   beforeEach(() => { jest.clearAllMocks(); registerCommandInterceptors([]) })
+
+  async function expectReplayRefused(test: ReturnType<typeof harness>, replayInput: unknown) {
+    const { bus, ctx, em, logs, service, actionLogService } = test
+    const writes = (['create', 'persist', 'nativeDelete', 'remove', 'flush', 'begin', 'commit', 'rollback', 'transactional'] as const)
+      .map((method) => jest.spyOn(em, method))
+    em.trace.length = 0
+    jest.clearAllMocks()
+    await expect(bus.execute(commandId, { input: replayInput, ctx, redoLogEntry: logs[0] })).rejects.toMatchObject({ status: 400 })
+    for (const write of writes) expect(write).not.toHaveBeenCalled()
+    expect(em.rows.get(documentEntity)).toEqual([])
+    expect(em.rows.get(lineEntity)).toEqual([])
+    expect(em.trace).toEqual([])
+    expect(service.getConfig).not.toHaveBeenCalled()
+    expect(service.resolveOmnibusBlocks).not.toHaveBeenCalled()
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    expect((ctx.container.resolve('eventBus') as { emitEvent: jest.Mock }).emitEvent).not.toHaveBeenCalled()
+    expect(actionLogService.releaseRedoClaim).toHaveBeenCalledTimes(1)
+    expect(actionLogService.log).not.toHaveBeenCalled()
+    expect(logs).toHaveLength(1)
+  }
 
   it.each(['disabled', 'history changed', 'legacy log'] as const)('restores original IDs and six frozen fields after undo and %s', async (change) => {
     const { em, ctx, bus, service, logs, actionLogService } = harness()
@@ -314,6 +366,237 @@ describe.each(['order', 'quote'] as const)('sales %s create through command bus'
     await bus.undo(logs[1].undoToken, ctx)
     expect(em.rows.get(lineEntity)).toEqual([])
     expect(em.rows.get(documentEntity)).toEqual([])
+  })
+
+  it('reserves the specific legacy comment before assigning the omitted-comment input', async () => {
+    const lineIds = ['ffffffff-ffff-4fff-8fff-ffffffffffff', '00000000-0000-4000-8000-000000000001']
+    const { bus, ctx, em, logs, service } = harness(lineIds)
+    service.getConfig.mockResolvedValue(omnibusConfigSchema.parse({ enabled: false }))
+    const duplicateNumbers = {
+      ...input,
+      lines: [
+        { ...input.lines[1], lineNumber: 2 },
+        { ...input.lines[1], lineNumber: 2, comment: 'Gift wrap' },
+      ],
+    }
+    await bus.execute(commandId, { input: duplicateNumbers, ctx })
+    const identity = (line: Row) => Object.fromEntries(
+      ['id', 'comment', ...Object.keys(frozen)].map((key) => [key, line[key] ?? null]),
+    )
+    const original = (em.rows.get(lineEntity) ?? []).map(identity)
+    expect(original.map((line) => line.id)).toEqual(lineIds)
+    expect(original.map((line) => line.comment)).toEqual([null, 'Gift wrap'])
+    await bus.undo(logs[0].undoToken, ctx)
+    const payload = logs[0].commandPayload as { undo: { lineIds?: string[]; after: { lines: Row[] } } }
+    delete payload.undo.lineIds
+    payload.undo.after.lines.reverse()
+    await bus.execute(commandId, { input: duplicateNumbers, ctx, redoLogEntry: logs[0] })
+    expect((em.rows.get(lineEntity) ?? []).map(identity)).toEqual(original)
+    await bus.undo(logs[1].undoToken, ctx)
+    expect(em.rows.get(lineEntity)).toEqual([])
+    expect(em.rows.get(documentEntity)).toEqual([])
+  })
+
+  it.each([1, 7, 42, 9372, 20261120, 0x12345678])('matches overlapping legacy constraints in full under input/log permutation seed %s', async (seed) => {
+    const test = harness(fixedLineIds(9))
+    const { bus, ctx, em, logs, service } = test
+    const base = input.lines[1]
+    const lines = [
+      { ...base, lineNumber: 2 },
+      { ...base, lineNumber: 2, comment: 'Gift wrap' },
+      { ...base, lineNumber: 2, comment: 'Gift wrap', description: 'Fragile' },
+      { ...base, lineNumber: 7, comment: 'Gift wrap' },
+      { ...base, lineNumber: 7, description: 'Fragile' },
+      { ...base, lineNumber: 7, comment: 'Gift wrap', description: 'Fragile' },
+      { ...base, lineNumber: 11 },
+      { ...base, lineNumber: 11, metadata: { nested: { choices: [false, null, 'gift'] } } },
+      { ...base, lineNumber: 11, metadata: { nested: { choices: [false, null, 'gift'] } }, configuration: { paper: ['blue', 'white'] } },
+    ]
+    const replayInput = { ...input, lines: permute(lines, seed) }
+    await bus.execute(commandId, { input: replayInput, ctx })
+    const originalIds = (em.rows.get(lineEntity) ?? []).map((line) => line.id)
+    await bus.undo(logs[0].undoToken, ctx)
+    const legacy = legacyPayload(logs[0])
+    for (const [index, line] of legacy.after.lines.entries()) Object.assign(line, {
+      ...frozen,
+      omnibusReferenceNet: `80.00000000000000000${index + 1}`,
+      omnibusReferenceGross: `90.00000000000000000${index + 1}`,
+      omnibusPromotionAnchorAt: new Date(frozen.omnibusPromotionAnchorAt.getTime() + index).toISOString(),
+      omnibusApplicabilityReason: `reason-${index}`,
+      isPersonalized: index % 2 === 0,
+      personalizationReason: index === 0 ? '' : `personal-${index}`,
+    })
+    const expected = legacy.after.lines.map(lineIdentity).sort((left, right) => String(left.id).localeCompare(String(right.id)))
+    legacy.after.lines = permute(legacy.after.lines.reverse(), seed ^ 0xabcdef)
+    service.getConfig.mockClear()
+    service.resolveOmnibusBlocks.mockClear()
+    await bus.execute(commandId, { input: replayInput, ctx, redoLogEntry: logs[0] })
+    const restored = (em.rows.get(lineEntity) ?? []).map(lineIdentity).sort((left, right) => String(left.id).localeCompare(String(right.id)))
+    expect(restored).toEqual(expected)
+    expect((logs[1].commandPayload as { undo: { lineIds: string[] } }).undo.lineIds).toEqual(originalIds)
+    expect(service.getConfig).not.toHaveBeenCalled()
+    expect(service.resolveOmnibusBlocks).not.toHaveBeenCalled()
+    await bus.undo(logs[1].undoToken, ctx)
+    await bus.execute(commandId, { input: replayInput, ctx, redoLogEntry: logs[1] })
+    expect((em.rows.get(lineEntity) ?? []).map(lineIdentity).sort((left, right) => String(left.id).localeCompare(String(right.id)))).toEqual(expected)
+    await bus.undo(logs[2].undoToken, ctx)
+    expect(em.rows.get(lineEntity)).toEqual([])
+    expect(em.rows.get(documentEntity)).toEqual([])
+  })
+
+  it.each(['identical', 'reserved', 'ambiguous'] as const)('bounds a 150-line legacy %s group', async (mode) => {
+    const test = harness(fixedLineIds(150))
+    const { bus, ctx, em, logs, service } = test
+    service.getConfig.mockResolvedValue(omnibusConfigSchema.parse({ enabled: false }))
+    const replayInput = {
+      ...input,
+      lines: Array.from({ length: 150 }, (_, index) => ({
+        ...input.lines[1], lineNumber: 2,
+        ...(mode === 'reserved' && index >= 75 ? { comment: `Reserved ${index}` } : {}),
+      })),
+    }
+    await bus.execute(commandId, { input: replayInput, ctx })
+    const original = (em.rows.get(lineEntity) ?? []).map(lineIdentity)
+    await bus.undo(logs[0].undoToken, ctx)
+    const legacy = legacyPayload(logs[0])
+    legacy.after.lines = permute(legacy.after.lines, 9372)
+    if (mode === 'ambiguous') legacy.after.lines[149].isPersonalized = false
+    const started = Date.now()
+    if (mode === 'ambiguous') {
+      await expectReplayRefused(test, replayInput)
+    } else {
+      await bus.execute(commandId, { input: replayInput, ctx, redoLogEntry: logs[0] })
+      const restored = (em.rows.get(lineEntity) ?? []).map(lineIdentity)
+      const interchangeable = original.filter((line) => line.comment === null).sort((left, right) => String(left.id).localeCompare(String(right.id)))
+      expect(restored.filter((line) => line.comment === null)).toEqual(interchangeable)
+      for (const line of original.filter((entry) => entry.comment !== null)) expect(restored.find((entry) => entry.id === line.id)).toEqual(line)
+      expect(restored).toHaveLength(150)
+      await bus.undo(logs[1].undoToken, ctx)
+      expect(em.rows.get(lineEntity)).toEqual([])
+    }
+    expect(Date.now() - started).toBeLessThan(5000)
+  })
+
+  it.each(['missing row ID', 'duplicate row ID', 'corrupt row ID', 'duplicate private ID', 'missing private ID', 'unknown private ID', 'corrupt private ID', 'null private IDs'] as const)('refuses %s before any replay writes', async (mode) => {
+    const test = harness(fixedLineIds(2))
+    const { bus, ctx, logs } = test
+    await bus.execute(commandId, { input, ctx })
+    await bus.undo(logs[0].undoToken, ctx)
+    const payload = logs[0].commandPayload as { undo: { lineIds?: unknown; after: { lines: Row[] } } }
+    if (mode.endsWith('row ID')) {
+      delete payload.undo.lineIds
+      if (mode === 'missing row ID') delete payload.undo.after.lines[0].id
+      if (mode === 'duplicate row ID') payload.undo.after.lines[0].id = payload.undo.after.lines[1].id
+      if (mode === 'corrupt row ID') payload.undo.after.lines[0].id = 'corrupt'
+    } else {
+      const ids = payload.undo.lineIds as string[]
+      if (mode === 'duplicate private ID') ids[1] = ids[0]
+      if (mode === 'missing private ID') ids.pop()
+      if (mode === 'unknown private ID') ids[1] = randomUUID()
+      if (mode === 'corrupt private ID') ids[1] = 'corrupt'
+      if (mode === 'null private IDs') payload.undo.lineIds = null
+    }
+    await expectReplayRefused(test, input)
+  })
+
+  it.each([
+    { field: 'kind', value: 'product', corrupt: 'service' },
+    { field: 'statusEntryId', value: organizationId, corrupt: tenantId },
+    { field: 'productId', value: productId, corrupt: tenantId },
+    { field: 'productVariantId', value: priceId, corrupt: tenantId },
+    { field: 'name', value: 'manual', corrupt: 'different' },
+    { field: 'description', value: 'Fragile', corrupt: null },
+    { field: 'comment', value: 'Gift wrap', corrupt: null },
+    { field: 'quantityUnit', value: 'ea', corrupt: 'kg' },
+    { field: 'currencyCode', value: 'EUR', corrupt: 'PLN' },
+    { field: 'promotionCode', value: 'GIFT', corrupt: null },
+    { field: 'customFieldSetId', value: priceId, corrupt: tenantId },
+    { field: 'configuration', value: { nested: [false, null, 'gift'] }, corrupt: { nested: [false, null, 'other'] } },
+    { field: 'promotionSnapshot', value: { nested: [false, null, 'gift'] }, corrupt: { nested: [false, null, 'other'] } },
+    { field: 'metadata', value: { nested: [false, null, 'gift'] }, corrupt: { nested: [false, null, 'other'] } },
+    { field: 'customFields', value: { nested: [false, null, 'gift'] }, corrupt: { nested: [false, null, 'other'] } },
+    ...['unitPriceNet', 'unitPriceGross'].map((field) => ({
+      field, value: '1.000000000000000001', corrupt: '1.000000000000000002',
+    })),
+    ...['quantity', 'discountPercent', 'taxRate'].map((field) => ({ field, value: '1.25', corrupt: '1.5' })),
+  ])('enforces $field against every original tied row, including the last remaining row', async ({ field, value, corrupt }) => {
+    const test = harness(fixedLineIds(2))
+    const { bus, ctx, logs } = test
+    const originalInput = { ...input, lines: [input.lines[1], input.lines[1]].map((line) => ({ ...line, lineNumber: 2 })) }
+    await bus.execute(commandId, { input: originalInput, ctx })
+    await bus.undo(logs[0].undoToken, ctx)
+    const legacy = legacyPayload(logs[0])
+    for (const line of legacy.after.lines) line[field] = value
+    legacy.after.lines[1][field] = corrupt
+    const replayInput = { ...originalInput, lines: originalInput.lines.map((line) => ({ ...line, [field]: value })) }
+    await expectReplayRefused(test, replayInput)
+  })
+
+  it('checks structured and exact constraints even when a primitive field leaves one candidate', async () => {
+    for (const field of ['metadata', 'unitPriceNet']) {
+      const test = harness(fixedLineIds(2))
+      const { bus, ctx, logs } = test
+      const replayInput = {
+        ...input,
+        lines: [
+          { ...input.lines[1], lineNumber: 2, comment: 'Gift wrap', metadata: { choice: [false, null] }, unitPriceNet: '40.000000000000000001' },
+          { ...input.lines[1], lineNumber: 2, comment: 'Fragile', metadata: { choice: [false, null] }, unitPriceNet: '40.000000000000000001' },
+        ],
+      }
+      await bus.execute(commandId, { input: replayInput, ctx })
+      await bus.undo(logs[0].undoToken, ctx)
+      const legacy = legacyPayload(logs[0])
+      legacy.after.lines[0][field] = field === 'metadata' ? { choice: [null, false] } : '40.000000000000000002'
+      await expectReplayRefused(test, replayInput)
+    }
+  })
+
+  it.each(['equal dates', ...Object.keys(frozen)])('evaluates full alternating cycles with %s frozen payloads', async (field) => {
+    const test = harness(fixedLineIds(3))
+    const { bus, ctx, em, logs } = test
+    const replayInput = {
+      ...input,
+      lines: [
+        { ...input.lines[1], lineNumber: 2, comment: 'Gift wrap' },
+        { ...input.lines[1], lineNumber: 2, description: 'Fragile' },
+        { ...input.lines[1], lineNumber: 2, metadata: { gift: true } },
+      ],
+    }
+    await bus.execute(commandId, { input: replayInput, ctx })
+    await bus.undo(logs[0].undoToken, ctx)
+    const legacy = legacyPayload(logs[0])
+    legacy.after.lines[0].metadata = { gift: true }
+    legacy.after.lines[1].comment = 'Gift wrap'
+    legacy.after.lines[2].description = 'Fragile'
+    for (const line of legacy.after.lines) Object.assign(line, frozen, { omnibusPromotionAnchorAt: frozen.omnibusPromotionAnchorAt.toISOString() })
+    if (field === 'equal dates') {
+      legacy.after.lines[1].omnibusPromotionAnchorAt = '2026-04-30T20:00:00.000-04:00'
+      await bus.execute(commandId, { input: replayInput, ctx, redoLogEntry: logs[0] })
+      for (const line of em.rows.get(lineEntity) ?? []) expect(line).toMatchObject(frozen)
+      expect((em.rows.get(lineEntity) ?? []).map((line) => line.id).sort()).toEqual(fixedLineIds(3).sort())
+      await bus.undo(logs[1].undoToken, ctx)
+    } else {
+      legacy.after.lines[2][field] = {
+        omnibusReferenceNet: '100000000000000.1234567890123456788',
+        omnibusReferenceGross: '123000000000000.1234567890123456788',
+        omnibusPromotionAnchorAt: '2026-05-01T00:00:00.001Z',
+        omnibusApplicabilityReason: '', isPersonalized: false, personalizationReason: '',
+      }[field]
+      await expectReplayRefused(test, replayInput)
+    }
+  })
+
+  it('preserves the unique-position legacy bridge despite historical content normalization', async () => {
+    const { bus, ctx, em, logs } = harness(fixedLineIds(2))
+    await bus.execute(commandId, { input, ctx })
+    const ids = (em.rows.get(lineEntity) ?? []).map((line) => line.id)
+    await bus.undo(logs[0].undoToken, ctx)
+    const legacy = legacyPayload(logs[0])
+    for (const line of legacy.after.lines) Object.assign(line, { name: 'Historical name', metadata: { old: true }, unitPriceNet: '999' })
+    await bus.execute(commandId, { input, ctx, redoLogEntry: logs[0] })
+    expect((em.rows.get(lineEntity) ?? []).map((line) => line.id)).toEqual(ids)
+    expect((em.rows.get(lineEntity) ?? []).map((line) => line.name)).toEqual(input.lines.map((line) => line.name))
+    await bus.undo(logs[1].undoToken, ctx)
   })
 
   it.each(Object.keys(frozen) as Array<keyof typeof frozen>)('refuses an ambiguous legacy duplicate with differing %s before creating a document or line', async (field) => {
