@@ -172,4 +172,27 @@ describe('PayPageCustomerForm built-in label localization (issue #9873)', () => 
     expect(screen.getByText('Mobile number')).toBeInTheDocument()
     expect(screen.queryByText('Telefon')).not.toBeInTheDocument()
   })
+
+  it('re-renders untouched defaults snapshotted in Polish in English for an English buyer', () => {
+    activeLocale = 'en'
+    const payload = buildPayload({
+      customerFieldsSchema: [
+        { key: 'firstName', label: 'Imię', kind: 'text', required: true, sortOrder: 0 },
+        { key: 'lastName', label: 'Nazwisko', kind: 'text', required: true, sortOrder: 1 },
+        { key: 'phone', label: 'Telefon', kind: 'text', required: false, sortOrder: 2 },
+        { key: 'companyName', label: 'Nazwa firmy', kind: 'text', required: false, sortOrder: 3 },
+        { key: 'companyId', label: 'NIP / ID firmy', kind: 'text', required: false, sortOrder: 4 },
+        { key: 'address', label: 'Moj adres dostawy', kind: 'multiline', required: false, sortOrder: 5 },
+      ],
+    })
+    renderCustomerForm(payload)
+
+    expect(screen.getByText(startsWith('First name'))).toBeInTheDocument()
+    expect(screen.getByText(startsWith('Last name'))).toBeInTheDocument()
+    expect(screen.getByText('Phone')).toBeInTheDocument()
+    expect(screen.getByText('Company name')).toBeInTheDocument()
+    expect(screen.getByText('Company ID')).toBeInTheDocument()
+    expect(screen.getByText('Moj adres dostawy')).toBeInTheDocument()
+    expect(screen.queryByText(startsWith('Imię'))).not.toBeInTheDocument()
+  })
 })
