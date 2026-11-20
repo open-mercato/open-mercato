@@ -78,6 +78,21 @@ describe('TOTP setup client errors', () => {
     expect(validate).not.toHaveBeenCalled()
   })
 
+  test('localizes setup errors created by a separate module instance', async () => {
+    mockLocale = 'pl'
+    let error: unknown
+    jest.isolateModules(() => {
+      const isolatedErrors = jest.requireActual<typeof import('@open-mercato/shared/lib/crud/errors')>('@open-mercato/shared/lib/crud/errors')
+      error = isolatedErrors.badRequest('Invalid TOTP code')
+    })
+
+    expect(error).not.toBeInstanceOf(CrudHttpError)
+    const response = await mapMfaError(error)
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: pl['security.api.errors.invalidTotpCode'] })
+  })
+
   test('keeps unexpected failures behind the generic 500 response', async () => {
     const response = await mapMfaError(new Error('Unexpected internal failure'))
 

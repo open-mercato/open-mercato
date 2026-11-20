@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import '../../lib/mfaCompletionRoutes'
@@ -117,7 +117,7 @@ export function readString(value: unknown): string | null {
 }
 
 export async function mapMfaError(error: unknown): Promise<NextResponse> {
-  if (error instanceof CrudHttpError) {
+  if (isCrudHttpError(error)) {
     return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
   }
   const interceptorRejection = getCommandInterceptorHttpRejection(error)
