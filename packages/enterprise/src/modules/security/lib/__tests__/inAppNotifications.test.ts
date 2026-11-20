@@ -1,4 +1,4 @@
-import { MetadataStorage } from '@mikro-orm/core'
+import { EntityMetadata, MetadataStorage } from '@mikro-orm/core'
 import { Notification } from '@open-mercato/core/modules/notifications/data/entities'
 import { inAppNotificationsAvailable } from '../inAppNotifications'
 
@@ -8,7 +8,7 @@ jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => ({ child: () => ({ warn: (...args: unknown[]) => warnMock(...args) }) }),
 }))
 
-function createContext(getMetadata: () => Pick<MetadataStorage, 'has'>) {
+function createContext(getMetadata: () => MetadataStorage) {
   return { resolve: <T = unknown>(): T => ({ getMetadata }) as T }
 }
 
@@ -23,11 +23,16 @@ describe('in-app notification availability', () => {
     expect(warnMock).toHaveBeenCalledTimes(1)
   })
 
-  it('continues without a warning when Notification metadata exists', () => {
-    const has = jest.fn(() => true)
+  it.each([
+    ['the imported constructor', Notification],
+    ['a separately bundled constructor', class Notification {}],
+  ])('continues when metadata is registered with %s', (_description, registeredClass) => {
+    const metadata = new MetadataStorage({
+      Notification: new EntityMetadata({ class: registeredClass, className: 'Notification' }),
+    })
 
-    expect(inAppNotificationsAvailable(createContext(() => ({ has })))).toBe(true)
-    expect(has).toHaveBeenCalledWith(Notification)
+    expect(metadata.find(Notification)).toBeDefined()
+    expect(inAppNotificationsAvailable(createContext(() => metadata))).toBe(true)
     expect(warnMock).not.toHaveBeenCalled()
   })
 
