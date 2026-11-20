@@ -45,6 +45,13 @@ for values entered before the permission checks, including values on fields
 that are still valid. Remove or replace suspect content through authorized
 translation operations. Rows for unregistered or missing targets require
 operator cleanup. No schema migration is required.
+<a id="issue-9106"></a>
+
+## Relation options and explicit global query scope (#9106)
+
+Relation-option lookups now require the target entity's existing read authority, refuse platform-only and undeclared system targets, and accept only server-declared or fixed safe label fields. Clients should omit `labelField` or choose a declared label rather than request arbitrary columns. Lookup batches are capped at 100; split larger ID lists. Authorized scoped custom labels and declared module labels remain available; metadata permission alone no longer grants system-record access.
+
+Module authors querying a table with neither `tenant_id` nor `organization_id` must explicitly use the existing trusted `omitAutomaticTenantOrgScope: true` option and enforce their own visibility filters. Never bind that option to a request parameter. Operators should review metadata-only roles that relied on excessive access and audit unintended secret or cross-tenant reads. No persisted data, migrations, startup options or configuration formats change. The security exception needs named human-maintainer acknowledgment before merge; automation does not supply it. [Specification](.ai/specs/2026-11-16-relation-options-query-scope.md).
 
 ## CRM preset enables the scheduler (#8804)
 
@@ -79,6 +86,7 @@ now warns when a connected channel relies on polling but no scheduler is enabled
 or the organization's poll schedule is missing or disabled, and
 `GET /api/communication_channels/me/channels` returns an additive
 `automaticSyncEnabled` boolean that drives that warning.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.

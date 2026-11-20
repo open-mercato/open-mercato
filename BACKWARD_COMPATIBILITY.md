@@ -729,3 +729,6 @@ unregistered translations would preserve the vulnerability. See
 [upgrade notes](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139)
 for client and operator migration guidance. The Emergency Security Exception
 requires named maintainer approval.
+## #9106 2026-11-16
+
+STABLE labels disclose secrets; no bridge. [Migration](UPGRADE_NOTES.md#issue-9106); waiver pending.

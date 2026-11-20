@@ -503,6 +503,10 @@ export class HybridQueryEngine implements QueryEngine {
         return await applyAfterExtensions(fallbackResult)
       }
 
+      if (opts.omitAutomaticTenantOrgScope !== true && !await this.columnExists(baseTable, 'tenant_id') && !await this.columnExists(baseTable, 'organization_id')) {
+        throw new Error('[internal] QueryEngine: unscoped base table requires explicit scope opt-out')
+      }
+
       if (opts.omitAutomaticTenantOrgScope === true) {
         if (debugEnabled) this.debug('query:fallback:omit-automatic-scope', { entity })
         const fallbackResult = await this.queryFallback<T>(entity, opts)
