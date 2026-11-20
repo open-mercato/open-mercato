@@ -218,19 +218,28 @@ describe('report export money permissions', () => {
       expect(response.status).toBe(200)
       const input = serialize.mock.calls[0][0]
       expect(input.totals.totalAmount).toBe(allowed ? 194.62 : 0)
+      expect(input.totals.totalAmountExact).toBe(allowed ? '194.62' : '0')
       expect(input.groups[0].rate).toBe(allowed ? 97.31 : null)
+      expect(input.groups[0].rateExact).toBe(allowed ? '97.31' : null)
       expect(input.groups[0].amount).toBe(allowed ? 194.62 : 0)
+      expect(input.groups[0].amountExact).toBe(allowed ? '194.62' : '0')
       const parent = input.groups[0].lines[0]
       const child = parent.children[0]
       expect(parent.rate).toBe(allowed ? 97.31 : null)
+      expect(parent.rateExact).toBe(allowed ? '97.31' : null)
       expect(parent.amount).toBe(allowed ? 194.62 : 0)
+      expect(parent.amountExact).toBe(allowed ? '194.62' : '0')
       expect(child.rate).toBe(allowed ? 97.31 : null)
+      expect(child.rateExact).toBe(allowed ? '97.31' : null)
       expect(child.amount).toBe(allowed ? 97.31 : 0)
+      expect(child.amountExact).toBe(allowed ? '97.31' : '0')
       expect(parent.minutes).toBe(120)
       expect(child.minutes).toBe(60)
       for (const row of input.rows) {
         expect(row.rate).toBe(allowed ? 97.31 : null)
+        expect(row.rateExact).toBe(allowed ? '97.31' : null)
         expect(row.amount).toBe(allowed ? 97.31 : null)
+        expect(row.amountExact).toBe(allowed ? '97.31' : null)
       }
       expect(input.canSeeMoney).toBe(allowed)
       expect(originalSheet).toEqual(makeSheet())

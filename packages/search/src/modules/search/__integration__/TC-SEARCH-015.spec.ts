@@ -16,6 +16,7 @@ test('TC-SEARCH-015: Polish settings show environment hints and isolated unavail
   test.setTimeout(120_000)
   const token = await getAuthToken(request, 'admin')
   const { organizationId } = getTokenContext(token)
+  const longIndexPrefix = 'search_namespace_'.repeat(40)
   const stamp = randomUUID()
   const email = `search-diagnostics-${stamp}@example.com`
   const password = `Search-015-${stamp}!`
@@ -47,17 +48,48 @@ test('TC-SEARCH-015: Polish settings show environment hints and isolated unavail
         settings: { ...body.settings, embeddingConfig: null, configuredProviders: [], providerAvailability: [missingKey, unreachable] },
       } })
     })
+    await page.route('**/api/search/settings/fulltext', async (route) => {
+      const response = await route.fetch()
+      expect(response.status()).toBe(200)
+      const body = await response.json()
+      await route.fulfill({ response, json: {
+        ...body,
+        optionalEnvVars: {
+          ...body.optionalEnvVars,
+          MEILISEARCH_INDEX_PREFIX: {
+            ...body.optionalEnvVars.MEILISEARCH_INDEX_PREFIX,
+            set: true,
+            value: longIndexPrefix,
+          },
+        },
+      } })
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/backend/config/search')
     for (const key of ['host', 'apiKey', 'indexPrefix', 'excludeEncrypted']) {
       await expect(page.getByText(translate(`search.settings.fulltext.hints.${key}`), { exact: true })).toBeVisible()
     }
     await expect(page.getByText(missingKey.reason!, { exact: true })).toBeVisible()
     await expect(page.getByText(unreachable.reason!, { exact: true })).toBeVisible()
+    const prefixValue = page.getByText(longIndexPrefix, { exact: false })
+    await expect(prefixValue).toBeVisible()
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect.poll(() => page.evaluate(() => ({
+        documentWidth: document.documentElement.scrollWidth,
+        bodyWidth: document.body.scrollWidth,
+        viewportWidth: window.innerWidth,
+      }))).toEqual({ documentWidth: width, bodyWidth: width, viewportWidth: width })
+      const bounds = await prefixValue.boundingBox()
+      expect(bounds).not.toBeNull()
+      expect(bounds!.x).toBeGreaterThanOrEqual(0)
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+    }
     await expect(page.getByRole('button', { name: /OpenAI/ })).toBeDisabled()
     await expect(page.getByRole('button', { name: /Ollama/ })).toBeDisabled()
     await expect(page.locator('body')).not.toContainText(/The URL of your|API key for authentication|Set OPENAI_API_KEY|Ollama not reachable|search\.settings\.(fulltext\.hints|providers\.diagnostics)/)
   } finally {
-    await page.unroute('**/api/search/embeddings')
+    await page.unrouteAll({ behavior: 'wait' })
     await page.context().clearCookies()
     await deleteUserIfExists(request, token, userId)
     await deleteRoleIfExists(request, token, roleId)
