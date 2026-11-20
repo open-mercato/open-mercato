@@ -12,8 +12,8 @@ const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
  * Source: GitHub issue #2488 (attachments integration coverage)
  * Surface: /api/attachments/file/{id} (GET)
  *
- * The file route stamps `Cache-Control: private, max-age=60` for scoped files
- * in either public or private partitions, always sets a sandboxed CSP and
+ * The file route stamps `private, no-store` for private files and
+ * `private, max-age=60` for scoped public files, always sets a sandboxed CSP and
  * nosniff, and serves viewable images inline. A file lands in the public `productsMedia`
  * partition by uploading with the catalog product entityId (default routing); explicit
  * public-partition overrides are rejected by the upload route.
@@ -53,7 +53,7 @@ test.describe('TC-ATT-014: Attachment file route headers and access', () => {
 
       const privateResponse = await fetchFile(privateTextId, true)
       expect(privateResponse.status(), 'authenticated private file read should be 200').toBe(200)
-      expect(privateResponse.headers()['cache-control']).toBe('private, max-age=60')
+      expect(privateResponse.headers()['cache-control']).toBe('private, no-store')
       expect(privateResponse.headers()['content-security-policy'] ?? '').toContain('sandbox')
       expect(privateResponse.headers()['x-content-type-options']).toBe('nosniff')
 
@@ -74,7 +74,7 @@ test.describe('TC-ATT-014: Attachment file route headers and access', () => {
       expect(imageResponse.status()).toBe(200)
       expect(imageResponse.headers()['content-type']).toBe('image/png')
       expect(imageResponse.headers()['content-disposition'] ?? '').toContain('inline')
-      expect(imageResponse.headers()['cache-control']).toBe('private, max-age=60')
+      expect(imageResponse.headers()['cache-control']).toBe('private, no-store')
 
       // Public file: the catalog product entityId routes uploads to the public
       // `productsMedia` partition without an explicit (rejected) override.

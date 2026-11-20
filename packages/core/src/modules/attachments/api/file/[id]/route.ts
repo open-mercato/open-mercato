@@ -78,7 +78,7 @@ async function readAttachmentFile(
   const forceDownload = url.searchParams.get("download") === "1";
   const renderInline = !forceDownload && canRenderInlineAttachment(attachment.mimeType);
   const access = await evaluateAttachmentAccess({
-    auth: scopedAuth, attachment, partition, action: renderInline ? 'render' : 'read',
+    auth: scopedAuth, attachment, partition, requirePrivateReadFeature: true, action: renderInline ? 'render' : 'read',
     context: createAttachmentAccessContext(container),
   });
   if (!access.ok) return attachmentAccessErrorResponse(access);
@@ -127,7 +127,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: "Download or serve attachment file",
       description:
-        "Returns the raw file content for an attachment. Path parameter: {id} - Attachment UUID. Query parameter: ?download=1 - Force file download with Content-Disposition header. Access control is enforced based on partition settings.",
+        "Returns the raw file content for an attachment. Path parameter: {id} - Attachment UUID. Query parameter: ?download=1 - Force file download with Content-Disposition header. Private partitions require current attachments.view permission in addition to scope and owner policies. Public partition behavior is preserved.",
       responses: [
         {
           status: 200,

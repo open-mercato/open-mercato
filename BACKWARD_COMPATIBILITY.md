@@ -12,17 +12,17 @@ Every listed surface is a **public contract**. Changes MUST follow the deprecati
 
 ### Emergency Security Exception
 
-Steps 1-3 — stage the removal, deprecate first, ship a bridge — are waived, and **only** those three, when the contract surface being removed *is itself* the vulnerability: keeping it alongside the replacement would leave the flaw exploitable for the whole deprecation window. A surface that merely makes an insecure usage possible does not qualify; the exception applies only where continued acceptance of the old shape **is** the exploit.
+**Only steps 1–3** are waived when the removed contract surface *is itself* the vulnerability: retaining it alongside its replacement leaves the flaw exploitable throughout deprecation. Merely enabling insecure usage does not qualify; continued acceptance of the old shape must **be** the exploit.
 
-This is not author or reviewer discretion. Every one of the following MUST hold, and a change that cannot satisfy all of them follows the ordinary protocol instead:
+All conditions below MUST hold; otherwise use the ordinary protocol. Authors or reviewers cannot grant this exception.
 
 1. **The qualifying condition is argued, not asserted.** The PR names the surface, the vulnerability, and why a bridge release would keep it reachable.
-2. **The removal is the narrowest one that closes the hole.** No unrelated tightening rides along, and **no partial bridge retains the vulnerable branch** behind a flag, a config toggle, or an opt-in — a retained branch is the bridge the exception exists to refuse.
+2. **Remove only what closes the hole.** No unrelated tightening, and **no vulnerable branch retained** through a partial bridge, flag, config toggle or opt-in.
 3. **Steps 4 and 5 still apply in full.** An `UPGRADE_NOTES.md` entry with both client *and* operator migration instructions, and a spec under `.ai/specs/` or `.ai/specs/enterprise/` with a "Migration & Backward Compatibility" section.
 4. **A dated entry is added at the end of this document**, recording the surface, its classification, the qualifying argument, and the migration path.
 5. **A maintainer signs off on the exception by name.** The PR carries the `security` label and a human maintainer approval that acknowledges the waiver; an automated review cannot clear it.
 
-Downstream authors get no bridge in this case, so the compensating obligation is disclosure. The `UPGRADE_NOTES.md` entry MUST state plainly what stops working, for whom, and what to do about it — including any stored credential or data state that becomes unusable, or that becomes newly suspect, as a result.
+`UPGRADE_NOTES.md` MUST plainly state what stops working, for whom, and how to migrate, including stored credentials or data becoming unusable or newly suspect. Disclosure compensates downstream authors for the absent bridge.
 
 ---
 
@@ -676,6 +676,12 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## 2026-11-05 — #8760
+
+STABLE HTTP private bytes require `attachments.view`; a bridge preserves the bypass.
+[Migration/spec](.ai/specs/2026-11-05-private-attachment-read-permission.md).
+Steps 1–3 [waived by @pkarw](https://github.com/open-mercato/open-mercato/pull/8774#issuecomment-6829115158).
 
 ## 2026-11-07 — Private next-interaction subjects (#8888)
 

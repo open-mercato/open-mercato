@@ -81,7 +81,7 @@ async function readAttachmentImage(
     return NextResponse.json({ error: 'Partition misconfigured' }, { status: 500 })
   }
   const access = await evaluateAttachmentAccess({
-    auth: scopedAuth, attachment, partition, action: 'render', context: createAttachmentAccessContext(container),
+    auth: scopedAuth, attachment, partition, requirePrivateReadFeature: true, action: 'render', context: createAttachmentAccessContext(container),
   })
   if (!access.ok) return attachmentAccessErrorResponse(access)
   if (!canRenderInlineAttachment(attachment.mimeType)) {
@@ -158,7 +158,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Serve image with optional resizing',
-      description: 'Returns an image attachment with optional on-the-fly resizing and cropping. Resized images are cached for performance. Only works with image MIME types. Path parameter: {id} - Attachment UUID. Query parameters: ?width=N (1-4000 pixels), ?height=N (1-4000 pixels), ?cropType=cover|contain (resize behavior).',
+      description: 'Returns an image attachment with optional on-the-fly resizing and cropping. Resized images are cached for performance. Private partitions require current attachments.view permission in addition to scope and owner policies, before cached images are read. Only works with image MIME types. Path parameter: {id} - Attachment UUID. Query parameters: ?width=N (1-4000 pixels), ?height=N (1-4000 pixels), ?cropType=cover|contain (resize behavior).',
       responses: [
         {
           status: 200,

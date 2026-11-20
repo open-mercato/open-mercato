@@ -1,5 +1,27 @@
 # Upgrade Notes
 
+## Private attachment reads require the read capability (#8760)
+
+Private original files, forced downloads, inline content and derived images now
+require current `attachments.view` permission. Successful private byte responses
+use `Cache-Control: private, no-store`, including cached thumbnails.
+Same-scope authentication or knowing an attachment ID no longer suffices;
+`attachments.manage` alone does not grant read access. Existing covering wildcards
+and live superadmin grants follow the consolidated feature policy. Owner-policy
+denials still apply, and public partition behavior and tenant/org isolation remain.
+
+**Clients:** use an authenticated principal with the intended read grant and handle
+403 responses. **Operators:** audit role, user and API-key ACLs before rollout,
+grant read only to intended readers, deploy all byte-serving instances together,
+and purge affected previously cached private responses where possible. No database
+migration or stored-file rewrite is required. Previously downloaded content cannot
+be recalled. A binary rollback reopens the bypass; block private byte routes at the
+deployment boundary before an unavoidable rollback.
+
+This intentional security tightening requires named human maintainer approval of
+the Emergency Security Exception before merge; automated review cannot grant it.
+[Policy and migration specification](.ai/specs/2026-11-05-private-attachment-read-permission.md).
+
 ## CRM preset enables the scheduler (#8804)
 
 New apps scaffolded with `create-mercato-app --preset crm` now enable the
@@ -33,6 +55,7 @@ now warns when a connected channel relies on polling but no scheduler is enabled
 or the organization's poll schedule is missing or disabled, and
 `GET /api/communication_channels/me/channels` returns an additive
 `automaticSyncEnabled` boolean that drives that warning.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.
