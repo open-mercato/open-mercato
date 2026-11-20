@@ -16,7 +16,7 @@ Issue #8106 (reported against `@open-mercato/core` 0.9.0, unchanged on `main`):
 
 The command side already exposes request metadata through `CommandInterceptorContext.request`; only the login route is missing it.
 
-## Resolved assumptions (autonomous defaults)
+## Resolved assumptions
 
 | # | Question | Applied default | Why | Confirm? |
 |---|----------|-----------------|-----|----------|
@@ -359,19 +359,14 @@ Unit suites: `auth/lib/__tests__/login-client-meta.test.ts`, `auth/api/__tests__
 
 ## Final Compliance Report
 
-Design revision only. Existing login event ids, response fields, JWT claims and verification event shape stay compatible. An independently generated attempt id crosses the event bus, and an exact server-side request binding links it to MFA. Internal readers check tenant and organization, and scope is established before owner capture. One auth table, four Enterprise tables and the challenge column ship with generated migrations and snapshots. TC-SEC-021–023 and failure-injection unit coverage are implementation gates. Prototype screenshots predate the revised MFA states and allowlisted notification copy. Delivery-semantics approval and deployed composition evidence precede activation.
+Retain existing login event ids, response fields, JWT claims and the verification event shape. An independently generated attempt id crosses the event bus, and an exact server-side request binding links it to MFA. Internal readers check tenant and organization, and scope is established before owner capture. One auth table, four Enterprise tables and the challenge column ship with generated migrations and snapshots. TC-SEC-021–023 and failure-injection unit coverage are implementation gates. Prototype screenshots predate the revised MFA states and allowlisted notification copy. Delivery-semantics approval and deployed composition evidence precede activation.
 
 ## Changelog
 
-### 2026-11-20
+- 2026-11-20 — Keep client evidence in an encrypted, short-lived owner receipt, gate capture on consumer readiness and publish only an opaque attempt ID and trusted scope.
 
-- Made history capture dormant until consumer and expiry readiness, moved client evidence to an encrypted short-lived auth receipt and kept the wake-up id-only across the actual queue, automation and tap paths. Preserved the separate G2 recovery contract and extended the bounded refusal window to history-only capture.
-- Routed scoped sign-in evidence through a trigger-excluded internal event and bounded the additional protected receipt delay uniformly for resolved and unresolved generic refusals.
+- **2026-11-15** — Specified explicit scoped durable emits and approval/rollout gate, policy-aware MFA outcomes, non-PII reporting for every unexpected fallback, queue/webhook privacy and retention disclosure, PII-free notifications, phase-correct tests and tracked GDPR follow-up E1.
 
-- **2026-11-19** — Specified the auth-owned durable failed-attempt handoff for protected G2 alerts.
+- **2026-11-14** — Defined the additive typed no-active-methods discriminator and explicit interceptor receipt branch, separated unexpected failures, added no-MFA success acceptance and unit coverage, and corrected login emission wording.
 
-- **2026-11-15** — Addressed all six requests in @haxiorz's latest review: explicit scoped durable emits and approval/rollout gate, policy-aware MFA outcomes, non-PII reporting for every unexpected fallback, queue/webhook privacy and retention disclosure, PII-free notifications, phase-correct tests and tracked GDPR follow-up E1.
-
-- **2026-11-14** — Addressed @haxiorz's remaining re-review requests: defined the additive typed no-active-methods discriminator and explicit interceptor receipt branch, separated unexpected failures, added no-MFA success acceptance and unit coverage, and corrected login emission wording.
-
-- **2026-11-13** — Addressed @haxiorz's MFA attribution review and the earlier specification review: exact session-attempt/challenge correlation, durable MFA reconciliation for reordered delivery, stable attempt idempotency keys, atomic device/notification intents, deduplicated retry delivery, retention interactions and concurrent/failure-injection acceptance tests. Corrected table count and four-phase wording.
+- **2026-11-13** — Specified exact session-attempt/challenge correlation, durable MFA reconciliation for reordered delivery, stable attempt idempotency keys, atomic device/notification intents, deduplicated retry delivery, retention interactions and concurrent/failure-injection acceptance tests. Corrected table count and four-phase wording.

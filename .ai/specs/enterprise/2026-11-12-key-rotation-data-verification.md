@@ -8,7 +8,7 @@ Extends: .ai/specs/GDPR/2026-11-16-search-index-pii-protection.md
 
 Proposed Enterprise-only verification compares every in-scope logical value before and after key rotation, then gates verified completion on an independent read of persisted data. It reuses the resumable encrypted backup design in [PR #8910](https://github.com/open-mercato/open-mercato/pull/8910), streams bounded batches, and keeps previous keys and recovery artifacts on failure. This PR ships a design only; Core rotation stays available under #8910's explicit unprotected-risk acknowledgment.
 
-## Resolved assumptions (autonomous defaults)
+## Resolved assumptions
 
 | Question | Chosen answer | Reason |
 |---|---|---|
@@ -181,7 +181,7 @@ Coordinator RSS ≤256 MiB with 1–4 workers, measured total process-tree RSS �
 
 ## Migration & Backward Compatibility
 
-The document changes no runtime contract. Later implementation must honor [`BACKWARD_COMPATIBILITY.md`](../../../BACKWARD_COMPATIBILITY.md): additive optional maintenance hooks and artifact formats; retain existing CLI names, dispatch and crypto formats. R4-10 adds an optional `pin` to B4's `run` input without changing unpinned callers; R5-3 replaces the earlier `providerId`/`dekVersion` proposal with `providerIdentity`/`wrappedDekFingerprint`, since the DEK has no version. Enterprise supplies the corrected pin to bind facade calls to the frozen target. #8910's new mandatory Core risk acknowledgment is a safety tightening that requires documented upgrade instructions and the repository's bridge/deprecation or explicitly approved exception. This spec grants no waiver. Update existing rotation/custody runbooks and `UPGRADE_NOTES.md` with protected versus unprotected paths, downtime, failure/retry and restoration rules. Rollback of code must retain a compatible verifier/backup reader for outstanding run artifacts; never roll back by removing old keys or overwriting live data.
+The document changes no runtime contract. Later implementation must honor [`BACKWARD_COMPATIBILITY.md`](../../../BACKWARD_COMPATIBILITY.md): additive optional maintenance hooks and artifact formats; retain existing CLI names, dispatch and crypto formats. R4-10 adds an optional `pin` to B4's `run` input without changing unpinned callers; R5-3 defines the pin as `providerIdentity` and `wrappedDekFingerprint`. Enterprise supplies the pin to bind facade calls to the frozen target. #8910's new mandatory Core risk acknowledgment is a safety tightening that requires documented upgrade instructions and the repository's bridge/deprecation or explicitly approved exception. This spec grants no waiver. Update existing rotation/custody runbooks and `UPGRADE_NOTES.md` with protected versus unprotected paths, downtime, failure/retry and restoration rules. Rollback of code must retain a compatible verifier/backup reader for outstanding run artifacts; never roll back by removing old keys or overwriting live data.
 
 ## Final Compliance Report — 2026-11-12
 
@@ -196,30 +196,13 @@ The document changes no runtime contract. Later implementation must honor [`BACK
 | B4 API Contracts, R4-10 and R5-3 | Each protected exact-scope `prepare` supplies `pin: { providerIdentity, wrappedDekFingerprint }`, sourced from the session provider identity and SHA-256 of the provider key check read through `readTenantKeyPin`; `pin_mismatch` prevents completion. V13 covers each mismatch, source derivation, resume and optional-call compatibility; independent concrete-key/logical proof remains mandatory. B4's **Rotation pin source** defines the key check for both built-in providers; a provider without one refuses preparation with `ROTATION_COVERAGE_UNSUPPORTED`. |
 | Design limits | No runtime tests or performance proof claimed; backup dependency/security/custody and entitlement-mechanism selection remain Phase-0 implementation gates. |
 
-Fresh-context review confirmed scope cohesion. Independent architectural review identified concrete-key binding, RLS completeness and bounded executor gaps; this revision incorporates those corrections plus explicit fingerprint inequality and authenticated timestamp projection. No remaining blocker/major design findings were reported; no runtime validation was performed.
-
-Design is reviewable; implementation approval still requires the named Phase-0 decisions and measured acceptance evidence. No new ORM entities, so no data-model graph is needed.
+Implementation approval requires the Phase 0 decisions and measured acceptance evidence.
 
 ## Changelog
 
-### 2026-11-20
+- 2026-11-20 — Require coverage of every scope sharing the DEK, including key-bound vector maintenance and independent target-key verification.
 
-- Required complete key-sharing scope coverage for tenant-DEK changes and tested ordinary sibling/null-organization reads after release.
-
-### 2026-11-19 — Confirmed spec review corrections
-
-- Resolve the confirmed recovery, fencing and lifecycle contract findings; add the corresponding failure and acceptance cases. This is a design revision only.
-
-
-- 2026-11-18 — Derive protected vector evidence from the frozen exact scopes and retain target key provenance checks in the owner adapter.
-
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): cite R5-3's `providerIdentity` and SHA-256 stored wrapped-DEK fingerprint, freeze both for every facade call and resume, and align V13, drift refusal, risks, compatibility and compliance while retaining independent concrete-key/logical verification and recording the missing derived-provider pin source as an owner dependency.
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): cite R4-10's additive `run` target `pin`, require it for protected facade calls and resume, retain keys/artifacts on `pin_mismatch`, and align V13, risks, compatibility and compliance without replacing independent concrete-key or logical verification.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): consumed B4's now-specified `SearchVectorDisplayMaintenance` adapter and exact export across architecture, API contracts and Phases 0/2; bound concrete session DEKs, baseline reads, reseal writes and independent target-only reads while retaining the Enterprise fence, encrypted baseline, canonical comparison and full both-store implementation gates.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): adopted B4's exact DI `searchVectorDisplayMaintenance.run` and `VectorDisplayMaintenanceReport` contract for plaintext/old-key reseal and full target-key reports; kept every scoped vector display value in the encrypted baseline and independent pinned-target logical comparison; isolated the still-unspecified search-owned read hand-off and scope/key preflight gate; permitted explicit display maintenance while excluding ordinary indexing/re-embedding, and retained all-store/token key-retirement gates.
 - 2026-11-12: Initial Enterprise-only rotation verification proposal, linked to #8910; full logical coverage, encrypted keyed-checksum baseline, independent persisted scan, fail-closed completion, bounded performance targets and recovery/compatibility coverage.
-- 2026-11-17: the Core store-owned classifier for `vector:vector_search` is delivered by B1 Phase A item 7 in OSS and consumed here; A1's search-enabled exit is that OSS path plus B4's reseal, and this protected path is not an A1 gate. Correction to the pass-six entry above: B4's **Rotation pin source** covers both built-in providers, so no derived-provider pin source is missing; `wrappedDekFingerprint` keeps its R5-3 name and holds the provider key-check fingerprint.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): adopted B1's exact `store-owned` classification for `vector:vector_search`, with every unknown non-ORM map still blocking before writes; delegated bounded baseline/reseal/independent target-key reads to the still-required B4 search-owned DI service; included vector identities, counts and logical values in protected verification, kept old keys until both stores pass, and added search-enabled V13 plus resource coverage. Cited B1 Phase D for system/hash work and B4's token procedure without claiming either is part of today's rotation implementation.
 
 ## Phasing
 

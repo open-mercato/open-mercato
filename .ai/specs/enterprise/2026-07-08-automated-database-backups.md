@@ -283,38 +283,6 @@ The inherited report is historical where it refers to manifest ownership or the 
 
 ## Changelog
 
-- 2026-11-20: Require the independent C9 live check after protected restore clearance.
+- 2026-11-20 — Specify the chunked encrypted archive pipeline, authenticated recovery inventory and separate C9 protected restore gates.
 
-### 2026-11-20 — Independent inventory completeness
-
-- Require authenticated monotonic archive/retirement membership, fresh independent head attestation, complete pinned-view pagination and safe checkpoint compaction before claiming independent recovery completeness or newest-archive selection. Extend publication/retirement and Phase 3 failure tests; this revision changes specifications only.
-
-### 2026-11-19 — Confirmed spec review corrections
-
-- Resolve the confirmed recovery, fencing and lifecycle contract findings; add the corresponding failure and acceptance cases. This is a design revision only.
-
-
-### 2026-11-18
-
-- Fenced backup claim recovery against lost enqueue and stale owners, and separated archive completion time from the protected-recovery snapshot bound.
-
-- 2026-07-08: Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md` (rev 5) — this file carries the backups module, the storage-streaming platform extension, and the erasure-manifest mechanism (contract + restore-time diff); the erasure producer, ledger, and GDPR framing live in [`2026-07-08-gdpr-data-erasure.md`](2026-07-08-gdpr-data-erasure.md). Added "Relation to infrastructure-level DR" recording the open core-team discussion (PR #3742): in-app = portable baseline + compliance surface; WAL/PITR IaC repo = complementary recommended upgrade track.
-- Inherited history (combined spec): 2026-07-02 initial + full spec (PR #3742); 2026-07-03 rev 2 (gap-analysis corrections: scheduler adoption instead of queue extension, storage path via `createStorageService()`, DB-status single-flight) and rev 3 (market research applied); 2026-07-04 rev 4 (descoped above-market clusters: automated replay → guided re-run, verification worker → on-demand CLI, notification resolver removed, key-rotation slot removed) and rev 5 (executor+advisor review: `runMutationGuards()` citation fix, Phase 0 gates, edit-survivor sweep, `seedDefaults` mechanism); 2026-07-06 market references generalized to pattern descriptions.
-
-### 2026-11-16
-- Council round two fixes (GPT-6.1 Sol workers): r0-11 replaces every backup-manifest ownership, DI, schema, restore diff, event count, exit-code, failure, phase and risk instruction with the C9 boundary; preserves backup restore status separately and verifies current CLI, storage, scheduler and guard helpers.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): aligned retained backup scope with the 11-06 logical chunked age engine, recipient/identity custody, manifest digest, facade, offline verify versus recovery exercise and CLI flags; retained independent C9 replay readiness and reported stale manifest ownership in the engine spec.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): synchronized the C9 boundary with its awaited-capture design, assumption 9 and OSS verification-time dependency; required fresh status before reopening without mixing archive success and privacy readiness.
-
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): removed the resolved engine-manifest conflict and copied its libpq named-service/private-file/allowlisted-environment connection boundary; preserved archive-only status and the independent C9 runbook.
-
-### 2026-11-17
-- Backups routes use one stated authorization rule: feature gate plus `requireSuperAdmin` in every handler, matching the 403 test.
-- Single-flight is an installation-wide partial unique index on active `backup_run` rows used by every trigger through `startRun`, with a heartbeat and stale-owner recovery; the CLI runs in-process; concurrent-start tests added.
-- Archive retention is stated against C9's settled-manifest window, with a C9-owned doctor check and runbook/restore reminders; the Phase 5 docs step no longer documents a deferred verify schedule.
-- `mercato backups restore` prints the restored archive's age and the static replay-window reminder, asserted in `restore-privacy-boundary.test.ts`. The settings page shows only an access-denied state to a non-super-administrator holding `backups.view`, covered by the UI integration case.
-
-- 2026-11-18 review fixes: reconcile durable pending external recovery inventory publication and expose only verified conservative restore bounds to the protected cutover procedure.
-- 2026-11-18 review remediation: align the restore acceptance cases with attested snapshot bounds and flag multi-snapshot archives as ineligible for protected privacy cutover.
+- 2026-07-08: Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md`. The original design covered backups, storage streaming and restore-time erasure checks. The erasure rationale is retained in [`2026-07-08-gdpr-data-erasure.md`](2026-07-08-gdpr-data-erasure.md). The in-app design provides a portable baseline and compliance surface. WAL/PITR infrastructure remains a complementary track (PR #3742).

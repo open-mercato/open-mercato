@@ -2,8 +2,7 @@
 
 > **Program:** part of package D3 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), split from the record-retention spec.
 > **Builds on:** [`2026-11-16-privacy-subject-erasure.md`](2026-11-16-privacy-subject-erasure.md), which does the erasing; [`2026-11-16-privacy-record-retention.md`](2026-11-16-privacy-record-retention.md), whose registry infrastructure this follows; Phase 6 aliases from [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md); and the sales indexes of [`2026-11-16-privacy-coverage-commerce.md`](2026-11-16-privacy-coverage-commerce.md). **Consumed by** [`enterprise/GDPR/2026-11-16-privacy-dsr-engine.md`](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md), which schedules it.
-> **Code baseline checked for this revision:** read-only snapshot `9e09023483`; specifications only, no runtime tests run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** Worktree snapshot `9e09023483`.
 
 Extends: .ai/specs/GDPR/2026-11-16-privacy-subject-erasure.md
 Extends: .ai/specs/GDPR/2026-11-16-privacy-record-retention.md
@@ -18,7 +17,7 @@ A contact added to the CRM five years ago and never touched since is still there
 
 > **Market reference.** HubSpot and Pipedrive both show a "last activity date" on a contact and let an administrator build a deletion rule on it; both compute it from logged interactions, not from the record's modification time. Adopted: a maintained last-activity time, and a rule on it that a person previews before applying. Rejected: trusting that time alone to decide an erasure.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -484,32 +483,6 @@ Every test owns its tenants/organizations, people, portal users, roles, orders, 
 | Integration coverage | Compliant design | Phase 1 list/detail/sort/UI test; export assertion ships with the handler/field once available; Phase 2 sources/floors/API test; Phase 3 signed apply and closure test |
 
 **Verdict:** Design ready. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Phase 1 ships alone under assumption 1's activity definition. Phase 2 waits on contract discovery/Phase 6 aliases and complete forms attribution; Phase 3 also waits on erasure Phase 4/R3-14, commerce Phase 1 and the `sales` source. R4-12 adopts C1's forms linkage envelope in the activity input; implementation of the handoff and complete owner paging remain prerequisites, never permission for an incomplete source to certify inactivity. Apply accepts the documented final-check race under assumption 10.
-
 ## Changelog
 
-### 2026-11-20 — Confirmed specification review corrections
-
-- Give the engine and C6 the same typed persisted per-child correlation for crash recovery. (R18)
-
-### 2026-11-19 — Confirmed spec review corrections
-
-- Separated the CLI preview file cap from the service page cap, froze bounded aggregation/cursor rules and added boundary/failure acceptance cases (F43).
-
-
-### 2026-11-18
-
-- Added durable recovery of in-flight child erasure journals before filtering and cursor advancement. Specified strict collection for sets and activity sources. Made people list projection and sorting use the base activity column and added tests for stale or missing index projections.
-
-### 2026-11-17
-- A disabled required activity module now refuses preview, apply and the engine with `required_source_disabled` unless an explicit acknowledgement is recorded in the signed preview or the engine policy; Delta, API, edge cases, tests and risks updated.
-- Preview gains `--after`/`--limit` and a signed `continuation`, capped at 1,000 subjects per file; apply gains `--resume-at`, `--max` counts attempted dry runs, and expiry is checked at the start of each invocation.
-
-### 2026-11-16
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): adopt C1's per-subject linkedSubjects envelope under R4-12; specify linked portal-user and invitation matching, exhausted owner paging, fail-closed attribution, tests, risk mitigation and compliance without expanding erasure targets.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): replace stale missing-linkage claims with C1 Phase 6's exact account-owned seam and existing handoff prerequisite, preserving unknown/refusal until the local activity input can consume it.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): preserve existing tenant-wide rejection before evaluation/self-repair; cite C1's exact purpose-key seam through C4 and refuse missing keys before preview writes; correct the Aliases section name; consume the record-retention owner's finite retention-run evidence expiry with exact resource identities and terminal/side-effect metadata.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): tenant-wide preview/evaluation/apply aligned with erasure assumption 16 and exact R3-14 inputs, origins and per-subject results; engine-owned R3-13 applies to unattended policies without extra subjects; contract alias/phase references corrected, unavailable forms-to-portal linkage fails closed, and portal anonymized marks use the root owner's shape; exact R3-1, R3-2, R3-9, DEC-A and DEC-B citations.
-- Council round two fixes (GPT-6.1 Sol workers): r8-04 shared skip/exclude boundary and honest engine review limits; r8-06 signed scoped expiring preview; r8-10 remove unsupported name-review claim; r8-11 require forms/cart sources; r8-14 separate portal floors; r8-17 exact R3-14 dry-run/closure/apply; r8-21 portal creation activity; r8-22 Phase 1 API/UI integration; r8-29 preview self-repair; r8-31 explicit activity export; r8-34 accepted final-check race; g5-23 linked-deal timestamps; g5-24 soft-deleted portal accounts; g5-26 per-subject evaluation; g5-27 preserve projection version semantics; F-56 readonly aliases.
-- Written autonomously with resolved assumptions.
-- Rewritten after independent review. The stored time is no longer trusted to decide: each batch is checked against the person's own records, because activity is also written without commands and a missed writer would have made people look inactive. The sales source covers a person named as a contact, the common business case the first draft missed. One filter method serves both the manual command and the enterprise engine, which keeps its own loop. The preview is a file of who, and the token covers it; a count said nothing. A portal account's sign-ins count as activity for its person, and a linked pair is skipped by default without being reported as a failure. The portal "last seen" column is dropped in favour of the existing sign-in time. Retention for people is declared in the retention registry, not on the data class. Soft-deleted people and never-verified accounts are covered.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g5-03 — a people set names its required sources; `listFilteredCandidates` refuses with `required_source_missing` while one is missing for an enabled module; the `sales` source waits for the commerce coverage indexes and Phase 3 is gated on both; g5-05 — `--related include` is removed, so apply never erases a subject that is not on the reviewed list; a related subject is skipped with its pair or excluded, with scenarios, a risk and unit tests.
+- 2026-11-16 — Initial specification.

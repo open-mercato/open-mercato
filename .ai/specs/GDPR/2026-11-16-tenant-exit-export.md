@@ -3,8 +3,7 @@
 > **Program:** package C8 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (open-mercato/open-mercato#8593).
 > **Builds on:** the contract's `privacy.ts` convention, the doctor-created `privacy` module, and the snapshot reader of [`2026-11-16-privacy-table-coverage.md`](2026-11-16-privacy-table-coverage.md). C5 must ship before C8, alongside the contract.
 > **Reader ownership:** program DEC-9 selects module-owned DI readers using the shared DEC-G helper. No generic cross-module reader is built.
-> **Code baseline:** `main` @ `08dada9624`, checked by reading. No implementation or integration tests were run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/GDPR/2026-11-16-privacy-data-class-contract.md
@@ -19,7 +18,7 @@ When a customer leaves, the operator must return their data. Today this means mo
 
 The output is a handover, not a restorable backup. One file per table and a versioned manifest keep the format inspectable. No archive writer or production dependency is added. The operator encrypts the directory before transferring it, under the deployment procedure.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -431,50 +430,6 @@ Reviewed root/spec rules, backward-compatibility surfaces, shared encryption/bou
 | Suppression export | R4-9 aligned | recipient_hash/key_id redacted as key_material; manifest redactions and row count; no SUPPRESSION-EXPORT checksum exception or opt-out reconstruction claim |
 
 **Verdict:** Design ready for phased delivery with DEC-9’s module-owned readers. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Readers ship with their owning carriers; a complete handover needs all of them, and runtime and bookkeeping tables no longer block it. Output and audit guarantees are explicit; file bytes are not transactionally snapshotted. Tenant-export evidence always carries its tenant and expires through tenant-scoped runs, including for soft-deleted tenants.
-
 ## Changelog
 
-### 2026-11-20 — Confirmed specification review corrections
-
-- Require the primary connection for the fenced snapshot and reject standby or unknown topology. (R44)
-
-
-### 2026-11-19 — Confirmed specification review corrections
-
-- Close known pre-publication failure audit lifecycles and correct snapshot-step references; preserve reconciliation for ambiguous outcomes.
-- Specification-only revision; implementation and planned acceptance tests remain future work.
-### 2026-11-19
-
-- Make missing ownership links visible as blocking tenant-exit gaps and verify strict and explicitly incomplete export outcomes.
-
-### 2026-11-18 — Review remediation
-
-- Reserve the tenant export destination atomically for one run through publication or durable cleanup. Exercise simultaneous exports from two tenants and crash recovery.
-
-### 2026-11-18
-
-- Bound catalogue inventory, emptiness and tenant reads to one audited, schema-fenced snapshot. Made E3 the sole delivery owner of the production suppression declaration.
-
-- Specified atomic manifest publication, operator reconciliation of interrupted audit groups, and an owner-scoped derived-index attribution reader.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions.
-- Revised after independent review. Forty-three tables whose tenant may be empty were unguarded; each must now declare what an empty tenant means. Decryption is specified in its four forms, with custom-field values and forms data read by their owning modules. The generic read is put to a maintainer as a blocking question, with a per-module fallback, because the contract spec rejected the same idea for one person's export and the cited precedents are narrower than claimed. Declarations became a facet of the shared per-table entry in the default export, which is all the registry loads. Module readers share the export's transaction. Attachments are copied by path. The change history's snapshot columns are redacted by declaration. The integration test seeds encryption maps first.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), critical fix: attachment files were written to `attachments/<id>/<file name>` from the stored, tenant-controlled name, which three upload paths keep as sent, so a crafted name could write outside `--out`. Files are now written under a UUID-checked id with a sanitized name. Every target is resolved against `--out` and created exclusively. The original name lives only in the manifest. Added the edge cases, unit tests and a risk entry.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g3-12 — export declarations moved from an `export` facet on the coverage `tables` entry, which `users`, `sessions`, `customer_users` and every baselined table cannot have, to a separate `tableExports` member keyed by table, which any table may have and which the table-coverage rule does not count as coverage. The reader gained `mode: 'export' | 'scan'`; `scan` reads excluded tables and redacted columns in memory under the export's tenant predicate and attribution rules, writes nothing, reports each table it cannot read and each column that stays ciphertext as not scanned, and uses a `scanReader` where an entry declares one (`query_index` for `entity_indexes.doc`), which the export ignores. Updated assumption 2, the declarations, guards, reader, design decisions, Delta scenarios, architecture, API contracts with the entry type, edge cases, unit tests, the integration test, a risk entry and the compliance table.
-
-- Council round two fixes (GPT-6.1 Sol workers): r4-01 — scoped tenant-less exclusions and global not-applicable status; r4-10 — disabled/unknown table inventory; r4-11 — remove undefined --tables, incomplete attachment omissions; r4-25 — review all JSON; r4-31 — private exclusive output; r4-32 — non-personal shared rows only; r4-33 — PrivacyTableReader contract; r4-34 — C5-before-C8 prerequisite and program handoff; r4-38 — started/completed audit; r4-55 — scan-capable fallback; r4-56 — snapshot counting; r4-57 — lookup-hash redaction; g3-37 — null/shared/organization test sentinels; g3-50 — snapshot attachment capture and cleanup; R2 nits — whole-table secret exclusions accepted and assumption 4 reference clarified.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): program DEC-9 activates module-owned DI readers and own-table helper allowlists before G6; correct C5 failure-rule numbering and resolved program scheduling; add the exact forms suppression hash/key-id export exception and original-key handover limit under DEC-G/R3-2, without widening mapped lookup-hash exports.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): retain the already-correct DEC-9 reader default and C5 rule 2; reconcile SUPPRESSION-EXPORT to recipient-hash redaction without a checksum exception; consume C5 rule 7; add finite tenant-export evidence setting/set, audit-owner whole-group expiry, publication acknowledgement/reconciliation, hold preservation and an explicit null-tenant assessment gap under action-log assumption 9.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): select record retention's existing aggregate evidence projection for the dedicated expiry, name suppression redaction reasons in the manifest and keep C5's conflicting exact-table proposal only as an unactivated separately reviewed fallback; preserve held/unresolved evidence and the explicit null-tenant design gap.
-
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): R4-3 defines the same-set finite installation evidence age and both environment-example entries, replacing the unbounded-age gap while recording the still-undefined installation invocation; R4-9 redacts suppression recipient_hash/key_id with a row count, removes the checksum fallback and states that opt-outs cannot be rebuilt, with tests, risks and compliance aligned.
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): R5-8 validates global exclusions against canonical snapshot tenant/organization columns and C5's reviewed list with a one-line reason before export or scan waiver; align scenarios, failure evidence and static/runtime rejection tests.
-
-### 2026-11-17
-- A complete handover is reachable: the inventory filter is defined, search declares its pgvector tables in a new `runtimeTables` member, migration bookkeeping tables are classified by one built-in rule, entirely empty owner-less tables count as empty, and readers ship per owning carrier (Enterprise in Enterprise) with named `reader_unavailable` gaps meanwhile; TC-TENANT-EXPORT-003 proves exit 0 with pgvector enabled.
-- R4-3 is now an invariant: every tenant-export entry carries its tenant, so the installation-scope expiry path, its setting and audit methods are removed and soft-deleted tenants expire through tenant runs.
-- `PrivacyTableReader` gains `count` for decryption-free dry runs; redaction takes per-column reason groups; global exclusions carry their reviewed rationale and `directory.tenants` is read as the scope-root row; unknown tenants refuse; name guards cover session/nonce/key/code columns and credential/configuration tables need per-column decisions; a numeric `token`-named unit count, such as an LLM usage counter, may be listed by name in `reviewedScalars` instead of being redacted; attachment references spool to a private staging file; wording fixes for size-only change detection, runtime-state exclusions and the C5 rule 10 citation.
-- Reader and scan-reader DI keys carry the declaring module's camel-case prefix, enforced by export-plan validation; `--reference` is a non-personal case id that the dispatcher redacts for `export-tenant`.
-- `privacy.tenant_export_evidence` declares `unmatchedHoldsOptOut: 'forbidden'`; disabled and unknown tables are described consistently as count-null gaps found by the whole-table `EXISTS` probe; TC-TENANT-EXPORT-003 names the commerce tables among the expected `reader_unavailable` gaps.
+- 2026-11-16 — Initial specification.

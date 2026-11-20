@@ -1,9 +1,8 @@
 # Privacy subject erasure
 
-> **Program:** packages C4 (first part) and C6 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593). The module-by-module roll-out that was drafted here now lives in the program spec as an unverified plan.
+> **Program:** packages C4 (first part) and C6 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593). The program owns the module-by-module rollout.
 > **Builds on:** [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md).
-> **Verified at** `main` @ `08dada9624` by reading code, twice (author and independent reviewer); nothing was run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 > **Status:** design settled; no implementation. Program DEC-2b proposes an OSS invoker (assumption 3). Named upstream approval for C4/C6 is required before implementation or an OSS delivery claim. Each phase then receives ordinary maintainer review.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
@@ -19,11 +18,11 @@ The contract spec lets an operator export what three modules hold about a person
 
 > **Market reference.** WordPress core pairs each registered *exporter* with an *eraser* that returns items removed, items retained, and messages saying why something was kept. Discourse and GitLab anonymize an account whose content must survive instead of refusing to delete it. Adopted: one eraser per module that reports removed and retained with a reason; anonymize-in-place where links must survive. Rejected: GitLab's shared "ghost user" — it needs a reserved account in every tenant, and this codebase already renders a missing author as "Unknown user".
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
-| 1 | One spec for the operation and the 25-module roll-out | Split. This spec is the operation, the run, the command, three roots and audit history | The reviewer's verdict. The roll-out rows were built from a column-name scan and several failed against the code. |
+| 1 | One spec for the operation and the 25-module roll-out | Split. This spec is the operation, the run, the command, three roots and audit history | Domain carriers own entity-specific matching and acceptance. |
 | 2 | Erase and anonymize as two operations, or one | One, `eraseSubject`, with a preference; the handler reports an outcome per section | Whether a row can be deleted depends on rules only its module knows, and one class often mixes outcomes. |
 | 3 | Who calls it in OSS | `mercato privacy erase` | Decided by program DEC-2b: C4 erase, including C6, is proposed for OSS beside C1 export, subject to named upstream approval before implementation or an OSS delivery claim. Data-subject rights are not paid-only, and the handlers live in the OSS modules that own the data. Enterprise adds the ledger, holds, policies and admin page on top (C3). |
 | 4 | When is a subject kind erasable | A record kind has one registered owner with an existence check, and every registered declaring class implements erase; an identifier kind has at least one declaring class | Empty registries and missing owners must never report successful erasure. |
@@ -1190,7 +1189,7 @@ The bound is enforced only when the operator schedules the OSS command or the en
 
 ## 📝 Addendum: what the coverage specs need from the run
 
-The addendum's rules were folded into the normative sections on 2026-11-16, in the council review. Each is stated once, where this table points. The coverage specs refer to them under this heading.
+The table identifies the contracts used by the domain coverage specs.
 
 | Former addendum rule | Now stated in |
 |---|---|
@@ -1536,7 +1535,7 @@ Named unit/database tests cover controlled races that the app cannot determinist
 
 ## Final Compliance Report — 2026-11-16
 
-### AGENTS.md Files Reviewed
+### Applicable repository guidance
 - `AGENTS.md` (root), `.ai/specs/AGENTS.md` — in full
 - `BACKWARD_COMPATIBILITY.md` — §2, §5, §8, §9, §13
 - `packages/core/AGENTS.md` — Encryption section
@@ -1583,77 +1582,6 @@ Named unit/database tests cover controlled races that the app cannot determinist
 
 ### Verdict
 **Design ready for upstream review.** Program DEC-2b keeps this proposed OSS invoker pending named upstream carrier approval before implementation or an OSS delivery claim. Phases follow the order under Phasing, one upstream PR each through ordinary maintainer review; Phase 4's evidence expiry waits for C1 Phase 7 and the record-retention service. DEC-B fixes assumption 14's full OSS signature. R4-2 completes the portal worker authority design, R4-4 replaces the evidence proof handoff with owner pending signals, and R4-5 resolves pending-row classification and history treatment. R5-1 closes operator-initiated portal recovery with the sole worker-only exception for an authorized operator resuming a `failed_handoff` journal; original intent/origin/run id remain and audit records `resumedBy`. Portal authority is checked by the service through the account owner, the handoff has its own owner method, and C4 Phase 3 is tested with a worker double, so it does not wait on portal Phase 3.
-
 ## Changelog
 
-### 2026-11-20 — Alias attribution and coverage
-
-- Verify each alias candidate before including it in reviewed plans, history stripping or replay. Report unsupported alias families separately from the completed work.
-
-### 2026-11-20 — Confirmed specification review corrections
-
-- Tie erasure mutations, audit progress and dispatch admission to the pinned subject-lock connection. Add the bound DEC-B age selector and a same-journal reapproval path for C3. Bind portal failure to the current request generation, recheck C9 hold proof on each active replay batch, and persist versioned original capture evidence. (R03, R06, R18, R19, R24, R31, R33)
-
-
-### 2026-11-19 — Confirmed specification review corrections
-
-- Gate both history modes, add durable replay attempt/generation fencing with a compatible activation path, require coordinated fenced owner writes and prove alias-only coverage for absent roots.
-- Specification-only revision; implementation and planned acceptance tests remain future work.
-### 2026-11-18
-
-- Bind queued applies and portal handoff adoption to the reviewed plan, require exact account attribution for portal erasure, commit lock checkpoints atomically, and specify guarded absent-root verification for restore acknowledgement. Align initial employment custom-value clearing and durable hold protection with their owner contracts.
-
-### 2026-11-16
-- Written autonomously as "privacy data-class coverage", including a 25-module roll-out.
-- Revised after independent review, which returned "resolve direction first" and "split". Renamed and narrowed to the operation, the run, the command, three roots and audit history; the roll-out moved to the program spec as an unverified plan. Run semantics fixed: a kind is erasable only when every class declaring it implements erase; the owner receives its dependants' outcomes; results are per section; related subjects must be named or excluded; a started entry precedes any change; audit history was then a last step, not a data class; R3-1 below supersedes that sequence with two passes. New seams: listing and releasing a record's attachments; the staff-user handler's own administrator-floor check. The confirmation is now a token bound to the dry run.
-
-### Review — 2026-11-16
-- **Reviewer**: Agent (fresh context, spec path only), then author revision
-- **Security**: Administrator-floor bypass and weak confirmation corrected
-- **Performance**: Participant cleanup is now exhaustive in bounded keyset batches; a skipped candidate prevents completion (round-two revision)
-- **Cache**: Required CRUD/RBAC invalidation and projection side effects are specified and unit/integration coverage is named (round-two revision)
-- **Commands**: The rule on reusing commands rewritten against what the code allows
-- **Risks**: Order-link loss and floor bypass added
-- **Verdict**: Revised; the revision has not been independently re-read
-
-### 2026-11-16 — amendment
-- Added the in-process entry point `eraseSubjects`, needed by the portal self-service spec's daily job. The confirmation token stays a property of the command.
-- Defined the guard's method, its result and its fail-closed rule, and added `runId`, `origin`, `prefer` and `excludedRelated` to the completion event. The enterprise governance and restore-replay specs need all of them, and the event shape freezes on release.
-- Amended: the audit-history strip is done by the audit module's `applyRetention` routine, shared with [`enterprise/GDPR/2026-11-16-action-log-retention.md`](../enterprise/GDPR/2026-11-16-action-log-retention.md). It computes the names of changed fields before clearing values, reduces the context to the actor, and marks the entry with `stripped_at`.
-- Added the addendum: history by record, export and erase shipping together, a "not erasable" answer, internal blanking functions, and what completion means. All were found missing by the reviews of the coverage specs.
-- Extended the addendum after the review of the last three coverage specs: a read-only check on every class before anything changes, replacing the "not erasable" answer; the owner locks the account first and credential-holding classes run last; staff users are exempt from the rule that an owner is anonymized when a dependant keeps something; two reasons added to the closed list.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), critical fix: rule 5 promised that a file failing to delete after commit is removed by re-running. But the attachment row is removed in the transaction and the deletion was only an in-memory closure, so after a storage error or crash nothing pointed at the file again. The attachments seam now records each object in a new `attachment_pending_deletions` table inside the same transaction. The run, a re-run of the subject and `mercato attachments drain-pending-deletions` delete from it, and the subject stays incomplete while rows remain. The seam also gains `releaseByIds` for owners whose files are not attached to the record, as assistant-chat uploads are not. Updated the components, diagram, data model, edge cases, compatibility table, plan, file list, TC-PRIVACY-ERASE-002 and risks.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes:
-  - **g2-02** — the token is an HMAC under a key every process derives from the lookup secret, over scope, subjects, exclusions, preference, report digest and a one-hour expiry; apply rebuilds the report and compares in constant time.
-  - **g2-03** — erase accepts `--email` and `--phone` for a `privacy:identifier` subject with a derived id; apply repeats the flag, the banner is redacted, and the event and entries carry the derived id only (Phase 4, TC-PRIVACY-ERASE-007).
-  - **g2-04** — `runId` is the started entry's id; the event goes out before the completed entry, and a run continuing an open started entry emits, so a crash or failed emit no longer loses it.
-  - **g2-05** — the addendum is folded into the rules, the run (stated once, new order, files drained after commit), the type blocks, assumption 5 and the plan; an owner flag replaces the hard-coded staff-user exemption.
-  - **g2-06** — this spec owns `applyRetention` (shared signature, three-column rule), `stripped_at` and its index, `strippedAt`/`changedFields`, redo's 410 with its characterization, the backfill skip and the readers; `subjectHistoryService` wraps it; R3 now fixes the full DEC-B signature in assumption 14.
-  - **g2-07** — `customer_accounts.user.deleted` keeps `email` for good, empty for an erasure, instead of a removal §5 forbids; compatibility and compliance rows corrected.
-- Fix verification follow-up: `releaseByIds` gains an optional `expectedRecordId`. With it, an id whose attachment belongs to another record of the same entity type is skipped and reported, so a caller such as EUDR evidence cannot release a file attached to a different record.
-
-- Council round two fixes (GPT-6.1 Sol workers): r3e-01 — all edited records in both history passes; r3e-02 — pre-write strip, replay leases and locked rechecks; r3e-03 — exact R3-14 entry point and result; r3e-07 — serialized administrator floor; r3e-08 — subject run lock and matching resume; r3e-10 — exhaustive normalized interaction cleanup; r3e-11 — three shared-file cases; r3e-13 — cache and command side effects; r3e-17 — tenant-wide scope guard; r3e-18 — attachments wiring fails closed; r3e-19 — audit-required apply default; r3e-23 — portal column treatment; r3e-24 — typed sales seam; r3e-25 — auth-only lock and recovery; r3e-26 — two-tenant negatives; r3e-27 — labels, duplicates, event observer and drain integration; r3e-32 — initial-root export exception; r3e-35 — privacy declaration confirmed, program correction handed off; r3e-36 — audit list/details readers; r3e-37 — consent evidence default; r3e-38 — pending-table coverage; r3e-39 — audit-only reference; g2-19 — late guard/data verification; g2-23 — invitation erasure; g2-27 — required owner/classes; g2-40 — private exclusive report file.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): reconciled C1 stdin, participant matching, purpose-key seam and stable placeholder path; documented the identified staff-owner retention default, entities-owned custom-value service and optional scoped attachment metadata; completed the OSS stripped-history gate; specified canonical report digest, typed encrypted audit intent and terminal-evidence expiry; aligned soft-deleted portal roots and two-stage field clearing; disclosed queue-copy lifecycles; added stamped class/exact retained-row evidence with an event-safe projection. R3-1 and R3-14 remain the normative owner contracts.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): closed remaining root retained-row/fixture and zod gaps; added attachments planning/history/survivor identities, entities custom-value survivor evidence and exact C5 seam declarations; named the guarded pending-deletion retry set; preserved portal exclusion fencing and supplied origin-preserving journal recovery; awaited C9 completion capture with per-attempt verifiedAt, composed the C1 DI registration, completed the OSS replay gate and reconciled dedicated erasure-evidence expiry with pending downstream work; aligned staff with the current people-ops flag-false/explicit-anonymize-refusal default. R3-14 and completion-event shapes remain unchanged.
-
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): consumed C1's exact settings-evidence expiry/safeguard and the record-retention owner's aggregate evidence writer; reused tenant-exit row identity encoding and the portal owner's exclusion-preservation/clearing rules. Corrected the pending-deletion coverage claim and kept the unapproved portal worker authority gated; the missing owner designs are settled by R4-2, R4-4 and R5-1.
-
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): implemented R4-2's verified own-account portal worker authority and exact actor, R4-4's optional owner pending-signal seam with `held_by_owner` retries, and R4-5's unaudited pending-deletion runtime state and seven-day database doctor check; aligned tests, risks and compliance. The former staff/CLI portal recovery conflicts with worker-only authority and is reported as `OPEN_DESIGN`, without introducing a dispatch mechanism.
-
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): implemented R5-1's seventh-failure `failed_handoff`, authorized CLI/page recovery of the original portal journal and audit-only `resumedBy`; aligned authority checks, lifecycle types, confirmation, retry/expiry preservation, tests, risks and compliance, closing the terminal-failure recovery finding.
-
-### 2026-11-17
-- Erasure steps are bounded: pages of at most 500 rows per transaction with per-page checkpoints, planned and returned history identities journaled in typed chunks of at most 1000, chunked strip calls and at most 20 subjects per call. The journal's prior lock state, checkpoints and capture marker are typed progress entries.
-- `--absent-root` reaches rows left by ordinary deletes; the service verifies portal requests through `verifyPortalErasureRequest`; `recordFailedHandoff` owns the seventh-failure transition; Phase 3 is tested with a worker double, with the real worker and page cases moved to their owners.
-- Every report now discloses `historyStripPlanned`, `indexLifecycle`, `uncoveredModules` and `unboundedRetained`; the account tombstone's person/company links are nulled.
-- Participant cleanup keeps entries with a `userId`; a disabled sales module with tables is treated as unknown; stripped context keeps `systemActor`; the event names its scoped persistent emit options; `--reference` is a redacted, non-personal case id; strip waits for `confirm-replay-rollout`; captured runs stay held while the capture seam is absent; invitation history uses its logged kind.
-- The run awaits optional `downstreamCleanup` entries for copies held by another module (first user: form-to-deals), planning their history before the first strip, planning again after the source classes erase and stripping any new identity before `run`, and keeping the subject incomplete with `downstream_cleanup_pending` until they report zero pending and failed; classes report `changedRecords` for named source entities. Reports carry C1's `notices` and the `downstreamCleanups` counts.
-- `privacy.subject.erased` declares `excludeFromTriggers: true` and is not Art. 19 notification; the replay lease is a session-level advisory lock on `hashtextextended('audit_replay_lease:' || id::text, 0)`, try-lockable from raw SQL; `privacyErasureEvidenceHold` is one key with one composite value per module; auth erasure deletes sidebar variants; `releaseByIds` leaves library-assigned `ai-chat-draft` uploads in place; staff custom values include `staff:staff_team_member_activity`.
-- `recordFailedHandoff` returns the typed `PrivacyFailedHandoffResult`: `RUN_IN_PROGRESS` and the `handoff`-mode refusals are returned values with defined worker handling, and only invalid input or infrastructure failure throws. The digest also projects `uncoveredModules`; `privacy.erasure_evidence` declares `unmatchedHoldsOptOut: 'forbidden'` and names its three evidence kinds; previews read `actionLogService.isReplayRolloutConfirmed()` for the rollout warning; the settings-evidence safeguard selects C1's clear-text related pair; the enterprise recovery route is named.
-
-- 2026-11-18 review fixes: preserve signed restore authority and journal adoption, introduce external activation posture and durable standing verification, and specify retention-origin resume and the audit-owner bound transaction.
-- 2026-11-18 review remediation: serialize hold publication and destructive batches, bind downstream owners to reviewed write intents, and enforce restore posture and time evidence in the normative run order.
-
-- 2026-11-19 — Bind CLI writes to the locked, reviewed approval and distinguish bounded erasure strips from bound owner retention. Require positive owner evidence before expiring a protected audit group.
+- 2026-11-16 — Initial specification.

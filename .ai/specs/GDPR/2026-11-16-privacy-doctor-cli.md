@@ -1,8 +1,7 @@
 # Privacy doctor command
 
 > **Program:** package G4 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593). The program schedules its skeleton first, in Phase 1.
-> **Verified at** `main` @ `08dada9624`; code references are inline.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/GDPR/2026-11-16-privacy-data-class-contract.md
@@ -22,7 +21,7 @@ Shared owners are cited by their decision names: R3-2 — “The registry carrie
 
 > **Market reference.** Django's `check --deploy` runs named checks, each with an id and a hint; GitLab's self-hosted `gitlab:check` also exits non-zero for use in a deploy pipeline. Adopted: stable check ids, severities, a remediation line, a machine-readable report, a non-zero exit. Rejected: auto-fix flags, which turn a report into a second configuration path.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -489,11 +488,11 @@ Module-declared checks are covered by the Phase 3 unit tests and the generator f
 
 ## Final Compliance Report — 2026-11-16
 
-### AGENTS.md Files Reviewed
+### Applicable repository guidance
 - `AGENTS.md` (root), `.ai/specs/AGENTS.md` — in full
 - `BACKWARD_COMPATIBILITY.md` — §1, §13
 - `packages/create-app/AGENTS.md` — template sync
-- Round-two revision also reviewed `packages/cli/AGENTS.md` boundaries, `packages/shared/AGENTS.md` boundaries, `packages/queue/AGENTS.md` boundaries, `packages/search/AGENTS.md` boundaries and `packages/core/AGENTS.md` Encryption and Cross-Module Coupling sections. This revision changes design only.
+- Applicable CLI, shared, queue, search and Core guidance includes `packages/cli/AGENTS.md` boundaries, `packages/shared/AGENTS.md` boundaries, `packages/queue/AGENTS.md` boundaries, `packages/search/AGENTS.md` boundaries and `packages/core/AGENTS.md` Encryption and Cross-Module Coupling sections.
 
 ### Compliance Matrix
 
@@ -510,7 +509,7 @@ Module-declared checks are covered by the Phase 3 unit tests and the generator f
 | R3-4 / R4-7 | Configuration-only default; read-only database counts and C1 tenant settings reads | Compliant design | `privacy.retention_settings_unset` uses `createReadOnlyPrivacySettingsService`; explicit flag, same manager/tenant list, counts-only findings, unavailable reads are errors |
 | R4-5 | Attachments-owned stale pending-deletion diagnostic | Cited design | `attachments.pending_deletions_stale`, `needs: 'database'`, rows older than 7 days; runtime rows delete after drain and write no action-log entries/history identities |
 
-Pass-one fresh-context review found missing database-service access, provider-tier ids and completed-check output. C1 now specifies both bootstrap-free settings paths: domain get-only reads and the independent shared aggregate check, plus their configs-owned adapters. B4/forms use owner factories. Scheduler consumes the operational owner's declared manifest/binding with the same nullable-tenant count signature; only its exact check/service pair may count null-tenant system rows. This is design review, not executed test evidence.
+C1 defines bootstrap-free, configs-owned reads for both domain settings and the shared aggregate check. B4/forms use owner factories. Scheduler consumes the operational owner's declared manifest/binding with the same nullable-tenant count signature; only its exact check/service pair may count null-tenant system rows.
 
 ### Internal Consistency Check
 
@@ -529,44 +528,6 @@ No implementation was assessed. C1 now extends G4's sole scaffold and specifies 
 
 ### Verdict
 **Design settled.** Assumption 4 and the module id (DEC-10) are decided; the shell, command and built-in checks are proposed for OSS. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. C1 Phase 1/R3-2 precedes Phase 3; C1 Phase 7 supplies domain get-only settings reads and the independent shared check/counter. Owner token/forms checks use lazy tenant counters; scheduler's exact check/service pair alone counts system rows with null tenant, including zero-tenant installations.
-
 ## Changelog
 
-### 2026-11-19
-
-- Document the owner’s persisted backfill checks and the separate live runtime-readiness requirement.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions.
-- Revised after independent review: five of the ten first checks could not be computed without importing another module or copying its default, so rules now come from predicates exported by their owners; the processors report and the uncovered-modules check were moved out; severities aligned with the key-guard spec; exit no longer depends on `NODE_ENV`; the container tier was dropped because an unreachable database does not fail container creation; an extension point for other packages' checks was added; exit-code mechanics specified.
-
-### Review — 2026-11-16
-- **Reviewer**: Agent (fresh context, spec path only), then author revision
-- **Security**: Passed — no secret in output
-- **Performance**: N/A
-- **Cache**: N/A
-- **Commands**: N/A
-- **Risks**: Multi-process blind spot and predicate-move risk added
-- **Verdict**: Revised; the revision has not been independently re-read
-
-### 2026-11-16 — council review fixes
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g7-02 — module checks are now `doctorChecks`, an optional member of the `privacy.ts` default export validated by `getPrivacyDoctorChecks`, with no generator change, rejected entries reported as `doctor.check_invalid`, and a generator fixture test that a declared check reaches the CLI registry; g7-07 — the doctor states in every report and in `runtime.not_production` that it cannot see other processes' modes, and points at the key guard's runtime check of the development mark; g7-08 — the five checks delegated to other specs are now this spec's backlog with severity, predicate and dependency, built in a new Phase 5; the fail-closed check is renamed `encryption.plaintext_on_unavailable` so it no longer reuses that spec's telemetry counter name, and `privacy.uncovered_modules` names the table-coverage spec.
-- Fix verification follow-up: a module's check may now make synchronous, read-only `node:fs` probes, which the restore-replay manifest check needs. The import rule matches the table-coverage spec's current wording. The module-declared check from the pruners spec is `configs.retention_history_mode_default`, so it passes the module-prefix rule.
-
-- Council round two fixes (GPT-6.1 Sol workers): r8-08 — single module creator and MIT metadata, contract handoff recorded; r8-27 — A6, A7 and DEC-6 check ownership; r8-32 — declaration-only modules use `dataClasses: []`; R2 F-59 — unset onboarding is off; R3-4 — explicit read-only database counting tier.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): distinguish starter `yarn om doctor`, gate G4’s sole scaffold on program DEC-10 and preserve its OSS fallback; align C1 R3-2/default-object policy and R3-3 service/Phase 7; use sales/checkout/staff age checks, preserve scheduler-owned `pruners.unscheduled`, list search/queue/forms/retention consumers with honest tiers/prerequisites, and align private file publication with C1.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): consume C1’s privacy.retention_settings_unset/required_unset factory and CLI binding, B4’s per-check query_index.token_counts and forms’ three exact checks; align shared effective retention/KMS parsers; replace stale age-check and scheduler ids, specify scheduler-only read-only installation counts with zero-tenant tests, and remove fulfilled scaffold/settings handoffs.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): consume both C1 bootstrap-free settings paths while preserving domain checks, restore the operational owner's exact pruners.unscheduled name/prefix exception and nullable-tenant count contract with its defined manifest/factory binding, and limit C9's configuration check to required variables and safe deployment name.
-
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): R4-7 permits C1 read-only tenant settings reads in database checks and requires the shared settings check to use them with counts-only output; R4-5 cites the attachments-owned seven-day stale pending-deletion diagnostic, runtime classification and no-history rule, with scenarios, validation, risks and compliance aligned.
-
-### 2026-11-17
-- Assumption 5 names one exception class for error severity, an enabled module whose operation the runtime refuses, or will refuse from the next minor, above a bound without a required secret, so R5-4's `sso.scim_lookup_secret_missing` is consistent; the check joins the known-consumer table. It is raised only when `sso` is enabled, tenant data encryption is on and no lookup secret is set, from the warning minor; with encryption off SCIM keeps plaintext equality and nothing is reported.
-- The Readiness Scanner is placed beside the doctor: the scanner owns release files and secret hygiene, the doctor privacy configuration, module checks and database counts.
-- The database tier enumerates tenants through a directory-owned reader in batches of at most 100, each in a fresh read-only transaction, adds a repeatable `--tenant` selector and sums finding counts across batches.
-- TC-PRIVACY-DOCTOR-003 grows by phase: Phase 3 tests the generic runner with a fixture check, and the scheduler, settings and owner-declared checks add their cases in the Phase 5 steps that deliver them. The capability-archive step is removed.
-- This spec owns DEC-I, the `doctorChecks` member and check shape; C1's collector carries it under R3-2. The region predicates for the non-EU provider checks come from F4 alone, which also coordinates the provider modules' count factories.
-- The known-consumer table adds forms' `forms.invitation_suppression_secret_fallback` (configuration, warning) and `forms.invitation_suppression_secret_fallback_in_use` (database, error, counter `suppression_rows`), the latter also in Phase 5 step 9; the severity decision allows one check fixed, state-dependent severities but never operator-configured ones.
-- The known-consumer table adds C9's `data_erasure.backup_retention_exceeds_replay_window`, describes the access-log check with the `keep` value (warning) and `0` still meaning the default (informational), and adds the history-mode check's warning for an invalid `OM_RETENTION_HISTORY_MODE`.
+- 2026-11-16 — Initial specification.

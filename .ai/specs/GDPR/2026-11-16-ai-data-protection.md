@@ -1,7 +1,7 @@
 # AI provider policy: staged enforcement for tenant model calls
 
 > **Program:** provider-policy part of F1 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md), issue open-mercato/open-mercato#8593. [`2026-11-16-ai-model-input-minimisation.md`](2026-11-16-ai-model-input-minimisation.md) records the model-input part: option B (DEC-11), no field-level model-input control, with G5's disclosure of what the assistant sends to a model.
-> **Status:** proposed; no implementation. Current-code evidence was checked in the read-only repository at the supplied spec commit. Tests below are delivery requirements, not results.
+> **Status:** Proposed. The listed tests are delivery gates.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 
@@ -13,7 +13,7 @@ The tenant allow-list is advisory for typed agents and absent from several other
 
 The list constrains a feature's own provider and model; it does not choose another vendor for it. The operator still controls endpoints. OSS owns the shared helper, schema and core callers. Enterprise callers change inside `packages/enterprise`; OSS never imports that package.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -274,32 +274,6 @@ Permitted direct callers also require unit tests with fake adapters; enterprise 
 | Product decisions | Decided | Assumptions 1–10 are settled; each phase PR goes through ordinary maintainer review |
 
 **Verdict:** design decided for phased delivery. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval. The provider-policy part of F1 is scoped to the staged coverage above; embeddings and the default flip remain explicit follow-ups. F1's separate model-input part is option B (DEC-11): G5's disclosure ships before #8593 closes. A provider/model allowlist and a doctor region warning do not satisfy tenant region enforcement or verified zero retention. Under DEC-17 the issue remains open for each until its named carrier ships verified behavior or upstream accepts the precise limit. Endpoint, account capability and actual dispatch evidence belong to that delivery decision.
-
 ## Changelog
 
-### 2026-11-20 — Processor closure evidence
-
-- Keep tenant region enforcement and verified zero retention open separately from the provider policy and model-input disclosure.
-
-### 2026-11-18 — Review corrections
-
-- Carry the Inbox translation route’s trusted scope through model selection and exercise refusal and unavailability at the route.
-
-### 2026-11-18 — Spec review
-
-- Bind enforced OpenCode question replies to the durable existing session owner and verify the behavior across processes and restart.
-
-### 2026-11-16
-- Written autonomously as "AI data protection", covering provider policy, text extraction, embeddings and a filter on tool results.
-- Rewritten after independent review, and narrowed. The allow-list never refuses today, so "refuse" is now an explicit check after the factory and a marked behaviour change. The tenant's list constrains each feature's own model instead of replacing it. The attachment change is a second switch, because the existing one is a stored per-partition value that also gates local extraction, and its environment default only seeds new rows. Saving embedding settings installation-wide is dropped: it would have reintroduced a cross-tenant overwrite fixed by two earlier specs. The legacy chat route, moderation and a legacy helper were missing from the inventory and are added. The tool-result filter moved to its own spec.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g6-03 — the tenant's list has no endpoint field, so the requirement and the helper now check provider and model only; endpoints stay the operator's, marked for confirmation as assumption 7 with a per-tenant `allowed_base_urls` fallback. g6-06 — inbox's `OPENCODE_*` fallback on any `AiModelFactoryError` is named in the inventory; for tenant calls its pair passes the same check, and the refusal is an error the fallback cannot swallow (assumption 9). g6-07 — a check-only `assertTenantModelPermitted` for moderation, which uses the chat resolution's provider and the moderation model, and for the legacy chat handlers, which pass the checked pair explicitly when a tenant with a list sends a turn naming no model (assumption 8). g6-08 — the guard also fails on calls to `createModelFactory` or `resolveModel` outside the helper and three named send-nothing callers; the routing route and the web-search model adapter are added to the inventory and moved to the helper. Scenarios, edge cases, API contracts, unit tests, risks and compliance rows are updated to match.
-
-- Council round two fixes (GPT-6.1 Sol workers): r2iqa-03 — checked OpenCode initial/nudge sends; r2iqa-06 — named embedding owner and exclusion; r2iqa-07 — preflight before fallback; r2iqa-08 — phase-local policy integrations; r2iqa-14 — moderation provider eligibility; r2iqa-15 — staged acceptance and closure; r2iqa-27 — shared organization fallback; r2iqa-28 — native runtime Phase 3; g6-12 — shared opt-in bridge; g6-13 — explicit system scope; g6-23 — typed loader outcomes; g6-36 — expiring guard entries; g6-37 — named flag and outcome storage; corrected inbox paths and loader arguments.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): corrected the search-settings section and phase references and named the missing runtime extension; qualified the sibling's option B default; named the shared effective-policy method and its conditional, independently applied withholding member.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): aligned the search owner's actual section and Phase 2 names, recognized its specified runtime-isolation design and tests, and included both query routes in the five-call-site handoff without claiming delivery.
-
-### 2026-11-17
-- Organization and tenant allow-list rows now combine: an organization row only narrows the tenant list, and enforcement is on when either row enables it, so no organization row can silently drop a tenant's enforcement; an omitted `enforceForCalls` keeps the stored value, and settings show the effective source and floor.
-- The model-or-local extraction choice is one shared upload-time decision in both `api/route.ts` and `scoped-upload-service.ts`, with the inline local fallback on a later worker refusal; the trusted OCR scope is the persisted attachment row.
-- Legacy chat question replies (`answerQuestion`) are covered egress: an enforced reply re-checks the session's recorded pair and the guard covers them.
-- The embeddings handoff points to the search-settings P1 inventory and source guard, which now lists every runtime reader. Closing note on earlier entries: under DEC-11 no withholding member is added to the effective-policy result; the 2026-11-16 pass-two entry describes a superseded draft.
+- 2026-11-16 — Initial specification.

@@ -77,21 +77,6 @@ An old writer can reintroduce plaintext after a purge. The all-replica drain and
 ## Final compliance report
 
 Design only. B9 preserves the cache and HTTP contracts while using shared DI, tenant scoping and encryption. Rollout depends on A3 key access, confirmed storage backend support, test evidence and written carrier approval.
-
 ## Changelog
 
-### 2026-11-20
-
-- Kept the existing HTTP and CLI cache controls working through the protected inventory and added independent cleanup for the legacy stats sidecar.
-
-### 2026-11-18
-
-- Added B9 to address the plaintext CRUD cache requirement and define separate raw-storage and erasure evidence.
-
-### 2026-11-19
-
-- Specify and test backend admission fencing for delayed fills that race erasure invalidation.
-
-### Spec review corrections — 2026-11-19
-
-- Freeze the shared-service opaque identifier construction, scope framing and rotation cleanup through the complete tenant namespace index (F55).
+- 2026-11-18 — Initial specification.

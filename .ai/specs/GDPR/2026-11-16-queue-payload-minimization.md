@@ -1,8 +1,7 @@
 # Queue payloads: ids where possible, sealed where not, bounded when failed
 
 > **Program:** package B6 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
-> **Verified at** `main` @ `08dada9624` by reading code; nothing was run. Queue names, worker/producer contracts and the existing real-Redis test harness were read. No Redis server or application was run for this design revision.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 
@@ -16,7 +15,7 @@ Background jobs are stored in Redis, or in a JSON file on disk, exactly as they 
 
 > **Market reference.** Sidekiq Enterprise and Rails' Active Job both recommend "pass ids, not objects" and offer encryption of job arguments for the cases where that is impossible; Sidekiq encrypts the last argument with a configured key and keeps the rest readable for its dashboard. BullMQ's own guidance is to bound failed jobs by age as well as count. Adopted: ids first, sealed content with the wrapper id/time/metadata readable, and explicit age cleanup. Scope inside the payload is sealed too. Rejected: persisting every inbound payload in a table first just so a job can carry an id — a second copy to protect and expire.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -548,49 +547,6 @@ Reviewed root/spec rules, queue/worker contract, shared module and dependency bo
 | Retained queue copies | Specified | Assumption 8 discloses them with no subject purge; per-queue maximum delay (`workflow-activities` unbounded), oldest-job reporting and id-based no-op consumers bound the residual, carried by the erasure report and the program's acceptance gate |
 
 **Verdict:** design settled. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval. Sealing uses an explicit, validated `QUEUE_PAYLOAD_ENCRYPTION_KEY` (assumption 2); queue copies left after an erasure are disclosed, not purged (assumption 8); a sealing-on enqueue before readiness throws `SealedQueueRegistryNotReadyError` (R5-5). The merged program, erasure and verification specs carry the inventory/rollout and retained-copy evidence. Implementation requires the distinct stored-copy and index-drain evidence.
-
 ## Changelog
 
-### 2026-11-20
-
-- Bound external email delivery to the original committed message-sent occurrence and anchored local quarantine age to the quarantine transition.
-
-### 2026-11-19
-
-- Separate B6 retained-copy acceptance from DEC-15 program closure.
-
-### 2026-11-18 — Follow-up review
-
-- Make the id-only queue shape bind the recipient revision and specify owner migrations and the backfill gate.
-
-### 2026-11-18 — Review corrections
-
-- Guard failed-job removal against concurrent retry and abort bootstrap on a branded sealing-on registrar refusal.
-
-### 2026-11-18 — Spec review
-
-- Bind address-free jobs to the enqueue-time recipient or connection generation, and sanitize BullMQ failure storage for historical sealed jobs even when sealing is disabled.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions. Departs from the program's one-line description, which assumed every job could carry an id; the required program correction is an owner handoff, not an edit made in this file.
-- Revised after independent review. A `sealed` option at creation would have been missed in one of a queue's several creation points, so the initial revision used a list; council round two moves declarations into module metadata and freezes a shared bootstrap registry. The key is explicit, and switching sealing on without it is a start-up error: a derived key would have changed when another secret did, and been absent on installations that use a key service. Scope is no longer kept in the envelope. Event fields are not removed, which the compatibility rules forbid. Failed jobs are cleaned on a timer. Opening covers the abandon path and the coalesced copy. The new Playwright test is dropped because it could not fail. Bounds and ids ship first, with no key.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g6-04 and g5-07 — failed-job retention runs on a timer of its own in every async worker (at start, then hourly), with `queue.clean` where no abandon hook exists and a paged walk that spares unacknowledged abandoned jobs where one does; this spec is the single owner of the setting and default, and the pruner spec refers here; g6-09 — only `QueuedJob.payload` is sealed, the wrapper's id, creation time and metadata stay readable, opening produces a copy, and every write path keeps the sealed payload, with scenarios, unit tests and a risk.
-- Council round two fixes (GPT-6.1 Sol workers): r2iqa-01 — complete invoke-agent/provider queue inventory and owner declarations; r2iqa-12 — real Redis retention/envelope tests; r2iqa-21 — legacy backlog drain and status gate; r2iqa-22 — strict keys and key-removal/rollback lifecycle; r2iqa-23 — retired-queue cleanup command and honest bound; r2iqa-24 — retained-copy default and erasure/program handoff; r2iqa-25 — configs-owned doctor checks; r2iqa-26 — frozen global bootstrap registry; r2iqa-35 — recurring quarantine cleanup; r2iqa-36 — exported job unions; r2iqa-41 — remove false program-edit claim and specify unowned row correction; g6-17 — age opt-in bridge/zero opt-out/logs; g6-27 — two-release producer/worker order; g6-32 — readable wrapper only; g6-40 — warn per quarantine deletion; g6-41 — authenticated queue/job identity; g6-42 — provider-local names; g6-43 — exact SHA-256 fingerprint. Nits: shrinking-page offsets advance over kept jobs; unnamed development derivation removed.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): Reconcile the merged program's now-preserved events and identify remaining inventory/rollout corrections; use exact ModuleInfo.sealedQueues and R3-2/DEC-I/R3-4/DEC-H names; preserve C1's full default object; align verifier-owned queue scanning with retained delayed/failed-copy evidence and erasure completion handoffs.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): Gate configs-owned declarations on C1 Phase 1/R3-2 and doctor Phase 3/DEC-I; link B6 TC-QUEUE-ERASURE-001 to G6 TC-PRIVACY-VERIFY-011 with parked plain/sealed copies, finishedOn/acknowledgement/zero exceptions and a separate index drain; reconcile the merged program and erasure retainedCopies handoffs.
-
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): Apply R5-5 to preserve off-mode enqueue without registry readiness waits or refusals; disclose and test the sealing-on refusal across factories and strategies, with its exact named-error identifier recorded as an open design dependency.
-
-### 2026-11-17
-- Failed-job retention uses the bounded `finishedOn` walk for every queue; `queue.clean` is dropped. The queue inventory adds the two unsealed `webhooks` queues.
-- Sealed payloads are identified by the server-owned `metadata.payloadCodec = 'sealed-v1'` marker, not by payload shape; sealed queues store sanitized failure text; scoped removal on a sealed queue throws `QueueScopeRemovalUnsupportedError`; a late sealed-queue name is refused only with sealing on, and finalization follows the app-level DI registrar.
-- The maintenance commands validate queue names and local directory containment; `test:redis` runs every Redis suite; TC-QUEUE-ERASURE-001 waits for C4 and G6, and Phases 1–2 ship TC-QUEUE-RETAINED-001.
-- Closing note on earlier entries: the R5-5 named error recorded as an open dependency in the pass-six entry is settled as `SealedQueueRegistryNotReadyError` (`QUEUE_SEALED_REGISTRY_NOT_READY`).
-- Queue copies after erasure are bounded: a Delay bounds table states each declared content queue's maximum enqueue delay, with `workflow-activities` unbounded; `payload-status` adds the oldest stored job per queue and state; id-based consumers resolve their record and recipient at execution and send or re-create nothing once either is erased, and a legacy address job is sent only while its address still matches the message. Tests cover a delayed id job run after an erasure.
-- A queue name registered late with sealing off is only logged at warn level with its name; no record of it is persisted, and `payload-status` and the doctor report declared metadata names only.
-
-### Spec review corrections — 2026-11-19
-
-- Require positive retired-queue hook disposition for cleanup and report unknown abandonment obligations as unbounded instead of implying prune alone guarantees removal (F53).
+- 2026-11-16 — Initial specification.

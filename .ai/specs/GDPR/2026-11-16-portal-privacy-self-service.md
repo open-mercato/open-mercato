@@ -2,8 +2,7 @@
 
 > **Program:** package C7 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
 > **Builds on:** [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md) for export and [`2026-11-16-privacy-subject-erasure.md`](2026-11-16-privacy-subject-erasure.md) for deletion. The consumed contracts and remaining prerequisites are listed under "Changes this spec needs in its two parents".
-> **Source verification:** read-only repository @ `9e09023483`; code was read, no app or implementation test was run. The original design used `08dada9624`.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** Worktree snapshot `9e09023483`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/GDPR/2026-11-16-privacy-data-class-contract.md
@@ -22,7 +21,7 @@ A customer-portal user can see their email, last login and roles on a read-only 
 
 > **Market reference.** GitLab and Discourse both let a user download their own data and delete their own account from account settings, ask for the password again first, and delay deletion — GitLab by seven days — so that a hijacked session cannot destroy an account instantly. Adopted: re-authentication, a grace period with cancel, a confirmation email. Rejected: Discourse's rule that an account with content cannot self-delete; here the erasure run decides what is kept, not the form.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -92,7 +91,7 @@ One new page, seven new HTTP handlers across five route files, account-state col
 
 ### Changes this spec needs in its two parents
 
-Both parents are unreleased. Their merged designs specify runtime registration, account-only publication and its internal-field allowlist, soft-deleted roots, persisted exclusions and two-stage field clearing; implementation must deliver those contracts before the dependent portal phase ships. R4-2 — Authority for a portal-initiated erasure (program spec, "Council-review cross-spec decisions"), owned by the erasure parent, completes assumption 11's account-only worker authority design and fixes its actor. R3-14 — The `eraseSubjects` entry point (parent erasure API Contracts → The `eraseSubjects` entry point (R3-14)), R3-1 — The audit-history rule for every erasure (parent erasure → The audit-history rule for every erasure (R3-1), The run and API Contracts → Audit history — `audit_logs`), and R3-2 — The registry carries the whole `privacy.ts` default export (parent contract API Contracts → Types, Export shape and Collectors) supply the consumed contracts; R4-2 governs the portal caller and authority boundary. R5-1 resolves the operator-recovery conflict with the sole exception for a journal in `failed_handoff`, as recorded under Daily worker and recovery; the erasure parent owns its implementation.
+Both parents are unreleased. Their merged designs specify runtime registration, account-only publication and its internal-field allowlist, soft-deleted roots, persisted exclusions and two-stage field clearing; implementation must deliver those contracts before the dependent portal phase ships. R4-2 — Authority for a portal-initiated erasure (program spec, "Cross-spec contracts"), owned by the erasure parent, completes assumption 11's account-only worker authority design and fixes its actor. R3-14 — The `eraseSubjects` entry point (parent erasure API Contracts → The `eraseSubjects` entry point (R3-14)), R3-1 — The audit-history rule for every erasure (parent erasure → The audit-history rule for every erasure (R3-1), The run and API Contracts → Audit history — `audit_logs`), and R3-2 — The registry carries the whole `privacy.ts` default export (parent contract API Contracts → Types, Export shape and Collectors) supply the consumed contracts; R4-2 governs the portal caller and authority boundary. R5-1 resolves the operator-recovery conflict with the sole exception for a journal in `failed_handoff`, as recorded under Daily worker and recovery; the erasure parent owns its implementation.
 
 | Parent | Change |
 |---|---|
@@ -527,9 +526,9 @@ In TC-PORTAL-PRIVACY-004, add a separate CRM person in another organization shar
 - **Mitigation**: Per-account worker advisory lock, conditional durable claim, final row-lock re-read, and both cancels refusing a claim. Company locks serialize acceptance; deferrals are bounded.
 - **Residual risk**: Cancellation is unavailable after a committed claim, including an interrupted run; the UI states processing and staff must resolve terminal partial failures and deliver the outcome through another verified channel when the email has already been erased.
 
-## Final Compliance Report — 2026-11-17 (revised)
+## Final Compliance Report — 2026-11-17
 
-- **Reviewed:** root and specs rules, `BACKWARD_COMPATIBILITY.md`, core API/encryption/coupling/config rules, the customer-accounts guide, UI Portal Extension and guarded writes, shared scoping/encryption rules, queue contract and QA fixture rules. This is a spec review; no implementation tests were run.
+- **Applicable rules:** Repository, spec, compatibility, portal, API, encryption, configuration, queue and QA fixture guidance.
 
 | Rule | Status | Notes |
 |---|---|---|
@@ -549,44 +548,6 @@ In TC-PORTAL-PRIVACY-004, add a separate CRM person in another organization shar
 | Template sync for env vars | Compliant design | Named |
 
 **Verdict:** Design ready for upstream review. DEC-2b proposes OSS placement and gates the rights invoker on named upstream carrier approval. Phase 1 includes route hardening; under DEC-13, applied per narrowing, its registry and cross-site narrowing ships under the exception with the named security-maintainer approval, and password change's re-authentication 429 follows the ordinary protocol with a one-minor bridge. Phases 2 and 3 wait only on implementation of the parent account contracts, whose internal export allowlist and persisted exclusions now agree with this spec. Phase 2 consumes C1's registration and audit lifecycle under R3-2; Phase 3 consumes the complete R4-2 worker authority design, soft-deleted roots, R3-1 and R3-14. Assumption 11 no longer has a missing authority design: the subject's verified request authorizes its account's portal deletion worker, without staff authorization. R5-1 resolves the recovery conflict: after the seventh failure the worker calls C4's `recordFailedHandoff`, which moves an open portal-origin journal to `failed_handoff` before the account marks clear, and only that state permits operator recovery through C4's `privacySubjectService.resumeErasureRun({ scope, runId, actor, mode })` / `erase --resume-run` or the enterprise page with `data_erasure.subjects.erase`. C4 Phase 3, which delivers `verifyPortalErasureRequest`, `recordFailedHandoff` and `resumeErasureRun` with a worker test double, remains a one-way prerequisite of this spec's Phase 3. Recovery preserves the original intent, portal origin and run id, audits the operator as `resumedBy`, and leaves the account's failed-state/finalization rules in force.
-
 ## Changelog
 
-### 2026-11-20 — Confirmed specification review corrections
-
-- Bind worker planning, claims, C4 handoff and terminal cleanup to a non-repeating stored request generation. Replacement requests survive stale retries. (R19)
-
-### 2026-11-19 — Confirmed spec review corrections
-
-- Bound final export publication to the live session/credential evidence and identity-recovery fence, with both lock orders and deterministic pre-publication recovery tests (F10).
-
-
-### 2026-11-18 — Follow-up review
-
-- Serialize final deletion acceptance with account recovery and bind it to the authenticated credential version. Classify mandatory subject downloads and align authenticated replay.
-
-### 2026-11-18
-
-- Require exact account attribution for automatic deletion and operator adoption, preserve the identity-recovery fence after link expiry, and publish a dedicated portal profile-update event.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions.
-- Revised after independent review. The download now names one data class and does not follow related subjects, which needed an addition to the contract's export operation. The erase run gets an in-process entry point. Re-authentication checks the session row instead of the token's age and keeps its own failure counter, shared with password change. A request survives a staff soft delete, fails visibly after seven attempts, and is offered only when its schedule exists. Staff are notified and can cancel; the tenant gets a switch. Approval narrowed to Phase 1.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g4-03 — the worker assumed the erased account row disappears, but the erase run keeps it anonymized, so `deletion_requested_at` stayed set and the account was erased again every day with a pending deletion shown for ever; the worker now clears the request and the attempt count after a successful apply, closes any due request whose account already carries `anonymized_at` without running the erasure, and skips failed requests; the staff line shows an erased account and the cancel route answers 404 for it. Updated the design decisions, the Delta, the worker steps, data models, the staff route, UI, edge cases, unit tests, TC-PORTAL-PRIVACY-004 and a new risk entry.
-- Fix verification follow-up: the worker no longer closes a request just because the account carries `anonymized_at`. An erasure that stopped after the owner committed (failed emit, pending files, unstripped history) would otherwise have been closed without its event. The worker now always calls the idempotent erase run and clears the request only when that run reports the subject complete.
-- Council round two fixes (GPT-6.1 Sol workers): r7-14 — serialized claims, daily-delivery fencing and cancellation; r7-15 — failed-state retry and dismissal; r7-16 — company lock and bounded deferrals; r7-17 — tenant switch store, ACL and screen; r7-20 — server guards, cross-site checks, versioned profile and explicit release default; r7-26 — soft-deleted owner requirement; r7-27 — CRM export negative fixture; r7-34 — atomic re-authentication counters; r7-35 — admin cancellation namespace; r7-45 — durable-history prerequisite; r7-46 — explicit export/erase fields; r7-47 — correct frozen test; r7-48 — exclusions on event; g4-09 — stored effective date; g4-10 — staff reason and notice; g4-22 — R3-14 scoped portal origin; wording nits corrected.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): consume C1's runtime DI registration and R3-2 registry, honor started/terminal export audit and returned `auditStatus`, cite C4's exact R3-14 entry point/results, default the independently authorized tenant-only worker boundary with a refusal fallback, persist reviewed exclusions for matching retries, require all parent apply wiring, distinguish account settings from R3-3 retention ages, correct erasure phase dependencies and doctor limits, and report remaining parent projection/recovery and program waiver gaps.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): require the erasure parent's approved account-only worker authority before either mode can run, retain organization-scoped HTTP authorization and replay's `scope_unsupported` refusal, consume merged parent projection/root contracts, identify the remaining internal-field/exclusion and staff-recovery handoffs, correct `pruners.unscheduled` under R3-4, and align the program waiver description.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): consume C4's Origin-preserving portal recovery method and confirmed `--resume-run` path after seven-attempt cleanup, preserve tenant-wide authority and account failed-state/finalization rules, align C1's internal-field allowlist and C4's persisted/audited exclusions, and cite the program's existing DEC-13 release gate; account-only worker delegation remains an open parent design.
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): cite R4-2's complete portal-worker authority boundary and exact system actor, resolve assumption 11, align account-only tenant scope, related-subject exclusions, implementation prerequisites, tests, risks and compliance; report C4's operator-recovery actor conflict as OPEN_DESIGN without introducing a handoff or exception.
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): consume R5-1's `failed_handoff` transition after the seventh failed attempt and sole operator-recovery exception to R4-2; preserve portal origin, run id, original single subject and exclusions, require `data_erasure.subjects.erase` on the enterprise page, record `resumedBy` in audit entries, and align scenarios, worker handling, tests, risks, dependencies and compliance without a new portal-owned recovery contract.
-
-### 2026-11-17
-- A failed deletion request now waits for staff dismissal before a new request is accepted, so a re-request cannot collide with an open `failed_handoff` journal; a request that still meets one fails at once.
-- Email-change identity recovery refuses export and deletion requests and cancels a pending request with `identity_review`, without emailing the address under review.
-- Listed the in-repo consumers of `customer_accounts.user.updated` and the ids-only upgrade note; moved enterprise-page recovery coverage to the DSR engine's enterprise suite; added the saturated re-authentication lock risk and its remedies.
-- DEC-13 is applied per narrowing: the registry and cross-site checks on the profile and password-change writes take the exception, while the password-change 429 follows the ordinary protocol with an upgrade note and a one-minor bridge in which failures are counted but not refused.
-- The worker now uses C4's `recordFailedHandoff` at the seventh failure before clearing the account marks, keeping them for the next day when the call throws or returns `RUN_IN_PROGRESS`; it consumes C4's `PrivacyFailedHandoffResult` shape, clearing the marks only on `recorded: true` and leaving the account unchanged without retry on a `NO_ACCEPTED_REQUEST` or `REQUEST_FAILED` refusal. It also matches `verifyPortalErasureRequest`'s modes (dry run before the claim, apply after it with the stored exclusions), counting its refusal codes as failed attempts. Portal Phase 3 depends one-way on C4 Phase 3, and TC-PORTAL-PRIVACY-004 owns the real worker's handoff and CLI recovery cases.
-- TC-PORTAL-PRIVACY-004 now names its mechanism: a fixture-app test data class that fails apply after the journal opens, and `deletion_last_attempt_at` backdated through `withClient` between drains. The existing profile PUT lists email change's identity-recovery 409, and the compliance report is dated 2026-11-17 (revised).
-
-- 2026-11-18 review fixes: protect the administrator floor across eligibility writers and disablement, and bound the audited synchronous download.
+- 2026-11-16 — Initial specification.

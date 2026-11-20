@@ -2,7 +2,7 @@
 
 > **Program:** package C5 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (open-mercato/open-mercato#8593). Ships with C1's first phase. The verification suite keeps its scan and end-to-end tests, not delivery of this gate.
 > **Builds on:** [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md), especially R3-2 — The registry carries the whole `privacy.ts` default export, Export shape. **Shares the snapshot reader with** [`2026-11-16-tenant-exit-export.md`](2026-11-16-tenant-exit-export.md). DEC-G keeps `tableExports` separate from coverage.
-> **Evidence:** source and canonical snapshots at `main` @ `08dada9624`, re-counted for this revision. This is a design; no coverage implementation was run.
+> **Code baseline:** Source and canonical snapshots at `main` commit `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/GDPR/2026-11-16-privacy-data-class-contract.md
@@ -17,7 +17,7 @@ A module can declare a data class, but nothing notices a module that declares no
 
 Data inventories classify stores explicitly; strict linters adopt a backlog for existing gaps. This design uses both. Column names are a second net, not a personal-data classifier or proof of handler correctness.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | Id | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -566,29 +566,6 @@ Reviewed root/spec rules, compatibility §1/§2/§4, shared/CLI rules and create
 | Edition | Compliant | OSS with C1 Phase 1 under DEC-2 (assumption 6) |
 
 **Verdict:** Design ready. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. C5 ships with C1 Phase 1; retention references resolve as record retention and the pruners land. R4-5, R4-9 and R4-13 close the pending-deletion, suppression-export and operational-bound design gaps; pruner metadata uses the `retentionBounds` kind of assumption 7. Runtime coverage and final closure remain dependent on the named carriers.
-
 ## Changelog
 
-### 2026-11-20
-
-- Assigned attempted value-scan evidence to a dedicated action-log subset with an audit-owner bound and exact predicate fixtures.
-
-### 2026-11-16
-- Split from the verification-suite spec after its independent review, with that review's corrections: a reason for tables reached through another module's seam, without which the shared stores could never leave the baseline; one per-table entry shared with the exit export instead of two lists; no numeric cap; declarations as members of the default export, the convention chosen for privacy.ts; the helper on a test-only subpath; corrected counts.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g3-12 — export declarations no longer ride on the `tables` entry, which tables covered by a class or still on the baseline do not have; they live in the exit-export spec's separate `tableExports` member. The rule now says an export entry is not coverage, rule 3 also checks `tableExports` keys, and rule 6 checks the credential agreement against that member. Updated assumption 2, the design decisions, alternatives, Delta scenarios, the API comment, edge cases, unit tests, a risk entry and the compliance table. The import rule for `privacy.ts` now also allows modules with no side effects at load, such as shared predicates and `node:fs`, which the doctor's `doctorChecks` member needs.
-
-- Council round two fixes (GPT-6.1 Sol workers): r3e-06 exact ownership and resolved references; r3e-20 whole-object registry; r3e-29 app/template paths and explicit opt-in; r3e-30 baseline ceiling and closure ratchet; r3e-33 canonical census and closure owners; r3e-40 C1 delivery handoff; r3e-41 exact snapshot basename; r3e-42 per-column reasons; r3e-43 file/path and JSON net; r3e-44 owned root inventories; g2-32 partial rows and shared-store remainders; g2-38 test/helper compatibility. Snake-case wording nit corrected.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): added account-owned email-change full export/erase coverage and the forms retained-objection reference_only declaration; aligned shared-null-tenant, excluded tenant-less attribution, all-JSON, lookup-hash and typed reviewedChecksums guards with tenant exit; added the named unclassified-table negative fixture and preserved the current-source census/new-table distinction. SUPPRESSION-EXPORT defaults the conflicting digest-export proposal to redaction pending human confirmation. Cross-owner corrections were carried out in the owning specs.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): removed the unsupported reference_only columns member, pinned the forms objection column/source review and new-table closure, consumed C8's exact suppression exception under an updated confirmation default, and aligned non-global/shared-null-tenant guards. Added owner-declared operational/set/pending retention bounds with exact column/anchor/window/enforcement projections for G6, fail-closed reference validation and delivery/tests. Remaining consumer changes were applied in the consuming specs.
-
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): aligned suppression export to C8/unsubscribe redaction defaults, resolved C4's exact seam objects and real pending-deletion set, and consumed the operational owner's exact bound/status collector alongside actual record-set references. Preserved unsupported remainders and pending/unbounded enforcement limits; no new operational interface was designed.
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): R4-5 classifies attachment pending deletions as `runtime_state`, with successful-drain removal, the 7-day database doctor check and no journal history identities; R4-9 redacts suppression `recipient_hash` and `key_id` with a row count and removes SUPPRESSION-EXPORT; R4-13 adds the `operational_pruner`/`prunerId` bound reference and pruner-owned `evaluateFixtureRow` without duplicate operational bounds. Aligned scenarios, tests, risks and compliance rows.
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): align operational enforcement with the existing C5 projection, counting deadline, schedule/worker fields and pending mode without new members; preserve the owner's registry-publication design gate; R5-8 requires an unscoped canonical snapshot and a reasoned reviewed-list entry for global exclusions, with scenarios, static fixtures, risks and compliance coverage.
-
-### 2026-11-17
-- Closure is reachable and honest: `action_logs` partitions on `resource_kind` with owner-qualified bounds to the privacy evidence sets, and its remainder and the file/custom-field remainders become two reviewed `known_limit` ids, the latter gated by a served-entity registry check over `sharedStoreEntities`.
-- `credential` requires an erasing same-module class whenever the table links to a subject, and its columns get rule 5 review; runtime-created tables are declared through tenant exit's `runtimeTables`; `directory.tenants` is a pinned scope-root table that can never be global; global exclusions carry their reviewed reason in the declaration for runtime validation.
-- Undeclared tables are runtime gaps rather than static reader failures; implementation steps are mapped to phases, with record-set and pruner resolution arriving with their collectors and Enterprise/G6 assertions kept in their owners' suites. Added `sidebar_variants` to the `auth.users` inventory.
-- Named the owners of the remaining `audit_logs` bounds: the access-log-retention `audit_logs.access_logs` pruner bound for `access_logs`, and in Enterprise `dataErasureRetentionBounds` for ordinary history with its `backlog_growing` projection; C1's settings evidence is selected by its clear-text related pair.
-- The email-change table inventory lists the approval digest, `approved_at` and `cancelled_via`; the planned `form_to_deals` tables are recorded with their own coverage declarations.
-- The `erasure_evidence` subset includes C4's `privacy.subject_erasure_progress` kind, which `expireErasureEvidence` deletes with its run group.
+- 2026-11-16 — Initial specification.

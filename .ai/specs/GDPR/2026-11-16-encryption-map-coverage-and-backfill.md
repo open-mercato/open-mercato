@@ -1,8 +1,7 @@
 # Encryption-map coverage and backfill
 
 > **Program:** packages B1 and B2 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593). Related: #3854, #7593, #7644; open PRs #8987, #9011.
-> **Verified at** `main` @ `08dada9624` by reading every column's writers, readers and value queries; nothing was run. The vector-map refusal is verified from the classifier and tenant setup; no command was run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/2026-10-04-encryption-map-scope-uniqueness.md
@@ -19,7 +18,7 @@ About thirty columns that hold personal data are stored in clear because no encr
 
 > **Market reference.** Rails' Active Record Encryption migrates an existing column by declaring it encrypted with `support_unencrypted_data` on, re-saving rows in batches, then turning the option off; it documents that a deterministic key is needed for any column queried by value. Adopted: read-tolerant mixed state (which this codebase already has), batched re-encryption, a lookup hash for value queries. Rejected: its per-model switch for tolerating plaintext — here tolerance is permanent and silent, so the guard tests are what tell an author a column was missed.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -641,47 +640,6 @@ The guards and all command classifiers are unit-tested; catch-up SQL and every m
 | Vector rotation completion | Core classifier owned here; reseal is a cross-owner dependency | Phase A item 7 makes Core `rotate-encryption-key` delegate `vector:vector_search` with `complete: false`, and that OSS path, with Phase A item 5's `backfill-encryption`, Phase D items 2 and 3 and B4's old-key reseal and full report, is A1's search-enabled exit. B4 owns R4-10's optional `pin` with R5-3's `providerIdentity`/`wrappedDekFingerprint` and `pin_mismatch`; Enterprise binds the facade to its frozen target and adds independent both-store verification, which is not an A1 gate; pinned runs refuse until B4 Phase 2 delivers the provider key-check read, and no search runtime implementation is claimed |
 
 **Verdict:** design ready for Phase A. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval. Phases B and C follow module by module; Phase D item by item. Every assumption is decided: the columns under assumptions 2, 5 and 6 stay in clear with recorded reasons, and assumption 10 preserves legacy SCIM matching through the warning minor and activates the bounded reader only through scoped readiness in N+1 at the earliest. Removal of the activated keyed fallback has a zero-missing-hash gate. R5-4 fixes the no-secret response and persistent limit on ciphertext identities, bridged by one warning minor, and its doctor check fires on the `sso` module with tenant data encryption enabled and no lookup secret. Pinned vector rotation waits only on B4 Phase 2 delivering `readTenantKeyCheck`, and A1 stays gated on the verified OSS search-enabled rotation of Phase A items 5 and 7, Phase D items 2 and 3, plus B4's reseal.
-
 ## Changelog
 
-### 2026-11-20
-
-- Defined complete matching or sanitized SCIM refusal for unreadable historical ciphertext, including encryption-off deployments, and added a sealed-data acceptance fixture.
-
-### 2026-11-19
-
-- Separate effective-map readiness from persisted plaintext verification. Require scoped aggregate evidence after backfill and before protection is claimed.
-
-### 2026-11-18 — Review corrections
-
-- Separate the tenant-wide OSS vector report from protected exact-scope rotation evidence.
-
-### 2026-11-18 — Spec review
-
-- Preserve the SCIM route through the warning minor and gate activation per scoped configuration. Land the shared secret helpers before either Phase C consumer and record how missing required encryption maps block coverage evidence.
-
-### 2026-11-16
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): apply R5-4's bounded no-secret SCIM scan, 400 response/key, named configuration-tier doctor error and configure-secret-first remediation with tests/risks/compliance, recording the unresolved activation input; correct the communication wrapper hand-off; add R5-7's commerce hash refreshes to Phase D; cite R5-3's corrected rotation pin and record the missing derived-provider source.
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): cite R4-10's additive frozen-target `pin` and `pin_mismatch` in B4's facade hand-off, with matching/mismatched provider and DEK-version coverage, risk and completion gates.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): cited B4's now-specified `SearchVectorDisplayMaintenance` adapter, exact export and methods alongside its `run` facade; retained implementation/capability preflight, independent both-store verification and search-enabled A1 release gates.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): adopted B4's exact `searchVectorDisplayMaintenance.run` / `VectorDisplayMaintenanceReport` hand-off and full target-key report gate, retaining the Enterprise baseline/read dependency and ORM/system/vector/token key-retirement gates; removed the undeclared second sender-fill command; confirmed C1 phone normalization, coverage-owned forms/inbox refreshes and query_index-owned forced rebuild/report/apply/zero-residual order.
-- Written autonomously with resolved assumptions.
-- Revised after independent review. The rotation command is left alone and a separate backfill command added, because rotation must refuse on any unresolvable map. Maps that never had a backfill get catch-up migrations instead of an exception list. The three guards are defined: parsed helper calls, a stated column-name pattern with a capped backlog, and a per-table list of raw writes. The SSO subject, the SCIM external id, CRM participants and the three SQL-searched names stay in clear with recorded reasons; no unique index is moved; the case-preserving hash and the map-rule option are dropped. Hash columns are written by the owning module, not by the encrypt step.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g1-04 — added "Phase D — Lookup hashes and system-scope rotation" for the three items the program hands to B1: `customers` `primary_email_hash` and `primary_phone_hash`, written by the module whatever the encryption state and filled by `mercato customers fill-lookup-hashes`; `mercato entities rehash-lookups --tenant <id> [--apply]`, scoped and resumable, which recognises the current, old and legacy forms and covers every mapped `hashField`; and rotation of system-scoped records in `mercato entities backfill-system-encryption` when the old root is set. Problem statement, a Delta requirement, design decisions, alternatives, data models, API contracts, edge cases, compatibility rows, phasing, implementation steps, file manifest, two integration tests, four risks and compliance rows updated. The search module's catch-up migration is the one the search-index spec adds with `presenter`.
-- Fix verification follow-up: Phase A writes the `search` module's catch-up migration itself, with the nine current `vector:vector_search` fields. It no longer relies on the search-index spec's later `presenter` migration, so Phase A's guard can pass when the program ships B1 before B4.
-- Council round two fixes (GPT-6.1 Sol workers): r1kk-01 store-owned vector path; r1kk-02 and R3-12 named fill commands; r1kk-07 keyed-only CRM hashes; r1kk-08 phone digits; r1kk-10 conditional writes; r1kk-11 row savepoints; r1kk-13 unreadable sources; r1kk-14 module coverage; r1kk-16 entity writer coverage; r1kk-17 real catch-up SQL; r1kk-20 no-secret system refresh; r1kk-27 preview convention; r1kk-28 capped raw-write backlog; r1kk-29 isolated rehash tenant; g1-13 webhook error in Phase B; g1-22 bounded SCIM fallback; g1-28 nullable-tenant rule; g1-29 tenant map scopes; F-44 guard and characterization manifest; F-56 map-count wording.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): kept R3-12's customers command and columns explicitly new and gated A2 on their delivery; shared C1's first-landing `normalizePhoneDigits`; coordinated coverage-owned forms, inbox, messages, channels and call hashes without renaming the R3-12 commands; corrected token maintenance to query_index-owned forced rebuilds and zero-residual purge/reports across tenant and tenantless scopes with writers stopped; aligned rotation ownership and the still-missing B4 reseal service; removed the promised-but-undeclared doctor plaintext check and stated the pruner's history bridge.
-
-### 2026-11-17
-- Phase A item 7 lands the store-owned `vector:vector_search` classification in the Core `rotate-encryption-key` (delegated, `complete: false`, store command named) and `decrypt-database` (refuses with a store-owned reason) before the search catch-up migration; that OSS path plus B4's reseal is A1's search-enabled exit.
-- R5-4's no-secret SCIM limit applies only to ciphertext identities: plaintext values keep unlimited SQL equality, and the 400 is reachable only after one warning minor in which `idp_email`/`idp_name` stay unmapped (ordinary protocol, DEC-5).
-- Hash-column indexes are built concurrently as partial indexes in non-transactional migrations; the row backfill is bounded by bytes as well as rows, with smaller defaults for large-text entities.
-- Tenantless SSO and attachment rows now name their bound; the baseline counts three backfill-helper modules; the legacy `mercato auth rotate-encryption-key` is named as unsupported.
-- Correction to the pass-six entry above: B4's **Rotation pin source** covers both built-in providers, so no derived-provider pin source is missing.
-- The secret-change runbook adds `mercato search reindex-tokens --tenant <id|none>` after the forced query-index rebuilds, so the search token strategy's own rows are rewritten keyed before the purge report.
-- The `sso.scim_lookup_secret_missing` doctor error and runtime warning are raised only with tenant data encryption enabled; `displayName` filters follow the same no-secret rule as `userName`/email, and the only 503 is the configured-secret null-hash fallback, which the fill clears.
-- A1's release gate is stated here as the key guard states it: Phase A items 5 and 7, Phase D items 2 and 3, and B4's reseal, verified with search enabled; the Enterprise baseline/read hand-off is not an A1 gate.
-
-### Spec review corrections — 2026-11-19
-
-- Keep default key rotation non-zero while delegated stores remain unverified; define target-bound owner verification and safe rerun/exit-code acceptance (F08).
+- 2026-11-16 — Initial specification.

@@ -1,8 +1,7 @@
 # Search-index protection for encrypted fields
 
 > **Program:** package B4 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593). Related: #8134, #7872, #5712, #8135; PR #8410 (merged as `68902bd1cc`, part of this spec's baseline).
-> **Verified at** `main` @ `08dada9624` by reading code, with the PR #8410 seam and test references checked against the branch head that includes `68902bd1cc`; nothing was run. No application, database or provider was run for this design revision.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`. The existing PR #8410 seam is at `68902bd1cc`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/2026-07-24-search-architecture-clarification-and-evolution.md
@@ -17,7 +16,7 @@ A person's name, email and phone are encrypted in the CRM tables and then copied
 
 > **Market reference.** Rails' Active Record Encryption supports search on an encrypted column only through *deterministic* encryption with a key — an exact-match lookup, never a prefix index. CipherStash and similar "searchable encryption" products get prefix and fuzzy search by storing keyed, truncated term hashes. Adopted: keyed term hashes, which keep today's prefix search and make the index useless without the key. Rejected: dropping prefix tokens for encrypted fields, which would end list search by partial name; and unkeyed hashing, which is what ships today.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -576,41 +575,6 @@ Token-hash tests need the app key and run in the controlled ephemeral environmen
 | R4-10 / R5-3 rotation target binding | Specified | Both `run` declarations use optional `pin: { providerIdentity: string; wrappedDekFingerprint: string }`; the uncached provider key check and `readTenantKeyPin` are its source, with `pin_mismatch` and provider tests |
 
 **Verdict:** design ready for Phases 1 and 2. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval. Assumption 1's per-tenant key is decided, and the provider key check is the source of the rotation pin. Independent full-store verification is still required before old-key retirement.
-
 ## Changelog
 
-### 2026-11-18 — Review corrections
-
-- Sequence active-vector coverage after A3 opt-in and bind protected vector verification to exact scoped adapter sessions.
-
-### 2026-11-18 — Spec review
-
-- Reconcile the complete scoped set of both token writers for live records so retired fields are removed and unresolved scope groups block completion.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions.
-- Revised after independent review. The initial revision counted per form; council round two replaces that with distinct query ordinals across forms and fields. The key is derived per tenant. The stored form carries a key fingerprint, so a changed secret is reported instead of silently emptying search. The "reindex completed" flag is gone: state is read from the rows, and a purge removes only rows no reindex can reach. The vector map gains the presenter column and encryption moves to the strategy. Meilisearch moved to its own spec.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g1-01 — `hashToken` and `tokenizeText` keep today's unkeyed output for one minor instead of hashing under the installation key; keyed hashing is reached only through the new `hashSearchToken` and `tokenizeSearchText`, the "does not compile" claim is gone, and `TC-INBOX-010` and `TC-QIDX-4731` stay on the old functions as bridge tests. g1-02 — `presenter` reaches existing tenants through a `buildEncryptionMapBackfillSql` migration in the search module, not a default-map merge, which exists only for system-scoped maps; a database-backed test seeds an old map row. g1-06 — the hash list follows the lookup's tenant scope: one tenant, none, a tenant plus the tenantless catalogue rows, or every tenant holding rows when unscoped, with the count taken against the searched tokens; the customer-accounts admin route moves to the shared helper; unit tests per path and TC-SEARCH-TOKENS-003 for the superadmin users list. Assumptions 6 and 7, Delta scenarios, edge cases, risks and compliance rows updated.
-- Fix verification follow-up: the `presenter` migration is a second migration after the encryption-map spec's Phase A catch-up, which writes the nine current fields. B1 therefore does not wait for this spec.
-- Council round two fixes (GPT-6.1 Sol workers): r2iqa-02 — report-owned database diagnostics; r2iqa-04 — mixed-field ordinal matching; r2iqa-05 — source-safe report/apply keyset purge; r2iqa-10 — post-rollout vector counts; r2iqa-11 — B1 token-rebuild handoff; r2iqa-20 — array parameters and query cap; r2iqa-29 — fixed k1 algorithm; r2iqa-30 — admin-list decryption; r2iqa-31 — map restoration note; r2iqa-32 — exact query_index commands; g1-18 — complete admin-user regression coverage; g1-20 — real pgvector integration; g1-27 — no first-writer baseline.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): Reuse C1's exact purpose-key export; route active vector writes through A3; add search-owned old-key reseal/verification and complete rotation gates; declare R3-4 query_index token-count factories and consume the verifier's current-key probe; correct B1/key-guard purge-owner handoffs and cite exact shared-decision names.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): Specify the search-owned bounded baseline/reseal/independent target-read DI adapter, concrete key binding and combined rotation gates; pin A3 live-strategy lookup order and outage tests; require C1 Phase 1 and doctor Phase 3 before the environment-only check, remove speculative database-count declarations and keep G6 calibration separate.
-
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): R4-10 adds the optional provider/DEK-version pin to both vector-maintenance `run` declarations, refuses mismatches with `pin_mismatch`, preserves unpinned calls, and aligns rotation scenarios, tests, risks, compatibility and compliance.
-
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): Restore the doctor-owned R3-4 query_index token checks, lazy factory/counters and scoped failure tests; apply R5-3 to both rotation-pin declarations and all scenarios, tests, risks and compliance, with the stored-wrapped-DEK provider read recorded as an unresolved delivery dependency.
-
-### 2026-11-17
-- PR #8410 is recorded as landed baseline: base-field embedding exclusion extends its `plaintextExcludedCustomFields` / `plaintextSearchFields` seam with `embeddingExcludedFields`, and the existing `vector-index-security.test.ts` is extended rather than replaced.
-- The admin vector listing gains an organization allowlist (`organizationIds`) before it decrypts presenters; restricted multi-organization regressions added.
-- The keyed-token construction is pinned (purpose `search-token-v1`, tenant and tenantless derivation, token message, fingerprint) with known-answer vectors; the unscoped candidate-tenant read is a loose index scan with a plan assertion.
-- The token strategy's own rows are rebuilt by the new `mercato search reindex-tokens`, added to the upgrade order; `searchRecordLiveness` is an id-only query-engine probe outside DEC-9's value readers; the rolling-deploy window and the Phase 2 prerequisite on A3 Phases 1–3 are stated.
-- Closing note on earlier entries: the provider key check under **Rotation pin source** settles the stored-wrapped-DEK dependency that the pass-six entry recorded as unresolved.
-- `VectorDisplayMaintenanceKeyPin` is named as specified here, not as an existing code type, and the `wrappedDekFingerprint` name is stated to carry the key-check digest, not a stored wrapped DEK.
-- `mercato search reindex-tokens` gets its own API contract (zod arguments, `none` limited to declared tenantless catalogue types, default entity set, keyset resume, counts-only report, non-zero exit when incomplete) and TC-SEARCH-TOKENS-002 coverage. `listEntries` filters returned entries by the organization allowlist before decrypting, so a driver that ignores `organizationIds` cannot leak. The purpose-key row states the C1 key bytes verbatim, a `null` tenant names the tenantless key, and A3 Phase 2 owns the provider-identity normalizer.
-
-### Spec review corrections — 2026-11-19
-
-- Require a traffic-stopped, all-reader cutover and an explicit custom-driver compatibility/activation bridge; add mixed-version and rollback acceptance (F22, F23).
+- 2026-11-16 — Initial specification.

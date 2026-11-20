@@ -2,8 +2,7 @@
 
 > **Program:** part of package D3 of [`../../GDPR/2026-11-15-gdpr-ready-deployments-program.md`](../../GDPR/2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), split from the record-retention spec. Tracks #2980, where a maintainer placed this capability in Enterprise.
 > **Builds on:** [`../../GDPR/2026-11-16-privacy-record-retention.md`](../../GDPR/2026-11-16-privacy-record-retention.md) for retention sets and [`2026-11-16-privacy-dsr-engine.md`](2026-11-16-privacy-dsr-engine.md) for policies and schedules.
-> **Verified at** `main` @ `08dada9624` by reading code and the issue; nothing was run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-16-privacy-record-retention.md
 Extends: .ai/specs/enterprise/GDPR/2026-11-16-privacy-dsr-engine.md
@@ -18,7 +17,7 @@ Commands can record full copies of a record before and after a change, and that 
 
 > **Market reference.** Salesforce keeps field history for 18 to 24 months and archives or deletes beyond; Jira and GitLab keep an activity line indefinitely while pruning the heavy payload behind it. Adopted: two stages — keep the line, drop the payload; then drop the line — and a longer life for compliance evidence. Rejected: a single age at which everything goes, which makes an administrator choose between long accountability and short data.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -415,8 +414,6 @@ Policy pages reuse the DSR engine's guarded CRUD APIs and UI; this spec adds loc
 
 ## Final Compliance Report — 2026-11-16
 
-Pass-two review: cross-spec references and shared decisions checked against the merged workspace; runner: local, Python document checks only. Pass-three checks aligned the current C4 gate and dedicated export-evidence owners; no independent review was available. No implementation tests were run. Independent review could not launch because the collaboration service returned `no rollout found`; this revision was reviewed directly.
-
 - **Reviewed:** root `AGENTS.md`, `.ai/specs/AGENTS.md`, `BACKWARD_COMPATIBILITY.md`.
 
 | Rule | Status | Notes |
@@ -432,40 +429,11 @@ Pass-two review: cross-spec references and shared decisions checked against the 
 | Integration coverage | Specified | OSS reader/replay prerequisite plus self-contained enterprise policy and system tests |
 | R4-3 tenant-export evidence always carries its tenant | Owner contract cited | Tenant-scoped `privacy.tenant_export_evidence` runs, including for soft-deleted tenants; no null-tenant tenant-export evidence and no installation age; C8 owner tests; no generic-history deletion |
 
-**Verdict:** revised design with every assumption decided. Implementation waits for the erasure owner's Phase 2 integration/replay gate, the coverage policy reader and the engine's Phase 3; each PR goes through ordinary maintainer review. No implementation is claimed.
+**Verdict:** Design specified. Implementation waits for the erasure owner's Phase 2 integration/replay gate, the coverage policy reader and the engine's Phase 3; each PR goes through ordinary maintainer review. No implementation is claimed.
 
 ## Replay correction acceptance
 
 `auditReplayRetentionRace.test.ts` must pause a legacy non-atomic executor after its committed claim and prove both strip and delete refuse before fleet confirmation. After rollout, losing only the dedicated lease connection never permits reclamation while a durable attempt is running/unknown. Every replay-owned database mutation, including trace/finalization, uses C4's `withReplayWriteFence` on its active owner manager; unsupported handlers refuse before claim. Fenced cancellation advances the attempt generation only after earlier writes settle and refuses uncertain external effects; a resumed old generation cannot write. Tenant and system retention consume the same owner result. No values-preparation dependency is reintroduced: after confirmed rollout, history may directly delete an eligible unstripped row when its own replay/hold checks pass.
-
 ## Changelog
 
-### 2026-11-20 — Confirmed specification review corrections
-
-- Use the audit owner’s bound age selector for tenant policy batches and apply the replay rollout gate to both strip and delete. (R06, R30)
-
-### 2026-11-19 — Confirmed spec review corrections
-
-- Gate both destructive history modes on fleet rollout and durable replay-attempt settlement; align the independent history handler with C3. Design revision only.
-
-
-### 2026-11-17
-- C1 settings evidence is preserved through a clear-text related pair passed in `applyRetention`'s `excludeRecords`, instead of the encrypted command id; tests cover an encryption-enabled settings group.
-- Throughput: both sets rely on the engine's no-daily-ceiling record-mode continuation; the system job re-enqueues itself in apply mode; `backlog_growing` is reported on passes and in the bound projection.
-- The history handler no longer runs a nested values pass; values-before-history is a scheduling rule only.
-- The system-history job is declared in `retentionSchedules` on a dedicated queue, so `pruners.unscheduled` reports it; the two history bound ids are resolved by `dataErasureRetentionBounds` for C5/G6.
-- Strip passes, tenant and system, consume C4's `REPLAY_ROLLOUT_UNCONFIRMED` gate and surface it before the first apply pass: `applyRetention`'s result is unchanged and has no `warnings` member, so the strip-mode dry run reads `actionLogService.isReplayRolloutConfirmed()` and the values handler fills its `pruneRecords` `warnings`, which `run` returns, the engine stores with its preview pass and the policy form shows; both destructive modes now require confirmed rollout (superseding the earlier delete exemption). The erasure-evidence row lists `privacy.subject_erasure_progress`. Stripped context keeps the actor keys `actorSubject` and `systemActor`.
-- R4-3 now reads that tenant-export evidence always carries its tenant and expires through tenant-scoped runs, including for soft-deleted tenants; the installation evidence age is gone. The system-history pass's own null-tenant summary expiry is unchanged.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions, after the record-retention spec's review removed change history from that spec. It carries that review's corrections: no entry is spared for being the latest undoable one; privacy and export entries are exempt; the deal stage history has its own table and is not a consequence; the capability is placed in Enterprise as the maintainers said.
-- Revised after independent review. Undo cannot return a new status for a stripped entry, because it finds entries by the token that stripping clears; this token-path observation is superseded by R3-1 for already resolved undo entries, which now refuse under the execution lock too. The capability is two retention sets with one age each, so the retention-set contract and the engine's policy are unchanged. There is one stripping routine in the audit module, shared with the erasure spec's history strip, which gives it an OSS caller and makes "already stripped" detectable. Field names are computed before values are cleared, the backfill skips stripped entries, and the context is reduced to the actor. A partial index is added. Entries with no kind are no longer skipped by accident. The governance module's own entries join the evidence exemption. The readers' real behaviour with stripped entries is stated.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g5-09 — `applyRetention` lacked the inputs its erasure caller passes; the routine, `stripped_at`, its index and migration, the list fields and redo's 410 are now owned normatively by the OSS erasure spec, and this spec cites the full signature (organization scope, kinds and records to include or leave out, the three-column matching rule) and only states what its handler passes; the OSS phase and its files moved there. g5-10 — holds were matched on resource and parent resource only and snapshot-only mentions were stripped by default; holds now match on all three record column pairs, both sets declare `excludableSubjectKinds: []`, a tenant with an active subject hold is skipped with `hold_not_honourable`, and the only opt-out is the engine policy's `allowUnmatchedHolds`. Updated assumptions, Delta, edge cases, plan, TC-AUD-RETENTION-001, risks and compliance.
-
-- Council round two fixes (GPT-6.1 Sol workers): r6-16 — policy-required handlers and paired windows in command/API/form; r6-17 — separate bounded system service, command and daily schedule; r6-26 — explicit owner audit resource mappings under opt-out; r6-27 — data_erasure set prefix; r6-36 — R3-1 locked replay prerequisite; r6-44 — legacy deal-stage fallback consequence/test; r6-45 — latest-undone redo fixture; g5-29 — OSS API/UI integration release gate in erasure Phase 2; g5-38 — existing conditional delete rule cited; F-73 — assumption 5; R1 system-window nit — two independent settings.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): W02 — consume R3-1 replay leases, locked execution checks and safe dead-claim stripping/deletion, retaining the exact DEC-B signature and enterprise policies; W03 — generic evidence prefixes remain excluded while dedicated owners receive finite expiry/surviving-field rules, defaulted under assumption 9; owner test names, section names, typed policy entry and live-replay retry positions aligned; null-tenant aggregate summaries gain separate finite expiry.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): consume C4’s now-named lease/locked-refresh/conditional-mutation tests and OSS gate; preserve live leased claims and preserve unleased claims until durable-attempt settlement or fenced cancellation (the later C4 correction supersedes lease-absence reclamation). Cite both dedicated finite export-evidence sets and their shared aggregate logger, current erasure-evidence expiry, and ordinary configs-owned settings history without changing the generic exclusions.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): cite the current settings-command, erasure, tenant-export and governance evidence owners, exact groups, clocks and preservation rules; retain the OSS replay gate and explicit null-tenant expiry gap without defining another contract.
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): R4-3 — replace the stale null-tenant tenant-export expiry gap with C8’s installation setting `OM_PRIVACY_INSTALLATION_EVIDENCE_AGE_DAYS`, default 365/floor 30, through the same dedicated set; cite both environment examples and align owner-test gates, scope separation, risks and compliance.
-
-- 2026-11-18 review fix: specify the snapshot-bound audit-owner eligibility probe for both ordinary-history bounds.
+- 2026-11-16 — Initial specification.

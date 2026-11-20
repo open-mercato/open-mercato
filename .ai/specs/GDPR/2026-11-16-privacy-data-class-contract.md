@@ -575,7 +575,7 @@ The handler calls C4's `actionLogService.applyAgeRetention` (DEC-B — The audit
 
 Evidence keeps its tenant id when the tenant is later soft-deleted (tenant deletion is a soft delete), so the same tenant-scoped run, naming that tenant id, expires it. Expiry deletes each entry whole, including subject id, actor, reference and context. Only counts, run dates and set id may survive in this set's retention-run summary; no subject ids, request ids or free-text reference are copied there. The aggregate driver requires the audit logger before pruning, writes no preview summary and records zero-change, skipped and incomplete apply outcomes. Missing logging capability refuses before pruning; a later summary-write failure reports `complete: false`, `status: 'incomplete'`, `reason: 'evidence_write_failed'` with committed counts and retry position preserved, exactly as record retention specifies. No command or engine wrapper adds a second identifying run entry. Delivery waits for that shared path and its identifier-free summary tests. Export evidence is not replay evidence. A started request left by a publication crash expires at the same age.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | Id | Question | Decision |
 |---|---|---|
@@ -952,11 +952,11 @@ Unit-tested instead, because the real app cannot provoke them: handler failure i
 
 ## Final Compliance Report — 2026-11-16
 
-### AGENTS.md Files Reviewed
+### Applicable repository guidance
 - `AGENTS.md` (root), `.ai/specs/AGENTS.md` — in full
 - `BACKWARD_COMPATIBILITY.md` — protocol, §1, §2, §4, §9, §13, §14
 - `packages/core/AGENTS.md` — Encryption section; module conventions via the mechanics research
-- Shared, CLI, create-app, auth, customers and customer_accounts guides — applicable DI, scoping, discovery, hash and template rules checked for this revision
+- Shared, CLI, create-app, auth, customers and customer_accounts guides — applicable DI, scoping, discovery, hash and template rules
 - `.ai/qa/AGENTS.md` — test placement and self-contained fixtures
 - Not reviewed: `packages/ui/AGENTS.md` (no UI), `packages/search/AGENTS.md` (the token index is no longer used)
 
@@ -998,64 +998,6 @@ One stated naming deviation: module id `privacy`, decided by DEC-10. The propose
 
 ### Verdict
 **Ready for dependency and edition disposition.** EVIDENCE-AGE and SETTINGS-EVIDENCE-AGE are decided. The proposed OSS subject-export invoker requires the explicit upstream maintainer disposition in program DEC-2/DEC-2b before implementation or submission. R4-6 closes the export-evidence skipped-replay/lock mapping; handler delivery still requires C4's audit routine and the shared retention runner. Settings API/UI remain DSR-owned; consumer handoffs remain explicit. This reviews a design, not executed feature validation.
-
 ## Changelog
 
-### 2026-11-20 — Identifier attribution
-
-- Require owner-verified record attribution for alias-based reads and writes. Independent roots require explicit selection, and export exposes only safe gap codes and counts for withheld records.
-
-### 2026-11-20
-
-- Route age-based audit evidence expiry through the shared fenced `applyAgeRetention` contract, with same-transaction rollback and rollout-gate acceptance. Specification alignment for R06 only.
-
-
-
-### 2026-11-19 — Confirmed specification review corrections
-
-- Define propagated read budgets, missing identifier-resolver refusal and transaction-bound settings-evidence expiry, with timeout, registry and rollback acceptance cases.
-- Specification-only revision; implementation and planned acceptance tests remain future work.
-### 2026-11-18
-
-- Linked baseline evidence to the program and added the inactive-subject registry collectors to R3-2.
-
-- Recorded the program’s per-carrier upstream approval gate for the proposed OSS subject-export invoker.
-
-### 2026-11-16
-- Skeleton with open questions.
-- Questions answered by the issue assignee; full specification written.
-- Revised after independent review: CRM people resolved by scan instead of the token index; related subjects followed and classes allowed several subject kinds; invitation subjects added; scope semantics defined; handler methods made optional; resolution method recorded per class; section truncation, free-text flag and coverage list added; audit entries made per subject with a required reference and a "nothing found" entry; dispatcher redaction added; exit code 3; integration tests corrected; known limits stated.
-
-### Review — 2026-11-16
-- **Reviewer**: Agent (fresh context, spec path only), then author revision
-- **Security**: Passed after revision — identifier echo, cross-tenant test and audit design corrected
-- **Performance**: Scan cost accepted and stated; no request path affected
-- **Cache**: N/A — no cached read
-- **Commands**: N/A — no domain mutation
-- **Risks**: Third-party free text and scan runtime added
-- **Verdict**: Approved after revision
-
-### 2026-11-16 — amendment
-- Added the in-process entry point `exportSubjects` with `followRelated`, a data-class list, actor and reference, and limited the account class's invitations to those addressed to the subject. Both are needed by the portal self-service spec and were found by its review.
-- Changed the default export of `privacy.ts` from the array of classes to an object with a `dataClasses` member. This convention deliberately loads the default object and ignores named privacy exports; existing generators support named fallbacks for other conventions. R3-2 now carries the whole object.
-- Added the addendum on aliases, on the `privacy:identifier` subject for people known only by an address or number, and on what a module must do for a hash it relies on. All three were found missing by the reviews of the commerce and communication coverage specs, which had each invented part of them.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes:
-  - **g2-03** — the `privacy:identifier` id is derived, `idv1_` plus a base32 HMAC of tenant, type and normalized identifier under a `privacy-subject-id` key from the lookup secret, instead of generated per run; erase takes `--email`/`--phone`, redacted for `privacy:erase`; `deriveIdentifierSubjectId`, `resolveAliases` in process and the `identifier_subject_ids` alias serve the DSR engine's holds.
-  - **g2-05** — `resolveAliases`, `aliases` and `PrivacySubjectAliases` are in the handler type block, and the addendum's phase is Phase 6 with its own plan and TC-PRIVACY-013.
-
-- Council round two fixes (GPT-6.1 Sol workers): r4-02 whole-object registry; r4-03 CRM linked content; r4-04 empty identifier probes; r4-06 audit status; r4-12 hash-free evidence; r4-13 organization scope; r4-14 finite export-evidence default; r4-15 fixed-point traversal; r4-16 legacy hashes; r4-17 normalized mentions; r4-18 tenant tests; r4-19 runtime DI; r4-20 name flag; r4-21 early phone helper; r4-22 doctor bootstrap; r4-39 stdin; r4-40 import paths; r4-43 C4 event ownership handoff; r4-44 invitation limit; r4-45 collector guard; r4-50 default-object wording; r4-51 atomic publication; r4-52 started audit; g2-26 generator rationale. R3-2 and R3-3 are normative; C6 and key-derivation nits corrected.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): reconciled the G4 Phase 2 shell prerequisite and C5 Phase 1 delivery; settings ACL/audit/aggregate count factories; bounded coverage fills and corrected R3-12 premise; complete pre-DSR DI seam; portal account fields, metadata-only email changes and CRM-free publication; customers-owned link resolver; activity export assertion; exact retention declaration/cutoff mapping and command exits. Cross-owner corrections were carried out in the owning specs.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): pinned C5 helper/package/app baselines and ceilings before C8; corrected portal account allowlists and projection; cited C4's complete custom-value listing and separate erasure/retention evidence settings. Completed typed forward/reverse customer linking and account-owned portal activity linkage without foreign aliases. Added transaction-bound get-only settings construction beside the aggregate doctor adapter, corrected its nullable-tenant counting contract, and bounded the actual configs.module_config/privacy.settings.set evidence through dedicated terminal expiry with preservation/tests. Kept the sole G4 bootstrap, exact shared-decision names and command-specific exits; remaining owner handoffs were applied in the owning specs.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): copied C4's full custom-value listing identities and separate recovery member; aligned settings checks to the doctor's current aggregate-only contract, hash refreshes to B1's conditional maintenance and export expiry to the shared aggregate evidence path. Existing portal field/link contracts were verified; the the replay retry/reason mapping is settled by R4-6.
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): R4-6 adds `history_replay_pending` to export-evidence incomplete reasons for live replay and unresolved lock skips, preserves counts and the skipped-page retry position, and closes the stale design blocker with matching scenarios, tests, risks and compliance coverage.
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): r8-08/r4-22 leave sole module enablement and template sync with G4 in the plan, manifest and compliance rows; R4-7 binds the shared settings check to the read-only settings service with counts-only findings, independent domain checks and matching unit/integration coverage.
-
-### 2026-11-17
-- Export honesty: custom-field sections stay incomplete (`CUSTOM_FIELDS_SEAM_UNAVAILABLE`) until C4's listing seam replaces the helper that drops soft-deleted values; the document gains `scopeNarrowed` for `--org` and `notices` for the former-identifier and phone-format limits, both also stated under Known limits.
-- Decided digits-only as the frozen phone canonical form for `idv1_`, with format sensitivity disclosed on every phone result; `--max-records` is bounded 1–50000 and `--subject` to 100 values.
-- Added sidebar variants to the `auth.users` export, tenant exit's `retention.privacy.tenantExportEvidenceAgeDays` to the settings inventory, and the soft-deleted-tenant expiry path; Q3 now reads as an extension of G4's module.
-- Pinned the byte construction of `deriveLookupPurposeKey`, shared with the search-index keyed tokens; the dispatcher also redacts the non-personal `--reference` for `export`.
-- Settings evidence carries the clear-text related pair `privacy.settings_command` / `privacy.settings.set`, which its expiry selects because `command_id` is encrypted; both evidence sets declare `unmatchedHoldsOptOut: 'forbidden'`.
-- Added the optional `downstreamCleanup` member for C4's erasure run (with `plan`/`run` declared in C4's method syntax, so both specs state one type), C4's `recordFailedHandoff`, CLI-only `runErasure` and `verifyPortalErasureRequest`, the email-change approval digest and fields to the account omit list, and C4's narrowed participant removal.
-
-- 2026-11-19 — Cite the C4-owned guarded downstream-cleanup contract as the single definition used by the registry and its consumers.
+- 2026-11-16 — Initial specification.

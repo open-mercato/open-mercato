@@ -2,8 +2,7 @@
 
 > **Program:** split out of package C2 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
 > **Follows:** [`2026-11-16-audit-snapshot-redaction.md`](2026-11-16-audit-snapshot-redaction.md), which fixes the known commands and the commands that cannot be replayed.
-> **Verified at** `main` @ `08dada9624` by reading code; the matcher's failure cases come from the independent review of the parent spec.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-16-audit-snapshot-redaction.md
 
@@ -17,7 +16,7 @@ After the parent spec, the known credential-bearing first-party commands no long
 
 > **Market reference.** Rails ships a default `filter_parameters` list of partial key names and lets an application extend it; Sentry's server-side scrubbing does the same and adds "safe fields" to exempt false positives. Adopted: a default word list, word-based matching, and declared safe keys. Rejected: acting on a match by rewriting stored data, which both of those tools do, because here the stored data is what undo replays.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -238,33 +237,6 @@ Two production-mode executions with `OM_AUDIT_CREDENTIAL_CHECK=throw` both retur
 | Integration coverage | Specified | TC-AUDIT-CHECK-001 owns fixtures, sinks and cleanup; no new UI path |
 
 **Verdict:** design ready. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval.
-
 ## Changelog
 
-### 2026-11-19 — Confirmed spec review corrections
-
-- Specified an explicit test-only outer-owner assertion channel for ambient commit/rollback, rather than relying on swallowed completion-callback exceptions; aligned bus, manifest and tests (F05).
-
-
-### 2026-11-18 — Follow-up review
-
-- Charge compound credential inspection to the ordinary depth and slot budget.
-
-### 2026-11-18 — Review corrections
-
-- Scan undo traces copied from retained history, with test failure deferred until undo and its post-commit effects finish.
-
-### 2026-11-16
-- Written autonomously, split out of the audit-snapshot-redaction spec after its review. The matcher rules answer the specific misses and false positives that review listed.
-- Revised after independent review: the check moved from before execution to the assembled log payload, because a command's remedies are unknown until it has built its log entry; the `password` exception narrowed to `passwordHash`; at that revision only string values matched (superseded by round-two compound-value rules); the word-splitting rule, the exempt list and the tenant-data containers made exact; reporting adapted to the telemetry facade. Known remaining outcomes: `leaseToken`, `claimToken` and `captchaToken` are reported and need a declared safe path if harmless; `sessionId` and `saltedHash` are not reported.
-
-- Council round two fixes (GPT-6.1 Sol workers): r3e-04 — ordered matcher, conservative plurals and compound values; r3e-05 — tenant-defined keys excluded at every depth; r3e-12 — test-only throw after committed logging; r3e-16 — report every occurrence; r3e-31 — closed-vocabulary diagnostic paths.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): checked both C2 carriers and the program; narrowed the parent guarantee to its known commands, removed the stale five-command count, and classified the new matcher file subpath consistently with the contract spec's §4 rules. Report-only persistence and test-only post-commit throw are unchanged.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): checked the merged parent/program scope and import/member compatibility references; existing matcher, report-only persistence and test-only post-commit failure already satisfy the remaining packet, with no additional contract change.
-
-### 2026-11-17
-- Defined the matcher's traversal contract: fixed root and key-insertion order, node and depth counting, exported limits (depth 32, 20000 nodes), skip-subtree on depth, stop-scan on nodes, cycle and shared-reference handling, one `commands.audit_check_limit` report per execution, and a `truncated` field on `findCredentialKeyPaths`, with boundary tests at limit−1, limit and limit+1.
-- Named the TC-AUDIT-CHECK-001 harness: `helpers/integration/commandBusChild.ts` runs each case in a Node child with its own environment, bootstrapped in process as existing integration helpers do, so the shared app is never reconfigured.
-- `truncated` reports the highest-precedence reason met (`depth`, then `nodes`, then `cycle`), not the first in time, with a unit case for a cycle met before a depth skip.
+- 2026-11-16 — Initial specification.

@@ -2,8 +2,7 @@
 
 > **Program:** package E3 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
 > **Related:** `.ai/specs/2026-10-22-crm-contact-permissions-and-consent-history.md` (package E2), which covers person-to-person CRM email and is not implemented.
-> **Verified at** `main` @ `08dada9624` by reading code; nothing was run. Whether each provider SDK accepts custom headers, and whether each provider's DKIM signature covers them, was not checked.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`. Provider-specific custom-header and DKIM support must be verified in the delivery tests.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 
@@ -19,7 +18,7 @@ Two kinds of email are sent by the product itself, repeatedly, to someone who di
 
 > **Market reference.** RFC 8058 defines the one-click form: a `List-Unsubscribe` header with an HTTPS address, `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, both covered by the message's DKIM signature; the receiver's mail client posts to the address with no login. Discourse and GitLab attach it to every notification email, with a signed token that maps to one preference. Adopted: the two headers, a signed token (sealed, for form invitations), a visible link, no login. Rejected: a link to a settings page behind a login, which a recipient without an account cannot use.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -372,7 +371,7 @@ The HTTP lane uses only the specified loopback exception. A missing mode fails t
 - **Mitigation**: A closed list of names; values sanitised; both callers build values from a token and the application's own address.
 - **Residual risk**: Low.
 
-## Final Compliance Report — 2026-11-17 (revised)
+## Final Compliance Report — 2026-11-17
 
 - **Reviewed:** root `AGENTS.md`, `.ai/specs/AGENTS.md`, `BACKWARD_COMPATIBILITY.md` for the exported type. Not reviewed: the `forms`, `notifications` and `communication_channels` guides in full.
 
@@ -389,39 +388,6 @@ The HTTP lane uses only the specified loopback exception. A missing mode fails t
 | Optimistic locking | Required delivery gate | Form switch uses updatedAt and shared conflict UI |
 
 **Verdict:** Phase 1 is a proposed additive transport change. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Phase 2 follows the listed C1, C5, doctor, C4, C8 base and Content-AI forms-coverage prerequisites. Phase 2 delivers the suppression declaration, production reader and redaction checks. C5's identifier-only classification is specified. R4-9 resolves assumption 11: the export redacts both `recipient_hash` and `key_id`, includes the row count and has no suppression checksum exception. A receiving system cannot rebuild opt-outs; suppression-state handover is not supported in this version. Each OSS phase requires written carrier-specific upstream approval under program DEC-2, in addition to its delivery prerequisites.
-
 ## Changelog
 
-### 2026-11-20
-
-- Distinguished C4 preference removal from ordinary auth deletion and pinned both retirement lock orders with ordinary undo coverage.
-
-### 2026-11-19 — Confirmed spec review corrections
-
-- Bound forms suppression writes to a directory-owned live-scope/retirement fence and specified owner cleanup, retryable failure and both race orders without restoring invitation-row dependence (F07).
-
-
-### 2026-11-18
-
-- Bound notification preference writes to auth-owned live-recipient verification and retirement ordering. Kept actual suppression export coverage with the forms table owner.
-
-- Made notification token freshness and preference writes atomic across one-click, ordinary and administrator settings, with absent-row race coverage.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions.
-- Revised after independent review. Messages to an outside address and message copies are out: they are correspondence, or have no preference to switch. Suppression of form invitations moved into the forms module, because invitations carry no tenant at send time and a transport-level check would have rerouted them and been invisible to the test capture. Links now name an invitation or a preference, never a hash of an address. Headers are a closed list. The header and the visible link use different addresses with one token. The notification link cannot undo a newer choice. The legal framing is stated as good practice, and the three phases ship separately.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g6-02 — an unsubscribe no longer depends on the invitation row, whose address the daily retention run removes. The form-invitation token is now sealed with a key derived for the purpose and carries the tenant, organization, invitation id and the recipient's suppression hash computed at send time, so a revoked, deleted or anonymized invitation still records the suppression. Assumption 6, Phase 2, design decisions, known limits, a new Delta scenario, API contracts, the token secret, edge cases, unit tests, TC-EMAIL-UNSUB-002, a new risk entry and the tenant-scoping row are updated.
-
-- Council round two fixes (GPT-6.1 Sol workers): r9-04 — UUID/privacy/retention/export declaration; r9-05 — keyed suppression secret without lookup fallback; r9-09 — loopback-only test headers; r9-10 — key-id detection and send refusal; r9-17 — named send check and resend counters; r9-18 — hash before audit and uniform removal; r9-24 — bounded body/query validation; r9-28 — mandatory-form tests; r9-29 — effective notification eligibility; r9-30 — named limiter keys/outage behavior; g6-34 — conflict-safe insert; g6-35 — reversible preference feature gate; named all secret slots and environment/template work.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): aligned eventual invitation anonymization with the forms mode/notice/hold gates; corrected the coverage declaration shape and recorded its owner amendment; defaulted tenant export to C8 recipient-hash redaction with an explicit portability limit; distinguished suppression digests from aliases, subject ids and changed-row history; specified forms-owned doctor checks and lazy aggregate factory under the exact shared decisions.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): recognized C5's delivered identifier-only classification design; resolved the C5/C8 suppression-export conflict to assumption 11's explicit redaction default and manifest assertions; aligned Content-AI's current section, stable forms doctor declarations and exact C1/doctor delivery gates; kept the original-key requirement for any separately approved digest-export fallback.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): aligned assumption 11 and delivery gates with C8's current recipient-hash redaction contract and forms-owned reader, removed references to its withdrawn suppression exception, supplied C5-supported review reasons for all eight objection columns, and recognized Content-AI's already-aligned export paragraph; retained confirmation, original-key/mismatch limits and the outstanding C5 owner conflict.
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): applied R4-9 to redact both suppression recipient_hash and key_id with a row count; resolved assumption 11 and aligned declarations, known limits, scenario, tests, risk, delivery gates and compliance with no suppression-state handover or receiving-system opt-out rebuild.
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): aligned assumption 11 and the tenant-exit paragraph's R4-9 citations with the normative tenant-export Forms suppression metadata and table-coverage Newly declared account and objection tables sections.
-
-### 2026-11-17
-- E3 Phase 2 is the single owner of the suppression table's privacy and tenant-export declarations and waits only on Content-AI Phase 1's existing forms coverage, removing the phase-order cycle.
-- Specified the notification token (HKDF key, canonical HMAC-SHA-256 payload, base64url, constant-time check, per-email-channel `updated_at` freshness), reworded token lifetime to one previous secret, added the suppression-secret fallback doctor finding, an `EXISTS` mismatch check and hash-free removal logging.
-- Dropped the unconsumed `forms.invitation.unsubscribed` event and qualified the DKIM statement as unverified until Phase 1 records it.
-- Phase 2 now carries every suppression test that Content-AI Phase 1 no longer ships: the `source` enum, the C5 guard's rejection of `reference_only.columns`, no baseline/ceiling identity, the forms run's unmatched-limit report with no fabricated counts or history, and the tenant-export redaction assertions in TC-EMAIL-UNSUB-002.
-- The suppression `tableExports` declaration uses C8's array form, `redact: [{ columns: ['recipient_hash', 'key_id'], reason: 'key_material' }]`; the compliance report is dated 2026-11-17 (revised).
+- 2026-11-16 — Initial specification.

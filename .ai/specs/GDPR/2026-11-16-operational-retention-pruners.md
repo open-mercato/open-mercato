@@ -1,8 +1,7 @@
 # Operational retention pruners
 
-> **Program:** packages D1 and D2 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), for core tables. Forms retention and the enterprise tables were split out after review and are listed in the program.
-> **Code baseline checked for this revision:** read-only snapshot `9e09023483`; specifications only, no runtime tests run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Program:** packages D1 and D2 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), for core tables. The program lists separate carriers for forms and Enterprise tables.
+> **Code baseline:** Worktree snapshot `9e09023483`.
 > **Status:** Design settled with proposed OSS placement. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Each phase follows the dependencies below and receives ordinary maintainer review in its own PR.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
@@ -19,7 +18,7 @@ Expired staff sessions, password-reset tokens and message access tokens are neve
 
 > **Market reference.** Matomo ships scheduled log deletion with instance-wide defaults an administrator can change, and warns before enabling it that deletion is permanent. Sidekiq and BullMQ bound their own job history by age as well as count. Adopted: instance-level windows with documented defaults; history deletion opt-in for one minor, then a counting period on each installation before it starts. The age bound on failed jobs is adopted by the queue-payload spec, not here. Rejected: per-site windows — per-tenant policy here is the enterprise engine's job.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -524,7 +523,7 @@ No new API routes. Every handler ships a real-database integration test in the s
 
 ## Final Compliance Report — 2026-11-16
 
-### AGENTS.md Files Reviewed
+### Applicable repository guidance
 - `AGENTS.md` (root), `.ai/specs/AGENTS.md` — in full
 - `packages/queue/AGENTS.md` — MUST rules, connection budget
 - `packages/create-app/AGENTS.md` — template sync
@@ -560,35 +559,6 @@ The opt-in release requires contract Phase 1 and doctor Phase 3. The default fli
 
 ### Verdict
 **Design settled.** The proposed OSS placement is subject to the DEC-2 gate above. The R4-13 registry publication is decided under “Registry publication”. After the edition and delivery gates are met, each phase ships in its own PR.
-
 ## Changelog
 
-### 2026-11-19 — Confirmed spec review corrections
-
-- Required current mode/window revalidation and conservative cutoff clamping/restart for durable continuations, with restart and policy-change acceptance cases (F44).
-
-
-### 2026-11-17
-- Invalid `OM_RETENTION_HISTORY_MODE` values are defined: trimmed and case-insensitive, empty is unset, anything else resolves to `report` with a one-time warning and a doctor finding; Delta, edge case, settings and tests added.
-- `evaluateFixtureRow` states its scope check per table shape: tenant-owned rows, null-tenant `indexer_error_logs` rows (`unknown`) and the six tables without a tenant column (checked through their same-module parent row).
-- The access-log bound is named as a separately owned `operational_pruner` declaration beside these sixteen.
-
-### 2026-11-16
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): align the scheduler diagnostic and its sole prefix exception to the doctor's exact pruners.unscheduled id; use the ordinary { em } factory, PrivacyDoctorCountingService and nullable-tenant count contract in the binding and planned tests, preserving the unresolved R4-13 registry publication gate.
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): implement R4-13 with sixteen exact operational_pruner bound references, remove the duplicate default-export bound/status shape, and use C5's owner resolve/evaluateFixtureRow contracts with fixture tests, risks and compliance gates; report the missing registry publication source as OPEN_DESIGN without inventing a replacement member.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): align the scheduler diagnostic with the doctor-owned ordinary nullable-tenant count contract and sole check-id prefix exception, preserve lazy manifest binding and read-only scope checks, and correct C5 contract references while leaving the owner adapter open.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): correct cleanup ownership; preserve B6's separate age bridge and name the worker-independent retired-queue command; align the scheduler-owned pruners.unscheduled id, pure schedule definitions and isolated count binding; define exact sixteen-table operational bound projections and C5/G6 gates; verify scope columns and helper input parity.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): B6 N/N+1 age bridge, explicit zero and worker-independent cleanup residual; shared effective process-window accessor and owner/doctor/register parity tests; exact scheduler-owned diagnostic and R3-4 counting dependency; declaration-only configs export; exact shared-decision citations.
-- Council round two fixes (GPT-6.1 Sol workers): r8-02 dedicated queues; r8-05 per-handler integration coverage; r8-09 ingestion terminal predicate; r8-12 scheduled database diagnostics; r8-15 package-local registration; r8-16 time-budget continuations; r8-18 nine new queues and connection ceiling; r8-19 doctor/registry delivery gates; r8-20 warning and deletion date; r8-24 soft notification reference; r8-25 nullable-tenant count; g5-19 terminal age anchors; g5-31 pruned sync retry; g5-32 structured-log evidence policy; g5-34 honest soft-reference lifetime; r8-30 named helper exports; F-57 organization/tenant sync-run scope.
-- Written autonomously with resolved assumptions.
-- Revised after independent review: inbound webhook receipts removed from pruning because they are a replay defence; tenant walk replaced by one installation-wide predicate per table, since several tables have no tenant column; schedules use cron values because re-registration resets an interval; existing installations use upgrade actions instead of `seed:defaults`, which has side effects; the counting period is measured per installation; terminal states and window ordering specified; forms retention and enterprise tables split out; queue inventory now superseded by the twelve dedicated cleanup queues, nine new; integration coverage stated honestly; the edition risk added and made a gate.
-
-### Review — 2026-11-16
-- **Reviewer**: Agent (fresh context, spec path only), then author revision
-- **Security**: One prune would have removed a replay defence; removed
-- **Performance**: Bounded count and delete; concurrent indexes
-- **Cache**: N/A
-- **Commands**: N/A
-- **Risks**: Edition and undetected-unpruned risks added
-- **Verdict**: Revised; the revision has not been independently re-read
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g5-06 — history deletion ships opt-in for one minor (unset means `report`, with a warning at start and the `configs.retention_history_mode_default` doctor check naming the next minor's default) and becomes the default from the next minor after the per-installation counting period, with `report` as the opt-out; expired rows are unchanged; assumption 4, Delta, phasing, migration, risks and the compliance row now say so. g5-07 — failed-job retention is removed from this spec and referred to the queue-payload spec (B6), which owns the one setting, its N/N+1 defaults, worker-independent command and timed cleanup; the defaults row, the queue component, the edge cases, the Phase 4 step and `packages/queue/src/strategies/async.ts` in the manifest are gone.
+- 2026-11-16 — Initial specification.

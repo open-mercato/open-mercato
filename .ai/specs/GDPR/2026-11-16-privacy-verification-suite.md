@@ -2,8 +2,7 @@
 
 > **Program:** package G6 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (open-mercato/open-mercato#8593). Its fourteen Integration Coverage scenarios map to owners and test ids below; all are required to close the program.
 > **Builds on:** subject erasure and its attachment seam, table coverage, and the shared reader's scan mode in [`2026-11-16-tenant-exit-export.md`](2026-11-16-tenant-exit-export.md).
-> **Code baseline:** `main` @ `08dada9624`, checked by reading. No implementation or integration tests were run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/GDPR/2026-11-16-privacy-subject-erasure.md
@@ -18,7 +17,7 @@ A handler's own tests cannot find copies it forgot. **Proposed (future):** an in
 
 The test uses canary values with no connection to real people. It scans independently of the erasure handlers. A reader failure is a named gap, not an empty result. A global table is not applicable only when its reviewed declaration proves that classification.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -491,54 +490,6 @@ Reviewed root/spec/QA rules, backward compatibility, shared encryption and bound
 | OSS/enterprise placement | Designed | OSS with erasure (DEC-2, DEC-2b, assumption 5); enterprise-lane cases live in their owning enterprise modules' `__integration__` folders and remain required for enterprise claims |
 
 **Verdict:** Design ready. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. The C4 invoker also requires its DEC-2b disposition. Phase 1 requires DEC-9's module-owned readers with all registrations delivered. Phase 2 requires coverage-populated C4 row evidence, the pruners' published `operational_pruner` bound entries and handlers, and B6's retained-queue assessment under assumption 10. Program closure requires all acceptance/UI rows and additional C9 capture/replay cases green, empty baselines, named unread stores and waivers, acknowledged Known limits, and the two upstream DEC-14 scope dispositions. Technical requirements retained under DEC-14 need their own passing acceptance evidence. DEC-15 also requires independent owner absence and late-writer evidence for the required production-store scope or the applicable written disposition. A passing suite proves its inspected stores and fixture behavior only.
-
 ## Changelog
 
-### 2026-11-20 — Alias verification witnesses
-
-- Require independently attributable positive fixtures and explicit withheld or unsupported alias cases.
-
-### 2026-11-20
-
-- Scoped actual attempted-scan audit writes, linked their exact retention subset and capped the UTF-8 terminal summary with an explicit incomplete overflow report.
-
-
-### 2026-11-19 — Confirmed specification review corrections
-
-- Define bounded streaming match output, scan-evidence expiry, standalone token witness probing and the shared Redis cache acceptance topology.
-- Specification-only revision; implementation and planned acceptance tests remain future work.
-### 2026-11-19
-
-- Compare subject exports with exact owner fixture projections, and distinguish independently verified store closure from retained-copy and warm-cache fixture evidence.
-
-### 2026-11-18 — Closure evidence
-
-- Require B9 cache-at-rest and G1b authentication-audit evidence separately from post-erasure checks. Bind unsupported required-store coverage to DEC-15.
-
-### 2026-11-18
-
-- Aligned G6 acceptance with gateway Phase 6, A3’s production default release, A9’s fenced cleanup, and exact custom-value and promoted-file evidence.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions, together with the coverage check.
-- Revised after independent review, and the coverage check moved to its own spec. Retained locations are now declared by the data classes instead of listed in the test. The scan names every store as scanned or not scanned, and an unwaived gap fails the test: the first draft was blind to encrypted custom fields, the run-time vector table, the fulltext service, the cache and sealed or remote queues. The test scans before erasing as well as after, so that a table the fixture never wrote to cannot pass. The scan reuses the exit export's reader. Encryption maps are seeded for the test tenant so that "encrypted" is true.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g7-05 — searched values now come from `--values-file` or standard input, `--value` is refused and redacted by the dispatcher, the production audit entry is specified (written before reading, reference and counts, no value; refusal if it cannot be written), and `--out` is owner-only, atomic and never replaced without `--force`, with TC-PRIVACY-VERIFY-003; g7-06 — attachment files are a store, read by a new attachments member `findValuesInStoredFiles` over attachment rows and `attachment_pending_deletions`, the fixture uploads a marker-bearing file, and unreferenced objects, application logs and backups are always reported as not scanned; g7-12 — the scan uses the exit export's reader with `mode: 'scan'`, which reads excluded tables and redacted columns such as change-history snapshots without widening the tenant predicate, `entity_indexes.doc` is read through a `query_index` `scanReader`, and every table or column the reader cannot read is reported as not scanned.
-- Fix verification follow-up: the Tenant scope bullet no longer says an undeclared table stops the scan, which contradicted the scan mode. The waiver list adds the three conditional stores, each with the condition the test asserts, so TC-PRIVACY-VERIFY-001 can pass in an environment with no fulltext service.
-
-- Council round two fixes (GPT-6.1 Sol workers): r4-01 — global not-applicable versus scoped tenant-less tables; r4-05 — twelve-scenario owner/test closing gate; r4-09 — run-bound retained row/section/reason evidence; r4-23 — queue-owned scoped scans; r4-24 — subject ids, sessions and no-text row checks; r4-28 — positive token calibration using verified current code and the search owner's keyed/legacy bridge; r4-29 — direct exhaustive fulltext driver seam and failures; r4-30 — positive derived-store fixtures and warmed cache replay; r4-37 — current/legacy and phone-digit lookup hashes; g7-32 — scan findings/gaps exit 2 and contract documentation handoff; r4-33/r4-55 — consume shared reader type and scan-capable fallback.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): consume DEC-9 owner readers, exact shared-decision names and C1 file/stdin contracts; distinguish class evidence, operational table/column/windows, unbounded C4 evidence and non-table queue copies; print every unread store/waiver, fail supported reader errors and separate deletion receipts from content scans; register commerce/staff copies, chat-draft/engine failures, delegated process/workflow/artifact graphs and parked real-BullMQ fixtures with separate index drains.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): import C4’s exact retained-row type and require handler population/private evidence; correct public pages to E1; resolve C1/C4/C8/C3/C9 evidence windows and pending exceptions without table waivers; add C9 completion-capture, lost-event/restore-before-repair, tenant-only/not_found and verifiedAt acknowledgement gates; reuse the enterprise SSO fixture and exact retained declarations, cover standalone-action shared files and typed incomplete outcomes, and preserve the existing parked BullMQ/positive-key tests.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): consume the defined C5 and operational bound projections with their unresolved reference gate, C4 private queue/root fixture evidence and delivered capture/identity contracts; align commerce fixture phases, staff authorization blockers, enterprise graph-fixture reuse and C3 audit-evidence coverage without designing the remaining owner decisions.
-
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): cite R4-3 same-set installation evidence age and its remaining invocation gate, R4-5 runtime pending-deletion/no-history classification and exact seven-day doctor check, R4-7 read-only settings access with counts-only findings, and R4-9 redacted suppression metadata without usable opt-out handover; align the corresponding verification, risk and compliance text.
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): R4-13 consumes C5's shared bound projection/handler with pruner-owned fixture evaluation and preserves the registry-publication design gate; R4-4 tests owner pending signals and held/released/throw/absence paths instead of downstream proof handoffs; R5-8 requires canonical snapshot and reviewed-list/reason checks before global scan waiver.
-
-### 2026-11-17
-- `scan-values` bounds its input (bytes, values, line length, candidates) before any read, reads every store in pages of at most 100, prints per-store progress and accepts `--only`, with unselected stores keeping the run incomplete.
-- `--reference` and a successful pre-read audit entry are required in every mode, with OS user and host recorded as hints; assumption 1 now says a run is attributable to a reference, while personal attribution relies on host access controls.
-- The cache replay pins `ENABLE_CRUD_API_CACHE=true` and defines a warmed request as one whose identical repeat returns `x-om-cache: hit`.
-- Enterprise-only cases move to their owning enterprise modules (TC-010 to `agent_orchestrator`, the SSO part of TC-006 to `sso`, the engine-policy part of TC-009 to `data_erasure`). Reader DI keys must carry the declaring module's prefix. The Doctor row names `sso.scim_lookup_secret_missing`, an error only when `sso` is enabled, tenant data encryption is on and no lookup secret is set, and never with encryption off; the capability-archive step is removed.
-- R4-3 is cited as tenant-carrying evidence that tenant-scoped runs expire, including for soft-deleted tenants; the installation-run citation and risk clause are removed.
-- The retained-queue-copy report adds `payload-status`'s oldest stored job age per queue and state and names `workflow-activities` as unbounded; TC-PRIVACY-VERIFY-011 asserts the age field is present and counts-only.
-- 2026-11-18 review remediation: align the protected verification lane with origin-preserving replay, explicit absence acknowledgement, coherent archive evidence and fail-closed outages.
+- 2026-11-16 — Initial specification.

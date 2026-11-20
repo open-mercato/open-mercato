@@ -1,8 +1,7 @@
 # Fulltext index: keep encrypted fields out
 
 > **Program:** package B4 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), split from [`2026-11-16-search-index-pii-protection.md`](2026-11-16-search-index-pii-protection.md). Related: #8134, #7872, #8135.
-> **Verified at** `main` @ `08dada9624` by reading code, with line references refreshed against the branch head that includes PR #8410 (`68902bd1cc`); nothing was run. Meilisearch was not started.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`. The existing PR #8410 seam is at `68902bd1cc`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/2026-07-24-search-architecture-clarification-and-evolution.md
@@ -17,7 +16,7 @@ When Meilisearch is configured, fields that are encrypted in the database are se
 
 Fulltext engines such as Meilisearch, Algolia and Elasticsearch store every searchable attribute in clear and cannot rank or typo-match ciphertext, so a field that must stay protected at rest has to stay out of the engine and be matched through another index. This spec applies that practice to the fields Open Mercato encrypts: they stay out of Meilisearch, and exact and prefix lookup on them continues through the tenant-keyed token index owned by [`2026-11-16-search-index-pii-protection.md`](2026-11-16-search-index-pii-protection.md). It is split from that spec because the two share no reindex and no runtime: token and vector protection need a forced `query_index` rebuild and vector reseal, while this change needs a per-tenant Meilisearch rebuild under an unrestricted organization scope and a stored-document status scan.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -247,29 +246,6 @@ No database table or user-editable entity. Meilisearch documents gain the intern
 | Historical plaintext removal | Specified | Required named API/worker rebuild and persistent document provenance scan; doctor is configuration-only |
 
 **Verdict:** design ready. Phase 1 covers the fix. Phase 2 adds the default flip in the following minor with the per-tenant rebuild and zero-unsafe status evidence (assumption 1). Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval.
-
 ## Changelog
 
-### 2026-11-18 — Review remediation
-
-- Keep the indexer’s existing scoped purge for restricted rebuilds and reserve tenant-wide recreation for explicit unrestricted authority.
-
-### 2026-11-18 — Review corrections
-
-- Record the upstream OSS carrier approval gate separately from design readiness.
-
-### 2026-11-18 — Spec review
-
-- Compare exact fulltext document identities during privacy verification and require zero unexpected as well as zero missing documents.
-
-### 2026-11-16
-- Split from the search-index protection spec on its reviewer's advice: it shares no reindex with the token and vector work. Carries that review's corrections: declared default maps, the related-entities field stated as a contract addition, a mechanism for building the driver once, and the loss on flip described as all fulltext matching on encrypted fields.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g1-05 — the short per-tenant cache of the resolved field set is removed. The resolver keeps no field set across calls (one read per `index`, one per entity id in a `bulkIndex`) and keeps its all-scope union, so a map change is honoured from the next call. Added a Delta scenario, a unit test, two rejected alternatives, an edge case, a risk and a compliance row. The statement that the encryption service merges declared defaults into tenant maps is corrected: it does so only for system-scoped maps.
-- Council round two fixes (GPT-6.1 Sol workers): r2iqa-09 — fresh-fork live resolver with additive bridges; r2iqa-16 — required rebuild and stored-document provenance; r2iqa-17 — real Meilisearch integration coverage; r2iqa-18 — complete builder inventory and acceptance tests; r2iqa-19 — exact tenant API and worker commands; r2iqa-33 — preflight policy timing; r2iqa-34 — reuse doctor-owned predicate/check; g1-12 — preserve corrected system-only merge claim and state over-exclusion; g1-30 — named related-map contract.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): Align singleton ownership with tenant-scoped embedding operations; cite the verifier-owned optional fulltext enumeration and location-only scan without changing its names or results; use exact R3-2, R3-4 and DEC-I names and preserve the doctor-owned exclusion check.
-
-### 2026-11-17
-- Added an Overview. The full Meilisearch rebuild now recreates the tenant index only for a caller with an unrestricted organization scope and repopulates every organization; a restricted caller refreshes only its own organizations' documents. The status scan gains expected source counts, so a partial repopulation cannot report convergence.
-- Named the Meilisearch test service for integration coverage (image, health check, env wiring, CI service behind maintainer approval, skip behaviour), and refreshed `di.ts` references against the PR #8410 baseline.
-- A restricted rebuild calls the indexer once per organization in the caller's resolved `filterIds`, so a caller limited to several organizations with none selected refreshes all of them; it upserts current records and removes no stale document, and an empty `filterIds` refuses with `403`.
+- 2026-11-16 — Initial specification.

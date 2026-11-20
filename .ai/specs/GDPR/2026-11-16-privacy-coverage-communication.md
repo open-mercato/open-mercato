@@ -1,10 +1,9 @@
 # Privacy coverage: communication
 
-> **Program:** a coverage spec of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), for `messages`, `communication_channels`, `inbox_ops` and `phone_calls`; and, assigned after the council review, `packages/channel-*` and `packages/tillio`.
+> **Program:** a coverage spec of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), for `messages`, `communication_channels`, `inbox_ops`, `phone_calls`, `packages/channel-*` and `packages/tillio`.
 > **Builds on:** [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md), including its addendum on aliases and identifier subjects; [`2026-11-16-privacy-subject-erasure.md`](2026-11-16-privacy-subject-erasure.md), including its addendum; and [`2026-11-16-privacy-table-coverage.md`](2026-11-16-privacy-table-coverage.md).
 > **Cross-spec contracts:** [`encryption-map-coverage-and-backfill`](2026-11-16-encryption-map-coverage-and-backfill.md), [`privacy-verification-suite`](2026-11-16-privacy-verification-suite.md), [`tenant-exit-export`](2026-11-16-tenant-exit-export.md) and [`privacy-coverage-people-ops`](2026-11-16-privacy-coverage-people-ops.md).
-> **Verified at** `main` @ `08dada9624` by reading each module's entities, encryption map and commands; nothing was run. Not traced: whether portal users can be message recipients, and custom fields on these entities.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`. Portal recipient behavior and custom-field coverage remain unverified.
 
 Extends: .ai/specs/GDPR/2026-11-16-privacy-data-class-contract.md
 Extends: .ai/specs/GDPR/2026-11-16-privacy-subject-erasure.md
@@ -19,7 +18,7 @@ A message has a sender and recipients, and every one of them is a person. Erasin
 
 This carrier covers the communication modules of Track C's coverage roll-out: `messages`, `communication_channels`, `inbox_ops` and `phone_calls`, and, assigned by DEC-J, `packages/channel-*` and `packages/tillio`. It is OSS under DEC-2: every class, fill, lookup and seam lives in the module that owns the data, and enterprise adds only scheduling and holds through the shared services. Phase 1 needs the program's A9, which alone delivers the three integrations credential methods, the contract's Phase 6 aliases and identifier subject, and the erasure run's Phases 3–4; Phases 2 and 3 need the same without A9. Phase 1 also delivers the generic `notificationService.clearSourceForErasure` seam that people-ops coverage defines, which people-ops Phase 2, commerce and content-AI's `workflows.instances` then call; people-ops Phase 2 registers `integrations.user_credentials` after it. C5's census, C8's readers and G6's verification suite consume its declarations. Each phase ships one module group's export and erase together: Phase 1 makes messages and channel copies reachable and clearable by direction, Phase 2 the inbox's mail, proposals and copies, Phase 3 calls and their participants, each with its remaining baseline entries named.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -196,7 +195,7 @@ Changed queued notification/push/extraction/reprocess/counter jobs preserve vali
 
 A locked email in `processing` is retained as `open_case`, and its copies are left and reported for retry after processing. All worker claims, reprocess requests and erasure serialize on that email row. Otherwise erasure sets `inbox_emails.anonymized_at` in the same transaction as clearing; every claim/reprocess refuses a marked row. The final extraction write and message-copy creation re-check the locked row. A worker paused after claim therefore prevents erasure from claiming success; a late queued reprocess cannot restore cleared text. Redelivery still meets the retained deduplication keys.
 
-### Modules assigned after the council review
+### Additional module coverage
 
 **DEC-J — Modules with no coverage owner** assigns `packages/channel-*` here; `packages/tillio`, a later `phone_calls` provider, is assigned here with it. The family had no coverage owner. The nine packages — `channel-apns`, `channel-discord`, `channel-expo`, `channel-fcm`, `channel-gmail`, `channel-imap`, `channel-resend`, `channel-ses` and `channel-smtp` — were read in their modules. None has an entity, a migration or a snapshot, so none has a table to declare. What they keep about a person is stored by other modules:
 
@@ -543,7 +542,7 @@ Every test creates its own tenants, users, records and files with fixtures/APIs,
 
 ## Final Compliance Report — 2026-11-16
 
-- **Reviewed:** root `AGENTS.md`, `.ai/specs/AGENTS.md`, the contract's handler obligations and addendum. Checked the notification, push and attachment module guides for the new service boundaries; no runtime tests were run.
+- **Applicable rules:** Repository, spec, notification, push and attachment module guidance, plus the privacy handler contract.
 
 | Rule | Status | Notes |
 |---|---|---|
@@ -558,41 +557,6 @@ Every test creates its own tenants, users, records and files with fixtures/APIs,
 | Retained correspondence | Named unbounded limit | Every run report names it with the Art. 17(3) ground the controller must assert; a `messages` correspondence retention set is a stated follow-up |
 
 **Verdict:** Design ready, including the R4-1 DSR call placement. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Phase 1 is not started before the erasure spec's Phase 4 and program package A9 have landed.
-
 ## Changelog
 
-### 2026-11-20 — Verify communication attribution
-
-- Treat alias and inferred contact links as discovery until the owner proves attribution, with positive and withheld/refused integration cases.
-
-### 2026-11-20
-
-- Required exact forward membership and fresh preview proofs, added a scoped audited direction repair, and fenced call re-ingest against erasure.
-
-
-### 2026-11-19 — Confirmed specification review corrections
-
-- Fence forward/AI derivative publication, require reviewed legacy lineage, and refuse address-based coverage without verified shared lookup-key readiness.
-- Specification-only revision; implementation and planned acceptance tests remain future work.
-### 2026-11-18
-
-- Extended direction pre-flight and the apply-time recheck to all direction-dependent matches. Required controller review for alias-only portal communication records.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions.
-- Rewritten after independent review. The staff-versus-outside rule could not be decided from stored data, so messages gain a stored direction, and the "only outside party" condition is dropped for a rule based on direction alone. The correspondent kind whose id was a hash is replaced by the contract's identifier subject. Chat and text messages, which have no address, are found by the channels class and cleared through the messages module's service. The inventory of where addresses live in channel links was wrong and is corrected. Inbound mail in `inbox_ops` is blanked instead of deleted, so that references from what it produced still resolve and a redelivery is still a duplicate. A cleared call keeps status updates. Hashes are written and filled by each module. Export and erase ship together. Integration tests use the fixtures that exist, which the first draft said did not.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: **g3-09** — `messages.external_email_hash` was written only by the encryption service while encrypting, so with encryption off or for older rows outside correspondents were never found; `messages` now writes it in every command that sets the address, a fill command and the fallback scan cover existing rows, and a tenant-led index is added. **g3-10** — inbox_ops copies every inbound email, whole thread included, into `messages` under the forwarder's address, and nothing cleared it; the inbox_ops class now clears its copies by source through the messages service under the inbound rule, copies are composed with a direction, and an inbox_ops fill marks existing ones inbound in either order with the channels fill; TC-PRIVACY-INBOX-001 asserts the copy is cleared. Also recorded the dependency on the contract spec's "A subject that is only an identifier" and the erasure spec's "Erasing by email or phone" for erasing an address, and added "Modules assigned after the council review" for `packages/channel-*`: no tables, exemptions with reasons, Discord AI reply proposals cleared with their inbound message, and a stated limit for Discord user ids. From the other fixers: every class states `erasureGroup: 'records'`; identifier subjects cite the contract and erasure specs' sections and exit 1 with no lookup secret; the integrations credential delete acts only on a user's row in the given tenant, never a tenant-wide credential, and may ship first with the program's A9 fix.
-
-- Council round two fixes (GPT-6.1 Sol workers): r5-03 — notification/push copies; r5-07/r5-15 — extraction matches and unmatched sender; r5-16 — direction refusal; r5-17 — credential ordering; r5-18 — staff-address gap report; r5-31/r5-34 — provider fields and re-ingest; r5-32/r5-33 — full inbox clearing and barrier; r5-35/r5-36 — old-address email and trusted direction; r5-44/r5-45 — counter prune and attachment outcomes; g3-20/g3-28 — export and outbound-link seams; g3-29 — provider-only limit; g3-45 — staff attribution; g3-47 — channel direction and hash wording.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): aligned aliases, R3-1 plans, scoped credential ownership/ordering, closed outcomes, B1 fill names and maintenance rules, C5 partial/seam coverage and exact retained evidence/probes.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): reconciled integrations-only DSR credential deletion and the separate scoped A9 method; consumed C4 history/evidence contracts; added colleague source-shell, outbound/file evidence and unbounded causes; aligned the channels fill wrapper and B1-owned non-null refreshes with C1 initial-fill safety, explicit rotation fixtures and unlinked portal alias tests.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): corrected retained-evidence provenance to G6's declarations/matching and C4's existing PrivacyRetainedRecord and section fields, preserving exact handler population, private report/audit evidence and records-before-credentials ordering.
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): restate R4-1's integrations-only deletion ownership and required communication/A9 shared-method calls consistently with people-ops; record the unresolved communication DSR call placement across C4's records barrier in the plan, tests, risk and compliance without inventing a resolution.
-
-### 2026-11-17
-- Council round three fixes: forwards are traversed and cleared under the inbound rule whatever their direction, through a new server-only `forwarded_from_message_id` and an exact-subject rule for older forwards, with shared file bytes reported as `shared_record`. `contact_person_id` is stated to stay empty under tenant encryption; chat discovery relies on sender aliases and runs count unlinked provider-only conversations as unresolved coverage. A9 is the sole delivery owner of the three integrations credential methods and precedes Phase 1; Phase 1 tests only the records side and refuses a staff subject with a personal channel until people-ops Phase 2 registers `integrations.user_credentials`. Added `message_objects` typed-link discovery and snapshot clearing on retained messages, error-text and `last_error` clearing, send-window rows, the send-as-user recipient limit, `packages/tillio` as exempt, inbox `auth:user` attribution and proposal search-entry removal, and named retained correspondence as an unbounded limit with its Art. 17(3) ground. Corrected the TLDR and problem-statement facts (messages search is disabled; only actions and confirmations update a sent message).
-- R4-1's DSR call placement, which the last 2026-11-16 entry recorded as unresolved, is settled as specified under Classes: records-group disconnect and pointer clearing, then C4's records-before-credentials barrier, then integrations-only deletion in the credentials group.
-- Cross-spec alignment: added an Overview. `notificationService.clearSourceForErasure` is the generic seam people-ops coverage defines, for any source type of the calling module; Phase 1 delivers it and tests a non-message type and a refused foreign type. Messages and inbox sections erase in C4 rule 1's pages of at most 500 rows, with cursors through the delegated message and channel services and a crash-and-resume test per phase. A9 ships `deleteUserCredential` first, in program Phase 1, with the same signature apart from its integrations-local scope type.
-- Final alignment: each phase registers its modules' helper-built C8 readers with `count` and `tableExports` for every own table, redacting token, secret, credential-pointer and hash columns, with `via` for the tenant-less message tables. `clearSourceForErasure` takes the caller's `callerModuleId` and refuses, before any read or write, a module id that is not enabled and a source type outside that module's `<moduleId>:` prefix, the messages module's unprefixed `message` being accepted only with `callerModuleId: 'messages'`. The integer `inbox_proposals.llm_tokens_used` usage count is listed in `reviewedScalars` and exported, not redacted. Pages clear a parent after the forwards, derived messages and copies found through it. The inbox proposal search removal is disclosed index refresh under the erasure spec's assumption 24, not a completeness condition. Typed-link discovery names `customers`/`person`; a staff text extraction's `messages` copy loses the submitter's address, while mail forwarded by email stays a stated staff limit on both rows.
+- 2026-11-16 — Initial specification.

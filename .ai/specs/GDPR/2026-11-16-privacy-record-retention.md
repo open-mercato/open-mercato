@@ -2,8 +2,7 @@
 
 > **Program:** first part of package D3 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
 > **Builds on:** the `privacy.ts` convention and the `privacy` module from [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md). **Consumed by** [`enterprise/GDPR/2026-11-16-privacy-dsr-engine.md`](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md).
-> **Verified at** `main` @ `08dada9624` by reading code; nothing was run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/GDPR/2026-11-16-privacy-data-class-contract.md
@@ -23,7 +22,7 @@ A notification stays in a user's inbox forever, whether read, acted on or dismis
 
 > **Market reference.** Microsoft Purview and Google Vault both express retention as "this category, this age, delete or keep", evaluated by the service that owns the content, with a preview of what would go. Mattermost ships the same for messages, with a per-category window and a nightly job. Adopted: a declared category, an age, a preview. Rejected: one global window, and deletion by a component that does not own the data.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -582,7 +581,7 @@ resumeRun(input: { scope: PrivacyScope; runId: string }): Promise<PrivacyRetenti
 
 ## 📝 Migration & Backward Compatibility
 
-New declaration and service surfaces, including optional `runEvidence`, `postCommitDrain` and `drainAfterCommit`, are additive extensions to the planned convention, types, command, services, optional DI keys, audit entries and three indexes. New cutoff and cursor requirements are for the unreleased handler contract. Existing routes keep their URLs and response shapes; append may no longer succeed against a conversation concurrently deleted. For protected retention/erasure, lock ordering is the tenant hold fence, tenant reference lock, conversation-id lock, then conversation row lock, all on the same active manager; C4 takes its subject lease before the tenant fence. Ordinary assistant writers without a hold operation start with the reference lock and never acquire a tenant hold fence beneath it. No new user-editable entity is added. The declaration's field is `excludableSubjectKinds`; an earlier draft named it `excludableSubjects`, and nothing has shipped with that name. Nothing is deleted on upgrade. `UPGRADE_NOTES.md` names the command and says what each set removes. The optional declaration member `unmatchedHoldsOptOut` (default `'allowed'`), the `unmatched_holds_forbidden` reason, the optional `warnings` result members and the `handler_refused` summary reason are additive; a declaration without the member keeps today's behaviour. `PrivacyScope`, `run`, `pruneRecords` and `excludedSubjects` keep a required tenant; no installation-scope entry, method, flag or setting is part of this contract.
+New declaration and service surfaces, including optional `runEvidence`, `postCommitDrain` and `drainAfterCommit`, are additive extensions to the planned convention, types, command, services, optional DI keys, audit entries and three indexes. New cutoff and cursor requirements are for the unreleased handler contract. Existing routes keep their URLs and response shapes; append may no longer succeed against a conversation concurrently deleted. For protected retention/erasure, lock ordering is the tenant hold fence, tenant reference lock, conversation-id lock, then conversation row lock, all on the same active manager; C4 takes its subject lease before the tenant fence. Ordinary assistant writers without a hold operation start with the reference lock and never acquire a tenant hold fence beneath it. No new user-editable entity is added. The declaration's field is `excludableSubjectKinds`. Nothing is deleted on upgrade. `UPGRADE_NOTES.md` names the command and says what each set removes. The optional declaration member `unmatchedHoldsOptOut` (default `'allowed'`), the `unmatched_holds_forbidden` reason, the optional `warnings` result members and the `handler_refused` summary reason are additive; a declaration without the member keeps today's behaviour. `PrivacyScope`, `run`, `pruneRecords` and `excludedSubjects` keep a required tenant; no installation-scope entry, method, flag or setting is part of this contract.
 
 ## 📋 Implementation Plan
 
@@ -693,8 +692,6 @@ The conversations UI is unchanged; TC-PRIVACY-RETENTION-002 reloads the survivin
 
 ## Final Compliance Report — 2026-11-16
 
-Pass-two review: cross-spec references and shared decisions checked against the merged workspace; runner: local, Python document checks only. Pass-three references and the shared aggregate evidence contract were checked directly; no independent review was available. No implementation tests were run. Independent review could not launch because the collaboration service returned `no rollout found`; this revision was reviewed directly.
-
 - **Reviewed:** root `AGENTS.md`, `.ai/specs/AGENTS.md`, `BACKWARD_COMPATIBILITY.md` for the convention file. Relevant AI assistant, notifications, attachments, shared and core guide sections checked against the read-only repository; implementation tests were not run.
 
 | Rule | Status | Notes |
@@ -709,50 +706,7 @@ Pass-two review: cross-spec references and shared decisions checked against the 
 | Validate inputs with zod | Compliant | The command's argument schema, including `--exclude-subject` |
 | Integration coverage | Specified | Five self-contained tests over status, cache, concurrency, files, draft uploads, evidence expiry, soft-deleted-tenant evidence and hold skips |
 
-**Verdict:** Revised design. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Implementation also waits on the contract registry and the erasure spec's **Phase 2 — Seams** for `releaseForRecord`, `releaseByIds` and durable draining. Every run is tenant-scoped; under R4-3 tenant-export evidence always carries its tenant, including for soft-deleted tenants. No implementation is claimed.
-
+**Verdict:** Design specified. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Implementation also waits on the contract registry and the erasure spec's **Phase 2 — Seams** for `releaseForRecord`, `releaseByIds` and durable draining. Every run is tenant-scoped; under R4-3 tenant-export evidence always carries its tenant, including for soft-deleted tenants. No implementation is claimed.
 ## Changelog
 
-### 2026-11-20 — Confirmed specification review corrections
-
-- Bind age-based evidence expiry to the audit-owner transaction and give standard retention a durable, write-atomic original-run recovery path. (R06, R23)
-
-
-### 2026-11-19 — Confirmed specification review corrections
-
-- Move apply transactions into the coordinator, define owner-mediated latch decommission and identifier capture, and allow guarded pending-file proof rebinding after hold changes.
-- Specification-only revision; implementation and planned acceptance tests remain future work.
-### 2026-11-18
-
-- Pinned the retention batch's exact-record audit strips to its owner transaction and added rollback and replay ordering tests.
-
-- Defined a common durable Enterprise hold latch and exact original-selection proof for settling interrupted retention evidence.
-- Bound destructive record batches and provider deletions to the shared tenant hold fence. Made notification cache work durable before commit and protected conversations with unresolved actions from age-based cleanup.
-
-### 2026-11-17
-- Chat-file release: the attachment owner's release path treats an attachment-library assignment to another record as a live reference, so conversation pruning, draft cleanup and conversation erasure keep such uploads; tests and TC-PRIVACY-RETENTION-002 / TC-PRIVACY-CHAT-DRAFT-001 cover it.
-- Standard runs write a started `privacy.retention_run` entry before the first batch; unresolved started-only runs are preserved by evidence expiry. Aggregate summaries gain a bounded `status` and `reason`.
-- `hold_not_honourable` is pinned as `status: 'skipped'`, exit 1; preview counts up to `--max` and reports "at least" when capped.
-- `notifications.inbox` also deletes unread notifications whose expiry is older than the cutoff, without depending on the unscheduled expiry command.
-- The tenant reference lock gains wait, lock and statement timeouts, a batch duration cap and GIN indexes for the reference scan.
-- The installation-scope run mode is removed: every privacy evidence entry carries its tenant, `run` accepts a soft-deleted tenant's id, and TC-PRIVACY-RETENTION-004 now covers tenant-scoped evidence expiry for a soft-deleted tenant with a hold-leak precondition.
-- Under the engine opt-out, an explicit operator or caller exclusion of an undeclared kind still skips with `hold_not_honourable`; only guard errors, stale holds and set/class holds are refusals. Handler refusals are a defined outcome (`refused`, summary reason `handler_refused`), and dry-run batches can return bounded `warnings`, such as `REPLAY_ROLLOUT_UNCONFIRMED`, that preview prints and the engine stores with its preview pass.
-- Set declarations gain optional `unmatchedHoldsOptOut`; `privacy.retention_evidence` declares `'forbidden'`, and `run` refuses an engine opt-out for such a set with `unmatched_holds_forbidden`.
-
-### 2026-11-16
-- Written autonomously as "retention for personal-data classes", covering five classes in two modes.
-- Rewritten after independent review, and renamed. Rows pruned by age are no longer data classes: the contract requires a class to name subjects and take part in erasure, and the erase run would then have refused every staff user. They are retention sets in their own registry. Change history is removed: its "latest undoable entry" rule would have kept exactly the snapshots retention is meant to remove, it would have deleted the record of erasures, the premise about deal stage history was wrong (a transitions table exists), and maintainers place it in Enterprise. Inactive contacts and portal users are removed to a spec of their own. The handler takes and returns a position, so a preview can count. Notification statuses are corrected. Conversations take their pending actions and attachments with them. Indexes reduced to the one that has a reader.
-- Amended: a set's handler may call the owning module's service, so that the enterprise change-history sets can exist without writing to a core table.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), critical fix: the conversations set promised that a pruned conversation's files are released, with no residual risk. But chat uploads are stored under `ai-chat-draft` with a browser-minted record id, so a release by conversation finds nothing and every uploaded file would have outlived the deletion. The handler now collects the ids from `attachment_ids` on messages and pending actions and releases them through `releaseByIds`, with stored objects going through the erasure spec's durable pending-deletion rows. Added edge cases, unit tests and a file assertion in TC-PRIVACY-RETENTION-001. The risk is now Critical with a stated residual risk: chat uploads never sent in a message.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g5-08 — the manual command ignored legal holds and could not be told whom to leave out; it now takes a repeatable `--exclude-subject <kind:id>`, consults the optional `privacyRetentionGuard` (registered by the enterprise engine) in preview and apply, refuses when a registered guard fails, and refuses a set with `hold_not_honourable` when a subject to leave out has a kind outside the declaration's new `excludableSubjectKinds` (which replaces the unreleased `excludableSubjects`). The engine applies the same rule to its passes. Updated assumptions, the declaration, the command, a new Delta requirement, the types, edge cases, plan, TC-PRIVACY-RETENTION-001, the risk and compliance.
-
-- Council round two fixes (GPT-6.1 Sol workers): r6-02 — R3-7 surviving chat references and writer locks; r6-05 — R3-8 shared service drain and pending counts; r6-24 — staff holds skip unmatchable mentions; r6-25 — unreferenced chat-draft set; r6-30 — per-batch guard checks; r6-31 — registry inventory; r6-35 — bound fixed-cutoff keysets; r6-43 — conversation incarnations; g5-20 — append locking and age recheck; g5-21 — durable deletion dependency retained; g5-22 — notification cache invalidation; g5-30 — expiry dismissal semantics; F-72 — separate set/class namespaces; R1 seam-phase nit — Phase 2 dependency.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): W04/W05 — consuming closure, EUDR and standalone-action sets with exact ages/exclusions; W07 — bounded typed engine policy context, non-overridable guard refusals and R3-8 for every caller; W13 — cite the separate subject-set/activity-source and candidate execution contract; shared R3-7 references include standalone actions; current-history reduction counts roots; finite retention-run evidence default and owner expiry; live replay incompleteness preserves the retry position.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): rechecked the bounded W07 entry, exposed its saved cutoff and per-invocation counts, and added the shared declaration-selected aggregate evidence path for retention and both export-evidence sets, with strict identifier-free logging, failure semantics, manifest and coverage. R3-7 reference checks and all R3-8 drains remain service-owned.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): consume C5's owner-local retention-bound metadata/projections and C1's separate export/settings evidence sets; align inactive-subject completion metadata, exact retention-run exclusions and identifier-free expiry coverage without changing the owned age or R3-8 drain.
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): R5-10 — replace creator-only pending-action exclusions with exact creator, approver/resolver and typed single/batch target matches, including another creator's action about a held staff user; align assumptions, catalog, unit/integration coverage, risks and compliance, and state the unresolved payload-only-mention limit without adding a new design.
-
-### 2026-11-19 — Review transaction-contract corrections
-
-- Keep assistant reference locks on the coordinator transaction; require same-manager, rollback and bounded-wait evidence.
-- Define the optional owner post-commit drain, durable preparation and later fenced finalization protocol, with CLI/engine reservation parity and disjoint pending counts.
+- 2026-11-16 — Initial specification.

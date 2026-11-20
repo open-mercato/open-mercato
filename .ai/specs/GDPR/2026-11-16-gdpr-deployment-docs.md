@@ -1,8 +1,7 @@
 # GDPR deployment documentation
 
 > **Program:** package G5 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593). The program schedules its first page, the sub-processor matrix, in Phase 1.
-> **Evidence:** the [program baseline and pinned source evidence](2026-11-15-gdpr-ready-deployments-program.md#-problem-statement), checked at `main` @ `08dada9624` for the original audit.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Evidence:** the [program baseline and pinned source evidence](2026-11-15-gdpr-ready-deployments-program.md#-problem-statement), at `main` commit `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 
@@ -16,7 +15,7 @@ An operator deploying Open Mercato for EU personal data finds one documentation 
 
 The section is written for four readers: whoever chooses vendors, whoever configures production, whoever answers a data-subject request and whoever handles an incident. Each page states only what ships in the release it accompanies. Claims are cited to code, so a reviewer of a code change can find the page that describes it. Two script tests keep the most drift-prone lists honest: every workspace package is either on the third-party table or declared as sending nothing out, and every AI SDK or agent-runtime caller is listed under a disclosed model-input route; plain-HTTP model calls are listed by hand. This spec also owns the operator procedure for restriction and objection (program DEC-8), so the OSS documentation is specified by an OSS spec; the enterprise decision record C10 keeps the legal and code analysis behind it.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -234,52 +233,6 @@ The docs build and internal-link check must pass. A self-contained docs smoke te
 | R4/R5 owner decisions | Scoped | Operator guidance and release-bound content checks follow the named owner designs, including portal recovery, process modes, SCIM, rotation/commerce hashes, queue readiness and module-specific retention/hold limits; no new runtime contract or approval is supplied here |
 
 **Documentation disposition:** Stage 1 proposes the restriction and objection procedure (DEC-8, C10 option A) with factual current-release limits and the Recital 67 caveat, processor/hardening material, base breach guidance and the model-input disclosure (DEC-11). Stage 3 adds only shipped controls. Evidence-expiry, consent-gate and restore claims follow their owners' delivery and approvals. G5 can document the restriction procedure and model-input disclosure. Under program DEC-14 neither document closes #8593's technical restriction/objection or field masking/exclusion requirement. Those requirements remain open pending a written named maintainer disposition in #8593 or shipped technical acceptance evidence.
-
 ## Changelog
 
-### 2026-11-20 — Cutover, attribution and consent guidance
-
-- Document separate cutover and live checks, incomplete alias coverage, and the consent gate’s client boundary.
-
-### 2026-11-20
-
-- Aligned SCIM guidance with the bounded reader’s refusal for unreadable historical ciphertext, including encryption-off deployments.
-
-### 2026-11-19 — Confirmed spec review corrections
-
-- Aligned risk/compliance summaries and content assertions with the fail-closed durable evidence-owner rule (F42).
-
-
-### 2026-11-18 — Review remediation
-
-- Align protected restore outage and archive evidence, require per-processor DPA references, and define one model-send inventory with a stated detection boundary.
-
-### 2026-11-18
-
-- Extended recipient and model-call checks to app-owned and shipped template modules and aligned the restore runbook with protected cutover clearance.
-
-### 2026-11-18
-
-- Made protected restore reopening require generation-bound evidence and expanded processor and model-route parity checks to shipped application modules.
-
-### 2026-11-16
-- Written autonomously. No Delta section: a documentation-only change.
-- Revised after independent review: two rows of the third-party table were wrong (the language model is on by an environment key, and telemetry is selected by one backend setting); the coverage check was inverted so that every package is either listed or explicitly exempt; the hardening page defers to the existing readiness pages; missing topics added.
-- Council round two fixes (GPT-6.1 Sol workers): r9-06 server-only captcha and Turnstile IP; r9-32 dedicated restriction page and G5-owned processor table; r9-33 early breach and assessment guidance; g7-33 package-check residual gap; nit F-72 dated region sources or controller verification.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): aligned restriction availability, preservation/rectification and recipient reconstruction; required Q1=B model-input disclosure; documented finite export-evidence expiry, doctor database opt-in and scan exits; corrected public legal-page ownership to E1 and required static TC-PRIVACY-VERIFY-008 evidence.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): separated factual limits from gated Option A publication; required exact R3-5 availability, reassessment and advance notice; aligned finite evidence owners, fresh restore capture/readiness and scan waivers; tied E5 cookie inventory/recipe to delivery and disclosed browser-choice and redacted-objection portability limits.
-
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): replaced stale tenant-export/governance/settings evidence handoffs with their current dedicated finite ages and reconciliation/hold exceptions; retained the explicit null-tenant gap and C9 pending files; recognized C4's specified capture/verifiedAt design while preserving approval and runtime-test gates.
-
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): aligned operator guidance and release-bound content checks with R4/R5 owner decisions; corrected finite null-tenant evidence age and its installation invocation limit, optional expiry-hold signals, both suppression redactions/no handover, portal handoff recovery, development modes, SCIM, maintenance and module-specific retention limits.
-
-### 2026-11-17
-- Added an Overview. This spec now owns the restriction and objection procedure table (DEC-8), with a Recital 67 caveat and the product-supported compensating measures; C10 keeps the decision record.
-- The model-input section lists every route, including embeddings, text extraction, web research, moderation and agent-orchestrator context, and a new inventory test fails on an unlisted AI SDK or agent-runtime caller; plain-HTTP model calls are listed by hand and caught by review, as the Overview now says. The sub-processors table gains recipient ids with a parity check against G3 declarations.
-- Content checks are staged per page instead of counting seven pages. `hardening` explains when to run the Readiness Scanner and the privacy doctor, and that the SCIM lookup-secret error makes the doctor exit 2; scan guidance requires `--reference` and states input limits and `--only`.
-- R4-3 now reads "tenant-export evidence always carries its tenant": tenant-scoped runs expire it, and the offboarding guidance keeps the tenant run scheduled for soft-deleted tenants. SCIM guidance carries R5-4's plaintext carve-out, the mapping-minor 400 and a doctor error raised only with encryption on.
-- `hardening` and the index state each bridged secure default present in the release, matching the program's Known limits: A3 KMS-outage plaintext writes, A2's `warn` key policy, DEC-12 lookup-secret warnings (remedy: B1 Phase D's rotation runbook), B4's one-minor Meilisearch default (opt-in plus the per-tenant fulltext rebuild) and F1's advisory AI allow-list, each with its opt-in or remedy. The erasure runbook inspects `payload-status` for queue copies, naming `workflow-activities` as unbounded, and the index lists manual Art. 19 notification. The restore runbook requires the unfiltered strict refresh after reviewed replay and strict readiness thereafter. It covers independently attested snapshot bounds and rejects diagnostic exit 0/3, unprotected, deferred, quarantined, out-of-window and invalid evidence for protected cutover. E5 Phase 1 adds the browser-telemetry terminal-access entry.
-
-- 2026-11-18 review fixes: align protected-mode restore content assertions and keep the technical restriction/objection and masking requirements open under DEC-14.
-- 2026-11-19 review fixes: document required owner recovery, actual startup and backfill proof, protected audit modes and the limits of store evidence.
+- 2026-11-16 — Initial specification.

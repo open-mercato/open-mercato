@@ -1,9 +1,8 @@
 # Access-log retention
 
 > **Program:** package D4 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
-> **Builds on:** Phase 1 of [`2026-11-16-operational-retention-pruners.md`](2026-11-16-operational-retention-pruners.md), which creates the shared prune helper; that spec's OSS placement is settled (DEC-2), this one waits only for that phase to land or be folded in, and it states exactly what it needs from the helper. **Overlaps** PR #8472, recorded by the original review as bounding pending access-log writes. Recheck its disposition before implementation; this revision makes no claim about its current review/QA state.
-> **Code baseline checked for this revision:** read-only snapshot `9e09023483`; specifications only, no runtime tests run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Builds on:** Phase 1 of [`2026-11-16-operational-retention-pruners.md`](2026-11-16-operational-retention-pruners.md), which creates the shared prune helper; that spec's OSS placement is settled (DEC-2), this one waits only for that phase to land or be folded in, and it states exactly what it needs from the helper. **Overlaps** PR #8472, which proposes a bound on pending access-log writes. Verify its disposition before implementation.
+> **Code baseline:** Worktree snapshot `9e09023483`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/GDPR/2026-11-16-operational-retention-pruners.md
@@ -20,7 +19,7 @@ Every list request writes one access-log row per record it returned, saying who 
 
 **Not in this spec:** the action log, which records changes and needs a spec of its own; what the access log records; the cap on pending writes (PR #8472); the query-engine export's first-page-only per-record trace. [`2026-11-16-export-audit-event.md`](2026-11-16-export-audit-event.md), assumption 2, deliberately leaves that trace unchanged and adds one summary entry/event for the full export; the enterprise security-alerting spec consumes that event rather than claiming per-record access-log coverage of every page.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -43,7 +42,7 @@ Every list request writes one access-log row per record it returned, saying who 
   - After a long outage or a window change, the first delete is as large as the backlog.
   - An operator cannot keep access logs for an investigation without editing code.
 - **Who reads it.** One API route and the Access tab of the audit page. Nothing else: no undo path, no "last accessed" display, no export.
-- **PR #8472**, according to the original review, proposes single-flight inline rotation and bounded pending writes. This revision did not fetch that diff; recheck its final code before implementation. The checked snapshot still has the two deletes described above.
+- **PR #8472** proposes single-flight inline rotation and bounded pending writes. Verify the implementation before reusing it. The pinned baseline has the two deletes described above.
 - **A subject's rows.** With encryption on, the resource id is ciphertext, so rows *about* a person cannot be found; rows *by* a staff user can, through the acting-user column. Both are gone within the window.
 
 ## 📝 Proposed Solution
@@ -318,24 +317,6 @@ Both tests create their own tenants, organizations and rows, use an isolated tes
 | R4-13 / C5 retention bound | Compliant design | `audit_logs.access_logs` `operational_pruner` entry and owner handler, fail-closed projection and fixture evaluation |
 
 **Verdict:** Design ready after #8472 is resolved and the pruner spec’s first phase has landed or is folded in. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. An independently approved fix can proceed under its own carrier.
-
 ## Changelog
 
-### 2026-11-18
-- The inline safety net now completes fixed-cutoff sweeps and revisits late-visible or backdated rows. Acceptance covers a commit behind the cursor with the scheduler disabled.
-
-### 2026-11-17
-- The safety net's ordinary probe walks forward with a per-process cursor, so it no longer stalls behind the in-window listed-kind band under the default windows; Delta, edge cases, migration row, tests and risks state the bounded first-walk lag.
-- `0` keeps its existing meaning (the default); the new explicit value `keep` keeps a group's rows, so no existing configuration changes behaviour.
-- The audit module now publishes the `audit_logs.access_logs` `operational_pruner` retention bound, its table classification and the `auditLogsOperationalRetentionBounds` handler for C5/G6.
-- The schedule key is `audit_logs:access-log-prune:system`, matching sibling carriers; an Overview section was added.
-
-### 2026-11-16
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): align the existing access-log schedule expectation to the doctor's exact pruners.unscheduled diagnostic id.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): use the current doctor-owned pruners.unscheduled diagnostic for the existing access-log schedule expectation.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): verified shared process-window shape, fractional/zero/empty-kind semantics and owner/register/doctor parser parity; declare the exact system schedule key and dedicated queue through the parent's expectation manifest.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): shared `getAccessLogRetentionWindows()` parser/accessor with the register's exact process-window shape, effective zero/empty-kind/fractional semantics, owner/doctor/register call sites, manifest and parity coverage; exact R3-2 and DEC-I citations.
-- Council round two fixes (GPT-6.1 Sol workers): r8-23 bounded tri-state request probes, matching indexes, id-limited deletes and large-backlog integration evidence; F-55 configuration-only doctor warning for indefinite windows; helper ownership and residual scheduler dependence stated.
-- Written autonomously with resolved assumptions.
-- Revised after independent review. A fixed cap per run could lose to the write rate, so the job now runs until caught up within a time budget and re-enqueues itself. The inline path is kept as a safety net triggered by the table's own state, because "a schedule exists" is also true when it is disabled or has no worker. The needs from the shared helper are written out. The schedule id is a derived UUID. The existing rotation test is extended instead of a new characterization file, and the integration test uses rows only the job can delete.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g5-02 — the first delete no longer ignores kind; both deletes keep today's disjoint conditions, each is skipped when its window is `0`, the safety net checks under the same conditions, and scenarios, edge cases, unit tests, a risk and a compliance row cover `0` on either side, an ordinary window longer than the long one and an empty kind list.
+- 2026-11-16 — Initial specification.

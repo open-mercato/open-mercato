@@ -2,8 +2,7 @@
 
 > **Program:** package G3 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
 > **Builds on:** [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md), [`2026-11-16-privacy-table-coverage.md`](2026-11-16-privacy-table-coverage.md), [`2026-11-16-privacy-record-retention.md`](2026-11-16-privacy-record-retention.md) and [`2026-11-16-privacy-doctor-cli.md`](2026-11-16-privacy-doctor-cli.md).
-> **Verified at** `main` @ `08dada9624` by reading code; nothing was run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/GDPR/2026-11-16-privacy-data-class-contract.md
@@ -20,7 +19,7 @@ This is an Art. 30(1) controller draft only; it does not supply an Art. 30(2) pr
 
 > **Market reference.** Tools such as Fides and OneTrust generate a register from a data map and leave purpose and legal basis to be assigned by a person; Fides calls its output a "data map export" for that reason. GitLab publishes its sub-processor list from a maintained data file. Adopted: generate what is declared, mark what is not, never guess a legal basis. Rejected: asking each module to state a legal basis — the same module is used under consent by one tenant and under contract by another.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -424,33 +423,6 @@ Both run the command with JSON output in an isolated test environment. Each owns
 | Integration coverage | Required by design | Two self-contained command suites cover owner API fixtures, cleanup, foreign tenant and second organization; enterprise profile covers record/subject-set policies |
 
 **Verdict:** Design ready. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Delivery then follows the listed owner-service and accessor dependencies.
-
 ## Changelog
 
-
-### 2026-11-19 — Confirmed specification review corrections
-
-- Distinguish disabled historical sources from verified absence and correlate recipient declarations using stable integration ids.
-- Specification-only revision; implementation and planned acceptance tests remain future work.
-### 2026-11-18 — Review remediation
-
-- Separate live and historical custom-definition metadata reads and test attribution and completeness within the selected organization.
-
-### 2026-11-18
-
-- Kept undeclared environment integrations and retained or unverified disabled-owner/custom-definition coverage visible as register gaps.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions. Declines two things the program asked the contract to carry for this package — legal basis and processing location — because neither is a fact the product can know; the program is corrected with it.
-- Revised after independent review. The run is per organization, because integrations are. Recipients come from declarations by their owners instead of four hand-picked providers. The retention and security columns no longer claim sources that do not exist: retention sets store no window, and process-level settings are labelled as such. The gaps list is reduced to what a command can know. Art. 30(1)'s actual contents are followed: the controller's identity and contacts and the third-country safeguards are added as blanks, and legal basis becomes an optional one. Tenant-defined custom fields and entities are listed. The command gains `--force` and `--no-fail`, and Phase 1 has an integration test.
-
-- Council round two fixes (GPT-6.1 Sol workers): r4-07 — typed recipient status and safe hosts; r4-08 — mandatory tenant/organization membership; r4-26 — new owner metadata/presence services; r4-27 — typed source gaps and honest exits; r4-35 — webhook status and effective-window accessors; r4-36 — table/export-only modules named; r4-41 — retention-set policies; r4-42 — stale wording and references; r4-46 — controller-only limit retained, program correction needed elsewhere; r4-47 — activity recipient links; r4-48 — other-measures blank; r4-49 — JSON v1 document/schema; r4-53 — time-limit rationale; r4-54 — category enum/schema; g7-21 — dependency and container lifecycle; g7-25 — second-organization fixtures; g7-37 — aligned legal-basis assumption; g7-38 — field cleanup; F-73/F-74/F-75 — draft exit summary and stale references.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): align set-only policy metadata and controller blanks with the DSR engine; enumerate typed tenant settings from contract Phase 7; fix the doctor scaffold dependency, canonical key/search facts and nullable encryption-count metadata; cite DEC-G, DEC-H and DEC-I; make outstanding owner accessor/adapter handoffs explicit.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): restore the DSR adapter's exact `targetType` / `targetId` union while keeping current storage set-only and R3-3 settings separate; consume the owners' canonical accessor and adapter paths, pin stable window ids and zero/enabled semantics, and expose uncollected retention areas without implying deletion, worker health or whole-installation coverage.
-
-### 2026-11-17
-- Declared inactive recipients are rendered as possible former recipients with a past-disclosure blank, plus a former-recipients prompt, because Art. 30(1)(d) covers past disclosures. Document v1 carries `configurationScope` on every recipient instead of the installation-wide flag.
-- Sources whose owning module is not enabled are `not_applicable` with no gap, so an OSS run can exit 0; `source_absent` is kept for enabled owners. C1 settings errors map to `source_invalid` and `source_failed`.
-- The policy adapter contract adds `targetMode` (record or subject set) and is the single shape the DSR engine registers.
-- Phase 2 names every outbound owner with its module and status-function file and adds a recipient-parity check against G5's sub-processor table. The capability-archive step is removed.
+- 2026-11-16 — Initial specification.

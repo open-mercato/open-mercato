@@ -76,6 +76,8 @@ The same POST accepts this cookie after clearing the normal cookies. Validate pu
 
 ### Authentication history retention
 
+PR-176 requires C1’s audited tenant setting (PR-009), the D3 retention runner (PR-005) and its fenced apply gate (PR-072A). Enable daily expiry only after those prerequisites are deployed. If audited setting resolution or fenced apply is unavailable, refuse scheduled deletion and report the retention gap.
+
 Declare `security.authentication_lifecycle_history` with `targets: ['records']`, `minimumDays: 90`, `excludableSubjectKinds: ['auth:user', 'customer_accounts:user']`, `unmatchedHoldsOptOut: 'forbidden'`, and `handlerService: 'securityAuthenticationHistoryRetentionHandler'`. Its audited tenant setting is `retention.security.authenticationLifecycleHistoryAgeDays` in C1's privacy settings registry (default 365, integer floor 90). Null/unknown tenant is refused. Every row includes `created_at`/`updated_at`; add `(tenant_id, occurred_at, id)` and `(tenant_id, created_at, id)` indexes for the read and deletion keysets.
 
 Eligibility is `occurred_at < fixedRunStart - effectiveAgeDays` AND the collector-owned terminal settlement marker proves every frozen required owner consumer was durably acknowledged. The collector recovery handshake resolves and persists that marker through the owner adapter; missing/throwing/unknown status leaves an unmarked row `receipt_unsettled`. Retention and its read-only bound evaluator inspect the same persisted marker and never write settlement state or require a cleaned receipt to reappear. Holds on either actor or target preserve the row. Class/set holds skip the set; an unsupported or unresolved subject kind yields `hold_not_honourable` for the whole tenant/set. No unmatched-hold opt-out is allowed. Deletion uses D3's coordinator-owned fenced transaction and `writeContext`, with scoped keyset batches at most 100 and a cutoff/setting version bound into each cursor; changed settings restart/revalidate without narrowing a previously promised window.
@@ -108,24 +110,12 @@ A state change and receipt in separate transactions can leave permanent audit ga
 ## Implementation plan and acceptance
 
 1. Verify the closed operation inventory and caller guard against the implementation baseline; resolve drift explicitly and ship every named acceptance case. Obtain any written edition, route or failure-handling approvals required by the program. Ship the transaction-aware receipt, collection and idempotency before claiming durable coverage.
-2. Deliver the additive migration and restrictive feature. Wire scheduled retention through the D3 base runner, then test default, audited scope, expiry and hold behavior. Test the actual C5 classification, effective bound, durable owner receipt state and C8 reader/exclusion scope, including missing reader or unconsumed receipt evidence. Document the audit and its availability in the G5 breach runbook.
-3. TC-PRIVACY-AUTH-AUDIT-001 drives each applicable staff, portal and MFA operation through its real entry point. Exercise committed receipt with collector failure, duplicate deliveries and refused operations, scoped historical reads and scheduled expiry with current, held and unconsumed evidence preserved. For both logout owners use two actual POSTs from the same cookie-only browser jar. On the first, block the authoritative commit and assert 503, no successful audit, and cleared authentication/session cookies. Restore the store, retry with only the recovery cookie, and assert the original session cannot refresh, one occurrence exists and the cookie is removed. Cover repeated store failure without renewal, tampered/expired/wrong-owner capability and cross-site refusal. The independent committed-receipt/outbox-destination failure still revokes without a retry capability. PR-176 verifies the lifecycle consumer with an owner receipt fixture. Repeat with the actual G2 adapter in PR-179A. Interrupt each MFA consumer acknowledgement independently and verify one owner receipt and retention until both settle. Each integration test creates and cleans up its own tenants, organizations, users, credentials and records. Phase 7 requires all applicable operation families or written upstream disposition naming a narrower scope.
+2. Deliver the additive migration and restrictive feature. Wire scheduled retention through the deployed D3 fenced runner using C1’s audited setting. Verify defaults, audited scope, expiry, holds and refusal with either capability unavailable. Test the actual C5 classification, effective bound, durable owner receipt state and C8 reader/exclusion scope, including missing reader or unconsumed receipt evidence. Document the audit and its availability in the G5 breach runbook.
+3. TC-PRIVACY-AUTH-AUDIT-001 drives each applicable staff, portal and MFA operation through its real entry point. Exercise committed receipt with collector failure, duplicate deliveries and refused operations, scoped historical reads and scheduled expiry with current, held and unconsumed evidence preserved. Disable audited setting resolution and the D3 apply gate in separate cases and assert no expiry writes while the retention gap is reported. For both logout owners use two actual POSTs from the same cookie-only browser jar. On the first, block the authoritative commit and assert 503, no successful audit, and cleared authentication/session cookies. Restore the store, retry with only the recovery cookie, and assert the original session cannot refresh, one occurrence exists and the cookie is removed. Cover repeated store failure without renewal, tampered/expired/wrong-owner capability and cross-site refusal. The independent committed-receipt/outbox-destination failure still revokes without a retry capability. PR-176 verifies the lifecycle consumer with an owner receipt fixture. Repeat with the actual G2 adapter in PR-179A. Interrupt each MFA consumer acknowledgement independently and verify one owner receipt and retention until both settle. Each integration test creates and cleans up its own tenants, organizations, users, credentials and records. Phase 7 requires all applicable operation families or written upstream disposition naming a narrower scope.
 
 ## Final compliance report
 
 Design only. The proposed owner-local seams and Enterprise collector await the program’s approval and delivery gates. G1 and G2 retain their existing coverage and precedence.
-
 ## Changelog
 
-### 2026-11-20
-
-- Added scoped revocation-only retry for cookie-only logout when the authoritative owner cannot commit.
-
-### 2026-11-19
-
-- Share each overlapping MFA owner receipt with G2 through a scoped adapter. Track durable consumer acknowledgements independently.
-- Resolve the confirmed review findings with a closed operation inventory, explicit staff/portal logout failure protocol, named feature/service read interface and executable held/unsettled retention contract. Define a distinct typed lifecycle receipt adapter and a durable settlement-observation handshake so source cleanup cannot block later history expiry. Design revision only.
-
-### 2026-11-18
-
-- Added a dedicated lifecycle evidence and retention carrier to close the security audit coverage gap.
+- 2026-11-18 — Initial specification.

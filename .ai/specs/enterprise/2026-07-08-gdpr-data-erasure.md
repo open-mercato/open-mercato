@@ -1,11 +1,9 @@
 # GDPR Data Erasure Orchestration (Enterprise)
 
-> **Superseded — design history only (2026-11-16).** Every operative section of this file is replaced: TLDR and Scope, Overview’s current-state claims, Proposed Solution and Design Decisions, User Stories, Architecture and coupling, Commands & Events, Data Model, API Contracts, durability framing, Security Considerations, Failure Scenarios, Phasing & Implementation Plan, Integration test coverage, Migration & Backward Compatibility, Risks & Impact Review and Final Compliance Report. No command, event, ledger or purge subscriber is implemented from this file.
+> **Status:** Superseded. C4, C3 and C9 own the current implementation contracts and approval gates.
 > **Operation successor:** [`../GDPR/2026-11-16-privacy-subject-erasure.md`](../GDPR/2026-11-16-privacy-subject-erasure.md) (C4) owns module-owned erasure, anonymization, audit-history stripping, the OSS command, `eraseSubjects` and the single `privacy.subject.erased` event.
 > **Governance successor:** [`GDPR/2026-11-16-privacy-dsr-engine.md`](GDPR/2026-11-16-privacy-dsr-engine.md) (C3/D5) owns enterprise policies, holds, the operation ledger, routes and admin UI.
 > **Restore successor:** [`GDPR/2026-11-16-erasure-restore-replay.md`](GDPR/2026-11-16-erasure-restore-replay.md) (C9) owns external manifests, restore detection and manual replay, including infrastructure restores. The old backup-bucket manifest is withdrawn from the companion backup spec.
-
-Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md` (rev 5) on 2026-07-08. The rationale below is retained as history. Successor approval gates remain binding; this annotation does not approve their implementation.
 
 ## TLDR
 
@@ -13,9 +11,9 @@ Erasure needs module-owned cleanup, evidence that does not recreate the cleared 
 
 ## Overview and Problem Statement
 
-The July design combined an enterprise erasure command with eventual cross-module cleanup and a backup-bucket manifest. The November program separates the OSS operation from enterprise governance and restore handling. This file no longer describes today’s code or orders implementation.
+The program separates the OSS erasure operation, Enterprise governance and external restore replay. Use the carrier specs for implementation.
 
-## Proposed Solution — retained rationale
+## Proposed Solution
 
 - A subject action must let each owning module enforce its own retention and business rules.
 - Erasure must not create a fresh snapshot of the data it clears.
@@ -62,7 +60,7 @@ These are unimplemented design replacements, not removal of shipped API contract
 | Scenario | Severity | Affected area | Mitigation | Residual risk |
 |---|---|---|---|---|
 | An implementer follows an old request route, deal refusal or purge-confirmation design | High | Erasure operation and audit history | All operative sections are replaced by this successor map; implementation reads C4 and C3 | External copies of the July design can remain stale |
-| An operator treats archive expiry or replay as an unconditional erasure guarantee | High | Restore operations | C9 now proposes awaited durable external capture before protected completion, then completed-audit settlement/repair; C9's assumption 9 settles that design, and delivery of the C4-owned `privacyErasureCompletionCapture.capture` / `verifiedAt` handoff with C9's crash/restore-before-repair tests remains the gate. Use `restore-status --refresh` and reviewed replay before reopening; settled evidence expires and pending work does not | Unread runbooks, lost external evidence or an operator bypass can resurrect data |
+| An operator treats archive expiry or replay as an unconditional erasure guarantee | High | Restore operations | C9 now proposes awaited durable external capture before protected completion, then completed-audit settlement/repair; C9's assumption 9 settles that design, and delivery of the C4-owned `privacyErasureCompletionCapture.capture` / `verifiedAt` handoff with C9's crash/restore-before-repair tests remains the gate. Require C9’s scoped replay, strict cutover clearance and live admission check before reopening. Settled evidence expires and pending work does not | Unread runbooks, lost external evidence or an operator bypass can resurrect data |
 
 ## Final Compliance Report — 2026-11-16
 
@@ -70,15 +68,6 @@ This enterprise file retains history and rationale only. The OSS erase operation
 
 ## Changelog
 
-- 2026-07-08: Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md` (rev 5) — this file carries the `data_erasure` module, the generic OSS erasure events, the core purge subscribers, and the GDPR guarantee/control framing; the backup pipeline, manifest mechanism, and restore-time diff live in [`2026-07-08-automated-database-backups.md`](2026-07-08-automated-database-backups.md).
-- Inherited history (combined spec): 2026-07-02 initial + full spec (PR #3742); 2026-07-03 rev 2 (gap-analysis corrections: `skipLog` no-PII-resurrection rule, per-id index delete events instead of `purgeIndexScope`, fail-with-guidance for persons with deals) and rev 3 (market research settled the deals/ledger/message-purge decisions; masked display label adopted); 2026-07-04 rev 4 (automated replay descoped to guided re-run; HMAC/blind-index/pepper removed) and rev 5 (executor+advisor review: completion semantics resolved market-style — `executed` = sync sweep, eventual subscriber propagation with `purged` confirmations; core-subscribing-to-enterprise ruled out on layering grounds → generic OSS events with Gate B; "one guarantee, one control" framing); 2026-07-06 market references generalized to pattern descriptions.
+- 2026-11-20 — Assign subject erasure, governance and restore replay to the C4, C3 and C9 specifications.
 
-### 2026-11-16
-- Council round two fixes (GPT-6.1 Sol workers): r0-20 replaces every operative July section with C4/C3/C9 successor pointers; withdraws deal-linked refusal, `.purged` confirmations, snapshot-purge subscriber and the old ledger/routes.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): cited exact DEC-B/R3-1/R3-14 owner names and aligned the historical replay warning with C9's new audit reconciliation while retaining the unresolved external-durability gate.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): replaced withdrawn row-first replay framing with the current awaited-capture/verifiedAt approval dependency and fresh status/reapply boundary; aligned governance coverage with its expanded eleven-case catalog.
-
-### 2026-11-17
-- Fixed the successor links to the `GDPR/` folders, extended the governance test reference to the thirteen-case catalog (`TC-PRIVACY-GOV-001` through `013`, including the portal `failed_handoff` recovery case), and removed the open-gate wording for C9's settled assumption 9; only delivery of the C4 handoff and C9's tests remains a gate.
+- 2026-07-08: Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md`. The original design separated the `data_erasure` module, OSS erasure events and Core cleanup from the backup design in [`2026-07-08-automated-database-backups.md`](2026-07-08-automated-database-backups.md).

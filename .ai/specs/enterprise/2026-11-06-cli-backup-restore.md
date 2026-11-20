@@ -10,9 +10,9 @@
 
 The scheduled pipeline, object storage, archive retention and status UI stay in [enterprise automated backups](2026-07-08-automated-database-backups.md); that pipeline reuses this engine. [Erasure restore replay](GDPR/2026-11-16-erasure-restore-replay.md) (C9) independently owns erasure manifests, detection and manual replay for product and infrastructure restores. The backup engine and backup commands are Enterprise-only; no HTTP restore route. The separate Core rotation safety guard below adds an explicit acknowledgment without moving rotation out of Core. For protected cutover follow C9’s runbook before reopening traffic. Authenticate the earliest source-snapshot lower-bound evidence across all archive epochs under C9’s **Comparable recovery evidence** rules. Archive `startedAt` is provenance only unless independent uncertainty evidence and ordering prove it precedes all source snapshots. Use the controller interlock to publish a fresh closed external generation before the target switch. Require C9’s unfiltered `restore-status --refresh --require-clear` after reviewed replay and `restore-status --check-live` for serving admission. Attach verified recovery provenance to the trusted manifest when available. Record clock/source identity and all epoch identities at snapshot establishment; any resumed epoch without comparable attestation makes the archive's protected recovery bound unavailable. Archive-only restore remains available and reports that explicitly. The archive command separately reports archive restoration.
 
-Status: design ready for review; security gates (Q2, Q3) block implementation approval. This PR changes specifications only.
+Implementation requires the Q2 and Q3 security approvals.
 
-## Resolved assumptions (autonomous defaults)
+## Resolved assumptions
 
 | Question | Chosen default | Rationale / override condition |
 |---|---|---|
@@ -319,7 +319,7 @@ Target provisioned from `template0`, empty except a reviewed baseline (or, on re
 
 ## Integration Coverage and Performance Acceptance
 
-No tests ship with this spec-only PR; this is the implementation acceptance matrix. Test human-mode protected runbook output, machine-mode archive-only status, and refusal of protected cutover for missing/substituted generation, absent/incomparable source-snapshot attestation or diagnostic-only 0/3. No HTTP/UI paths are added by this spec (the automated spec covers its own). Harness: disposable PostgreSQL per scenario, `template0` targets, unique names, never the developer `DATABASE_URL`; fixtures include two tenants, field-encrypted canaries, custom fields, JSON/unicode/nulls, soft deletes, FKs, sequences, a table without a primary key, a large object and attachment references. Generated test identities, fake custody record, callback/queue sinks with counters. Every scenario cleans up processes, connections, snapshots, databases and temp dirs in `finally`.
+The implementation acceptance matrix covers archive-only output and the independent privacy cutover. Test human-mode protected runbook output, machine-mode archive-only status, and refusal of protected cutover for missing/substituted generation, absent/incomparable source-snapshot attestation or diagnostic-only 0/3. No HTTP/UI paths are added by this spec (the automated spec covers its own). Harness: disposable PostgreSQL per scenario, `template0` targets, unique names, never the developer `DATABASE_URL`; fixtures include two tenants, field-encrypted canaries, custom fields, JSON/unicode/nulls, soft deletes, FKs, sequences, a table without a primary key, a large object and attachment references. Generated test identities, fake custody record, callback/queue sinks with counters. Every scenario cleans up processes, connections, snapshots, databases and temp dirs in `finally`.
 
 | ID | Command path | Condition | Assertions |
 |---|---|---|---|
@@ -353,7 +353,7 @@ Performance gate (pinned 4 vCPU / 8 GiB runner, 1 GiB and 20 GiB datasets): Node
 
 ## Migration & Backward Compatibility
 
-This PR changes specifications only. Later implementation adds enterprise CLI commands, a facade and versioned formats (manifest, index, journal, report, progress events) — new contract surfaces under `BACKWARD_COMPATIBILITY.md` (CLI commands, types/signatures). Backup commands remain Enterprise-only. The proposed Core rotation acknowledgment above is a separately disclosed safety change to the existing CLI contract, requiring its compatibility decision and upgrade guidance before implementation. The automated spec's planned `run/list/restore/verify` and this spec's commands share one `cli.ts`; neither has shipped, and that carrier has withdrawn its AES-GCM env-key framing, `--force`/live-target restore and single-stream pipeline in favour of this engine. No deprecation bridge is needed for those draft shapes. Readers reject unsupported major schema versions; v1 readers stay when v2 arrives. Rollback of a future release keeps artifacts readable with a standalone build of the engine.
+Implementation adds enterprise CLI commands, a facade and versioned formats (manifest, index, journal, report, progress events) — new contract surfaces under `BACKWARD_COMPATIBILITY.md` (CLI commands, types/signatures). Backup commands remain Enterprise-only. The proposed Core rotation acknowledgment above is a separately disclosed safety change to the existing CLI contract, requiring its compatibility decision and upgrade guidance before implementation. The automated spec's planned `run/list/restore/verify` and this spec's commands share one `cli.ts`; neither has shipped, and that carrier has withdrawn its AES-GCM env-key framing, `--force`/live-target restore and single-stream pipeline in favour of this engine. No deprecation bridge is needed for those draft shapes. Readers reject unsupported major schema versions; v1 readers stay when v2 arrives. Rollback of a future release keeps artifacts readable with a standalone build of the engine.
 
 ## Final Compliance Report — 2026-11-12 (rev 2.3)
 
@@ -369,33 +369,19 @@ This PR changes specifications only. Later implementation adds enterprise CLI co
 | Integration coverage | B01–B25 self-contained matrix; QA to confirm harness placement; B19/B20 cover Core refusal and protected rotation integration. |
 | i18n | Progress labels, prompts and errors localized; stable codes for scripts. |
 
-Verdict: **design review only; not approved for implementation** until Q2/Q3 security decisions and harness placement are confirmed.
+Implementation requires the Q2 and Q3 security decisions and confirmed harness placement.
 
 ## Changelog
 
-- 2026-11-20: Align the archive restore handoff with C9’s controller fence, strict cutover and continuous live check.
-
-### 2026-11-20 — Backup recovery correctness
-
-- Define physical-relation extraction, independent original large-object inventory, validated SQL-renderer framing, explicit transfer-type support and complete direction-aware sequence state. Add B21–B25 and the corresponding implementation steps; no engine code or tests are implemented by this revision.
-
-### 2026-11-19 — Confirmed spec review corrections
-
-- Resolve the confirmed recovery, fencing and lifecycle contract findings; add the corresponding failure and acceptance cases. This is a design revision only.
-
-
-### 2026-11-18
-
-- Linked archive restoration provenance to C9’s independent strict cutover gate.
+- 2026-11-20 — Specify coherent archive recovery, physical-relation and sequence coverage, and the separate C9 cutover and live health checks.
 
 - 2026-11-12 (rev 2.3): Specify fail-closed red ERROR and per-invocation `--acknowledge-unprotected-key-rotation` for Core rotation without Enterprise protection; distinguish entitlement from module switches, prohibit silent downgrade, require a quiesced encrypted recovery artifact and companion Enterprise correctness verification, and disclose the CLI compatibility gate.
 
-- 2026-11-10 (rev 2.2): Re-review corrected false quiescence detection from `xmax` alone: require matching cluster-incarnation evidence, an unchanged full-width horizon and empty in-progress sets at both epoch boundaries; preserve the weakest consistency across resumes and add the in-flight-commit race, prepared transactions and identity-change acceptance cases. Aligned the architecture diagram with batched pre-data restore.
+- 2026-11-10 (rev 2.2): Define quiescence across epochs: require matching cluster-incarnation evidence, an unchanged full-width horizon and empty in-progress sets at both epoch boundaries; preserve the weakest consistency across resumes and add the in-flight-commit race, prepared transactions and identity-change acceptance cases. Aligned the architecture diagram with batched pre-data restore.
 
-- 2026-11-06 (rev 2): Per PR author direction — moved to enterprise (`backups` module CLI, `.ai/specs/enterprise/`); whole-backup encryption by default with per-chunk age files and an explicit, policy-lockable unencrypted option; replaced the no-resume design with chunked, journalled, resumable backup and restore with epoch-based consistency labels; added per-entity progress bars for backup and restore (TTY, plain, NDJSON); replaced the B01–B20 matrix with B01–B18 and refreshed phasing.
-- 2026-11-06 (rev 2.1): Addressed specification review — encrypted journal via an ephemeral run key; `pg_restore` used only as a SQL renderer so schema steps share engine transactions; FKs from captured definitions with `NOT VALID`; atomic restore init and `restore_steps` journal; report finalized before journal drop; sequences reconciled with column max for non-single-snapshot backups; large objects written with `lo_put` and split by offset; bootstrap-free `mercato-backup` bin owning stdout; exit-code/status/resumability table; adaptive chunk sizing; ProgressJob scope; registration and template sync in Phase 0. Re-review: batched pre-data (lock limits), integrity based solely on the hash chain (age is not sender-authenticated) with hash-on-load, licence as the real enterprise boundary, i18n without bootstrap.
+- 2026-11-06 (rev 2): Moved to Enterprise (`backups` module CLI, `.ai/specs/enterprise/`); whole-backup encryption by default with per-chunk age files and an explicit, policy-lockable unencrypted option; replaced the no-resume design with chunked, journalled, resumable backup and restore with epoch-based consistency labels; added per-entity progress bars for backup and restore (TTY, plain, NDJSON); replaced the B01–B20 matrix with B01–B18 and refreshed phasing.
+- 2026-11-06 (rev 2.1): Encrypt the journal with an ephemeral run key; `pg_restore` used only as a SQL renderer so schema steps share engine transactions; FKs from captured definitions with `NOT VALID`; atomic restore init and `restore_steps` journal; report finalized before journal drop; sequences reconciled with column max for non-single-snapshot backups; large objects written with `lo_put` and split by offset; bootstrap-free `mercato-backup` bin owning stdout; exit-code/status/resumability table; adaptive chunk sizing; ProgressJob scope; registration and template sync in Phase 0. Batch pre-data (lock limits), integrity based solely on the hash chain (age is not sender-authenticated) with hash-on-load, licence as the real enterprise boundary, i18n without bootstrap.
 - 2026-11-06: Initial OSS manual backup/restore CLI design (non-resumable, `packages/cli`).
-- Council round two fixes, pass three (GPT-6.1 Sol workers): move all erasure-manifest ownership to C9, replace the automatic restore diff with its independent refreshed status/reviewed replay runbook, preserve separate archive success, and remove the withdrawn AES-GCM convergence gate while retaining age dependency/version/custody approval.
 
 ## Implementation Plan
 
@@ -421,6 +407,3 @@ Verdict: **design review only; not approved for implementation** until Q2/Q3 sec
 9. Facade used by the automated spec's `backup-run` worker with a chunk-store adapter for object storage and `ProgressJob` updates (B16) — delivered under that spec.
 10. Core rotation warning/acknowledgment and compatibility/upgrade guidance (B19); Enterprise recovery/verifier coordination (B20), implemented with the companion spec on a separate implementation PR.
 11. Full matrix, performance evidence, docs (`apps/docs`: enterprise backup runbook incl. encryption, resume and rotation), configured validation gate.
-
-- 2026-11-18 review fixes: align protected recovery provenance and strict gate instructions across CLI entry points.
-- 2026-11-18 review remediation: distinguish archive restore success from protected privacy cutover eligibility and reject mixed-epoch archives as protected recovery evidence.

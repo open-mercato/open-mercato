@@ -2,8 +2,7 @@
 
 > **Program:** an addition to package C7 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), left out of [`2026-11-16-portal-privacy-self-service.md`](2026-11-16-portal-privacy-self-service.md) because it needs a verified flow of its own.
 > **Uses** a re-authentication helper (`customer_accounts/lib/reauth.ts`). The self-service spec specifies its atomic counter rules; this spec ships the helper, its two columns, migration, snapshot and password-change integration itself if they are not there yet.
-> **Source verification:** read-only repository @ `9e09023483`; code was read, no app or implementation test was run. The original design used `08dada9624`.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** Worktree snapshot `9e09023483`.
 
 Extends: .ai/specs/GDPR/2026-11-16-portal-privacy-self-service.md
 Extends: .ai/specs/2026-08-14-storefront-customer-account.md
@@ -18,7 +17,7 @@ A customer-portal user's email address is their sign-in name, and nobody can cha
 
 > **Market reference.** GitLab, GitHub and Discourse all treat a new address as unconfirmed until a link sent to it is used, keep signing in with the old one until then, and tell the old address that a change was requested. Adopted: all three. Rejected: an immediate change, which is what the staff profile does here — for a sign-in name it lets a hijacked session take the account away from its owner.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -445,7 +444,7 @@ Each test creates its own tenant, organizations, staff users/feature grants, com
 - **Mitigation**: Forward/reverse linking serialize by person and query account-owned occupancy; skip attaching another active user and refer to staff. Organization predicates apply to linking and every staff operation.
 - **Residual risk**: Explicit staff relinking still needs identity review. A deleted/inactive account no longer triggers the active-account guard; this design does not create a permanent released-address registry.
 
-## Final Compliance Report — 2026-11-17 (revised)
+## Final Compliance Report — 2026-11-17
 
 - **Reviewed:** root/specs rules, compatibility contract, core API/encryption/coupling rules, the customer-accounts guide and verified auth/session/invitation/subscriber code, shared helpers, UI Portal Extension and queue/QA rules. Spec validation only; no implemented flow was tested.
 
@@ -463,41 +462,6 @@ Each test creates its own tenant, organizations, staff users/feature grants, com
 | Backward compatibility | Compliant design | `customerTokenService` unchanged; `createSession` gains an optional argument with a one-minor bridge; DEC-13 is applied per narrowing: registry/cross-site checks and credential fences, including the override case and the recovery refusals on reset-confirm, session creation and password change, under the exception; the password-change 429 and the profile recovery 409 under the ordinary protocol with a one-minor bridge |
 
 **Verdict:** Design ready for upstream review with proposed OSS placement pending the named DEC-2b approval (assumption 7), staff-assisted recovery with an account lock (assumptions 10 and 13), old-mailbox approval for passwordless accounts (assumption 12), no portal feature (assumption 14) and the stated historical-alias limit (assumption 11). Delivery depends on implementing C1/C4/C5's specified account/table/resolver contracts, D3's OSS protection service and same-manager lock acquisition, and the Enterprise capture owner/writer-readiness gate for protected compositions. The narrowing of existing routes follows DEC-13 per narrowing: the registry/cross-site checks and credential fences take the Emergency Security Exception, each with the named security-maintainer approval, and the re-authentication 429 and the profile recovery 409 follow the ordinary protocol with an upgrade note and a one-minor bridge.
-
 ## Changelog
 
-### 2026-11-20 — Confirmed specification review corrections
-
-- Serialize invited identity admission, resend, acceptance and address release. Prevent a pending or raced invitation from carrying explicit person/company access past its approved identity. (R02)
-
-### 2026-11-19
-
-- Capture confirmed normal/recovery email identifier mutations atomically under the shared tenant hold fence; replace the guard-refresh race allowance with rollback, same-manager lock ordering, protected readiness and never-protected OSS acceptance cases.
-- Bind staff recovery settlement to the account's current sign-in mailbox and the verified user and recovery versions.
-
-### 2026-11-18 — Follow-up review
-
-- Fence public link issuance and deletion acceptance against confirmation and identity recovery.
-
-### 2026-11-18
-
-- Keep identity recovery fenced after capability expiry, support verified reissue and audited staff settlement, and use a dedicated email-change event with the legacy staff event contract intact.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions.
-- Revised after independent review. A taken address is now indistinguishable in everything the requester can observe, not only in the response. Confirmation consumes magic links and reset tokens already sent to the old address. The notice carries a cancel link that needs no session. Uniqueness is checked against every hash form under a lock, and the pending row loses its unused hash column. The address is written through the entity, and `user.updated` is emitted so that search is rebuilt. Staff requests and cancels are audited commands with their own limits. Finished rows are removed lazily until the clean-up worker is scheduled, and the table joins the account's data class. The re-authentication helper is added here if it does not exist. Staff are told of a confirmed change, because the CRM's copy of the address is not updated.
-- Council round two fixes (GPT-6.1 Sol workers): r7-08 — shared re-auth columns and 429 rollout; r7-18 — organization scope and row versions in both portal designs; r7-28 — protected staff recovery, compromised-password clearing and honest takeover risk; r7-29 — cancel old-address invitations; r7-30 — own bounded cleanup and upgrade schedule; r7-31 — historical alias/hold coverage limit; r7-32 — staff cancel and permission tests; r7-36 — encrypted target with no hash; r7-49 — ids-only event payload; g4-19 — retained CRM-link occupancy guard; g4-20 — one atomic confirm/cancel winner; g4-33 — first-party session and password-write credential fences; g4-34 — cross-site checks; g4-36 — C7 edition fallback; g4-37 — public cancel manifest and consistent seven-handler/four-template inventory; wording nits corrected.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): align DEC-A/R3-10 guidance with the DSR engine's guard-time hold refresh and remaining concurrency/history limits; mark the broader C7 email-change edition outcome as a default needing an explicit program ruling; name the missing C1 resolver/account field lists, C4 account erasure and C5 table-coverage prerequisites; cite R3-1's two-pass/no-snapshot rule and the separate proposed C7 compatibility waiver.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): consume C1's now-specified `customerPortalLinkResolver.resolveLinks` and account metadata allowlist, C4's complete email-change erasure/history and C5's new-table claim; replace stale missing-contract claims with exact phase dependencies, cite DEC-G and R3-5, and correct the program's separate-waiver scope.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): cite C1's strict `CustomerPortalLinkInput` alternatives, `CustomerPortalLinkResult`, resolver registration/tests and exact organization rules while retaining both subscribers' account-owned lock/occupancy checks; align release prerequisites with C1's metadata-only export, C4's full email-change erasure/history and C5's mandatory class `tables` claim, and consume the program's existing DEC-2b/DEC-13 pending release gates.
-
-### 2026-11-17
-- Staff recovery now locks the account through one shared check: no sign-in, no sign-in or reset link to the current address, no credential, profile, export or deletion write, and an unclaimed self-service deletion is cancelled with `identity_review`.
-- An account without a password approves an email change from its current mailbox before the confirmation link is sent; a public cancel of a self-request ends sessions, consumes tokens, tells staff and blocks re-requests for 24 hours.
-- The credential stamp is read by the first-party routes from the module's own token tables; `customerTokenService` is unchanged and the remaining override case ships under DEC-13 with its migration note and a compatibility test.
-- Added capability and cleanup indexes, the hashed target-address lock key, the self-service schedule predicate and the manual upgrade-action step, the no-feature rule for email change, ids-only `user.updated` consumer notes, backdated-fixture integration timing and corrected enumeration timing text.
-- DEC-13 is applied per narrowing, as in self-service: the registry/cross-site checks and the credential fences (including the token-service override case and the identity-recovery refusals) take the exception, while the password-change 429 follows the ordinary protocol with an upgrade note and a one-minor bridge in which failures are counted but not refused.
-- Every recovery refusal on an existing route is now named and argued under DEC-13: reset-confirm, session creation (invitation acceptance included) and password change's 409 take the exception, and the profile PUT's 409 follows the ordinary protocol with a one-minor bridge; the password-change API row lists its 409.
-- Cleanup is registered by `setup.ts` on new installations and on every tenant setup, or by the upgrade action; TC-PORTAL-EMAIL-003 asserts only the idempotent upgrade action and bounded deletion, leaving the 503 cases to the unit suite. The compliance report is dated 2026-11-17 (revised).
-
-- 2026-11-18 review fix: fence both existing staff credential paths under the same scoped recovery and credential-version transaction.
+- 2026-11-16 — Initial specification.

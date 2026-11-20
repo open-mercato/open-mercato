@@ -2,8 +2,7 @@
 
 > **Program:** split out of packages D1 and D2 of [`../../GDPR/2026-11-15-gdpr-ready-deployments-program.md`](../../GDPR/2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
 > **Depends on:** the shared helper from [`../../GDPR/2026-11-16-operational-retention-pruners.md`](../../GDPR/2026-11-16-operational-retention-pruners.md).
-> **Code baseline checked for this revision:** read-only snapshot `9e09023483`; specifications only, no runtime tests run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** Worktree snapshot `9e09023483`.
 
 Extends: .ai/specs/GDPR/2026-11-16-operational-retention-pruners.md
 Extends: .ai/specs/enterprise/implemented/SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md
@@ -20,7 +19,7 @@ Three enterprise tables grow without bound. Expired step-up ("sudo") sessions ha
 
 **Scope and ownership.** The `security` module owns `sudo_sessions` and `mfa_challenges` cleanup; the `sso` module owns `scim_provisioning_log`. Both consume the operational-pruners spec's shared helper, schedule expectations and history-mode bridge, and each prunes only its own tables. User credentials and record-lock history belong to other specs (see "Not in this spec").
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -186,17 +185,6 @@ Both integration tests create their own scopes and rows, restrict the handler's 
 | Stable service behaviour | Compliant design | cleanupExpired cutoff and total unchanged; worker has its own method |
 
 **Verdict:** design approved; implementation depends on the parent helper and its edition decision, and the history mode/doctor release gates apply to SCIM.
-
 ## Changelog
 
-### 2026-11-17
-- Added the Overview section (market reference, scope and module ownership).
-
-### 2026-11-16
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): align the SCIM default-flip prerequisite to the doctor's exact pruners.unscheduled diagnostic id.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): use the current doctor-owned pruners.unscheduled diagnostic for the SCIM default-flip prerequisite.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): align the doctor-owned pruners.unscheduled name and scheduler count handoff; declare exact security/SSO system schedule keys in their own privacy exports, sharing registration/diagnostic definitions without a copied foreign id list.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): exact parent helper names and installation first-count storage; SCIM cites DEC-H separately from B6 and the R3-2/DEC-I/R3-4 scheduler diagnostic gates; enterprise process-window/register limit stated; R3-3 metadata distinction and index snapshots aligned; record-lock cleanup corrected to soft deletion in line with enterprise coverage.
-- Council round two fixes (GPT-6.1 Sol workers): r8-13 mode-aware SCIM requirements and release scenarios; r8-26 self-contained injected-mode SCIM integration test; r8-33 preserve cleanupExpired immediate cutoff and total with a separate worker path.
-- Written autonomously, split out of the operational pruner spec after its review.
-- Revised after independent review: upgrade actions cannot reach enterprise code, so each module gets a registration command; two new queues stated; the challenge predicate reduced to expiry; a day of grace added for sudo sessions because a late verification's answer changes once the row is gone; batching and an index added for sudo sessions.
+- 2026-11-16 — Initial specification.

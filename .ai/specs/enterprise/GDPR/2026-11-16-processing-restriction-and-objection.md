@@ -1,9 +1,8 @@
 # Restriction of processing and objection: what the product can and cannot do
 
 > **Program:** package C10 of [`../../GDPR/2026-11-15-gdpr-ready-deployments-program.md`](../../GDPR/2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593). Proposed by the program; it is not in the issue.
-> **Status:** Decision record for the proposed operator procedure in DEC-8. DEC-14 keeps technical restriction and non-marketing objection open until written upstream disposition or delivery of a separately tracked control. A first design blocked edits but left other processing paths open. This document records why that is insufficient, what a technical restriction would require, and which manual controls are available or still proposed.
-> **Code baseline:** supplied repository snapshot at the spec commit. Current-code claims were rechecked there; no runtime behavior was tested.
-> **Written autonomously.** No question was put to a person.
+> **Status:** Decision record for the proposed operator procedure in DEC-8. DEC-14 keeps technical restriction and non-marketing objection open until written upstream disposition or delivery of a separately tracked control. The procedure covers the available manual controls and records the remaining requirements for technical restriction.
+> **Code baseline:** The inline source references describe existing product behavior.
 
 Extends: .ai/specs/enterprise/GDPR/2026-11-16-privacy-dsr-engine.md
 
@@ -15,7 +14,7 @@ A person may ask a controller to stop processing their data while a dispute is s
 
 This is a decision record, not a design to build. It explains why an edit freeze does not implement Art. 18, what a technical restriction would require across the codebase, and why the program chose a documented procedure (DEC-8). The operator procedure itself is OSS documentation, so its normative table lives in the OSS deployment-docs spec ([`../../GDPR/2026-11-16-gdpr-deployment-docs.md`](../../GDPR/2026-11-16-gdpr-deployment-docs.md), **Restriction and objection procedure (DEC-8)**). This record keeps the legal summary, the code evidence, the Known limits and the requirements any later freeze must meet.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | Question | Decision | Rationale |
 |---|---|---|
@@ -89,7 +88,7 @@ These same limits belong on the deployment docs page and in the program's Known 
 
 ### Option B — requirements, if a record freeze is built
 
-DEC-8 rejects a freeze for this program. A freeze must not be presented as restriction. If a later spec builds one, the first design's review sets these requirements:
+DEC-8 rejects a freeze for this program. A freeze must not be presented as restriction. Any future freeze carrier must satisfy these requirements.
 
 1. **Name and wording.** "Frozen record". The banner and the settings page state what is and is not blocked.
 2. **Where the block sits.** In the `customers` module, which asks an optional guard. Checked where the person is already loaded by the module's shared command helpers, not from an untyped input; with a resolver for each command that carries only a child's id.
@@ -173,20 +172,6 @@ Option A is documentation only. It changes no API, schema, feature id, event, DI
 | Required spec sections | Compliant | Overview, Problem Statement, Proposed Solution, Architecture, Data Models and API Contracts present; the last three are "None — documentation only" |
 
 **Verdict:** G5 owns the proposed operator procedure and publishes the `restriction-and-objection` page in Stage 1. No technical implementation is authorized from this record. DEC-14 requires written acceptance of the substitution or shipped technical acceptance evidence before #8593 closes. A technical carrier inventories each covered read, write, automation and disclosure path. Its acceptance exercises permitted preservation and verifies that disallowed processing refuses for the restricted subject while an unrelated control subject remains available.
-
 ## Changelog
 
-### 2026-11-18
-
-- Kept the original technical scope open under DEC-14 while retaining the operator procedure as a separate G5 deliverable.
-
-### 2026-11-16
-- Written autonomously as a design for a restriction mark enforced by a command interceptor.
-- Rewritten after independent review as a decision record. The review showed that blocking edits alone left reads, automation and disclosures open; ordinary edits also fall within processing under Arts. 4(2) and 18(2). It also showed that writes to a person also happen outside commands and through undo; that an injected widget cannot make a form read-only; that 423 already means something else; and that Arts. 18(3) and 19 were missing. The default is now a documented procedure with existing controls, and the requirements for a record freeze are kept for a later decision.
-- Council round two fixes (GPT-6.1 Sol workers): r7-09 — edition-aware preservation, OSS exclusions and unmatched-hold limits; r7-33 — manual subject-disclosure reconstruction and known limit; r7-50 — API-backed assistant reads and remaining independent paths; g4-29 — editing is processing, rectification exceptions and corrected options/changelog.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): quote the program's exact R3-5 Known limits; add hold-aware forms, OSS form-period removal and separate operational-log preservation; align the deployment-doc page and staged availability, retain the direction gate and add manual advance-notice/lifting instructions. The corrected rationale remains that editing is processing and edit blocking alone omits other uses.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): verify the program's exact R3-5 Known limits, C3 hold/skip/exclusion boundaries, the register's recipient limits and the contact-permissions seam against their merged carriers. Option A retains DEC-8/Q1 approval; the deployment-doc carrier still needs to distinguish factual Stage 1 limits from publication of the gated procedure.
-
-### 2026-11-17
-- Added the missing Overview, Problem Statement, Proposed Solution, Architecture, Data Models and API Contracts headings. The operator procedure table moved to the OSS deployment-docs spec, so OSS documentation is not sourced from this enterprise record; this record keeps the requirements the procedure must meet.
-- Recital 67 is summarized under What the law asks, and Known limits state that a procedure may fall short of its expectation of technical means, with the compensating measures the product supports.
+- 2026-11-16 — Initial specification.

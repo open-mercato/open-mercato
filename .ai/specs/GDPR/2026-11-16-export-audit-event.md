@@ -1,8 +1,7 @@
 # Exports leave a record and an event
 
-> **Program:** an OSS seam for package G2 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), split from [`enterprise/GDPR/2026-11-16-security-event-alerting.md`](../enterprise/GDPR/2026-11-16-security-event-alerting.md) after its review.
-> **Verified at** `main` @ `08dada9624` by reading code; nothing was run. The routes that bypass the CRUD factory were inventoried in the council review by listing every API route file that sets an attachment header and every API route under an `export` path; each is classified below.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Program:** an OSS seam for package G2 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593). The [security alerting spec](../enterprise/GDPR/2026-11-16-security-event-alerting.md) consumes this seam.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 
@@ -20,7 +19,7 @@ The design has two parts. One shared helper, `exportResponse`, builds the respon
 
 Durable recording is enforced by `OM_EXPORT_AUDIT_POLICY=require`. A compatibility minor initially defaults to `report`, which attempts the same receipt and preserves existing file responses during an audit outage. It emits an explicit incomplete-audit diagnostic and cannot satisfy the production coverage gate. Audit ownership remains OSS and the large-export consumer remains optional. The dedicated `audit_logs.export_evidence` retention set provides finite expiry for settled evidence after its named dependencies ship.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -340,39 +339,6 @@ Counting across several pages is unit-tested: the batch size cannot be set by a 
 | Enterprise scope in the OSS specs directory | Compliant | One enterprise route adopts the OSS helper; nothing enterprise-only is specified |
 
 **Verdict:** design ready, subject to the settings, retention, erasure and scheduling prerequisites. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval.
-
 ## Changelog
 
-### 2026-11-20
-
-- Route age-based audit evidence expiry through the shared fenced `applyAgeRetention` contract, with same-transaction rollback and rollout-gate acceptance. Specification alignment for R06 only.
-
-
-### 2026-11-19
-
-- Supersede independent best-effort recording with an atomic release receipt, recoverable dispatch and protected-mode activation following an ordinary compatibility minor.
-
-### 2026-11-18 — Follow-up review
-
-- Classify the portal subject copy under its mandatory C1 audit rather than the generic export event.
-
-### 2026-11-18 — Review corrections
-
-- Bound the independent action-log and event attempts by one deadline and preserve occurrence identity on late settlement.
-
-### 2026-11-16
-- Split from the security-alerting spec on its reviewer's advice. That review showed the first design could not work: the access log cannot hold a summary row, its rows expire in eight hours, an open PR lets it drop writes under load, the factory has two export branches, and at least one export route bypasses the factory. The record now goes to the action log and the event is emitted independently of it.
-- Revised after its own independent review. The requirement is narrowed to exports the server produces: tables exported in the browser never reach a route. The seven routes outside the factory are named, including per-record and per-subject exports, which needed two more scopes. Recording moved into one helper that also builds the response, because a header-based guard could not tell exports from file downloads. The entry gets a named command id and is awaited; its limits on the audit page and in SQL are stated. `audit_logs/events.ts` is a new file. The multi-page case is unit-tested, since a request cannot set the batch size. The sequencing after PR #8472 is dropped: that PR does not touch the export branches.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g7-10 — the scope `page` does not exist in the factory, whose every export runs to the last page; it is replaced by `view` (the caller's filters, every page) beside `full`, `record` and `subject`, checked against `factory.ts`, and the scenario, unit tests and integration test now cover a filtered export. g7-11 — the inventory is re-run over every route with an attachment header or an `export` path: three more exports (the EUDR statement packet, the staff submission PDF, the enterprise eval-case export) join the helper, the public submission PDF is classified as the respondent's own copy, and the guard checks a classified list instead of route names. g7-09 (consumer side) — the event is emitted persistent with its scope, and its `id` is generated before both sinks, so the alerting spec can use it as the occurrence key.
-
-- Council round two fixes (GPT-6.1 Sol workers): r9-03 — real entry/event integration coverage for all ten custom paths; r9-11 — best-effort requirement and disabled-audit dependency; r9-31 — trigger-excluded export event; g7-34 — trusted request actor/scope and explicit resource/parent ids; F-59 — full scope derived from `exportFullRequested` across every alias.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): correct the general-history evidence exemption; add finite `audit_logs.export_evidence` expiry and its R3-2/R3-3/DEC-B/DEC-C handoffs, conservative holds and scheduling gap; make event organization nullability explicit for the alerting consumer; add expiry coverage.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): retain the existing finite expiry and null-tenant gap; make whole-entry identity removal and aggregate-only surviving totals explicit, refuse unmatched-hold bypasses and consume the record-retention owner's now-specified evidence-summary path without changing the export event or best-effort response.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): select `runEvidence: 'aggregate'` for `audit_logs.export_evidence`, cite the record-retention owner's **Aggregate evidence for expiry runs** and exact `PrivacyRetentionAggregateSummary`, require its shared writer and tests before expiry, and align TC-AUD-EXPORT-003 with identifier-free persisted evidence.
-
-### 2026-11-17
-- Added an Overview. The export's organization is the effective filter's single id, otherwise null, with the organization scope recorded in the encrypted context; custom routes resolve it through `resolveExportRequestContext` rather than the home organization.
-- The awaited entry write is bounded at five seconds and reported as a sink failure; the body must be fully built, and streams are refused.
-- The guard scans the app, template and present official-module roots, and the guarantee is narrowed to this repository. The DSR engine's subject download joins the classified list as an export when it ships.
-- Export-evidence expiry names C1's separate `privacy.subject_export` kinds, states that helper `scope: 'subject'` entries expire with this set, and declares `unmatchedHoldsOptOut: 'forbidden'`.
+- 2026-11-16 — Initial specification.

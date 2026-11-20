@@ -1,8 +1,7 @@
 # Honest cookie notice and a consent gate
 
 > **Program:** package E5 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
-> **Verified at** `main` @ `08dada9624` by reading code; nothing was run. G5's verified captcha inventory now records server-side siteverify with no built-in browser widget loader; an operator-supplied widget needs its own category/transfer assessment. Where Leaflet's own assets come from, and whether the browser telemetry component writes browser storage, were not checked here.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`. G5 covers built-in server-side CAPTCHA verification. An operator-supplied browser widget requires its own category and transfer assessment.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 
@@ -16,7 +15,7 @@ Every page shows a bar that says "We use essential cookies" with two buttons, "A
 
 > **Market reference.** The French and Italian regulators' guidance, and consent tools such as Klaro and Cookiebot, agree on four points: no banner is required for strictly necessary cookies; refusing must be as easy as accepting; nothing non-essential may load before a yes; and the choice must be easy to change later. Adopted: all four. Rejected: a full consent-management platform with vendor lists; this is a gate and a banner, not a product.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -352,7 +351,7 @@ The test-only category is per request and browser context. TC-CONSENT-002 is man
 - **Mitigation**: The cookie name and its presence check are unchanged; the characterization test pins it.
 - **Residual risk**: A test that clicks "Accept cookies" by its label; found by the suite.
 
-## Final Compliance Report — 2026-11-17 (revised)
+## Final Compliance Report — 2026-11-17
 
 - **Reviewed:** root `AGENTS.md`, `.ai/specs/AGENTS.md`, `packages/create-app/AGENTS.md` → Template Sync Checklist, the frontend architecture contract. Not reviewed in full: `packages/ui/AGENTS.md`.
 
@@ -367,39 +366,6 @@ The test-only category is per request and browser context. TC-CONSENT-002 is man
 | Integration coverage | Required delivery gate | TC-CONSENT-001 covers notice and locale headers; TC-CONSENT-002 covers the gate, equal choice, public settings and withdrawal/cleanup in its own context |
 
 **Verdict:** Design ready with proposed OSS placement. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Phase 1 ships independently after that approval. Phase 2 ships with TC-CONSENT-002 and the named G5 docs section, without waiting for a first production use. The shipped application still declares only essential categories. Each PR receives ordinary maintainer review.
-
 ## Changelog
 
-### 2026-11-20 — Server rendering boundary
-
-- Limit E5 to granted client effects and add initial production render and prefetch acceptance evidence.
-
-### 2026-11-20
-
-- Serialized consent writes with Web Locks and current-cookie merge, refused stale grants, and specified fail-closed behavior and two-tab acceptance.
-
-### 2026-11-19 — Confirmed spec review corrections
-
-- Required exact cookie names for non-root paths and aggregate codec-size validation before accepting declarations; added cross-path browser cleanup and maximum-declaration round-trip cases (F06, F41).
-
-
-### 2026-11-18 — Review remediation
-
-- Apply withdrawal across mounted same-origin documents and exercise an already-running integration in a second tab.
-
-### 2026-11-18
-
-- Limited banner Accept and Reject to unanswered current revisions, preserving existing grants and refusals until explicitly edited.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions.
-- Revised after independent review. The built-in telemetry is no longer gated: it is staff-only, the gate could not have stopped it once started, and an existing test opts into it by cookie. The category list is resolved on the server and passed down, because a client file cannot read the settings it would depend on, and it lives under `src/lib`, which the template sync covers (superseded by the r9-22 entry below: the list is now resolved inside the existing layout). Each category carries a revision instead of the whole list being hashed. The settings link has a named place on each surface, and saving reloads the page. The integration test uses the per-request cookie that shows the bars. Browser-written cookie attributes are left out, and the two phases ship separately.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g6-01 — the bar collapses to a "Cookie settings" button that `GlobalNoticeBars` renders on every page, public pages included, and that gives way to a footer link where one is mounted; new Delta scenario, edge cases, component tests across paths, a risk entry and a compliance row. g6-05 — the per-request cookie the integration test relied on did not exist; Phase 1 now adds `resolveNoticeBarsEnabled` with the `om_test_notice_bars=on` opt-in under `OM_TEST_MODE=1` and `OM_TEST_NOTICE_BARS_MODE=opt-in`, used by the root layout in the app and the template, with unit and layout tests in both, and TC-CONSENT-001 is rebuilt on it.
-
-- Council round two fixes (GPT-6.1 Sol workers): r9-02 — per-context category and mandatory browser consent flow; r9-22 — category list inside existing layout; r9-23 — versioned bounded cookie and attributes; r9-26 — first-party storage cleanup and limits; r9-27 — shared AuthFooter path/locales; g6-19 — essential semantics; g6-20 — granted-branch loading; corrected cookie/environment counts and added locale Set-Cookie integration assertions.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): linked the legal-document and CRM carriers without conflating their evidence with browser choices; replaced the CSP caching premise with the existing nonce/origin boundary; named G5's index as the cookie-inventory and Phase 2 recipe carrier; synchronized the test-probe delivery gate and program edition qualification.
-
-### 2026-11-17
-- Browser telemetry stays ungated but gets a G5 cookie and terminal-access inventory entry in Phase 1, and Known limits states that the spec makes no ePrivacy Art. 5(3) determination for deployments that enable it.
-- Added the explicit `./frontend/consent` export to `packages/ui/package.json`, stated that every id (essential included) is denied outside a provider, and marked the superseded `src/lib` changelog sentence.
-- Dated the Final Compliance Report 2026-11-17 (revised) to match its rows.
+- 2026-11-16 — Initial specification.

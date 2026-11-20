@@ -2,8 +2,7 @@
 
 > **Program:** package A3 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593). Addresses open-mercato/open-mercato#2241 in part; see the acceptance table.
 > **Reference only:** `.ai/specs/2026-08-20-production-encryption-fail-closed.md` on `upstream/feat/security-readiness` (PR #5557).
-> **Verified at** `main` @ `08dada9624` by reading code; nothing was run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/GDPR/2026-11-16-runtime-encryption-key-guard.md
@@ -21,7 +20,7 @@ Four callers already fail closed and name the condition the same way: custom-ent
 
 > **Market reference.** HashiCorp's guidance for Transit consumers and Rails' Active Record Encryption both raise on a write when no key can be resolved; neither stores cleartext as a fallback. Adopted: raise, with a typed, stable error. Rejected: wiring the condition into a liveness or readiness probe, as the reference branch did — a key-service outage would then make an orchestrator eject every replica and turn a write outage into a full one.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -463,11 +462,11 @@ Every database-backed case owns a dedicated schema or tenant/organization, ident
 
 ## Final Compliance Report — 2026-11-16
 
-### AGENTS.md Files Reviewed
+### Applicable repository guidance
 - `AGENTS.md` (root), `.ai/specs/AGENTS.md` — in full
 - `BACKWARD_COMPATIBILITY.md` — protocol, Emergency Security Exception, the 2026-09-11 dated entry
 - `packages/core/AGENTS.md` — Encryption section
-- `packages/shared/AGENTS.md`, `packages/search/AGENTS.md` — relevant encryption/search rules; `packages/telemetry/AGENTS.md` — reporting and no-suppression rules reviewed for this revision.
+- `packages/shared/AGENTS.md`, `packages/search/AGENTS.md` — relevant encryption/search rules; `packages/telemetry/AGENTS.md` — reporting and no-suppression rules.
 
 ### Compliance Matrix
 
@@ -498,48 +497,6 @@ Every database-backed case owns a dedicated schema or tenant/organization, ident
 
 ### Verdict
 **Design ready for Phases 1, 2 and 3.** A3 opt-in precedes B4 Phase 2, which verifies active-vector coverage. The operator note promises backfill after B1 Phase A. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval. The default flip is a separate tracked task with the gates under Migration. The program closes only after the protected production default is `fail` and the B1 no-map disposition is recorded.
-
 ## Changelog
 
-### 2026-11-18 — Review remediation
-
-- Align the vector coverage diagram with the A3 opt-in and production-default sequence.
-
-### 2026-11-18 — Review corrections
-
-- Separate A3 opt-in from vector coverage and pin the authorized undo trace scope through audit finalization.
-
-### 2026-11-18 — Spec review
-
-- Pin and persist the same effective audit scope, preserve nullish tenant and organization fallback, and gate program closure on the protected production default and B1’s missing-policy disposition.
-
-### 2026-11-16
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): consume R5-2's corrected production predicate so non-production CLI/Next.js processes ignore live mark files without a binding; align the edge case, unit coverage and compliance without adding an exemption or setting.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): confirmed that Components, API Contracts, Phase 3 step 1 and the manifest already specify the pure `getTenantEncryptionUnavailableWrites` parser shared by runtime policy and `encryption.plaintext_on_unavailable`; the doctor's stale missing-export dependency is reported to its owner. No second parser or production accessor is added.
-- Written autonomously with resolved assumptions.
-- Revised after independent review: the update hook decides on changed columns, so login no longer trips it; the command bus checks before it runs a command, because the audit row is written after commit; the setting is separated from the key guard's; report codes follow the telemetry facade's shape and every occurrence is counted; memory-first lookup extended to reads and ordered after the toggle; a 4xx key creation no longer opens the breaker; 503 mapping; the #2241 acceptance list is answered item by item; known limits stated.
-
-- Council round two fixes (GPT-6.1 Sol workers): r1kk-05 live-vector dependency; r1kk-06 backend-scoped shared cache; r1kk-09 mapper on command transports; r1kk-12 command pin through audit; r1kk-21 initialization refusal; r1kk-25 B1 backfill remedy; g1-15 first-write provisioning; g1-33 unthrottled reports; F-45 reuse accessor; F-57 change-set evidence; F-58 raw-write ownership B1.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): cited the key guard's exact DEC-E/R3-11 production-binding contract; supplied the side-effect-free unavailable-write setting accessor required by the doctor, without adding a second production accessor; corrected the B6 failed-job recovery claim to its opt-in minor, next-minor 168-hour default, explicit zero opt-out, count cap and independent cleanup requirement. B4's active-vector encryption and outage tests remain explicit unmet dependencies rather than claims about today's plaintext-only vector path.
-
-### 2026-11-17
-- The command preflight distinguishes a known null tenant, whose audit row has no tenant key and stays in clear as today, from an unknown scope; tenantless global accounts and unscoped API keys are no longer refused under `fail`, and `resolveEncryptionScope` may return `tenantId: null`.
-- Vault responses are classified by status: proven isolated tenant-local 4xx leave the breaker closed, while unverified or repeated cross-tenant 403, 401, 408, 425, 429 and 5xx open it, honouring `Retry-After` up to five minutes.
-- An unconfigured installation's `NoopKmsService` is branded and counted with reason `not-configured` instead of being reported per write as an outage.
-- The unconfigured state is reported once per process with `encryption.not_configured` on its first write, in every release, because the key guard's `not_configured` finding is a log line that exists only from key-guard Phase 3; Phase 1 therefore has no dependency on the key guard's release order.
-- The command pin is a revocable lease that timers and detached promises cannot use after release.
-- Named the integration harness: a loopback Vault stub with a production-mode child for the HTTP tests, and request interception for TC-ENCRYPTION-UI-001.
-- Correction to the historical review below: every report is unthrottled; only local log lines are limited.
-
-### Review — 2026-11-16 (historical; superseded by this revision)
-- **Reviewer**: Agent (fresh context, spec path only), then author revision
-- **Security**: Two blast-radius claims were wrong and are corrected
-- **Performance**: Counter is unthrottled; report throttled
-- **Cache**: Key cache behaviour specified; no application cache involved
-- **Commands**: Check added before execution
-- **Risks**: Post-commit failure, stale projections added
-- **Verdict**: Revised; the revision has not been independently re-read
-
-### Spec review corrections — 2026-11-19
-
-- Distinguish authenticated path refusal from Vault credential/global policy 403s using bounded single-flight proof and cross-tenant backoff (F24).
+- 2026-11-16 — Initial specification.

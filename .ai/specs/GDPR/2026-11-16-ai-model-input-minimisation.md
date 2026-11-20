@@ -9,7 +9,7 @@ Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 
 Tools and page-context builders can send decrypted record data to a model. A field filter would cover only declared record shapes on selected paths. This carrier proposes documenting exactly what is sent. If upstream retains the technical requirement under DEC-14, it needs a separate delivery spec. The narrower control that was considered stays below as a rejected alternative, with its gaps, including OpenCode over MCP.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Decision | Alternative considered |
 |---|---|---|---|
@@ -52,7 +52,7 @@ Option B, decided. No code, setting or API changes. G5 writes **What the assista
 
 ### Alternative A (rejected, not built)
 
-The reviewed design, kept as the record behind DEC-11. Nothing here is implemented; a later field-level control starts from a new spec.
+DEC-11 selects the disclosure outcome. Any field-level control requires a separate implementation spec.
 
 1. Add optional `resultEntities` declarations to first-party tools. A declaration identifies record roots by a JSON Pointer, lists the exact record properties it returns as `fields`, and says whether that root is one record or an array of records. A tool with no declaration is unfiltered and listed as uncovered.
 2. Add `withheldFields`, an empty-by-default list of `{ entityId, field }`, to `ai_tenant_model_allowlists`. Extend the loaded result of `AiTenantModelAllowlistRepository.getEffectivePolicy(scope)` from [`2026-11-16-ai-data-protection.md`](2026-11-16-ai-data-protection.md), **Policy loading and selection**, with `withheldFields`; keep the existing `AiTenantModelAllowlistSnapshot`, `getForTenant` and `getSnapshot` contracts unchanged. Organization row wins, then tenant row; an explicit empty withheld list on an organization row wins too. Formatting callers load this policy even when `enforceForCalls` is false: provider permission and field withholding are separate settings. `none` means an empty list; `unavailable` refuses model formatting with `ai_policy_unavailable` before content leaves, never an empty-policy fallback. Settings validate choices against declared fields, use feature ACL and return `updatedAt` for optimistic locking.
@@ -156,24 +156,6 @@ B adds no API or UI path, so it adds no integration test. Its gate is documentat
 | Honest limits | Compliant design | The disclosure names OpenCode/MCP, embeddings, text extraction, web research, moderation, agent context and every other route; the G5 inventory guards the listed recognizers and the owner reviews uncovered routes; provider permission is not field minimisation |
 
 **Verdict:** G5 owns the proposed disclosure in DEC-11. DEC-14 requires written upstream acceptance of that substitution or shipped acceptance evidence for the technical requirement before #8593 closes. A technical carrier inventories the approved model-bound tool-result paths, including supported OpenCode/MCP and direct dispatches in scope. Its acceptance captures actual outbound inputs and distinguishes withheld protected fields from allowed field controls.
-
 ## Changelog
 
-### 2026-11-18 — Review remediation
-
-- Use G5’s authoritative source scope and call-site inventory, including OpenCode and direct adapters, with its explicit manual-review boundary.
-
-### 2026-11-18
-
-- Distinguished G5 disclosure delivery from acceptance of the original tool-output minimisation requirement under DEC-14.
-
-### 2026-11-16
-- Split from the AI data-protection spec after independent review. The first design filtered in the tool executor by key name. The review showed that the executor also serves people and stored rows, that code mode returns a string a key walk cannot see, that page-context hydration bypasses it, that search results carry titles not field names, and that field names such as `name` and `description` would blank unrelated data. This version filters only where a result is formatted for a model, only for tools that declare what they return, and puts the question of building it at all to a person.
-
-- Council round two fixes (GPT-6.1 Sol workers): r2iqa-13 — inventory and disclose OpenCode over MCP; r2iqa-37 — Q1 default and named docs/program carriers; r2iqa-38 — exported scoped formatter; r2iqa-39 — mandatory recording adapter and integrations; r2iqa-40 — JSON Pointer and byte/truncation rules; g6-28 — masked typed transcript stated and tested.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): bound option B to the deployment-docs carrier's actual Stage 1 and marked its missing section explicitly; synchronized the sibling's effective-policy method, result member, settings route and version name; kept conditional withholding active independently of provider enforcement, with matching failure and test requirements.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): recognized program DEC-11 and G5's already-specified model-input section and Stage 1 carrier; retained Q1 confirmation and actual statement delivery as closure gates.
-
-### 2026-11-17
-- Route inventory completed: embeddings, attachment text extraction, web research, input moderation, agent-runtime callers, agent-orchestrator context and evaluation, assistant command routing and the decision model are now listed, the search-pack path is corrected, and G5's model-input inventory test fails on an unlisted model caller.
-- Superseded by DEC-11 / Q1=B: no formatter, withholding or transcript masking is built. Entries above that describe filtering, masked transcripts or conditional withholding record Alternative A.
+- 2026-11-16 — Initial specification.

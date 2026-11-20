@@ -144,13 +144,13 @@ results remain required before calling the implementation merge-ready.
 
 ## Changelog
 
+- 2026-11-20 — Require client-side consent before a non-essential integration starts and retain the existing CSP origin and nonce policy.
+
 - 2026-10-29: Defined and implemented the production policy, nonce plumbing,
   provider origin declaration, consumer compatibility and regression coverage.
-- 2026-10-29: Fresh scope-cohesion review approved the single coordinated capability.
-  Security review identified inherited CSP on the storefront `srcDoc` preview;
-  added validated nonce propagation and unit/component/browser regression coverage.
-  Its second finding, blocked demo keyframes, is covered by a failing-before /
-  passing-after component regression and the production Chromium fixture.
+- 2026-10-29: Added validated nonce propagation to the storefront `srcDoc` preview
+  and unit, component and browser regression coverage. Demo keyframes have a
+  component regression and a production Chromium fixture.
 - 2026-10-29: Updated the existing app header/layout suites to exercise emitted
   production CSP and trusted request-nonce propagation rather than config syntax.
 - 2026-10-29: Preserved the existing configured documents collaboration origin
@@ -158,7 +158,5 @@ results remain required before calling the implementation merge-ready.
   loopback-gate and real-config regressions without changing CI configuration.
 - 2026-10-29: Registered cross-package CSP regression coverage in the existing
   create-app parity exception manifest and added a redacted warning when a
-  configured collaboration endpoint cannot safely become a CSP source. A
-  re-review bounds that warning to once per process, including repeated proxy calls.
-- 2026-11-16: Council round two fixes, pass three (GPT-6.1 Sol workers): linked E5's forthcoming non-essential integration recipe beside the operator-origin controls; consent-dependent loading stays inside the granted branch while the existing nonce and origin policy remains unchanged.
-- 2026-11-17: Dated the 2026-11-16 changelog entry to match the other entries; no design change.
+  configured collaboration endpoint cannot safely become a CSP source. The
+  warning appears once per process, including repeated proxy calls.

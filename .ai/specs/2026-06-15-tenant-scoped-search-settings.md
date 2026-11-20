@@ -122,7 +122,7 @@ invalidate(moduleId, name?, scope?: ConfigScope): Promise<void>
 - **`setValue` with a scope** writes/updates only the scoped row (`tenant_id = scope.tenantId`); it never touches the global row. **`setValue` without a scope** keeps today's behavior (global row), so existing non-search callers are unchanged.
 - **Cache key** is already scope-aware: `module-config:v2:${moduleId}:${name}:${tenantId ?? 'global'}`. `invalidate` clears the specific scope key; module-tag invalidation is unchanged.
 
-The optional fifth `setValue` argument is the future additive extension owned by [`2026-11-16-privacy-data-class-contract.md`](GDPR/2026-11-16-privacy-data-class-contract.md), “Tenant privacy settings”; it is not claimed to exist today and this revision must not overwrite or narrow it when the changes land together. Existing callers that omit scope retain their instance-global behavior.
+The planned optional fifth `setValue` argument is owned by [`2026-11-16-privacy-data-class-contract.md`](GDPR/2026-11-16-privacy-data-class-contract.md), “Tenant privacy settings”. Preserve that additive argument when both changes land together. Existing callers that omit scope retain their instance-global behavior.
 
 **R3-3 — Tenant privacy settings live in `module_configs`.** The contract spec owns `privacySettingsService.get(scope, name)`, its `retention.<area>.<setting>` declarations and settings CLI. Its adapter deliberately accepts only `source: tenant` and discards instance fallback before applying a declared default/unset. Search's scoped → instance → env fallback remains specific to search; do not apply it to privacy retention ages. No privacy table, renamed config type or organization override is introduced here.
 
@@ -290,22 +290,6 @@ For work proposed under #8593, the GDPR hand-off remains subject to the program 
 
 ## Changelog
 
-### 2026-11-20
+- 2026-11-20 — Specify tenant-safe embedding settings, generation-fenced vector writes and queries, and explicit tenantless catalogue scope.
 
-- Limited tenantless catalogue operations to eligible token/fulltext paths and added vector-admission coverage across the routes, indexer and worker.
-
-### 2026-11-18 — Review remediation
-
-- Specify additive search-owned migrations, the generation commit fence and safe legacy-row rollout for same-tenant model changes.
-
-- 2026-11-18 — Fence same-tenant model generation changes through final writes, query eligibility and reindex completion.
-
-- 2026-06-15 — Initial draft. Locked Q1 (scope `ModuleConfig` generally), Q2 (env-derived defaults), Q3 (active cached provider probe). Grounded in `packages/core/src/modules/configs/*` and `packages/search/src/{modules/search,vector,strategies}/*`.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): W11 runtime handoff — trusted scope at both vector worker paths, both search routes and auto-index reads; operation-scoped immutable embeddings replace shared config mutation, including settings save; interleaved two-tenant fixtures/cleanup; current storage/probe drift corrected and R3-3 privacy fallback kept distinct.
-
-- 2026-11-17 — Runtime-isolation inventory completed from a source grep: the embeddings reindex route and `vector_purge` drop their shared-service writes, and the `vector_upsert` / `vector_delete` auto-index reads take the record tenant, with event and reindex/purge interleave tests; the source guard is the authoritative inventory. Both settings POSTs refuse a tenantless caller (`403`). API table corrected to `search.embeddings.view` / `search.embeddings.manage`.
-
-### Spec review corrections — 2026-11-19
-
-- Close the unscoped source-guard exception with one owner-validated catalogue wrapper and explicit null scope (F39).
+- 2026-06-15 — Specified scoped `ModuleConfig`, environment defaults and an active cached provider probe. Source contracts: `packages/core/src/modules/configs/*` and `packages/search/src/{modules/search,vector,strategies}/*`.

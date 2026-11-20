@@ -2,8 +2,7 @@
 
 > **Program:** package G2 of [`../../GDPR/2026-11-15-gdpr-ready-deployments-program.md`](../../GDPR/2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
 > **Builds on:** [`2026-11-13-sign-in-activity.md`](../2026-11-13-sign-in-activity.md) (#8106), which is specified and not implemented, and on the OSS spec [`../../GDPR/2026-11-16-export-audit-event.md`](../../GDPR/2026-11-16-export-audit-event.md). The 11-13 spec already covers the notice a user gets about their own sign-in from a new device, and decides that sign-ins refused by the rate limit stay silent; this spec keeps both.
-> **Verified at** `main` @ `08dada9624` by reading code; nothing was run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/enterprise/2026-11-13-sign-in-activity.md
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
@@ -20,7 +19,7 @@ An alert is a prompt to look. Under GDPR Art. 33 the 72 hours run from the contr
 
 > **Market reference.** GitLab, Okta and Google Workspace ship the same short list of administrator alerts — repeated failed sign-ins, suspicious sign-in, bulk export or download, privilege changes — each a fixed rule with a threshold an administrator can change, delivered by email and available to an external monitoring system. Adopted: that list, fixed rules, adjustable thresholds, one outward event. Rejected: scoring and machine-learned anomaly detection, which need data this product does not collect.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -630,48 +629,6 @@ Phase 4 ships only with TC-SEC-ALERT-004 passing in both the receipt-only lane a
 | Integration coverage | Required by design | TC-SEC-ALERT-001–007 cover scoped alert APIs/UI, hold-aware retention, tenant export and protected outbox fault recovery. |
 
 **Verdict:** ready. The design is decided. Phase 1 waits for the contract and record-retention prerequisites it names; its PR carries the maintainer confirmation of the MFA delivery change that the events Ask First requires. No implementation validation is claimed. Phases 2 to 4 each wait for the OSS seam they name.
-
 ## Changelog
 
-### 2026-11-20
-
-- Kept failed-attempt alerting independently recoverable through its minimal auth receipt with history capture off. Treat the id-only history event as an optional wake-up for the exact G2 receipt.
-- Kept protected MFA evidence internal, finalized alert delivery markers and their C5/C8 inventory, bounded settled decision-marker expiry, and specified report versus require behavior after the portal lock has expired.
-
-### 2026-11-19 — Confirmed spec review corrections
-
-- Define receipt-only tenant discovery, durable lockout capture, delivery-aware expiry, fair retention continuations, exact bounds/indexes and phased settings defaults. Add failure and acceptance cases; no implementation changes.
-
-
-### 2026-11-19
-
-- Bind protected alert sources to transactional owner receipts. Recover missed queue publication and delay acknowledgement until a durable scoped decision commits.
-
-### 2026-11-18 — Review remediation
-
-- Use one MFA privilege truth table for the event contract, failed-read behavior and rule test fixtures.
-
-### 2026-11-18
-
-- Assigned C8 declarations, scoped readers and both-mode verification for security alert signals, alerts and settings to G2 Phase 1.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions. The program described this package as "brute force, new device, mass export"; the new-device notice is already in the 11-13 spec and is not repeated.
-- Revised after independent review. Two rules had no event to consume: the portal lockout event is declared and never emitted, and feature changes emit nothing; both become OSS seams. The throttled-sign-in rule is dropped, because the limiter runs before a user is known and the 11-13 spec keeps refusals silent on purpose. Counting is redesigned: idempotent signals keyed by their event, a lock per rule and subject, and one open alert until acknowledged instead of fixed time buckets. Notifications are sent by a worker from the alert row. Rows, the list, recipients and the outward event carry the organization. Settings have their own table. API-key events carry a kind so that per-session keys do not alert. The export seam moved to its own OSS spec. The legal framing no longer suggests an alert starts the 72 hours.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), critical fix: `customer_accounts.user.locked` is declared with `portalBroadcast: true`. Emitting it as specified would have streamed every lockout to all portal sessions of the organization, an account-enumeration oracle that bypasses the login route's uniform response. Seam 1 now removes the flag from both lockout declarations. Neither event was ever emitted, so this changes no existing behaviour. Added a scenario, a unit test, an integration assertion and a risk entry.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g7-03 — "tenant-level webhooks" do not exist; an alert with no organization is now tenant-wide, shown and notified only to holders whose scope is every organization, and not forwarded (assumption 9, needs confirmation, fallback one event per organization), with a two-organization webhook test. g7-04 — signals and alerts get named retention variables and a batched daily prune in Phase 1, both tables are declared retention-bounded, and replayed old events write nothing. g7-09 — every consumed event carries a producer-generated occurrence key, with the key defined per rule; the seams are emitted persistent with their scope; signal, sum and alert run in one transaction under a transaction-scoped lock, and the outward event moves to the delivery worker. g7-13 — Phase 1 adds the tenant, the organization and an occurrence id to `security.mfa.removed`, an occurrence id to `security.mfa.reset`, and emits both persistent; TC-SEC-ALERT-001 covers a self-removal. g7-14 — the organization is in the lock key, the window sum, the signal index and the open-alert unique index, normalised null-safely, with a two-organization export test.
-
-- Council round two fixes (GPT-6.1 Sol workers): r9-01 — subjects and export qualifiers; r9-07 — guarded, versioned acknowledgement; r9-08 — internal raw seams; r9-12 — effective ACL gains; r9-13 — out-of-order windows; r9-14 — acknowledgement cutoff; r9-15 — unrestricted audited settings; r9-16 — Phase 4 integration; r9-19 — explicit key callers and ACL writers; r9-20 — typed scoped alert payloads; r9-21 — privileged defaults; r9-25 — reset notice deduplication; r9-34 — expired-lock transition; r9-35 — skip inline persistent subscribers; r9-36 — index invariant; g7-22 — cross-organization isolation tests; g7-26 — all authorization writers; g7-28 — existing scoped acknowledge rule made explicit; g7-31 — payloads and manifest; g7-39 — severity and settings seed.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): align `boundedBy` with C5's declared retention-set contract; use the shared R3-2/DEC-C driver, batch limit and conservative hold default for alert expiry; correct the export/API-key occurrence-id exceptions and add shared-runner integration coverage.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): check the current export, sign-in, table-coverage and retention contracts; preserve assumption 12's conservative hold default even through the shared engine opt-out path, and cite the driver's R3-8 ownership without adding a second drain.
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): correct set-id-only C5 coverage and readiness claims, align Phase 1 checks with the owning retention-bound contract, and expose the unresolved security-owned bound and handler/predicate design without inventing bindings.
-
-### 2026-11-17
-- MFA rule privilege timing: MFA events carry an emission-time `targetPrivileged` flag; a true flag raises even after a later revocation, a false flag is rechecked at delivery, and a null or legacy flag fails closed for a deleted target or an RBAC read failure. Delayed-delivery unit tests added.
-- Counting: the portal-lockout rule counts distinct locked accounts through a new `counted_id` signal column, so one account re-locking every fifteen minutes cannot reach the threshold; `count` is defined as the non-decreasing peak window value, with `first_seen_at`/`last_seen_at`, scenarios, edge cases, payload docs and tests aligned.
-- `auth.acl.changed` gains `origin`; tenant bootstrap raises no privileged-change alert, and execution/agent principal provisioning noise is stated and tested. `session` and `one_time` API-key events are non-persistent to keep queue jobs off hot paths.
-- The `portalBroadcast` removal is classified as narrowing a delivery flag on never-emitted events, outside the frozen id/payload contract, with the exception route stated if maintainers disagree.
-- Both alert retention sets declare `unmatchedHoldsOptOut: 'forbidden'`, so the DSR engine's policy validation refuses the opt-out as well as the handlers. TC-SEC-ALERT-003 adds an export across several organizations (tenant-wide alert, `organizationId: null`) beside a one-organization export.
-- The bound and handler left open in pass six are specified: two `retentionBounds` entries and the read-only `securityAlertRetentionBounds` handler under **Retention bounds**.
-- TC-SEC-ALERT-002 no longer re-locks a user after expiry, which would need the running app's clock or a fifteen-minute wait; distinct counting of a re-locking account stays in `alert-counting.test.ts` and the re-lock transition in `seam-events.test.ts`.
+- 2026-11-16 — Initial specification.

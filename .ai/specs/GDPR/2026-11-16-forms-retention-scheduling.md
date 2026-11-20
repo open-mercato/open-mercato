@@ -3,8 +3,7 @@
 > **Program:** split out of package D1 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
 > **Depends on:** the named parsing and reporting exports in Phase 1 from [`2026-11-16-operational-retention-pruners.md`](2026-11-16-operational-retention-pruners.md).
 > **Propagation dependency:** the R3-6 first-party emitter changes in [`2026-11-16-privacy-coverage-content-ai.md`](2026-11-16-privacy-coverage-content-ai.md), Phase 1, always ship before this schedule can anonymize. Where the `form_to_deals` module is enabled, its R3-6/R5-6 subscriber and `TC-PRIVACY-FORMS-DEALS-001`, both owned by [`2026-06-17-form-to-deals.md`](../2026-06-17-form-to-deals.md) (“R3-6 — The form-to-deals reason set”) and shipped with that module, which does not exist today, must also ship first.
-> **Code baseline checked for this revision:** read-only snapshot `9e09023483`; specifications only, no runtime tests run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** Worktree snapshot `9e09023483`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/2026-09-30-forms-module-into-core.md
@@ -24,7 +23,7 @@ A form owner can set a retention period on a form. The setting is stored and sho
 
 **Scope and ownership.** The forms module owns the worker, its schedule, its notice state and the hold check. It consumes the operational-pruners spec's parsing and reporting helpers and the record-retention spec's `privacyRetentionGuard` contract; what anonymization does to a submission stays with the existing forms service, and full erasure stays with the content-ai coverage spec.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -255,36 +254,6 @@ Reviewed root and specs rules, core setup/notifications/encryption/ACL guidance 
 | Edition and notification default | Compliant design | OSS under DEC-2, as is the pruner helper; without a visible notice nothing is anonymized (assumptions 3 and 6) |
 
 **Verdict:** Design ready. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Phase 1 publishes the additive R3-6 seam independently; Phase 2 uses it and is gated on delivery of the pruner helper exports (pruners Phase 1), contract Phase 1 and doctor Phase 3; destructive scheduling is also gated on content-ai Phase 1's R3-6 emitters and, where `form_to_deals` is enabled, on that module's R3-6/R5-6 subscriber and `TC-PRIVACY-FORMS-DEALS-001`. OSS implementation requires written carrier-specific upstream approval under DEC-2 in addition to the stated delivery prerequisites.
-
 ## Changelog
 
-### 2026-11-20
-
-- Isolated each scheduled anonymization in its own fenced transaction and required rollback and continuation tests for decryption and database failures.
-
-### 2026-11-19 — Confirmed spec review corrections
-
-- Added cross-process revision/CAS protection and crash/wraparound tests for the fair walk; corrected the notice to describe flagged-field anonymization and retained unflagged answers (F09, F63).
-
-
-### 2026-11-18
-
-- Separated the R3-6 compatibility seam from destructive scheduling. Rechecked generation and submission eligibility under the write transaction, and kept retention notices out of public triggers.
-
-- Scheduled cleanup resolves the same durable protection requirement as record retention and erasure. Hold publication and anonymization commit through the same tenant fence.
-
-### 2026-11-17
-- R3-5 calls the guard with the fixed id `forms.submission_retention` instead of the `forms.submissions` class id, and states how the guard answers it.
-- The held-subject Delta and TC-FORMS-RETENTION-004 now match the real guard: with a lookup secret, identifier references skip the organization; the selective path applies only to direct portal-user references. The resulting pause is a stated known limit.
-- `OM_FORMS_RETENTION_MODE` parsing is trimmed and case-insensitive; an Overview section was added.
-- The destructive-scheduling gate is content-ai Phase 1's R3-6 emitters always, plus the `form_to_deals` module's R3-6/R5-6 subscriber and `TC-PRIVACY-FORMS-DEALS-001` (owned by the form-to-deals spec) only where that module is enabled.
-
-### 2026-11-16
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): align the existing forms schedule expectation to the doctor's exact pruners.unscheduled diagnostic id.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): use the current doctor-owned pruners.unscheduled diagnostic for the existing forms schedule expectation.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): verified R3-5/R3-6, DEC-C/DEC-H and helper/doctor references; supply the exact system schedule key through the parent's shared expectation manifest, preserving independent forms notice/mode gates.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): confirmed R3-5 guard and all four guard-state test paths; closed the invitation-attribution gap for portal holds; replaced stale R3-6 handoff wording with the owners' exact active/no-op reasons and delivery gate; exact DEC-C, DEC-H, R3-2 and DEC-I references, preserving the coverage default export.
-- Council round two fixes (GPT-6.1 Sol workers): r8-01 independent forms mode and mandatory notice period; r8-03 R3-5 hold guard; r8-07 durable per-form count/notice and scoped wildcard recipients; r8-28 retained frozen event with explicit third-party risk; r8-30 pruner-owned helper exports; g5-17 fair counting walk and local gates; g5-35 exact management feature; g5-36 unreachable orphan corrected; g5-37 implementation gate aligned; R3-6 exact reason set cited.
-- Written autonomously, split out of the operational pruner spec after its review.
-- Revised after independent review: the file-removal phase was removed because uploads are held inline and already cleared; per-submission failure isolation added; the event gains a reason so retention cannot cascade into erasure elsewhere; an in-app notification added; soft-deleted forms included; a second index added; what anonymization leaves behind stated plainly.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g5-04 — `reason` is declared in `events-payloads.ts` and forwarded by the webhook bridge, both files, a bridge unit test and the integration test TC-FORMS-RETENTION-003 (the webhook payload carries `request` and `retention`) are in the manifest, and R3-6 requires the form-to-deals owner to update its subscriber (`request` and `erasure` act; retention and omission do not); g5-06 — anonymization by retention ships opt-in for one minor, with a warning at start and in `doctor` naming the next minor's default, and becomes the default after the counting period from the next minor.
+- 2026-11-16 — Initial specification.

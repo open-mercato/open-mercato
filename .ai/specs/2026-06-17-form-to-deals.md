@@ -1,6 +1,6 @@
 # Form-to-Deals — generic Forms→CRM-deal intake bridge (`form_to_deals` module)
 
-> **Status:** Draft — revised after adversarial review (2026-11-16, 2026-11-17). A generic connector that projects core `forms` submissions into `customers` CRM deals. **Recruitment / ATS-lite is the primary documented use case** (see Use Cases), but the module itself is use-case-agnostic. Existing and planned consumed contracts are distinguished below and checked against the spec checkout.
+> **Status:** Proposed. A generic connector projects core `forms` submissions into `customers` CRM deals. **Recruitment / ATS-lite is the primary use case** (see Use Cases).
 
 ## TLDR
 
@@ -24,7 +24,7 @@
 - Full-ATS entities (job requisitions, interviews, scorecards, offers) — see Use Cases / Non-Goals.
 
 **Concerns (verified):**
-- At the reviewed commit, `forms` is already in `packages/core/src/modules/forms` with MIT metadata and core dependencies (`index.ts`); `form_to_deals` is not implemented. It is placed beside it in core. Enable forms in the SAME OM app as the CRM. Historical PR #23 packaging notes in the Changelog no longer describe current placement.
+- `forms` lives in `packages/core/src/modules/forms` with MIT metadata and core dependencies. Add `form_to_deals` beside it in core and enable both in the same app as the CRM.
 - `forms.submission.submitted` is at-least-once (persistent) and id-only (`{ submissionId }`) — the subscriber must re-fetch answers and be crash-safe idempotent.
 - Public submit is not literally unauthenticated: the route mints/accepts an anonymous-token (or customer-session) principal.
 
@@ -286,9 +286,9 @@ Frozen by: the planned connector's `__tests__/anonymized-reason.characterization
 - **Scenario**: staff edit a mapped `cf.*` value or the title before the subject's erasure.
 - **Severity**: Low — **Mitigation**: tracked `cf.*` keys hold the subject's answers on the subject's own deal and are cleared; the title is replaced only while it matches the stored digest, otherwise retained and reported. — **Residual**: a staff note typed into a tracked answer field is cleared with it.
 
-## Final Compliance Report — 2026-11-17 (revised)
+## Final Compliance Report
 
-### AGENTS.md Files Reviewed
+### Applicable Repository Guidance
 - root `AGENTS.md`, `packages/core/AGENTS.md` (commands, events, encryption, API routes incl. openApi + ACL grant sync), `customers/AGENTS.md`, `attachments/AGENTS.md` (scope invariant), `packages/events/AGENTS.md`, `packages/queue/AGENTS.md`, `packages/ui/AGENTS.md` + `.ai/ds-rules.md`, relevant core forms service contracts (the historical separate-package guide no longer describes placement).
 
 ### Compliance Matrix
@@ -318,9 +318,9 @@ Frozen by: the planned connector's `__tests__/anonymized-reason.characterization
 | Consent + erasure addressed | Pass | Consent gate + R3-6 subscriber for both subject-driven reasons + awaited C4 hook; R5-6 deal-only cleanup preserves the Person root; retention/missing no-op |
 
 ### Verdict
-- **Ready after must-fixes (applied)** — requires same-app activation, the planned trusted projection reader/erasure contracts, the customers-owned person match service delivered with Phase 2 and C4's `downstreamCleanup` member before Phase 3; no implementation approval is implied.
+- **Implementation prerequisites** include same-app activation, the planned trusted projection reader/erasure contracts, the customers-owned person match service delivered with Phase 2 and C4's `downstreamCleanup` member before Phase 3.
 
-## References (checked against the spec checkout)
+## References
 
 - `packages/core/src/modules/forms/index.ts`: core placement, MIT metadata and dependencies. `events-payloads.ts`: submitted/anonymized event ids; today's anonymized event has no reason yet. `services/submission-service.ts`: `getCurrent`, role slicing and restricted `unsliced` path; `services/anonymize-service.ts`: inline upload bytes are already cleared. `services/attachment-service.ts`: `readUpload`; `schema/file-field.ts`: `FileAttachmentRef`/`readFileRefs`.
 - `packages/core/src/modules/customers/commands/{people,deals}.ts`: create results and customer entity ids; `data/validators.ts`: separate non-empty first/last names. `lib/findPeopleByAddresses.ts`: equality fast path and at most 500 recent decrypting candidates; it stays customers-internal behind `customerPersonMatchService`. B1 Phase D supplies the planned lookup-hash improvement; it is not current code.
@@ -329,42 +329,9 @@ Frozen by: the planned connector's `__tests__/anonymized-reason.characterization
 
 ## Changelog
 
-### 2026-11-20 — Binding coverage declaration
+- 2026-11-20 — Specify the core connector’s consent-gated projection, crash recovery, scoped privacy declarations and owner-fenced erasure of deal-side copies.
 
-- Supply the C5 note and per-column reasons for the configured labels and JSON maps, with a Phase 1 validation witness.
-
-### 2026-11-20
-
-- Bound projection retries to immutable admitted targets, made skips terminal, serialized matching across submissions and claimed file copies before upload. Assigned connector-owned C8 readers and cross-tenant acceptance.
-
-### 2026-11-19 — Confirmed spec review corrections
-
-- Made Person recovery atomic through a customers-owned source binding, including crash/erasure recovery, and limited projected file mappings to source/projected attachment UUIDs. Added scoped declarations and acceptance cases (F03, F04).
-
-
-### 2026-11-18
-
-- Kept projection writes inactive until both erasure paths ship and pass integration tests. Added reconciliation for pre-release copies and made consent mapping mandatory for all bindings.
-
-- Made projected deals discoverable from the pending connector map through a customers-owned, transactional source binding. Covered erasure and history stripping before crash redelivery.
 ### 2026-06-17
 - Renamed/generalized from `candidate_intake` to **`form_to_deals`** — a generic Forms→CRM-deal bridge; recruitment (ATS-lite) is now the primary documented use case, not the module identity (also serves lead/partner/RFP intake).
-- Packaging decision: ships as an **official module** `@open-mercato/form-to-deals` (a module, NOT an integration-provider), tracking `forms` (dependency direction forces official, not core, while forms is official). Single official-modules PR after forms #23 publishes.
-- (Earlier same day) re-pointed from a Webflow inbound-webhook adapter to the core `forms` module; applied 8 adversarial-review must-fixes (`findPeopleByAddresses` not a fabricated helper; CV read/write split; consent gate; erasure propagation; crash-safe first-write idempotency map; openApi/ACL-sync; clarified anonymous-token principal); added multi-channel attribution (JustJoin.IT/Webflow/OM); resolved placement (OSS, forms→core per OM team); confirmed JJIT external apply URL; reaffirmed ATS Non-Goals.
-
-### 2026-11-16 — council review fixes
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g5-04 — the erasure subscriber on `forms.submission.anonymized` acts only when `reason` is `request` and acknowledges `retention` or an absent reason with no writes, so scheduled forms retention cannot erase CRM records in bulk; consumed-event shape, Phase 3 step 7, tests, a risk and the consistency check updated.
-
-- Council round two fixes (GPT-6.1 Sol workers): r0-01 — R3-6 handles `request` and `erasure`, types the exact enum, preserves retention/missing no-op, clears mapped deal answers/label and tracked files, and tests privacy-run propagation, retries and races; current-code drift corrected for core forms placement, role-sliced reads, inline upload clearing and attachment service access.
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): confirmed the already-aligned R3-6 exact optional enum and both subject-driven branches; updated forms-retention/emitter references and the full cleanup history plan/two-pass contract.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): rechecked R3-6 against content-ai and forms-retention emitters, retained both subject-driven reasons and retention/missing no-op, and pinned projection-file cleanup to C4’s exact owner-checked release signature/current transaction and post-commit drain.
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): apply R5-6 to both active reasons, limiting cleanup and history plans to this connector's deal answers, label and CV/files; preserve CRM Person fields/history under C4's related-subject review, exclusions and hold guard, with matching tests, risks and compliance.
-
-### 2026-11-17 — council review fixes
-- Settled placement as the core module `packages/core/src/modules/form_to_deals`, enabled in the app and template, with no official-modules package or pointer change.
-- Person dedupe goes through a new customers-owned `customerPersonMatchService`; CV projection records each attachment through `createScoped.persistLink` in the attachment transaction.
-- A C4 erasure run awaits the connector's `downstreamCleanup` hook and stays incomplete until the deal copies are cleared; added the rollout gate for reason-less events, the title template and digest-guarded title clearing, the map's privacy declarations and post-erasure minimisation.
-- The `downstreamCleanup` hook uses the shared `recordIds` field, takes at most 500 submission ids per call from the forms class's `changedRecords`, changes only planned copies and counts unplanned copies and undeleted files in `pending`; erasure restatements now replace an unedited projected title with `form-submission-<short id>` instead of clearing a label, with an edited-title Delta scenario.
-- 2026-11-18 review remediation: bind downstream erasure to exact approved write intents checked under the owner transaction and hold fence.
+- The original packaging target was the official module `@open-mercato/form-to-deals`, after forms #23. The current packaging is specified above.
+- Added native forms intake, scoped attachment projection, consent, erasure propagation, crash-safe idempotency, OpenAPI and ACL synchronization, anonymous-token submission and multi-channel source attribution.

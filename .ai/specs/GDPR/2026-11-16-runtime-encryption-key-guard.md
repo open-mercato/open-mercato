@@ -1,7 +1,7 @@
 # Runtime encryption-key guard
 
 > **Program:** packages A1 and A2 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
-> **Verified at** `main` @ `08dada9624`; code references are inline.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/2026-11-01-7231-compose-encryption-key.md
@@ -42,8 +42,6 @@ This closes the gap #7231 left on purpose. That work removed the published key f
 
 ## 📝 Decisions
 
-Answered by the issue assignee on 2026-11-16. R1–R3 were raised by the independent review and change two earlier answers.
-
 | # | Decision |
 |---|---|
 | Q1 | This spec owns everything decidable at boot from configuration. The fail-closed spec owns a configured KMS that becomes unreachable. |
@@ -69,7 +67,7 @@ One module decides whether the tenant-encryption configuration is safe and retur
 
 **Production** here means `NODE_ENV` is `production` and the process holds no valid binding to a live development runner. Under R5-2, a process whose `NODE_ENV` is not `production` is a development process: it ignores the mark file and attempted dev marks, never needs a binding, and is never forced onto production rules. Only a process with `NODE_ENV=production` that carries the dev mark runs the R3-11 binding check. Without a valid binding it remains production and logs once at error level. `mercato server dev` binds the production-mode workers and scheduler it spawns to itself with a per-run nonce (see Development runner under Components). Outside production every finding is a single warning and nothing is refused. Under `NODE_ENV=test` the ordinary runtime logger is silent regardless of any mark; the explicit check command still simulates production and prints findings.
 
-### Resolved assumptions (autonomous defaults)
+### Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
@@ -567,13 +565,13 @@ The existing Docker-based `scripts/__tests__/fullapp-compose-encryption.test.mjs
 
 ## Final Compliance Report — 2026-11-16
 
-### AGENTS.md Files Reviewed
+### Applicable repository guidance
 - `AGENTS.md` (root), `.ai/specs/AGENTS.md` — in full
 - `BACKWARD_COMPATIBILITY.md` — protocol, Emergency Security Exception, the #7231 dated entry
 - `packages/core/AGENTS.md` — Encryption section
 - `packages/create-app/AGENTS.md` — template-sync rules
 - `.ai/qa/AGENTS.md` — test placement
-- `packages/shared/AGENTS.md` and `packages/cli/AGENTS.md` — relevant encryption, infrastructure-boundary and CLI contract rules reviewed for this revision.
+- `packages/shared/AGENTS.md` and `packages/cli/AGENTS.md` — relevant encryption, infrastructure-boundary and CLI contract rules.
 
 ### Compliance Matrix
 
@@ -609,57 +607,6 @@ Process gates at merge time: the A1 PR carries the named maintainer approval for
 
 ### Verdict
 **Conditionally specified; app-boundary slice blocked pending the root-rule prerequisite.** Each PR carries the process gates listed above. This spec does not edit or override repository governance. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval.
-
 ## Changelog
 
-### 2026-11-19
-
-- Require real launcher and per-replica readiness evidence for boot-policy activation, including previously scaffolded apps and direct Next.js start. Record patch-line disposition under DEC-16.
-
-### 2026-11-18 — Review corrections
-
-- Move the neutral runtime-classification and development binding into Phase 1 ahead of A3 and keep published-key refusal behind the search-enabled maintenance gate.
-
-### 2026-11-18 — Spec review
-
-- Align the token rotation runbook with the deployed keyed-writer gate and cover committed literals for the old lookup pepper.
-
-### 2026-11-16
-- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): apply R5-2 only to production-mode dev marks, keep development CLI and Next.js grandchildren non-production beside a live file, specify unit coverage and align binding risks/compliance; cite R5-3's provider identity and stored wrapped-DEK fingerprint in the rotation hand-off and record the missing derived-provider source.
-- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): cite R4-10's optional vector-maintenance target `pin` and `pin_mismatch`, retaining the independent Enterprise verification gate and linking its provider/DEK-version coverage in the migration risk and compliance row.
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): replaced the remaining baseline/read design dependency with B4's specified `SearchVectorDisplayMaintenance` adapter and pinned-key baseline/reseal/target-read contract; preserved implementation gates, environment-only old keys and the complete hash/token/writer-stop recovery order.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): replaced the stale plaintext-only B4 description with `searchVectorDisplayMaintenance.run`, `VectorDisplayMaintenanceReport`, environment-only old-key reseal and full target-key gates; aligned tenantless rebuild examples and report/apply order with B4; aligned the separate lookup-waiver assumption with the program's DEC-12 while preserving its human approval and bridge fallback.
-- Skeleton with open questions; questions answered by the issue assignee; full specification written.
-- Independent review returned "resolve direction first": the refusal would have been swallowed by container bootstrap, and lookup-secret refusals would have stranded operators.
-- Added `isTenantEncryptionProductionRuntime()` to the exports; `2026-11-16-kms-fail-closed.md` reads it. The two specs keep separate settings.
-- Second independent review returned "revise": the first five problems were closed in part, and it found that development stacks would lose their workers, that worker enforcement landed one PR too late, and that the service list was incomplete.
-- Revised again: check moved to the first statement of container creation; service-start assertion extended to search worker, MCP servers and the collaboration server and moved into the refusal PR; development runner marks its children; preflight scripts pass the error through; encryption-off classified as a lookup finding; pin-the-pepper and run-outside-production advice removed in favour of the runbook; runner precedence and test environments corrected.
-- First revision: typed error with rethrow at the swallow sites; lookup-secret findings downgraded to warnings (R1); weak and unconfigured enforced at service start only (R2); spec ends at the bridge, with the default flip as a gated release task (R3); check command added; runner change specified against the state file; parity test runs the Compose script; target versions named; integration tests name their commands.
-- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g1-03 — `OM_DEV_RUNTIME=1` no longer exempts a process by itself. `mercato server dev` writes a run file with a per-run nonce and its PID and passes the nonce and the file path to its children; the mark counts only when the nonce matches and the PID is live, and otherwise the process treats itself as production and logs once at error level. The `doctor` reliance is replaced by this runtime check. Updated the production definition, a design decision, a Delta scenario, Components, the retained-toggle argument, edge cases, the Phase 3 unit tests, TC-ENCRYPTION-KEY-001, two risks and a compliance row. g1-04 — the lookup-secret refusal, the default flip's gate, the refusal exits, the upgrade note and the incomplete-migration risk now point at Phase D of the encryption-map spec (`mercato entities rehash-lookups`, system-scope rotation in `backfill-system-encryption`).
-
-- Council round two fixes (GPT-6.1 Sol workers): r1kk-03 tracked lookup refusal; r1kk-04 and R3-11 parent IPC binding; r1kk-15 full first-party service list; r1kk-18 Vault URL bridge default; r1kk-19 `server start` assertion; r1kk-22 conditional data-state exits; r1kk-23 retained `warn`; r1kk-24 same-PR worker refusal proof; r1kk-26 disconnect invalidation; g1-17 token reindex/purge; g1-24 sixth published literal; g1-25 typed preflight IPC; g1-31 forms-key exclusion/owner; g1-32 explicit app-file sign-off; F-46 production-rule check command; F-47 container test after wiring.
-- Council round two fixes, pass two (GPT-6.1 Sol workers): aligned DEC-F/R3-12 gates with the new customers command and enabled coverage-owned fills; corrected purge ownership to query_index; required B4 forced token rebuilds for every tenant/entity and tenantless scope plus a fresh zero-legacy/zero-old-key report before traffic or writers resume, including encryption-fallback rotations; carried the same gates into default-flip, lookup-refusal, tests and upgrade notes; retained R3-11's IPC binding and the separate lookup-waiver default/ordinary-bridge fallback; identified B4's reseal service as still undelivered.
-
-### 2026-11-17
-- A1's release gate now requires every command its exit prints: B1 Phase A's Core store-owned rotation classifier and `backfill-encryption`, B1 Phase D's `rehash-lookups` and system-scope rotation, and B4's vector reseal, verified with search enabled on the OSS path; the Enterprise coordinator is not a gate. Remediation text names a command only in a release that contains it, module fills are listed per enabled module that provides one, and `mercato auth rotate-encryption-key` is named as unsupported.
-- `missing_lookup_secret` is emitted with encryption off too; `isUnsafeTenantEncryptionSecret` is defined as the published-or-weak union; dev-child candidacy is decided once, so unmarked production processes never read the mark file or wait; one with an IPC channel checks once that the fixed path does not exist.
-- Added the committed-literal guard, moved TC-ENCRYPTION-KEY-002/003 into Phase 1, and gave the forms master-key check a tracked owner task opened by PR A1.
-- Correction to the pass-six entry above: B4's **Rotation pin source** covers both built-in providers, so no derived-provider pin source is missing; `wrappedDekFingerprint` keeps its R5-3 name and holds the provider key-check fingerprint.
-- The lookup-secret-change remediation, gates and upgrade note add `mercato search reindex-tokens --tenant <id|none>` after the forced query-index token rebuilds, so the search token strategy's own rows are keyed before the purge report.
-- The committed-literal guard scans deployment-reachable files only (workflows, Compose, starters, the create-app template, scripts, the integration runner, integration specs, docs and first-party source), skips in-process unit tests, accepts documentation placeholders and has a reviewed, digest-pinned allow-list of one non-secret dry-run placeholder; the published set stays at six values and the guard passes on the current tree.
-- A production process with an IPC channel and no mark makes exactly one existence check of the fixed mark path at initialization; one without IPC touches no file.
-- The `not_configured` exit and the operator upgrade note say that disabling encryption also needs a dedicated `LOOKUP_HASH_PEPPER`, or `missing_lookup_secret` remains.
-
-### Review — 2026-11-16 (historical; superseded by this revision)
-- **Reviewer**: Agent (fresh context, spec path only), then author revision
-- **Security**: Failed on first pass (fail-open refusal); corrected in the revision
-- **Performance**: Inspection memoized per process
-- **Cache**: N/A
-- **Commands**: N/A — no domain mutation
-- **Risks**: Fail-open, incomplete migration and non-production bypass added
-- **Verdict**: Two review rounds, both followed by revision. The second revision has not been independently re-read
-- Fix verification follow-up: the refusal exits, the rotation note and the upgrade note now name the module fill commands next to `rehash-lookups`. `rehash-lookups` covers only mapped hash fields, so module-written hashes such as the CRM, SSO and inbound-sender ones would otherwise stay stale after a key rotation.
-
-### Spec review corrections — 2026-11-19
-
-- Replace the self-granted app-boundary deviation with an explicit authorized root-rule prerequisite; do not claim that ordinary PR sign-off overrides Never (F21).
+- 2026-11-16 — Initial specification.

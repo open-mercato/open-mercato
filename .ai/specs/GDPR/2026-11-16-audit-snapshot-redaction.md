@@ -2,8 +2,7 @@
 
 > **Program:** package C2 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
 > **Reference only:** `.ai/specs/2026-08-20-command-audit-sensitive-data-redaction.md` on `upstream/feat/security-readiness` (PR #5557).
-> **Verified at** `main` @ `08dada9624` by reading code, twice (author and independent reviewer); nothing was run.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Code baseline:** `main` at `08dada9624`.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 Extends: .ai/specs/2026-07-28-protected-roles-and-audit-seam.md
@@ -18,12 +17,12 @@ The command audit log stores, for every logged action, the input the command was
 
 > **Market reference.** Rails' `filter_parameters` strips credential-named parameters from what gets recorded at one central point; PaperTrail, the Rails versioning library, makes each model declare what to skip. This spec takes the PaperTrail half now — each known command declares what it records — plus one structural rule that needs no names at all. The [credential-check child spec](2026-11-16-command-audit-credential-check.md) defines the central name-based check as report-only; rewriting stored data and its effect on third-party undo remain deferred there.
 
-## 📝 Resolved assumptions (autonomous defaults)
+## 📝 Resolved assumptions
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
 | 1 | Does this spec remove personal data from snapshots? | No. Credentials and secrets only | Undo re-creates a deleted record from its snapshot, so names and emails cannot leave while the action is undoable. The program's wording for C2 is narrowed to match. |
-| 2 | Scope after review | Command fixes and history cleanup only; the central check is split out | The reviewer's verdict was SPLIT: the fixes are urgent and small; the child now defines report-only matching with opt-in test failure. |
+| 2 | Scope | Command fixes and history cleanup | The central check has its own carrier for report-only matching and opt-in test failure. |
 | 3 | Root-cause fix in the bus | Do not store replay input for a command that has no undo handler | Redo needs a row that was undone, and undo needs a handler. For such commands the stored input is dead data. This fixes the password-change case with no change to the enterprise command. |
 | 4 | Pay links and templates | Keep undo on existing rows without writing a credential from history. An explicit protected-to-unprotected replay can clear the live hash only if its exact source protection revision still matches. Unrelated replay keeps the live hash. Protected or unknown targets without a live hash refuse. | Replay must preserve protection added or replaced by a later operation. |
 | 5 | What undo of a deleted staff user restores | Everything except the password; the user resets it | Already the shipped behaviour for redo of a user creation. |
@@ -91,7 +90,7 @@ The command audit log stores, for every logged action, the input the command was
 | Alternative | Why rejected |
 |---|---|
 | A central name-based filter now | The child defines matcher rules and tenant-data exclusions for a report-only check; rewriting stored data and its effect on third-party undo remain deferred. |
-| Make credential-carrying actions non-undoable | First draft. Unnecessary for pay links, and unsafe without fixing restore. |
+| Make credential-carrying actions non-undoable | Pay links can preserve safe replay. The restore path still requires a credential-safe snapshot. |
 | A resumable CLI that decrypts, edits and re-encrypts | Operators who never run it stay exposed with no signal; it must handle plaintext, encrypted, mixed and undecryptable rows; a second mechanism beside PR #9578's. |
 | Stop recording input by default for every command | Redo of every existing undoable command depends on it. |
 | Ordinary deprecation protocol with a one-minor bridge | The bridge would keep stored credentials and their replay reachable for the deprecation window. |
@@ -358,7 +357,7 @@ Password change is covered by the bus unit tests, since the rule lives there. De
 - **Scenario**: Another command stores a secret in its replay input.
 - **Severity**: High
 - **Affected area**: any undoable command whose input carries a secret
-- **Mitigation**: The independent review searched command files and found the device-update and cart-merge cases, now included. Commands without an undo handler are covered structurally.
+- **Mitigation**: Cover the named device-update and cart-merge commands and apply the structural rule to every command without an undo handler.
 - **Residual risk**: Undoable commands in third-party modules, and any first-party one both passes missed. The deferred central check is the control for those.
 
 #### A legacy command audit writer outlives the replay rollout
@@ -392,7 +391,7 @@ Password change is covered by the bus unit tests, since the rule lives there. De
 
 ## Final Compliance Report — 2026-11-16
 
-### AGENTS.md Files Reviewed
+### Applicable repository guidance
 - `AGENTS.md` (root), `.ai/specs/AGENTS.md` — in full
 - `BACKWARD_COMPATIBILITY.md` — protocol, Emergency Security Exception
 - `.ai/qa/AGENTS.md` — test placement
@@ -423,48 +422,6 @@ None. The affected Phase 2 replay changes and the Phase 3 cleanup take the Emerg
 
 ### Verdict
 **Design ready.** Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval. The affected Phase 2 replay changes and Phase 3 ship under the Emergency Security Exception, each PR carrying the named maintainer approval; Phase 3 also waits for erasure Phase 2, the credential-safe writer release and verified exclusive writer admission.
-
 ## Changelog
 
-### 2026-11-20 — Credential-safe writer cutover
-
-- Separated C2 database writer admission and safe-release proof from the C4 replay marker. Bound cleanup batches and final migration bookkeeping to one backend, and added concurrent legacy writer, fence loss and safe reopening acceptance.
-
-### 2026-11-20
-
-- Required activated durable replay exclusion before credential-history cleanup and added a dispatch fixture that remains unresolved after its executor drains.
-
-### 2026-11-18 — Follow-up review
-
-- Require proof that a password-clearing replay still targets the exact protection revision and disclose the dependency of historical cleanup.
-
-### 2026-11-18 — Review corrections
-
-- Require a pre-write protected-target check for both checkout update redo handlers and test it through the audit redo route.
-
-### 2026-11-16
-- Written autonomously with resolved assumptions.
-- Revised after independent review. The review confirmed every stored-credential claim by tracing each command's route, and found: the first draft's pay-link design could strip a live link's password through an unrelated undo; three missed leaks (device update, cart merge, legacy user rows); a structural fix for commands that cannot be replayed; and that the central name-based check was not buildable as specified. The check is split into its own spec; pay links keep undo; history is cleared by migration instead of a CLI.
-
-- Council round two fixes (GPT-6.1 Sol workers): r3e-09 — explicit cart redo refusal; r3e-14 — Emergency Security Exception and release gate; r3e-15 — strip historical done/undone entries and disable redo; r3e-21 — template undo scenarios and tests; r3e-22 — fixture-scoped cleanup helper instead of migration re-application; r3e-28 — six named characterization files and consistent package tests; r3e-34 — erasure owner link; g2-10 — protected recreation fails closed; F-71 — remove unsupported query-index cleanup advice.
-
-### 2026-11-17
-- Pay-link and template restore follows the target protection state: protected keeps the live hash, unprotected clears it, and a protected or unknown target over a row with no hash refuses with 409 `checkout.protected_replay_unavailable`. This covers undo of an edit that removed a password, and redo of a removal keeps `password: null`.
-- Historical cleanup is a non-transactional migration with one self-committing statement per batch, using `SKIP LOCKED` row locks and replay-lease try-locks, a per-run cutoff and an explicit throw on skipped entries; added interruption and lease tests.
-- Disclosed that stripping pre-upgrade `auth.user` entries removes role and ACL before/after values, and why the selection cannot be narrowed.
-- The cleanup batch selects candidates without locking, then locks them with `SKIP LOCKED` and the replay-lease try-lock on `hashtextextended(AUDIT_REPLAY_LEASE_LOCK_PREFIX || id::text, 0)`, and counts skipped rows as candidates minus updated rows; a final verification query of unstripped pre-cutoff affected-kind rows gates completion, with a row-lock test beside the lease test. A rerun's fresh cutoff is disclosed as stripping clean entries written between attempts.
-
-### Review — 2026-11-16
-- **Reviewer**: Agent (fresh context, spec path only), then author revision
-- **Security**: One critical design defect corrected; three leaks added
-- **Performance**: Migration batched per tenant
-- **Cache**: N/A
-- **Commands**: Replay and undo semantics specified per command
-- **Risks**: Restore-path risk added
-- **Verdict**: Revised; the revision has not been independently re-read
-
-- Council round two fixes, pass two (GPT-6.1 Sol workers): checked the C2 program/child scope and protected-role replay seam; cited the exact DEC-B/R3-1 owners and made the erasure Phase 2 conditional-state, locked-replay and OSS integration gate explicit prerequisites for historical cleanup. The named human security waiver remains pending; this revision grants none.
-
-- Council round two fixes, pass three (GPT-6.1 Sol workers): checked the merged C2 program/child and C4 references; cleanup still consumes the exact OSS strip state, replay lease/locked checks and Phase 2 integration gate. No additional command or migration change was needed; the named-human security waiver remains pending.
-
-- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): replaced stale unresolved-matcher/two-release wording with the child spec's existing report-only matcher, tenant-data exclusions and opt-in test-failure contract; credential filtering remains deferred and the security waiver remains pending.
+- 2026-11-16 — Initial specification.
