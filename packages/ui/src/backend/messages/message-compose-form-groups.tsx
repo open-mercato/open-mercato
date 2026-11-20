@@ -298,15 +298,19 @@ function ComposeModeFields({ compose }: ComposeProps) {
             )}
           </div>
 
-          <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
-            <div className="min-w-0 space-y-2">
-              <VisibilitySelector compose={compose} />
-            </div>
-            {compose.visibility === 'public' ? <SendSeparatelyField compose={compose} /> : null}
+          <div className="space-y-2">
+            <VisibilitySelector compose={compose} />
           </div>
         </div>
 
-        <SenderSelector compose={compose} />
+        {compose.senderOptions.length > 0 || compose.visibility === 'public' ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="min-w-0">
+              <SenderSelector compose={compose} />
+            </div>
+            {compose.visibility === 'public' ? <SendSeparatelyField compose={compose} /> : null}
+          </div>
+        ) : null}
 
         <ContextActionsSection compose={compose} />
       </div>
