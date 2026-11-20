@@ -251,20 +251,10 @@ export function buildValidationFieldErrors(error: z.ZodError): Record<string, st
   return fieldErrors
 }
 
-/** Scheduling needs the scheduler module (release tick) and, until mailbox release ships, the platform sender. */
-export async function refuseUnsupportedSchedule(container: unknown, viaMailbox: boolean): Promise<Response | null> {
-  if (!isSchedulingAvailable(container)) {
-    const { translate } = await resolveTranslations()
-    const error = translate('messages.errors.schedulingUnavailable', 'Scheduled sending is not available.')
-    return Response.json({ error, fieldErrors: { scheduledAt: error } }, { status: 422 })
-  }
-  if (viaMailbox) {
-    const { translate } = await resolveTranslations()
-    const error = translate(
-      'messages.errors.senderScheduleUnsupported',
-      'Scheduling a message sent from a connected mailbox is not supported yet.',
-    )
-    return Response.json({ error, fieldErrors: { senderChannelId: error } }, { status: 422 })
-  }
-  return null
+/** Scheduling needs the scheduler module, which runs the release tick. */
+export async function refuseUnsupportedSchedule(container: unknown): Promise<Response | null> {
+  if (isSchedulingAvailable(container)) return null
+  const { translate } = await resolveTranslations()
+  const error = translate('messages.errors.schedulingUnavailable', 'Scheduled sending is not available.')
+  return Response.json({ error, fieldErrors: { scheduledAt: error } }, { status: 422 })
 }

@@ -15,6 +15,7 @@ import { toErrorMessage } from '../utils'
 type DeliveryStatus = NonNullable<MessageDetailExternalParticipant['deliveryStatus']>
 
 const DELIVERY_WINDOW_EXCEEDED_ERROR = 'delivery window exceeded'
+const MAILBOX_UNAVAILABLE_ERROR = 'mailbox unavailable'
 
 const deliveryStatusVariants: Record<DeliveryStatus, StatusBadgeVariant> = {
   pending: 'neutral',
@@ -23,9 +24,13 @@ const deliveryStatusVariants: Record<DeliveryStatus, StatusBadgeVariant> = {
 }
 
 function deliveryErrorLabel(t: ReturnType<typeof useT>, error: string | null): string | null {
-  return error === DELIVERY_WINDOW_EXCEEDED_ERROR
-    ? t('messages.detail.deliveryError.windowExceeded', 'Delivery attempts stopped after the retry window')
-    : error
+  if (error === DELIVERY_WINDOW_EXCEEDED_ERROR) {
+    return t('messages.detail.deliveryError.windowExceeded', 'Delivery attempts stopped after the retry window')
+  }
+  if (error === MAILBOX_UNAVAILABLE_ERROR) {
+    return t('messages.detail.deliveryError.mailboxUnavailable', 'The sender mailbox could not send this message')
+  }
+  return error
 }
 
 function participantLabel(participant: MessageDetailExternalParticipant): string {

@@ -22,7 +22,7 @@ import { notificationTypes } from '../notifications'
 import { claimDueScheduledMessages, type ClaimedScheduledMessage, type ScheduledReleaseScope } from '../lib/scheduledRelease'
 import { MAX_SCHEDULED_RELEASE_ATTEMPTS, RELEASE_SCHEDULED_COMMAND_ID } from '../lib/scheduledSend'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { delegateComposeToSender } from '../lib/composeSenderDelegation'
+import { delegateComposeToSender, handOffMessageToSender } from '../lib/composeSenderDelegation'
 import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../lib/messageSourceEntityTypes'
 import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
 import {
@@ -34,7 +34,12 @@ import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID 
 import { canUseChannelThreadFallback } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
-import { planComposeExternalParticipants, type PlannedExternalParticipant } from '../lib/externalParticipants'
+import {
+  MAILBOX_UNAVAILABLE_ERROR,
+  planComposeExternalParticipants,
+  settleExternalParticipants,
+  type PlannedExternalParticipant,
+} from '../lib/externalParticipants'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
 import {
   assertOrganizationAccess,
@@ -426,6 +431,8 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         // mailbox sorts by when the mail was received, not when it was imported.
         sentAt: storesAsDraft ? null : sentAt,
         scheduledAt,
+        // Only a stored message keeps its mailbox; an immediate mailbox send is delegated before reaching this command.
+        senderChannelId: storesAsDraft ? input.senderChannelId ?? null : null,
         actionData: input.actionData as MessageActionData | undefined,
         sendViaEmail,
         idempotencyKey: input.idempotencyKey ?? null,
@@ -592,6 +599,46 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
   },
 }
 
+/**
+ * The draft is already flipped to `sent`; hand it to the author's mailbox before
+ * `messages.message.sent` goes out. A refusal puts the draft back as it was.
+ */
+async function sendDraftThroughMailbox(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  message: Message,
+  senderChannelId: string,
+  previous: { status: Message['status']; scheduledAt: Date | null },
+): Promise<void> {
+  const scope = { tenantId: message.tenantId, organizationId: message.organizationId ?? null }
+  const restoreDraft = () => em.fork().transactional(async (trx) => {
+    await trx.nativeUpdate(
+      MessageExternalParticipant,
+      { messageId: message.id, ...scope, deliveryStatus: 'pending' },
+      { deliveryStatus: null },
+    )
+    await trx.nativeUpdate(
+      Message,
+      { id: message.id, ...scope },
+      { status: previous.status, isDraft: true, sentAt: null, scheduledAt: previous.scheduledAt },
+    )
+  })
+  let result: Awaited<ReturnType<typeof handOffMessageToSender>>
+  try {
+    result = await handOffMessageToSender(
+      ctx.container,
+      { userId: message.senderUserId, ...scope, auth: ctx.auth ?? null },
+      { senderChannelId, messageId: message.id },
+    )
+  } catch (error) {
+    await restoreDraft()
+    throw error
+  }
+  if (result.ok || result.code === 'already_linked') return
+  await restoreDraft()
+  throw new CrudHttpError(result.status, { error: result.error, fieldErrors: result.fieldErrors })
+}
+
 const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
   id: 'messages.messages.update_draft',
   async prepare(rawInput, ctx) {
@@ -614,6 +661,8 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     const isSending = input.isDraft === false
     const isScheduling = input.scheduledAt instanceof Date
     const isUnscheduling = input.scheduledAt === null && message.status === 'scheduled'
+    const senderChannelId = input.senderChannelId ?? message.senderChannelId ?? null
+    const statusBeforeSend = { status: message.status, scheduledAt: message.scheduledAt ?? null }
     const preloadedRecipients = (isSending || isScheduling) && !input.recipients
       ? await findWithDecryption(
         em,
@@ -687,6 +736,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       if (input.priority !== undefined) message.priority = input.priority
       if (input.actionData !== undefined) message.actionData = input.actionData
       if (input.sendViaEmail !== undefined) message.sendViaEmail = input.sendViaEmail
+      if (input.senderChannelId !== undefined) message.senderChannelId = input.senderChannelId
     }, async () => {
       const participantScope = { messageId: message.id, tenantId: input.tenantId, organizationId: input.organizationId }
       if (draftAddressing) {
@@ -768,6 +818,10 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
         message.scheduledReleaseAttempts = 0
       }
     }], { transaction: true })
+
+    if (isSending && senderChannelId) {
+      await sendDraftThroughMailbox(ctx, em, message, senderChannelId, statusBeforeSend)
+    }
 
     if (isSending) {
       await emitMessageIndexUpsert(ctx.container, {
@@ -1493,8 +1547,51 @@ async function handOffReleasedMessage(
     scope.tenantId,
     `command:${RELEASE_SCHEDULED_COMMAND_ID}:execute`,
   )
+  if (message.senderChannelId) await handOffReleasedToMailbox(container, em, message, message.senderChannelId, scope)
   // Emitted last and never reverted afterwards, so recipients are not notified twice.
   await emitDraftSentEvent(container, message, recipients.map((recipient) => recipient.recipientUserId))
+}
+
+/**
+ * A previous attempt that already linked the message counts as delivered. A
+ * mailbox that cannot deliver (or no mailbox module) fails the participants
+ * instead of retrying; any other refusal throws so the release is reverted.
+ */
+async function handOffReleasedToMailbox(
+  container: ReleaseContainer,
+  em: EntityManager,
+  message: Message,
+  senderChannelId: string,
+  scope: ScheduledReleaseScope,
+): Promise<void> {
+  const result = await handOffMessageToSender(
+    container,
+    { userId: message.senderUserId, ...scope },
+    { senderChannelId, messageId: message.id },
+  )
+  if (result.ok || result.code === 'already_linked') return
+  if (result.code !== 'channel_unavailable') {
+    throw new Error(`[internal] mailbox hand-off refused (${result.status}): ${result.error}`)
+  }
+  // Marked as mailbox-routed like a delivered one, so "resend to failed" retries through the mailbox, not the platform sender.
+  await em.fork().nativeUpdate(
+    Message,
+    { id: message.id, ...scope },
+    { sourceEntityType: SEND_AS_USER_SOURCE_ENTITY_TYPE, sourceEntityId: senderChannelId },
+  )
+  const pending = await findWithDecryption(
+    em.fork(),
+    MessageExternalParticipant,
+    { messageId: message.id, ...scope, deliveryStatus: 'pending' },
+    undefined,
+    scope,
+  )
+  await settleExternalParticipants(
+    em.fork(),
+    { messageId: message.id, ...scope },
+    { failed: pending.map((participant) => ({ id: participant.id, error: MAILBOX_UNAVAILABLE_ERROR })) },
+    { pendingOnly: true },
+  )
 }
 
 async function notifyScheduledSendFailed(container: ReleaseContainer, em: EntityManager, messageId: string, scope: ScheduledReleaseScope) {

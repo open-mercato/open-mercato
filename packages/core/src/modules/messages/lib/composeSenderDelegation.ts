@@ -28,23 +28,41 @@ export type ComposeSenderResult =
   | { ok: true; messageId: string; threadId: string }
   | { ok: false; status: number; error: string; fieldErrors: Record<string, string> }
 
+type SendAsUserFailure = {
+  ok: false
+  status: number
+  error: string
+  fieldErrors?: Record<string, string>
+  code?: 'already_linked' | 'channel_unavailable'
+}
+
 type SendAsUserResult =
   | { ok: true; messageId: string; threadId: string; channelId: string; providerKey: string }
-  | { ok: false; status: number; error: string; fieldErrors?: Record<string, string> }
+  | SendAsUserFailure
+
+type SendAsUserActor = { userId: string; tenantId: string; organizationId: string | null; auth?: unknown }
 
 type SendAsUserService = (
   container: ContainerLike,
-  actor: { userId: string; tenantId: string; organizationId: string | null; auth?: unknown },
-  input: {
-    userChannelId: string
-    to: string[]
-    subject: string
-    body: { plain?: string; html?: string; bodyFormat?: 'text' | 'markdown' }
-    parentMessageId?: string
-    channelMetadata?: Record<string, unknown>
-    sendSeparately?: boolean
-  },
+  actor: SendAsUserActor,
+  input:
+    | {
+        userChannelId: string
+        to: string[]
+        subject: string
+        body: { plain?: string; html?: string; bodyFormat?: 'text' | 'markdown' }
+        parentMessageId?: string
+        channelMetadata?: Record<string, unknown>
+        sendSeparately?: boolean
+      }
+    | { userChannelId: string; messageId: string },
 ) => Promise<SendAsUserResult>
+
+type ValidateSenderChannelService = (
+  container: ContainerLike,
+  actor: SendAsUserActor,
+  channelId: string,
+) => Promise<{ ok: true } | SendAsUserFailure>
 
 /** The composer field the selector renders, so a failure lands on that control. */
 export const COMPOSE_SENDER_FIELD = 'senderChannelId'
@@ -59,8 +77,19 @@ export function tryResolveSendAsUserService(
   }
 }
 
+function tryResolveValidateSenderChannelService(
+  container: ContainerLike,
+): ValidateSenderChannelService | undefined {
+  try {
+    return container.resolve<ValidateSenderChannelService>('communicationChannelsValidateSenderChannel')
+  } catch {
+    return undefined
+  }
+}
+
 export type ComposeSenderRequest = {
   senderChannelId?: string
+  scheduledAt?: Date | null
   visibility?: string | null
   externalEmail?: string
   externalEmails?: string[]
@@ -75,9 +104,9 @@ export type ComposeSenderRequest = {
   objects?: unknown[]
 }
 
-/** Whether this compose asked to be routed through one of the caller's mailboxes. */
+/** Whether this compose asked to be routed through one of the caller's mailboxes now (a scheduled one is handed off at release). */
 export function requiresSenderDelegation(input: ComposeSenderRequest): boolean {
-  return Boolean(input.senderChannelId) && input.isDraft !== true
+  return Boolean(input.senderChannelId) && input.isDraft !== true && !input.scheduledAt
 }
 
 /**
@@ -100,29 +129,15 @@ export async function buildSenderBody(
   return { plain: body, html: await renderMarkdownEmailBody(body), bodyFormat: format }
 }
 
-/**
- * Send through the caller's mailbox, or explain why it cannot be done.
- *
- * Every failure carries a field error on the selector rather than a bare
- * message, so the composer renders it next to the control the user chose.
- */
-export async function delegateComposeToSender(
-  container: ContainerLike,
-  actor: ComposeSenderActor,
-  input: ComposeSenderRequest,
-): Promise<ComposeSenderResult> {
-  const senderChannelId = input.senderChannelId as string
-  const { t } = await resolveTranslations()
-  const fail = (status: number, error: string): ComposeSenderResult => ({
-    ok: false,
-    status,
-    error,
-    fieldErrors: { [COMPOSE_SENDER_FIELD]: error },
-  })
+function senderFailure(status: number, error: string, fieldMessage?: string): Extract<ComposeSenderResult, { ok: false }> {
+  return { ok: false, status, error, fieldErrors: { [COMPOSE_SENDER_FIELD]: fieldMessage ?? error } }
+}
 
+async function refuseSenderRequest(input: ComposeSenderRequest): Promise<Extract<ComposeSenderResult, { ok: false }> | null> {
+  const { t } = await resolveTranslations()
   const toAddresses = input.externalEmails ?? (input.externalEmail ? [input.externalEmail] : [])
   if (input.visibility !== 'public' || toAddresses.length === 0) {
-    return fail(
+    return senderFailure(
       422,
       t(
         'messages.errors.senderRequiresExternalRecipient',
@@ -138,7 +153,7 @@ export async function delegateComposeToSender(
     (input.objects?.length ?? 0) > 0 ||
     input.attachmentRecordId
   ) {
-    return fail(
+    return senderFailure(
       422,
       t(
         'messages.errors.senderPayloadUnsupported',
@@ -146,14 +161,83 @@ export async function delegateComposeToSender(
       ),
     )
   }
+  return null
+}
+
+async function senderUnavailable(): Promise<Extract<ComposeSenderResult, { ok: false }>> {
+  const { t } = await resolveTranslations()
+  return senderFailure(422, t('messages.errors.senderUnavailable', 'Sending from your own mailbox is not available.'))
+}
+
+/**
+ * Checks a stored message's mailbox up front (ownership, channel connected,
+ * payload the mailbox can carry): a scheduled message is handed off only at
+ * release, a sent draft only after it was flipped to sent.
+ */
+export async function validateMessageSender(
+  container: ContainerLike,
+  actor: ComposeSenderActor,
+  input: ComposeSenderRequest,
+): Promise<{ ok: true } | Extract<ComposeSenderResult, { ok: false }>> {
+  const refusal = await refuseSenderRequest(input)
+  if (refusal) return refusal
+  const validate = tryResolveValidateSenderChannelService(container)
+  if (!validate) return senderUnavailable()
+  const result = await validate(
+    container,
+    { userId: actor.userId, tenantId: actor.tenantId, organizationId: actor.organizationId },
+    input.senderChannelId as string,
+  )
+  if (result.ok) return result
+  return senderFailure(result.status, result.error, Object.values(result.fieldErrors ?? {})[0])
+}
+
+export type MessageHandOffResult =
+  | { ok: true }
+  | { ok: false; status: number; error: string; fieldErrors: Record<string, string>; code?: 'already_linked' | 'channel_unavailable' }
+
+/**
+ * Deliver an existing, already sent message through the author's mailbox
+ * (`sendAsUser` existing-message mode). The `communication_channels` module
+ * being absent reads as an unavailable channel.
+ */
+export async function handOffMessageToSender(
+  container: ContainerLike,
+  actor: ComposeSenderActor,
+  target: { senderChannelId: string; messageId: string },
+): Promise<MessageHandOffResult> {
+  const sendAsUser = tryResolveSendAsUserService(container)
+  if (!sendAsUser) return { ...(await senderUnavailable()), code: 'channel_unavailable' }
+  const result = await sendAsUser(
+    container,
+    { userId: actor.userId, tenantId: actor.tenantId, organizationId: actor.organizationId, auth: actor.auth },
+    { userChannelId: target.senderChannelId, messageId: target.messageId },
+  )
+  if (result.ok) return { ok: true }
+  return {
+    ...senderFailure(result.status, result.error, Object.values(result.fieldErrors ?? {})[0]),
+    ...(result.code ? { code: result.code } : {}),
+  }
+}
+
+/**
+ * Send through the caller's mailbox, or explain why it cannot be done.
+ *
+ * Every failure carries a field error on the selector rather than a bare
+ * message, so the composer renders it next to the control the user chose.
+ */
+export async function delegateComposeToSender(
+  container: ContainerLike,
+  actor: ComposeSenderActor,
+  input: ComposeSenderRequest,
+): Promise<ComposeSenderResult> {
+  const senderChannelId = input.senderChannelId as string
+  const refusal = await refuseSenderRequest(input)
+  if (refusal) return refusal
+  const toAddresses = input.externalEmails ?? (input.externalEmail ? [input.externalEmail] : [])
 
   const sendAsUser = tryResolveSendAsUserService(container)
-  if (!sendAsUser) {
-    return fail(
-      422,
-      t('messages.errors.senderUnavailable', 'Sending from your own mailbox is not available.'),
-    )
-  }
+  if (!sendAsUser) return senderUnavailable()
 
   const result = await sendAsUser(
     container,
@@ -177,11 +261,5 @@ export async function delegateComposeToSender(
     return { ok: true, messageId: result.messageId, threadId: result.threadId }
   }
 
-  const fieldMessage = Object.values(result.fieldErrors ?? {})[0] ?? result.error
-  return {
-    ok: false,
-    status: result.status,
-    error: result.error,
-    fieldErrors: { [COMPOSE_SENDER_FIELD]: fieldMessage },
-  }
+  return senderFailure(result.status, result.error, Object.values(result.fieldErrors ?? {})[0])
 }

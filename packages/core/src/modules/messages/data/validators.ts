@@ -337,7 +337,7 @@ export const updateDraftSchema = z.object({
   actionData: messageActionDataSchema.optional(),
   sendViaEmail: z.boolean().optional(),
   isDraft: z.literal(false).optional(),
-  /** Accepted only so the route can refuse it explicitly; zod would otherwise strip it and the send would fall back to the platform sender unnoticed. */
+  /** Stored on the draft; sending or releasing it goes through this mailbox (falls back to the stored one when omitted). */
   senderChannelId: z.string().uuid().optional(),
   /** A date (re)schedules the draft; `null` turns a scheduled message back into a plain draft. */
   scheduledAt: scheduledAtSchema.nullable().optional(),

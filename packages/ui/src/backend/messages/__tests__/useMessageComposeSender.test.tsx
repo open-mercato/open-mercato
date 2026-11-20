@@ -153,7 +153,7 @@ describe('useMessageCompose sender selection', () => {
     expect(result.current.senderChannelId).toBe('')
   })
 
-  it('never routes a saved draft through a mailbox', async () => {
+  it('keeps the chosen mailbox on a saved draft so sending it later uses that mailbox', async () => {
     const { result } = renderHook(
       () => useMessageCompose({ variant: 'compose', inline: true, senderOptions }),
       { wrapper: createWrapper() },
@@ -168,7 +168,28 @@ describe('useMessageCompose sender selection', () => {
       result.current.handleSubmit({ saveAsDraft: true }),
     )
 
-    expect(payload).not.toHaveProperty('senderChannelId')
+    expect(payload).toMatchObject({ isDraft: true, senderChannelId: 'mailbox-other' })
+  })
+
+  it('offers send later with a mailbox sender selected', async () => {
+    const { result } = renderHook(
+      () => useMessageCompose({
+        variant: 'compose',
+        inline: true,
+        senderOptions,
+        scheduling: { available: true, maxDays: 30 },
+      }),
+      { wrapper: createWrapper() },
+    )
+
+    await fillExternalCompose(result)
+    act(() => {
+      result.current.setSenderChannelId('mailbox-other')
+    })
+
+    expect(result.current.canSchedule).toBe(true)
+    const payload = await submitAndReadPayload(() => result.current.handleSchedule('2026-12-01T10:00:00.000Z'))
+    expect(payload).toMatchObject({ senderChannelId: 'mailbox-other', scheduledAt: '2026-12-01T10:00:00.000Z' })
   })
 
   it('surfaces a send-as-user 422 as a field error on the sender control', async () => {

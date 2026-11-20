@@ -49,6 +49,13 @@ const bodySchema = z.object({
   }
 })
 
+/** Delivers an existing sent message of the caller through the channel instead of composing one. */
+const existingMessageBodySchema = z.object({
+  userChannelId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  channelMetadata: z.record(z.string(), z.unknown()).optional(),
+})
+
 /**
  * Programmatic send-as-user facade (HTTP entry point).
  *
@@ -63,9 +70,10 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  let body: z.infer<typeof bodySchema>
+  let body: z.infer<typeof bodySchema> | z.infer<typeof existingMessageBodySchema>
   try {
-    body = bodySchema.parse(await readJsonSafe(req, null))
+    const raw = await readJsonSafe<Record<string, unknown> | null>(req, null)
+    body = raw && raw.messageId !== undefined ? existingMessageBodySchema.parse(raw) : bodySchema.parse(raw)
   } catch (err) {
     const copyIssues = err instanceof z.ZodError
       ? err.issues.filter((issue) => issue.message === SEND_SEPARATELY_WITH_COPIES)
@@ -139,8 +147,8 @@ export const openApi = {
         { status: 400, description: 'sendSeparately combined with cc/bcc for more than one recipient' },
         { status: 401, description: 'Unauthorized' },
         { status: 403, description: 'Cannot send through a channel you don\'t own' },
-        { status: 404, description: 'Channel not found' },
-        { status: 409, description: 'Channel in a non-deliverable transitional status' },
+        { status: 404, description: 'Channel (or the given messageId) not found' },
+        { status: 409, description: 'Channel in a non-deliverable transitional status, or messageId already linked / not sent yet' },
         { status: 422, description: 'Invalid body, or channel requires_reauth / disconnected' },
       ],
     },

@@ -57,7 +57,7 @@ function createRecordingBuilder(calls: WhereCall[], result: unknown[] = [], firs
   return builder
 }
 
-function mockContext(options: { scheduler?: boolean; commandBus?: { execute: jest.Mock }; calls?: WhereCall[] } = {}) {
+function mockContext(options: { scheduler?: boolean; commandBus?: { execute: jest.Mock }; calls?: WhereCall[]; services?: Record<string, unknown> } = {}) {
   const calls = options.calls ?? []
   const em = {
     getKysely: () => ({ selectFrom: () => createRecordingBuilder(calls) }),
@@ -70,7 +70,7 @@ function mockContext(options: { scheduler?: boolean; commandBus?: { execute: jes
         resolve: (name: string) => {
           if (name === 'em') return em
           if (name === 'commandBus') return options.commandBus
-          return null
+          return options.services?.[name] ?? null
         },
         hasRegistration: (name: string) => name === 'schedulerService' && options.scheduler !== false,
       },
@@ -155,6 +155,56 @@ describe('POST /api/messages with scheduledAt', () => {
       'messages.messages.compose',
       expect.objectContaining({ input: expect.objectContaining({ scheduledAt: new Date(scheduledAt) }) }),
     )
+  })
+})
+
+describe('POST /api/messages with scheduledAt and a mailbox sender', () => {
+  const senderChannelId = 'c6a3f0d2-4b8e-4f61-9a7e-0d1f2e3a4b5c'
+  let commandBus: { execute: jest.Mock }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    commandBus = { execute: jest.fn(async () => ({ result: { id: recipientId, threadId: null } })) }
+  })
+
+  function mailboxCompose(scheduledAt: string) {
+    return composeRequest({
+      recipients: [],
+      visibility: 'public',
+      externalEmail: 'client@example.com',
+      senderChannelId,
+      scheduledAt,
+    })
+  }
+
+  it('checks the mailbox now and stores the schedule without sending through it', async () => {
+    const validate = jest.fn(async () => ({ ok: true }))
+    const sendAsUser = jest.fn()
+    mockContext({
+      commandBus,
+      services: { communicationChannelsValidateSenderChannel: validate, communicationChannelsSendAsUser: sendAsUser },
+    })
+
+    const response = await POST(mailboxCompose(inMinutes(30)))
+
+    expect(response.status).toBe(201)
+    expect(validate).toHaveBeenCalledWith(expect.anything(), { userId, tenantId, organizationId }, senderChannelId)
+    expect(sendAsUser).not.toHaveBeenCalled()
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.messages.compose',
+      expect.objectContaining({ input: expect.objectContaining({ senderChannelId, scheduledAt: expect.any(Date) }) }),
+    )
+  })
+
+  it('refuses a mailbox that is not connected with the channel status', async () => {
+    const validate = jest.fn(async () => ({ ok: false, status: 409, error: "Channel is in status 'syncing' (not connected)" }))
+    mockContext({ commandBus, services: { communicationChannelsValidateSenderChannel: validate } })
+
+    const response = await POST(mailboxCompose(inMinutes(30)))
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).fieldErrors).toEqual({ senderChannelId: "Channel is in status 'syncing' (not connected)" })
+    expect(commandBus.execute).not.toHaveBeenCalled()
   })
 })
 

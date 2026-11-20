@@ -90,6 +90,8 @@ export async function recordExternalDeliverySummary(
 
 /** Internal marker stored in `delivery_error`; the UI maps it to a translated label. */
 export const DELIVERY_WINDOW_EXCEEDED_ERROR = 'delivery window exceeded'
+/** Written on participants of a scheduled message whose sender mailbox cannot deliver at release. */
+export const MAILBOX_UNAVAILABLE_ERROR = 'mailbox unavailable'
 
 export type TransientRetryPlan = { nextAttemptAt: Date } | { expired: true }
 

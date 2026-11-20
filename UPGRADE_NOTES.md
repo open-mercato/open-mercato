@@ -175,6 +175,21 @@ to schedule the 60 s release tick for existing organizations. Requires the `sche
 without it the API answers 422 `messages.errors.schedulingUnavailable`. Drafts no longer count
 towards the unread badge and no longer appear in the `all` and `archived` folders.
 
+### Messages: scheduled send and saved drafts through a connected mailbox
+
+A message with `senderChannelId` can now be scheduled (the mailbox is checked when scheduling and
+stored as `messages.sender_channel_id`; channel rows are created only at release) and a saved draft
+can be sent through a mailbox (`PATCH /api/messages/[id]` with `isDraft: false` uses the request's
+`senderChannelId` or the one stored on the draft). The former 422 errors
+`messages.errors.senderScheduleUnsupported` and `messages.errors.senderDraftSendUnsupported` are gone.
+Additive `communication_channels` contracts: `POST /api/communication_channels/send-as-user` and the
+`communicationChannelsSendAsUser` DI facade accept `{ userChannelId, messageId }` to deliver an existing
+sent message of the caller (409 when it is already linked or still a draft); failure results may carry
+`code: 'already_linked' | 'channel_unavailable'`; new DI service
+`communicationChannelsValidateSenderChannel`. When the mailbox cannot deliver at release
+(`requires_reauth`, disconnected, module absent) the participants become `failed` with
+`delivery_error = 'mailbox unavailable'` and the author gets `messages.delivery_failed`.
+
 ### Encryption maintenance safety confirmations (#6767)
 
 Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.

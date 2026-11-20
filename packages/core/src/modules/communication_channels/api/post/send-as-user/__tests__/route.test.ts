@@ -90,3 +90,38 @@ describe('POST /communication_channels/send-as-user — sendSeparately', () => {
     expect(response.status).toBe(422)
   })
 })
+
+describe('POST /communication_channels/send-as-user — existing message', () => {
+  beforeEach(() => {
+    sendAsUserMock.mockReset()
+  })
+
+  function postExisting(body: Record<string, unknown>) {
+    return POST(new Request('http://localhost/api/communication_channels/send-as-user', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ userChannelId: '44444444-4444-4444-8444-444444444444', ...body }),
+    }))
+  }
+
+  it('accepts messageId without recipients, subject or body', async () => {
+    sendAsUserMock.mockResolvedValue({ ok: true, messageId: '55555555-5555-4555-8555-555555555555', threadId: 't-1', channelId: 'c-1', providerKey: 'imap' })
+
+    const response = await postExisting({ messageId: '55555555-5555-4555-8555-555555555555' })
+
+    expect(response.status).toBe(202)
+    expect(sendAsUserMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { userChannelId: '44444444-4444-4444-8444-444444444444', messageId: '55555555-5555-4555-8555-555555555555' },
+    )
+  })
+
+  it('answers 409 when the message is already linked', async () => {
+    sendAsUserMock.mockResolvedValue({ ok: false, status: 409, error: 'Message is already linked to a channel delivery', code: 'already_linked' })
+
+    const response = await postExisting({ messageId: '55555555-5555-4555-8555-555555555555' })
+
+    expect(response.status).toBe(409)
+  })
+})

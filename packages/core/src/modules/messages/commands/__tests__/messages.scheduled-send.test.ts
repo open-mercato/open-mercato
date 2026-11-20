@@ -13,6 +13,7 @@ const findWithDecryptionMock = jest.fn()
 const claimDueScheduledMessagesMock = jest.fn()
 const invalidateCrudCacheMock = jest.fn(async () => {})
 const createBatchMock = jest.fn(async () => [])
+const settleExternalParticipantsMock = jest.fn(async (..._args: unknown[]) => ({ finished: true }))
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({
   registerCommand: (command: RegisteredCommand) => mockRegisteredCommands.set(command.id, command),
@@ -40,6 +41,11 @@ jest.mock('@open-mercato/core/modules/notifications/lib/notificationService', ()
   resolveNotificationService: () => ({ createBatch: createBatchMock }),
 }))
 
+jest.mock('@open-mercato/core/modules/messages/lib/externalParticipants', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/messages/lib/externalParticipants'),
+  settleExternalParticipants: (...args: unknown[]) => settleExternalParticipantsMock(...args),
+}))
+
 jest.mock('@open-mercato/core/modules/messages/lib/attachments', () => ({
   linkAttachmentsToMessage: jest.fn(),
   linkLibraryAttachmentsToMessage: jest.fn(),
@@ -51,6 +57,7 @@ const tenantId = '22222222-2222-4222-8222-222222222222'
 const organizationId = '33333333-3333-4333-8333-333333333333'
 const senderUserId = '44444444-4444-4444-8444-444444444444'
 const recipientUserId = '55555555-5555-4555-8555-555555555555'
+const senderChannelId = '66666666-6666-4666-8666-666666666666'
 const scope = { tenantId, organizationId }
 
 function inMinutes(minutes: number): Date {
@@ -82,12 +89,13 @@ function createEm() {
   return em
 }
 
-function createCtx(em: ReturnType<typeof createEm>) {
+function createCtx(em: ReturnType<typeof createEm>, services: Record<string, unknown> = {}) {
   const eventBus = { emitEvent: jest.fn(async () => {}) }
   const container = {
     resolve: jest.fn((name: string) => {
       if (name === 'em') return { fork: () => em }
       if (name === 'eventBus') return eventBus
+      if (name in services) return services[name]
       throw new Error(`Unknown dependency: ${name}`)
     }),
   }
@@ -191,6 +199,28 @@ describe('messages scheduled send commands', () => {
         userId: senderUserId,
       }, ctx)).rejects.toThrow('messages.errors.scheduleInPast')
       expect(em.transactional).not.toHaveBeenCalled()
+    })
+
+    it('keeps the mailbox on a scheduled message without handing it to the channel', async () => {
+      const em = createEm()
+      const sendAsUser = jest.fn()
+      const { ctx } = createCtx(em, { communicationChannelsSendAsUser: sendAsUser })
+
+      await command('messages.messages.compose').execute({
+        visibility: 'public',
+        externalEmail: 'client@example.com',
+        recipients: [],
+        subject: 'Later',
+        body: 'Body',
+        senderChannelId,
+        scheduledAt: inMinutes(60).toISOString(),
+        ...scope,
+        userId: senderUserId,
+      }, ctx)
+
+      expect(em.created.find((entry) => entry.entity === Message)?.data).toMatchObject({ status: 'scheduled', senderChannelId })
+      expect(sendAsUser).not.toHaveBeenCalled()
+      expect(eventIds()).toEqual(['messages.message.scheduled'])
     })
   })
 
@@ -343,6 +373,151 @@ describe('messages scheduled send commands', () => {
         expect.objectContaining({ type: 'messages.scheduled_send_failed', recipientUserIds: [senderUserId], sourceEntityId: messageId }),
         scope,
       )
+    })
+  })
+  describe('mailbox sender', () => {
+    const publicDraft = (overrides: Partial<Message> = {}) => draftMessage({
+      visibility: 'public',
+      externalEmail: 'client@example.com',
+      senderChannelId,
+      ...overrides,
+    })
+
+    describe('update_draft send', () => {
+      function setup(message: Message, sendAsUserResult: unknown) {
+        const em = createEm()
+        const sendAsUser = jest.fn(async () => sendAsUserResult)
+        const { ctx } = createCtx(em, { communicationChannelsSendAsUser: sendAsUser })
+        findOneWithDecryptionMock.mockResolvedValue(message)
+        findWithDecryptionMock.mockResolvedValue([])
+        return { em, ctx, sendAsUser }
+      }
+
+      it('hands the sent draft to the stored mailbox before emitting messages.message.sent', async () => {
+        const message = publicDraft()
+        const { ctx, sendAsUser } = setup(message, { ok: true, messageId, threadId: messageId, channelId: senderChannelId, providerKey: 'imap' })
+
+        await command('messages.messages.update_draft').execute({ messageId, isDraft: false, ...scope, userId: senderUserId }, ctx)
+
+        expect(sendAsUser).toHaveBeenCalledWith(
+          ctx.container,
+          expect.objectContaining({ userId: senderUserId, ...scope }),
+          { userChannelId: senderChannelId, messageId },
+        )
+        expect(eventIds()).toEqual(['messages.message.sent'])
+        expect(emitMessagesEventMock.mock.invocationCallOrder[0]).toBeGreaterThan(sendAsUser.mock.invocationCallOrder[0])
+      })
+
+      it('prefers the mailbox from the request and stores it on the draft', async () => {
+        const otherChannelId = '77777777-7777-4777-8777-777777777777'
+        const message = publicDraft()
+        const { ctx, sendAsUser } = setup(message, { ok: true, messageId, threadId: messageId, channelId: otherChannelId, providerKey: 'imap' })
+
+        await command('messages.messages.update_draft').execute({ messageId, isDraft: false, senderChannelId: otherChannelId, ...scope, userId: senderUserId }, ctx)
+
+        expect(message.senderChannelId).toBe(otherChannelId)
+        expect(sendAsUser).toHaveBeenCalledWith(expect.anything(), expect.anything(), { userChannelId: otherChannelId, messageId })
+      })
+
+      it('puts a refused send back to the previous state and surfaces the error', async () => {
+        const scheduledAt = inMinutes(30)
+        const message = publicDraft({ status: 'scheduled', scheduledAt })
+        const { em, ctx } = setup(message, {
+          ok: false,
+          status: 422,
+          error: 'Channel requires re-authentication',
+          code: 'channel_unavailable',
+        })
+
+        await expect(command('messages.messages.update_draft').execute({ messageId, scheduledAt: null, isDraft: false, ...scope, userId: senderUserId }, ctx))
+          .rejects.toMatchObject({ status: 422, body: { fieldErrors: { senderChannelId: 'Channel requires re-authentication' } } })
+
+        expect(em.nativeUpdate).toHaveBeenCalledWith(
+          Message,
+          { id: messageId, ...scope },
+          { status: 'scheduled', isDraft: true, sentAt: null, scheduledAt },
+        )
+        expect(em.nativeUpdate).toHaveBeenCalledWith(
+          MessageExternalParticipant,
+          { messageId, ...scope, deliveryStatus: 'pending' },
+          { deliveryStatus: null },
+        )
+        expect(emitMessagesEventMock).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('release_scheduled', () => {
+      function setup(services: Record<string, unknown>) {
+        const em = createEm()
+        const { ctx } = createCtx(em, services)
+        findOneWithDecryptionMock.mockResolvedValue(publicDraft({ status: 'sent', isDraft: false, sentAt: new Date(), threadId: messageId }))
+        findWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => (
+          entity === MessageExternalParticipant ? [{ id: 'participant-1' }, { id: 'participant-2' }] : []
+        ))
+        claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: inMinutes(-1), attempts: 1 }])
+        return { em, ctx }
+      }
+
+      it('hands a released message to the mailbox and emits messages.message.sent once, last', async () => {
+        const sendAsUser = jest.fn(async () => ({ ok: true, messageId, threadId: messageId, channelId: senderChannelId, providerKey: 'imap' }))
+        const { ctx } = setup({ communicationChannelsSendAsUser: sendAsUser })
+
+        const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+        expect(result).toEqual({ released: [messageId], reverted: [], returnedToDraft: [] })
+        expect(sendAsUser).toHaveBeenCalledWith(ctx.container, expect.objectContaining({ userId: senderUserId, ...scope }), { userChannelId: senderChannelId, messageId })
+        expect(eventIds()).toEqual(['messages.message.sent'])
+        expect(emitMessagesEventMock.mock.invocationCallOrder[0]).toBeGreaterThan(sendAsUser.mock.invocationCallOrder[0])
+        expect(settleExternalParticipantsMock).not.toHaveBeenCalled()
+      })
+
+      it('counts "already linked" from a previous attempt as released', async () => {
+        const sendAsUser = jest.fn(async () => ({ ok: false, status: 409, error: 'already linked', code: 'already_linked' }))
+        const { ctx } = setup({ communicationChannelsSendAsUser: sendAsUser })
+
+        const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+        expect(result).toEqual({ released: [messageId], reverted: [], returnedToDraft: [] })
+        expect(eventIds()).toEqual(['messages.message.sent'])
+      })
+
+      it.each([
+        ['the channel requires re-authentication', { communicationChannelsSendAsUser: jest.fn(async () => ({ ok: false, status: 422, error: 'reauth', code: 'channel_unavailable' })) }],
+        ['the channels module is absent', {}],
+      ])('fails the participants without reverting when %s', async (_case, services) => {
+        const { em, ctx } = setup(services)
+
+        const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+        expect(result).toEqual({ released: [messageId], reverted: [], returnedToDraft: [] })
+        expect(em.nativeUpdate).toHaveBeenCalledWith(
+          Message,
+          { id: messageId, ...scope },
+          { sourceEntityType: 'communication_channels.send_as_user', sourceEntityId: senderChannelId },
+        )
+        expect(settleExternalParticipantsMock).toHaveBeenCalledWith(
+          em,
+          { messageId, ...scope },
+          { failed: [{ id: 'participant-1', error: 'mailbox unavailable' }, { id: 'participant-2', error: 'mailbox unavailable' }] },
+          { pendingOnly: true },
+        )
+        expect(eventIds()).toEqual(['messages.message.sent'])
+      })
+
+      it('reverts the release when the mailbox refuses for another reason', async () => {
+        const sendAsUser = jest.fn(async () => ({ ok: false, status: 500, error: '[internal] boom' }))
+        const { em, ctx } = setup({ communicationChannelsSendAsUser: sendAsUser })
+
+        const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+        expect(result).toEqual({ released: [], reverted: [messageId], returnedToDraft: [] })
+        expect(em.nativeUpdate).toHaveBeenCalledWith(
+          Message,
+          { id: messageId, ...scope, status: 'sent' },
+          expect.objectContaining({ status: 'scheduled', isDraft: true }),
+        )
+        expect(emitMessagesEventMock).not.toHaveBeenCalled()
+      })
     })
   })
 })

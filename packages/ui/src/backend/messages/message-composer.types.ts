@@ -96,7 +96,7 @@ export type MessageComposerProps = {
   expectedUpdatedAt?: string | null
   /**
    * "Send later" capability supplied by the host. Omitted, or `available: false`,
-   * hides the action. Only the compose variant with the platform sender offers it.
+   * hides the action. Only the compose variant offers it.
    */
   scheduling?: { available: boolean; maxDays: number } | null
   defaultValues?: {

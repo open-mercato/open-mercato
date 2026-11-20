@@ -23,7 +23,7 @@ import {
   composeSourceHintSchema,
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
-import { delegateComposeToSender, requiresSenderDelegation } from '../lib/composeSenderDelegation'
+import { delegateComposeToSender, requiresSenderDelegation, validateMessageSender } from '../lib/composeSenderDelegation'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveMessageChannelThreadAccess,
@@ -564,8 +564,18 @@ export async function POST(req: Request) {
   }
 
   if (input.scheduledAt) {
-    const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container, requiresSenderDelegation(input))
+    const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container)
     if (scheduleRefusal) return scheduleRefusal
+    if (input.senderChannelId) {
+      const senderCheck = await validateMessageSender(
+        ctx.container,
+        { userId: scope.userId, tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+        input,
+      )
+      if (!senderCheck.ok) {
+        return Response.json({ error: senderCheck.error, fieldErrors: senderCheck.fieldErrors }, { status: senderCheck.status })
+      }
+    }
   }
 
   const isPublicVisibility = input.visibility === 'public'

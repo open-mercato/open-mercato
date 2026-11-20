@@ -3,7 +3,9 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { MessageExternalParticipant } from '../../messages/data/entities'
+import { Message, MessageExternalParticipant } from '../../messages/data/entities'
+import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../../messages/lib/messageSourceEntityTypes'
+import { renderMarkdownEmailBody } from '../../messages/lib/markdownEmailBody'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -61,6 +63,24 @@ export type SendAsUserInput = {
   sendSeparately?: boolean
 }
 
+/**
+ * Delivers an existing, already sent `messages.message` through the actor's
+ * mailbox (scheduled release, sending a saved draft) instead of composing a new
+ * one. Recipients, subject, body and "send separately" come from the message.
+ */
+export type SendAsUserExistingMessageInput = {
+  userChannelId: string
+  messageId: string
+  channelMetadata?: Record<string, unknown>
+}
+
+/**
+ * `already_linked`: the message already has an outbound link (a previous attempt
+ * handed it off). `channel_unavailable`: the channel is missing, not the actor's,
+ * or cannot deliver (`requires_reauth`, `disconnected`, not connected).
+ */
+export type SendAsUserFailureCode = 'already_linked' | 'channel_unavailable'
+
 export type SendAsUserResult =
   | {
       ok: true
@@ -69,13 +89,17 @@ export type SendAsUserResult =
       channelId: string
       providerKey: string
     }
-  | { ok: false; status: number; error: string; fieldErrors?: Record<string, string> }
+  | { ok: false; status: number; error: string; fieldErrors?: Record<string, string>; code?: SendAsUserFailureCode }
+
+type SendAsUserFailure = Extract<SendAsUserResult, { ok: false }>
 
 /**
  * In-process send-as-user facade.
  *
- * Validates the actor owns `userChannelId`, composes the Message via the
- * messages module command, persists the outbound MessageChannelLink + thread
+ * With `messageId` it delivers that existing message instead of composing one
+ * (see `SendAsUserExistingMessageInput`). Otherwise it validates the actor
+ * owns `userChannelId`, composes the Message via the messages module command,
+ * persists the outbound MessageChannelLink + thread
  * mapping, and enqueues delivery. Returns a discriminated result instead of an
  * HTTP Response so it can be invoked both by the `/send-as-user` route and by
  * other modules via DI (`container.resolve('communicationChannelsSendAsUser')`)
@@ -84,8 +108,9 @@ export type SendAsUserResult =
 export async function sendAsUser(
   container: AppContainer,
   actor: SendAsUserActor,
-  input: SendAsUserInput,
+  input: SendAsUserInput | SendAsUserExistingMessageInput,
 ): Promise<SendAsUserResult> {
+  if ('messageId' in input) return sendExistingMessageAsUser(container, actor, input)
   if (!input.body.plain && !input.body.html) {
     return { ok: false, status: 422, error: 'Either body.plain or body.html is required' }
   }
@@ -104,36 +129,9 @@ export async function sendAsUser(
   const organizationId = actor.organizationId
   const dscope = { tenantId, organizationId }
 
-  const channel = await findOneWithDecryption(
-    em,
-    CommunicationChannel,
-    { id: input.userChannelId, tenantId, organizationId, deletedAt: null },
-    undefined,
-    dscope,
-  )
-  if (!channel) return { ok: false, status: 404, error: 'Channel not found' }
-  if (channel.userId !== actor.userId) {
-    return { ok: false, status: 403, error: 'You can only send through channels you own' }
-  }
-
-  // Hub mutation guard: map known non-deliverable states (`requires_reauth`,
-  // `disconnected`) to a 422 with field-level errors; other transitional states
-  // fall through to the 409 below.
-  try {
-    await guardOutboundCreate(em, { channelId: channel.id, scope: dscope })
-  } catch (err) {
-    if (err instanceof ChannelMutationBlockedError) {
-      return { ok: false, status: 422, error: err.message, fieldErrors: err.errors }
-    }
-    throw err
-  }
-  if (!channel.isActive || channel.status !== 'connected') {
-    return {
-      ok: false,
-      status: 409,
-      error: `Channel is in status '${channel.status}' (not connected)`,
-    }
-  }
+  const resolved = await resolveSendableChannel(em, actor, input.userChannelId)
+  if (!resolved.ok) return resolved
+  const { channel } = resolved
 
   // Create the Message via the messages module compose command. The outbound
   // subscriber picks it up via `messages.message.sent` and routes through the
@@ -143,7 +141,7 @@ export async function sendAsUser(
   const composeInput = {
     type: `channel.${channel.providerKey}`,
     visibility: 'public' as const,
-    sourceEntityType: 'communication_channels.send_as_user',
+    sourceEntityType: SEND_AS_USER_SOURCE_ENTITY_TYPE,
     sourceEntityId: channel.id,
     externalEmail: input.to[0],
     // Every addressee becomes a participant: they are what delivery addresses.
@@ -188,7 +186,6 @@ export async function sendAsUser(
 
   const messageId = result.result.id
   const messageThreadId = result.result.threadId ?? messageId
-  const externalThreadRef = `outbound:${messageThreadId}`
   const separateParticipants = sendSeparately
     ? await findWithDecryption(
         em,
@@ -198,9 +195,222 @@ export async function sendAsUser(
         dscope,
       )
     : []
-  const deliveries: Array<{ externalParticipantId: string | null; to: string[] }> = sendSeparately
+  const deliveries: OutboundDelivery[] = sendSeparately
     ? separateParticipants.map((participant) => ({ externalParticipantId: participant.id, to: [participant.email] }))
     : [{ externalParticipantId: null, to: input.to }]
+
+  await persistOutboundDelivery(em, actor, channel, {
+    messageId,
+    messageThreadId,
+    subject: input.subject,
+    plain: input.body.plain ?? messageBody,
+    html: input.body.html,
+    cc: input.cc ?? [],
+    bcc: input.bcc ?? [],
+    inReplyTo: input.inReplyTo ?? null,
+    references: input.references ?? [],
+    channelMetadata: input.channelMetadata,
+    deliveries,
+  })
+  await enqueueOutboundDeliveries(messageId, dscope, deliveries)
+
+  return {
+    ok: true,
+    messageId,
+    threadId: messageThreadId,
+    channelId: channel.id,
+    providerKey: channel.providerKey,
+  }
+}
+
+type OutboundDelivery = { externalParticipantId: string | null; to: string[] }
+
+type OutboundDeliveryContent = {
+  messageId: string
+  messageThreadId: string
+  subject: string
+  plain: string
+  html?: string
+  cc: string[]
+  bcc: string[]
+  inReplyTo: string | null
+  references: string[]
+  channelMetadata?: Record<string, unknown>
+  deliveries: OutboundDelivery[]
+}
+
+/** The actor owns `channelId` and it can deliver right now. */
+async function resolveSendableChannel(
+  em: EntityManager,
+  actor: SendAsUserActor,
+  channelId: string,
+): Promise<{ ok: true; channel: CommunicationChannel } | SendAsUserFailure> {
+  const dscope = { tenantId: actor.tenantId, organizationId: actor.organizationId }
+  const channel = await findOneWithDecryption(
+    em,
+    CommunicationChannel,
+    { id: channelId, ...dscope, deletedAt: null },
+    undefined,
+    dscope,
+  )
+  if (!channel) return { ok: false, status: 404, error: 'Channel not found', code: 'channel_unavailable' }
+  if (channel.userId !== actor.userId) {
+    return { ok: false, status: 403, error: 'You can only send through channels you own', code: 'channel_unavailable' }
+  }
+
+  // Hub mutation guard: map known non-deliverable states (`requires_reauth`,
+  // `disconnected`) to a 422 with field-level errors; other transitional states
+  // fall through to the 409 below.
+  try {
+    await guardOutboundCreate(em, { channelId: channel.id, scope: dscope })
+  } catch (err) {
+    if (err instanceof ChannelMutationBlockedError) {
+      return { ok: false, status: 422, error: err.message, fieldErrors: err.errors, code: 'channel_unavailable' }
+    }
+    throw err
+  }
+  if (!channel.isActive || channel.status !== 'connected') {
+    return {
+      ok: false,
+      status: 409,
+      error: `Channel is in status '${channel.status}' (not connected)`,
+      code: 'channel_unavailable',
+    }
+  }
+  return { ok: true, channel }
+}
+
+/**
+ * DI-exposed (`communicationChannelsValidateSenderChannel`) so a caller can
+ * refuse a mailbox up front, e.g. when a message is scheduled for later.
+ */
+export async function validateSenderChannel(
+  container: AppContainer,
+  actor: SendAsUserActor,
+  channelId: string,
+): Promise<{ ok: true } | SendAsUserFailure> {
+  const em = (container.resolve('em') as EntityManager).fork()
+  const resolved = await resolveSendableChannel(em, actor, channelId)
+  return resolved.ok ? { ok: true } : resolved
+}
+
+async function sendExistingMessageAsUser(
+  container: AppContainer,
+  actor: SendAsUserActor,
+  input: SendAsUserExistingMessageInput,
+): Promise<SendAsUserResult> {
+  const em = (container.resolve('em') as EntityManager).fork()
+  const { tenantId } = actor
+  const organizationId = actor.organizationId
+  const dscope = { tenantId, organizationId }
+
+  const message = await findOneWithDecryption(
+    em,
+    Message,
+    { id: input.messageId, tenantId, organizationId, deletedAt: null },
+    undefined,
+    dscope,
+  )
+  if (!message) return { ok: false, status: 404, error: 'Message not found' }
+  if (message.senderUserId !== actor.userId) {
+    return { ok: false, status: 403, error: 'You can only send your own messages' }
+  }
+  if (message.visibility !== 'public') {
+    return { ok: false, status: 422, error: 'Only a message addressed to external recipients can be sent through a channel' }
+  }
+  if (message.isDraft) return { ok: false, status: 409, error: 'Message has not been sent yet' }
+  const existingLink = await findOneWithDecryption(
+    em,
+    MessageChannelLink,
+    { messageId: message.id, direction: 'outbound', tenantId, organizationId },
+    undefined,
+    dscope,
+  )
+  if (existingLink) {
+    return { ok: false, status: 409, error: 'Message is already linked to a channel delivery', code: 'already_linked' }
+  }
+
+  const resolved = await resolveSendableChannel(em, actor, input.userChannelId)
+  if (!resolved.ok) return resolved
+  const { channel } = resolved
+
+  const participants = await findWithDecryption(
+    em,
+    MessageExternalParticipant,
+    { messageId: message.id, tenantId, organizationId },
+    { orderBy: { createdAt: 'asc' } },
+    dscope,
+  )
+  const toParticipants = participants.filter((participant) => participant.role === 'to')
+  const to = toParticipants.map((participant) => participant.email)
+  const cc = participants.filter((participant) => participant.role === 'cc').map((participant) => participant.email)
+  const bcc = participants.filter((participant) => participant.role === 'bcc').map((participant) => participant.email)
+  if (to.length === 0) return { ok: false, status: 422, error: 'At least one recipient is required' }
+  const copiesError = await validateSendSeparately({ to, cc, bcc, sendSeparately: message.emailSendSeparately })
+  if (copiesError) return copiesError
+  const sendSeparately = message.emailSendSeparately && to.length > 1
+  const deliveries: OutboundDelivery[] = sendSeparately
+    ? toParticipants.map((participant) => ({ externalParticipantId: participant.id, to: [participant.email] }))
+    : [{ externalParticipantId: null, to }]
+  const html = message.bodyFormat === 'markdown' && message.body.trim()
+    ? await renderMarkdownEmailBody(message.body)
+    : undefined
+
+  await persistOutboundDelivery(
+    em,
+    actor,
+    channel,
+    {
+      messageId: message.id,
+      messageThreadId: message.threadId ?? message.id,
+      subject: message.subject,
+      plain: message.body,
+      html,
+      cc,
+      bcc,
+      inReplyTo: null,
+      references: [],
+      channelMetadata: input.channelMetadata,
+      deliveries,
+    },
+    async () => {
+      // Same markers a composed send-as-user message carries, so the outbound
+      // bridge, the platform email path, the retry tick and "resend to failed"
+      // all treat this message as mailbox-routed.
+      await em.nativeUpdate(
+        Message,
+        { id: message.id, tenantId, organizationId },
+        { sourceEntityType: SEND_AS_USER_SOURCE_ENTITY_TYPE, sourceEntityId: channel.id },
+      )
+      await em.nativeUpdate(
+        MessageExternalParticipant,
+        { messageId: message.id, tenantId, organizationId, deliveryStatus: null },
+        { deliveryStatus: 'pending' },
+      )
+    },
+  )
+  await enqueueOutboundDeliveries(message.id, dscope, deliveries)
+
+  return {
+    ok: true,
+    messageId: message.id,
+    threadId: message.threadId ?? message.id,
+    channelId: channel.id,
+    providerKey: channel.providerKey,
+  }
+}
+
+async function persistOutboundDelivery(
+  em: EntityManager,
+  actor: SendAsUserActor,
+  channel: CommunicationChannel,
+  content: OutboundDeliveryContent,
+  beforeLinks?: () => Promise<void>,
+): Promise<void> {
+  const { tenantId } = actor
+  const organizationId = actor.organizationId
+  const dscope = { tenantId, organizationId }
+  const externalThreadRef = `outbound:${content.messageThreadId}`
 
   // Persist the conversation, thread mapping, and channel link as one unit. The
   // conversation's id is DB-generated (`gen_random_uuid()`), so it must be
@@ -225,7 +435,7 @@ export async function sendAsUser(
       conversation = em.create(ExternalConversation, {
         channelId: channel.id,
         externalConversationId: externalThreadRef,
-        subject: input.subject,
+        subject: content.subject,
         assignedUserId: actor.userId,
         tenantId,
         organizationId,
@@ -234,7 +444,7 @@ export async function sendAsUser(
       em.persist(conversation)
       await em.flush()
     } else {
-      conversation.subject = conversation.subject ?? input.subject
+      conversation.subject = conversation.subject ?? content.subject
       conversation.assignedUserId = conversation.assignedUserId ?? actor.userId
       conversation.lastMessageAt = new Date()
       // Flush the scalar updates BEFORE the ChannelThreadMapping lookup below: a
@@ -257,7 +467,7 @@ export async function sendAsUser(
     if (!existingMapping) {
       const mapping = em.create(ChannelThreadMapping, {
         externalConversationId: conversation.id,
-        messageThreadId,
+        messageThreadId: content.messageThreadId,
         channelId: channel.id,
         providerKey: channel.providerKey,
         externalThreadRef,
@@ -268,9 +478,11 @@ export async function sendAsUser(
       em.persist(mapping)
     }
 
-    for (const delivery of deliveries) {
+    if (beforeLinks) await beforeLinks()
+
+    for (const delivery of content.deliveries) {
       const channelLink = em.create(MessageChannelLink, {
-        messageId,
+        messageId: content.messageId,
         externalParticipantId: delivery.externalParticipantId,
         externalConversationId: conversation.id,
         providerKey: channel.providerKey,
@@ -278,21 +490,21 @@ export async function sendAsUser(
         direction: 'outbound',
         deliveryStatus: 'pending',
         channelPayload: {
-          text: input.body.plain ?? messageBody,
-          ...(input.body.html ? { html: input.body.html } : {}),
+          text: content.plain,
+          ...(content.html ? { html: content.html } : {}),
         },
-        channelContentType: input.body.html ? 'text/html' : 'text/plain',
+        channelContentType: content.html ? 'text/html' : 'text/plain',
         channelMetadata: {
           // Caller-supplied pass-through metadata merged FIRST so the validated
           // routing fields below always win — a caller cannot override the
           // recipients/subject/threading headers via `channelMetadata`.
-          ...(input.channelMetadata ?? {}),
+          ...(content.channelMetadata ?? {}),
           to: delivery.to,
-          cc: delivery.externalParticipantId ? [] : input.cc ?? [],
-          bcc: delivery.externalParticipantId ? [] : input.bcc ?? [],
-          subject: input.subject,
-          inReplyTo: input.inReplyTo ?? null,
-          references: input.references ?? [],
+          cc: delivery.externalParticipantId ? [] : content.cc,
+          bcc: delivery.externalParticipantId ? [] : content.bcc,
+          subject: content.subject,
+          inReplyTo: content.inReplyTo,
+          references: content.references,
         },
         tenantId,
         organizationId,
@@ -301,24 +513,22 @@ export async function sendAsUser(
     }
     await em.flush()
   })
+}
 
+async function enqueueOutboundDeliveries(
+  messageId: string,
+  scope: { tenantId: string; organizationId: string | null },
+  deliveries: OutboundDelivery[],
+): Promise<void> {
   const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
   for (const delivery of deliveries) {
     const deliveryJob: OutboundDeliveryPayload = {
       messageId,
-      scope: dscope,
+      scope,
       attempt: 1,
       ...(delivery.externalParticipantId ? { externalParticipantId: delivery.externalParticipantId } : {}),
     }
     await queue.enqueue(deliveryJob as unknown as Record<string, unknown>)
-  }
-
-  return {
-    ok: true,
-    messageId,
-    threadId: messageThreadId,
-    channelId: channel.id,
-    providerKey: channel.providerKey,
   }
 }
 
@@ -333,7 +543,9 @@ export function findSendSeparatelyCopyFields(
   return (['cc', 'bcc'] as const).filter((field) => (input[field]?.length ?? 0) > 0)
 }
 
-async function validateSendSeparately(input: SendAsUserInput): Promise<SendAsUserResult | null> {
+async function validateSendSeparately(
+  input: Pick<SendAsUserInput, 'to' | 'cc' | 'bcc' | 'sendSeparately'>,
+): Promise<SendAsUserFailure | null> {
   const fields = findSendSeparatelyCopyFields(input)
   if (fields.length === 0) return null
   const { t } = await resolveTranslations()
@@ -346,3 +558,5 @@ async function validateSendSeparately(input: SendAsUserInput): Promise<SendAsUse
 
 /** DI service type for cross-module callers (resolve `communicationChannelsSendAsUser`). */
 export type SendAsUserService = typeof sendAsUser
+/** DI service type for cross-module callers (resolve `communicationChannelsValidateSenderChannel`). */
+export type ValidateSenderChannelService = typeof validateSenderChannel

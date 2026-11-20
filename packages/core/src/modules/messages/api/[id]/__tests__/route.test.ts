@@ -607,58 +607,84 @@ describe('messages /api/messages/[id] PATCH', () => {
     }))
   })
 
-  it('refuses to send a saved draft through a connected mailbox instead of silently dropping the field', async () => {
+  describe('sending a saved draft through a connected mailbox', () => {
     const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
     const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
     const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
     const messageId = '22222222-2222-4222-8222-222222222222'
     const channelId = '33333333-3333-4333-8333-333333333333'
 
-    const draftMessage = {
-      id: messageId,
-      tenantId,
-      organizationId,
-      senderUserId: userId,
-      isDraft: true,
-      deletedAt: null,
+    function setup(options: { storedChannelId?: string | null; validation?: { ok: true } | { ok: false; status: number; error: string } }) {
+      const draftMessage = {
+        id: messageId,
+        tenantId,
+        organizationId,
+        senderUserId: userId,
+        isDraft: true,
+        visibility: 'public',
+        externalEmail: 'client@example.com',
+        senderChannelId: options.storedChannelId ?? null,
+        deletedAt: null,
+      }
+      const em = {
+        fork: jest.fn().mockReturnThis(),
+        findOne: jest.fn().mockResolvedValue(draftMessage),
+      }
+      const commandBus = {
+        execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
+      }
+      const validateSenderChannel = jest.fn(async () => options.validation ?? { ok: true })
+      const container = {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          if (name === 'commandBus') return commandBus
+          if (name === 'communicationChannelsValidateSenderChannel') return validateSenderChannel
+          return null
+        },
+      }
+      resolveMessageContextMock.mockResolvedValue({
+        ctx: { container, auth: null },
+        scope: { tenantId, organizationId, userId },
+      })
+      return { commandBus, validateSenderChannel }
     }
 
-    const em = {
-      fork: jest.fn().mockReturnThis(),
-      findOne: jest.fn().mockResolvedValue(draftMessage),
-    }
-    const commandBus = {
-      execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
-    }
-    const container = {
-      resolve: (name: string) => {
-        if (name === 'em') return em
-        if (name === 'commandBus') return commandBus
-        return null
-      },
+    function sendDraft(extra: Record<string, unknown> = {}) {
+      return PATCH(new Request(`https://example.test/api/messages/${messageId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ subject: 'Send from my mailbox', body: 'Hello', isDraft: false, ...extra }),
+      }), { params: { id: messageId } })
     }
 
-    resolveMessageContextMock.mockResolvedValue({
-      ctx: { container, auth: null },
-      scope: { tenantId, organizationId, userId },
+    it('checks the chosen mailbox and hands the send to the command', async () => {
+      const { commandBus, validateSenderChannel } = setup({})
+
+      const response = await sendDraft({ senderChannelId: channelId })
+
+      expect(response.status).toBe(200)
+      expect(validateSenderChannel).toHaveBeenCalledWith(expect.anything(), { userId, tenantId, organizationId }, channelId)
+      expect(commandBus.execute.mock.calls[0][1].input).toEqual(expect.objectContaining({ senderChannelId: channelId, isDraft: false }))
     })
 
-    const request = new Request('https://example.test/api/messages/22222222-2222-4222-8222-222222222222', {
-      method: 'PATCH',
-      body: JSON.stringify({
-        subject: 'Send from my mailbox',
-        body: 'Hello',
-        isDraft: false,
-        senderChannelId: channelId,
-      }),
+    it('uses the mailbox stored on the draft when the request omits it', async () => {
+      const { validateSenderChannel } = setup({ storedChannelId: channelId })
+
+      const response = await sendDraft()
+
+      expect(response.status).toBe(200)
+      expect(validateSenderChannel).toHaveBeenCalledWith(expect.anything(), expect.anything(), channelId)
     })
 
-    const response = await PATCH(request, { params: { id: messageId } })
+    it('refuses a mailbox that cannot deliver as a field error on the sender control', async () => {
+      const { commandBus } = setup({ validation: { ok: false, status: 422, error: 'Channel requires re-authentication' } })
 
-    expect(response.status).toBe(422)
-    const body = await response.json()
-    expect(body.fieldErrors?.senderChannelId).toBeTruthy()
-    expect(commandBus.execute).not.toHaveBeenCalled()
+      const response = await sendDraft({ senderChannelId: channelId })
+
+      expect(response.status).toBe(422)
+      const body = await response.json()
+      expect(body.fieldErrors?.senderChannelId).toBe('Channel requires re-authentication')
+      expect(commandBus.execute).not.toHaveBeenCalled()
+    })
   })
 })
 

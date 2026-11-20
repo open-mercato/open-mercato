@@ -22,6 +22,7 @@ import {
   resolveMessageContext,
   resolveMessageReadAccess,
 } from '../../lib/routeHelpers'
+import { validateMessageSender } from '../../lib/composeSenderDelegation'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../guards'
 import {
   errorResponseSchema,
@@ -437,30 +438,33 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return Response.json({ error: 'Only draft messages can be edited' }, { status: 409 })
   }
 
-  // `sendAsUser` composes a fresh message rather than updating an existing
-  // one, so sending a saved draft through a connected mailbox is not
-  // implemented yet. Refuse explicitly instead of silently stripping the
-  // field and falling back to the platform sender.
-  if (input.senderChannelId) {
-    const { t } = await resolveTranslations()
-    const errorMessage = t(
-      'messages.errors.senderDraftSendUnsupported',
-      'Sending a saved draft through a connected mailbox is not supported yet.',
-    )
-    return Response.json(
-      { error: errorMessage, fieldErrors: { senderChannelId: errorMessage } },
-      { status: 422 },
-    )
+  if (input.scheduledAt) {
+    const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container)
+    if (scheduleRefusal) return scheduleRefusal
   }
 
-  if (input.scheduledAt) {
-    const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container, false)
-    if (scheduleRefusal) return scheduleRefusal
+  const finalVisibility = input.visibility !== undefined ? input.visibility : message.visibility
+  const senderChannelId = input.senderChannelId ?? message.senderChannelId ?? null
+  if (senderChannelId && (input.isDraft === false || input.scheduledAt instanceof Date)) {
+    const senderCheck = await validateMessageSender(
+      ctx.container,
+      { userId: scope.userId, tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+      {
+        senderChannelId,
+        visibility: finalVisibility,
+        externalEmails: input.externalEmails
+          ?? (input.externalEmail ? [input.externalEmail] : message.externalEmail ? [message.externalEmail] : []),
+        attachmentIds: input.attachmentIds,
+        objects: input.objects,
+      },
+    )
+    if (!senderCheck.ok) {
+      return Response.json({ error: senderCheck.error, fieldErrors: senderCheck.fieldErrors }, { status: senderCheck.status })
+    }
   }
 
   // A draft is filed on its parent's thread and skips the compose route's
   // channel gate, so sending it publicly must pass the same gate (#6432).
-  const finalVisibility = input.visibility !== undefined ? input.visibility : message.visibility
   if (
     (input.isDraft === false || input.scheduledAt instanceof Date) &&
     finalVisibility === 'public' &&

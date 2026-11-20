@@ -831,7 +831,7 @@ export function useMessageCompose({
     variant,
   ])
 
-  const canSchedule = variant === 'compose' && scheduling?.available === true && !effectiveSenderChannelId
+  const canSchedule = variant === 'compose' && scheduling?.available === true
   const scheduleMaxDays = scheduling?.maxDays ?? 0
 
   const handleSchedule = React.useCallback(

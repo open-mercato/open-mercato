@@ -154,9 +154,7 @@ function buildComposePayload(
     objects: contextObjects,
     attachmentIds: input.attachmentIds.length > 0 ? input.attachmentIds : undefined,
     sendViaEmail: params.sendViaEmail,
-    senderChannelId: !input.isDraft && publicMessage && params.senderChannelId
-      ? params.senderChannelId
-      : undefined,
+    senderChannelId: publicMessage && params.senderChannelId ? params.senderChannelId : undefined,
     isDraft: input.isDraft,
   }
 }
