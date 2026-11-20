@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createRoleFixture, deleteRoleIfExists } from '@open-mercato/core/helpers/integration/authFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 
@@ -61,9 +61,9 @@ test.describe('TC-AUD-020: access log pagination stays stable when createdAt tie
     test.setTimeout(90_000)
     const token = await getAuthToken(request, 'admin')
     const stamp = `qa-aud-020-${Date.now()}`
+    const { tenantId, userId } = getTokenScope(token)
     const startedAt = new Date(Date.now() - 1_000).toISOString()
     const roleIds: string[] = []
-    const accessLogIds: string[] = []
     try {
       for (let index = 0; index < ROW_COUNT; index += 1) {
         roleIds.push(await createRoleFixture(request, token, { name: `${stamp}-${index}` }))
@@ -80,10 +80,8 @@ test.describe('TC-AUD-020: access log pagination stays stable when createdAt tie
       expect((rolesBody?.items ?? []).map((item) => item.id).sort()).toEqual([...roleIds].sort())
 
       const tiedRows = await waitForTiedRows(request, token, startedAt, roleIds)
-      for (const row of tiedRows) {
-        if (row.id) accessLogIds.push(row.id)
-      }
       expect(tiedRows).toHaveLength(ROW_COUNT)
+      const accessLogIds = tiedRows.map((row) => row.id).filter((id): id is string => typeof id === 'string')
       const tiedAt = tiedRows[0].createdAt as string
       expect(new Set(tiedRows.map((row) => row.createdAt))).toEqual(new Set([tiedAt]))
 
@@ -101,11 +99,12 @@ test.describe('TC-AUD-020: access log pagination stays stable when createdAt tie
       for (const roleId of roleIds) {
         await deleteRoleIfExists(request, token, roleId)
       }
-      if (accessLogIds.length > 0) {
-        await withClient(async (client) => {
-          await client.query('delete from access_logs where id = any($1::uuid[])', [accessLogIds])
-        })
-      }
+      await withClient(async (client) => {
+        await client.query(
+          "delete from access_logs where tenant_id = $1 and actor_user_id = $2 and resource_kind = 'auth.role' and created_at >= $3",
+          [tenantId, userId, startedAt],
+        )
+      })
     }
   })
 })
