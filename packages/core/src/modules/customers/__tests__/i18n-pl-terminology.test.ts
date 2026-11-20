@@ -6,7 +6,6 @@ const DEAL_KEYS = [
   'customers.companies.detail.activeDeal',
   'customers.deals.detail.closeLostError',
   'customers.deals.detail.closeWonError',
-  'customers.deals.detail.stageMenu.description',
   'customers.deals.detail.stageUpdateError',
   'customers.deals.detail.stageUpdateSuccess',
   'customers.deals.kanban.card.aria.menu',
