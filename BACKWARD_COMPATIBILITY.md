@@ -694,7 +694,6 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
 
-
 ## SSO authority (2026-11-15, #9014)
 
-STABLE SSO/SCIM delegation: missing authority permits escalation; a bridge retains it. Re-save configs/reissue tokens. Named human waiver required. [Upgrade](UPGRADE_NOTES.md); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
+STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Named human waiver of steps 1–3 required. [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).

@@ -6,8 +6,11 @@
 before application code. Existing SSO configurations have no trusted author and
 must be reviewed and saved by an authorized human administrator before SSO
 authentication or provisioning resumes. Review the issuer, credentials, domains,
-and complete role mappings. Revoke and replace old SCIM tokens: their creator
-must now be known and retain `sso.scim.manage`. Keep password break-glass access
+and complete role mappings. Each mapped role name must match exactly one live
+role in the tenant (case-insensitive): a mapping to a missing or ambiguous role
+now blocks saving the configuration and denies every SSO sign-in and SCIM
+operation through it, instead of being skipped. Revoke and replace old SCIM
+tokens: their creator must now be known and retain `sso.scim.manage`. Keep password break-glass access
 available while performing this rollout. Disabling/deleting an unsafe config
 remains available without reauthorization.
 
