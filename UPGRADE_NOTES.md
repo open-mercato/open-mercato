@@ -1,5 +1,100 @@
 # Upgrade Notes
 
+## Entity translation authorization and field registration (#9139)
+
+`GET /api/translations/:entityType/:entityId` now requires the target record's view
+permission. PUT and DELETE require its manage permission. All three operations
+also require their existing translation feature and a live target in the
+effective tenant and organization. Unregistered entity types and unregistered
+PUT field keys return 400. Missing permissions return 403. Missing targets
+return 404. Stored keys outside the registration are omitted from reads, lists,
+and view exports.
+
+**Clients** should register each translated text field in the module's `translations.ts`
+and regenerate the application. Request translation operations for existing
+records using a caller with the corresponding target permission. Pass the
+registered entity type as the fourth argument to `applyLocalizedContent`.
+
+**Operators** should review legitimate translation roles and grant the matching target
+view or manage permissions where appropriate. Review existing translation rows
+for values entered before the permission checks, including values on fields
+that are still valid. Remove or replace suspect content through authorized
+translation operations. Rows for unregistered or missing targets require
+operator cleanup. No schema migration is required.
+
+## SSO configuration and SCIM authority (#9014)
+
+**Operators:** deploy the additive `sso_configs.authorization_user_id` migration
+and `sessions.sso_provenance` migrations before application code. Existing SSO configurations have no trusted author and
+must be reviewed and saved by an authorized human administrator before SSO
+authentication or provisioning resumes. Review the issuer, credentials, domains,
+and complete role mappings. Each mapped role name must match exactly one live
+role in the tenant (case-insensitive): a mapping to a missing or ambiguous role
+now blocks saving the configuration and denies every SSO sign-in and SCIM
+operation through it, instead of being skipped. Revoke and replace old SCIM
+tokens: their creator must now be known and retain `sso.scim.manage`. Keep password break-glass access
+available while performing this rollout. Disabling/deleting an unsafe config
+remains available without reauthorization.
+
+SSO role grants and existing-account links now require the config author's current
+grant authority; SCIM mutations also require the token creator's authority. Author
+deletion/demotion or a target's later elevation can therefore block sign-in and
+provisioning. Audit historical SSO grants, identities, direct ACLs, and sessions
+and revoke unauthorized access; the fix does not automatically repair past
+compromise. New SSO sessions stop authorizing access and refresh when their
+configuration changes or loses authority. Users should sign in again after an
+authorized administrator resolves the issue. Revoke suspect pre-upgrade sessions
+explicitly because they lack configuration provenance. Rolling back application
+code reintroduces the vulnerability.
+
+**Clients and module authors:** HTTP payloads, URLs, and response schemas are
+unchanged. Pass the authenticated `actorUserId` to direct config/token service
+calls, retain the injected authorization service, and handle 403 authorization
+errors through existing error handling. Provenance is server-managed; do not
+accept it from request bodies. Legacy acceptance cannot be bridged safely because
+it retains the escalation path. A named human maintainer must approve the
+emergency compatibility waiver before merge; automated review cannot grant it.
+
+[Specification](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
+
+
+## `sync_akeneo` no longer requires `sales` (#9211)
+
+`sync_akeneo` now declares `requires: ['integrations', 'data_sync', 'catalog', 'progress']`.
+`sales` is an optional peer: with it disabled, product import still runs and skips
+channel-bound offers and prices, logging the `sync_akeneo.sales_channels_unavailable`
+warning. `progress`, which import jobs already used, is now an explicit requirement; it was
+previously enabled transitively through `sales` → `customers`. Apps that pass
+`yarn generate` today are not newly rejected, and no action is needed unless your app
+relied on `sync_akeneo` to force `sales` (and its `customers` chain) on. No API, schema
+or configuration change. See
+[module dependencies](apps/docs/docs/architecture/module-dependencies.mdx).
+
+## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
+
+The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
+`PipelineStepper` and replaced the Won / Lost buttons with a "Close deal" menu under the header
+actions. The inputs that fed the old presentation stay accepted and are marked `@deprecated`:
+
+- `DealDetailHeader` `stageOptions`, `currentStageId`, `onStageChange`, `isStageSaving`: when a
+  caller passes `stageOptions` together with `onStageChange` for an open deal, the header still
+  renders a stage menu (`StageSelectMenu`) in its action cluster, disabled while the form is dirty
+  or saving. The built-in page no longer passes them; it passes `onStageChange` and
+  `stageChangeDisabled` to `PipelineStepper` instead.
+- `PipelineStepper.footer`: still rendered under the stage strip, separated by a rule, with and
+  without stages. The built-in page renders closure controls through
+  `DealDetailHeader.secondaryActions`.
+- `DealClosureActionBar.embedded`: accepted and ignored. The bar is a popover trigger and draws no
+  card, so there is nothing to embed.
+- `CollapsibleGroupProps.fieldCount` (`@open-mercato/ui/backend/crud/CollapsibleGroup`): accepted
+  and ignored; the group title no longer shows the "N fields" counter.
+
+Below the `sm` breakpoint `PipelineStepper` now shows a "Move stage" menu next to the current
+stage, so narrow screens keep the quick stage change the header dropdown used to provide.
+
+All of these stay for at least one minor release after 0.10.0 and are tracked in
+`.ai/specs/2026-04-06-crm-detail-pages-ux-enhancements.md`. No database migration is required.
+
 ## CRM preset enables the scheduler (#8804)
 
 New apps scaffolded with `create-mercato-app --preset crm` now enable the
@@ -928,6 +1023,12 @@ Internal `DataEngine.createCustomEntityRecord` callers retain upserts by default
 the new optional `createOnly` flag selects conflict-on-existing creation. No
 operator configuration or database migration is needed. See the
 [locking coverage spec](.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md#custom-record-creation--7815).
+
+### Workflow list pagination bounds (#7534)
+
+Workflow definitions, instances, instance events and global events now reject invalid pagination with HTTP 400. Page sizes are integers from 1 to 100; offsets are integers from 0 to 100,000 (including the offset derived from global-events `page`/`pageSize`). Defaults and response fields are unchanged. Existing task, work-inbox, portal-task, step, would-do and failure-queue lists retain their size clamps and fallback behavior for malformed or negative inputs, but return HTTP 400 when the normalized requested offset exceeds 100,000 rather than returning a different page. The same offset validation applies to `POST /api/workflows/work-inbox/next` before selecting or claiming a task.
+
+**Client action:** split requests larger than 100 into pages, send whole nonnegative offsets, and narrow filters before reaching 100,000. Handle 400 responses for out-of-range offsets on every listed route, including Work Inbox claim-next. The seven fallback/clamping routes return the stable `WORKFLOW_LIST_OFFSET_EXCEEDED` error string; the four strict list endpoints return validation errors and also reject malformed pagination. **Operator action:** deploy the updated application; no database migration or new configuration is required. Definitions now fetch a small DB window around the requested page instead of materializing its entire prefix. Definitions also use consistent UTF-8 byte ordering (`COLLATE "C"` in PostgreSQL): uppercase names precede lowercase names and accented names follow ASCII. This replaces the mixed database/Node locale ordering, so case/accent positions can change; use server-provided ordering across pages.
 
 ### Inbound webhook receipt deduplication includes verified scope (#7830)
 
@@ -2102,6 +2203,31 @@ because a bad window never produced a rule; it only deleted existing hours.
 
 Existing data is not repaired: hours already lost through this path are not restored by the
 upgrade and have to be re-entered through the editor or the API. No database migration is needed.
+
+### `GET` time-project employees now enforces project membership (#8885)
+
+`GET /api/staff/timesheets/time-projects/{id}/employees` only required the global
+`staff.timesheets.projects.view` feature. A staff member holding that feature, but not an
+active member of the project in the URL and without `staff.timesheets.projects.manage`, could
+read that project's membership roster — roles, status, assignment start/end dates — the same
+way the sibling `time-projects` list route already prevents for the project itself.
+
+The route now resolves the caller's project access the same way (`resolveFeatureAccess` +
+`resolveProjectAccess` + `assertProjectAccess` from `lib/time-tracking/{featureAccess,access}.ts`)
+and denies a non-member with the same non-enumerable `404 { "error": "...", "reason":
+"no_project_access" }` the project-list route answers for a project the caller cannot see — so
+the response cannot be used to tell "exists but forbidden" apart from "doesn't exist." A caller
+with `staff.timesheets.projects.manage` is unaffected. Neither `?timeProjectId=` on the query
+string nor an advanced-filter condition on `time_project_id`
+(`?filter[conditions][0][field]=time_project_id...`) can override the URL's project id — the
+latter is consumed via `consumeAdvancedFilterState`/`mergeAdvancedFilterTree` and AND-combined
+with the route's own scope, the same pattern `devices`/`customers.people` already use, so it can
+only narrow the result, never redirect or widen it onto another project.
+
+**Action for integrators:** a caller that was relying on this endpoint to read a project it is
+not a member of (and does not manage) now gets `404` instead of `200`. This was always a bug —
+treat it as the fix it is, not as a behavior to route around. No route path, request shape, or
+response schema changed for an authorized caller.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 

@@ -46,7 +46,7 @@ type LaneCurrencyBreakdownProps = {
  *
  * Visual design from SPEC-048 Figma node 1251:610 — bordered white header bar with bold title +
  * close button, overline heading + large total amount, currency table with thin row dividers,
- * BASE pill on the base-currency row, and a muted "NBP mid rate · {date}" footer credit.
+ * BASE pill on the base-currency row, and a muted "NBP mid rate, {date}" footer credit.
  *
  * The body (column header + currency rows + BASE pill + footer credit) lives in
  * `CurrencyBreakdownTable` so the filter variant (`CurrencyFilterPopover`) can reuse the same
@@ -152,7 +152,7 @@ export function LaneCurrencyBreakdown({
               {translateWithFallback(
                 t,
                 'customers.deals.kanban.currencyBreakdown.footerCredit',
-                'NBP mid rate · {date}',
+                'NBP mid rate, {date}',
                 { date: formatToday() },
               )}
             </p>

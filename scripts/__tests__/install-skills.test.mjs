@@ -18,6 +18,8 @@ import { createInstaller } from '../install-skills.mjs'
 import { validateSkillsTiers } from '../validate-skills-tiers.mjs'
 
 const tempRoots = []
+const externalRef = 'a90b091d27141a6cd12f363e94ebd0f5f84ba615'
+const cliVersion = '1.9.0'
 
 function makeFixtureRepo({ manifest, skills = [] } = {}) {
   const rootDir = mkdtempSync(join(tmpdir(), 'om-install-skills-'))
@@ -30,7 +32,7 @@ function makeFixtureRepo({ manifest, skills = [] } = {}) {
   }
   const defaultManifest = {
     default: ['core'],
-    external: { source: 'open-mercato/skills', skills: ['om-external-one'] },
+    external: { source: 'open-mercato/skills', ref: externalRef, cliVersion, skills: ['om-external-one'] },
     tiers: {
       core: { description: 'core', skills: ['skill-a', 'skill-b'] },
       extra: { description: 'extra', skills: ['skill-c'] },
@@ -117,7 +119,7 @@ describe('validate-skills-tiers', () => {
     const rootDir = makeFixtureRepo({
       manifest: {
         default: ['core'],
-        external: { source: 'open-mercato/skills', skills: ['om-external-one'] },
+        external: { source: 'open-mercato/skills', ref: externalRef, cliVersion, skills: ['om-external-one'] },
         tiers: { core: { description: 'core', skills: ['skill-a', 'skill-gone', 'om-external-one'] } },
       },
       skills: ['skill-a', 'skill-orphan', 'om-external-one'],
@@ -233,20 +235,65 @@ describe('install-skills', () => {
     assert.ok(isLink(join(rootDir, '.claude', 'skills', 'skill-a')))
   })
 
-  it('reports external status from the npx runner without failing the install', () => {
+  it('uses immutable pins on every install and never runs a floating update', () => {
     const calls = []
     const { installer, logs } = makeInstaller(rootDir, {
       runNpx: (args) => {
         calls.push(args)
-        return args.includes('add')
+        return true
       },
     })
     assert.equal(installer.run([]), 0)
+    assert.equal(installer.run([]), 0)
     assert.equal(calls.length, 2)
-    assert.deepEqual(calls[0].slice(0, 4), ['-y', 'skills', 'add', 'open-mercato/skills'])
-    assert.ok(calls[0].includes('claude-code'))
-    assert.match(logs.join('\n'), /External skills: installed from open-mercato\/skills\./)
-    assert.ok(isLink(join(rootDir, '.agents', 'skills', 'skill-a')), 'local install proceeds after failed update')
+    for (const args of calls) {
+      assert.deepEqual(args, [
+        '-y', `skills@${cliVersion}`, 'add',
+        `https://github.com/open-mercato/skills/tree/${externalRef}`,
+        '--skill', '*', '--agent', 'claude-code', '-y',
+      ])
+    }
+    assert.match(logs.join('\n'), /External skills: installed from open-mercato\/skills@a90b091/)
+  })
+
+  it('requires an explicit manifest bump to install a different collection or CLI', () => {
+    const calls = []
+    const { installer } = makeInstaller(rootDir, { runNpx: (args) => { calls.push(args); return true } })
+    installer.run([])
+    const manifestPath = join(rootDir, '.ai', 'skills', 'tiers.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    manifest.external.ref = 'b'.repeat(40)
+    manifest.external.cliVersion = '1.9.1'
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+    installer.run([])
+    assert.equal(calls[1][1], 'skills@1.9.1')
+    assert.equal(calls[1][3], `https://github.com/open-mercato/skills/tree/${'b'.repeat(40)}`)
+    assert.equal(calls.length, 2)
+  })
+
+  it('rejects missing or floating pins before invoking npx', () => {
+    const manifestPath = join(rootDir, '.ai', 'skills', 'tiers.json')
+    const original = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    for (const [field, value] of [
+      ['ref', undefined], ['ref', 'main'], ['ref', 'abc123'], ['ref', [externalRef]],
+      ['cliVersion', undefined], ['cliVersion', 'latest'], ['cliVersion', '^1.9.0'], ['cliVersion', [cliVersion]],
+      ['source', 'https://github.com/open-mercato/skills/tree/main'],
+    ]) {
+      const manifest = structuredClone(original)
+      manifest.external[field] = value
+      writeFileSync(manifestPath, JSON.stringify(manifest))
+      let invoked = false
+      const { installer } = makeInstaller(rootDir, { runNpx: () => { invoked = true; return true } })
+      assert.throws(() => installer.run([]), /tier manifest validation failed/)
+      assert.equal(invoked, false)
+    }
+  })
+
+  it('keeps local skills available when the pinned external install fails', () => {
+    const { installer, logs } = makeInstaller(rootDir, { runNpx: () => false })
+    assert.equal(installer.run([]), 0)
+    assert.match(logs.join('\n'), /External skills: FAILED/)
+    assert.ok(isLink(join(rootDir, '.agents', 'skills', 'skill-a')))
   })
 
   it('replaces the external collection copy of a selected same-named local tier skill', () => {
@@ -409,5 +456,19 @@ describe('QA and Figma external skill migration', () => {
     assert.equal(offline.run(['--no-external']), 0)
     for (const skill of migrated) assert.ok(!isLink(join(offlineRoot, '.agents', 'skills', skill)))
     assert.throws(() => offline.run(['--no-external', '--with', 'design']), /unknown tier 'design'/)
+  })
+})
+
+describe('committed external pins', () => {
+  it('matches the schema patterns for immutable refs and exact CLI versions', () => {
+    const manifest = JSON.parse(readFileSync(new URL('../../.ai/skills/tiers.json', import.meta.url), 'utf8'))
+    const schema = JSON.parse(readFileSync(new URL('../../.ai/skills/tiers.schema.json', import.meta.url), 'utf8'))
+    for (const field of ['source', 'ref', 'cliVersion']) {
+      const pattern = new RegExp(schema.properties.external.properties[field].pattern)
+      assert.ok(pattern.test(manifest.external[field]), field)
+    }
+    const versionPattern = new RegExp(schema.properties.external.properties.cliVersion.pattern)
+    assert.equal(versionPattern.test('1x9x0'), false)
+    assert.equal(versionPattern.test('^1.9.0'), false)
   })
 })
