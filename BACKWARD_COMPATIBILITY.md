@@ -12,12 +12,12 @@ Every listed surface is a **public contract**. Changes MUST follow the deprecati
 
 ### Emergency Security Exception
 
-Steps 1-3 — stage the removal, deprecate first, ship a bridge — are waived, and **only** those three, when the contract surface being removed *is itself* the vulnerability: keeping it alongside the replacement would leave the flaw exploitable for the whole deprecation window. A surface that merely makes an insecure usage possible does not qualify; the exception applies only where continued acceptance of the old shape **is** the exploit.
+Waive only steps 1–3 (stage removal, deprecate, ship a bridge) when the old contract itself is vulnerable and keeping it would leave the flaw exploitable throughout deprecation. A contract that merely permits insecure use does not qualify.
 
 This is not author or reviewer discretion. Every one of the following MUST hold, and a change that cannot satisfy all of them follows the ordinary protocol instead:
 
 1. **The qualifying condition is argued, not asserted.** The PR names the surface, the vulnerability, and why a bridge release would keep it reachable.
-2. **The removal is the narrowest one that closes the hole.** No unrelated tightening rides along, and **no partial bridge retains the vulnerable branch** behind a flag, a config toggle, or an opt-in — a retained branch is the bridge the exception exists to refuse.
+2. **Limit removal to the vulnerability.** Exclude unrelated tightening. No flag, toggle, opt-in or partial bridge may retain the vulnerable path.
 3. **Steps 4 and 5 still apply in full.** An `UPGRADE_NOTES.md` entry with both client *and* operator migration instructions, and a spec under `.ai/specs/` or `.ai/specs/enterprise/` with a "Migration & Backward Compatibility" section.
 4. **A dated entry is added at the end of this document**, recording the surface, its classification, the qualifying argument, and the migration path.
 5. **A maintainer signs off on the exception by name.** The PR carries the `security` label and a human maintainer approval that acknowledges the waiver; an automated review cannot clear it.
