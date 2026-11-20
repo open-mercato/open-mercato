@@ -1823,7 +1823,9 @@ function DataTableImpl<T extends RowData>({
     return result
   }, [columns, injectedColumnDefs])
   const resolvedRowActions = React.useCallback((row: T) => {
-    const injectedItems: (RowActionItem & { placement?: InjectionRowActionDefinition['placement'] })[] = injectedRowActions.map((action) => ({
+    const injectedItems: (RowActionItem & { placement?: InjectionRowActionDefinition['placement'] })[] = injectedRowActions
+      .filter((action) => !action.isVisible || action.isVisible(row))
+      .map((action) => ({
       id: action.id,
       label: t(action.label, action.label),
       onSelect: () => action.onSelect(row, { navigate: (href: string) => router.push(href) }),
@@ -3818,7 +3820,7 @@ function DataTableImpl<T extends RowData>({
           )}
           {shouldRenderToolbarBelow ? <div className={toolbarWrapperClassName}>{builtToolbar}</div> : null}
           {headerInjectionSpotId ? (
-            <div className={embedded ? 'mt-2' : 'mt-3'}>
+            <div className={embedded ? 'mt-2 empty:hidden' : 'mt-3 empty:hidden'}>
               <InjectionSpot spotId={headerInjectionSpotId} context={resolvedInjectionContext} />
             </div>
           ) : null}

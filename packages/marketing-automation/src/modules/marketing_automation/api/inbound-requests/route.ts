@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { MarketingInboundRequest } from '../../data/entities.js'
 import { INBOUND_REQUEST_RETENTION_DAYS } from '../../lib/inbound-requests.js'
+import { readQueryUuid } from '../shared.js'
 
 /**
  * What outside systems actually posted to the hooks.
@@ -31,7 +32,9 @@ export async function GET(req: Request) {
   if (!organizationId) return organizationScopeRequiredResponse()
 
   const url = new URL(req.url)
-  const hookId = url.searchParams.get('hookId')
+  // Validated, so a malformed filter is ignored rather than making Postgres raise on the uuid cast —
+  // the same contract `inbound-hooks`'s own `?campaignId=` and `segments/overlap`'s `?a=`/`?b=` use.
+  const hookId = readQueryUuid(url, 'hookId')
   const requested = Number.parseInt(url.searchParams.get('pageSize') ?? '', 10)
   const pageSize = Number.isFinite(requested) && requested > 0 ? Math.min(requested, MAX_PAGE_SIZE) : MAX_PAGE_SIZE
 

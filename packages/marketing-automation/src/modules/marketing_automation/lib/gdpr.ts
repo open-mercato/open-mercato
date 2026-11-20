@@ -397,11 +397,13 @@ async function eraseWithin(
    * the person it was supposed to forget. Nothing aggregates over this table, so deleting preserves no total —
    * the reason contact preferences and product watches are deleted too.
    *
-   * Matched on the link AND on the uuid appearing anywhere in the body, because a partner names the customer
-   * with whatever key they like and the resolved link is only set when we recognised them.
+   * Matched on the link, not on the uuid appearing in the body: `body::text like ?` only ever matched a
+   * PLAINTEXT uuid, and `encryption.ts` puts `body` in this module's default encryption map, so the column
+   * holds ciphertext — the pattern cannot match it, encrypted or not, and keeping the term would just be a
+   * predicate that always loses. The erasure here is scoped to rows the link already resolved.
    *
-   * **Known residue:** a request that identified somebody by EMAIL and matched no customer carries neither the
-   * link nor the uuid, so it is not reachable from a subject id and survives here. It ages out within
+   * **Known residue:** a request that identified somebody by EMAIL and matched no customer, or named them
+   * only inside the (now encrypted) body, carries no resolvable link and survives here. It ages out within
    * `INBOUND_REQUEST_RETENTION_DAYS`, which is why that window is a week rather than the thirty days the
    * redacted logs get. Closing it properly would mean passing the person's addresses into erasure and running
    * a text match on them, which puts a plaintext address into a query in order to remove one.
@@ -409,8 +411,8 @@ async function eraseWithin(
   const inboundRequestsDeleted = await em.execute(
     `delete from marketing_inbound_requests
       where tenant_id = ? and organization_id = ?
-        and (subject_entity_id = ? or body::text like ?)`,
-    [scope.tenantId, scope.organizationId, subjectEntityId, `%${subjectEntityId}%`],
+        and subject_entity_id = ?`,
+    [scope.tenantId, scope.organizationId, subjectEntityId],
   )
 
   const runs = await em.nativeUpdate(MarketingCampaignRun, scoped, { subjectEntityId: null })

@@ -1,7 +1,6 @@
 import { loadEntityRecordScope } from '@open-mercato/shared/lib/db/recordScope'
 import type { Queue } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from '../../../queue/fulltext-indexing'
-import { resolveAutoIndexingEnabled } from '../lib/auto-indexing'
 import { searchDebugWarn, searchError } from '../../../lib/debug'
 
 export const metadata = { event: 'search.index_record', persistent: false }
@@ -50,11 +49,8 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
     return
   }
 
-  const autoIndexingEnabled = await resolveAutoIndexingEnabled(ctx, { defaultValue: true })
-  if (!autoIndexingEnabled) {
-    return
-  }
-
+  // The auto-indexing switch (OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING and its tenant setting)
+  // is vector-only, so it must not stop full-text records from being queued.
   let queue: Queue<FulltextIndexJobPayload>
   try {
     queue = ctx.resolve<Queue<FulltextIndexJobPayload>>('fulltextIndexQueue')

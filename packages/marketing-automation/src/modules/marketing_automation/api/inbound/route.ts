@@ -154,7 +154,7 @@ export async function POST(req: Request) {
       })
     } catch (logError) {
       logger.warn('[internal] marketing: could not log an inbound request', { err: logError })
-      reportError(logError)
+      reportError(logError, { module: 'marketing_automation', code: 'marketing_automation.inbound_request_log_failed' })
     }
 
     if (!subjectEntityId) return NextResponse.json(ACCEPTED, { status: 202 })

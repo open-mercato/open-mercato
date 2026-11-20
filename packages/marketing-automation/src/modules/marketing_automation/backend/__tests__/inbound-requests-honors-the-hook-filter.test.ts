@@ -30,4 +30,17 @@ describe('the inbound-requests screen honors ?hookId', () => {
   it('reloads when the hook filter changes', () => {
     expect(source).toMatch(/useEffect\(\(\) => \{ void load\(\) \}, \[load, scopeVersion, hookId\]\)/)
   })
+
+  /**
+   * A filtered list that never says WHICH hook it is filtered to is indistinguishable from the
+   * unfiltered one — the screen must show the hook's identity one way or the other, not just honour
+   * the query parameter silently.
+   */
+  it('adds a Hook column only when unfiltered, and names the hook in the header when filtered', () => {
+    const columnsBlock = source.slice(source.indexOf('const columns = React.useMemo'), source.indexOf('const bodySubRows'))
+    expect(columnsBlock).toMatch(/\.\.\.\(hookId \? \[\] : \[\{/)
+    expect(columnsBlock).toContain("id: 'hook'")
+
+    expect(source).toMatch(/description=\{hookId\s*\n?\s*\?/)
+  })
 })

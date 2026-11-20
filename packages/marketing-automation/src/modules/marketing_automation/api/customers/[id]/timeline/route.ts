@@ -177,7 +177,7 @@ export async function GET(req: Request) {
     findWithDecryption(
       em,
       MarketingSurveyPrompt,
-      { subjectEntityId: customerId, ...scope },
+      { subjectEntityId: customerId, ...scope, ...olderThan('askedAt') },
       { orderBy: { askedAt: 'DESC' }, limit: page },
       scope,
     ),

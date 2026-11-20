@@ -66,6 +66,12 @@ export default function InboundRequestsPage() {
   const [retentionDays, setRetentionDays] = React.useState<number | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
+  /**
+   * Names, not raw ids — the row itself only carries `hookId`. Fetched from `inbound-hooks`, which this
+   * caller can always reach: it is readable at `campaigns.view`, a lower bar than the `campaigns.manage`
+   * this screen already requires.
+   */
+  const [hookNames, setHookNames] = React.useState<Map<string, string>>(new Map())
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -94,6 +100,22 @@ export default function InboundRequestsPage() {
 
   React.useEffect(() => { void load() }, [load, scopeVersion, hookId])
 
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const result = await apiCall<{ items?: Array<{ id?: string; name?: string }> }>(
+        '/api/marketing_automation/inbound-hooks?pageSize=100',
+      )
+      if (cancelled || !result.ok || !Array.isArray(result.result?.items)) return
+      setHookNames(new Map(
+        result.result.items.flatMap((hook) => (hook.id && hook.name ? [[hook.id, hook.name] as const] : [])),
+      ))
+    })()
+    return () => { cancelled = true }
+  }, [scopeVersion])
+
+  const hookName = (id: string) => hookNames.get(id) ?? id
+
   const columns = React.useMemo<ColumnDef<RequestRow>[]>(() => [
     {
       id: 'receivedAt',
@@ -101,6 +123,16 @@ export default function InboundRequestsPage() {
       meta: { truncate: false },
       cell: ({ row }) => (row.original.isBody ? '' : formatDateTime(row.original.receivedAt)),
     },
+    /**
+     * Only when the screen is NOT already scoped to one hook — the filtered view says which hook in its
+     * own header instead, so the column would repeat the same name on every row.
+     */
+    ...(hookId ? [] : [{
+      id: 'hook',
+      header: t('marketing_automation.inboundRequests.columns.hook', 'Hook'),
+      meta: { truncate: true, maxWidth: '200px' },
+      cell: ({ row }: { row: { original: RequestRow } }) => (row.original.isBody ? '' : hookName(row.original.hookId)),
+    } as ColumnDef<RequestRow>]),
     {
       id: 'outcome',
       header: t('marketing_automation.inboundRequests.columns.outcome', 'Outcome'),
@@ -159,7 +191,7 @@ export default function InboundRequestsPage() {
         ? ''
         : <span className="text-xs tabular-nums text-muted-foreground">{`${row.original.bodyBytes} B`}</span>),
     },
-  ], [t])
+  ], [t, hookId, hookNames])
 
   /** The body opens under the request somebody clicked, the way a run's steps open under their run. */
   const bodySubRows = React.useCallback(
@@ -188,6 +220,11 @@ export default function InboundRequestsPage() {
                 title: t('marketing_automation.inboundRequests.title', 'Inbound requests'),
                 body: t('marketing_automation.help.page.inboundRequests'),
               }}
+              // Visible proof this screen honoured `?hookId=` — a filtered list that never says WHICH
+              // hook it is filtered to leaves an operator unable to tell it apart from the unfiltered one.
+              description={hookId
+                ? t('marketing_automation.inboundRequests.filteredByHook', 'Filtered to {hook}').replace('{hook}', hookName(hookId))
+                : undefined}
               columns={columns}
               data={rows}
               isLoading={loading}

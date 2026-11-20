@@ -17,6 +17,7 @@ import { resolveTrackingSecret, trackingSecretEnvNames } from '../lib/tracking/s
 import { INBOUND_PATH, INBOUND_TOKEN_PARAM, signInboundToken } from '../lib/inbound'
 
 const HOOKS_PATH = '/api/marketing_automation/inbound-hooks'
+const INBOUND_REQUESTS_PATH = '/api/marketing_automation/inbound-requests'
 const LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at'
 
 type HookBody = { id?: string; url?: string | null; name?: string; revokedAt?: string | null; updatedAt?: string; receivedCount?: number; lastOutcome?: string | null }
@@ -243,5 +244,64 @@ test.describe('TC-MA-020 inbound hooks', () => {
     const token = await getAuthToken(request, 'admin')
     const response = await apiRequest(request, 'GET', `${CAMPAIGNS_PATH}?pageSize=1`, { token })
     expect(response.status()).toBe(200)
+  })
+
+  /**
+   * `GET /api/marketing_automation/inbound-requests` had no integration coverage: its `hookId` filter
+   * (read with `readQueryUuid`, so a malformed one is ignored rather than crashing the route) and its
+   * `campaigns.manage` + `customers.people.view` gating were only pinned by source-text tests.
+   */
+  test('inbound-requests narrows to one hook and is gated beyond campaigns.manage alone', async ({ request }) => {
+    test.skip(!secret, 'no signing secret configured in this environment')
+    const token = await getAuthToken(request, 'admin')
+    const stamp = Date.now()
+    const campaignId = await createCampaign(request, token, `TC-MA-020 requests ${stamp}`)
+    let hookA: HookBody | null = null
+    let hookB: HookBody | null = null
+
+    try {
+      const createdA = await apiRequest(request, 'POST', HOOKS_PATH, { token, data: { campaignId, name: `Hook A ${stamp}` } })
+      hookA = await readJsonSafe<HookBody>(createdA)
+      const createdB = await apiRequest(request, 'POST', HOOKS_PATH, { token, data: { campaignId, name: `Hook B ${stamp}` } })
+      hookB = await readJsonSafe<HookBody>(createdB)
+      expect(hookA?.url).toBeTruthy()
+      expect(hookB?.url).toBeTruthy()
+
+      // One request to each hook, so a request logged against the OTHER hook is in the table to be
+      // wrongly included if the filter did nothing.
+      const postedA = await request.post(hookA!.url as string, { data: { orderRef: `A-${stamp}` } })
+      expect(postedA.status()).toBe(202)
+      const postedB = await request.post(hookB!.url as string, { data: { orderRef: `B-${stamp}` } })
+      expect(postedB.status()).toBe(202)
+
+      const filtered = await readJsonSafe<{ items?: Array<{ hookId?: string }> }>(
+        await apiRequest(request, 'GET', `${INBOUND_REQUESTS_PATH}?hookId=${hookA!.id}`, { token }),
+      )
+      expect(filtered?.items?.length).toBeGreaterThan(0)
+      expect(filtered?.items?.every((item) => item.hookId === hookA!.id)).toBe(true)
+
+      // A malformed hookId answers like no filter at all — the same contract readQueryUuid's other
+      // callers (inbound-hooks, segments/overlap) already have — rather than a 500 on the uuid cast.
+      const malformed = await apiRequest(request, 'GET', `${INBOUND_REQUESTS_PATH}?hookId=not-a-uuid`, { token })
+      expect(malformed.ok(), await malformed.text()).toBe(true)
+
+      // `employee` carries the read-only features from setup.ts — neither campaigns.manage nor
+      // customers.people.view — so it is refused the same way a role missing just one of them would be.
+      const employeeToken = await getAuthToken(request, 'employee')
+      const asEmployee = await apiRequest(request, 'GET', INBOUND_REQUESTS_PATH, { token: employeeToken })
+      expect(asEmployee.status()).toBe(403)
+    } finally {
+      for (const hook of [hookA, hookB]) {
+        if (!hook?.id) continue
+        const current = await readJsonSafe<{ items?: HookBody[] }>(
+          await apiRequest(request, 'GET', `${HOOKS_PATH}?campaignId=${campaignId}`, { token }),
+        )
+        const row = current?.items?.find((item) => item.id === hook.id)
+        if (row?.updatedAt) {
+          await apiRequest(request, 'DELETE', `${HOOKS_PATH}/${hook.id}`, { token, headers: { [LOCK_HEADER]: row.updatedAt } })
+        }
+      }
+      await deleteCampaignIfExists(request, token, campaignId)
+    }
   })
 })

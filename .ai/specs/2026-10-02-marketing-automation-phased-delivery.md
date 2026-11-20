@@ -96,6 +96,7 @@ Ordered so each depends only on earlier ones. Verified: **zero back-edges**.
 | **P3** | Results: the daily series, the funnel, links, attribution, A/B results | 12 | 2,254 | 5.8% |
 | **P4** | Segments, score rules, referrals, price watches, lead routing | 32 | 4,870 | 12.6% |
 | **P5** | The authoring agent, AI copy, inbound hooks | 11 | 1,975 | 5.1% |
+| **P6** | Polish: the customer timeline (one API aggregating every source this module writes), a read API over the inbound-request log (`GET /api/marketing_automation/inbound-requests`, filterable by `hookId`), and screen-level fixes across P1–P5 | — | — | — |
 
 Phase 0 is not in this table: it is platform work, outside this package. See **What phasing does not
 fix**.
@@ -178,3 +179,14 @@ roadmap stays whole as the forward-looking document.
 The existing specs are already per-feature, so they travel with their phases: `TC-MA-001..019` with
 P1 and P2, `TC-MA-020` and the AI specs with P5, `TC-MA-023..027` with P4, the results specs with P3.
 Each phase PR must land green on its own, which the fork gate enforces per branch.
+
+**P6.** `marketing_inbound_requests` (the inbound-request log table, written since P5) gets its own
+read path in this phase — `GET /api/marketing_automation/inbound-requests`, gated on
+`campaigns.manage` AND `customers.people.view` since a row carries a partner's body verbatim, and
+filterable by `hookId` (`readQueryUuid`, so a malformed one is ignored rather than raising). The
+customer timeline's `GET /api/marketing_automation/customers/[id]/timeline` is the other new
+endpoint, aggregating every source this module writes about one subject, inbound requests included.
+Covered by the `hookId`-narrowing and dual-gate case added to `TC-MA-020-inbound-hooks.spec.ts`; the
+screen-side `hookId` forwarding and hook-identity display are covered by
+`backend/__tests__/inbound-requests-honors-the-hook-filter.test.ts` (source-structural, matching this
+module's convention for a page component with no jsdom-rendering precedent).
