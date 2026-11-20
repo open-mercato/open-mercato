@@ -31,6 +31,31 @@ emergency compatibility waiver before merge; automated review cannot grant it.
 
 [Specification](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
 
+## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
+
+The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
+`PipelineStepper` and replaced the Won / Lost buttons with a "Close deal" menu under the header
+actions. The inputs that fed the old presentation stay accepted and are marked `@deprecated`:
+
+- `DealDetailHeader` `stageOptions`, `currentStageId`, `onStageChange`, `isStageSaving`: when a
+  caller passes `stageOptions` together with `onStageChange` for an open deal, the header still
+  renders a stage menu (`StageSelectMenu`) in its action cluster, disabled while the form is dirty
+  or saving. The built-in page no longer passes them; it passes `onStageChange` and
+  `stageChangeDisabled` to `PipelineStepper` instead.
+- `PipelineStepper.footer`: still rendered under the stage strip, separated by a rule, with and
+  without stages. The built-in page renders closure controls through
+  `DealDetailHeader.secondaryActions`.
+- `DealClosureActionBar.embedded`: accepted and ignored. The bar is a popover trigger and draws no
+  card, so there is nothing to embed.
+- `CollapsibleGroupProps.fieldCount` (`@open-mercato/ui/backend/crud/CollapsibleGroup`): accepted
+  and ignored; the group title no longer shows the "N fields" counter.
+
+Below the `sm` breakpoint `PipelineStepper` now shows a "Move stage" menu next to the current
+stage, so narrow screens keep the quick stage change the header dropdown used to provide.
+
+All of these stay for at least one minor release after 0.10.0 and are tracked in
+`.ai/specs/2026-04-06-crm-detail-pages-ux-enhancements.md`. No database migration is required.
+
 ## CRM preset enables the scheduler (#8804)
 
 New apps scaffolded with `create-mercato-app --preset crm` now enable the
