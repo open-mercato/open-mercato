@@ -3670,7 +3670,7 @@ function DataTableImpl<T extends RowData>({
   const toolbarWrapperClassName = embedded ? 'mt-2' : 'mt-3 pt-3 border-t'
   // `isolate` keeps the z-index of pinned cells local to the table so they
   // scroll beneath the sticky app top bar instead of over it.
-  const tableScrollWrapperClassName = embedded ? 'isolate overflow-x-auto' : 'isolate overflow-auto'
+  const tableScrollWrapperClassName = embedded ? 'isolate overflow-x-auto md:overflow-visible' : 'isolate overflow-auto'
   // Non-embedded tables sit on the `bg-card` container above; embedded ones
   // render on whatever surface hosts them, so they keep the page background.
   const stickySurfaceClass = embedded ? 'md:bg-background' : 'md:bg-card'
