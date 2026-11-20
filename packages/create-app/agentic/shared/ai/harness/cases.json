@@ -16066,7 +16066,7 @@
             "runtime.bulk-operation-progress"
           ],
           "maxFiles": 10,
-          "maxBytes": 232286
+          "maxBytes": 238258
         }
       ],
       "forbidden": [
@@ -18292,7 +18292,7 @@
             "umes.injection-table"
           ],
           "maxFiles": 6,
-          "maxBytes": 199212
+          "maxBytes": 205184
         }
       ],
       "installedVersionFallback": {
@@ -19657,7 +19657,7 @@
             "data.custom-fields"
           ],
           "maxFiles": 10,
-          "maxBytes": 211012
+          "maxBytes": 216984
         }
       ]
     },
@@ -19695,7 +19695,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 248908,
+    "maxTotalContextBytes": 254844,
     "relatedCases": [
       "OMH-004",
       "OMH-087",
@@ -19774,7 +19774,7 @@
             "umes.injection.datatable-bulk-action"
           ],
           "maxFiles": 10,
-          "maxBytes": 197737
+          "maxBytes": 203709
         }
       ]
     },
@@ -19816,7 +19816,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 236646,
+    "maxTotalContextBytes": 244916,
     "relatedCases": [
       "OMH-026",
       "OMH-027",
@@ -19897,7 +19897,7 @@
             "ui.form-edit"
           ],
           "maxFiles": 12,
-          "maxBytes": 235224
+          "maxBytes": 241196
         }
       ]
     },
@@ -19941,7 +19941,7 @@
     ],
     "maxContextFiles": 14,
     "maxInitialContextBytes": 98304,
-    "maxTotalContextBytes": 212992,
+    "maxTotalContextBytes": 218964,
     "relatedCases": [
       "OMH-026",
       "OMH-220"
@@ -20020,7 +20020,7 @@
             "events.crud-indexer-bridge"
           ],
           "maxFiles": 8,
-          "maxBytes": 230623
+          "maxBytes": 237842
         }
       ]
     },
@@ -20060,7 +20060,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 73728,
-    "maxTotalContextBytes": 270065,
+    "maxTotalContextBytes": 277248,
     "relatedCases": [
       "OMH-031",
       "OMH-219"
@@ -20141,7 +20141,7 @@
             "data.entities"
           ],
           "maxFiles": 10,
-          "maxBytes": 255472
+          "maxBytes": 261444
         }
       ],
       "sourceReferenceIds": [
@@ -20414,7 +20414,7 @@
             "runtime.bulk-operation-progress"
           ],
           "maxFiles": 10,
-          "maxBytes": 230055
+          "maxBytes": 236027
         }
       ]
     },
@@ -20455,7 +20455,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 259637,
+    "maxTotalContextBytes": 265573,
     "relatedCases": [
       "OMH-187",
       "OMH-220"
@@ -20528,7 +20528,7 @@
             "ai.agent-extension"
           ],
           "maxFiles": 6,
-          "maxBytes": 209385
+          "maxBytes": 215357
         }
       ]
     },
@@ -20568,7 +20568,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 232201,
+    "maxTotalContextBytes": 238137,
     "relatedCases": [
       "OMH-050",
       "OMH-219"
@@ -22095,7 +22095,7 @@
             "umes.component-replacement"
           ],
           "maxFiles": 9,
-          "maxBytes": 216395
+          "maxBytes": 222367
         }
       ],
       "sourceReferenceIds": [
@@ -22127,7 +22127,7 @@
     ],
     "maxContextFiles": 16,
     "maxInitialContextBytes": 73728,
-    "maxTotalContextBytes": 356352,
+    "maxTotalContextBytes": 383825,
     "relatedCases": [
       "OMH-030",
       "OMH-088",
@@ -22537,7 +22537,7 @@
             "example.crud-form-extensions.c4"
           ],
           "maxFiles": 5,
-          "maxBytes": 151552
+          "maxBytes": 153216
         }
       ]
     },
@@ -22652,7 +22652,7 @@
             "example.crud-form-extensions.c5"
           ],
           "maxFiles": 4,
-          "maxBytes": 151552
+          "maxBytes": 152714
         }
       ]
     },
@@ -22771,7 +22771,7 @@
             "example.crud-form-extensions.c6"
           ],
           "maxFiles": 4,
-          "maxBytes": 151552
+          "maxBytes": 152714
         }
       ]
     },
@@ -23126,7 +23126,7 @@
             "example.crud-form-extensions.c9"
           ],
           "maxFiles": 5,
-          "maxBytes": 155648
+          "maxBytes": 156307
         }
       ]
     },
@@ -23468,7 +23468,7 @@
             "example.crud-form-extensions.c12"
           ],
           "maxFiles": 6,
-          "maxBytes": 159744
+          "maxBytes": 159797
         }
       ]
     },

@@ -2779,11 +2779,11 @@
       "messages",
       "library"
     ],
-    "referenceCount": 18,
+    "referenceCount": 28,
     "rowsWithoutVisualCoverage": [
       "ui.frontend-page"
     ],
-    "coverageGapCount": 4,
+    "coverageGapCount": 5,
     "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
     "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
     "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
@@ -2801,6 +2801,148 @@
     "codeConnectExportStatus": "not-exported"
   },
   "designSystemReferences": [
+    {
+      "capabilityId": "example.crud-form-extensions.c7",
+      "galleryCoverage": "composite-not-direct",
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/icon-button",
+        "inputs/marketing-controls",
+        "inputs/input",
+        "inputs/textarea",
+        "inputs/select",
+        "inputs/checkbox",
+        "inputs/password-input",
+        "inputs/rich-editor",
+        "overlays/dialog",
+        "banners/flash-messages"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c7",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "detail/loading-message",
+        "detail/error-message"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c8",
+      "galleryCoverage": "composite-not-direct",
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/icon-button",
+        "inputs/marketing-controls",
+        "inputs/input",
+        "inputs/textarea",
+        "inputs/select",
+        "inputs/checkbox",
+        "inputs/password-input",
+        "inputs/rich-editor",
+        "overlays/dialog",
+        "banners/flash-messages"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c8",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "detail/loading-message",
+        "detail/error-message"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c9",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "display/badge"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/badge.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c9",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "buttons/button"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c12",
+      "galleryCoverage": "composite-not-direct",
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/icon-button",
+        "inputs/marketing-controls",
+        "inputs/input",
+        "inputs/textarea",
+        "inputs/select",
+        "inputs/checkbox",
+        "inputs/password-input",
+        "inputs/rich-editor",
+        "overlays/dialog",
+        "banners/flash-messages"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c12",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "detail/error-message"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c12",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "scaffolding/page"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c12",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "scaffolding/page"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
     {
       "capabilityId": "ui.page-shell",
       "galleryCoverage": "direct",
@@ -3055,6 +3197,11 @@
     }
   ],
   "designSystemCoverageGaps": [
+    {
+      "capabilityId": "example.crud-form-extensions.c12",
+      "publicImportPath": "@open-mercato/ui/backend/messages",
+      "reason": "no gallery entry declares this public module, and its implementation imports no gallery-covered constituent"
+    },
     {
       "capabilityId": "ui.datatable",
       "publicImportPath": "@open-mercato/ui/backend/ValueIcons",
