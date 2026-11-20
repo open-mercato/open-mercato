@@ -43,6 +43,7 @@ The CLI auto-discovers module files across all packages and `apps/mercato/src/mo
 
 - `index.ts` (metadata), `cli.ts`, `di.ts`, `acl.ts`, `setup.ts`, `runtime.ts`, `encryption.ts`, `ce.ts`
 - `search.ts`, `events.ts`, `notifications.ts`, `ai-tools.ts`
+- `form-sections.ts` (`crudFormSections`) — paired server facts and lazy browser runtimes
 - `generators.ts` — module-level generator plugin declarations (see below)
 - `data/entities.ts`, `data/extensions.ts`
 - `api/`, `subscribers/`, `workers/`, `widgets/`
@@ -61,6 +62,7 @@ Generated output goes to `apps/mercato/.mercato/generated/`.
 - `search.generated.ts` — search configurations
 - `dashboard-widgets.generated.ts`, `injection-widgets.generated.ts`, `injection-tables.generated.ts`
 - `ai-tools.generated.ts` — AI tool definitions
+- `crud-form-section-facts.generated.ts`, `crud-form-section-runtime.generated.ts` — paired registries from one enabled-module graph. Only server output imports `form-sections.ts`. Commit each authored module's `form-sections.runtime-revisions.json` after generation. See the [section policy recipe](../../.ai/docs/module-development.md#crudform-section-policies).
 
 ### Running Generators
 

@@ -319,6 +319,36 @@ Per-role ordering is a different mechanism: seed `SidebarPreferencesSettings.gro
 Use `nav.groupOrder` for an app-wide default and role preferences when different roles need different
 orders.
 
+### CrudForm Sections
+
+`forms.sections` selects a supported alternative on a [server-verified CrudForm host](../admin-ui/crud-form.mdx#server-verified-section-policies). Use the key `<hostId>/<formVariant>/<formOperation>/<sectionId>`. The key's `hostId` omits the `crud-form:` prefix used by the form's injection spot.
+
+```ts
+import type { FormsOverridesShape } from '@open-mercato/shared/modules/overrides'
+import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
+
+const forms: FormsOverridesShape = {
+  sections: {
+    'my_app.record/edit/update/summary': {
+      operation: 'add', contributionId: 'my_app.record-summary',
+      placement: { position: InjectionPosition.After, relativeTo: 'details' },
+    },
+    'my_app.record/edit/update/details': {
+      operation: 'replace', contributionId: 'my_app.record-details',
+    },
+    'my_app.record/edit/update/internal': {
+      operation: 'hide', contributionId: 'my_app.hide-internal',
+    },
+  },
+}
+```
+
+Use `forms` as the value of the enabled module's `overrides.forms`.
+
+Each non-null value names a registered contribution for that exact address and operation. For an addition, placement can be `first`, `last`, `before`, or `after`. A relative placement needs the ID of a group present in the selected composition. Use `null` at the same key to mask a lower-priority override. Masking restores a base section or removes an addition, provided the resulting combination is a declared alternative. Programmatic `applyFormSectionOverrides` wins over `modules.ts`, which wins over contributions. An omitted key inherits the lower layer.
+
+Modules that contribute section policies must be enabled on both server and browser. Use an ungated module entry or a shared `NEXT_PUBLIC_*` gate.
+
 ## Programmatic Overrides
 
 Use programmatic helpers for env-driven boot decisions and tests:

@@ -24,6 +24,7 @@
 | `search.ts` | `searchConfig` | Search indexing configuration |
 | `events.ts` | `eventsConfig` | Typed event declarations |
 | `extension-points.ts` | `extensionPoints` | Canonical serializable UI host declarations for generated UMES facts |
+| `form-sections.ts` | `crudFormSections` | Server-only CrudForm section facts, adapters, and paired lazy browser runtime declarations |
 | `translations.ts` | `translatableFields` | Translatable field declarations per entity |
 | `notifications.ts` | `notificationTypes` | Notification type definitions |
 | `notifications.client.ts` | — | Client-side notification renderers |
@@ -38,6 +39,15 @@
 | `widgets/injection-table.ts` | — | Widget-to-slot mappings |
 | `widgets/components.ts` | `componentOverrides` | Component replacement/wrapper/props override definitions |
 | `data/enrichers.ts` | `enrichers` | Response enrichers for data federation |
+
+## CrudForm section policies
+
+1. Declare `crudFormSections` with `defineCrudFormSections` from `@open-mercato/shared/modules/form-sections`. For each supported host, form variant, and operation, declare a baseline and finite alternatives with exact group order, contribution IDs, ownership, dependencies, and mutation bindings. Provide authoritative scope and capabilities for each configured alternative. Conventional single-resource CRUD factories can declare a `derivedHosts` entry with `defineCrudRouteSectionHost`.
+2. Pair each fact with `lazyCrudFormSectionRuntime(() => import('./section.client'))`. The client file exports `crudFormSectionRuntime` with the same `id` and `roundTripId`. Use `defineCrudFormSectionRuntime` from `@open-mercato/ui/backend/injection/crud-form-section-runtime` for section renderers, owned fields, validators, and payload projectors. Keep server callbacks in `form-sections.ts`.
+3. Run `yarn generate` with the same enabled modules on server and browser. Commit the module-root `form-sections.runtime-revisions.json` ledger. When changing a fact or runtime's behavior, increase its `<descriptor-id>@v<n>` in both declarations before generating again.
+4. Enable a vetted alternative with `overrides.forms.sections` in `modules.ts`. Pass explicit form identity and use the bound mutation APIs for its façade. Verify ready, blocked, and all-masked behavior before rollout.
+
+See the [CrudForm guide](../../apps/docs/docs/framework/admin-ui/crud-form.mdx#server-verified-section-policies), the [framework spec](../specs/2026-10-22-crudform-section-overrides-framework.md), and the [non-production fixture](../qa/fixtures/crudform-section-policy/README.md).
 
 ## Module Rules
 

@@ -153,6 +153,53 @@ An injected widget's handlers belong to the injection spot, not to its card. Hid
 
 Because hosts address groups by id, a built-in group's `id` is a contract surface: see [`BACKWARD_COMPATIBILITY.md`](https://github.com/open-mercato/open-mercato/blob/main/BACKWARD_COMPATIBILITY.md) before renaming one, and pin a builder's ids with a guard test.
 
+## Server-verified section policies
+
+Use [section overrides](../modules/overrides.mdx#crudform-sections) when adding, hiding, or replacing a group changes what the form can write. A host registers the exact compositions it supports. Each alternative identifies the ordered groups, contribution IDs, callers, payload and custom-field ownership, dependencies, and guarded mutation surfaces for one `(hostId, formVariant, formOperation)` tuple.
+
+### Declare the host and its runtimes
+
+- In module-root `form-sections.ts`, export `crudFormSections` with `defineCrudFormSections` from `@open-mercato/shared/modules/form-sections`. Add the baseline and supported alternatives and associate server capabilities with the exact host and surfaces. A required leaf that a section omits needs explicit coverage, such as preservation from the locked record on update or a registered `server-default` provider.
+- Pair each fact with `lazyCrudFormSectionRuntime(() => import('./section.client'))`. The client module exports `crudFormSectionRuntime` with the fact's `id` and `roundTripId`. A host runtime contains `sectionDescriptors`. Use `defineCrudFormSectionRuntime` from `@open-mercato/ui/backend/injection/crud-form-section-runtime` to pair each section's group, owned fields, validator, and payload projector. Revisions have the form `<descriptor-id>@v<n>`.
+- Pass the existing grouped form props and an explicit `formVariant` and `formOperation`. Use `injectionSpotId="crud-form:my_app.record"` for host `my_app.record`. Pass `resourceId` for an update and omit it for a create. Policy identity is independent of `initialValues.id`. Supply `sectionCustomFieldDefinitionSets` when sections own custom fields. Each key names an exact set of entity IDs that the runtime and server facts agree on.
+- Use `compositionValidator` for invariants across active sections. The form projects and validates owned values, then merges each section's payload by leaf. Report client errors against visible, owned fields. The server validates invariants that depend on hidden or preserved values.
+- Run `yarn generate` and commit the module-root `form-sections.runtime-revisions.json` ledger. Increase the revision in both declarations when a fact or runtime changes semantically. The paired registries use the same enabled-module graph. The browser registry loads client code through literal imports and the server facts registry holds the server callbacks.
+
+Configured groups can use `ComponentReplacementHandles.section(crudFormSectionScope({ hostId, formVariant, formOperation }), sectionId)`. Import both helpers from `@open-mercato/shared/modules/widgets/component-registry`.
+
+### Bind mutations to the façade
+
+Use the accepted mutation surface's API path. For a conventional single-resource `makeCrudRoute`, declare `derivedHosts` with `defineCrudRouteSectionHost` from `@open-mercato/shared/lib/crud/form-sections/derived-route-host`. The generator registers a sibling `<route>/section-policy` endpoint with the declared methods. The original route keeps its URL and callers. Use `runCrudFormSectionMutation` from `@open-mercato/shared/lib/crud/form-sections/mutation-facade` to implement a hand-written adapter for custom routes or independent child actions.
+
+`onSubmit` receives `CrudFormSubmitContext<TSectionPayload>` from `@open-mercato/ui/backend/CrudForm`. The example assumes an update whose derived façade accepts the projected payload and an `id`.
+
+```tsx
+<CrudForm
+  fields={fields}
+  groups={groups}
+  initialValues={record}
+  injectionSpotId="crud-form:my_app.record"
+  formVariant="edit"
+  formOperation="update"
+  resourceId={record.id}
+  onSubmit={async (values, context) => {
+    if (context?.mutation && context.sectionPayload) {
+      await context.mutation.write(endpoint, { ...context.sectionPayload, id: record.id })
+      return
+    }
+    await saveLegacy(values)
+  }}
+/>
+```
+
+`mutation.write(endpoint, body)` serializes JSON. `mutation.request(endpoint, init)` accepts request options. Both bind the HTTP method, protected policy headers, and expected version from the accepted surface. In `onDelete`, use `context.mutation` when the configured parent-delete surface is present. For an accepted child action use the group or widget context's `runSectionMutation`, supplying the declared mutation surface, request operation, target resource kind and ID, and the child's own `expectedUpdatedAt` for edits or deletes. The façade checks the authenticated scope, host, target, and final mutation input again on each request.
+
+### Roll out and recover
+
+Keep the legacy submit path for forms outside the configured-host ledger. Enable an alternative after its runtime, server capabilities, and guarded route are available together. A configured form waits for matching browser registrations and the authorized resolve response from `POST /api/extensions/crud-form-sections/resolve` before mounting editable controls. A rejected or stale policy blocks those controls and writes for that form.
+
+Reload the form for the current scope after an organization change or a `409 extension_policy_mismatch` response. If the form still fails, check that the enabled modules and the generated server and browser registries match and that the provider can authorize the record. To roll back activation, use the matching `null` masks or disable the contributing module and regenerate both registries. Once the last effective override for a tuple is removed, that tuple uses its existing form and route behavior.
+
 ## Mobile UX
 - On small screens the form is fullscreen with a sticky header that shows the `title` and a `backHref` link.
 - On desktop it renders as a standard card with border and padding.

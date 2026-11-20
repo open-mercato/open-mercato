@@ -33,7 +33,7 @@ Status: in-progress
 | 3 | 3.2-review-fix | Fence form readiness by organization and isolate group preferences | dispatch | done | 9df7e6ab6d |
 | 4 | 4.1 | Build the non-production framework fixture | dispatch | done | this commit |
 | 4 | 4.2 | Verify discovery, resolution, mutations and no-policy compatibility | dispatch | done | this commit |
-| 4 | 4.3 | Define the discovery, runtime and generator compatibility guarantees | dispatch | todo | — |
+| 4 | 4.3 | Define the discovery, runtime and generator compatibility guarantees | dispatch | done | this commit |
 | 4 | 4.4 | Run and record the framework validation gates | dispatch | todo | — |
 | 5 | 5.1 | Add the single-definition extension authoring API | dispatch | todo | — |
 | 5 | 5.2 | Derive field-level sections and enforce mandatory refinements | dispatch | todo | — |
