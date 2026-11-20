@@ -100,7 +100,7 @@ flowchart TD
 - **Command** `messages.messages.compose` — input gains `scheduledAt?: Date`, `senderChannelId` stored instead of delegating when scheduled.
 - **Command** `messages.messages.update` (existing draft edit) — allowed when `isDraft || status = 'scheduled'`; `scheduledAt: null` → draft. Undo: restore previous snapshot (existing command undo).
 - **Command** `messages.messages.release_scheduled` (new, worker-only) — not user-undoable (release is the send).
-- **Event** `messages.message.scheduled` (new, `clientBroadcast: true`) — `{ messageId, scheduledAt, tenantId, organizationId }`; emitted on schedule and reschedule.
+- **Event** `messages.message.scheduled` (new, `clientBroadcast: true`) — `{ messageId, scheduledAt, recipientUserIds: [author], tenantId, organizationId }`; emitted on schedule and reschedule. The browser broadcast is limited to the author: without an audience it would reach the whole organization before the message is released.
 - **Event** `messages.message.sent` (existing) — emitted at release, not at compose, for scheduled messages.
 
 ## Data Models
@@ -154,7 +154,7 @@ No new tables.
 - Detail response gains `scheduledAt`, `senderChannelId`.
 
 ### Compose capability
-- The compose page's sender-options payload (`messages/lib/composeSenderOptions.ts`, consumed by `ComposeMessagePageClient`) gains `schedulingAvailable: boolean` and `scheduleMaxDays: number`.
+- `GET /api/messages/compose-capabilities` (new, `requireFeatures: ['messages.compose']`) returns `{ schedulingAvailable: boolean, scheduleMaxDays: number }`; `ComposeMessagePageClient` reads it. A messages-owned route instead of the sender-options payload, because sender options come from the optional `communication_channels` API and scheduling must stay discoverable without it.
 
 ### `sendAsUser` facade / `POST /api/communication_channels/send-as-user` (changed — additive)
 - New `messageId?: string`. When set: load the message (scoped), require author = actor, `visibility = 'public'`, not already linked; build To/CC/BCC from its participants and `email_send_separately`; create thread mapping + link(s) + enqueue; **do not** call compose. Returns the same result shape. 409 when the message is already delivered/linked.
@@ -172,6 +172,7 @@ No new tables.
 - `customers/lib/calendar/timezone.ts` keeps `calendarWallTimeToInstant`, `calendarInstantToWallTime`, `isCalendarTimezone`, `defaultCalendarTimezone` as `@deprecated` re-exports (no behavior change in the CRM calendar).
 - DST rules (unchanged): a non-existent local time (spring gap, e.g. 02:30 Europe/Warsaw on the last Sunday of March) → `null` → form error `messages.errors.scheduleTimeDoesNotExist`; an ambiguous time (autumn overlap) → the earlier instant (summer time).
 - Client converts the `DatePicker withTime` value with `wallTimeToInstant` in the browser timezone and sends ISO UTC; the API validates the instant only.
+- Observed in implementation: the date picker itself already moves a non-existent local time forward (browser `Date` behaviour), so the `scheduleTimeDoesNotExist` error is a safety net for manually typed values and rarely shows.
 - Unit tests move with the helper, plus Europe/Warsaw gap and overlap cases.
 
 ## Internationalization (i18n)
@@ -278,6 +279,31 @@ Same env pattern as `import-history-limits.ts`; commented entry in `apps/mercato
 - **Severity**: Low
 - **Mitigation**: ≤ 100 per run per organization, remainder next tick; delivery retries handle provider 429.
 - **Residual risk**: up to a few minutes of delay for large bursts.
+
+#### Concurrent existing-message hand-offs
+- **Scenario**: two `sendAsUser({ messageId })` calls for the same message pass the "no outbound link" check at the same moment.
+- **Severity**: Low
+- **Mitigation**: the release claim is atomic and draft send holds the optimistic lock, so two callers are unlikely; the partial unique indexes on `message_channel_links` still block a duplicate link.
+- **Residual risk**: the losing call fails with a database unique-violation error instead of a clean 409.
+
+## Implementation decisions (2026-11-20)
+
+Decisions taken while implementing, with their reasons. Where they differ from the design above, this section wins.
+
+| Decision | Reason |
+|---|---|
+| Release-schedule is **module-owned** (`sourceType: 'module'`), not on the user-facing scheduler allowlist; registered in `seedDefaults`, `onOrganizationCreated` and upgrade action `messages.register-scheduled-release` | The scheduler dispatches module rows by queue ownership; allowlisting would let API users schedule releases |
+| `sendAsUser` existing-message mode refuses a draft (409) and returns explicit codes `already_linked` / `channel_unavailable` | Status codes alone cannot tell "already linked" (success at release) from "mailbox not connected" (fail recipients); a draft must never be delivered through the HTTP route |
+| Existing-message mode stamps `sourceEntityType = communication_channels.send_as_user` / `sourceEntityId = channelId` on the message, also when the mailbox is unavailable at release | Outbound bridge, platform email job, retry tick and "Resend to failed" all decide the path from these fields; without the stamp a failed mailbox send could silently fall back to the system sender |
+| `messages.message.sent` is emitted **once**, by the messages side, after the hand-off | Mirrors the immediate mailbox send, whose compose emits it once; emitting before the stamp would let the platform sender deliver it too |
+| A refused draft/"Send now" hand-off restores the previous state (draft or scheduled with its `scheduledAt`) and returns `fieldErrors.senderChannelId` | The user keeps the message and sees why the mailbox refused it |
+| Reply/forward of a draft or scheduled message returns 404 | Recipients must not see or act on a message before it is released |
+| Draft edits no longer update the search index; only send/release does | Drafts and scheduled messages must not be findable before release |
+| Folder label key is `messages.folder.scheduled` (existing `messages.folder.*` prefix) | Consistency with the current i18n keys |
+| `cancel-scheduled-on-user-deleted` uses a scoped `nativeUpdate`, not a command; the release revert is internal to the release command | System-initiated state changes with no user to undo them |
+| TC-API-MSG-031's 3×-failure path is `test.fixme`; covered by `commands/__tests__/messages.scheduled-send.test.ts` | No fault-injection seam in a running app |
+
+**Known limits:** attachments already stored on a draft are only refused for a mailbox send when they come in the request's `attachmentIds`; the message-detail edit dialog has no sender picker, so a draft saved with a mailbox cannot be switched back to the system sender there.
 
 ## Final Compliance Report — 2026-11-19
 
