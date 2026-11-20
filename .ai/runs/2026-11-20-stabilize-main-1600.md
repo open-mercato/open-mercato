@@ -42,6 +42,16 @@ Initial full PR run [44761357637](https://github.com/open-mercato/open-mercato/a
 
 Runner: local for focused checks. All 45 scope/concurrency/coverage regressions also pass. Local `yarn build:packages` cannot start because this checkout lacks Yarn install state; do not claim a complete local gate. Hosted CI provides the remaining gate evidence. No workflow change is needed: existing trusted `stabilize/*` and `ci-full` selection already forces full scope.
 
+## Standalone queue investigation and correction
+
+Validated the read-only child `9725725e` report against [post-Awilix snapshot run 44738109765](https://github.com/open-mercato/open-mercato/actions/runs/44738109765/job/136304680100): the standalone app builds, but twelve structure-dependent tests time out waiting for an extraction with last status `none`. The snapshot disables workers. Upload extraction is queued through the persistent attachment event subscriber, and explicit extraction also enqueues work; the shared test helper only polled. The helper and worker configuration are unchanged at this branch's baseline. Baseline snapshot run `44760649594` remains pending, so its result is not claimed.
+
+The test helper now settles `events` before `attachments-document-structure` using existing `drainIntegrationQueue`, which observes managed workers and runs an app-scoped consumer only when workers are disabled. Section-search deletion and partition-toggle assertions also settle the structure queue. No production queue semantics, security assertions, timeouts or workflow behavior change. Five new helper regressions simulate automatic/explicit extraction, re-extraction, already-settled queues and drain failures: four fail before the fix; all five pass after. Together with existing managed-worker queue and section-search sync regressions, 37 tests pass locally. A worker-disabled ephemeral API run is pending.
+
+Newer main independently corrected the count in #10150 (`7d79c51b14`), so the substantive PR change is now the structure test fix. Stale Awilix failures were already fixed by #10073; historical CodeQL failures were external bundle-download HTTP 504s and exact-baseline CodeQL passed. No child source changes were made or merged.
+
+Local preparation is now available: immutable dependency install and build/generate/build passed. The host lacks native build tools; an isolated Node 24 Docker build produced the ignored SQLite binary and an in-memory SQLite probe passed. A long temporary directory exceeded the tsx IPC socket path limit; local validation uses `TMPDIR=/tmp`. i18n sync/usage and typechecking passed; the full unit run was intentionally stopped before app-building concurrently with the ephemeral harness, and must be completed later or proven by hosted checks. Do not claim the interrupted gate passed.
+
 Claim run: `5032d9a6-7403-48b9-a8f0-93368de201fa`
 
 Engine: om-auto-create-pr (steps: 5, --loop: no)
@@ -57,7 +67,7 @@ PR: #10154
 
 ### Phase 2: Correct and verify
 
-- [x] 2.1 Fix demonstrated root causes with regression coverage, preserving behavior when no defect is established. — 2fb9c77989
+- [x] 2.1 Fix demonstrated root causes with regression coverage, preserving behavior when no defect is established. — 2fb9c77989, 787062c0e3
 - [ ] 2.2 Run configured validation and verify all applicable workflows, including 15 integration shards, on the exact PR head.
 
 ### Phase 3: Review and finalize
