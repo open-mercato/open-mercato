@@ -75,6 +75,8 @@ export type CommandRuntimeContext = {
    * stays optional so existing handlers and callers remain source-compatible.
    */
   beforeTransactionalWrite?: (em: EntityManager, input?: unknown) => Promise<void>
+  /** Deletion mode supplied by a proven server-side CrudForm route adapter. */
+  crudFormSectionDeleteMode?: 'hard' | 'soft'
   /**
    * Identifies the owner of an already-active {@link transactionalEm} lifetime.
    * Normal execution opts in to an ambient transaction when this token is

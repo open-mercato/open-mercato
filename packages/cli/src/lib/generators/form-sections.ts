@@ -5,7 +5,7 @@ import ts from 'typescript-js'
 import { resolveModuleRequirement, type ModuleIdentity } from '@open-mercato/shared/modules/module-locators'
 import {
   crudFormSectionClientMutationFactSchema, crudSectionOperationMethods as derivedRouteMethods,
-  derivedCrudFormSectionClientMutationFact, parseCrudFormSectionClientMutationFacts,
+  derivedCrudFormSectionClientMutationFact, derivedCrudFormSectionRetryPath, parseCrudFormSectionClientMutationFacts,
 } from '@open-mercato/shared/lib/crud/form-sections/client-mutation-facts'
 import type { CrudFormSectionClientHostFact } from '@open-mercato/shared/modules/form-sections'
 import type { FormSectionOverridesMap } from '@open-mercato/shared/modules/overrides'
@@ -59,6 +59,7 @@ type DerivedRouteDeclaration = {
   hostDescriptorId: string
   operations: readonly ('create' | 'update' | 'delete')[]
   versioned: boolean
+  outboxRetry: boolean
 }
 export type GeneratedDerivedCrudRoute = {
   moduleId: string
@@ -258,9 +259,13 @@ function parseDerivedRoutes(
     if (!/^\/(?:[A-Za-z0-9_.-]+|\[[A-Za-z0-9_-]+\])(?:\/(?:[A-Za-z0-9_.-]+|\[[A-Za-z0-9_-]+\]))*$/.test(basePath)) {
       return invalid('derived route path must be a regular named API path')
     }
+    const outboxRetry = options.has('outboxRetry')
+    if (outboxRetry && (formOperation !== 'update' || options.get('outboxRetry')?.kind !== ts.SyntaxKind.TrueKeyword)) {
+      return invalid('derived outbox retry must literally opt in on an update host')
+    }
     const versioned = options.has('expectedVersionField')
     if (versioned) literalValue(options.get('expectedVersionField'), 'expectedVersionField', invalid)
-    return { index, routePath: `${basePath}/section-policy`, hostDescriptorId, operations, versioned }
+    return { index, routePath: `${basePath}/section-policy`, hostDescriptorId, operations, versioned, outboxRetry }
   })
 }
 
@@ -550,10 +555,10 @@ function renderFactRegistry(modules: readonly ModuleSections[], compiled: Compil
           ? `, entityExports: lookupCompiledOrmExports(${JSON.stringify(authored.module.moduleId)})` : ''
         return `{ ...${JSON.stringify(plan)}, store: ${fieldStore(owned[0])}${entityProof} }`
       })
-      const providers = defaults.map(({ owner, id, payloadPath, readsPayloadPaths }) => {
+      const providers = defaults.map(({ owner, id, payloadPath, readsPayloadPaths, scoped }) => {
         const { hostId, formVariant, formOperation } = contribution.address
         const fact = { id, roundTripId: `${id}@v${contribution.roundTripId.split('@v')[1]}`, hostId, formVariant, formOperation, payloadPath, readsPayloadPaths }
-        return `{ fact: ${JSON.stringify(fact)}, resolve: extensions${moduleIndexes.get(owner.module.moduleId)}[${owner.extension.index}].defaults[${JSON.stringify(payloadPath)}] }`
+        return `{ fact: ${JSON.stringify(fact)}, resolve: extensions${moduleIndexes.get(owner.module.moduleId)}[${owner.extension.index}].defaults[${JSON.stringify(payloadPath)}]${scoped ? ".resolve" : ""} }`
       })
       return `  { contribution: ${JSON.stringify(contribution)}, fieldRules: [${compiledFields.join(', ')}], defaults: [${providers.join(', ')}], stores: [${stores.join(', ')}], sinkAssociations: [${sinkAssociations.join(', ')}] },`
     })
@@ -590,13 +595,17 @@ function renderFactRegistry(modules: readonly ModuleSections[], compiled: Compil
     '',
     'export const crudFormSectionServerModules = [',
     ...modules.map(({ moduleId, derivedRoutes, hasHandwrittenSections }, index) => {
-      const bindings = derivedRoutes.map((route) => `{ declaration: sections${index}.derivedHosts[${route.index}], route: ${JSON.stringify(route.routePath)} }`)
+      const alternatives = compiled.alternativesByModule.get(moduleId)
+      const bindings = derivedRoutes.map((route) => {
+        const retrySinks = [...new Set(alternatives?.flatMap((alternative) => alternative.hostDescriptorId === route.hostDescriptorId
+          ? alternative.outboxRetrySinkIds ?? [] : []))].sort(compareIds)
+        return `{ declaration: sections${index}.derivedHosts[${route.index}], route: ${JSON.stringify(route.routePath)}, outboxRetrySinkIds: ${JSON.stringify(retrySinks)} }`
+      })
       const primitive = bindings.length ? `bindDerivedCrudRouteSectionHosts(sections${index}, [${bindings.join(', ')}])`
         : hasHandwrittenSections ? `sections${index}` : '{}'
       const sections = compiled.contributionsByModule.has(moduleId)
         ? `bindCompiledCrudFormContributions(${primitive}, compiled${index}, compiledOverrides${index})` : primitive
       const entry = `{ moduleId: ${JSON.stringify(moduleId)}, sections: ${sections} }`
-      const alternatives = compiled.alternativesByModule.get(moduleId)
       return `  ${alternatives?.length ? `bindCompiledCrudFormAlternatives(${entry}, ${JSON.stringify(alternatives)})` : entry},`
     }),
     '] as const satisfies readonly CrudFormSectionServerModule[]',
@@ -613,13 +622,25 @@ function renderRuntimeRegistry(modules: readonly ModuleSections[], compiled: Com
     ...(compiled.contributionsByModule.get(moduleId) ?? []).map(({ contribution: { id, roundTripId }, file }) =>
       `  { id: ${JSON.stringify(id)}, roundTripId: ${JSON.stringify(roundTripId)}, kind: "contribution", moduleId: ${JSON.stringify(moduleId)}, load: () => import(${JSON.stringify('./' + stripModuleCodeExtension(file))}) },`),
   ])
+  const versionedSinks = [...compiled.contributionsByModule.values()].flatMap((entries) =>
+    entries.flatMap(({ contribution, sinks }) => sinks.flatMap(({ id, fields }) => {
+      const first = fields[0]
+      const kind = first.field.store?.kind
+      const { hostId, formVariant, formOperation } = contribution.address
+      return kind === 'table' || kind === 'external'
+        ? [{ id, hostId, formVariant, formOperation, kind, ownerModuleId: first.authored.module.moduleId,
+          payloadPaths: fields.map(({ payloadPath }) => payloadPath!) }]
+        : []
+    })))
   return [
     generatedHeader,
     "import type { CrudFormSectionClientHostFact, CrudFormSectionRuntimeEntry } from '@open-mercato/shared/modules/form-sections'",
+    "import type { CrudFormSectionClientVersionedSink } from '@open-mercato/shared/lib/crud/form-sections/client-registry'",
     "import type { FormSectionOverridesMap } from '@open-mercato/shared/modules/overrides'",
     ...(overrides.includes(' as InjectionPosition') ? [injectionPositionTypeImport] : []),
     '',
     `export const crudFormSectionClientHostFacts = ${JSON.stringify(modules.flatMap((module) => module.clientHosts), null, 2)} as const satisfies readonly CrudFormSectionClientHostFact[]`,
+    `export const crudFormSectionClientVersionedSinks = ${JSON.stringify(versionedSinks)} as const satisfies readonly CrudFormSectionClientVersionedSink[]`,
     `export const crudFormSectionContributedOverrides = ${overrides} as const satisfies Readonly<FormSectionOverridesMap>`,
     '',
     'export const crudFormSectionRuntimeEntries: readonly CrudFormSectionRuntimeEntry[] = [',
@@ -762,26 +783,45 @@ export function writeDerivedCrudFormSectionRoutes(
   }
 
   const generated: GeneratedDerivedCrudRoute[] = []
-  for (const [routePath, { moduleId, importPath, entries }] of [...routes].sort(([left], [right]) => compareIds(left, right))) {
+  function emit(routePath: string, moduleId: string, methods: GeneratedDerivedCrudRoute['methods'], content: string) {
+    if (generated.some((route) => route.routePath === routePath)) {
+      throw new Error(`[generate] Duplicate derived CrudForm route "${routePath}"`)
+    }
     const suffix = createHash('sha256').update(`${moduleId}:${routePath}`).digest('hex').slice(0, 16)
     const fileName = `crud-form-section-route-${suffix}.generated.ts`
-    const methods = [...new Set(entries.flatMap(({ operations }) => operations.map((operation) => derivedRouteMethods[operation])))].sort(compareIds)
-    const content = [
-      generatedHeader,
-      "import { createDerivedCrudFormSectionFacade } from '@open-mercato/shared/lib/crud/form-sections/derived-route-host'",
-      `import { crudFormSections } from ${JSON.stringify(importPath)}`,
-      `const facade = createDerivedCrudFormSectionFacade([${entries.map(({ index }) => `crudFormSections.derivedHosts[${index}]`).join(', ')}], ${JSON.stringify(routePath)}, ${JSON.stringify(methods)})`,
-      'export const metadata = facade.metadata',
-      'export const openApi = facade.openApi',
-      ...methods.map((method) => `export const ${method} = facade.handlers.${method}!`),
-      '',
-    ].join('\n')
     generated.push({ moduleId, routePath, fileName, methods })
     writeGeneratedFile({
       outFile: path.join(options.outputDir, fileName),
       checksumFile: path.join(options.outputDir, fileName.replace(/\.ts$/, '.checksum')),
       content, structureChecksum: options.structureChecksum, result: options.result, quiet: options.quiet,
     })
+  }
+  for (const [routePath, { moduleId, importPath, entries }] of [...routes].sort(([left], [right]) => compareIds(left, right))) {
+    const methods = [...new Set(entries.flatMap(({ operations }) => operations.map((operation) => derivedRouteMethods[operation])))].sort(compareIds)
+    const routeImport = `import { crudFormSections } from ${JSON.stringify(importPath)}`
+    const declarations = (binding: readonly DerivedRouteDeclaration[]) =>
+      `[${binding.map(({ index }) => `crudFormSections.derivedHosts[${index}]`).join(', ')}]`
+    const content = [
+      generatedHeader,
+      "import { createDerivedCrudFormSectionFacade } from '@open-mercato/shared/lib/crud/form-sections/derived-route-host'",
+      routeImport,
+      `const facade = createDerivedCrudFormSectionFacade(${declarations(entries)}, ${JSON.stringify(routePath)}, ${JSON.stringify(methods)})`,
+      'export const metadata = facade.metadata',
+      'export const openApi = facade.openApi',
+      ...methods.map((method) => `export const ${method} = facade.handlers.${method}!`),
+      '',
+    ].join('\n')
+    emit(routePath, moduleId, methods, content)
+    const retry = entries.filter(({ outboxRetry }) => outboxRetry)
+    if (retry.length) {
+      emit(derivedCrudFormSectionRetryPath(routePath), moduleId, ['POST'], [
+        generatedHeader,
+        "import { createDerivedCrudFormSectionOutboxRetryRoute } from '@open-mercato/shared/lib/crud/form-sections/derived-route-host'",
+        routeImport,
+        `export const { metadata, openApi, POST } = createDerivedCrudFormSectionOutboxRetryRoute(${declarations(retry)}, ${JSON.stringify(routePath)})`,
+        '',
+      ].join('\n'))
+    }
   }
 
   const indexPath = path.join(options.outputDir, generatedDerivedCrudRouteIndex)
@@ -810,7 +850,7 @@ export function readDerivedCrudFormSectionRouteIndex(outputDir: string): Generat
   const entries: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'))
   if (!Array.isArray(entries)) throw new Error('[generate] Invalid generated derived route index')
   return entries.map((entry: Partial<GeneratedDerivedCrudRoute>) => {
-    if (typeof entry.moduleId !== 'string' || typeof entry.routePath !== 'string' || !entry.routePath.endsWith('/section-policy')
+    if (typeof entry.moduleId !== 'string' || typeof entry.routePath !== 'string' || !/\/section-policy(?:\/retry)?$/.test(entry.routePath)
         || typeof entry.fileName !== 'string' || !derivedRouteFilePattern.test(entry.fileName)
         || !Array.isArray(entry.methods) || !entry.methods.every((method) => ['POST', 'PUT', 'DELETE'].includes(method))) {
       throw new Error('[generate] Invalid derived route index entry')

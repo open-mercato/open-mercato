@@ -1,3 +1,4 @@
+import { z } from "zod"
 import type { CrudFormSectionMutationSurfaceFact, CrudFormSectionSurfaceAlternativeFact } from '../../../../modules/form-section-facts'
 import type { CrudFormSectionServerModule } from '../../../../modules/form-sections'
 import type { FormSectionOverridesMap } from '../../../../modules/overrides'
@@ -237,4 +238,61 @@ describe('canonical CrudForm policy token', () => {
     const canonical = encodeCrudFormSectionPolicyToken(tokenBody)
     expect(decodeCrudFormSectionPolicyToken(`${canonical}=`)).toBeNull()
   })
+})
+
+it('applies the same exact domain authority to a compiled contribution and its sink capability', () => {
+  const submit: CrudFormSectionMutationSurfaceFact = {
+    id: 'example.todo.update', kind: 'parent-submit', requestOperation: 'update',
+    guardedFacade: { method: 'PUT', routePattern: '/example/todos/section-policy' },
+    delegatedTarget: { kind: 'command', id: 'example.todo.update' },
+    hostResourceKind: 'example.todo', mutationResourceKind: 'example.todo', optimisticLock: 'none',
+  }
+  const sections = modules[0].sections
+  const path = 'extensions.example.note'
+  const extension = {
+    ...contribution,
+    requiredCapabilities: [{
+      capabilityId, protocol: 'crud-form-sections/v1', modes: ['domain-adapter'], mutationSurfaceIds: [submit.id],
+    }, {
+      capabilityId: 'example.store', protocol: 'crud-form-sections/v1', modes: ['extension-sink'],
+      mutationSurfaceIds: [submit.id], payloadPaths: [path], allowAfterCommitSink: true,
+    }],
+  } as const
+  const finalSurface: CrudFormSectionSurfaceAlternativeFact = {
+    ...composed, mutationSurfaceIds: [submit.id],
+    ownershipFacts: [{ sectionId, payloadPaths: [path], customFieldOwnership: { mode: 'none' } }],
+  }
+  registerMutationGuards([{ moduleId: 'example', guards: [{
+    id: 'example.authority', targetEntity: 'example.todo', operations: ['update'], validate: async () => ({ ok: true }),
+    crudFormSectionCapabilities: [{
+      ...sections.displayPolicies![0], capabilityId: 'example.authority', modes: ['domain-adapter'],
+      mutationSurfaces: [submit], extensionSinkSupport: 'host-transaction',
+    }],
+  }] }])
+  try {
+    const manifest = buildCrudFormSectionManifest([{ ...modules[0], sections: {
+      ...sections,
+      displayPolicies: [],
+      hostFacts: [{ ...host, alternatives: [{ surface: plain }, { surface: finalSurface, mutationSurfaces: [submit] }] }],
+      hostProviders: [{ ...sections.hostProviders![0], mutationProviders: [{
+        mutationSurfaceId: submit.id, delegatedTarget: submit.delegatedTarget, finalInput: 'transactional-final-input/v1',
+        extensionSinkSupport: 'host-transaction',
+      }] }],
+      contributionFacts: [extension],
+      compiledContributions: [{ contribution: extension }],
+      sinks: [{
+        fact: {
+          ...extension.address, id: 'example.sink', roundTripId: 'example.sink@v1', ownerModuleId: 'example',
+          targetEntityId: 'example:todo', payloadPaths: [path], atomicity: 'after-commit',
+          optimisticLock: 'none', undo: 'unsupported',
+        },
+        capabilityId: 'example.store', appendOnly: true, hostDetailEntityId: 'example.todo',
+        schema: z.strictObject({ note: z.string() }), persist: async () => ({ before: null, after: null }),
+        load: async () => null,
+      }],
+    } }], overrides)
+    expect(manifest.policies.get(key)?.sinks).toHaveLength(1)
+  } finally {
+    registerMutationGuards([])
+  }
 })

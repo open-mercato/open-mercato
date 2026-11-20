@@ -1,3 +1,4 @@
+import { derivedCrudFormSectionRetryFact } from './client-mutation-facts'
 import type {
   CrudFormExtensionSinkFact, CrudFormSectionAddress, CrudFormSectionContributionFact, CrudFormSectionSurfaceAlternativeFact,
 } from '../../../modules/form-section-facts'
@@ -105,6 +106,7 @@ export type CompiledCrudFormAlternative = Readonly<{
   proofAlternativeId: string
   surface: CrudFormSectionSurfaceAlternativeFact
   defaultProviders: readonly { id: string; payloadPath: string }[]
+  outboxRetrySinkIds?: readonly string[]
 }>
 
 export function bindCompiledCrudFormAlternatives(
@@ -116,7 +118,7 @@ export function bindCompiledCrudFormAlternatives(
     const added = alternatives.filter(({ hostDescriptorId }) => hostDescriptorId === host.id)
     if (!added.length) return host
     const original = host.alternatives ?? []
-    const generated = added.flatMap(({ proofAlternativeId, surface, defaultProviders }): CrudFormSectionHostAlternative[] => {
+    const generated = added.flatMap(({ proofAlternativeId, surface, defaultProviders, outboxRetrySinkIds = [] }): CrudFormSectionHostAlternative[] => {
       const source = original.find(({ surface: candidate }) => candidate.id === proofAlternativeId)
       if (!source) return []
       const base = original.find(({ surface: candidate }) => candidate.hostId === surface.hostId
@@ -127,9 +129,15 @@ export function bindCompiledCrudFormAlternatives(
         .map(({ payloadPath }) => payloadPath))
       const defaultPathSet = new Set(defaultProviders.map(({ payloadPath }) => payloadPath))
       const { clientMutationSurfaces: _clientFacts, ...serverSurface } = surface
+      const parent = source.mutationSurfaces?.find(({ kind }) => kind === 'parent-submit')
+      if (outboxRetrySinkIds.length && (!parent || surface.formOperation !== 'update')) return []
+      const mutationSurfaces = outboxRetrySinkIds.length ? [...source.mutationSurfaces ?? [], ...outboxRetrySinkIds.map((sinkId) =>
+        derivedCrudFormSectionRetryFact({ sinkId, route: parent!.guardedFacade.routePattern, resourceKind: parent!.hostResourceKind }))]
+        : source.mutationSurfaces
       return [{
         ...source,
         surface: serverSurface,
+        mutationSurfaces,
         requiredSectionLeaves: owned.filter(({ payloadPath }) => trustedLeaves.has(payloadPath)),
         preservedLeafPaths: (source.preservedLeafPaths ?? []).filter((path) =>
           !defaultPathSet.has(path) && !owned.some(({ payloadPath }) => payloadPath === path)),

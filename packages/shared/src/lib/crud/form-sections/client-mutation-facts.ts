@@ -57,3 +57,26 @@ export function derivedCrudFormSectionClientMutationFact(input: {
     optimisticLock: operation !== 'create' && versioned ? 'target-required' : 'none',
   }
 }
+
+export function derivedCrudFormSectionRetryPath(parentRoute: string): string {
+  return `${parentRoute}/retry`
+}
+
+export function derivedCrudFormSectionRetryFact(input: {
+  sinkId: string
+  route: string
+  resourceKind: string
+}): CrudFormSectionMutationSurfaceFact {
+  const { sinkId, route, resourceKind } = input
+  return {
+    id: `${sinkId}.retry`,
+    kind: 'section-action',
+    guardedFacade: { method: 'POST', routePattern: derivedCrudFormSectionRetryPath(route) },
+    requestOperation: 'retry',
+    hostResourceKind: resourceKind,
+    mutationResourceKind: resourceKind,
+    optimisticLock: 'none',
+    delegatedTarget: { kind: 'service', id: 'crud-form-section-outbox.retry' },
+    resourceBindingIds: [],
+  }
+}

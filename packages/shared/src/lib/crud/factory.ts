@@ -528,6 +528,8 @@ export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
   enrichers?: {
     /** Entity ID for enricher matching (e.g., 'customers.person') */
     entityId: string
+    /** Opt in to fresh detail enrichment for a one-record list request. */
+    detailRequest?: (query: TList) => boolean
   }
 }
 
@@ -768,6 +770,7 @@ function buildSyncPayload(
     tenantId: string
     em: EntityManager
     request: Request
+    crudFormSectionPolicy?: true
   },
   extra?: {
     payload?: Record<string, unknown>
@@ -1723,8 +1726,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return {} as Where<Record<string, unknown>>
       }
 
+      const singleDetail = !exportRequested && opts.enrichers?.detailRequest?.(validated) === true
       const cacheEnabled =
-        isCrudCacheEnabled() && !exportRequested && !opts.list?.disableListCache
+        isCrudCacheEnabled() && !exportRequested && !singleDetail && !opts.list?.disableListCache
       const cacheTimerStart = cacheEnabled && isCrudCacheDebugEnabled()
         ? process.hrtime.bigint()
         : null
@@ -1797,6 +1801,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       //   enrichment is ever embedded in the shared cache entry (avoids stale
       //   cross-module output and cross-cohort ACL leaks).
       const enrichAndStorePayload = async (payload: any) => {
+        if (singleDetail && Array.isArray(payload.items) && payload.items.length === 1) {
+          payload.items = [await enrichSingleRecord(payload.items[0], ctx)]
+          return
+        }
         if (enricherCachePlan.skipEnrichersOnCacheHit) {
           await enrichListPayload(payload, ctx, profiler)
           await maybeStoreCrudCache(payload)
@@ -1819,6 +1827,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       const respondWithPayload = (payload: any, extraHeaders?: Record<string, string>) => {
         const headers: Record<string, string> = extraHeaders ? { ...extraHeaders } : {}
+        if (singleDetail) {
+          headers['cache-control'] = 'private, no-store'
+          headers.vary = 'Cookie, Authorization'
+        }
         const warning = payload && typeof payload === 'object' && payload.meta?.partialIndexWarning
         if (warning) {
           headers['x-om-partial-index'] = JSON.stringify({
@@ -3394,7 +3406,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           throw new CrudHttpError(404, { error: 'not_found' })
         }
         const previousData = snapshotEntity(previous)
-        const eventContext = { resourceId, operation, userId, organizationId: orgId, tenantId, em, request }
+        const eventContext = { resourceId, operation, userId, organizationId: orgId, tenantId, em, request, crudFormSectionPolicy: true as const }
         if (beforeEventId && entity && before.length) {
           const beforePayload = buildSyncPayload({ ...eventContext, eventId: beforeEventId, entity, timing: 'before' }, {
             ...(operation !== 'delete' && isRecord(input) ? { payload: input } : {}),

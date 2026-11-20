@@ -5,6 +5,7 @@ import ts from 'typescript-js'
 import {
   applyCrudFormSectionPlacements, canonicalSectionJson, compareSectionIds, crudFormSectionHostKey,
 } from '@open-mercato/shared/lib/crud/form-sections/composition'
+import { derivedCrudFormSectionRetryFact, projectCrudFormSectionClientMutationFact } from '@open-mercato/shared/lib/crud/form-sections/client-mutation-facts'
 import type { CustomFieldDefinition, CustomFieldSet } from '@open-mercato/shared/modules/entities'
 import type { CompiledCrudFormAlternative, CompiledCrudFormCustomField } from '@open-mercato/shared/lib/crud/form-sections/compiled-extensions'
 import type { CrudFormSectionAddress, CrudFormSectionContributionFact, CrudFormSectionSurfaceAlternativeFact } from '@open-mercato/shared/modules/form-section-facts'
@@ -28,6 +29,7 @@ type Write = { filename: string; content: string }
 
 export type CompilerModule = {
   moduleId: string
+  derivedRoutes?: readonly { index: number; hostDescriptorId: string; routePath: string; outboxRetry: boolean }[]
   importPath: string
   sourceBase: string
   authoredSource: boolean
@@ -50,7 +52,7 @@ type CompiledChange = {
   file: string
   fields: CompiledField[]
   sinks: { id: string; roundTripId: string; capabilityId: string; hostDetailEntityId: string; fields: CompiledField[] }[]
-  defaults: { owner: AuthoredChange; id: string; payloadPath: string; readsPayloadPaths: readonly string[] }[]
+  defaults: { owner: AuthoredChange; id: string; payloadPath: string; readsPayloadPaths: readonly string[]; scoped: boolean }[]
 }
 
 export type CompiledSectionExtensions = {
@@ -60,6 +62,11 @@ export type CompiledSectionExtensions = {
   revisionWrites: readonly Write[]
   fallbacks: FormSectionOverridesMap
   customFieldSetsByModule: ReadonlyMap<string, readonly CustomFieldSet[]>
+}
+
+function includesDefaultTarget(targets: SectionExtensionSource['defaults'][number]['targets'], target: Omit<CrudFormSectionAddress, 'sectionId'>): boolean {
+  return !targets || targets.some(({ formVariant, formOperation }) =>
+    formVariant === target.formVariant && formOperation === target.formOperation)
 }
 
 function digest(value: unknown): string {
@@ -108,10 +115,10 @@ function granularFields(base: Map<string, ts.Expression>, invalid: Invalid): Map
   }))
 }
 
-function baseDescriptor(runtime: Runtime, sectionId: string, invalid: Invalid) {
+function baseDescriptor(runtime: Runtime, sectionId: string, invalid: Invalid, sourceRoot: string) {
   const fields = runtimeFields(runtime, invalid)
   const section = (fields.has('sectionDescriptors')
-    ? arrayField(fields, 'sectionDescriptors', invalid).map((entry) => readSectionRuntimeFields(entry, runtime.source, invalid))
+    ? arrayField(fields, 'sectionDescriptors', invalid).map((entry) => readSectionRuntimeFields(entry, runtime.source, invalid, new Set(), sourceRoot))
     : [fields]).find((entry) => {
       const group = entry.get('group')
       return group && literalData(fieldsOf(group, invalid).get('id')!, invalid) === sectionId
@@ -268,7 +275,7 @@ export function compileCrudFormSectionExtensions(
       const address = { ...target, sectionId: change.id }
       if (baseline.orderedSectionIds.includes(change.id) === (change.operation === 'add')) invalid(`invalid section target "${change.id}" for "${id}"`)
       const ownership = baseline.ownershipFacts.find(({ sectionId }) => sectionId === change.id)
-      const base = change.operation === 'add' ? undefined : baseDescriptor(runtime!, change.id, invalid)
+      const base = change.operation === 'add' ? undefined : baseDescriptor(runtime!, change.id, invalid, hostModule.sourceBase)
       const baseRoundTripId = base ? readIdentity(base, invalid).roundTripId : null
       let descriptor = base
       const standardPaths = new Set(ownership?.payloadPaths)
@@ -338,7 +345,7 @@ export function compileCrudFormSectionExtensions(
             }
             const label = typeof field.browser.labelKey === 'string' ? field.browser.labelKey : `${id}.fields.${field.id}`
             item.customField = { definitionSetId: definitionSet, entityId, key: fieldKey, kind }
-            item.seed = { key: fieldKey, kind, label, required: field.browser.required === true, formEditable: true,
+            item.seed = { key: fieldKey, kind, label, required: field.browser.required === true, formEditable: true, sectionOnly: true, listVisible: false,
               ...(kind === 'select' && Array.isArray(options) ? { options: options.map(({ value, labelKey }) => ({ value, label: labelKey })) } : {}) }
             customKeys.add(fieldKey)
             item.payloadPath = `customFields.${fieldKey}`
@@ -425,8 +432,9 @@ export function compileCrudFormSectionExtensions(
         }))],
       }
       const dropped = (ownership?.payloadPaths ?? []).filter((leaf) => !resultOwnership?.payloadPaths.includes(leaf))
-      const defaults = members.flatMap((owner) => owner.extension.defaults.filter(({ payloadPath }) => dropped.includes(payloadPath)).map(({ payloadPath, readsPayloadPaths }) => ({
-        owner, payloadPath, readsPayloadPaths, id: `${id}.default-${digest(payloadPath).slice(0, 12)}`,
+      const defaults = members.flatMap((owner) => owner.extension.defaults.filter(({ payloadPath, targets }) =>
+        dropped.includes(payloadPath) && includesDefaultTarget(targets, target)).map(({ payloadPath, readsPayloadPaths, targets }) => ({
+        owner, payloadPath, readsPayloadPaths, scoped: !!targets, id: `${id}.default-${digest(payloadPath).slice(0, 12)}`,
       })))
       const override: FormSectionOverride = change.operation === 'add'
         ? { ...explicitPlacement(change), contributionId: id } : { operation: operation as 'hide' | 'replace', contributionId: id }
@@ -494,7 +502,8 @@ export function compileCrudFormSectionExtensions(
       if (effectiveDefaultKeys.has(value.payloadPath)) invalid(`conflicting default for "${value.payloadPath}" in ${key}`)
       effectiveDefaultKeys.add(value.payloadPath)
     }
-    for (const { extension } of changes) for (const { payloadPath: leaf } of extension.defaults) {
+    for (const { extension } of changes) for (const { payloadPath: leaf, targets } of extension.defaults) {
+      if (!includesDefaultTarget(targets, target)) continue
       if (!selections.flat().some(({ defaults }) => defaults.some(({ owner, payloadPath }) => owner.extension === extension && payloadPath === leaf))) {
         invalid(`default "${leaf}" is not bound to an omitted leaf of ${key}`)
       }
@@ -538,17 +547,24 @@ export function compileCrudFormSectionExtensions(
       emitted.add(signature)
       const selectedProof = original.clientMutationSurfaces?.some(({ kind }) => kind === 'parent-submit') ? original : proof!
       if (mutationIds.some((id) => !selectedProof.mutationSurfaceIds.includes(id))) return false
+      const retryRoute = hostModule.derivedRoutes?.find(({ hostDescriptorId, outboxRetry }) => hostDescriptorId === host.id && outboxRetry)
+      const outboxRetrySinkIds = retryRoute ? chosen.flatMap(({ sinks }) => sinks.flatMap(({ id, fields }) =>
+        fields[0].field.store?.kind === 'external' ? [id] : [])) : []
+      const retryFacts = outboxRetrySinkIds.map((sinkId) => projectCrudFormSectionClientMutationFact(
+        derivedCrudFormSectionRetryFact({ sinkId, route: retryRoute!.routePath, resourceKind: host.hostResourceKind! })))
       const surface = {
         ...original, id: `${baseline.id}.compiled-${digest(contributionIds).slice(0, 12)}`,
-        orderedSectionIds, contributionIds, ownershipFacts, mutationSurfaceIds: selectedProof.mutationSurfaceIds,
-        clientMutationSurfaces: selectedProof.clientMutationSurfaces,
+        orderedSectionIds, contributionIds, ownershipFacts,
+        mutationSurfaceIds: [...selectedProof.mutationSurfaceIds, ...retryFacts.map(({ id }) => id)],
+        clientMutationSurfaces: retryFacts.length ? [...selectedProof.clientMutationSurfaces ?? [], ...retryFacts] : selectedProof.clientMutationSurfaces,
         dependencies: [...original.dependencies, ...chosen.flatMap(({ contribution }) => {
           const { id, requiredSectionIds = [], requiredDataContractIds = [] } = contribution
           return requiredSectionIds.length || requiredDataContractIds.length
             ? [{ consumerContributionId: id, requiredSectionIds, requiredDataContractIds }] : []
         })],
       }
-      generated.push({ hostDescriptorId: host.id, proofAlternativeId: selectedProof.id, surface, defaultProviders: rules.map(({ id, payloadPath }) => ({ id, payloadPath })) })
+      generated.push({ hostDescriptorId: host.id, proofAlternativeId: selectedProof.id, surface, defaultProviders: rules.map(({ id, payloadPath }) => ({ id, payloadPath })),
+        ...(outboxRetrySinkIds.length ? { outboxRetrySinkIds } : {}) })
       host.alternatives = [...host.alternatives, surface]
       return true
     }

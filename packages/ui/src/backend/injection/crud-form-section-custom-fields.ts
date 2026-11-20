@@ -51,7 +51,7 @@ export function projectCrudFormSectionCustomFields<TValues, TPayload>({
     if (!bound?.length || new Set(bound).size !== bound.length || bound.some((entityId) => !entityIds.includes(entityId))) return invalid
     const ownerKeys = new Set<string>()
     for (const definition of definitions) {
-      if ((ids && !ids.has(definition.key)) || !isDefVisible(definition, 'form')) continue
+      if ((ids && !ids.has(definition.key)) || !isDefVisible(definition, 'section-form')) continue
       const entityId = definition.entityId ?? (entityIds.length === 1 ? entityIds[0] : undefined)
       if (!entityId) return invalid
       if (!bound.includes(entityId)) continue

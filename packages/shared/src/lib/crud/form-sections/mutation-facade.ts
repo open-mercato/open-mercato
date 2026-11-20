@@ -23,6 +23,7 @@ import { CrudHttpError, isCrudHttpError } from '../errors'
 import { bridgeLegacyGuard, runMutationGuards, type MutationGuardInput } from '../mutation-guard-registry'
 import { getAllMutationGuardInstances } from '../mutation-guard-store'
 import { normalizeIsoToken } from '../optimistic-lock'
+import { enforceRecordGoneIsConflict } from '../optimistic-lock-command'
 import {
   OPTIMISTIC_LOCK_CONFLICT_CODE,
   OPTIMISTIC_LOCK_CONFLICT_ERROR,
@@ -575,7 +576,15 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
       const lockedRecord = needsLockedRecord
         ? await provider.readLockedRecord?.({ auth, container, scope, host: route.host, surface, transactionalEm: em })
         : null
-      if (needsLockedRecord && !lockedRecord) return rejectUnauthorized()
+      if (needsLockedRecord && !lockedRecord) {
+        if (surface.optimisticLock === 'target-required' && route.target.resourceId) {
+          enforceRecordGoneIsConflict({
+            resourceKind: route.target.resourceKind, resourceId: route.target.resourceId,
+            expected: expectedVersion(requestHeaders, surface, route.address, options.operation), envValue: 'all',
+          })
+        }
+        return rejectUnauthorized()
+      }
       const prepared = await prepareCrudFormRequiredLeaves({
         payload: initial.hostPayload, leaves: requiredLeaves, lockedRecord: lockedRecord ?? null, scope,
         transactionalEm: em, providers: manifest.leafDefaultProviders,

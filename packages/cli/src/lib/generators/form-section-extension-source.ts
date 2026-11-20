@@ -39,7 +39,7 @@ export type SectionExtensionSource = {
   hostId: string
   targets: SourceTarget[]
   changes: SectionExtensionChange[]
-  defaults: readonly { payloadPath: string; syntax: ts.Expression; readsPayloadPaths: readonly string[] }[]
+  defaults: readonly { payloadPath: string; syntax: ts.Expression; readsPayloadPaths: readonly string[]; targets?: readonly SourceTarget[] }[]
   syntax: ts.Expression
 }
 
@@ -251,16 +251,20 @@ export function parseSectionExtensionSources(
     const hostId = sectionSymbol(host.slice('crud-form:'.length), 'host id', invalid)
     if (hosts.has(hostId)) return invalid(`multiple extension definitions for host "${hostId}" in one module`)
     hosts.add(hostId)
-    const targets = arrayField(fields, 'targets', invalid).map((target): SourceTarget => {
-      const entries = fieldsOf(target, invalid)
-      const formVariant = sectionSymbol(optionalLiteral(entries.get('formVariant'), invalid), 'form variant', invalid)
-      const formOperation = optionalLiteral(entries.get('formOperation'), invalid)
-      if (entries.size !== 2 || (formOperation !== 'create' && formOperation !== 'update')) return invalid('invalid extension target')
-      return { formVariant, formOperation }
-    })
-    if (!targets.length || targets.length !== new Set(targets.map(({ formVariant, formOperation }) => formVariant + '/' + formOperation)).size) {
-      return invalid('expected unique extension targets')
+    function readTargets(fieldMap: Map<string, ts.Expression>): SourceTarget[] {
+      const entries = arrayField(fieldMap, 'targets', invalid).map((target): SourceTarget => {
+        const fields = fieldsOf(target, invalid)
+        const formVariant = sectionSymbol(optionalLiteral(fields.get('formVariant'), invalid), 'form variant', invalid)
+        const formOperation = optionalLiteral(fields.get('formOperation'), invalid)
+        if (fields.size !== 2 || (formOperation !== 'create' && formOperation !== 'update')) return invalid('invalid extension target')
+        return { formVariant, formOperation }
+      })
+      if (!entries.length || entries.length !== new Set(entries.map(({ formVariant, formOperation }) => formVariant + '/' + formOperation)).size) {
+        return invalid('expected unique extension targets')
+      }
+      return entries
     }
+    const targets = readTargets(fields)
     const raw = fields.get('sections')
     if (!raw) return invalid('missing extension sections')
     const changes = [...fieldsOf(raw, invalid)].map(([sectionId, declaration]): SectionExtensionChange => {
@@ -285,9 +289,20 @@ export function parseSectionExtensionSources(
     })
     if (!changes.length) return invalid('expected at least one section change')
     const defaultMap = fields.get('defaults')
-    const defaults = defaultMap ? [...fieldsOf(defaultMap, invalid)].map(([key, syntax]) => ({
-      payloadPath: formLeaf(key, 'default payload path', invalid), syntax, readsPayloadPaths: inferDefaultReads(syntax, invalid),
-    })) : []
+    const defaults = defaultMap ? [...fieldsOf(defaultMap, invalid)].map(([key, syntax]) => {
+      const payloadPath = formLeaf(key, 'default payload path', invalid)
+      const value = unwrap(syntax)
+      if (!ts.isObjectLiteralExpression(value)) return { payloadPath, syntax, readsPayloadPaths: inferDefaultReads(value, invalid) }
+      const defaultFields = fieldsOf(value, invalid)
+      const resolve = defaultFields.get('resolve')
+      if (defaultFields.size !== 2 || !resolve) return invalid('expected scoped default targets and resolve callback')
+      const scopedTargets = readTargets(defaultFields)
+      if (scopedTargets.some((target) => !targets.some(({ formVariant, formOperation }) =>
+        formVariant === target.formVariant && formOperation === target.formOperation))) {
+        return invalid('scoped default targets must belong to the extension')
+      }
+      return { payloadPath, syntax, targets: scopedTargets, readsPayloadPaths: inferDefaultReads(resolve, invalid) }
+    }) : []
     return { index, id, hostId, targets, changes, defaults, syntax }
   })
 }

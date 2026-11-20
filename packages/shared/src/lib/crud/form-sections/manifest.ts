@@ -165,10 +165,11 @@ function deriveCompiledCapabilities(
   mutationProofs: ReadonlyMap<string, CrudFormSectionMutationProviderProof>,
 ): CrudFormSectionCapabilityEntry[] {
   const { hostId, formVariant, formOperation } = contribution.address
+  const availableAuthorities = [...authorities]
   return contribution.requiredCapabilities.flatMap((requirement) => {
     const ids = requirement.mutationSurfaceIds ?? []
     const matched = surfaces.filter(({ id }) => ids.includes(id))
-    const supports = [...authorities].filter(({ fact }) => fact.hostId === hostId && fact.formVariant === formVariant
+    const supports = availableAuthorities.filter(({ fact }) => fact.hostId === hostId && fact.formVariant === formVariant
       && fact.formOperation === formOperation && fact.modes.some((mode) =>
         mode === 'domain-adapter' || mode === 'merge-server-leaves' || mode === 'omit-preserves')
       && matched.some((surface) => fact.mutationSurfaces.some((candidate) =>

@@ -16,8 +16,8 @@ import { CrudHttpError, isCrudHttpError } from '../errors'
 import { normalizeIsoToken } from '../optimistic-lock'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '../optimistic-lock-headers'
 import { crudSectionOperationMethods, findCrudRouteSectionSource, rememberDerivedCrudRouteCapabilities, type CrudRouteSectionSource, type CrudSectionRouteMethod, type CrudSectionRouteOperation } from './factory-route-source'
-import { derivedCrudFormSectionClientMutationFact } from './client-mutation-facts'
-import { runCrudFormSectionMutation, type CrudFormSectionMutationFacadeOptions } from './mutation-facade'
+import { derivedCrudFormSectionClientMutationFact, derivedCrudFormSectionRetryFact, derivedCrudFormSectionRetryPath } from './client-mutation-facts'
+import { runCrudFormSectionMutation, runCrudFormSectionOutboxRetry, type CrudFormSectionMutationFacadeOptions } from './mutation-facade'
 import { crudFormSectionPolicyHeaderNames, crudFormSectionPolicyHeaderSchema, parseCrudFormSectionPolicyHeaders } from './policy-headers'
 import { decodeCrudFormSectionPolicyToken } from './policy-token'
 import {
@@ -43,6 +43,7 @@ export type CrudRouteSectionHostDeclaration = {
   projectedSchema: z.ZodObject
   submit: OperationContract
   delete?: OperationContract & { inputStyle?: 'body-query' | 'direct'; mode: 'soft' | 'hard' }
+  outboxRetry?: true
   expectedVersionField?: string
   idSchema?: z.ZodType<string>
   wireRequiredUpdatePaths?: readonly string[]
@@ -117,6 +118,9 @@ export function defineCrudRouteSectionHost<const Host extends CrudRouteSectionHo
   }
   if (![declaration.hostId, declaration.formVariant, declaration.hostDescriptorId, source.resourceKind]
       .every((id) => symbolicIdSchema.safeParse(id).success)) refuse('invalid host or resource identity')
+  if (declaration.outboxRetry && (declaration.formOperation !== 'update' || declaration.extensionSinkSupport !== 'host-transaction')) {
+    refuse('outbox retry requires an update host with transactional extension sinks')
+  }
   if (declaration.formOperation === 'create' && declaration.delete) refuse('create form cannot own a delete mutation')
   if (declaration.delete && declaration.delete.mode !== 'soft' && declaration.delete.mode !== 'hard') {
     refuse('delete requires an explicit delegated command’s soft or hard delete contract')
@@ -240,7 +244,7 @@ async function readBoundRecord(
   return isRecord(record) ? record : null
 }
 
-function makeHostProvider(host: DerivedHost, route: string): CrudFormSectionHostProvider {
+function makeHostProvider(host: DerivedHost, route: string, retrySurfaces: readonly CrudFormSectionMutationSurfaceFact[]): CrudFormSectionHostProvider {
   const { declaration, source } = host
   const surfaces = hostSurfaces(host, route)
   const requireFeatures = [...new Set(surfaces.flatMap(({ guardedFacade: { method } }) =>
@@ -248,11 +252,18 @@ function makeHostProvider(host: DerivedHost, route: string): CrudFormSectionHost
   return {
     hostDescriptorId: declaration.hostDescriptorId,
     requireFeatures,
-    mutationProviders: surfaces.map(({ id, delegatedTarget, kind }) => ({
-      mutationSurfaceId: id,
-      delegatedTarget,
-      ...(kind === 'parent-delete' && declaration.delete ? declaration.delete.proof : declaration.submit.proof),
-    })),
+    mutationProviders: [
+      ...surfaces.map(({ id, delegatedTarget, kind }) => ({
+        mutationSurfaceId: id,
+        delegatedTarget,
+        ...(kind === 'parent-delete' && declaration.delete ? declaration.delete.proof : declaration.submit.proof),
+      })),
+      ...retrySurfaces.map(({ id, delegatedTarget }): CrudFormSectionMutationProviderProof => ({
+        mutationSurfaceId: id,
+        delegatedTarget,
+        finalInput: proofVersion,
+      })),
+    ],
     async authorizeHost({ container, scope, requestedHost }) {
       if (requestedHost.hostResourceKind !== source.resourceKind || !supportsFacadeInterceptors(host, route)) return null
       if (!requestedHost.hostResourceId) return !source.orm.orgField || scope.organizationId ? requestedHost : null
@@ -270,6 +281,7 @@ function makeHostProvider(host: DerivedHost, route: string): CrudFormSectionHost
 export type DerivedCrudRouteHostBinding = {
   declaration: CrudRouteSectionHostDeclaration
   route: string
+  outboxRetrySinkIds?: readonly string[]
 }
 
 export function bindDerivedCrudRouteSectionHosts(
@@ -283,7 +295,7 @@ export function bindDerivedCrudRouteSectionHosts(
     features: readonly string[]
     ready(): boolean
   }> = []
-  for (const { declaration, route } of bindings) {
+  for (const { declaration, route, outboxRetrySinkIds = [] } of bindings) {
     const host = derivedHost(declaration)
     const fact = hostFacts.get(declaration.hostDescriptorId)
     if (!fact || fact.hostResourceKind !== host.source.resourceKind || hostProviders.some(({ hostDescriptorId }) => hostDescriptorId === fact.id)) {
@@ -305,7 +317,13 @@ export function bindDerivedCrudRouteSectionHosts(
       schemaId: declaration.authoritativeSchema.id, payloadPath,
       coverage: declaration.formOperation === 'create' ? ['section', 'server-default'] : ['section', 'preserve-from-record', 'server-default'],
     }))
-    const provider = makeHostProvider(host, route)
+    if (outboxRetrySinkIds.length && (!declaration.outboxRetry
+        || outboxRetrySinkIds.some((sinkId) => !symbolicIdSchema.safeParse(`${sinkId}.retry`).success))) {
+      return refuse('invalid generated outbox retry binding')
+    }
+    const retrySurfaces = outboxRetrySinkIds.map((sinkId) =>
+      derivedCrudFormSectionRetryFact({ sinkId, route, resourceKind: host.source.resourceKind }))
+    const provider = makeHostProvider(host, route, retrySurfaces)
     hostProviders.push(provider)
     derivedRouteCapabilities.push({
       features: provider.requireFeatures,
@@ -548,6 +566,7 @@ async function handleDerivedMutation(
           ...ctx.organizationScope, selectedId: organizationId, filterIds: organizationId ? [organizationId] : null,
         } : null,
         request: facadeRequest,
+        ...(operation === 'delete' ? { crudFormSectionDeleteMode: declaration.delete?.mode } : {}),
       }
       const normalizeContext = {
         ...commandContext,
@@ -682,4 +701,89 @@ export function createDerivedCrudFormSectionFacade(
     }
   }
   return { metadata, openApi, handlers }
+}
+
+export function createDerivedCrudFormSectionOutboxRetryRoute(
+  declarations: readonly CrudRouteSectionHostDeclaration[],
+  parentRoute: string,
+) {
+  assertStaticPolicyRoute(parentRoute)
+  const hosts = declarations.map(derivedHost)
+  if (!hosts.length || hosts.some(({ declaration, source }) => !declaration.outboxRetry || source !== hosts[0].source)) {
+    return refuse('outbox retry requires a single qualified factory route')
+  }
+  const { source } = hosts[0]
+  const route = derivedCrudFormSectionRetryPath(parentRoute)
+  const updateMetadata = source.metadata.PUT
+  if (!updateMetadata?.requireAuth) return refuse('outbox retry requires authenticated update metadata')
+  const requiredFeatures = updateMetadata.requireFeatures ?? []
+  const metadata = { path: route, POST: updateMetadata }
+  const openApi: OpenApiRouteDoc = {
+    summary: 'Retry an accepted CrudForm outbox delivery',
+    methods: {
+      POST: {
+        summary: 'Queue the current failed delivery',
+        requestBody: { schema: emptyBodySchema, contentType: 'application/json' },
+        query: z.strictObject({ id: z.uuid() }),
+        headers: protectedWireHeaders('update', false),
+        responses: [{ status: 200, description: 'Retry queued', schema: z.strictObject({ ok: z.literal(true) }) }],
+        errors: [{ status: 409, description: 'Retry unavailable for this policy', schema: crudFormSectionPolicyMismatchResponseSchema }],
+      },
+    },
+  }
+
+  async function POST(request: Request): Promise<Response> {
+    try {
+      const ctx = await source.requestContext(request)
+      if (!ctx.auth?.tenantId) throw new CrudHttpError(401, { error: 'unauthorized' })
+      if (ctx.organizationScope?.selectionRejected || ctx.organizationIds?.length === 0) {
+        throw new CrudHttpError(404, { error: 'not_found' })
+      }
+      const headers = parseCrudFormSectionPolicyHeaders(request.headers)
+      const token = headers && decodeCrudFormSectionPolicyToken(headers.policyToken)
+      const host = hosts.find(({ declaration }) => token?.hostId === declaration.hostId
+        && token.formVariant === declaration.formVariant && token.formOperation === declaration.formOperation)
+      if (!host || headers?.requestOperation !== 'retry' || !headers.mutationSurfaceId.endsWith('.retry')) {
+        return rejectDerivedMutation()
+      }
+      const { declaration } = host
+      const query = new URL(request.url).searchParams
+      const parsed = (declaration.idSchema ?? z.uuid()).safeParse(query.get('id'))
+      if (!parsed.success || parsed.data !== query.get('id') || [...query.keys()].some((key) => key !== 'id')
+          || query.getAll('id').length !== 1) throw new CrudHttpError(400, { error: 'invalid_request' })
+      const id = parsed.data
+      const sinkId = headers.mutationSurfaceId.slice(0, -'.retry'.length)
+      const surface = derivedCrudFormSectionRetryFact({ sinkId, route: parentRoute, resourceKind: source.resourceKind })
+      const scope = { tenantId: ctx.auth.tenantId, organizationId: ctx.selectedOrganizationId, allowedOrganizationIds: ctx.organizationIds }
+      let authorizedScope: ScopedBinding | undefined
+      const result = await runCrudFormSectionOutboxRetry({
+        sinkId, request, scope, auth: ctx.auth, container: ctx.container, routePattern: route, method: 'POST',
+        requiredFeatures, delegatedTarget: surface.delegatedTarget,
+        maxBodyBytes: declaration.maxBodyBytes,
+        async authorizeRoute({ container, scope: routeScope }) {
+          const record = await readBoundRecord(source, container.resolve<EntityManager>('em'), id, routeScope)
+          const organizationId = source.orm.orgField ? record?.[source.orm.orgField] : null
+          if (!record || (source.orm.orgField && typeof organizationId !== 'string')) return null
+          authorizedScope = { ...routeScope, organizationId: typeof organizationId === 'string' ? organizationId : null }
+          return {
+            address: { hostId: declaration.hostId, formVariant: declaration.formVariant, formOperation: 'update' },
+            host: { hostResourceKind: source.resourceKind, hostResourceId: id },
+            target: { resourceKind: source.resourceKind, resourceId: id },
+            targetOrganizationId: authorizedScope.organizationId,
+            resourceBindingIds: [],
+          }
+        },
+        async beforeTransactionalWrite(em) {
+          if (!authorizedScope || !await readBoundRecord(source, em, id, authorizedScope, true)) {
+            throw new CrudHttpError(404, { error: 'not_found' })
+          }
+        },
+      })
+      return Response.json(result, { headers: crudFormSectionsPrivateHeaders })
+    } catch (error) {
+      return errorResponse(error)
+    }
+  }
+
+  return { metadata, openApi, POST }
 }

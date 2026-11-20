@@ -1826,7 +1826,7 @@ function CrudFormImpl<
         })
       }
       const sortedDefs = [...defList]
-        .filter((definition) => isDefVisible(definition, 'form'))
+        .filter((definition) => isDefVisible(definition, acceptedSectionPolicy ? 'section-form' : 'form'))
         .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
       const ensureBucket = (code: string | null, def: CustomFieldDefDto): CustomFieldGroupLayout => {
         const key = code ?? '__default__'
@@ -1994,7 +1994,7 @@ function CrudFormImpl<
 
     return { cfFields: aggregated, customFieldLayout: layout }
   }, [
-    cfDefinitions,
+    cfDefinitions, acceptedSectionPolicy,
     cfFieldsetSelections,
     customEntity,
     resolveCustomFieldText,
@@ -3468,7 +3468,7 @@ function CrudFormImpl<
       } catch {
         // ignore event dispatch failures
       }
-      const { message: helperMessage, fieldErrors: serverFieldErrors } = mapCrudServerErrorToFormErrors(err, { customEntity })
+      const { message: helperMessage, fieldErrors: serverFieldErrors } = mapCrudServerErrorToFormErrors(err, { customEntity, sectionDescriptors: acceptedSectionPolicy?.descriptors })
       const combinedFieldErrors = serverFieldErrors ?? {}
       const hasFieldErrors = Object.keys(combinedFieldErrors).length > 0
       const firstFieldMessage = hasFieldErrors

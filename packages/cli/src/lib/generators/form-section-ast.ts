@@ -1,4 +1,7 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import ts from 'typescript-js'
+import { MODULE_CODE_EXTENSIONS, stripModuleCodeExtension } from './scanner'
 
 export function unwrap(expression: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression)) {
@@ -120,12 +123,39 @@ export function readSectionBuilder(node: ts.Expression, invalid: (reason: string
 
 export function readSectionRuntimeFields(
   initializer: ts.Expression, source: ts.SourceFile, invalid: (reason: string) => never, seen: ReadonlySet<string> = new Set(),
+  sourceRoot?: string,
 ): Map<string, ts.Expression> {
   const value = unwrap(initializer)
   if (ts.isIdentifier(value)) {
+    const key = source.fileName + ':' + value.text
+    if (seen.has(key)) return invalid(`cyclic section runtime "${value.text}"`)
+    const visited = new Set([...seen, key])
     const local = getLocalSectionInitializer(source, value.text)
-    if (!local || seen.has(value.text)) return invalid(`section runtime "${value.text}" must have a local static declaration`)
-    return readSectionRuntimeFields(local, source, invalid, new Set([...seen, value.text]))
+    if (local) return readSectionRuntimeFields(local, source, invalid, visited, sourceRoot)
+    if (sourceRoot) {
+      for (const statement of source.statements) {
+        if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly
+            || !ts.isStringLiteral(statement.moduleSpecifier)) continue
+        const bindings = statement.importClause?.namedBindings
+        if (!bindings || !ts.isNamedImports(bindings)) continue
+        const imported = bindings.elements.find(({ name, isTypeOnly }) => !isTypeOnly && name.text === value.text)
+        if (!imported) continue
+        const specifier = statement.moduleSpecifier.text
+        if (!specifier.startsWith('./') || !stripModuleCodeExtension(specifier).endsWith('.client')) break
+        const base = path.resolve(path.dirname(source.fileName), stripModuleCodeExtension(specifier))
+        const candidate = MODULE_CODE_EXTENSIONS.map((extension) => base + extension)
+          .find((filename) => fs.statSync(filename, { throwIfNoEntry: false })?.isFile())
+        if (!candidate) break
+        const filename = fs.realpathSync(candidate)
+        const relative = path.relative(fs.realpathSync(sourceRoot), filename)
+        if (relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) break
+        const dependency = ts.createSourceFile(filename, fs.readFileSync(filename, 'utf8'), ts.ScriptTarget.Latest, true)
+        const declaration = exportedDeclaration(dependency, (imported.propertyName ?? imported.name).text)
+        if (declaration) return readSectionRuntimeFields(declaration, dependency, invalid, visited, sourceRoot)
+        break
+      }
+    }
+    return invalid(`section runtime "${value.text}" must have a local static declaration`)
   }
   if (!ts.isCallExpression(value)) return fieldsOf(value, invalid)
   const { name, args } = readSectionBuilder(value, invalid)

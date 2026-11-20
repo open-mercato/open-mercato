@@ -140,12 +140,18 @@ type SectionAdd = Readonly<{ operation: 'add'; options: SectionAddOptions }>
 type SectionModify = Readonly<{ operation: 'modify'; options: SectionModifyOptions }>
 export type CrudFormExtensionSectionOperation = SectionHide | SectionReplace | SectionAdd | SectionModify
 
+type CrudFormExtensionTarget = Readonly<Pick<CrudFormSectionAddress, 'formVariant' | 'formOperation'>>
+type CrudFormExtensionDefault = CrudFormLeafDefaultProvider['resolve'] | Readonly<{
+  targets: readonly CrudFormExtensionTarget[]
+  resolve: CrudFormLeafDefaultProvider['resolve']
+}>
+
 export type CrudFormExtensionDefinition = Readonly<{
   id: string
   host: `crud-form:${string}`
-  targets: readonly Readonly<Pick<CrudFormSectionAddress, 'formVariant' | 'formOperation'>>[]
+  targets: readonly CrudFormExtensionTarget[]
   sections: Readonly<Record<string, CrudFormExtensionSectionOperation>>
-  defaults?: Readonly<Record<string, CrudFormLeafDefaultProvider['resolve']>>
+  defaults?: Readonly<Record<string, CrudFormExtensionDefault>>
 }>
 
 export function defineCrudFormExtension<const Definition extends CrudFormExtensionDefinition>(definition: Definition): Definition {

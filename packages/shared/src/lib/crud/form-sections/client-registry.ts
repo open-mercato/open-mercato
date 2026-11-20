@@ -1,9 +1,18 @@
+import type { CrudFormSectionAddress } from '../../../modules/form-section-facts'
 import type { CrudFormSectionClientHostFact, CrudFormSectionRuntimeEntry } from '../../../modules/form-sections'
 import type { FormSectionOverridesMap } from '../../../modules/overrides'
+
+export type CrudFormSectionClientVersionedSink = Readonly<Omit<CrudFormSectionAddress, 'sectionId'> & {
+  id: string
+  ownerModuleId: string
+  kind: 'table' | 'external'
+  payloadPaths: readonly string[]
+}>
 
 export type CrudFormSectionClientRegistry = {
   hostFacts: readonly CrudFormSectionClientHostFact[]
   runtimeEntries: readonly CrudFormSectionRuntimeEntry[]
+  versionedSinks?: readonly CrudFormSectionClientVersionedSink[]
   contributedOverrides: Readonly<FormSectionOverridesMap>
 }
 

@@ -37,6 +37,7 @@ import {
 const querySchema = z
   .object({
     id: z.string().uuid().optional(),
+    sectionDetail: z.literal('showcase').optional(),
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     ids: z.string().optional(),
@@ -237,7 +238,7 @@ type BaseFields = {
   updated_at: Date | string | null
 } & Record<`cf:${string}` | `cf_${string}`, unknown>
 
-export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
+export const todoCrudRoute = makeCrudRoute({
   metadata: {
     GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
     POST: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
@@ -253,6 +254,10 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   },
   events: { module: 'example', entity: 'todo', persistent: true },
   indexer: { entityType: ENTITY_ID },
+  enrichers: {
+    entityId: 'example.todo',
+    detailRequest: (query) => query.sectionDetail === 'showcase' && !!query.id && !query.withDeleted && query.page === 1 && query.pageSize === 1,
+  },
   list: {
     schema: querySchema,
     entityId: ENTITY_ID,
@@ -374,6 +379,8 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     },
   },
 })
+
+export const { metadata, GET, POST, PUT, DELETE } = todoCrudRoute
 
 const todoDeleteSchema = z.object({
   id: z.string().uuid(),

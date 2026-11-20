@@ -97,6 +97,7 @@ export function ensureCrudFormSectionRegistry(): Promise<void> {
       runtime.registerCrudFormSectionClientRegistry({
         hostFacts: generated.crudFormSectionClientHostFacts,
         runtimeEntries: generated.crudFormSectionRuntimeEntries,
+        versionedSinks: generated.crudFormSectionClientVersionedSinks,
         contributedOverrides: generated.crudFormSectionContributedOverrides,
       })
     } catch (error) {

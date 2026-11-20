@@ -1,4 +1,5 @@
 import type { CrudFormCustomFieldOwnershipFact, CrudFormSectionSurfaceAlternativeFact } from '@open-mercato/shared/modules/form-section-facts'
+import { isDefVisible } from "../../utils/customFieldDefs"
 import { projectCrudFormSectionCustomFields } from '../crud-form-section-custom-fields'
 import { defineCrudFormSectionRuntime } from '../crud-form-section-runtime'
 
@@ -54,4 +55,14 @@ it('matches all only to unambiguous scoped entities and rejects duplicate derive
   expect(project(ownership, 'all', { bound: entityIds, definitions: [
     ...definitions, { key: 'ambiguous', kind: 'text', entityId: '' },
   ] }).valid).toBe(false)
+})
+
+it('keeps compiled fields out of ordinary forms and projects them for their exact policy', () => {
+  const season = { key: 'season', kind: 'text', entityId: entityIds[0], sectionOnly: true as const }
+  const ownership = { mode: 'ids', ids: ['season'], definitionSetId } as const
+  expect(isDefVisible(season, 'form')).toBe(false)
+  const result = project(ownership, ['season'], { bound: [entityIds[0]], definitions: [season] })
+  expect(result.valid).toBe(true)
+  expect(result.definitions).toEqual([season])
+  expect(project(ownership, ['season'], { bound: [entityIds[0]], definitions: [{ ...season, formEditable: false }] }).valid).toBe(false)
 })

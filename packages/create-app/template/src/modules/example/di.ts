@@ -18,6 +18,9 @@ import { exampleCurrencyRateProvider } from './lib/mock-currency-rate-provider'
 import { registerCurrencyRateProvider } from '@open-mercato/core/modules/currencies/services/providers/registry'
 import { createVisitBookingSerializingCommandBus } from './lib/visitBookingSerialization'
 import { syncQaCapacityProbeRegistration } from './lib/qaCapacityProbe'
+import { createExampleExternalErp, EXAMPLE_TODO_ERP } from './lib/exampleExternalErp'
+
+const defaultExampleExternalErp = createExampleExternalErp()
 
 function readMockWebhookSessionId(payload: Record<string, unknown> | null): string | null {
   const data = payload?.data
@@ -60,6 +63,7 @@ export function register(container: AppContainer) {
   container.register({
     [EXAMPLE_TODO_SUMMARY_SERVICE]: asFunction(createExampleTodoSummaryService).scoped(),
     [EXAMPLE_CURRENCY_RATE_PROVIDER]: asValue(exampleCurrencyRateProvider),
+    [EXAMPLE_TODO_ERP]: asValue(defaultExampleExternalErp),
   })
 
   // Register mock gateway adapter for payment testing (no real credentials needed)
