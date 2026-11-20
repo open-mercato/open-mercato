@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -29,7 +29,10 @@ export const metadata = {
   PUT: { requireAuth: true, requireFeatures: ['assisted_selling.settings.manage'] },
 }
 
-type RouteParams = { params?: { storeId?: string } | Promise<{ storeId?: string }> }
+type RouteParams = {
+  params?: { storeId?: string } | Promise<{ storeId?: string }>
+  auth?: AuthContext
+}
 
 type StoreOwnership = { id: string; tenantId: string; organizationId: string }
 
@@ -69,11 +72,11 @@ function tryResolveStoreReader(container: AppContainer): StoreByIdReader | null 
 }
 
 async function resolveSettingsContext(req: Request, routeCtx: RouteParams): Promise<SettingsRouteContext> {
-  const container = await createRequestContainer()
-  const auth = await getAuthFromRequest(req)
+  const auth = routeCtx.auth ?? null
   if (!auth || !auth.tenantId) {
     throw new CrudHttpError(401, { error: 'assisted_selling.errors.unauthorized' })
   }
+  const container = await createRequestContainer()
   const params = await routeCtx.params
   const storeIdResult = z.string().uuid().safeParse(params?.storeId)
   if (!storeIdResult.success) {

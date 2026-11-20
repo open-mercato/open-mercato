@@ -63,8 +63,12 @@ function setup(services: Services = {}) {
   return { findStoreForOrganizations, execute }
 }
 
+type TestAuth = { sub: string; tenantId: string | null; orgId: string | null } | null
+
+let currentAuth: TestAuth = null
+
 function routeCtx(storeId: string = STORE_ID) {
-  return { params: Promise.resolve({ storeId }) }
+  return { params: Promise.resolve({ storeId }), auth: currentAuth }
 }
 
 function putRequest(body: unknown) {
@@ -79,7 +83,7 @@ const getRequest = () => new Request(`http://localhost/api/assisted_selling/sett
 
 beforeEach(() => {
   jest.clearAllMocks()
-  getAuthMock.mockResolvedValue({ sub: 'user-1', tenantId: TENANT_ID, orgId: SELECTED_ORG_ID })
+  currentAuth = { sub: 'user-1', tenantId: TENANT_ID, orgId: SELECTED_ORG_ID }
   scopeMock.mockResolvedValue({
     tenantId: TENANT_ID,
     selectedId: SELECTED_ORG_ID,
@@ -99,9 +103,17 @@ describe('assisted_selling settings route metadata', () => {
 describe('GET /api/assisted_selling/settings/:storeId', () => {
   it('answers 401 without a tenant-bound principal', async () => {
     setup()
-    getAuthMock.mockResolvedValue(null)
+    currentAuth = null
     const res = await GET(getRequest(), routeCtx())
     expect(res.status).toBe(401)
+  })
+
+  it('uses the dispatcher-verified ctx.auth instead of re-resolving the request auth', async () => {
+    setup()
+    const res = await GET(getRequest(), routeCtx())
+    expect(res.status).toBe(200)
+    expect(getAuthMock).not.toHaveBeenCalled()
+    expect(scopeMock).toHaveBeenCalledWith(expect.objectContaining({ auth: currentAuth }))
   })
 
   it('answers 400 for a store id that is not a uuid', async () => {
