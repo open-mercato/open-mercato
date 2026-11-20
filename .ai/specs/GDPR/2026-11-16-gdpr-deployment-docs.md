@@ -3,7 +3,7 @@
 > **Tracker:** open-mercato/open-mercato#8593
 > **Program:** [program](2026-11-15-gdpr-ready-deployments-program.md)
 > **Edition:** OSS (the pages also describe Enterprise steps and label them)
-> **GDPR basis:** Art. 5(1)(e), 12–22, 25, 28, 30, 32–35, 44–46; ePrivacy Directive Art. 5(3) and 13
+> **GDPR basis:** Art. 5(1)(e), 7(3), 12–22, 25, 28, 30, 32–35, 44–46; ePrivacy Directive Art. 5(3) and 13
 
 ## TLDR
 
@@ -51,6 +51,7 @@ Ten `.mdx` pages, in a "GDPR" category under "Deployment". Required content per 
   - **The compliance target is an Enterprise deployment, with any core modules it enables.** The Enterprise `privacy` module runs the GDPR flows, and every core module ships the handler those flows call. An OSS-only deployment is not a compliance target: it has no request-running tooling, no action-log age bound, no durable sign-in log and no tenant legal documents or consent ledger.
   - Modules you add yourself (app modules) or install from official modules take part once they ship a `privacy.ts`. Until then each run lists them under `notCovered`; erase their data by hand.
   - Free-text mentions of a person in other people's records are not found automatically. Neither are copies held by external providers.
+  - AI chat transcripts that quote a person's records are not found by that person's erasure. They end by the tenant's conversation retention period (Enterprise setting); unset keeps them.
 - **Cookie inventory.** All cookies are first-party, and strictly necessary or a preference the user set. No consent banner is needed ([ePrivacy Art. 5(3)](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02002L0058-20091219), [WP194](https://ec.europa.eu/justice/article-29/documentation/opinion-recommendation/files/2012/wp194_en.pdf)). List purpose and lifetime for each:
   - Sessions: `auth_token` and `session_token` (staff), `customer_auth_token` and `customer_session_token` (portal). All HttpOnly, SameSite=Lax, Secure in production (`auth/api/login.ts:263-270`).
   - `sso_state` (Enterprise), the mailbox OAuth state cookie, `om_selected_tenant`, `om_selected_org`, `om_login_tenant`, `locale` (1 year).
@@ -129,7 +130,7 @@ Sources: [GDPR Art. 12, 15–21](https://eur-lex.europa.eu/eli/reg/2016/679/oj),
   - Mention data still held in backups (EDPB 01/2022 §110).
 - **Rectification.**
   - Use the edit screens; a staff user's email is editable.
-  - Staff cannot change a portal sign-in email today. Deactivate the old account, invite the person at the corrected address, then delete the old account.
+  - A portal sign-in email: **Change sign-in email** on the portal user page. The account must confirm the new address before it signs in again, and keeps its orders and claims ([privacy coverage](2026-11-16-privacy-coverage.md), Phase 7). Until that ships, the only route is a new account; tell the person that deleting the old account detaches its orders and claims from their portal access.
   - Then do the Art. 19 step.
 - **Erasure.**
   - Choose delete or anonymize. Anonymization must be irreversible; masking or hashing is not erasure (WP216).
@@ -149,9 +150,11 @@ Sources: [GDPR Art. 12, 15–21](https://eur-lex.europa.eu/eli/reg/2016/679/oj),
     2. Narrow access through roles, feature grants and organization visibility (`organizations_json` on role and user ACLs). This works per organization, not per record.
     3. Pause automations: cancel running workflow instances, stop outreach, and stop syncs that carry the person.
   - **Either way:** allow only storage and the Art. 18(2) exceptions, and tell the person before lifting the restriction (Art. 18(3)).
+  - **Limit.** Recital 67 expects restriction in automated systems to be ensured "in principle" by technical means. Both options are workarounds: (A) loses ids and links, and (B) narrows access per organization, not per record, while reads, reports and the assistant continue for whoever keeps access. The procedure may fall short of the recital. Record which compensating measures you chose and why.
 - **Objection (Art. 21).**
   - **Marketing objection is absolute.** Set the person-level do-not-contact flag once it ships (`.ai/specs/2026-10-22-crm-contact-permissions-and-consent-history.md`) and honour it immediately. Until then, tag the person and suppress them by hand in every sending tool.
   - **General objection:** assess compelling grounds, and restrict meanwhile (Art. 18(1)(d)).
+- **Consent withdrawal (Art. 7(3)).** Withdrawing must be as easy as giving consent ([EDPB 05/2020](https://www.edpb.europa.eu/documents/guideline/guidelines-052020-on-consent-under-regulation-2016679_en) §114). A staff user withdraws marketing consent with the toggle on their profile page. A withdrawal received by email or phone is recorded with **Record withdrawal** on the user's consents panel. Stop the processing that relied on the consent at once; withdrawal does not make earlier processing unlawful.
 - **Art. 19 recipients.**
   - Find them in the `sub-processors` rows in use, plus `integration_logs`, `webhook_deliveries` and provider dashboards.
   - Notify each one unless that is impossible or disproportionate, and record that assessment.
@@ -170,13 +173,17 @@ Sources: [GDPR Art. 5(1)(e), Recital 39](https://eur-lex.europa.eu/eli/reg/2016/
     - cart idempotency keys: 90 d;
     - Enterprise agent-orchestrator trace content: tenant policy, default 30 d;
     - Enterprise sign-in log: 90 d once shipped (`.ai/specs/enterprise/2026-11-13-sign-in-activity.md`);
-    - action log: kept until an Enterprise retention setting bounds it.
+    - action log: kept until an Enterprise retention setting bounds it;
+    - AI chat conversations: kept until the Enterprise setting `ai_assistant.retention.conversationDays` bounds them (90 days is a reasonable start); soft-deleted ones 30 d.
+  - **Copies an erasure does not remove**, listed with their windows so the person can be told: every operational table above (at most 30 d unless stated), read notifications naming the person (90 d), moderation flags (365 d), AI chat transcripts (the tenant's period).
 - **Business records.** The controller chooses. Enterprise: per-class settings on `/backend/privacy`; unset means keep. OSS: manual deletion through the periodic review.
 - **Periodic review of inactive people** (Recital 39). Each period:
   1. Staff users by `last_login_at`: deactivate, then delete leavers.
   2. Portal users by `last_login_at`.
   3. CRM people with no open deal, order or claim and no interaction within the period.
   4. Delete or anonymize, keeping legally retained commercial records, and record the review.
+     - **Enterprise:** put the reviewed list in a file, one `kind:id` per line, run `mercato privacy erase --tenant <id> --subjects-file <file>` as a dry run, then again with `--apply --out report.json`. The batch report is the register entry for every person in it.
+     - **OSS:** the people list's bulk delete removes people without deals; the rest one by one, following the per-module table.
 - **Legal retention.** Member States set invoice storage periods under VAT Directive Art. 247; other national periods vary. Record them in the records of processing.
 
 ### 6. `backups-and-restore`
@@ -185,6 +192,7 @@ Sources: [GDPR Art. 17, 32(1)(c)](https://eur-lex.europa.eu/eli/reg/2016/679/oj)
 - **Erasure register:**
   - Enterprise: the erase runs' `--out` reports and page downloads, stored outside the database with restricted access. Each holds the run date and the request: subject `kind:id`, plus the email or phone of a lookup-only subject, which a re-run needs.
   - OSS: the DSR log entries of manual erasures.
+  - **Register retention.** A report holds the subject's id and the addresses used to find them. Keep it until every backup taken before that erasure has expired, then delete it.
 - **After any restore or point-in-time recovery, before reopening:**
   1. Re-run every erasure recorded after the backup's timestamp. Enterprise runs are idempotent; in OSS, repeat the manual deletions.
   2. Run `mercato search reindex`.
@@ -240,8 +248,10 @@ Sources: [GDPR Art. 22, 35](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [WP2
 Sources: [GDPR Art. 28(3)(g)](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [EDPB 07/2020](https://www.edpb.europa.eu/documents/guideline/guidelines-072020-on-the-concepts-of-controller-and-processor-in-the-gdpr_en), [Art. 28 SCCs](https://eur-lex.europa.eu/eli/dec_impl/2021/915/oj).
 - **The controller chooses:** return or delete.
 - **Export.**
+  - **A database dump is not a return.** Field encryption is on by default, so encrypted columns are ciphertext without the deployment's keys.
   - OSS: list exports per module (`exportScope=full`). Attachment files: copy the storage paths with segment `tenant_<id>` from the storage root or S3 bucket.
-  - Enterprise: subject exports where per-person files are needed.
+  - Enterprise: `mercato privacy export-tenant --tenant <id> --out <dir>` writes decrypted rows per table, the files and a manifest of what was left out (hashes, tokens, credentials). Subject exports where per-person files are needed.
+  - Hand the export over an encrypted channel.
 - **Delete.**
   - Soft-delete the tenant. `directory/commands/tenants.ts:203-209` only sets `deleted_at`.
   - Enterprise: `mercato privacy purge-tenant --tenant <id>` dry run, then `--apply --out`. It removes files, search entries and rows.
@@ -294,7 +304,8 @@ None. The pages cite env vars and the Enterprise commands `mercato privacy expor
 1. `data-subject-requests` with the OSS manual procedures, restriction, objection and Art. 19. Enterprise steps arrive in the change that ships the `privacy` module; the do-not-contact step arrives with the 10-22 flag.
 2. `retention`: existing windows now. New rows arrive in the change that ships each pruner phase.
 3. `backups-and-restore`: OSS register and re-apply now. Enterprise `--out` reports arrive with the module.
-4. `tenant-offboarding`: OSS export and manual deletion now. `purge-tenant` arrives with the module.
+4. `tenant-offboarding`: OSS export and manual deletion now. `export-tenant` and `purge-tenant` arrive with the module.
+5. `data-subject-requests` consent-withdrawal and portal sign-in email steps arrive with the features they describe (WP9 withdrawal surface, WP12).
 
 ## Integration Coverage
 
@@ -318,3 +329,4 @@ No application API or UI path is added. Coverage is at the docs level:
 ## Changelog
 
 - 2026-11-20 — Rewritten to minimal GDPR scope.
+- 2026-11-20 — Post-minimization review: consent withdrawal (Art. 7(3)), portal sign-in email correction, the Recital 67 limit on the restriction procedure, AI conversation retention, copies an erasure does not remove, batch erasure for the periodic review, erasure-register retention, decrypted tenant export.

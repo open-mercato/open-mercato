@@ -1,4 +1,4 @@
-# Privacy module: subject export, erasure, retention and tenant purge
+# Privacy module: subject export, erasure, retention, tenant export and purge
 
 > **Tracker:** open-mercato/open-mercato#8593
 > **Program:** [program](../../GDPR/2026-11-15-gdpr-ready-deployments-program.md)
@@ -11,10 +11,10 @@ Supersedes: .ai/specs/enterprise/2026-07-08-gdpr-data-erasure.md
 
 **Key points:**
 - New Enterprise module `privacy` (`packages/enterprise/src/modules/privacy/`) runs data-subject requests over the OSS data-class contract: it exports what every module holds about a subject and erases it, then applies the shared side effects (history strip, files, search indexes, CRUD cache) once, centrally.
-- It also runs tenant-chosen retention (`pruneExpired` per class, including the action-log age bound from #2980) and purges a deleted tenant's data (Art. 28(3)(g)).
+- It also runs tenant-chosen retention (`pruneExpired` per class, including the action-log age bound from #2980), erases a reviewed list of subjects in one batch (Art. 5(1)(e) periodic review), and exports or purges a departing tenant's data (Art. 28(3)(g)).
 
 **Scope:**
-- `mercato privacy export|erase|retention|purge-tenant` CLI and matching API routes.
+- `mercato privacy export|erase|retention|export-tenant|purge-tenant` CLI and matching API routes (tenant export and purge are CLI only).
 - One admin page (`privacy.manage`): start export/erase, download results, edit retention settings, read the request log.
 - DSR log as action-log entries (no values); persistent `privacy.subject.erased` event.
 
@@ -24,13 +24,13 @@ Supersedes: .ai/specs/enterprise/2026-07-08-gdpr-data-erasure.md
 
 ## Overview
 
-The OSS packages ship the contract (`packages/shared/src/modules/privacy.ts`), one handler in every core module that holds personal data, and a coverage check ([contract](../../GDPR/2026-11-16-privacy-data-class-contract.md), [coverage](../../GDPR/2026-11-16-privacy-coverage.md)). This module is the only caller. It runs the handlers of every module the client enables: core, Enterprise ([enterprise coverage](2026-11-16-privacy-coverage-enterprise.md)), official and the client's own app modules. It owns no personal data of its own beyond the request log, adds no table, and never reads another module's tables, with one documented exception: tenant purge.
+The OSS packages ship the contract (`packages/shared/src/modules/privacy.ts`), one handler in every core module that holds personal data, and a coverage check ([contract](../../GDPR/2026-11-16-privacy-data-class-contract.md), [coverage](../../GDPR/2026-11-16-privacy-coverage.md)). This module is the only caller. It runs the handlers of every module the client enables: core, Enterprise ([enterprise coverage](2026-11-16-privacy-coverage-enterprise.md)), official and the client's own app modules. It owns no personal data of its own beyond the request log, adds no table, and never reads another module's tables, with two documented exceptions: tenant export and tenant purge.
 
 Audience: tenant administrators answering requests within the Art. 12(3) month, and operators who host tenants as processors.
 
 > **Market reference:** ERPNext/Frappe "Personal Data Download Request" and "Personal Data Deletion Request" — per-doctype rules decide delete vs anonymize, the download is JSON. Adopted: per-class mode chosen by the owning module, JSON download, anonymize when deletion is blocked. Rejected: e-mail confirmation by the subject and self-service (identity verification stays with the controller, procedure in [deployment docs](../../GDPR/2026-11-16-gdpr-deployment-docs.md)).
 
-**Compliance target.** An Enterprise deployment must provide every legally required function, with whichever core modules the client enables (owner decision, 2026-11-20). This module runs the flows; each core module contributes its handler. An OSS-only deployment is not a compliance target, so no OSS invoker is planned. The closure gate is the program's phase 3 exit: an empty coverage baseline and `TC-PRIVACY-013` passing with all core and Enterprise modules enabled.
+**Compliance target.** An Enterprise deployment must provide every legally required function, with whichever core modules the client enables (owner decision, 2026-11-20). This module runs the flows; each core module contributes its handler. An OSS-only deployment is not a compliance target, so no OSS invoker is planned. The closure gate is the program's phase 3 exit: an empty coverage baseline, `TC-PRIVACY-013` passing with all core and Enterprise modules enabled, and the `TC-PRIVACY-016` residue scan clean.
 
 ## Problem Statement
 
@@ -38,6 +38,8 @@ Audience: tenant administrators answering requests within the Art. 12(3) month, 
 - Ordinary deletes do not erase. A CRM person with a linked deal cannot be deleted (`customers/commands/people.ts:284-293`), a portal user is only soft-deleted with email and name kept (`customer_accounts/services/customerUserService.ts:156-169`), and the action log keeps full snapshots of deleted records.
 - The search side effects of a write are not durable: `query_index.delete_one` is `persistent: false` (`query_index/subscribers/delete_one.ts:12`) and, unless the read projection is always-consistent, emits `search.delete_record` fire-and-forget (`:184-200`); the fulltext and vector delete subscribers are `persistent: false` too (`search/src/indexer/subscribers/delete.ts:9-12`, `search/src/modules/search/subscribers/vector_delete.ts:7`). A dropped event leaves the erased person searchable.
 - Business records and the action log have no tenant-set retention (#2980); deleting a tenant only soft-deletes it (`directory/commands/tenants.ts:203-209`).
+- A periodic review (Recital 39) ends in a list of people to remove, but nothing removes a list. The people list's bulk delete refuses anyone linked to a deal (`PERSON_HAS_DEPENDENTS`, `customers/commands/people.ts:1326-1329`), and an erasure run takes one subject.
+- Returning a tenant's data (Art. 28(3)(g)) means per-module list exports. A database dump is no substitute: field encryption is on by default (`shared/lib/encryption/toggles.ts:3-9`), so encrypted columns are ciphertext without the deployment's keys.
 
 ## Proposed Solution
 
@@ -82,10 +84,21 @@ Dry run by default; `--apply` (API `apply: true`) writes.
 
 **Report** (`--out report.json`, API response): run id, mode, request (subject and lookup values — needed to re-run after a restore, see Known limits), per class `{ classId, outcome: ok|failed|not_run, deleted, anonymized, retained[], error? }`, `related`, side-effect counts `{ done, pending }` per kind, `notCovered`, `status: planned|complete|incomplete|refused`. CLI exit codes: `0` complete or planned, `1` refused or invalid (nothing changed), `2` incomplete.
 
+### Batch erasure
+
+A periodic review (Recital 39; procedure on the [deployment docs](../../GDPR/2026-11-16-gdpr-deployment-docs.md) retention page) ends with a list of people the controller decided to remove. A batch carries that decision out.
+
+- **Input.** `subjects`: a list of `{ kind, id }`. The API takes at most 100 per call; the CLI reads any number from `--subjects-file` (one `kind:id` per line, blank lines and `#` comments ignored) and works in chunks of 100. A batch takes no `lookup` values, so an address match can never widen it beyond the records the operator selected.
+- **Dry run (default).** The erasure run's pre-flight and dry run, once per subject. The batch report lists per subject the planned counts, `retained` and any refusal, plus totals. A refused subject (no owner class, last admin, `class_not_erasable`) is listed and later skipped; it does not refuse the others.
+- **Apply.** `--apply` (API `apply: true`) runs the erasure run once per subject in input order, each with its own run id, start and end entries and `privacy.subject.erased` event. A subject that ends `incomplete` or is refused does not stop the batch. The batch adds one DSR entry, `privacy.subject.erase_batch`, holding the run ids and per-status counts (ids only).
+- **Exit and report.** `0` when every subject is complete (or planned), `2` when any is incomplete or refused, `1` when the input is invalid and nothing changed. The batch report (`--out`) is the register entry for every subject in it.
+- **Recovery.** Re-run the same file: finished subjects report zero changes. `erase --retry <runId>` re-applies one subject's side effects.
+
 ### Admin page
 
 `/backend/privacy` (requires `privacy.manage`), built from `CrudForm`, `DataTable`, `LoadingMessage`/`ErrorMessage` and locale keys:
 - **Request form:** subject kind and id, e-mails, phones, organization (tenant-wide only for callers with access to all organizations). Buttons: Export, Preview erasure.
+- **Batch:** a text area for up to 100 `kind:id` lines; Preview erasure shows the per-subject plan, and Apply uses the same confirmation dialog. Longer lists use the CLI.
 - **Result:** class outcomes in a `DataTable`; "Download subject.json" or "Download report.json" (client-side blob of the response); for export, each file linked to the existing `/api/attachments/file/<id>` route (normal attachment access applies; files the admin cannot open there are copied by the CLI). After a preview, "Apply erasure" opens a confirmation dialog (`Cmd/Ctrl+Enter`, `Escape`) and runs through `useGuardedMutation().runMutation`.
 - **Retention settings:** a `CrudForm` with one optional "days" field per class that declares `retentionSetting`, plus the action-log age; empty means keep.
 - **Request log:** `DataTable` of DSR entries (date, actor, action, subject kind/id, status), `pageSize` ≤ 100.
@@ -103,6 +116,18 @@ A daily system-scoped schedule (registered in `setup.ts` `seedDefaults`, pattern
 
 **Action-log age bound (#2980).** The OSS `audit_logs` module declares class `audit_logs.action_log` with `retentionSetting` `audit_logs.action_log_retention_days`. Its `pruneExpired` deletes the tenant's action-log entries older than the cutoff in batches, except DSR entries (`command_id` starting `privacy.`), which hold no values. Unset keeps everything; the settings form enforces at least 90 days (the change-log UI reads up to 90 days); the docs recommend 365. The method lives in `audit_logs` because only the owner writes its table; this runner is its only caller, so OSS ships no schedule or setting for it.
 
+### Tenant export
+
+`mercato privacy export-tenant --tenant <id> [--organization <id>] --out <dir>` (CLI only). At the end of service the controller chooses return or deletion (Art. 28(3)(g)); this command is the return. It runs on a live or a soft-deleted tenant and writes nothing to the database.
+
+1. **Rows.** The same table inventory and rule resolver as tenant purge. For each table holding rows of the tenant, the MikroORM entity mapped to that table is read in keyset batches of 1000 through `findWithDecryption` with the tenant scope and written as `<dir>/tables/<table>.ndjson`. Children without `tenant_id` are read through the same parent rules. A table with no mapped entity is listed under `skipped`; it makes the run `incomplete` unless it is derived (the pgvector store) or exempt in its module's `privacy.ts`.
+2. **Left out.** Secrets and lookup keys never leave: every `hashField` of the encryption maps, and a fixed column list in `privacy/lib/tenantExport.ts` (`password_hash`, `token`, `token_hash`, `secret`, `client_secret`, `credentials`, `credentials_ref`, `integrity_hash`, `subject_salt`, `push_token`, …). Credential tables (`sessions`, `password_resets`, `customer_user_sessions`, `customer_user_password_resets`, `customer_user_email_verifications`, `integration_credentials`, `api_keys`, `user_mfa_methods`, `mfa_recovery_codes`) are left out whole. A unit test fails when a snapshot column whose name contains `password`, `token`, `secret`, `salt` or `credential` is neither on the list nor explicitly allowed.
+3. **Files.** For every `attachments` row of the tenant, the stored object is copied to `<dir>/files/<attachmentId>-<fileName>` through the storage driver. An unreadable object is listed with `error` and makes the run `incomplete`.
+4. **Manifest.** `<dir>/manifest.json`: tenant, `generatedAt`, per table the row count and left-out columns, left-out tables, `skipped` tables, file count and errors, `status: complete | incomplete`. Exit `0` complete, `2` incomplete.
+5. **Log.** One instance-level action-log entry, `privacy.tenant.export` (`tenantId` null, table counts, no values).
+
+Like tenant purge, this reads every module's tables, which the owner rule otherwise forbids. It is the second documented exception: an operator-run, read-only end-of-service duty for one departing tenant, through the ORM metadata and the decryption helpers. The operator hands the directory to the controller over an encrypted channel; the docs say so.
+
 ### Tenant purge
 
 `mercato privacy purge-tenant --tenant <id> [--apply] [--out report.json]` (CLI only). Refuses unless the tenant is soft-deleted (`tenants.deleted_at` set). Dry run prints per-table counts. Apply:
@@ -111,11 +136,11 @@ A daily system-scoped schedule (registered in `setup.ts` `seedDefaults`, pattern
 3. **Rows:** the table list comes from the same `migrations/.snapshot-open-mercato.json` inventory the OSS coverage test reads. Tables with `tenant_id`: delete `where tenant_id = X`. Tables without it are deleted through their parent: `organization_id` in the tenant's organizations, a snapshot foreign key, or an explicit parent-column map (`message_*` → `message_id`, `forms_form_submission_*` → `submission_id`, …). `tenants` goes last. Children before parents (snapshot foreign keys), batches of 1000, idempotent re-run. Tables with no tenant data (`feature_toggles`, `example_items`) are listed as `global`. Any other table in `information_schema` with a `tenant_id` column (for example the pgvector `vector_search` table, created by its driver) is purged by `tenant_id` too and reported as `outside_inventory`.
 4. Log one instance-level action-log entry (`privacy.tenant.purge`, `tenantId` null, table counts).
 
-This is the one deliberate exception to owner-only table access: the tenant ceases to exist, so no owner rule can be broken by removing every row it held. A unit test fails when a snapshot table resolves to no rule.
+This is the other deliberate exception to owner-only table access (tenant export is the first): the tenant ceases to exist, so no owner rule can be broken by removing every row it held. A unit test fails when a snapshot table resolves to no rule.
 
 ### Known limits
 
-- **Restore.** Restoring a backup brings erased data back. The erasure register is the set of `--out` reports (and page downloads), kept by the controller outside the database; after any restore, re-run every erasure newer than the backup before go-live. Procedure in the [deployment docs](../../GDPR/2026-11-16-gdpr-deployment-docs.md).
+- **Restore.** Restoring a backup brings erased data back. The erasure register is the set of `--out` reports (and page downloads), kept by the controller outside the database; after any restore, re-run every erasure newer than the backup before go-live. A report holds the subject's id and the addresses used to find them, so the controller deletes it once every backup taken before that erasure has expired. Procedure in the [deployment docs](../../GDPR/2026-11-16-gdpr-deployment-docs.md).
 - **No legal-hold engine.** When data must be kept (dispute, litigation), the operator does not run the erasure and documents the reason (docs procedure). Class-level `legal_retention`/`open_case` handle the recurring cases.
 - **No technical restriction (Art. 18).** Procedure in the docs.
 - **Coverage.** Tables on the coverage baseline, and enabled modules that have entities but no `privacy.ts` (an official or app module not yet registered), are not erased. Every report lists both under `notCovered`, by table and module id. The module list comes from the generated module registry: a module with `data/entities.ts` and no `Module.privacy`. Free-text mentions of the subject inside other people's records, queue copies (bounded by the [retention pruners](../../GDPR/2026-11-16-operational-retention-pruners.md)) and copies at external providers (Art. 19, docs) are outside the run.
@@ -130,6 +155,8 @@ This is the one deliberate exception to owner-only table access: the tenant ceas
 | Direct index calls, not events | The CRUD index events are `persistent: false`; direct calls report failure. |
 | Files chosen by each handler's `filesToDelete`, not from every touched record | A touched record can be someone else's (an interaction the subject took part in) or legally retained (an invoice); only the owner knows which files go. |
 | Synchronous API; CLI for large subjects | Requests are rare; no job table or progress machinery is needed. |
+| A batch is a sequence of single-subject runs | Each subject keeps its own run id, retry and register entry; no new state is needed. |
+| Tenant export reads every table through ORM metadata | One departing tenant, read-only and operator-run; per-module tenant readers would add a seam to every module for a rare duty. |
 
 ## Architecture
 
@@ -144,7 +171,9 @@ privacyService (privacy/lib/privacyService.ts, DI `privacyService`)
   │                      · markDeleted/upsertIndexRow · searchService/searchIndexer · invalidateCrudCache
   ├─ DSR log ──► actionLogService.log
   ├─ event ──► privacy.subject.erased (persistent)
+  ├─ batch erase ──► one erase run per listed subject
   ├─ retention worker ──► pruneExpired per class (moduleConfigService settings)
+  ├─ export-tenant ──► snapshot inventory · findWithDecryption · storage driver (read only)
   └─ purge-tenant ──► snapshot inventory · storage driver · searchService.purge
 ```
 
@@ -159,7 +188,7 @@ privacyService (privacy/lib/privacyService.ts, DI `privacyService`)
 
 ### Module files
 
-`packages/enterprise/src/modules/privacy/`: `index.ts`, `acl.ts` (`privacy.manage`), `setup.ts` (`defaultRoleFeatures` admin → `privacy.manage`; schedule), `di.ts`, `events.ts`, `cli.ts`, `data/validators.ts`, `lib/privacyService.ts`, `lib/indexes.ts`, `lib/tenantPurge.ts`, `workers/retention.ts`, `api/*`, `backend/privacy/page.tsx`, `i18n/{en,de,es,pl}.json`. Registered in `apps/mercato/src/modules.ts` and the create-app template behind `OM_ENABLE_ENTERPRISE_MODULES`.
+`packages/enterprise/src/modules/privacy/`: `index.ts`, `acl.ts` (`privacy.manage`), `setup.ts` (`defaultRoleFeatures` admin → `privacy.manage`; schedule), `di.ts`, `events.ts`, `cli.ts`, `data/validators.ts`, `lib/privacyService.ts`, `lib/indexes.ts`, `lib/tenantExport.ts`, `lib/tenantPurge.ts`, `workers/retention.ts`, `api/*`, `backend/privacy/page.tsx`, `i18n/{en,de,es,pl}.json`. Registered in `apps/mercato/src/modules.ts` and the create-app template behind `OM_ENABLE_ENTERPRISE_MODULES`.
 
 ### Events
 
@@ -171,7 +200,7 @@ privacyService (privacy/lib/privacyService.ts, DI `privacyService`)
 
 No new entity and no migration.
 - **Retention settings:** `module_configs` rows through `moduleConfigService.setValue(moduleId, name, days, { tenantId })`; key per class from its `retentionSetting`.
-- **DSR log entry** (`actionLogService.log`, `actionLogService.ts:268`): `commandId` `privacy.subject.export` | `privacy.subject.erase` | `privacy.retention.run` | `privacy.tenant.purge`; `resourceKind` `privacy.request`; `resourceId` run id; `actorUserId` (null from CLI, `context.via = 'cli'`); `context` `{ subjectKind, subjectId, lookupKinds, status, classes: [{ id, outcome, deleted, anonymized, retained: [{ table, count, reason }] }], planned?: { refs, fileIds }, pending? }`. An erase apply writes a `started` entry (with `planned`) and an end entry (with `pending`). No addresses, names or record values; `context` is encrypted by the audit-log encryption map. Entries are append-only, as the action log is.
+- **DSR log entry** (`actionLogService.log`, `actionLogService.ts:268`): `commandId` `privacy.subject.export` | `privacy.subject.erase` | `privacy.subject.erase_batch` | `privacy.retention.run` | `privacy.tenant.export` | `privacy.tenant.purge`; `resourceKind` `privacy.request`; `resourceId` run id; `actorUserId` (null from CLI, `context.via = 'cli'`); `context` `{ subjectKind, subjectId, lookupKinds, status, classes: [{ id, outcome, deleted, anonymized, retained: [{ table, count, reason }] }], planned?: { refs, fileIds }, pending? }`. An erase apply writes a `started` entry (with `planned`) and an end entry (with `pending`). No addresses, names or record values; `context` is encrypted by the audit-log encryption map. Entries are append-only, as the action log is.
 
 ## API Contracts
 
@@ -191,6 +220,7 @@ const privacyRequestInput = z.object({
 | `POST /api/privacy/export` | `privacyRequestInput` | `subject.json` content; `files[].downloadUrl` |
 | `POST /api/privacy/erase` | `privacyRequestInput & { prefer?: 'delete' \| 'anonymize'; apply: boolean }` | report; 422 refused with per-class reasons |
 | `POST /api/privacy/erase/retry` | `{ runId: uuid }` | report of the re-applied side effects |
+| `POST /api/privacy/erase/batch` | `{ organizationId?: uuid; subjects: Array<{ kind, id }> (1–100); prefer?: 'delete' \| 'anonymize'; apply: boolean }` | batch report: per subject the run id and report, totals, status |
 | `GET /api/privacy/settings` | — | `{ classes: [{ classId, settingKey, days: number \| null }], updatedAt }` |
 | `PUT /api/privacy/settings` | `{ days: Record<settingKey, number \| null> }` | same as GET |
 | `GET /api/privacy/requests` | `page`, `pageSize ≤ 100` | DSR log rows |
@@ -201,6 +231,8 @@ const privacyRequestInput = z.object({
 mercato privacy export --tenant <id> [--organization <id>] (--subject kind:id | --email x | --phone y)… --out <dir>
 mercato privacy erase  --tenant <id> [--organization <id>] (--subject kind:id | --email x | --phone y)… [--prefer anonymize] [--apply] [--out report.json]
 mercato privacy erase  --tenant <id> --retry <runId> [--out report.json]
+mercato privacy erase  --tenant <id> [--organization <id>] --subjects-file <path> [--prefer anonymize] [--apply] [--out report.json]
+mercato privacy export-tenant --tenant <id> [--organization <id>] --out <dir>
 mercato privacy retention [--tenant <id>] [--apply] [--register-schedule]
 mercato privacy purge-tenant --tenant <id> [--apply] [--out report.json]
 ```
@@ -241,6 +273,20 @@ Additive: new module, routes, feature, event id, queue. No existing contract cha
 - **Mitigation**: Unset = keep; action-log floor 90 days; CLI dry run; each run logged with counts.
 - **Residual risk**: A tenant's configuration choice; recoverable only from backup.
 
+#### A batch erases people the controller did not mean to remove
+- **Scenario**: The review's list includes a customer with a live relationship.
+- **Severity**: High
+- **Affected area**: Every subject in the list.
+- **Mitigation**: Dry run by default with a per-subject plan; subjects only, never address matches; 100 per API call; one start and end entry per subject.
+- **Residual risk**: The list is the controller's decision.
+
+#### A tenant export carries a secret
+- **Scenario**: A new module stores a credential in a column the deny-list does not name.
+- **Severity**: High
+- **Affected area**: The export directory.
+- **Mitigation**: Encryption-map hash fields and a fixed column list are left out; credential tables are left out whole; a guard test fails on any unlisted column whose name suggests a secret.
+- **Residual risk**: A secret stored under an innocuous column name.
+
 #### Tenant purge hits the wrong tenant
 - **Scenario**: Operator passes a live tenant id.
 - **Severity**: Critical
@@ -268,9 +314,10 @@ Additive: new module, routes, feature, event id, queue. No existing contract cha
 2. Account lock, dependants, owner with anonymize escalation. Unit test: order and `prefer` escalation.
 3. Central effects: `stripForResources`, file release, index removal/rebuild, cache invalidation; `pending` + exit 2. Unit tests per effect with a failing double.
 4. Start/end entries, event, report, CLI `erase` and `--retry`, `POST /api/privacy/erase` and `/erase/retry`. Integration TC-PRIVACY-003…008.
+5. Batch erasure: `--subjects-file`, `POST /api/privacy/erase/batch`, batch report and `privacy.subject.erase_batch` entry. Unit test: a refused subject is skipped and the batch exits 2. Integration TC-PRIVACY-015.
 
 ### Phase 3: Admin page
-1. Request form, result table, downloads, confirm-and-apply. Integration TC-PRIVACY-012.
+1. Request form, batch input, result table, downloads, confirm-and-apply. Integration TC-PRIVACY-012.
 2. `GET /api/privacy/requests` and log table.
 
 ### Phase 4: Retention
@@ -278,14 +325,16 @@ Additive: new module, routes, feature, event id, queue. No existing contract cha
 2. Worker, schedule, CLI `retention`. Unit test: unset skips, budget stops, `done` loop.
 3. `audit_logs.action_log` `pruneExpired` (in `audit_logs`, OSS) with the `privacy.*` exemption. Integration TC-PRIVACY-010.
 
-### Phase 5: Tenant purge
+### Phase 5: Tenant export and purge
 1. Table-rule resolver over the snapshot inventory; unit test that every table resolves.
 2. Files, search, rows, log; CLI `purge-tenant`. DB test TC-PRIVACY-011.
+3. Tenant export: decrypting reads per table, left-out columns and tables with their guard test, files, manifest, log; CLI `export-tenant`. DB test TC-PRIVACY-017.
 
 
 ### Phase 6: Tandem closure
 1. `notCovered` from the generated module registry: enabled modules with `data/entities.ts` and no `Module.privacy`, plus baseline tables. Unit test with a fixture registry. `TC-PRIVACY-014`.
 2. `TC-PRIVACY-013` on an all-modules Enterprise build, run after the OSS coverage phases and the enterprise coverage spec land. This is the GDPR closure gate for Enterprise releases.
+3. `TC-PRIVACY-016`, the residue scan, in the same closure job right after `TC-PRIVACY-013`.
 
 ## Integration Coverage
 
@@ -307,6 +356,9 @@ All tests create their own tenant data through API fixtures and clean up in `fin
 | TC-PRIVACY-012 | Page: export download, erase preview, confirm dialog, apply, log row appears |
 | TC-PRIVACY-013 | **Tandem closure.** On an Enterprise build with every core and Enterprise module enabled, a fixture person, portal user and staff user are seeded through the real APIs into every module holding personal data: CRM, sales and checkout, cart, forms, messages, channels, phone calls, workflows, AI assistant, staff, notifications, warranty, SSO, security, agent orchestrator. Export returns a section from each module. Erase apply ends `complete` with `notCovered` empty. Afterwards no seeded name, email or phone is returned by any list, detail or search API, and every legally retained order keeps only its allowlisted fields |
 | TC-PRIVACY-014 | A fixture app module with an entity and no `privacy.ts` is enabled; export and erase reports list it under `notCovered` by module id, and the run status says the coverage is incomplete |
+| TC-PRIVACY-015 | A batch file with three subjects: a person without deals, a person with a sole-person deal, and the last holder of a protected role. The dry run lists each plan and the refusal; apply deletes the first person, anonymizes the second, leaves the third unchanged, exits 2, and writes one batch entry plus a start and end entry per erased subject; a re-run reports zero changes |
+| TC-PRIVACY-016 | **Column-level residue scan.** Runs after `TC-PRIVACY-013`'s erase apply, in a closure job whose environment starts with `TENANT_DATA_ENCRYPTION=no`, so every column is readable to SQL. The seeded names, emails and phones carry a per-run marker. Through `withClient` the test reads every table of the `public` schema and every `text`, `varchar` and `jsonb` column with `col::text ILIKE '%<marker>%'`. A hit fails the test unless its table is listed as `legal_retention` in the erase report (retained orders, invoices, consent proof) or is an age-bounded operational table named, with its window, in the retention spec. The failure message names each table and column. This catches a column a handler forgot, which the table-level coverage check cannot see |
+| TC-PRIVACY-017 | Tenant export of a fixture tenant with a person (encrypted email), an order, a form submission and an attachment: the person's email appears in plaintext in `customer_entities.ndjson`; no `password_hash`, `email_hash` or token column appears in any file; the attachment bytes match; no row of another tenant appears; the manifest lists the left-out tables and columns |
 
 ## Final Compliance Report — 2026-11-20
 
@@ -318,7 +370,7 @@ All tests create their own tenant data through API fixtures and clean up in `fin
 | Rule Source | Rule | Status | Notes |
 |---|---|---|---|
 | root AGENTS.md | No cross-tenant data; filter by tenant/organization | Compliant | Tenant from auth; every handler query carries `tenant_id` |
-| root AGENTS.md | No direct ORM relationships / owner-only tables | Compliant | One documented exception: tenant purge |
+| root AGENTS.md | No direct ORM relationships / owner-only tables | Compliant | Two documented exceptions, both operator-run for one departing tenant: tenant export (read-only) and tenant purge |
 | root AGENTS.md | zod validation, `openApi` on routes | Compliant | `data/validators.ts` |
 | root AGENTS.md | Never bypass mutation guards | Compliant | `runMutationGuards`; UI `useGuardedMutation` |
 | root AGENTS.md | No hard-coded strings; dialogs Cmd/Ctrl+Enter, Escape | Compliant | Locale keys; confirm dialog |
@@ -332,3 +384,4 @@ Compliant — ready for implementation once the OSS contract and root handlers l
 ## Changelog
 ### 2026-11-20
 - Rewritten to minimal GDPR scope.
+- Post-minimization review: batch erasure for periodic reviews, decrypted tenant export (Art. 28(3)(g)), erasure-register retention, and the column-level residue scan `TC-PRIVACY-016` in the closure gate.
