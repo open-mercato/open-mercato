@@ -210,6 +210,40 @@ describe('CrudForm section registry generation', () => {
     await expect(generate()).rejects.toThrow(/requires advancing roundTripId beyond "test.notes@v2"/)
   })
 
+  it('treats only the omitted and explicit false granular mandatory flag as revision-equivalent', async () => {
+    const base = 'app/src/modules/test'
+    const descriptorId = 'test.notes'
+    const runtimePath = `${base}/descriptor.client.ts`
+    const declarationPath = `${base}/form-sections.ts`
+    const generate = () => generateModuleRegistryApp({
+      resolver: resolver([{ id: 'test', from: '@app' }]), quiet: true,
+    })
+    const source = (version: number, flag = '', paths = "['name', 'note']", check = 'null') => `
+      import { defineCrudFormFieldGranularSection } from '@open-mercato/ui/backend/crud-form-field-granular'
+      export const crudFormSectionRuntime = defineCrudFormFieldGranularSection({
+        id: 'test.notes', roundTripId: 'test.notes@v${version}',
+        refinements: [{ id: 'filled', fieldPaths: ${paths}, ${flag} check: () => ${check} }] as const,
+      })
+    `
+    write(declarationPath, declaration(descriptorId))
+    write(runtimePath, source(1))
+    await generate()
+    write(runtimePath, source(1, 'mandatory: false,'))
+    expect((await generate()).filesWritten).toEqual([])
+    for (const changed of [
+      source(1, 'mandatory: true,'),
+      source(1, '', "['note', 'name']"),
+      source(1, '', "['name', 'note']", "({ note: 'error.note' })"),
+    ]) {
+      write(runtimePath, changed)
+      await expect(generate()).rejects.toThrow(/semantic runtime drift.*requires advancing roundTripId/)
+    }
+    write(declarationPath, declaration(descriptorId, { version: 2 }))
+    write(runtimePath, source(2, 'mandatory: true,'))
+    await generate()
+    expect((await generate()).filesWritten).toEqual([])
+  })
+
   it('exposes only literal host surface facts to the browser registry', async () => {
     const base = 'app/src/modules/example'
     write(`${base}/form-sections.ts`, `

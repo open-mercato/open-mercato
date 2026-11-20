@@ -121,11 +121,12 @@ import { isResponseEnricherNamespace } from '@open-mercato/shared/lib/crud/respo
 import { CollapsibleGroup, type CollapsibleGroupHandle } from './crud/CollapsibleGroup'
 import { SortableGroupHandleProvider, type SortableGroupHandleProps } from './crud/SortableGroupHandle'
 import { useGroupOrder } from './crud/useGroupOrder'
+import { areOptionListsEqual, useCrudFieldPresentation } from './crud/field-presentation'
 import { InjectedField } from './injection/InjectedField'
-import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
+import type { InjectionFieldDefinition, FieldContext, FieldVisibilityRule } from '@open-mercato/shared/modules/widgets/injection'
 import { readByDotPath, readInitialCustomFieldValue, readRenderedFieldValue, isProtoPollutingKey, writeByDotPath } from './crud/form-field-paths'
 import { placeInjectedFieldsInGroups, type InjectedFieldWidgetPlacement } from './crud/injectedFieldGroups'
-import { evaluateInjectedVisibility } from './injection/visibility-utils'
+import { evaluateInjectedVisibility, evaluateVisibilityRule } from './injection/visibility-utils'
 import { ComponentReplacementHandles, crudFormSectionScope } from '@open-mercato/shared/modules/widgets/component-registry'
 import { crudFormExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { RichEditor, type RichEditorLabels } from '../primitives/rich-editor'
@@ -136,11 +137,6 @@ const logger = createLogger('ui').child({ component: 'CrudForm' })
 
 const EMPTY_OPTIONS: CrudFieldOption[] = []
 
-function areOptionListsEqual(a: CrudFieldOption[], b: CrudFieldOption[]): boolean {
-  if (a === b) return true
-  if (a.length !== b.length) return false
-  return a.every((option, index) => option.value === b[index].value && option.label === b[index].label)
-}
 // Sentinel for the optional-Select clear affordance. Radix Select forbids
 // empty-string item values, so we use a stable non-empty token that maps to
 // `undefined` in the change handler.
@@ -153,11 +149,11 @@ const CRUDFORM_EXTENDED_EVENTS_ENABLED = parseBooleanWithDefault(
 )
 
 function evaluateFieldVisibility(
-  visibleWhen: { field: string; equals: string | number | boolean } | undefined,
+  visibleWhen: CrudFieldBase['visibleWhen'],
   values: Record<string, unknown>,
 ): boolean {
   if (!visibleWhen) return true
-  return values[visibleWhen.field] === visibleWhen.equals
+  return 'operator' in visibleWhen ? evaluateVisibilityRule(visibleWhen, values) : values[visibleWhen.field] === visibleWhen.equals
 }
 
 function isVerticalScrollContainer(element: Element): boolean {
@@ -233,6 +229,7 @@ function buildResolvedEntityIdsKey(entityId?: string, entityIds?: string[]): str
 export type CrudFieldBase = {
   id: string
   label: string
+  labelKey?: string
   placeholder?: string
   description?: React.ReactNode // inline field-level help
   required?: boolean
@@ -240,14 +237,14 @@ export type CrudFieldBase = {
    * Simple conditional visibility for base fields.
    * When not satisfied, the field is not rendered and is excluded from blur validation.
    */
-  visibleWhen?: { field: string; equals: string | number | boolean }
+  visibleWhen?: { field: string; equals: string | number | boolean } | FieldVisibilityRule
   layout?: 'full' | 'half' | 'third'
   disabled?: boolean
   readOnly?: boolean
   defaultValue?: unknown
 }
 
-export type CrudFieldOption = { value: string; label: string }
+export type CrudFieldOption = { value: string; label: string; labelKey?: string }
 
 export type CrudBuiltinField = CrudFieldBase & {
   type:
@@ -4875,7 +4872,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   field,
   value,
   error,
-  options,
+  options: presentedOptions,
   setValue,
   onBlurRequest,
   values,
@@ -4888,7 +4885,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   markRequired,
   formId,
 }: FieldControlProps) {
-  const t = useT()
+  const { t, label, options } = useCrudFieldPresentation(field, presentedOptions)
   const fieldSetValue = React.useCallback(
     (nextValue: unknown) => setValue(field.id, nextValue),
     [setValue, field.id]
@@ -4912,9 +4909,9 @@ const FieldControl = React.memo(function FieldControlImpl({
     if (!hasLoader) return undefined
     return async (query?: string) => {
       const opts = await loadFieldOptions(field, query)
-      return opts.map((opt) => ({ value: opt.value, label: opt.label }))
+      return opts.map((opt) => ({ value: opt.value, label: opt.labelKey ? t(opt.labelKey, opt.label) : opt.label }))
     }
-  }, [field, hasLoader, loadFieldOptions])
+  }, [field, hasLoader, loadFieldOptions, t])
 
   const placeholder = builtin?.placeholder
   const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
@@ -4959,13 +4956,13 @@ const FieldControl = React.memo(function FieldControlImpl({
           }
         : undefined}
     >
-      {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
+      {field.type !== 'checkbox' && label.trim().length > 0 ? (
         <label
           id={labelId}
           htmlFor={hasSingleControl ? controlId : undefined}
           className="block text-sm font-medium"
         >
-          {field.label}
+          {label}
           {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
         </label>
       ) : null}
@@ -5160,7 +5157,7 @@ const FieldControl = React.memo(function FieldControlImpl({
             data-crud-focus-target=""
             disabled={disabled}
           />
-          <span className="text-sm">{field.label}</span>
+          <span className="text-sm">{label}</span>
         </label>
       )}
       {field.type === 'select' && !builtin?.multiple && (
@@ -5293,9 +5290,9 @@ const FieldControl = React.memo(function FieldControlImpl({
 (prev, next) =>
   prev.field.id === next.field.id &&
   prev.field.type === next.field.type &&
-  prev.field.label === next.field.label &&
+  prev.field.label === next.field.label && prev.field.labelKey === next.field.labelKey &&
   prev.field.description === next.field.description &&
-  prev.field.required === next.field.required &&
+  prev.field.required === next.field.required && prev.field.readOnly === next.field.readOnly && prev.field.disabled === next.field.disabled &&
   prev.markRequired === next.markRequired &&
   prev.value === next.value &&
   prev.error === next.error &&

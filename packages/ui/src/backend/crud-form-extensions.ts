@@ -37,9 +37,10 @@ export type CrudFormExtensionOption = Readonly<{
 }>
 
 type OptionResult = readonly CrudFormExtensionOption[]
-type OptionSource = OptionResult | ((context: CrudFormExtensionFieldContext) => Awaitable<OptionResult>)
-type OptionLoader = BrowserLoader<{ readonly default: OptionSource }>
-type RuleLoader = BrowserLoader<{ readonly default: CrudFormExtensionFieldRule }>
+export type CrudFormExtensionOptionSource = OptionResult | ((context: CrudFormExtensionFieldContext) => Awaitable<OptionResult>)
+type OptionLoader = BrowserLoader<{ readonly default: CrudFormExtensionOptionSource }>
+export type CrudFormExtensionClientFieldRule = (value: unknown, context: CrudFormExtensionFieldContext) => Result
+type RuleLoader = BrowserLoader<{ readonly default: CrudFormExtensionClientFieldRule }>
 type ComponentLoader = BrowserLoader<{ readonly default: ComponentType<CustomFieldProps> }>
 
 type Placement =

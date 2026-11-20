@@ -11,8 +11,43 @@ const revisionPattern = /^(.+)@v([1-9][0-9]*)$/
 type Revision = { roundTripId: string; sourceHash: string }
 type Entry = Revision & { id: string }
 
+function withoutParentheses(node: ts.Node): ts.Node {
+  return ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)
+    ? withoutParentheses(node.expression) : node
+}
+
+function enclosingExpression(node: ts.Node): ts.Node {
+  const parent = node.parent
+  return parent && withoutParentheses(parent) === node ? enclosingExpression(parent) : node
+}
+
+function isGranularRefinement(refinement: ts.ObjectLiteralExpression): boolean {
+  const array = enclosingExpression(refinement).parent
+  if (!array || !ts.isArrayLiteralExpression(array)) return false
+  const setting = enclosingExpression(array).parent
+  if (!setting || !ts.isPropertyAssignment(setting) || (!ts.isIdentifier(setting.name) && !ts.isStringLiteral(setting.name))
+      || setting.name.text !== 'refinements') return false
+  const definition = enclosingExpression(setting.parent)
+  const call = definition.parent
+  return Boolean(call && ts.isCallExpression(call) && ts.isIdentifier(call.expression)
+    && call.expression.text === 'defineCrudFormFieldGranularSection' && call.arguments[0] === definition)
+}
+
+function isDefaultRefinementFlag(property: ts.Node): boolean {
+  if (!ts.isPropertyAssignment(property) || property.initializer.kind !== ts.SyntaxKind.FalseKeyword
+      || (!ts.isIdentifier(property.name) && !ts.isStringLiteral(property.name)) || property.name.text !== 'mandatory') return false
+  const refinement = property.parent
+  if (!ts.isObjectLiteralExpression(refinement) || refinement.properties.some((candidate) => candidate !== property
+      && (!candidate.name || (!ts.isIdentifier(candidate.name) && !ts.isStringLiteral(candidate.name))
+        || candidate.name.text === 'mandatory'))) return false
+  return true
+}
+
 function normalize(node: ts.Node, source: ts.SourceFile): unknown {
   const children = node.getChildren(source).filter((child) => !ts.isJSDoc(child))
+  if (ts.isObjectLiteralExpression(node) && isGranularRefinement(node)) {
+    return [node.kind, node.properties.filter((property) => !isDefaultRefinementFlag(property)).map((property) => normalize(property, source))]
+  }
   const last = children.at(-1)
   if (last?.kind === ts.SyntaxKind.SemicolonToken && (ts.isStatement(node) || ts.isTypeElement(node))
       && !ts.isEmptyStatement(node)) children.pop()
