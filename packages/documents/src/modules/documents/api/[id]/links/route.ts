@@ -116,6 +116,7 @@ function linkTargetVerificationKey(input: LinkTargetVerificationInput): string {
 async function verifyLinkTargets(
   request: Request,
   inputs: LinkTargetVerificationInput[],
+  scope: { tenantId: string; organizationId: string },
 ): Promise<Map<string, VerifiedLinkTarget | null>> {
   const results = new Map<string, VerifiedLinkTarget | null>()
   let nextIndex = 0
@@ -128,7 +129,7 @@ async function verifyLinkTargets(
         const input = inputs[index]!
         const key = linkTargetVerificationKey(input)
         try {
-          const verified = await verifyEntityRegistryTargetAccess(request, input)
+          const verified = await verifyEntityRegistryTargetAccess(request, input, { scope })
           results.set(key, {
             id: verified.id,
             label: verified.label,
@@ -182,6 +183,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     const verifiedTargets = await verifyLinkTargets(
       request,
       Array.from(uniqueVerificationInputs.values()),
+      ctx,
     )
     return NextResponse.json({
       items: links.map((link) => {

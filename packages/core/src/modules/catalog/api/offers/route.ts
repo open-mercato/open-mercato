@@ -29,6 +29,8 @@ const listSchema = z
     channelId: z.string().uuid().optional(),
     channelIds: z.string().optional(),
     id: z.string().uuid().optional(),
+    exactOrganizationId: z.string().uuid().optional(),
+    exactTenantId: z.string().uuid().optional(),
     search: z.string().optional(),
     isActive: z.string().optional(),
     withDeleted: z.coerce.boolean().optional(),
@@ -57,6 +59,8 @@ export function normalizeSearch(term?: string | null): string | null {
 
 export function buildOfferFilters(query: OfferListQuery): Record<string, unknown> {
   const filters: Record<string, unknown> = {}
+  if (query.exactOrganizationId) filters.organization_id = { $eq: query.exactOrganizationId }
+  if (query.exactTenantId) filters.tenant_id = { $eq: query.exactTenantId }
   const searchTerm = normalizeSearch(query.search)
   if (query.id) {
     filters.id = { $eq: query.id }

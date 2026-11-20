@@ -38,6 +38,8 @@ const listQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
   search: z.string().trim().optional(),
   id: z.string().uuid().optional(),
+  exactOrganizationId: z.string().uuid().optional(),
+  exactTenantId: z.string().uuid().optional(),
   archived: z.enum(['exclude', 'include', 'only']).default('exclude'),
   favorite: z.string().optional().transform((value) => parseBooleanWithDefault(value, false)),
   folderId: z.string().uuid().optional().nullable(),
@@ -156,6 +158,11 @@ export async function GET(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const query = listQuerySchema.parse(Object.fromEntries(url.searchParams.entries()))
 
+    const exactScopeMismatch = Boolean(
+      (query.exactOrganizationId && query.exactOrganizationId !== ctx.organizationId)
+      || (query.exactTenantId && query.exactTenantId !== ctx.tenantId)
+    )
+
     let relationFilter: { entityType: z.infer<typeof documentEntityTypeSchema>; entityId: string } | null = null
     if (query.entityType && query.entityId) {
       const registryEntry = getEntityRegistryEntry(query.entityType)
@@ -169,7 +176,7 @@ export async function GET(request: Request): Promise<Response> {
       const verifiedTarget = await verifyEntityRegistryTargetAccess(request, {
         entityType: query.entityType,
         entityId: query.entityId,
-      })
+      }, { scope: ctx })
       relationFilter = {
         entityType: query.entityType,
         entityId: verifiedTarget.id,
@@ -178,7 +185,7 @@ export async function GET(request: Request): Promise<Response> {
 
     const actorUserId = resolveActorUserId(ctx.auth)
     const managerOverride = hasDocumentsFeature(ctx.auth, 'documents.manage')
-    const visiblePage = await getVisibleDocumentPage({
+    const visiblePage = exactScopeMismatch ? { rows: [], total: 0 } : await getVisibleDocumentPage({
       em: ctx.em,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,

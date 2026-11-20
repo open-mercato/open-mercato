@@ -62,6 +62,8 @@ const listSchema = z
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     id: z.string().uuid().optional(),
+    exactOrganizationId: z.string().uuid().optional(),
+    exactTenantId: z.string().uuid().optional(),
     tagIds: z
       .string()
       .optional()
@@ -132,6 +134,8 @@ const crud = makeCrudRoute({
       const advancedFilterTree = expandCreatedAtDayRules(consumeAdvancedFilterState(query), 'UTC')
       const filters: Record<string, unknown> = { kind: { $eq: 'person' } }
       if (query.id) filters.id = { $eq: query.id }
+      if (query.exactOrganizationId) filters.organization_id = { $eq: query.exactOrganizationId }
+      if (query.exactTenantId) filters.tenant_id = { $eq: query.exactTenantId }
       if (query.search) {
         const matchingIds = ctx
           ? await findMatchingEntityIdsBySearchTokensAcrossSources({

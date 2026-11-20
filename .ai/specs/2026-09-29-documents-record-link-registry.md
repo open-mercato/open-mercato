@@ -294,7 +294,17 @@ Add unit/structural coverage for catalog precedence, no new generator outputs, r
 
 **Internal consistency:** Setting modes, effective catalog sources, generic identity, legacy projection and command eligibility use the same definitions. This PR changes only the specification; no implementation, migration execution, runtime validation, QA approval or merge readiness is claimed. Request fresh review of the rewritten architecture.
 
+### Built-in exact-scope security prerequisite (#7780)
+
+The eight existing built-in owner GET routes accept additive optional UUID query parameters `exactOrganizationId` and `exactTenantId`: Customers people/companies/deals, Catalog products/offers, Sales quotes/orders, and Documents. Both are equality predicates intersected with the authenticated tenant and organization scope before pagination. They never widen authorization. Ordinary requests without either option retain their existing descendant visibility and response shape. Documents returns no records when a qualifier differs from its resolved organization/tenant, retaining the normal collection capabilities.
+
+Documents passes the persisted document/link/template organization and tenant to built-in verification on create/revive, reverse filtering, field-value projection/redaction, duplication and template rendering. Legacy verifier signatures remain assignable through optional `scope` in options; omitted scope resolves the current authenticated Documents context and still performs an exact lookup. No owner ORM imports, new persistence, or organization IDs in Documents responses are introduced. Existing credentials, bounded lookups, canonical href policy and denial masking remain in force.
+
+Regression coverage: route-schema/filter tests for all seven core owners, eight built-in verifier targets, create/undo and related-list scope propagation, and `TC-DOCUMENTS-030` for an ordinary descendant-visible Customers record that cannot satisfy a parent document link/reverse filter. Repeated-UUID fixtures belong in isolated owner-query tests because live owner tables enforce a global UUID primary key.
+
 ## Changelog
+
+- 2026-11-20: Implemented the separate built-in exact-organization prerequisite #7780 with optional exact tenant/organization owner filters and scope propagation; added security regressions without implementing the pending generic registry work.
 
 ### 2026-10-27 — Close Search, registration and settings review gaps
 

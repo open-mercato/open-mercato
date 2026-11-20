@@ -222,7 +222,7 @@ const createLinkCommand: CommandHandler<LinkCreateCommandInput, LinkCreateComman
     // the aggregate transaction so it never pins the PESSIMISTIC_WRITE lock or
     // a second pool connection. Freshness at commit is preserved by the
     // in-transaction re-checks below (fresh ACL, module availability, feature).
-    const verified = await verifyEntityRegistrySelection(request, input.link)
+    const verified = await verifyEntityRegistrySelection(request, input.link, { scope })
     const canonicalInput = buildCanonicalLinkInput(input, verified)
     const writeEm = resolveDocumentsCommandEntityManager(ctx)
     let link: DocumentEntityLink | null = null
@@ -446,7 +446,7 @@ const deleteLinkCommand: CommandHandler<LinkDeleteCommandInput, LinkDeleteComman
       entityId: getDocumentEntityLinkEntityId(preflightLink),
       label: preflightLink.labelSnapshot,
       href: preflightLink.hrefSnapshot,
-    })
+    }, { scope: { tenantId: preflightLink.tenantId, organizationId: preflightLink.organizationId } })
     let link: DocumentEntityLink | null = null
     await withAtomicFlush(em, [async () => {
       await lockDocumentAggregateRoot(em, input.documentId, {

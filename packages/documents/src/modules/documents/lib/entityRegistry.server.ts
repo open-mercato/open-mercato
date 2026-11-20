@@ -1,3 +1,5 @@
+import { resolveDocumentsContext } from '../api/_shared'
+import { z } from 'zod'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   fetchWithTimeout,
@@ -114,7 +116,10 @@ function buildForwardedHeaders(request: Request): Headers {
   return headers
 }
 
+export type EntityRegistryVerificationScope = { tenantId: string; organizationId: string }
+
 type RegistryVerificationOptions = {
+  scope?: EntityRegistryVerificationScope
   fetchImpl?: RegistryFetch
   timeoutMs?: number
   maskTargetAbsence?: boolean
@@ -133,6 +138,8 @@ async function verifyEntityRegistryTarget(
     throw new CrudHttpError(503, { error: 'documents.links.targetUnavailable' })
   }
 
+  const scope = options.scope ?? await resolveDocumentsContext(request, ['documents.view'])
+  const exactScope = z.object({ tenantId: z.string().uuid(), organizationId: z.string().uuid() }).parse(scope)
   const timeoutMs = Math.min(
     resolveTimeoutMs(options.timeoutMs, DEFAULT_REGISTRY_LOOKUP_TIMEOUT_MS),
     DEFAULT_REGISTRY_LOOKUP_TIMEOUT_MS,
@@ -147,6 +154,8 @@ async function verifyEntityRegistryTarget(
     const lookupUrl = new URL(entry.searchPath, getSecurityEmailBaseUrl())
     lookupUrl.searchParams.set('id', input.entityId)
     lookupUrl.searchParams.set('pageSize', '1')
+    lookupUrl.searchParams.set('exactOrganizationId', exactScope.organizationId)
+    lookupUrl.searchParams.set('exactTenantId', exactScope.tenantId)
     const fetchImpl = options.fetchImpl ?? fetchWithTimeout
     response = await fetchImpl(lookupUrl, {
       method: 'GET',
@@ -208,7 +217,7 @@ async function verifyEntityRegistryTarget(
 export async function verifyEntityRegistrySelection(
   request: Request,
   input: VerifyEntityRegistrySelectionInput,
-  options: { fetchImpl?: RegistryFetch; timeoutMs?: number } = {},
+  options: { fetchImpl?: RegistryFetch; timeoutMs?: number; scope?: EntityRegistryVerificationScope } = {},
 ): Promise<VerifiedEntityRegistrySelection> {
   return verifyEntityRegistryTarget(request, input, options)
 }
@@ -221,7 +230,7 @@ export async function verifyEntityRegistrySelection(
 export async function verifyEntityRegistryTargetAccess(
   request: Request,
   input: VerifyEntityRegistryTargetAccessInput,
-  options: { fetchImpl?: RegistryFetch; timeoutMs?: number } = {},
+  options: { fetchImpl?: RegistryFetch; timeoutMs?: number; scope?: EntityRegistryVerificationScope } = {},
 ): Promise<VerifiedEntityRegistrySelection> {
   try {
     return await verifyEntityRegistryTarget(request, input, {
@@ -239,7 +248,7 @@ export async function verifyEntityRegistryTargetAccess(
 export async function verifyEntityRegistrySelections(
   request: Request,
   inputs: VerifyEntityRegistrySelectionInput[],
-  options: { fetchImpl?: RegistryFetch; concurrency?: number; timeoutMs?: number } = {},
+  options: { fetchImpl?: RegistryFetch; concurrency?: number; timeoutMs?: number; scope?: EntityRegistryVerificationScope } = {},
 ): Promise<Map<string, VerifiedEntityRegistrySelection>> {
   const deduped = Array.from(
     new Map(inputs.map((input) => [`${input.entityType}:${input.entityId}`, input])).values(),
@@ -248,6 +257,7 @@ export async function verifyEntityRegistrySelections(
     throw new CrudHttpError(400, { error: 'documents.templates.tooManySlots' })
   }
 
+  const scope = options.scope ?? await resolveDocumentsContext(request, ['documents.view'])
   const concurrency = Math.max(1, Math.min(4, options.concurrency ?? 4))
   const verified = new Map<string, VerifiedEntityRegistrySelection>()
   let nextIndex = 0
@@ -258,7 +268,7 @@ export async function verifyEntityRegistrySelections(
       const input = deduped[index]!
       verified.set(
         `${input.entityType}:${input.entityId}`,
-        await verifyEntityRegistrySelection(request, input, options),
+        await verifyEntityRegistrySelection(request, input, { ...options, scope }),
       )
     }
   })

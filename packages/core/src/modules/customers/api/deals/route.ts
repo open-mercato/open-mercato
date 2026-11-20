@@ -57,6 +57,8 @@ export const dealListQuerySchema = z
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     id: z.string().uuid().optional(),
+    exactOrganizationId: z.string().uuid().optional(),
+    exactTenantId: z.string().uuid().optional(),
     search: z.string().optional(),
     status: stringOrStringArray.optional(),
     pipelineStage: z.string().optional(),
@@ -295,6 +297,8 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     walk(advancedFilterTree.root)
   }
   const filters: Record<string, unknown> = {}
+  if (query.exactOrganizationId) filters.organization_id = { $eq: query.exactOrganizationId }
+  if (query.exactTenantId) filters.tenant_id = { $eq: query.exactTenantId }
   let restrictedIds: string[] | null = null
 
   const intersectIds = (ids: string[]) => {

@@ -119,7 +119,7 @@ describe('related-record value projection', () => {
     expect(mockVerifyTarget).toHaveBeenCalledWith(request, {
       entityType: 'product',
       entityId: PRODUCT_ID,
-    })
+    }, { scope: expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }) })
     expect(body.items[0]).toMatchObject({
       entityId: PRODUCT_ID,
       label: 'Current product',
