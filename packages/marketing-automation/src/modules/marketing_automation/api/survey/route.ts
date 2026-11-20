@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readBoundedRequestBody } from '@open-mercato/shared/lib/webhooks/body'
 import { enforceMarketingRateLimit, optOutRateLimitConfig } from '../../lib/rate-limit.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -38,6 +39,9 @@ export const metadata = routeMetadata
 
 const logger = createLogger('marketing_automation')
 const MAX_COMMENT_LENGTH = 2000
+// A 2000-character comment fits easily; this is a byte ceiling on the wire, not on the stored
+// text — leaves headroom for the JSON/form wrapper and multi-byte characters.
+const MAX_COMMENT_BODY_BYTES = 16 * 1024
 
 /**
  * The words on this page come from the same locale files as every screen in the module.
@@ -89,12 +93,16 @@ async function confirmAnswer(claims: TrackingClaims, secret: string, score: numb
 async function readComment(req: Request): Promise<string | null> {
   const type = req.headers.get('content-type') ?? ''
   try {
+    // Caps bytes read off the wire before anything is parsed — a public, unauthenticated route
+    // must not pay for parsing an attacker-sized body just to truncate the result afterwards.
+    const raw = await readBoundedRequestBody(req, { maxBytes: MAX_COMMENT_BODY_BYTES })
     if (type.includes('application/json')) {
-      const body = await req.json() as { comment?: unknown }
+      const body = JSON.parse(raw) as { comment?: unknown }
       return typeof body?.comment === 'string' ? body.comment.slice(0, MAX_COMMENT_LENGTH) : null
     }
-    const form = await req.formData()
-    const value = form.get('comment')
+    // The only client is this module's own <form> (default application/x-www-form-urlencoded),
+    // so a URLSearchParams read of the already-capped text covers it without a full multipart parser.
+    const value = new URLSearchParams(raw).get('comment')
     return typeof value === 'string' ? value.slice(0, MAX_COMMENT_LENGTH) : null
   } catch {
     return null

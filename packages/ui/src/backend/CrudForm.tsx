@@ -4900,7 +4900,19 @@ const FieldControl = React.memo(function FieldControlImpl({
         : undefined}
     >
       {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
-        <div className="flex items-center gap-1">
+        field.help ? (
+          <div className="flex items-center gap-1">
+            <label
+              id={labelId}
+              htmlFor={hasSingleControl ? controlId : undefined}
+              className="block text-sm font-medium"
+            >
+              {field.label}
+              {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
+            </label>
+            <HelpTip title={field.help.title} body={field.help.body} />
+          </div>
+        ) : (
           <label
             id={labelId}
             htmlFor={hasSingleControl ? controlId : undefined}
@@ -4909,8 +4921,7 @@ const FieldControl = React.memo(function FieldControlImpl({
             {field.label}
             {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
           </label>
-          {field.help ? <HelpTip title={field.help.title} body={field.help.body} /> : null}
-        </div>
+        )
       ) : null}
       {field.type === 'text' && (
         <TextInput
@@ -5095,7 +5106,21 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'checkbox' && (
-        <div className="flex items-center gap-1">
+        field.help ? (
+          <div className="flex items-center gap-1">
+            <label htmlFor={controlId} className="inline-flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                id={controlId}
+                checked={value === true}
+                onCheckedChange={(next) => setValue(field.id, next === true)}
+                data-crud-focus-target=""
+                disabled={disabled}
+              />
+              <span className="text-sm">{field.label}</span>
+            </label>
+            <HelpTip title={field.help.title} body={field.help.body} />
+          </div>
+        ) : (
           <label htmlFor={controlId} className="inline-flex items-center gap-2 cursor-pointer">
             <Checkbox
               id={controlId}
@@ -5106,8 +5131,7 @@ const FieldControl = React.memo(function FieldControlImpl({
             />
             <span className="text-sm">{field.label}</span>
           </label>
-          {field.help ? <HelpTip title={field.help.title} body={field.help.body} /> : null}
-        </div>
+        )
       )}
       {field.type === 'select' && !builtin?.multiple && (
         <Select
