@@ -91,7 +91,7 @@ AND <hub predicate>
 - `all`: `applyMessageParticipantScope(q, userId, predicate)`.
 - `status=unread`: `r.status = 'unread' OR <widening clause>`.
 - A row without a recipient row of someone other than the sender reports `status: 'unread'` (their own rows keep `sent` / `draft`).
-- **List cache kept** while the predicate resolves: the key is per user, scope and filters, so widening never crosses users. The conversation reassignment route flushes the `messages.message` collection tag for the tenant/organization, so assignment changes show immediately; channel sharing changes rely on the 30-second TTL, the same bounded staleness the cache already accepts for recipient state.
+- The list and unread count bypass the response cache when the channel predicate resolves, so each request checks current sharing and assignment. Requests that only evaluate participant access keep their existing TTL and invalidation tags. The versioned keys keep entries from the previous cache behavior out of those requests, including after a caller loses `messages.view`.
 
 ### E. Per-operator read state: recipient row on first open / action
 
@@ -106,7 +106,7 @@ It is called:
 | `PUT` / `DELETE /api/messages/{id}/archive` | archive / unarchive, same |
 | `DELETE /api/messages/{id}` | delete for a non-sender with no live row |
 
-Read/unread rule: every operator who may work the channel sees the message as `unread` until **they** open or act on it. One operator's read, archive or delete never changes another operator's view. After the first action the message takes the normal recipient branch; once archived or deleted by the operator it stays out of their Inbox (the widening clause requires no row at all). `unread-count` adds the same clause, so a new customer message counts toward the badge until it is opened.
+Read/unread rule: every operator who may work the channel sees the message as `unread` until **they** open or act on it. One operator's read, archive or delete never changes another operator's view. After the first action the message takes the normal recipient branch; once archived or deleted by the operator it stays out of their Inbox (the widening clause requires no row at all). `unread-count` uses the same clause and counts the two disjoint branches in one statement, so an unread message moving to the recipient branch during the request is counted in one snapshot.
 
 ### F. Enricher
 
@@ -150,11 +150,11 @@ No schema change. Reads `messages.thread_id`, `messages.visibility`, `message_re
 | Deleted / archived row resurfaces | Owner of a personal mailbox deletes a mail, it reappears under All; deleting it returns 403 | Medium | `NOT EXISTS` on `message_recipients` with no `deleted_at` filter — widen only when the caller has no row at all | Low |
 | Rows cannot be acted on | Mark read / archive / delete answer 403, the row never leaves the Inbox | High | Caller's own recipient row created on first open / action (`ensureChannelInboxRecipient`), guarded by the same clause | Low |
 | Row reads as already read | New customer message never flagged as new, absent from `unread-count` and `status=unread` | Medium | No-row rows report `unread`; `status=unread` and `unread-count` use the clause | Low |
-| Stale list cache | Cached list ignores a newly shared / reassigned channel | Medium | The per-user list cache is kept; reassignment flushes the messages collection tag, and sharing changes are bounded by the 30-second TTL | Low — reassignment is immediate; a sharing change can take up to one cache TTL |
+| Stale list or unread-count cache | A cached result ignores a sharing, assignment or feature change | High | Channel-expanded results bypass the response cache. Participant-only requests use new cache keys. | Low for messages listed only through the channel predicate |
 | Tenant scale | Thousands of channel threads | Medium | No id collection and no cap: `EXISTS` semi-joins on indexed columns inside the list query | Low |
 | Enricher desync | Channel metadata shown for messages the list hides | High | One clause, one resolver, both call sites | Low |
 | Hub missing / failing | Widening silently partial | Low | Absent or non-callable hub service → no predicate → participant rule unchanged | Low |
-| `unread-count` cost | The badge poll runs one more count query | Low | Skipped without `messages.view`; same clause, index-backed semi-joins | Low |
+| `unread-count` cost | The badge poll evaluates channel access for callers with `messages.view` and the hub installed | Low | The recipient and channel branches use one statement and keep their existing filters and indexes. | Low |
 
 **N+1 note:** no per-row queries are introduced. The predicate is a correlated `EXISTS` inside one list query; `ensureChannelInboxRecipient` runs once per single-message request.
 

@@ -1,5 +1,38 @@
-import type { Expression, ExpressionBuilder, SqlBool } from 'kysely'
-import { sql } from 'kysely'
+import type { Expression, SqlBool } from 'kysely'
+import { expressionBuilder, sql } from 'kysely'
+import type { ChannelInboxPredicate } from '../../messages/lib/participantScope'
+
+type ChannelInboxDatabase = {
+  m: { id: string; thread_id: string | null }
+  message_channel_links: {
+    message_id: string
+    external_conversation_id: string | null
+    direction: string
+    tenant_id: string
+    organization_id: string | null
+  }
+  channel_thread_mappings: {
+    external_conversation_id: string
+    message_thread_id: string
+    channel_id: string
+    tenant_id: string
+    organization_id: string | null
+    assigned_user_id: string | null
+  }
+  external_conversations: {
+    id: string
+    channel_id: string
+    tenant_id: string
+    organization_id: string | null
+  }
+  communication_channels: {
+    id: string
+    tenant_id: string
+    organization_id: string | null
+    user_id: string | null
+    deleted_at: Date | null
+  }
+}
 
 export type ChannelInboxScope = {
   tenantId: string
@@ -39,10 +72,11 @@ export type ChannelInboxActor = {
  * Exposed through DI as `communicationChannelsBuildChannelInboxPredicate`.
  */
 export function buildChannelInboxPredicate(
-  eb: ExpressionBuilder<any, any>,
+  _outer: Parameters<ChannelInboxPredicate>[0],
   scope: ChannelInboxScope,
   actor: ChannelInboxActor,
 ): Expression<SqlBool> {
+  const eb = expressionBuilder<ChannelInboxDatabase, 'm'>()
   const organizationId = scope.organizationId ?? null
 
   return eb.exists(

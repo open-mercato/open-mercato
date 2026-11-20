@@ -42,7 +42,7 @@ import {
   canUseMessageEmailFeature,
   resolveMessageContext,
 } from '../lib/routeHelpers'
-import { applyMessageParticipantScope, channelInboxWideningClause } from '../lib/participantScope'
+import { applyMessageParticipantScope, channelInboxWideningClause, type MessagesParticipantScopeDatabase } from '../lib/participantScope'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from './guards'
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
@@ -63,8 +63,8 @@ const NO_MATCH_ID = '00000000-0000-0000-0000-000000000000'
 const MESSAGE_LIST_CACHE_TTL_MS = 30_000
 const MESSAGE_LIST_RESOURCE = 'messages.message'
 
-function getDb(em: EntityManager): Kysely<any> {
-  return em.getKysely<any>()
+function getDb(em: EntityManager): Kysely<MessagesParticipantScopeDatabase> {
+  return em.getKysely<MessagesParticipantScopeDatabase>()
 }
 
 type MessageListScopeRow = {
@@ -132,7 +132,7 @@ function buildMessageListFilterSignature(input: ListMessagesInput): string {
 
 function buildMessageListCacheKey(scope: MessageListScope, input: ListMessagesInput): string {
   return [
-    'messages:list:v1',
+    'messages:list:v2',
     `tenant:${normalizeTagSegment(scope.tenantId)}`,
     `org:${normalizeTagSegment(scope.organizationId)}`,
     `user:${normalizeTagSegment(scope.userId)}`,
@@ -176,12 +176,10 @@ export async function GET(req: Request) {
   // Channel-inbox widening (#6106): inbound messages on unassigned conversations of
   // channels the caller may work are listed without a recipient row. The predicate is
   // SQL, resolved from the channels hub; null when the caller lacks `messages.view`
-  // or the hub is absent. The list cache stays in force: its key is per user and per
-  // filters, and its 30-second TTL is the same bounded staleness the cache already
-  // accepts for recipient state, so a sharing or assignment change can take up to
-  // one TTL to show.
+  // or the hub is absent.
+  const isChannelInboxFolder = input.folder === 'inbox' || input.folder === 'all'
   const channelInboxPredicate =
-    (input.folder === 'inbox' || input.folder === 'all') && scope.userId && scope.tenantId
+    isChannelInboxFolder && scope.userId && scope.tenantId
       ? await resolveChannelInboxPredicate(ctx.container, {
           userId: scope.userId,
           tenantId: scope.tenantId,
@@ -189,7 +187,7 @@ export async function GET(req: Request) {
         })
       : null
 
-  const cache = isCrudCacheEnabled() ? resolveCrudCache(ctx.container) : null
+  const cache = !channelInboxPredicate && isCrudCacheEnabled() ? resolveCrudCache(ctx.container) : null
   const cacheKey = cache ? buildMessageListCacheKey(scope, input) : null
   if (cache && cacheKey) {
     try {
@@ -205,7 +203,7 @@ export async function GET(req: Request) {
   }
 
   const em = ctx.container.resolve('em') as EntityManager
-  const db = getDb(em) as any
+  const db = getDb(em)
 
   const searchIds = input.search
     ? await findMessageIdsBySearchTokens({
@@ -217,32 +215,31 @@ export async function GET(req: Request) {
     : undefined
 
   const buildBaseQuery = () => {
-    let q: any = db
+    let baseQuery = db
       .selectFrom('messages as m')
       .where('m.tenant_id', '=', scope.tenantId)
       .where('m.deleted_at', 'is', null)
 
     if (scope.organizationId) {
-      q = q.where('m.organization_id', '=', scope.organizationId)
+      baseQuery = baseQuery.where('m.organization_id', '=', scope.organizationId)
     } else {
-      q = q.where('m.organization_id', 'is', null)
+      baseQuery = baseQuery.where('m.organization_id', 'is', null)
     }
 
-    const joinRecipient = () => {
-      q = q.leftJoin('message_recipients as r', (jb: any) => jb
-        .onRef('m.id', '=', 'r.message_id')
-        .on('r.recipient_user_id', '=', scope.userId))
-    }
+    let q = input.folder === 'all'
+      ? applyMessageParticipantScope(baseQuery, scope.userId, channelInboxPredicate)
+      : baseQuery.leftJoin('message_recipients as r', (join) => join
+          .onRef('m.id', '=', 'r.message_id')
+          .on('r.recipient_user_id', '=', scope.userId))
 
     switch (input.folder) {
       case 'inbox':
-        joinRecipient()
         // An inbound message on an unassigned conversation of a channel the caller may
         // work is listed even with no recipient row. The widening clause requires that
         // the caller has no row at all (deleted or archived included), so a row the
         // caller archived or deleted cannot resurface through it (#6106).
         q = q
-          .where((eb: any) => eb.or([
+          .where((eb) => eb.or([
             eb.and([
               eb('r.message_id', 'is not', null),
               eb('r.deleted_at', 'is', null),
@@ -255,7 +252,6 @@ export async function GET(req: Request) {
           .where('m.is_draft', '=', false)
         break
       case 'archived':
-        joinRecipient()
         q = q
           .where('r.message_id', 'is not', null)
           .where('r.deleted_at', 'is', null)
@@ -265,18 +261,13 @@ export async function GET(req: Request) {
         q = q
           .where('m.sender_user_id', '=', scope.userId)
           .where('m.is_draft', '=', false)
-        joinRecipient()
         break
       case 'drafts':
         q = q
           .where('m.sender_user_id', '=', scope.userId)
           .where('m.is_draft', '=', true)
-        joinRecipient()
         break
       case 'all':
-        // Sender-OR-recipient participant scope shared with the
-        // communication_channels message enricher — see participantScope.ts (#4133).
-        q = applyMessageParticipantScope(q, scope.userId, channelInboxPredicate)
         break
       default: {
         const unsupportedFolder: never = input.folder
@@ -288,7 +279,7 @@ export async function GET(req: Request) {
       // A channel-inbox row has no recipient row yet and reads as `unread` (see the
       // item mapping below), so `status=unread` must keep it.
       q = input.status === 'unread' && channelInboxPredicate
-        ? q.where((eb: any) => eb.or([
+        ? q.where((eb) => eb.or([
             eb('r.status', '=', 'unread'),
             channelInboxWideningClause(eb, scope.userId, channelInboxPredicate),
           ]))
@@ -312,33 +303,22 @@ export async function GET(req: Request) {
     if (input.since) q = q.where('m.sent_at', '>', new Date(input.since))
 
     if (input.hasObjects !== undefined) {
-      const existsFn = (eb: any) => eb.exists(
-        eb.selectFrom('message_objects')
+      q = q.where((eb) => {
+        const exists = eb.exists(eb.selectFrom('message_objects')
           .select(sql<number>`1`.as('one'))
-          .whereRef('message_objects.message_id', '=', 'm.id')
-      )
-      const notExistsFn = (eb: any) => eb.not(eb.exists(
-        eb.selectFrom('message_objects')
-          .select(sql<number>`1`.as('one'))
-          .whereRef('message_objects.message_id', '=', 'm.id')
-      ))
-      q = input.hasObjects ? q.where(existsFn) : q.where(notExistsFn)
+          .whereRef('message_objects.message_id', '=', 'm.id'))
+        return input.hasObjects ? exists : eb.not(exists)
+      })
     }
 
     if (input.hasAttachments !== undefined) {
-      const existsFn = (eb: any) => eb.exists(
-        eb.selectFrom('attachments')
+      q = q.where((eb) => {
+        const exists = eb.exists(eb.selectFrom('attachments')
           .select(sql<number>`1`.as('one'))
           .where('attachments.entity_id', '=', MESSAGE_ATTACHMENT_ENTITY_ID)
-          .where(sql<boolean>`attachments.record_id = m.id::text`)
-      )
-      const notExistsFn = (eb: any) => eb.not(eb.exists(
-        eb.selectFrom('attachments')
-          .select(sql<number>`1`.as('one'))
-          .where('attachments.entity_id', '=', MESSAGE_ATTACHMENT_ENTITY_ID)
-          .where(sql<boolean>`attachments.record_id = m.id::text`)
-      ))
-      q = input.hasAttachments ? q.where(existsFn) : q.where(notExistsFn)
+          .where(sql<boolean>`attachments.record_id = m.id::text`))
+        return input.hasAttachments ? exists : eb.not(exists)
+      })
     }
 
     if (input.hasActions !== undefined) {
@@ -407,7 +387,7 @@ export async function GET(req: Request) {
   }, {} as Record<string, MessageObject[]>)
 
   const attachmentCounts: AttachmentCountRow[] = messageIds.length > 0
-    ? await (getDb(em) as any)
+    ? await getDb(em)
         .selectFrom('attachments')
         .select(['record_id', sql<string>`count(*)`.as('count')])
         .where('entity_id', '=', MESSAGE_ATTACHMENT_ENTITY_ID)
@@ -422,7 +402,7 @@ export async function GET(req: Request) {
   }, {})
 
   const recipientCounts: RecipientCountRow[] = messageIds.length > 0
-    ? await (getDb(em) as any)
+    ? await getDb(em)
         .selectFrom('message_recipients')
         .select(['message_id', sql<string>`count(*)`.as('count')])
         .where('message_id', 'in', messageIds)

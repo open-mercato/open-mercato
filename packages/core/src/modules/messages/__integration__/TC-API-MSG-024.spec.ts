@@ -20,7 +20,7 @@ const listSchema = z.object({
   total: z.number(),
 });
 
-const listUrl = '/api/messages?folder=inbox&page=1&pageSize=100';
+const listUrl = '/api/messages?folder=archived&page=1&pageSize=100';
 
 async function listMessages(request: APIRequestContext, token: string) {
   const response = await apiRequest(request, 'GET', listUrl, { token });
@@ -28,7 +28,7 @@ async function listMessages(request: APIRequestContext, token: string) {
   return listSchema.parse(await response.json());
 }
 
-test.describe('TC-API-MSG-024: User-scoped message list cache regression (#4835)', () => {
+test.describe('TC-API-MSG-024: User-scoped archived message list cache regression (#4835)', () => {
   test('serves cache hits without leaking messages or recipient state and invalidates on mark-read', async ({ request }) => {
     expect(process.env.ENABLE_CRUD_API_CACHE, 'Run through the cache-enabled managed integration runner').toBe('true');
     const adminToken = await getAuthToken(request, 'superadmin');
@@ -76,8 +76,8 @@ test.describe('TC-API-MSG-024: User-scoped message list cache regression (#4835)
           [sharedId, userBId, 'read', sharedReadAt],
         ]) {
           await client.query(
-            `insert into message_recipients (id, message_id, recipient_user_id, status, read_at, created_at)
-             values (gen_random_uuid(), $1, $2, $3, $4, now())`,
+            `insert into message_recipients (id, message_id, recipient_user_id, status, read_at, archived_at, created_at)
+             values (gen_random_uuid(), $1, $2, $3, $4, now(), now())`,
             [messageId, userId, status, readAt],
           );
         }

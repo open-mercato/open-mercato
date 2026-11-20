@@ -5,7 +5,7 @@
 // These tests compile the real list query — with the real channels-hub predicate
 // resolved through DI — and pin the predicate, the folders it applies to, the
 // `messages.view` gate, the status reported for rows without a recipient row and
-// the shared list cache kept while the widening applies.
+// the affected list cache bypass.
 
 import {
   DummyDriver,
@@ -207,7 +207,7 @@ describe('messages GET — channel-inbox widening (#6106)', () => {
     expect(text).not.toContain('channel_thread_mappings')
   })
 
-  it('does not widen without messages.view, and keeps the list cache', async () => {
+  it('uses the participant-only cache without messages.view', async () => {
     arrange({ granted: false })
 
     await GET(new Request('http://localhost/api/messages?folder=inbox'))
@@ -215,8 +215,8 @@ describe('messages GET — channel-inbox widening (#6106)', () => {
     const text = scopeSql()
     expect(text).not.toContain('message_channel_links')
     expect(text).not.toContain('channel_thread_mappings')
-    expect(cacheGetMock).toHaveBeenCalled()
-    expect(cacheSetMock).toHaveBeenCalled()
+    expect(cacheGetMock).toHaveBeenCalledWith(expect.stringMatching(/^messages:list:v2\|/))
+    expect(cacheSetMock).toHaveBeenCalledTimes(1)
   })
 
   it('does not widen when the channels hub is not installed', async () => {
@@ -227,14 +227,14 @@ describe('messages GET — channel-inbox widening (#6106)', () => {
     expect(scopeSql()).not.toContain('message_channel_links')
   })
 
-  it('keeps the list cache while the widening applies', async () => {
+  it('bypasses the list cache while the widening applies', async () => {
     arrange()
 
     await GET(new Request('http://localhost/api/messages?folder=inbox'))
 
     expect(scopeSql()).toContain('message_channel_links')
-    expect(cacheGetMock).toHaveBeenCalled()
-    expect(cacheSetMock).toHaveBeenCalled()
+    expect(cacheGetMock).not.toHaveBeenCalled()
+    expect(cacheSetMock).not.toHaveBeenCalled()
   })
 
   it('status=unread keeps rows that have no recipient row yet', async () => {

@@ -1,5 +1,5 @@
 import { sql } from 'kysely'
-import type { Expression, ExpressionBuilder, SelectQueryBuilder, SqlBool } from 'kysely'
+import type { Expression, ExpressionBuilder, Nullable, SelectQueryBuilder, SqlBool } from 'kysely'
 import { EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE } from './composeSourceChannelType'
 
 /**
@@ -19,12 +19,28 @@ export type MessagesParticipantScopeDatabase = {
     thread_id: string | null
     visibility: string | null
     source_entity_type: string | null
+    source_entity_id: string | null
+    external_email_hash: string | null
+    is_draft: boolean
+    type: string
+    sent_at: Date | null
+    action_data: unknown
     deleted_at: Date | null
   }
   message_recipients: {
     message_id: string
     recipient_user_id: string
     deleted_at: Date | null
+    archived_at: Date | null
+    status: string
+    read_at: Date | null
+  }
+  message_objects: {
+    message_id: string
+  }
+  attachments: {
+    entity_id: string
+    record_id: string
   }
 }
 
@@ -32,7 +48,7 @@ type MessagesTable = MessagesParticipantScopeDatabase['messages']
 type MessageRecipientsTable = MessagesParticipantScopeDatabase['message_recipients']
 
 type MessagesFrom = MessagesParticipantScopeDatabase & { m: MessagesTable }
-type MessagesJoinedFrom = MessagesFrom & { r: MessageRecipientsTable }
+type MessagesJoinedFrom = MessagesFrom & { r: Nullable<MessageRecipientsTable> }
 
 /**
  * Channel-inbox predicate (#6106): a SQL condition over the outer `messages as m`
@@ -41,7 +57,7 @@ type MessagesJoinedFrom = MessagesFrom & { r: MessageRecipientsTable }
  * "inbound message on an unassigned conversation of a channel the caller may work".
  * `messages` never touches the hub's tables itself.
  */
-export type ChannelInboxPredicate = (eb: ExpressionBuilder<any, any>) => Expression<SqlBool>
+export type ChannelInboxPredicate = (eb: ExpressionBuilder<MessagesFrom, 'm'>) => Expression<SqlBool>
 
 /**
  * The channel-inbox widening clause (#6106): a message the caller has no recipient
@@ -67,7 +83,7 @@ export type ChannelInboxPredicate = (eb: ExpressionBuilder<any, any>) => Express
  * recipient-materialising helper all use the one clause.
  */
 export function channelInboxWideningClause(
-  eb: ExpressionBuilder<any, any>,
+  eb: ExpressionBuilder<MessagesFrom, 'm'>,
   userId: string,
   predicate: ChannelInboxPredicate,
 ): Expression<SqlBool> {
@@ -122,8 +138,8 @@ export function applyMessageParticipantScope<O>(
         eb('r.message_id', 'is not', null),
       ]
       if (channelInboxPredicate) {
-        branches.push(channelInboxWideningClause(eb as unknown as ExpressionBuilder<any, any>, userId, channelInboxPredicate))
+        branches.push(channelInboxWideningClause(eb, userId, channelInboxPredicate))
       }
       return eb.or(branches)
-    }) as unknown as SelectQueryBuilder<MessagesJoinedFrom, 'm' | 'r', O>
+    })
 }
