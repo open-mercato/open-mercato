@@ -105,6 +105,7 @@ export function PerspectiveSidebar({
 
   const newViewSaveRef = React.useRef(false)
   const renameSaveRef = React.useRef(false)
+  const cloneInFlightRef = React.useRef(false)
   const autosaveRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingAutosaveActionRef = React.useRef<(() => void) | null>(null)
   const isDefaultUserChangeRef = React.useRef(false)
@@ -319,6 +320,16 @@ export function PerspectiveSidebar({
   }
 
   const handleClone = async (p: PerspectiveDto | RolePerspectiveDto) => {
+    if (cloneInFlightRef.current) return
+    cloneInFlightRef.current = true
+    try {
+      await cloneOnce(p)
+    } finally {
+      cloneInFlightRef.current = false
+    }
+  }
+
+  const cloneOnce = async (p: PerspectiveDto | RolePerspectiveDto) => {
     const originalName = perspectiveLabel(p)
     setError(null)
     const baseline = new Set(perspectivesRef.current.map((item) => item.id))

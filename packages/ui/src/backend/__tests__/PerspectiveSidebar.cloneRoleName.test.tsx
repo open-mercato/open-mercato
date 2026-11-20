@@ -112,4 +112,53 @@ describe('PerspectiveSidebar clone of a shared view (#8632)', () => {
       createOnly: true,
     })
   })
+
+  it('ignores a second Clone while the first clone is still saving', async () => {
+    const source = roleView({ id: 'source-role-view', name: 'Pipeline' })
+    let resolveSave: () => void = () => {}
+    const onSave = jest.fn<Promise<void>, Parameters<PerspectiveSidebarProps['onSave']>>(
+      () => new Promise<void>((resolve) => { resolveSave = resolve }),
+    )
+    render(
+      <I18nProvider locale="en" dict={{}}>
+        <PerspectiveSidebar
+          open
+          onOpenChange={() => {}}
+          loading={false}
+          perspectives={[]}
+          rolePerspectives={[source]}
+          roles={[]}
+          activePerspectiveId={null}
+          onActivatePerspective={() => {}}
+          onDeletePerspective={async () => {}}
+          onClearRole={async () => {}}
+          onSave={onSave}
+          canApplyToRoles
+          availableColumns={[]}
+          visibleColumnKeys={[]}
+          columnOrder={[]}
+          onToggleColumn={() => {}}
+          onReorderColumns={() => {}}
+          saving={false}
+          deletingIds={[]}
+          roleClearingIds={[]}
+        />
+      </I18nProvider>,
+    )
+
+    for (let click = 0; click < 2; click += 1) {
+      fireEvent.click(screen.getAllByRole('button', { name: 'View options' })[0])
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Clone' }))
+      })
+    }
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    await act(async () => { resolveSave() })
+    fireEvent.click(screen.getAllByRole('button', { name: 'View options' })[0])
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Clone' }))
+    })
+    expect(onSave).toHaveBeenCalledTimes(2)
+  })
 })

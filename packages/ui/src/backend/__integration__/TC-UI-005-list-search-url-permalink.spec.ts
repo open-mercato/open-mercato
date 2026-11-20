@@ -69,7 +69,7 @@ for (const listCase of listCases) {
     const stamp = `UI005-${suffix}`;
     const alpha = `${stamp} Alpha`;
     const beta = `${stamp} Beta`;
-    const decoy = `UI005 decoy ${suffix}`;
+    const decoy = `Unrelated ${Math.random().toString(36).slice(2, 10)}`;
     const createdIds: string[] = [];
     try {
       for (const label of [alpha, beta, decoy]) {
@@ -78,7 +78,7 @@ for (const listCase of listCases) {
 
       await login(page, 'admin');
       await page.goto(`${listCase.path}?${EXTRA_PARAM}=${EXTRA_VALUE}&search=${encodeURIComponent(stamp)}`);
-      const searchBox = page.getByRole('searchbox').first();
+      const searchBox = page.getByRole('main').getByRole('searchbox').first();
 
       await expect(searchBox).toHaveValue(stamp);
       await expectOnlyStampedRows(page, stamp, [alpha, beta], [decoy]);
