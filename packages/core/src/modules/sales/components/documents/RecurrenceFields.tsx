@@ -180,7 +180,7 @@ export function RecurrenceFields({ value, onChange, disabled, hideToggle, errors
                   preview.endsOn
                     ? t('sales.recurring.form.endsOn', 'Ends on {date}', { date: formatRecurrenceDate(preview.endsOn, locale) })
                     : t('sales.recurring.form.noEnd', 'No end date'),
-                ].join(' · ')
+                ].join(' — ')
               : t('sales.recurring.form.previewUnavailable', 'Complete the schedule to see its dates.')}
           </p>
         </div>

@@ -4,6 +4,7 @@ import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -136,9 +137,7 @@ export default function RecurrenceSectionWidget({
 
   return (
     <div className="space-y-3 rounded-lg border bg-card p-4 shadow-sm" data-testid="sales-recurrence-section">
-      <div className="text-sm font-semibold text-foreground">
-        {t('sales.recurring.section.title', 'Recurring billing')}
-      </div>
+      <SectionHeader title={t('sales.recurring.section.title', 'Recurring billing')} />
       {recurrence ? (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">

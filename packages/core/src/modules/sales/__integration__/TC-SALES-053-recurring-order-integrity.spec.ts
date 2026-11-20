@@ -171,6 +171,16 @@ test.describe('TC-SALES-053 recurring order state integrity', () => {
       const added = await apiRequest(request, 'PUT', '/api/sales/orders', { token, data: { id: orderId, recurrence } })
       expectCode(added, await readJson(added), 409, 'recurring_order_use_cancel', 'add a recurrence to an on-hold order')
       expect((await readOrder(request, token, orderId)).recurrence).toBeNull()
+
+      const cleared = await apiRequest(request, 'PUT', '/api/sales/orders', {
+        token,
+        data: { id: orderId, statusEntryId: null, recurrence },
+      })
+      const clearedBody = await readJson(cleared)
+      expect(cleared.status(), JSON.stringify(clearedBody).slice(0, 300)).toBe(200)
+      const updated = await readOrder(request, token, orderId)
+      expect(updated.status).toBeNull()
+      expect(updated.recurrence).toMatchObject(recurrence)
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
     }
