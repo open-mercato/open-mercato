@@ -1,3 +1,4 @@
+import { getWorkflowListPageBounds } from '../../data/pagination'
 import { NextRequest } from 'next/server'
 import { RawQueryFragment } from '@mikro-orm/core'
 import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
@@ -103,6 +104,24 @@ function databaseDefinition(index: number) {
 }
 
 describe('Workflow list pagination boundaries', () => {
+  test.each([
+    { pageSize: 20, total: 100021, lastAccessiblePage: 5001, reachableTotal: 100020 },
+    { pageSize: 50, total: 100051, lastAccessiblePage: 2001, reachableTotal: 100050 },
+  ])('table pagination only advertises reachable rows at page size $pageSize', ({
+    pageSize, total, lastAccessiblePage, reachableTotal,
+  }) => {
+    expect(getWorkflowListPageBounds(total, pageSize)).toEqual({
+      lastAccessiblePage,
+      reachableTotal,
+      totalPages: lastAccessiblePage,
+    })
+    expect(getWorkflowListPageBounds(51, pageSize)).toEqual({
+      lastAccessiblePage,
+      reachableTotal: 51,
+      totalPages: Math.ceil(51 / pageSize),
+    })
+  })
+
   let mockEm: {
     find: jest.Mock
     createQueryBuilder: jest.Mock

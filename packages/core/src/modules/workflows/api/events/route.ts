@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { WORKFLOW_LIST_MAX_OFFSET } from '../../data/pagination'
+import { getWorkflowListPageBounds } from '../../data/pagination'
 import { workflowEventPageSchema } from '../../data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -156,7 +156,7 @@ export async function GET(request: NextRequest) {
       } : null,
     }))
 
-    const totalPages = Math.min(Math.ceil(total / pageSize), Math.floor(WORKFLOW_LIST_MAX_OFFSET / pageSize) + 1)
+    const { totalPages } = getWorkflowListPageBounds(total, pageSize)
 
     return NextResponse.json({
       items: enrichedEvents,
