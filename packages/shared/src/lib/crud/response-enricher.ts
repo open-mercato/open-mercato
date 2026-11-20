@@ -1,3 +1,4 @@
+import type { CrudFormSectionCapabilityProviderFact } from '../../modules/form-section-facts'
 /**
  * Response Enricher Contract
  *
@@ -54,6 +55,8 @@ export interface EnricherQueryEngineConfig {
 export interface ResponseEnricher<TRecord = any, TEnriched = any> {
   /** Unique identifier: `<module>.<enricher-name>` */
   id: string
+
+  crudFormSectionCapabilities?: readonly CrudFormSectionCapabilityProviderFact[]
 
   /** Target entity to enrich: `<module>.<entity>` (e.g., 'customers.person') or `*` for all entities. */
   targetEntity: string

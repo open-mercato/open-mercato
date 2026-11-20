@@ -1,3 +1,4 @@
+import type { CrudFormSectionCapabilityProviderFact } from '../../modules/form-section-facts'
 import type { AwilixContainer } from 'awilix'
 import { authorizeFeatures } from '../../security/featurePolicy'
 import { resolveCrudMutationGuardService } from './mutation-guard-service'
@@ -9,6 +10,8 @@ import { resolveCrudMutationGuardService } from './mutation-guard-service'
 export interface MutationGuard {
   /** Unique guard ID (e.g., 'record_locks.lock-check', 'example.todo-limit') */
   id: string
+
+  crudFormSectionCapabilities?: readonly CrudFormSectionCapabilityProviderFact[]
 
   /** Target entity or '*' for all entities */
   targetEntity: string | '*'
