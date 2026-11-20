@@ -1,5 +1,28 @@
 # Upgrade Notes
 
+## Kernel modules keep working when optional modules are disabled (#10129)
+
+Several modules used to fail when an optional peer was removed from `src/modules.ts`. They now
+degrade instead. With every module enabled, behavior is unchanged. No migration or new
+configuration is required. What changes when a peer is disabled:
+
+- **scheduler** — module-authored schedules whose `source_module` is no longer enabled are skipped
+  (`scheduler.job.skipped` is emitted and `nextRunAt` still advances) instead of failing on every
+  tick. `mercato scheduler list` marks them. Re-enabling the module resumes them.
+- **record_locks** (enterprise) — works without `configs` (built-in default settings apply) and
+  without `audit_logs`. The OSS `updated_at` optimistic-lock floor is always enforced. Without
+  `audit_logs`, the extra conflict detection based on action-log history is not available.
+- **workflows** — bulk replay runs without `progress` (`progressJobId: null`). A `CALL_API` step
+  fails with a translated error without `api_keys`. Without `business_rules`, guard-rule seeds are
+  skipped and a workflow with a *required* start pre-condition refuses to start with
+  `RULE_ENGINE_UNAVAILABLE`. `workflows` still declares `requires: ['business_rules']` (#9217).
+- **messages** — works without `attachments` (attachment counts are 0, and the attachments route
+  answers 404) and without `notifications` (email delivery still runs).
+- **configs** — upgrade actions declare the module they need. Actions for disabled modules are not
+  offered and are rejected with `UPGRADE_ACTION_NOT_AVAILABLE`.
+- **Translate actions** on dictionary entries and custom-field definitions appear only when the
+  `translations` module is enabled and the user holds `translations.manage`.
+
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
 
 The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
@@ -3806,6 +3829,11 @@ same version as your other `@open-mercato/*` packages:
 ```jsonc
 "@open-mercato/web-research": "0.8.0",
 ```
+
+From the release that ships #10129 the generator declares the `AdapterRegistryEntry` type inline,
+so the generated registry no longer imports `@open-mercato/web-research`. After upgrading the CLI
+and re-running `yarn generate`, the dependency above is only needed if the app actually uses
+web research.
 
 Only the **selected** provider's env preset seeds anything. Enabling both packages is therefore
 safe: with `SYSTEM_EMAIL_PROVIDER` unset or `resend`, the SES preset stores no credentials, creates
