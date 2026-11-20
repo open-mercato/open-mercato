@@ -8,6 +8,8 @@ import {
 } from './ui-part-slots'
 import { PendingPhase3Placeholder } from './ui-parts/pending-phase3-placeholder'
 import { AI_MUTATION_APPROVAL_CARDS } from './parts/approval-cards-map'
+import { CitationsPart } from './parts/CitationsPart'
+import { AI_CITATIONS_COMPONENT_ID } from './citations/registry'
 
 export { RESERVED_AI_UI_PART_IDS, isReservedAiUiPartId }
 export type { ReservedAiUiPartId }
@@ -72,6 +74,11 @@ export interface CreateAiUiPartRegistryOptions {
   seedLiveApprovalCards?: boolean
 }
 
+function seedLiveBuiltInParts(store: RegistryStore): void {
+  if (store.has(AI_CITATIONS_COMPONENT_ID)) return
+  store.set(AI_CITATIONS_COMPONENT_ID, CitationsPart as AiUiPartComponent<AiUiPartProps>)
+}
+
 function seedReservedSlots(
   store: RegistryStore,
   options: { seedLive: boolean } = { seedLive: false },
@@ -107,6 +114,9 @@ export function createAiUiPartRegistry(
   if (seedReserved) {
     seedReservedSlots(store, { seedLive })
   }
+  if (seedLive) {
+    seedLiveBuiltInParts(store)
+  }
 
   const registry: AiUiPartRegistry = {
     register(componentId, component) {
@@ -140,6 +150,9 @@ export function createAiUiPartRegistry(
       store.clear()
       if (seedReserved) {
         seedReservedSlots(store, { seedLive })
+      }
+      if (seedLive) {
+        seedLiveBuiltInParts(store)
       }
     },
   }

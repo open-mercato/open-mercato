@@ -676,6 +676,24 @@ Forwards all other `<input>` props.
 
 ---
 
+## CrudForm `decimal` field
+
+Builtin `CrudForm` field type for money amounts and FX rates (`CrudBuiltinField['type']` in `@open-mercato/ui/backend/CrudForm`). It renders the same locale-aware input as `type: 'number'` (users type the application locale's separator, e.g. `110,70` under Polish), but parses with `parseLocaleDecimal` and submits a canonical decimal **string** (`'0.000000000000000001'`) instead of a JS `number`, so digits beyond float precision survive the round trip.
+
+```tsx
+const fields: CrudField[] = [
+  { id: 'unitPrice', label: t('catalog.prices.unitPrice'), type: 'decimal' },
+  { id: 'quantity', label: t('catalog.prices.quantity'), type: 'number' },
+]
+```
+
+### MUST rules
+
+- Use `type: 'decimal'` for every money or FX field; keep `type: 'number'` for counts, percentages and other values where a float is fine.
+- Keep the submitted string exact server-side with one of two patterns from `@open-mercato/shared/lib/decimal`: a string-output schema (`decimalStringSchema` or its `nonNegative`/`positive` variants), or a number schema (`z.coerce.number()`) plus `withExactAmounts(parsed, raw, fields)` in the command, which adds `<field>Exact` strings taken from the raw input. Never do money math on the float.
+
+---
+
 ## ButtonInput
 
 ```typescript
@@ -1564,6 +1582,7 @@ Two-row primitive (input on top, chips below) for collecting a flat list of free
 - **Click ×** on chip — removes that tag.
 - **`maxTags` reached** — input becomes `disabled`; further typing is blocked.
 - **`validate`** — `(tag) => true | false | string`. Return `false` to silently reject; return a string to surface as inline error.
+- **`inputValue` / `onInputValueChange`** — optional control of the text typed but not yet committed. Use when a submit action has to commit or reject that text, because the primitive does not commit on blur.
 
 ### Usage
 
