@@ -4,9 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const cliDist = path.resolve(__dirname, '../../../../dist')
-const registryModule = path.join(cliDist, 'lib/generators/module-registry.js')
-const resolverModule = path.join(cliDist, 'lib/resolver.js')
+const cliRoot = path.resolve(__dirname, '../../../..')
+let buildRoot: string
 const modes = [
   { mode: 'full', generator: 'generateModuleRegistry', registry: 'modules.generated.ts' },
   { mode: 'app', generator: 'generateModuleRegistryApp', registry: 'modules.app.generated.ts' },
@@ -34,9 +33,22 @@ function snapshotOutput(directory: string): unknown[] {
 }
 
 beforeAll(() => {
-  if (!fs.existsSync(registryModule) || !fs.existsSync(resolverModule)) {
-    throw new Error('[internal] Build the CLI and its workspace dependencies before running the built-ESM tests: yarn turbo run build --filter=@open-mercato/cli')
+  const scratchDir = path.join(cliRoot, '.mercato')
+  fs.mkdirSync(scratchDir, { recursive: true })
+  buildRoot = fs.mkdtempSync(path.join(scratchDir, 'module-registry-esm-'))
+  const build = spawnSync(process.execPath, [path.join(__dirname, 'build-registry-esm.mjs'), buildRoot], {
+    encoding: 'utf8',
+    env: { ...process.env, NODE_OPTIONS: '' },
+    timeout: 60_000,
+  })
+  if (build.error) throw build.error
+  if (build.status !== 0) {
+    throw new Error(`[internal] ESM fixture build failed (${build.status ?? build.signal}):\n${build.stdout}\n${build.stderr}`)
   }
+})
+
+afterAll(() => {
+  if (buildRoot) fs.rmSync(buildRoot, { recursive: true, force: true })
 })
 
 describe.each(modes)('$mode generator under native ESM', ({ generator, registry }) => {
@@ -50,6 +62,8 @@ describe.each(modes)('$mode generator under native ESM', ({ generator, registry 
   function generate(enabled: string[]) {
     const entries = enabled.map((id) => `{ id: '${id}', from: '@open-mercato/core' }`)
     writeFile(path.join(root, 'src/modules.ts'), `export const enabledModules = [${entries.join(', ')}]\n`)
+    const registryModule = path.join(buildRoot, 'lib/generators/module-registry.js')
+    const resolverModule = path.join(buildRoot, 'lib/resolver.js')
     const child = spawnSync(process.execPath, ['--input-type=module', '--eval', `
       import { createResolver } from ${JSON.stringify(pathToFileURL(resolverModule).href)}
       import { ${generator} } from ${JSON.stringify(pathToFileURL(registryModule).href)}
