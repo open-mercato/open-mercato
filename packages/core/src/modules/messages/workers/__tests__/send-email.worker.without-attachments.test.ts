@@ -26,7 +26,7 @@ describe('messages send-email worker without the attachments module (#9201)', ()
     })
     const find = jest.fn(async () => [])
     const emFork = {
-      getMetadata: () => ({ has: () => false }),
+      getMetadata: () => ({ find: () => false }),
       findOne: jest.fn(async (entity: unknown) => (entity === MessageRecipient
         ? { messageId: 'message-1', recipientUserId: 'recipient-1', emailSentAt: null }
         : null)),

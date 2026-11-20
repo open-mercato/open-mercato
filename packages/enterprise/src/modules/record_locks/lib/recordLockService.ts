@@ -424,7 +424,7 @@ export class RecordLockService {
   }
 
   private isAuditTrailAvailable(): boolean {
-    return this.em.getMetadata().has(ActionLog)
+    return Boolean(this.em.getMetadata().find(ActionLog))
   }
 
   async getSettings(): Promise<RecordLockSettings> {

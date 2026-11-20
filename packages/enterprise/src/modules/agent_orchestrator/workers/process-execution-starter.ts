@@ -7,6 +7,8 @@ import { ProcessDefinition, ProcessInstance } from '../data/entities'
 import { emitAgentOrchestratorEvent } from '../events'
 import { AGENT_ORCHESTRATOR_PROCESS_EXECUTION_QUEUE } from '../lib/queue'
 import { parseProcessTriggers, scheduleTriggers } from '../lib/tasks/triggers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import english from '../i18n/en.json'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('agent_orchestrator').child({ worker: 'process-execution-starter' })
@@ -188,7 +190,12 @@ export default async function handle(job: QueuedJob<ProcessExecutionJobPayload>,
 
   const workflowExecutor = tryResolveWorkflowExecutor(container)
   if (!workflowExecutor) {
-    await failBeforeStart(em, decrypted, 'Workflows module is not enabled')
+    const { t } = await resolveTranslations()
+    await failBeforeStart(
+      em,
+      decrypted,
+      t('agent_orchestrator.errors.workflowsModuleDisabled', english['agent_orchestrator.errors.workflowsModuleDisabled']),
+    )
     return
   }
 

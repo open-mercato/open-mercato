@@ -189,7 +189,7 @@ describe('messages GET without the attachments module (#9201)', () => {
       ctx: {
         container: {
           resolve: (name: string) => (name === 'em'
-            ? { ...buildMockEm(), getMetadata: () => ({ has: () => false }) }
+            ? { ...buildMockEm(), getMetadata: () => ({ find: () => false }) }
             : null),
         },
       },

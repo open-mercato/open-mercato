@@ -56,7 +56,7 @@ describe('messages sent subscriber', () => {
     const ctxWithoutNotifications = {
       resolve: jest.fn(() => ({
         fork: () => ({}),
-        getMetadata: () => ({ has: () => false }),
+        getMetadata: () => ({ find: () => false }),
       })),
     }
 

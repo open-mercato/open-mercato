@@ -2,6 +2,12 @@
 
 import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals'
 import fs from 'node:fs'
+import polish from '../../i18n/pl.json'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  getSupportedLocales: () => ['en', 'pl'],
+  loadDictionary: jest.fn(async (locale: string) => locale === 'pl' ? polish : {}),
+}))
 import path from 'node:path'
 import { getEntityIds, registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
@@ -85,13 +91,18 @@ describe('workflows without the business_rules module (#9217)', () => {
       const result = await validateWorkflowStart({} as never, {
         workflowId: 'wf',
         context: {},
+        locale: 'pl',
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       })
 
       expect(result.canStart).toBe(false)
       expect(result.errors).toEqual([
-        expect.objectContaining({ ruleId: 'required_rule', code: 'RULE_ENGINE_UNAVAILABLE' }),
+        {
+          ruleId: 'required_rule',
+          code: 'RULE_ENGINE_UNAVAILABLE',
+          message: 'Moduł reguł biznesowych jest wyłączony: required_rule',
+        },
       ])
       expect(executeRuleByRuleId).not.toHaveBeenCalled()
     })

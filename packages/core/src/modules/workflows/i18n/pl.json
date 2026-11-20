@@ -648,6 +648,7 @@
   "workflows.endpointPicker.placeholder": "/api/customers/people",
   "workflows.endpointPicker.searchPlaceholder": "Szukaj endpointów…",
   "workflows.endpointPicker.untagged": "Inne",
+  "workflows.errors.businessRulesModuleDisabled": "Moduł reguł biznesowych jest wyłączony: {ruleId}",
   "workflows.errors.callApi.apiKeysModuleDisabled": "CALL_API wymaga modułu api_keys do uwierzytelniania wywołań wewnętrznych",
   "workflows.errors.callApi.appUrlNotHttp": "CALL_API wymaga APP_URL z protokołem http(s), otrzymano: {appUrl}",
   "workflows.errors.callApi.endpointCredentials": "Ochrona przed SSRF: endpoint CALL_API nie może zawierać danych uwierzytelniających",

@@ -648,6 +648,7 @@
   "workflows.endpointPicker.placeholder": "/api/customers/people",
   "workflows.endpointPicker.searchPlaceholder": "Endpunkte durchsuchen…",
   "workflows.endpointPicker.untagged": "Sonstige",
+  "workflows.errors.businessRulesModuleDisabled": "Das Modul für Geschäftsregeln ist deaktiviert: {ruleId}",
   "workflows.errors.callApi.apiKeysModuleDisabled": "CALL_API benötigt das Modul api_keys, um interne Aufrufe zu authentifizieren",
   "workflows.errors.callApi.appUrlNotHttp": "CALL_API erfordert eine http(s)-APP_URL, erhalten: {appUrl}",
   "workflows.errors.callApi.endpointCredentials": "SSRF-Schutz: Der CALL_API-Endpunkt darf keine Zugangsdaten enthalten",

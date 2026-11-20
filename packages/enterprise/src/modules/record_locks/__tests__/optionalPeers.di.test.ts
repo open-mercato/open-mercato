@@ -14,7 +14,7 @@ import { DEFAULT_RECORD_LOCK_SETTINGS } from '../lib/config'
 function buildContainer(extra: Record<string, unknown> = {}) {
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
   const em = {
-    getMetadata: () => ({ has: (entity: unknown) => entity !== ActionLog }),
+    getMetadata: () => ({ find: (entity: unknown) => entity !== ActionLog }),
     findOne: jest.fn(),
   }
   container.register({

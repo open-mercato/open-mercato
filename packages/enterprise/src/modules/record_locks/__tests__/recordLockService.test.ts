@@ -1,3 +1,5 @@
+import { EntityMetadata, MetadataStorage } from '@mikro-orm/core'
+import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import { RecordLockService } from '../lib/recordLockService'
 import type { RecordLockSettings } from '../lib/config'
 import { emitRecordLocksEvent } from '../events'
@@ -34,7 +36,7 @@ function createService(
     flush: jest.fn(),
     transactional: jest.fn(),
     getConnection: jest.fn(() => connection),
-    getMetadata: jest.fn(() => ({ has: () => options?.auditTrailAvailable ?? true })),
+    getMetadata: jest.fn(() => ({ find: () => options?.auditTrailAvailable ?? true })),
   } as any
   em.transactional.mockImplementation(async (cb: (tx: typeof em) => Promise<unknown>) => cb(em))
 
@@ -1360,13 +1362,22 @@ describe('RecordLockService without the audit_logs module (#9205)', () => {
     expect(actionLogService.findById).not.toHaveBeenCalled()
   })
 
-  test('still queries ActionLog when the audit trail is available', async () => {
-    const { service, em } = createService(DEFAULT_SETTINGS, null, { auditTrailAvailable: true })
+  test('queries ActionLog when the ORM registered a distinct constructor of the same name', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS)
+    const RegisteredActionLog = class ActionLog {}
+    const metadata = new MetadataStorage()
+    const registered = metadata.set(RegisteredActionLog, new EntityMetadata({
+      class: RegisteredActionLog,
+      className: RegisteredActionLog.name,
+    }))
+    em.getMetadata.mockReturnValue(metadata)
     em.findOne.mockResolvedValue(null)
     const probe = service as unknown as AuditTrailProbe
 
+    expect(metadata.has(ActionLog)).toBe(false)
+    expect(metadata.find(ActionLog)).toBe(registered)
     await probe.findLatestActionLog(scope)
 
-    expect(em.findOne).toHaveBeenCalled()
+    expect(em.findOne).toHaveBeenCalledWith(ActionLog, expect.any(Object), expect.any(Object))
   })
 })

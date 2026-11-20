@@ -17,7 +17,7 @@ jest.mock('@open-mercato/core/modules/notifications/data/entities', () => ({ Not
 
 function createEm(registered: unknown[]) {
   return {
-    getMetadata: () => ({ has: (entity: unknown) => registered.includes(entity) }),
+    getMetadata: () => ({ find: (entity: unknown) => registered.includes(entity) }),
     find: jest.fn(async () => []),
     findOne: jest.fn(async () => null),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),

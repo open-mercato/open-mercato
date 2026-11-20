@@ -1,6 +1,4 @@
-import type { EntityManager } from '@mikro-orm/core'
-
-type MetadataProbe = { has?: (entity: unknown) => boolean }
+import type { EntityManager, EntityName } from '@mikro-orm/core'
 
 /**
  * `attachments` and `notifications` are optional peers of `messages`: their entity
@@ -9,12 +7,11 @@ type MetadataProbe = { has?: (entity: unknown) => boolean }
  * (#9201). An entity manager that exposes no metadata (test doubles) is treated as
  * having the module, which keeps the pre-existing behavior.
  */
-async function isEntityRegistered(em: EntityManager, loadEntity: () => Promise<unknown>): Promise<boolean> {
-  const getMetadata = (em as { getMetadata?: () => MetadataProbe }).getMetadata
-  if (typeof getMetadata !== 'function') return true
-  const metadata = getMetadata.call(em)
-  if (typeof metadata?.has !== 'function') return true
-  return metadata.has(await loadEntity())
+async function isEntityRegistered(em: EntityManager, loadEntity: () => Promise<EntityName<object>>): Promise<boolean> {
+  if (typeof em.getMetadata !== 'function') return true
+  const metadata = em.getMetadata()
+  if (typeof metadata?.find !== 'function') return true
+  return Boolean(metadata.find(await loadEntity()))
 }
 
 export function isAttachmentsModuleAvailable(em: EntityManager): Promise<boolean> {

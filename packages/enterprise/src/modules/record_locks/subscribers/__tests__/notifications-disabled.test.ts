@@ -38,7 +38,7 @@ const basePayload = {
 type Context = { resolve: <T = unknown>(name: string) => T }
 
 function contextWithNotifications(enabled: boolean): Context {
-  const em = { getMetadata: () => ({ has: (entity: unknown) => enabled && entity === Notification }) }
+  const em = { getMetadata: () => ({ find: (entity: unknown) => enabled && entity === Notification }) }
   return { resolve: (<T,>(name: string) => (name === 'em' ? em : undefined) as T) }
 }
 

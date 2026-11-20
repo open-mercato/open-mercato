@@ -62,7 +62,7 @@ describe('messages /api/messages/[id]/attachments', () => {
 
   describe('without the attachments module (#9201)', () => {
     it('returns 404 from GET, POST and DELETE before reading the message', async () => {
-      const metadata = () => ({ has: () => false })
+      const metadata = () => ({ find: () => false })
       Object.assign(em, { getMetadata: metadata })
       Object.assign(emFork, { getMetadata: metadata })
 

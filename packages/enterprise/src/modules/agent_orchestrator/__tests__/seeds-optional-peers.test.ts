@@ -18,7 +18,7 @@ const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
 
 function buildHarness(disabled: unknown[]) {
   const em = {
-    getMetadata: jest.fn(() => ({ has: (entity: unknown) => !disabled.includes(entity) })),
+    getMetadata: jest.fn(() => ({ find: (entity: unknown) => !disabled.includes(entity) })),
     findOne: jest.fn().mockResolvedValue(null),
     create: jest.fn((entity: unknown, data: Record<string, unknown>) => ({ __entity: entity, ...data })),
     persist: jest.fn(),

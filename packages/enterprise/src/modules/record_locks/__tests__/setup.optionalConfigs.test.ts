@@ -5,7 +5,7 @@ import { DEFAULT_RECORD_LOCK_SETTINGS } from '../lib/config'
 
 function buildEm(hasModuleConfig: boolean) {
   const em = {
-    getMetadata: jest.fn(() => ({ has: (entity: unknown) => (entity === ModuleConfig ? hasModuleConfig : true) })),
+    getMetadata: jest.fn(() => ({ find: (entity: unknown) => (entity === ModuleConfig ? hasModuleConfig : true) })),
     findOne: jest.fn().mockResolvedValue(null),
     create: jest.fn((_entity: unknown, data: unknown) => data),
     persist: jest.fn(),

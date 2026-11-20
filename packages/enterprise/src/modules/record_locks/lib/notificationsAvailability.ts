@@ -10,5 +10,5 @@ type Resolver = { resolve: <T = unknown>(name: string) => T }
 export async function isNotificationsModuleAvailable(ctx: Resolver): Promise<boolean> {
   const em = ctx.resolve<EntityManager>('em')
   const { Notification } = await import('@open-mercato/core/modules/notifications/data/entities')
-  return em.getMetadata().has(Notification)
+  return Boolean(em.getMetadata().find(Notification))
 }

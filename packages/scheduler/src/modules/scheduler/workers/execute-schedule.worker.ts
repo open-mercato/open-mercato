@@ -169,17 +169,6 @@ async function executeSchedule(
     return
   }
 
-  if (isScheduleSourceModuleDisabled(schedule)) {
-    logger.info('Schedule skipped: source module is not enabled', { scheduleId, sourceModule: schedule.sourceModule })
-    await emitSchedulerEvent('scheduler.job.skipped', {
-      id: schedule.id,
-      tenantId: schedule.tenantId,
-      organizationId: schedule.organizationId,
-      reason: describeDisabledSourceModule(schedule),
-    })
-    return
-  }
-
   // Captured before the target runs: the sync that follows the run must compare
   // against the timing this execution loaded, not whatever the entity holds later.
   execution.timing = {
@@ -189,6 +178,17 @@ async function executeSchedule(
     scheduleType: schedule.scheduleType,
     scheduleValue: schedule.scheduleValue,
     timezone: schedule.timezone,
+  }
+
+  if (isScheduleSourceModuleDisabled(schedule)) {
+    logger.info('Schedule skipped: source module is not enabled', { scheduleId, sourceModule: schedule.sourceModule })
+    await emitSchedulerEvent('scheduler.job.skipped', {
+      id: schedule.id,
+      tenantId: schedule.tenantId,
+      organizationId: schedule.organizationId,
+      reason: describeDisabledSourceModule(schedule),
+    })
+    return
   }
 
   // Emit started event

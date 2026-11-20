@@ -12,6 +12,11 @@ import * as ruleEngine from '../../business_rules/lib/rule-engine'
 import { findWorkflowDefinition } from './find-definition'
 import { isBusinessRulesModuleEnabled } from './optional-modules'
 import type { StartPreCondition } from '../data/validators'
+import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
+import { resolveLocaleFromCandidates } from '@open-mercato/shared/lib/i18n/locale'
+import { getSupportedLocales, loadDictionary } from '@open-mercato/shared/lib/i18n/server'
+import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import english from '../i18n/en.json'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -134,11 +139,21 @@ export async function validateWorkflowStart(
 
   if (!isBusinessRulesModuleEnabled()) {
     const required = preConditions.filter((condition) => condition.required)
+    if (required.length === 0) return { canStart: true, errors: [], validatedRules: [] }
+    const language = resolveLocaleFromCandidates([locale], getSupportedLocales()) ?? defaultLocale
+    const t = createTranslator(await loadDictionary(language))
     return {
-      canStart: required.length === 0,
+      canStart: false,
       errors: required.map((condition) => ({
         ruleId: condition.ruleId,
-        message: getLocalizedMessage(condition, null, locale, `Business rules module is disabled: ${condition.ruleId}`),
+        message: getLocalizedMessage(
+          condition,
+          null,
+          locale,
+          t('workflows.errors.businessRulesModuleDisabled', english['workflows.errors.businessRulesModuleDisabled'], {
+            ruleId: condition.ruleId,
+          }),
+        ),
         code: 'RULE_ENGINE_UNAVAILABLE',
       })),
       validatedRules: [],

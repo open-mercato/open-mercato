@@ -155,7 +155,7 @@ async function seedWorkflowDefinitionFile(
   const entities = (await import(
     '@open-mercato/core/modules/workflows/data/entities'
   )) as typeof import('@open-mercato/core/modules/workflows/data/entities')
-  if (!em.getMetadata().has(entities.WorkflowDefinition)) {
+  if (!em.getMetadata().find(entities.WorkflowDefinition)) {
     logger.warn('workflows module not enabled; skipping demo workflow seed', { fileName })
     return false
   }
@@ -207,7 +207,7 @@ async function seedDemoDeals(
   const customers = (await import(
     '@open-mercato/core/modules/customers/data/entities'
   )) as typeof import('@open-mercato/core/modules/customers/data/entities')
-  if (!em.getMetadata().has(customers.CustomerDeal)) {
+  if (!em.getMetadata().find(customers.CustomerDeal)) {
     logger.warn('customers module not enabled; skipping demo deals seed')
     return 0
   }
@@ -286,7 +286,7 @@ async function seedDealsHealthCheckEval(
   const customers = (await import(
     '@open-mercato/core/modules/customers/data/entities'
   )) as typeof import('@open-mercato/core/modules/customers/data/entities')
-  if (!em.getMetadata().has(customers.CustomerDeal)) {
+  if (!em.getMetadata().find(customers.CustomerDeal)) {
     logger.warn('customers module not enabled; skipping demo golden eval case')
     return
   }
