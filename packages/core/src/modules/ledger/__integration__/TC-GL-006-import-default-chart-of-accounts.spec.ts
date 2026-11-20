@@ -10,7 +10,17 @@ import {
   createOrganizationFixture,
   deleteOrganizationIfExists,
 } from '@open-mercato/core/helpers/integration/authFixtures';
-import { createAccountTypeFixture, createAccountFixture } from '@open-mercato/core/helpers/integration/ledgerFixtures';
+import {
+  createAccountTypeFixture,
+  createAccountFixture,
+  createFiscalPeriodFixture,
+  seedJournalEntryInDb,
+} from '@open-mercato/core/helpers/integration/ledgerFixtures';
+import {
+  createCurrencyFixture,
+  deleteCurrenciesEntityIfExists,
+  generateUniqueCurrencyCode,
+} from '@open-mercato/core/helpers/integration/currenciesFixtures';
 import { deleteGeneralEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
@@ -57,6 +67,41 @@ function scopedHeaders(scope: { tenantId: string; organizationId: string }): Rec
 }
 
 const IMPORT_PATH = '/api/ledger/accounts/import-default-chart-of-accounts';
+const ACTIONS_PATH = '/api/audit_logs/audit-logs/actions';
+const UNDO_PATH = '/api/audit_logs/audit-logs/actions/undo';
+const WAIT_MS = 1500;
+
+type ScopedFixture = { token: string; tenantId: string; organizationId: string; headers: Record<string, string> };
+
+/** The undo token of this organization's most recent import (resource kind of the command's `buildLog`). */
+async function findImportUndoToken(request: APIRequestContext, fx: ScopedFixture): Promise<string> {
+  const res = await apiRequest(
+    request,
+    'GET',
+    `${ACTIONS_PATH}?resourceKind=${encodeURIComponent('ledger.chart_of_accounts_import')}&pageSize=10`,
+    { token: fx.token, headers: fx.headers },
+  );
+  expect(res.status(), 'GET audit-log actions should return 200').toBe(200);
+  const body = (await res.json()) as {
+    items?: Array<{ commandId: string; executionState: string; undoToken: string | null }>;
+  };
+  const entry = (body.items ?? []).find(
+    (item) => item.commandId === 'ledger.importDefaultChartOfAccounts' && item.executionState === 'done' && item.undoToken,
+  );
+  expect(entry?.undoToken, 'the import left an undoable action-log entry').toBeTruthy();
+  return entry!.undoToken as string;
+}
+
+async function findAccountIdByNumber(request: APIRequestContext, fx: ScopedFixture, number: string): Promise<string> {
+  const res = await apiRequest(request, 'GET', `/api/ledger/accounts?search=${encodeURIComponent(number)}&pageSize=50`, {
+    token: fx.token,
+    headers: fx.headers,
+  });
+  const body = (await res.json()) as { items: Array<{ id: string; number: string }> };
+  const account = body.items.find((item) => item.number === number);
+  expect(account, `imported account ${number} exists`).toBeTruthy();
+  return account!.id;
+}
 
 test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button UI path + search', () => {
   test('happy path on an organization created through Directory: provisions the PL groups and returns 200 with the full template row counts (OQ-R1)', async ({ request }) => {
@@ -178,6 +223,96 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
     } finally {
       await deleteOrganizationIfExists(request, superadminToken, organizationId);
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
+    }
+  });
+
+  test('undo waits for an in-flight post to an imported account and is refused once it commits (OQ-R2)', async ({ request }) => {
+    // The two-connection harness of TC-GL-006 (posting lock protocol): a
+    // second connection plays a posting in flight (`for share` on the
+    // accounts, lines inserted, transaction open) while the undo goes through
+    // the real API route. Jest and BDD run on an in-memory fake with no locks,
+    // so this is the only place the undo's lock is exercised for real.
+    //   - Without the lock, the undo checks "posted lines" against a snapshot
+    //     without the in-flight lines, then soft-deletes accounts that end up
+    //     with posted lines (200).
+    //   - With the lock (types, then accounts, `for update`, id order), the
+    //     undo waits for the posting, then sees its committed lines: 409, and
+    //     nothing is deleted.
+    test.slow();
+    const token = await getAuthToken(request, 'superadmin');
+    const stamp = randomUUID();
+    let tenantId: string | null = null;
+    let organizationId: string | null = null;
+    let currencyId: string | null = null;
+    let headers: Record<string, string> = {};
+    try {
+      tenantId = await createTenant(request, token, `QA TC-GL-006f Tenant ${stamp}`);
+      organizationId = await createOrganizationFixture(request, token, {
+        name: `QA TC-GL-006f Organization ${stamp}`,
+        tenantId,
+      });
+      headers = scopedHeaders({ tenantId, organizationId });
+      const fx: ScopedFixture = { token, tenantId, organizationId, headers };
+      currencyId = await createCurrencyFixture(request, token, {
+        code: generateUniqueCurrencyCode(),
+        name: 'QA TC-GL-006f Currency',
+        organizationId,
+        tenantId,
+        headers,
+      });
+      await createFiscalPeriodFixture(
+        request,
+        token,
+        { organizationId, tenantId, startDate: '2035-01-01', endDate: '2035-12-31' },
+        { headers },
+      );
+
+      const importRes = await apiRequest(request, 'POST', IMPORT_PATH, { token, headers });
+      expect(importRes.status(), 'import should return 200').toBe(200);
+      const undoToken = await findImportUndoToken(request, fx);
+      const cashId = await findAccountIdByNumber(request, fx, '100-1');
+      const bankId = await findAccountIdByNumber(request, fx, '130-1');
+
+      let pending: ReturnType<typeof apiRequest> | null = null;
+      let settled = false;
+      await seedJournalEntryInDb(
+        {
+          organizationId,
+          tenantId,
+          currencyId,
+          operationDate: '2035-03-10',
+          lines: [
+            { accountId: cashId, debit: '50.0000', credit: '0' },
+            { accountId: bankId, debit: '0', credit: '50.0000' },
+          ],
+        },
+        {
+          lockAccountIds: [cashId, bankId],
+          whileOpen: async () => {
+            pending = apiRequest(request, 'POST', UNDO_PATH, { token, headers, data: { undoToken } });
+            pending.then(
+              () => { settled = true; },
+              () => { settled = true; },
+            );
+            await new Promise((resolve) => setTimeout(resolve, WAIT_MS));
+            expect(settled, 'the undo is blocked while the post is uncommitted').toBe(false);
+          },
+        },
+      );
+      const undoRes = await (pending as unknown as ReturnType<typeof apiRequest>);
+      expect(undoRes.status(), 'the post won the race, so the undo is refused (409)').toBe(409);
+      const undoBody = (await undoRes.json()) as { error?: string };
+      expect(undoBody.error).toMatch(/posted journal entries/i);
+
+      const after = await apiRequest(request, 'GET', '/api/ledger/accounts?pageSize=1', { token, headers });
+      const afterBody = (await after.json()) as { total: number };
+      expect(afterBody.total, 'nothing was soft-deleted').toBe(46);
+    } finally {
+      if (currencyId) {
+        await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', currencyId, { headers }).catch(() => undefined);
+      }
+      await deleteOrganizationIfExists(request, token, organizationId);
+      await deleteGeneralEntityIfExists(request, token, '/api/directory/tenants', tenantId);
     }
   });
 

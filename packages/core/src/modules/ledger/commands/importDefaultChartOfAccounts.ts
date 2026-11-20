@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { z } from 'zod'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -75,48 +76,6 @@ type PreparedAccount = {
  * every created id in its own `buildLog` payload so `undo` reverses
  * exactly those rows in one call, instead of one undo-log entry per row.
  */
-/**
- * Whether `accountId` has any posted `JournalEntryLine` — the same guard
- * `deleteLedgerAccount` enforces (`commands/ledgerAccounts.ts`). Reimplemented
- * here (that helper isn't exported) but kept behaviorally identical on
- * purpose, so `undo` refuses on exactly the same condition ordinary
- * deletion does (PR #6137 review, M1).
- */
-async function accountHasPostedEntries(em: EntityManager, accountId: string, scope: Scope): Promise<boolean> {
-  const count = await em.count(JournalEntryLine, {
-    accountId,
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-  })
-  return count > 0
-}
-
-/**
- * Whether a non-deleted `LedgerAccount` outside this import's own
- * `createdAccountIds` still references `accountTypeId` — deliberately
- * narrower than `deleteLedgerAccountType`'s own `accountTypeStillInUse`
- * (`commands/ledgerAccountTypes.ts`), which would otherwise always be true
- * here: the import's own accounts of this type are still present (not yet
- * soft-deleted) while this check runs, so excluding them is what makes
- * "is this type used by something *other than what this import created*"
- * the actual question (PR #6137 review, M1).
- */
-async function accountTypeUsedOutsideImport(
-  em: EntityManager,
-  accountTypeId: string,
-  excludeAccountIds: string[],
-  scope: Scope,
-): Promise<boolean> {
-  const count = await em.count(LedgerAccount, {
-    accountTypeId,
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-    id: { $nin: excludeAccountIds },
-  })
-  return count > 0
-}
-
 /**
  * Provisions the PL `LedgerAccountGroup` rows (zespoły 0-8) the template links
  * to, creating only the missing codes (OQ-R1). `seedDefaults` seeds them at
@@ -373,9 +332,8 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
   // so a stale or replayed undo can never reach another organization's
   // rows even if the log entry were somehow tampered with. Refuses the
   // whole call — writing nothing — if any created row fails the same two
-  // guards ordinary deletion already enforces (PR #6137 review, M1: the
-  // spec's own undo contract required this, but the first implementation
-  // didn't check it).
+  // guards ordinary deletion already enforces (PR #6137 review, M1), checked
+  // under row locks in the same transaction as the write (OQ-R2).
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<ImportDefaultChartOfAccountsUndoPayload>(logEntry)
     if (!payload) return
@@ -383,73 +341,106 @@ const importDefaultChartOfAccountsCommand: CommandHandler<
     const tenantId = logEntry.tenantId
     if (!organizationId || !tenantId) return
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const scope: Scope = { organizationId, tenantId }
+    const rootEm = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
-
-    // Guard first, write nothing until every created row clears both
-    // checks below — never a partial undo.
-    for (const accountId of payload.createdAccountIds) {
-      if (await accountHasPostedEntries(em, accountId, scope)) {
-        throw conflict(
-          translate(
-            'ledger.errors.accountHasPostedEntriesCannotDelete',
-            'This account cannot be deleted because it has posted journal entries.',
-          ),
-        )
-      }
-    }
-    for (const accountTypeId of payload.createdAccountTypeIds) {
-      if (await accountTypeUsedOutsideImport(em, accountTypeId, payload.createdAccountIds, scope)) {
-        throw conflict(
-          translate(
-            'ledger.errors.accountTypeStillInUseCannotDelete',
-            'This account type cannot be deleted because an account still uses it.',
-          ),
-        )
-      }
-    }
 
     const now = new Date()
     const deletedAccounts: LedgerAccount[] = []
     const deletedTypes: LedgerAccountType[] = []
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          if (!payload.createdAccountIds.length) return
-          const accounts = await em.find(LedgerAccount, {
-            id: { $in: payload.createdAccountIds },
-            organizationId,
-            tenantId,
-            deletedAt: null,
-          })
-          for (const account of accounts) {
-            account.deletedAt = now
-            account.updatedAt = now
-            deletedAccounts.push(account)
-          }
-        },
-        async () => {
-          if (!payload.createdAccountTypeIds.length) return
-          const types = await em.find(LedgerAccountType, {
-            id: { $in: payload.createdAccountTypeIds },
-            organizationId,
-            tenantId,
-            deletedAt: null,
-          })
-          for (const type of types) {
-            type.deletedAt = now
-            type.updatedAt = now
-            deletedTypes.push(type)
-          }
-        },
-      ],
-      { transaction: true, label: 'ledger.importDefaultChartOfAccounts.undo' },
-    )
+    // One transaction for the locks, both guards and the soft-delete
+    // (decision OQ-R2). Lock protocol shared with `postJournalEntry` and the
+    // account/account-type commands: account types first, then accounts, each
+    // in id order, all `for update`.
+    // - Posting holds `for share` on the accounts it touches (id order) until
+    //   it commits, so the account locks below wait for an in-flight posting,
+    //   and the posted-lines guard then sees its committed lines (409). A
+    //   posting that arrives later waits for this transaction and then finds
+    //   the accounts deleted.
+    // - `createLedgerAccount` and an `updateLedgerAccount` that sets
+    //   `accountTypeId` hold `for share` on the target type, so the type locks
+    //   below make "an account outside this import uses the type" stable until
+    //   commit.
+    // Type -> account is the order every ledger command locks in, and posting
+    // locks accounts only, so no lock cycle is possible.
+    await rootEm.transactional(async (em) => {
+      const types = payload.createdAccountTypeIds.length
+        ? await em.find(
+            LedgerAccountType,
+            { id: { $in: payload.createdAccountTypeIds }, organizationId, tenantId, deletedAt: null },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } },
+          )
+        : []
+      const accounts = payload.createdAccountIds.length
+        ? await em.find(
+            LedgerAccount,
+            { id: { $in: payload.createdAccountIds }, organizationId, tenantId, deletedAt: null },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } },
+          )
+        : []
+
+      // Guards on the same transaction, after the locks, and before any
+      // write — never a partial undo. The same conditions ordinary deletion
+      // enforces (`deleteLedgerAccount`'s posted-entries check;
+      // `deleteLedgerAccountType`'s "still in use", narrowed to accounts this
+      // import did not create, because those are being deleted with it).
+      if (payload.createdAccountIds.length) {
+        const postedLineCount = await em.count(JournalEntryLine, {
+          accountId: { $in: payload.createdAccountIds },
+          organizationId,
+          tenantId,
+        })
+        if (postedLineCount > 0) {
+          throw conflict(
+            translate(
+              'ledger.errors.accountHasPostedEntriesCannotDelete',
+              'This account cannot be deleted because it has posted journal entries.',
+            ),
+          )
+        }
+      }
+      if (payload.createdAccountTypeIds.length) {
+        const accountsOutsideImport = await em.count(LedgerAccount, {
+          accountTypeId: { $in: payload.createdAccountTypeIds },
+          organizationId,
+          tenantId,
+          deletedAt: null,
+          id: { $nin: payload.createdAccountIds },
+        })
+        if (accountsOutsideImport > 0) {
+          throw conflict(
+            translate(
+              'ledger.errors.accountTypeStillInUseCannotDelete',
+              'This account type cannot be deleted because an account still uses it.',
+            ),
+          )
+        }
+      }
+
+      // `withAtomicFlush` joins the transaction opened above.
+      await withAtomicFlush(
+        em,
+        [
+          () => {
+            for (const account of accounts) {
+              account.deletedAt = now
+              account.updatedAt = now
+              deletedAccounts.push(account)
+            }
+          },
+          () => {
+            for (const type of types) {
+              type.deletedAt = now
+              type.updatedAt = now
+              deletedTypes.push(type)
+            }
+          },
+        ],
+        { transaction: true, label: 'ledger.importDefaultChartOfAccounts.undo' },
+      )
+    })
 
     // Undo removes the rows `execute` announced, so it announces their
-    // removal the same way.
+    // removal the same way — after the transaction committed.
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     for (const account of deletedAccounts) {
       await emitCrudUndoSideEffects({

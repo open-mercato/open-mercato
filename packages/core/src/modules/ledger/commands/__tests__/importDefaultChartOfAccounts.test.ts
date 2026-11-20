@@ -26,6 +26,7 @@
 export {}
 
 import { randomUUID } from 'crypto'
+import { LockMode } from '@mikro-orm/core'
 import {
   JournalEntryLine,
   LedgerAccount,
@@ -320,6 +321,59 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     // Soft-deleted, not hard-deleted — every row is still physically present.
     expect(em.tables.get('LedgerAccountType')).toHaveLength(TOTAL_TEMPLATE_TYPES)
     expect(em.tables.get('LedgerAccount')).toHaveLength(TOTAL_TEMPLATE_ACCOUNTS)
+  })
+
+  it('undo locks the imported types, then the imported accounts, for update in id order, before its guards (OQ-R2)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+    const logMeta = await command.buildLog({ input: { organizationId: ORG_A, tenantId: TENANT }, result, ctx })
+    em.find.mockClear()
+    em.count.mockClear()
+    em.transactional.mockClear()
+
+    // Record the order of every read the undo makes.
+    const reads: string[] = []
+    em.find.mockImplementationOnce(async (entityClass: { name: string }, where: Record<string, unknown>, options?: Record<string, unknown>) => {
+      reads.push(`find:${entityClass.name}`)
+      expect(options).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } })
+      return (em.tables.get(entityClass.name) ?? []).filter((row) => (where.id as { $in: unknown[] }).$in.includes(row.id))
+    })
+    em.find.mockImplementationOnce(async (entityClass: { name: string }, where: Record<string, unknown>, options?: Record<string, unknown>) => {
+      reads.push(`find:${entityClass.name}`)
+      expect(options).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } })
+      return (em.tables.get(entityClass.name) ?? []).filter((row) => (where.id as { $in: unknown[] }).$in.includes(row.id))
+    })
+    const countImpl = em.count.getMockImplementation()!
+    em.count.mockImplementation(async (entityClass: { name: string }, where: Record<string, unknown>) => {
+      reads.push(`count:${entityClass.name}`)
+      return countImpl(entityClass, where)
+    })
+
+    await command.undo({
+      logEntry: { commandPayload: logMeta!.payload, organizationId: logMeta!.organizationId, tenantId: logMeta!.tenantId },
+      ctx,
+    })
+
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(reads).toEqual([
+      'find:LedgerAccountType',
+      'find:LedgerAccount',
+      'count:JournalEntryLine',
+      'count:LedgerAccount',
+    ])
+    // One query per guard, over every imported id, not one query per row.
+    expect(em.count.mock.calls[0][1]).toMatchObject({ accountId: { $in: result.createdAccountIds } })
+    expect(em.count.mock.calls[1][1]).toMatchObject({
+      accountTypeId: { $in: result.createdAccountTypeIds },
+      id: { $nin: result.createdAccountIds },
+      deletedAt: null,
+    })
+    expect(nonDeletedCount(em, LedgerAccountType, ORG_A)).toBe(0)
+    expect(nonDeletedCount(em, LedgerAccount, ORG_A)).toBe(0)
   })
 
   it('announces every imported row to search and subscribers: one created change per type and per account (PR #6439 review, point 2)', async () => {
