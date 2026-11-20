@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { SsoAdminAuthError } from './admin-context'
 import { SsoConfigError } from '../services/ssoConfigService'
 import { ScimTokenError } from '../services/scimTokenService'
-import { ScimServiceError } from '../services/scimService'
+import { isScimServiceError } from '../services/scimService'
 import { scimJson, buildScimError } from '../lib/scim-response'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -20,7 +20,7 @@ function isSsoHttpError(err: unknown): err is SsoHttpError {
     err instanceof SsoAdminAuthError ||
     err instanceof SsoConfigError ||
     err instanceof ScimTokenError ||
-    err instanceof ScimServiceError
+    isScimServiceError(err)
   )
 }
 
@@ -44,7 +44,7 @@ export function handleScimApiError(err: unknown, label: string): Response {
   if (isCrudHttpError(err)) {
     return scimJson(buildScimError(err.status, err.message), err.status)
   }
-  if (err instanceof ScimServiceError) {
+  if (isScimServiceError(err)) {
     return scimJson(buildScimError(err.statusCode, err.message), err.statusCode)
   }
   logger.error('SCIM API error', { label, err })

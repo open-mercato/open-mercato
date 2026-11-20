@@ -16,4 +16,17 @@ describe('SSO authority error responses', () => {
       status: '403', detail: 'Authorization denied',
     })
   })
+
+  it('returns a SCIM service error from another bundle as a SCIM error resource', async () => {
+    const error = Object.assign(new Error('User not found'), {
+      [Symbol.for('@open-mercato/sso/ScimServiceError')]: true,
+      statusCode: 404,
+    })
+    const response = handleScimApiError(error, 'SCIM test')
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toMatchObject({
+      schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'],
+      status: '404', detail: 'User not found',
+    })
+  })
 })

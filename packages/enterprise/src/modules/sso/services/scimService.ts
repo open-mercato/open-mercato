@@ -475,7 +475,11 @@ function buildDisplayName(parsed: ScimUserPayload): string | null {
   return parts.length > 0 ? parts.join(' ') : null
 }
 
+const SCIM_SERVICE_ERROR_MARKER = Symbol.for('@open-mercato/sso/ScimServiceError')
+
 export class ScimServiceError extends Error {
+  readonly [SCIM_SERVICE_ERROR_MARKER] = true
+
   constructor(
     public readonly statusCode: number,
     message: string,
@@ -483,4 +487,11 @@ export class ScimServiceError extends Error {
     super(message)
     this.name = 'ScimServiceError'
   }
+}
+
+export function isScimServiceError(error: unknown): error is ScimServiceError {
+  return error instanceof ScimServiceError || (
+    !!error && typeof error === 'object'
+    && (error as Record<symbol, unknown>)[SCIM_SERVICE_ERROR_MARKER] === true
+  )
 }
