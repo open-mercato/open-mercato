@@ -10,6 +10,8 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 const COUNT_MARKER = '\uE000'
 const ON_BAR_ICON_BUTTON = 'hover:bg-white/10'
+const ON_BAR_DELETE_BUTTON = 'text-destructive hover:bg-destructive/10'
+const DARK_SURFACE_TOKENS = 'dark'
 
 function splitAroundCount(text: string): { before: string; after: string } {
   const index = text.indexOf(COUNT_MARKER)
@@ -80,7 +82,7 @@ export function BulkActionsBar({
     <div
       role="region"
       aria-label={translateWithFallback(t, 'customers.deals.kanban.bulk.aria.bar', 'Bulk actions')}
-      className="sticky bottom-4 z-sticky flex w-full flex-wrap items-center gap-2 rounded-lg bg-neutral-700 px-3 py-2 text-white shadow-lg sm:gap-x-3"
+      className={`${DARK_SURFACE_TOKENS} sticky bottom-4 z-sticky flex w-full flex-wrap items-center gap-2 rounded-lg bg-neutral-700 px-3 py-2 text-white shadow-lg sm:gap-x-3`}
     >
       <div className="flex min-w-0 items-center gap-2">
         <IconButton
@@ -134,7 +136,7 @@ export function BulkActionsBar({
             type="button"
             onClick={onDelete}
             aria-label={deleteLabel}
-            className={ON_BAR_ICON_BUTTON}
+            className={ON_BAR_DELETE_BUTTON}
           >
             <Trash2 aria-hidden="true" />
           </IconButton>
