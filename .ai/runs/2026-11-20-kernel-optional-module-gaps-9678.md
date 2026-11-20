@@ -72,4 +72,6 @@ Phase 1 merges the existing community PRs. Phases 2–5 run as parallel child ta
 ### Phase 6: Gate and umbrella
 
 - [ ] 6.1 Full validation gate
-- [ ] 6.2 File umbrella issue for #9678 implementation
+- [ ] 6.3 Integration tests for #9197 #9191 #9194 #9201 (core)
+- [ ] 6.4 Integration tests for #9217 #9205 (workflows, record_locks)
+- [x] 6.2 File umbrella issue for #9678 implementation — #10144
