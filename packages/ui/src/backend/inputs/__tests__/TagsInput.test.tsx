@@ -234,4 +234,14 @@ describe('TagsInput', () => {
       expect(onOpenChange).toHaveBeenCalledWith(false)
     })
   })
+
+  it('lets a long tag label wrap inside the input instead of widening the page', () => {
+    const longLabel = 'qa_9521_warehouse_lead_with_a_very_long_role_name_that_has_no_spaces'
+    renderWithProviders(<TagsInput value={[longLabel]} onChange={() => {}} />)
+
+    const label = screen.getByText(longLabel)
+    expect(label).toHaveClass('wrap-anywhere')
+    expect(label).not.toHaveClass('whitespace-nowrap')
+    expect(label.closest('[data-slot="tag"]')).toHaveClass('max-w-full')
+  })
 })
