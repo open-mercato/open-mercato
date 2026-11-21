@@ -1322,8 +1322,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     },
     {
       id: 'comments',
-      label: t('sales.documents.form.comments', 'Comments'),
-      type: 'textarea',
+      label: t('sales.documents.form.comments', 'Document note'),
+      type: 'richtext',
+      editor: 'uiw',
+      description: t(
+        'sales.documents.form.comments.description',
+        'Saved with this document and editable in Details. Use Team notes for dated notes.'
+      ),
     },
     {
       id: 'lines',
