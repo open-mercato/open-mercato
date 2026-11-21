@@ -1,5 +1,26 @@
 # Upgrade Notes
 
+## Query index metadata cached across requests (#2967)
+
+The query index engine no longer re-reads table metadata and custom-field definitions
+on every request:
+
+- Base-table column maps are cached per process for `OM_QUERY_INDEX_COLUMN_CACHE_MS`
+  (default 300000 ms; `0` disables it). A column missing from a cached map is always
+  re-checked, so a tenant, organization or soft-delete column added by a migration
+  takes effect immediately. A dropped or newly added non-scoping column is picked up
+  when the entry expires.
+- Custom-field definitions and sort kinds are cached in the DI `cache` service for
+  `QUERY_INDEX_CF_KEYS_CACHE_MS` (default 300000 ms; `0` keeps the old per-request
+  behavior). Definition writes through the definitions API, batch, restore,
+  `install-from-ce` and the Akeneo importer invalidate them immediately for the
+  writer's tenant. Definitions written by seeds or CLI commands, global definitions
+  edited from another tenant, and other instances when `CACHE_STRATEGY=memory` can
+  take up to the TTL to appear in list queries. Use `CACHE_STRATEGY=redis` in
+  multi-instance deployments, or lower the TTL, to converge sooner.
+
+No configuration, database, route, event or DI-key change is required.
+
 ## Explicit deleted-row list access (#9154)
 
 `GET /api/entities/records` no longer honors `withDeleted=true`, including full
