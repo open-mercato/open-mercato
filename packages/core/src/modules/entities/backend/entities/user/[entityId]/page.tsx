@@ -34,7 +34,7 @@ type EntitiesListResponse = { items?: Array<Record<string, unknown>> }
 type FieldsetGroup = { code: string; title?: string; hint?: string }
 type FieldsetDefinition = { code: string; label: string; icon?: string; description?: string; groups?: FieldsetGroup[] }
 type DefinitionsManageResponse = { items?: any[]; deletedKeys?: string[]; fieldsets?: FieldsetDefinition[]; settings?: { singleFieldsetPerRecord?: boolean }; version?: string | null }
-type DefinitionsBatchResponse = { ok?: boolean; version?: string | null }
+type DefinitionsBatchResponse = { ok?: boolean; version?: string | null; metadataVersion?: string }
 
 function readVersionToken(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
@@ -54,6 +54,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [entitySource, setEntitySource] = useState<EntitySource>('custom')
   const [entityFormLoading, setEntityFormLoading] = useState(true)
   const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean; accessRestricted?: boolean; updatedAt?: string }>({})
+  const [metadataVersion, setMetadataVersion] = useState<string | undefined>(undefined)
   const [defs, setDefs] = useState<Def[]>([])
   const [defsVersion, setDefsVersion] = useState<string | null>(null)
   const [orderDirty, setOrderDirty] = useState(false)
@@ -183,6 +184,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           const accessRestrictedValue = record?.accessRestricted === true
           const updatedAtValue =
             typeof record?.updatedAt === 'string' && record.updatedAt.length > 0 ? record.updatedAt : undefined
+          setMetadataVersion(updatedAtValue)
           setLabel(labelValue)
           if (record?.source === 'code' || record?.source === 'custom') setEntitySource(record.source)
           setEntityInitial({
@@ -547,7 +549,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           ...defsPayload,
-          entityMetadata: entityMetadata ? { ...entityMetadata, expectedUpdatedAt: entityInitial.updatedAt } : undefined,
+          entityMetadata: entityMetadata ? { ...entityMetadata, expectedUpdatedAt: metadataVersion } : undefined,
         }),
       }),
     )
@@ -555,10 +557,13 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       await raiseCrudError(callDefs.response, t('entities.customFields.errors.saveFailed', 'Failed to save field definitions.'))
     }
     setDefsVersion(readVersionToken(callDefs.result?.version))
+    if (callDefs.result?.metadataVersion) {
+      setMetadataVersion(callDefs.result.metadataVersion)
+    }
     try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
     await invalidateCustomFieldDefs(queryClient, entityId)
     flash(t('entities.customFields.flash.saved', 'Definitions saved'), 'success')
-  }, [buildFieldsetPayload, defs, defsVersion, entityId, entityInitial.updatedAt, entitySource, queryClient, singleFieldsetPerRecord, t, validateAll])
+  }, [buildFieldsetPayload, defs, defsVersion, entityId, metadataVersion, entitySource, queryClient, singleFieldsetPerRecord, t, validateAll])
 
   if (!entityId) {
     return (

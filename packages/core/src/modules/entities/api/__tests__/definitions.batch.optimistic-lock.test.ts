@@ -124,7 +124,7 @@ describe('entities/definitions.batch POST optimistic locking (issue #3152)', () 
   })
 
   it('rolls back a combined save if flushing metadata and definitions fails', async () => {
-    mockEm.flush.mockRejectedValueOnce(new Error('[internal] Database unavailable'))
+    mockEm.flush.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('[internal] Database unavailable'))
     const response = await POST(makeRequest({
       ...body,
       entityMetadata: { label: 'Draft label' },
@@ -136,6 +136,20 @@ describe('entities/definitions.batch POST optimistic locking (issue #3152)', () 
     expect(mockEm.rollback).toHaveBeenCalledTimes(1)
     expect(mockEm.commit).not.toHaveBeenCalled()
     expect(invalidateDefinitionsCacheMock).not.toHaveBeenCalled()
+  })
+
+  it('returns the saved metadata version and flushes metadata before reading definitions', async () => {
+    const response = await POST(makeRequest({
+      ...body,
+      entityMetadata: { label: 'Draft label' },
+    }))
+
+    expect(response.status).toBe(200)
+    const result = await response.json() as { metadataVersion: string }
+    const metadata = mockEm.persist.mock.calls.map(([record]) => record).find((record) => record.label === 'Draft label')
+    expect(result.metadataVersion).toBe(metadata.updatedAt.toISOString())
+    expect(mockEm.flush.mock.invocationCallOrder[0]).toBeLessThan(mockEm.find.mock.invocationCallOrder[0])
+    expect(mockEm.commit).toHaveBeenCalledTimes(1)
   })
 
   it('stays additive: a save without the header proceeds unchanged', async () => {

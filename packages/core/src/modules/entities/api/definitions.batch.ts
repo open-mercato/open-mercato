@@ -112,6 +112,7 @@ export async function POST(req: Request) {
   if (guard.blockedResponse) return guard.blockedResponse
 
   let afterMetadataSuccess: (() => Promise<void>) | undefined
+  let metadataVersion: string | undefined
   let nextVersion: string | null
   await em.begin()
   try {
@@ -155,9 +156,11 @@ export async function POST(req: Request) {
         await em.rollback()
         return metadataGuard.blockedResponse
       }
-      await persistCustomEntityMetadata(
+      const savedEntity = await persistCustomEntityMetadata(
         em, container, metadataScope, entity, input, metadataInput.accessRestricted !== undefined,
       )
+      await em.flush()
+      metadataVersion = savedEntity.updatedAt.toISOString()
       afterMetadataSuccess = metadataGuard.runAfterSuccess
     }
 
@@ -285,12 +288,13 @@ export async function POST(req: Request) {
     entityIds: [entityId],
   })
 
-  return NextResponse.json({ ok: true, version: nextVersion })
+  return NextResponse.json({ ok: true, version: nextVersion, ...(metadataVersion ? { metadataVersion } : {}) })
 }
 
 const batchResponseSchema = z.object({
   ok: z.literal(true),
   version: z.string().nullable().optional(),
+  metadataVersion: z.string().optional(),
 })
 
 export const openApi: OpenApiRouteDoc = {
