@@ -1192,6 +1192,48 @@ describe('cart.merge / cart.mergeUndo advisory locks (§8.1, #9183)', () => {
     expect(seededCarts.find((row) => row.id === 'cart-target')!.status).toBe('active')
   })
 
+  it('refuses with the no-oracle 404 when a concurrent adoption rotated the guest token before the locks granted (§8.3)', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token'), customerId: null, customerUserId: null, buyerDigest: 'digest-guest' }),
+    ]
+    seededCartLines = [makeLineFixture({ id: 'line-guest-1', cartId: 'cart-guest', productId: 'product-1', quantity: '1', lineNumber: 1 })]
+    seededProducts = [makeProductFixture({ id: 'product-1' })]
+
+    const handler = getMergeHandler()
+    const em = makeEm()
+    armLockRace(em, (row) => {
+      if (row.id === 'cart-guest') {
+        row.tokenHash = 'rotated-by-concurrent-adoption'
+        row.customerUserId = 'other-customer-user'
+        row.buyerDigest = 'digest-other-buyer'
+      }
+    })
+
+    let captured: unknown
+    try {
+      await handler.execute(
+        { targetCartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, sourceToken: 'guest-plain-token', routeContext: makeRouteContext() },
+        makeCtx({ em }),
+      )
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(404)
+    expect(em.rollback).toHaveBeenCalled()
+    expect(seededMergeLogs).toHaveLength(0)
+    const guestCart = seededCarts.find((row) => row.id === 'cart-guest')!
+    expect(guestCart.status).toBe('active')
+    expect(guestCart.tokenHash).toBe('rotated-by-concurrent-adoption')
+    expect(guestCart.customerUserId).toBe('other-customer-user')
+    expect(guestCart.buyerDigest).toBe('digest-other-buyer')
+    const targetCart = seededCarts.find((row) => row.id === 'cart-target')!
+    expect(targetCart.status).toBe('active')
+    expect(targetCart.tokenHash).toBe('target-token-hash')
+  })
+
   it('re-reads the survivor inside the line locks and refuses without restoring when checkout locked it after the pre-checks (#9183)', async () => {
     seedMergedPair()
     const handler = getUndoHandler()

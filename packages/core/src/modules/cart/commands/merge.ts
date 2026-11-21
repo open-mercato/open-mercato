@@ -604,6 +604,11 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
           if (sessionCart.status !== 'active' || guestCart.status !== 'active') {
             throw notFound('[internal] cart not found')
           }
+          // §8.3: a concurrent merge or adoption of this guest cart rotated its token, so the
+          // token this request presented no longer proves possession of the cart.
+          if (guestCart.tokenHash !== hashCartToken(input.sourceToken)) {
+            throw notFound('[internal] source cart not found')
+          }
           const decided = await decideMerge()
           const { survivorCart, absorbedCart } = decided
           if (decided.strategy === 'replace') {
