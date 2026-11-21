@@ -1,0 +1,65 @@
+name: QA ready label
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, converted_to_draft, ready_for_review, labeled, unlabeled]
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+# Keeps the human QA labels current (see .ai/docs/pr-workflow.md).
+#
+# 1. Classification backstop: an open PR that asks for QA (`needs-qa`, no
+#    `skip-qa`) and falls under the human-only policy (`security`, `feature`
+#    or `risk-high`, or authored by the UX owner) gets `needs-human-qa`, so a
+#    protected PR is never left out of the human QA queue because nobody
+#    classified it. This job only adds that label; it
+#    never removes it.
+# 2. `ready-for-qa` means a human tester can start now: an
+#    approving review on the current head, no active changes request, green
+#    CI, no conflicts, and no human QA sign-off on the current head yet. A push
+#    removes it at once, so a QA verdict is never based on code that has since
+#    changed; the schedule adds it back once the new head is approved and green
+#    again. It is a queue hint only: merge tooling checks `qa-approved` and the
+#    `QA head:` line itself and never trusts this label.
+#
+# A sign-off counts only when the latest QA verdict comment on the PR comes
+# from someone with triage or higher permission who is not the PR author,
+# says READY TO MERGE, and pins the full 40-character current head SHA.
+#
+# The logic lives in .github/scripts/qa-ready-label.mjs (unit tested in
+# scripts/__tests__/qa-ready-label.test.mjs). pull_request_target runs in the
+# base repository context so fork pull requests can be relabeled. The only
+# checkout is a sparse, credential-free copy of that script pinned to the
+# default branch, so no pull request head and no
+# contributor-supplied code ever reaches this job.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: qa-ready-label-${{ github.event.pull_request.number || 'scan' }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.event_name != 'pull_request_target' || github.event.action != 'labeled' || github.event.label.name != 'ready-for-qa'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Check out the QA label script
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: |
+            .github/scripts/qa-ready-label.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Sync needs-human-qa and ready-for-qa
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { run } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/qa-ready-label.mjs`);
+            await run({ github, context, core });
