@@ -3,6 +3,7 @@ import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { hash } from 'bcryptjs'
 import type { StartedTestContainer } from 'testcontainers'
 import { z } from 'zod'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { MfaRecoveryCode, UserMfaMethod } from '../../data/entities'
 import { emitSecurityEvent } from '../../events'
 import { MfaProviderRegistry } from '../../lib/mfa-provider-registry'
@@ -36,6 +37,7 @@ describeWithPostgres('MfaService concurrent mutations on PostgreSQL', () => {
   let codeHash: string
   let userId: string
   let tenantId: string
+  let organizationId: string
   let schemaCreated = false
   const applicationName = `mfa-race-${randomUUID()}`
 
@@ -48,7 +50,7 @@ describeWithPostgres('MfaService concurrent mutations on PostgreSQL', () => {
       .withStartupTimeout(60_000)
       .start()
     orm = await MikroORM.init({
-      entities: [MfaRecoveryCode, UserMfaMethod],
+      entities: [User, MfaRecoveryCode, UserMfaMethod],
       host: postgres.getHost(),
       port: postgres.getMappedPort(5432),
       user: 'mfa_test',
@@ -62,17 +64,29 @@ describeWithPostgres('MfaService concurrent mutations on PostgreSQL', () => {
     codeHash = await hash('ABCDE12345', 10)
   }, 90_000)
 
-  beforeEach(() => {
+  beforeEach(async () => {
     userId = randomUUID()
     tenantId = randomUUID()
+    organizationId = randomUUID()
+    const em = orm.em.fork()
+    em.persist(em.create(User, {
+      id: userId,
+      tenantId,
+      organizationId,
+      email: `${userId}@example.test`,
+      isConfirmed: true,
+      createdAt: new Date(),
+    }))
+    await em.flush()
     emitted.mockReset().mockResolvedValue(undefined)
     jest.mocked(issueVerifiedMfaToken).mockClear()
   })
 
   afterEach(async () => {
     if (!schemaCreated) return
-    await orm.em.fork().nativeDelete(MfaRecoveryCode, {})
-    await orm.em.fork().nativeDelete(UserMfaMethod, {})
+    await orm.em.fork().nativeDelete(MfaRecoveryCode, { userId })
+    await orm.em.fork().nativeDelete(UserMfaMethod, { userId })
+    await orm.em.fork().nativeDelete(User, { id: userId })
   })
 
   afterAll(async () => {
@@ -95,7 +109,7 @@ describeWithPostgres('MfaService concurrent mutations on PostgreSQL', () => {
   async function pending(setupId: string, label?: string) {
     const em = orm.em.fork()
     const method = em.create(UserMfaMethod, {
-      userId, tenantId, type: 'totp', secret: setupId, label, isActive: false,
+      userId, tenantId, organizationId, type: 'totp', secret: setupId, label, isActive: false,
       createdAt: new Date(), updatedAt: new Date(),
     })
     em.persist(method)
@@ -193,10 +207,21 @@ describeWithPostgres('MfaService concurrent mutations on PostgreSQL', () => {
     expect(emitted).toHaveBeenCalledTimes(2)
   })
 
+  test('a pending method outside the account organization cannot be confirmed', async () => {
+    const setupId = randomUUID()
+    const method = await pending(setupId)
+    const em = orm.em.fork()
+    await em.nativeUpdate(UserMfaMethod, { id: method.id }, { organizationId: randomUUID() })
+
+    await expect(service().confirmMethod(userId, setupId, {})).rejects.toMatchObject({ statusCode: 404 })
+    expect(await em.count(UserMfaMethod, { id: method.id, isActive: false })).toBe(1)
+    expect(emitted).not.toHaveBeenCalled()
+  })
+
   function routeContext() {
     const mfaService = service()
     return {
-      auth: { sub: userId, tenantId, orgId: null, mfa_pending: true },
+      auth: { sub: userId, tenantId, orgId: organizationId, mfa_pending: true },
       mfaService,
       mfaVerificationService: { verifyRecoveryCode: mfaService.verifyRecoveryCode.bind(mfaService) },
     } as unknown as Awaited<ReturnType<typeof resolveMfaRequestContext>>

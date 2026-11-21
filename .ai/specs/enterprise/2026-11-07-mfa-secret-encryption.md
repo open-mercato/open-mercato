@@ -20,7 +20,7 @@ Encrypt the entire provider metadata JSON column so legacy TOTP seeds receive th
 
 ## API contracts and migration & backward compatibility
 
-Route URLs, bodies, response shapes, event IDs, provider contracts and DI keys are unchanged. The schema and map are additive. Encryption-disabled installations retain their established plaintext behavior. Existing ciphertext and plaintext may coexist during deployment; shared helpers support both. Do not roll back to a version that reads encrypted method fields without decryption helpers.
+Route URLs, bodies, response shapes, event IDs, provider contracts and DI keys are unchanged. The MFA methods list excludes the private legacy TOTP seed while retaining public provider metadata, including passkey identifiers. The schema and map are additive. Encryption-disabled installations retain their established plaintext behavior. Existing ciphertext and plaintext may coexist during deployment; shared helpers support both. Do not roll back to a version that reads encrypted method fields without decryption helpers.
 
 SQL cannot encrypt tenant-key payloads. After migrations and generated registries are deployed, operators must stop writers and use the established `mercato entities rotate-encryption-key --tenant <tenant UUID> --dry-run` preview, then the same command without `--dry-run` and without an old key, for every affected tenant. This encrypts historical plaintext and skips ciphertext already sealed with the current key. Follow the existing encryption-maintenance safety gates, restart replicas, and verify the preview reports no remaining plaintext. The migration installs maps for existing enabled scopes; it does not claim to rewrite historical values. Explicitly disabled maps remain an operator policy choice.
 
@@ -29,6 +29,7 @@ SQL cannot encrypt tenant-key payloads. After migrations and generated registrie
 - Unit service regression: ciphertext pending secret resolves by its hash; null-hash legacy setup confirms; foreign-organization pending method is denied.
 - Real encryption service composition: both seed locations encrypt, historical plaintext round-trips after backfill, setup hash survives, repeated encryption is idempotent.
 - Migration ordering and tenant-map SQL registration.
+- MFA methods route: legacy TOTP material remains private after decryption and passkey metadata remains available.
 - Existing MfaService and MfaVerificationService suites retain setup, confirmation, challenge, recovery and provider behavior.
 - Deployment verification still requires an initialized database migration/backfill and live setup/confirm/verify exercise; no developer database is migrated by this task.
 
