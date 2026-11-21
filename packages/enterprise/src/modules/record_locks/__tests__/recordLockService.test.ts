@@ -1,5 +1,5 @@
 import { RecordLockService } from '../lib/recordLockService'
-import type { RecordLockSettings } from '../lib/config'
+import { DEFAULT_RECORD_LOCK_SETTINGS, type RecordLockSettings } from '../lib/config'
 import { emitRecordLocksEvent } from '../events'
 
 jest.mock('../events', () => ({
@@ -59,6 +59,62 @@ function createService(
     rbacService,
   }
 }
+
+describe('record-lock settings scope', () => {
+  const tenantId = '60000000-0000-4000-8000-000000000001'
+
+  test('uses the tenant scope and supplies the built-in fallback', async () => {
+    const { service, moduleConfigService } = createService()
+    moduleConfigService.getValue.mockResolvedValueOnce(null)
+    await expect(service.getSettings(tenantId)).resolves.toEqual(DEFAULT_RECORD_LOCK_SETTINGS)
+    expect(moduleConfigService.getValue).toHaveBeenCalledWith('record_locks', 'settings', {
+      defaultValue: DEFAULT_RECORD_LOCK_SETTINGS,
+      scope: { tenantId },
+    })
+  })
+
+  test('persists settings to the tenant scope', async () => {
+    const { service, moduleConfigService } = createService()
+    const settings = await service.saveSettings(DEFAULT_SETTINGS, tenantId)
+    expect(moduleConfigService.setValue).toHaveBeenCalledTimes(1)
+    expect(moduleConfigService.setValue).toHaveBeenCalledWith('record_locks', 'settings', settings, { tenantId })
+  })
+
+  test('returns the effective settings with their stored version', async () => {
+    const { service, moduleConfigService } = createService()
+    moduleConfigService.getRecord = jest.fn().mockResolvedValue({
+      value: { ...DEFAULT_SETTINGS, heartbeatSeconds: 60 },
+      updatedAt: '2026-11-20T10:00:00.000Z',
+    })
+    const record = await service.getSettingsRecord(tenantId)
+    expect(record.updatedAt).toBe('2026-11-20T10:00:00.000Z')
+    expect(record.settings.heartbeatSeconds).toBe(60)
+    expect(moduleConfigService.getRecord).toHaveBeenCalledWith('record_locks', 'settings', { tenantId })
+  })
+
+  test('returns built-in defaults without a version when nothing is stored', async () => {
+    const { service, moduleConfigService } = createService()
+    moduleConfigService.getRecord = jest.fn().mockResolvedValue(null)
+    await expect(service.getSettingsRecord(tenantId)).resolves.toEqual({
+      settings: DEFAULT_RECORD_LOCK_SETTINGS,
+      updatedAt: null,
+    })
+  })
+
+  test('returns the saved version after persisting', async () => {
+    const { service, moduleConfigService } = createService()
+    moduleConfigService.setValue.mockResolvedValueOnce({ updatedAt: '2026-11-20T10:05:00.000Z' })
+    const record = await service.saveSettingsRecord(DEFAULT_SETTINGS, tenantId)
+    expect(record.updatedAt).toBe('2026-11-20T10:05:00.000Z')
+    expect(moduleConfigService.setValue).toHaveBeenCalledWith('record_locks', 'settings', record.settings, { tenantId })
+  })
+
+  test('requires a tenant for persistence', async () => {
+    const { service, moduleConfigService } = createService()
+    await expect(service.saveSettings(DEFAULT_SETTINGS, '')).rejects.toThrow('require a tenant')
+    expect(moduleConfigService.setValue).not.toHaveBeenCalled()
+  })
+})
 
 function buildLock(overrides: Partial<Record<string, unknown>> = {}) {
   const now = new Date('2026-02-17T10:00:00.000Z')

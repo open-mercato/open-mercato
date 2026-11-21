@@ -528,6 +528,10 @@ Force release capability checked via `rbacService.userHasAllFeatures(['record_lo
 | `sales.quote` | `/backend/sales/documents/{id}` |
 | `sales.order` | `/backend/sales/documents/{id}` |
 
+## Migration & Backward Compatibility
+
+For #3889, settings reads use the authenticated tenant row and fall back to the existing instance defaults. Tenant writes use a trusted tenant id. The former `RecordLockService.saveSettings(input)` call could modify defaults that affect other tenants. The proposed emergency security exception is pending named maintainer acceptance. Module consumers pass the tenant id from trusted operation context, and instance operators continue to use the administrator-controlled defaults path. Older versions ignore tenant overrides on rollback, so record any overrides that must be reapplied. No storage migration is needed. See [upgrade notes](../../../../UPGRADE_NOTES.md#record-lock-settings-are-scoped-per-tenant-3889).
+
 ## Integration Coverage
 
 ### API Coverage

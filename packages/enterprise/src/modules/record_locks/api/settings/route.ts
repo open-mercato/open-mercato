@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import {
   recordLockErrorSchema,
+  recordLockSettingsConflictSchema,
   recordLockSettingsResponseSchema,
   recordLockSettingsUpsertSchema,
 } from '../../data/validators'
 import { resolveRecordLocksApiContext } from '../utils'
+
+const RECORD_LOCK_SETTINGS_RESOURCE_KIND = 'record_locks.settings'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['record_locks.manage'] },
@@ -16,8 +21,8 @@ export async function GET(req: Request) {
   const ctxOrResponse = await resolveRecordLocksApiContext(req)
   if (ctxOrResponse instanceof Response) return ctxOrResponse
 
-  const settings = await ctxOrResponse.recordLockService.getSettings()
-  return NextResponse.json({ settings })
+  const { settings, updatedAt } = await ctxOrResponse.recordLockService.getSettingsRecord(ctxOrResponse.auth.tenantId)
+  return NextResponse.json({ settings, updatedAt })
 }
 
 export async function POST(req: Request) {
@@ -30,8 +35,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid settings payload', details: parsed.error.issues }, { status: 400 })
   }
 
-  const settings = await ctxOrResponse.recordLockService.saveSettings(parsed.data)
-  return NextResponse.json({ settings })
+  const tenantId = ctxOrResponse.auth.tenantId
+  try {
+    const { settings, updatedAt } = await ctxOrResponse.recordLockService.saveSettingsRecord(parsed.data, tenantId, {
+      assertCurrent: (currentUpdatedAt) => enforceCommandOptimisticLock({
+        resourceKind: RECORD_LOCK_SETTINGS_RESOURCE_KIND,
+        resourceId: tenantId,
+        current: currentUpdatedAt,
+        request: req,
+      }),
+    })
+    return NextResponse.json({ settings, updatedAt })
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -59,6 +77,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid payload', schema: recordLockErrorSchema },
         { status: 401, description: 'Unauthorized', schema: recordLockErrorSchema },
+        { status: 409, description: 'Settings changed since they were loaded', schema: recordLockSettingsConflictSchema },
       ],
     },
   },

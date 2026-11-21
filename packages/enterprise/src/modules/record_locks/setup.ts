@@ -7,6 +7,7 @@ export const setup: ModuleSetupConfig = {
     const existing = await em.findOne(ModuleConfig, {
       moduleId: RECORD_LOCKS_MODULE_ID,
       name: RECORD_LOCKS_SETTINGS_NAME,
+      tenantId: null,
     })
     if (existing) {
       const current = existing.valueJson && typeof existing.valueJson === 'object'
