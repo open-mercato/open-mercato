@@ -1,5 +1,33 @@
 import { z } from 'zod'
 
+export const carrierShipmentListQuerySchema = z.object({
+  orderId: z.string().uuid(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+})
+
+export const carrierShipmentSummarySchema = z.object({
+  id: z.string().uuid(),
+  orderId: z.string().uuid(),
+  providerKey: z.string(),
+  carrierShipmentId: z.string(),
+  trackingNumber: z.string(),
+  status: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+
+export const carrierShipmentListSchema = z.object({
+  items: z.array(carrierShipmentSummarySchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().min(1).max(100),
+  totalPages: z.number().int().nonnegative(),
+})
+
+export type CarrierShipmentSummary = z.infer<typeof carrierShipmentSummarySchema>
+export type CarrierShipmentList = z.infer<typeof carrierShipmentListSchema>
+
 const addressSchema = z.object({
   countryCode: z.string().min(2).max(3),
   postalCode: z.string().min(1),
