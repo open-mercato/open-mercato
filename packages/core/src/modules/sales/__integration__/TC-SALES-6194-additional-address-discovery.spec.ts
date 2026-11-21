@@ -146,10 +146,10 @@ test.describe('TC-SALES-6194: additional address discovery', () => {
       expect(quoteId).toBeTruthy()
 
       await login(page, 'admin')
-      await page.goto(`/backend/customers/companies-v2/${companyId}`)
+      await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' })
       await page.getByRole('tab', { name: 'Activity log', exact: true }).click()
-      await page.getByRole('button', { name: 'Add new', exact: true }).click()
-      await page.getByRole('button', { name: 'New task', exact: true }).click()
+      await page.getByRole('tabpanel').getByRole('button', { name: 'Schedule', exact: true }).click()
+      await page.getByRole('dialog').getByRole('button', { name: 'Task', exact: true }).click()
       const dialog = page.getByRole('dialog', { name: 'New task', exact: true })
       await expect(dialog.locator('[data-schedule-link-types-loading]')).toHaveAttribute('data-schedule-link-types-loading', 'false')
       await dialog.getByRole('button', { name: '+ Add link', exact: true }).click()
