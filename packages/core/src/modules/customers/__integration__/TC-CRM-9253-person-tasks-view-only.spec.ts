@@ -63,7 +63,7 @@ test('a viewer can read a person’s tasks without being offered write actions',
     await expect(task.getByRole('checkbox')).toBeDisabled()
     await expect(task.getByRole('button', { name: /^(Edit|Delete|Cancel task)$/ })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Add task', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('link', { name: 'View all tasks' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Go to all tasks' })).toHaveAttribute('href', '/backend/customer-tasks')
 
     const denied = await page.request.put('/api/customers/interactions', {
       data: { id: taskId, title: 'Denied task edit' },
