@@ -429,13 +429,21 @@ describe('createPasswordHasher', () => {
       let running = 0
       let peak = 0
       const releases: Array<() => void> = []
+      let notifyStarted: ((release: () => void) => void) | undefined
       const gate = () => new Promise<void>((resolve) => {
         running += 1
         peak = Math.max(peak, running)
-        releases.push(() => {
+        const release = () => {
           running -= 1
           resolve()
-        })
+        }
+        const notify = notifyStarted
+        if (notify) {
+          notifyStarted = undefined
+          notify(release)
+        } else {
+          releases.push(release)
+        }
       })
       const argon2 = {
         hash: jest.fn(async () => {
@@ -453,7 +461,13 @@ describe('createPasswordHasher', () => {
           releases.splice(0).forEach((release) => release())
         }
       }
-      return { argon2, releaseAll, peak: () => peak, running: () => running }
+      const releaseNext = async () => {
+        const release = releases.shift() ?? await new Promise<() => void>((started) => {
+          notifyStarted = started
+        })
+        release()
+      }
+      return { argon2, releaseAll, releaseNext, peak: () => peak, running: () => running }
     }
 
     const flush = () => new Promise((resolve) => setImmediate(resolve))
@@ -529,13 +543,16 @@ describe('createPasswordHasher', () => {
       )
       const stored = argon2Hash()
       const warmUp = hasher.equalizeTiming('warm-up')
-      await fake.releaseAll()
+      await fake.releaseNext()
+      await fake.releaseNext()
       await warmUp
-      const pending = [hasher.verify('wrong', stored), hasher.verify('wrong', stored)]
-      await flush()
-      await expect(hasher.verify('wrong', stored)).rejects.toBeInstanceOf(PasswordHasherBusyError)
-      await fake.releaseAll()
-      await expect(Promise.all(pending)).resolves.toEqual([false, false])
+      const attempts = Array.from({ length: 3 }, () => hasher.verify('wrong', stored))
+      const outcomes = Promise.allSettled(attempts)
+      await expect(Promise.race(attempts)).rejects.toBeInstanceOf(PasswordHasherBusyError)
+      await fake.releaseNext()
+      await fake.releaseNext()
+      const completed = (await outcomes).filter((outcome) => outcome.status === 'fulfilled')
+      expect(completed.map((outcome) => outcome.value)).toEqual([false, false])
     })
   })
 })
