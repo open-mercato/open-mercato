@@ -21,7 +21,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { FormField } from '@open-mercato/ui/primitives/form-field'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import {
   Select,
   SelectContent,
@@ -483,26 +483,31 @@ export function ReserveInventoryDialog({
             ) : null}
           </div>
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={closeDialog}
-              disabled={isMutating}
-            >
-              {t('wms.backend.inventory.reserve.cancel', 'Cancel')}
-            </Button>
-            <Button
-              type="button"
-              onClick={() => void handleSubmit()}
-              disabled={isMutating}
-            >
-              <ShieldCheck className="size-4" />
-              {isMutating
-                ? t('wms.backend.inventory.reserve.submitting', 'Reserving…')
-                : t('wms.backend.inventory.reserve.submit', 'Reserve')}
-              {!isMutating && <KbdShortcut keys={['⌘', '↵']} />}
-            </Button>
+          <DialogFooter className="sm:justify-between">
+            <p className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1.5">
+              <KbdSubmitShortcut />
+              <span>{t('wms.backend.inventory.reserve.shortcutHint', 'to reserve')}</span>
+            </p>
+            <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeDialog}
+                disabled={isMutating}
+              >
+                {t('wms.backend.inventory.reserve.cancel', 'Cancel')}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleSubmit()}
+                disabled={isMutating}
+              >
+                <ShieldCheck className="size-4" />
+                {isMutating
+                  ? t('wms.backend.inventory.reserve.submitting', 'Reserving…')
+                  : t('wms.backend.inventory.reserve.submit', 'Reserve')}
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>

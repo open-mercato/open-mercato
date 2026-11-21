@@ -43,8 +43,8 @@ export function DealDialog({
 
   const resolvedSubmitLabel =
     mode === 'edit'
-      ? submitLabels?.edit ?? t('customers.people.detail.deals.update', 'Update deal (⌘/Ctrl + Enter)')
-      : submitLabels?.create ?? t('customers.people.detail.deals.save', 'Save deal (⌘/Ctrl + Enter)')
+      ? submitLabels?.edit ?? t('customers.people.detail.deals.update', 'Update deal (Ctrl/⌘ + Enter)')
+      : submitLabels?.create ?? t('customers.people.detail.deals.save', 'Save deal (Ctrl/⌘ + Enter)')
 
   const resolvedCancelLabel = cancelLabel ?? t('customers.people.detail.deals.cancel', 'Cancel')
 

@@ -82,7 +82,7 @@
   "messages.composer.objectPicker.typePlaceholder": "객체 유형 선택",
   "messages.composer.removeAttachment": "첨부 파일 제거",
   "messages.composer.removeObject": "첨부된 객체 제거",
-  "messages.composer.shortcuts": "제출하려면 Cmd/Ctrl + Enter를, 취소하려면 Escape를 사용하세요.",
+  "messages.composer.shortcuts": "제출하려면 Ctrl/⌘ + Enter를, 취소하려면 Escape를 사용하세요.",
   "messages.confirm.action": "계속하시겠습니까?",
   "messages.confirm.actionConfirm": "확인",
   "messages.confirm.actionTitle": "작업 확인",

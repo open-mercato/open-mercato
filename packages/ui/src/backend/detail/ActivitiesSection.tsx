@@ -561,8 +561,8 @@ function ActivityForm({
       initialValues={embeddedInitialValues}
       onSubmit={handleSubmit}
       submitLabel={submitLabel ?? (mode === 'edit'
-        ? translate('update', 'Update activity (⌘/Ctrl + Enter)')
-        : translate('save', 'Save activity (⌘/Ctrl + Enter)'))}
+        ? translate('update', 'Update activity (Ctrl/⌘ + Enter)')
+        : translate('save', 'Save activity (Ctrl/⌘ + Enter)'))}
       extraActions={(
         <Button
           type="button"
@@ -642,8 +642,8 @@ function ActivityDialog({
 
   const resolvedSubmitLabel =
     mode === 'edit'
-      ? submitLabels?.edit ?? translate('update', 'Update activity (⌘/Ctrl + Enter)')
-      : submitLabels?.create ?? translate('save', 'Save activity (⌘/Ctrl + Enter)')
+      ? submitLabels?.edit ?? translate('update', 'Update activity (Ctrl/⌘ + Enter)')
+      : submitLabels?.create ?? translate('save', 'Save activity (Ctrl/⌘ + Enter)')
 
   const resolvedCancelLabel = cancelLabel ?? translate('cancel', 'Cancel')
 

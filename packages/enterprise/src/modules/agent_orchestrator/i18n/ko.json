@@ -1049,7 +1049,7 @@
   "agent_orchestrator.playground.result.viewTrace": "트레이스 보기 →",
   "agent_orchestrator.playground.resultTitle": "결과",
   "agent_orchestrator.playground.run": "Run",
-  "agent_orchestrator.playground.runHint": "Cmd/Ctrl + Enter로 에이전트를 실행합니다",
+  "agent_orchestrator.playground.runHint": "Ctrl/⌘ + Enter로 에이전트를 실행합니다",
   "agent_orchestrator.playground.running": "실행 중…",
   "agent_orchestrator.playground.selectAgentFirst": "먼저 에이전트를 선택하세요.",
   "agent_orchestrator.playground.subtitle": "JSON 입력으로 에이전트를 실행하고 타입이 지정된 결과를 확인합니다.",

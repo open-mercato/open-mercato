@@ -773,6 +773,7 @@
   "wms.backend.inventory.reserve.fields.variantPlaceholder": "Szukaj SKU lub nazwy…",
   "wms.backend.inventory.reserve.fields.warehouse": "Magazyn",
   "wms.backend.inventory.reserve.fields.warehousePlaceholder": "Wybierz magazyn…",
+  "wms.backend.inventory.reserve.shortcutHint": "aby zarezerwować",
   "wms.backend.inventory.reserve.sourceType.manual": "Ręczne wstrzymanie",
   "wms.backend.inventory.reserve.sourceType.order": "Zamówienie",
   "wms.backend.inventory.reserve.sourceType.transfer": "Transfer",

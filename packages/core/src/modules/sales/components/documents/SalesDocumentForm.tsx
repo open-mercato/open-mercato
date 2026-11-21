@@ -843,7 +843,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     emptyError: t('sales.documents.form.currency.emptyError', 'Currency code is required'),
     cancelLabel: t('sales.documents.form.currency.cancel', 'Cancel'),
     saveLabel: t('sales.documents.form.currency.save', 'Save'),
-    saveShortcutHint: '⌘/Ctrl + Enter',
+    saveShortcutHint: 'Ctrl/⌘ + Enter',
     successCreateLabel: t('sales.documents.form.currency.created', 'Currency saved.'),
     errorLoad: t('sales.documents.form.currency.errorLoad', 'Failed to load currencies.'),
     errorSave: t('sales.documents.form.currency.errorSave', 'Failed to save currency.'),

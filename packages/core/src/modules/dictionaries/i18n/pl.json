@@ -44,7 +44,7 @@
   "dictionaries.config.entries.dialog.labelPlaceholder": "Nazwa wyświetlana w interfejsie",
   "dictionaries.config.entries.dialog.previewEmpty": "Nie wybrano wyglądu",
   "dictionaries.config.entries.dialog.save": "Zapisz",
-  "dictionaries.config.entries.dialog.saveShortcut": "⌘/Ctrl + Enter",
+  "dictionaries.config.entries.dialog.saveShortcut": "Ctrl/⌘ + Enter",
   "dictionaries.config.entries.dialog.valueLabel": "Wartość",
   "dictionaries.config.entries.empty": "Brak wpisów.",
   "dictionaries.config.entries.error.delete": "Nie udało się usunąć wpisu słownika.",

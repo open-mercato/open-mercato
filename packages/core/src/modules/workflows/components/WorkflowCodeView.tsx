@@ -109,7 +109,7 @@ export function WorkflowCodeView({
         <DrawerHeader>
           <DrawerTitle>{t('workflows.visualEditor.codeView.title', 'Code')}</DrawerTitle>
           <DrawerDescription>
-            {t('workflows.visualEditor.codeView.descriptionEditable', 'The definition JSON this workflow would be saved as. Edit it and press Apply (or Cmd/Ctrl+Enter) to replace the canvas — the canvas keeps updating this text until you start typing.')}
+            {t('workflows.visualEditor.codeView.descriptionEditable', 'The definition JSON this workflow would be saved as. Edit it and press Apply (or Ctrl/⌘ + Enter) to replace the canvas — the canvas keeps updating this text until you start typing.')}
           </DrawerDescription>
         </DrawerHeader>
         <DrawerBody className="flex flex-col gap-4">

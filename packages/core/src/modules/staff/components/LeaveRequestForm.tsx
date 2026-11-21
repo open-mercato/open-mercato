@@ -119,7 +119,7 @@ export function LeaveRequestForm(props: LeaveRequestFormProps) {
     emptyError: t('staff.leaveRequests.form.reason.emptyError', 'Please enter a reason'),
     cancelLabel: t('staff.leaveRequests.form.reason.cancel', 'Cancel'),
     saveLabel: t('staff.leaveRequests.form.reason.save', 'Save'),
-    saveShortcutHint: t('staff.leaveRequests.form.reason.saveShortcut', 'Cmd/Ctrl + Enter'),
+    saveShortcutHint: t('staff.leaveRequests.form.reason.saveShortcut', 'Ctrl/⌘ + Enter'),
     errorLoad: t('staff.leaveRequests.form.reason.errorLoad', 'Failed to load reasons'),
     errorSave: t('staff.leaveRequests.form.reason.errorSave', 'Failed to save reason'),
     loadingLabel: t('staff.leaveRequests.form.reason.loading', 'Loading…'),

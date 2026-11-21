@@ -9,7 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -388,7 +388,7 @@ export function RecipientsTable({
           />
           <div className="flex items-center justify-end gap-2">
             <span className="mr-auto hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1">
-              <KbdShortcut keys={['⌘', 'Enter']} /> {t('forms.invitation.add.shortcut', { fallback: 'to add' })}
+              <KbdSubmitShortcut /> {t('forms.invitation.add.shortcut', { fallback: 'to add' })}
             </span>
             <Button type="button" size="default" disabled={submitting} onClick={handleBulkAdd}>
               {t('forms.invitation.add.action', { fallback: 'Add recipients' })}

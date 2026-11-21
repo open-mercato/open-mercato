@@ -23,7 +23,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { FormField } from '@open-mercato/ui/primitives/form-field'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   loadAssigneeOptions,
@@ -311,7 +311,7 @@ export function AssignPutawayTaskDialog({
           </div>
 
           <DialogFooter bordered={false} className="border-t px-6 py-4 sm:justify-between">
-            <KbdShortcut keys={['Ctrl/⌘', 'Enter']} />
+            <KbdSubmitShortcut />
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={closeDialog} disabled={submitting}>
                 {t('ui.actions.cancel', 'Cancel')}

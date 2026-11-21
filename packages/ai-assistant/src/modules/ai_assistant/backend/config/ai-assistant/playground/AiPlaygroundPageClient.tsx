@@ -453,7 +453,7 @@ function ObjectLane({ agent }: { agent: PlaygroundAgent }) {
           <p className="text-xs text-muted-foreground">
             {t(
               'ai_assistant.playground.object.shortcutHint',
-              'Press Cmd/Ctrl+Enter to run.',
+              'Press Ctrl/⌘ + Enter to run.',
             )}
           </p>
           <Button

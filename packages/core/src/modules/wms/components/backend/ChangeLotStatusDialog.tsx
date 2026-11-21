@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { FormField } from '@open-mercato/ui/primitives/form-field'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import {
   Select,
   SelectContent,
@@ -289,9 +289,7 @@ export function ChangeLotStatusDialog({
 
           <DialogFooter bordered={false} className="flex-row items-center justify-between border-t px-6 py-4">
             <p className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1.5">
-              <KbdShortcut keys={['⌘', 'Enter']} />
-              <span>/</span>
-              <KbdShortcut keys={['Ctrl', 'Enter']} />
+              <KbdSubmitShortcut />
               <span>{t('wms.backend.lot.changeStatus.form.shortcut', 'to save')}</span>
             </p>
             <div className="flex gap-2">

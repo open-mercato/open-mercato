@@ -44,7 +44,7 @@
   "dictionaries.config.entries.dialog.labelPlaceholder": "Nombre que se muestra en la interfaz",
   "dictionaries.config.entries.dialog.previewEmpty": "Sin apariencia seleccionada",
   "dictionaries.config.entries.dialog.save": "Guardar",
-  "dictionaries.config.entries.dialog.saveShortcut": "⌘/Ctrl + Enter",
+  "dictionaries.config.entries.dialog.saveShortcut": "Ctrl/⌘ + Enter",
   "dictionaries.config.entries.dialog.valueLabel": "Valor",
   "dictionaries.config.entries.empty": "Aún no hay entradas.",
   "dictionaries.config.entries.error.delete": "No se pudo eliminar la entrada.",

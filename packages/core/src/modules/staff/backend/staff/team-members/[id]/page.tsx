@@ -104,7 +104,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
     emptyError: t('staff.teamMembers.detail.activities.dictionary.emptyError', 'Please enter a name'),
     cancelLabel: t('staff.teamMembers.detail.activities.dictionary.cancel', 'Cancel'),
     saveLabel: t('staff.teamMembers.detail.activities.dictionary.save', 'Save'),
-    saveShortcutHint: t('staff.teamMembers.detail.activities.dictionary.saveShortcut', '⌘/Ctrl + Enter'),
+    saveShortcutHint: t('staff.teamMembers.detail.activities.dictionary.saveShortcut', 'Ctrl/⌘ + Enter'),
     errorLoad: t('staff.teamMembers.detail.activities.dictionary.errorLoad', 'Failed to load options'),
     errorSave: t('staff.teamMembers.detail.activities.dictionary.errorSave', 'Failed to save option'),
     loadingLabel: t('staff.teamMembers.detail.activities.dictionary.loading', 'Loading…'),

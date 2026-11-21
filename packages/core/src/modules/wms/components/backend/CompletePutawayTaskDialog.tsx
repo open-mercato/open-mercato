@@ -25,7 +25,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { FormField } from '@open-mercato/ui/primitives/form-field'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   loadBinLocationOptions,
@@ -342,10 +342,10 @@ export function CompletePutawayTaskDialog({
           </div>
 
           <DialogFooter bordered={false} className="border-t px-6 py-4 sm:justify-between">
-            <span className="hidden text-xs text-muted-foreground sm:inline">
-              <KbdShortcut keys={['Ctrl/⌘', 'Enter']} />{' '}
-              {t('wms.backend.putaway.complete.dialog.shortcutHint', 'to complete')}
-            </span>
+            <p className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1.5">
+              <KbdSubmitShortcut />
+              <span>{t('wms.backend.putaway.complete.dialog.shortcutHint', 'to complete')}</span>
+            </p>
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={closeDialog} disabled={submitting}>
                 {t('wms.backend.putaway.complete.dialog.cancel', 'Cancel')}

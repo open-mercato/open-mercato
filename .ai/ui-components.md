@@ -1464,24 +1464,26 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 ## Kbd / KbdShortcut
 
 ```typescript
-import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { Kbd, KbdShortcut, KbdSubmitShortcut, MOD_KEY } from '@open-mercato/ui/primitives/kbd'
 ```
 
 ```tsx
 <Kbd>Esc</Kbd>
-<Kbd>⌘</Kbd>
-<KbdShortcut keys={['⌘', 'Enter']} />   // ⌘ + Enter
+<KbdSubmitShortcut />                     // Ctrl + Enter (Windows/Linux), ⌘ + Enter (macOS)
+<KbdShortcut keys={[MOD_KEY, 'Shift', 'Enter']} />
 <KbdShortcut keys={['Ctrl', 'S']} />
 
 <span className="text-xs text-muted-foreground">
-  Press <KbdShortcut keys={['⌘', 'Enter']} /> to save or <Kbd>Esc</Kbd> to cancel
+  Press <KbdSubmitShortcut /> to save or <Kbd>Esc</Kbd> to cancel
 </span>
 ```
 
 ### MUST rules
 
 - NEVER use raw `<span>` or `<code>` to display keyboard keys — use `Kbd`.
-- Platform-specific keys (`⌘` vs `Ctrl`): detect with `navigator.platform` or use `Ctrl/⌘` text.
+- Submit-shortcut hints (`Cmd/Ctrl + Enter`) MUST use `<KbdSubmitShortcut />` — never hard-code `⌘` or render `⌘` and `Ctrl` side by side.
+- Other modifier shortcuts use the `MOD_KEY` token (`⌘` on macOS, `Ctrl` elsewhere); `useModifierKeyLabel()` returns the same label for a bare `<Kbd>`.
+- Plain-text shortcut copy in locale files uses the single form `Ctrl/⌘ + Enter`.
 
 ---
 

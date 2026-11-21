@@ -64,8 +64,8 @@ export function ActivityDialog({
 
   const resolvedSubmitLabel =
     mode === 'edit'
-      ? submitLabels?.edit ?? t('customers.people.detail.activities.update', 'Update activity (⌘/Ctrl + Enter)')
-      : submitLabels?.create ?? t('customers.people.detail.activities.save', 'Save activity (⌘/Ctrl + Enter)')
+      ? submitLabels?.edit ?? t('customers.people.detail.activities.update', 'Update activity (Ctrl/⌘ + Enter)')
+      : submitLabels?.create ?? t('customers.people.detail.activities.save', 'Save activity (Ctrl/⌘ + Enter)')
 
   const resolvedCancelLabel = cancelLabel ?? t('customers.people.detail.activities.cancel', 'Cancel')
 

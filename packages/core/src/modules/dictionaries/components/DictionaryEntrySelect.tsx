@@ -288,7 +288,7 @@ export function DictionaryEntrySelect({
   const shortcutHint = React.useMemo(() => {
     const provided = typeof labels.saveShortcutHint === 'string' ? labels.saveShortcutHint.trim() : ''
     if (provided.length) return provided
-    return '⌘/Ctrl + Enter'
+    return 'Ctrl/⌘ + Enter'
   }, [labels.saveShortcutHint])
 
   const disabled = disabledProp || loading || saving || unavailableMessage !== null
