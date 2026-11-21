@@ -4693,49 +4693,87 @@ async function throwDocumentUndoStale(kind: "order" | "quote"): Promise<never> {
   });
 }
 
-function canonicalizeForComparison(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value
-      .map(canonicalizeForComparison)
-      .map((entry) => ({ entry, key: JSON.stringify(entry) }))
-      .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0))
-      .map(({ entry }) => entry);
-  }
+type ComparableRecord = Record<string, unknown>;
+
+const compareStrings = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0;
+
+function withSortedKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withSortedKeys);
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.keys(value)
-        .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
-        .map((key) => [key, canonicalizeForComparison((value as Record<string, unknown>)[key])]),
+        .sort(compareStrings)
+        .map((key) => [key, withSortedKeys((value as ComparableRecord)[key])]),
     );
   }
   return value;
 }
 
-function toComparableRecords(
-  entries: ReadonlyArray<{ id: string }> | null | undefined,
-): Map<string, unknown> {
-  const records = new Map<string, unknown>();
-  for (const entry of entries ?? []) {
-    records.set(entry.id, canonicalizeForComparison(JSON.parse(JSON.stringify(entry))));
+/**
+ * Sorts the entries of a collection that is read back without a stable order,
+ * so it compares in any order. Arrays inside each entry keep their order.
+ */
+function inAnyOrder(entries: unknown): unknown {
+  if (!Array.isArray(entries)) return entries;
+  return entries
+    .map((entry) => ({ entry, key: JSON.stringify(withSortedKeys(entry)) }))
+    .sort((left, right) => compareStrings(left.key, right.key))
+    .map(({ entry }) => entry);
+}
+
+/** `loadCustomFieldValues` reads multi-value custom fields without `orderBy`. */
+function customFieldsInAnyOrder(customFields: unknown): unknown {
+  if (!customFields || typeof customFields !== "object" || Array.isArray(customFields)) {
+    return customFields;
   }
-  return records;
+  return Object.fromEntries(
+    Object.entries(customFields).map(([key, value]) => [key, inAnyOrder(value)]),
+  );
 }
 
-function withoutAllocationIds(
-  payments: ReadonlyArray<PaymentSnapshot> | null | undefined,
-): Array<PaymentSnapshot> {
-  return (payments ?? []).map((payment) => ({
+function comparableShipment(shipment: ComparableRecord): ComparableRecord {
+  return {
+    ...shipment,
+    customFields: customFieldsInAnyOrder(shipment.customFields),
+    items: inAnyOrder(shipment.items),
+    itemsSnapshot: inAnyOrder(shipment.itemsSnapshot),
+  };
+}
+
+function comparablePayment(payment: ComparableRecord): ComparableRecord {
+  const allocations = Array.isArray(payment.allocations) ? payment.allocations : [];
+  return {
     ...payment,
-    allocations: (payment.allocations ?? []).map((allocation) =>
-      Object.fromEntries(Object.entries(allocation).filter(([key]) => key !== "id")),
+    customFields: customFieldsInAnyOrder(payment.customFields),
+    allocations: inAnyOrder(
+      allocations.map((allocation: unknown) =>
+        allocation && typeof allocation === "object"
+          ? Object.fromEntries(Object.entries(allocation).filter(([key]) => key !== "id"))
+          : allocation,
+      ),
     ),
-  }));
+  };
 }
 
+/**
+ * True when both lists hold the same records, matched by id in any order.
+ * Arrays inside JSON values (`metadata`, `trackingNumbers`) keep their order, so
+ * an edit that only reorders one counts as a change. `comparable` relaxes the
+ * order of nested collections that are read back without a stable order.
+ */
 function sameRecords(
   current: ReadonlyArray<{ id: string }> | null | undefined,
   expected: ReadonlyArray<{ id: string }> | null | undefined,
+  comparable: (record: ComparableRecord) => ComparableRecord = (record) => record,
 ): boolean {
+  const toComparableRecords = (entries: ReadonlyArray<{ id: string }> | null | undefined) =>
+    new Map(
+      (entries ?? []).map((entry) => [
+        entry.id,
+        comparable(JSON.parse(JSON.stringify(entry)) as ComparableRecord),
+      ]),
+    );
   const currentRecords = toComparableRecords(current);
   const expectedRecords = toComparableRecords(expected);
   if (currentRecords.size !== expectedRecords.size) return false;
@@ -4797,8 +4835,8 @@ async function assertOrderGraphUndoCurrent(
   const unchanged =
     sameLineProgress(current.lines, expected.lines) &&
     sameIds(current.adjustments, expected.adjustments) &&
-    sameRecords(current.shipments, expected.shipments) &&
-    sameRecords(withoutAllocationIds(current.payments), withoutAllocationIds(expected.payments)) &&
+    sameRecords(current.shipments, expected.shipments, comparableShipment) &&
+    sameRecords(current.payments, expected.payments, comparablePayment) &&
     sameRecords(current.notes, expected.notes) &&
     sameRecords(current.tags, expected.tags) &&
     sameRecords(current.addresses, expected.addresses);
