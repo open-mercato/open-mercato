@@ -377,7 +377,7 @@ export async function GET(req: Request) {
     WarrantyClaim,
     where,
     {
-      orderBy: { createdAt: 'DESC' },
+      orderBy: { createdAt: 'DESC', id: 'DESC' },
       limit: pageSize,
       offset: (page - 1) * pageSize,
     },
