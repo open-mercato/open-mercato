@@ -21,7 +21,7 @@ async function createRecord(request: APIRequestContext, token: string, path: str
   return expectId(body?.id, `Created fixture at ${path}`)
 }
 
-test('TC-TT-035: locked-entry report navigation matches report permission', async ({ page, request }) => {
+test('TC-TT-035: locked-entry report navigation matches report permission', async ({ browser, request, baseURL }) => {
   const admin = await getAuthToken(request, 'admin')
   const { tenantId, organizationId } = getTokenContext(admin)
   const stamp = randomUUID().slice(0, 8)
@@ -63,36 +63,42 @@ test('TC-TT-035: locked-entry report navigation matches report permission', asyn
       await setRoleAclFeatures(request, admin, {
         roleId, organizations: [organizationId],
         features: ['staff.view', 'staff.timesheets.view', 'staff.timesheets.manage_own', 'staff.timesheets.manage_all', 'staff.timesheets.projects.manage',
+          'staff.timesheets.projects.view', 'staff.timesheets.tasks.view', 'staff.leave_requests.send',
           ...(canViewReports ? ['staff.timesheets.reports.view'] : [])],
       })
       const email = `qa-tt35-${stamp}-${canViewReports}@example.com`
       users.push(await createUserFixture(request, admin, {
         email, password, organizationId, roles: [roleId], name: `QATT35 user ${stamp}`,
       }))
-      await page.context().clearCookies()
-      const form = new URLSearchParams({ email, password })
-      const login = await page.request.post('/api/auth/login', {
-        headers: { 'content-type': 'application/x-www-form-urlencoded' }, data: form.toString(),
-      })
-      expect(login.ok()).toBe(true)
-      const auth = await readJsonSafe<{ token?: string }>(login)
-      const viewerToken = auth?.token
-      if (!viewerToken) throw new Error('[internal] Fixture login omitted token')
-      const report = await apiRequest(page.request, 'GET', `${REPORTS}/${reportId}/sheet`, { token: viewerToken })
-      expect(report.status()).toBe(canViewReports ? 200 : 403)
-      await page.goto(`/backend/staff/time-tracking/entries?ids=${entryId}`)
-      const row = page.getByRole('row').filter({ hasText: description })
-      await expect(row).toBeVisible()
-      await expect(row.getByTestId('entry-locked-badge')).toBeVisible()
-      const actions = row.getByRole('button', { name: 'Open actions', exact: true })
-      if (canViewReports) {
-        await actions.click()
-        await expect(page.getByRole('menuitem', { name: 'Show the report', exact: true }))
-          .toHaveAttribute('href', `/backend/staff/time-tracking/reports/${reportId}`)
-      } else {
-        await expect(actions).toHaveCount(0)
+      const actorContext = await browser.newContext({ baseURL })
+      try {
+        const page = await actorContext.newPage()
+        const form = new URLSearchParams({ email, password })
+        const login = await page.request.post('/api/auth/login', {
+          headers: { 'content-type': 'application/x-www-form-urlencoded' }, data: form.toString(),
+        })
+        expect(login.ok()).toBe(true)
+        const auth = await readJsonSafe<{ token?: string }>(login)
+        const viewerToken = auth?.token
+        if (!viewerToken) throw new Error('[internal] Fixture login omitted token')
+        const report = await apiRequest(page.request, 'GET', `${REPORTS}/${reportId}/sheet`, { token: viewerToken })
+        expect(report.status()).toBe(canViewReports ? 200 : 403)
+        await page.goto(`/backend/staff/time-tracking/entries?ids=${entryId}`)
+        const row = page.getByRole('row').filter({ hasText: description })
+        await expect(row).toBeVisible()
+        await expect(row.getByTestId('entry-locked-badge')).toBeVisible()
+        const actions = row.getByRole('button', { name: 'Open actions', exact: true })
+        if (canViewReports) {
+          await actions.click()
+          await expect(page.getByRole('menuitem', { name: 'Show the report', exact: true }))
+            .toHaveAttribute('href', `/backend/staff/time-tracking/reports/${reportId}`)
+        } else {
+          await expect(actions).toHaveCount(0)
+        }
+        await test.info().attach(`report-access-${canViewReports}`, { body: await page.screenshot(), contentType: 'image/png' })
+      } finally {
+        await actorContext.close()
       }
-      await test.info().attach(`report-access-${canViewReports}`, { body: await page.screenshot(), contentType: 'image/png' })
     }
   } finally {
     if (reportId) await apiRequest(request, 'POST', `${REPORTS}/${reportId}/unlock`, { token: admin, data: { reason: 'QATT35 fixture cleanup' } })
