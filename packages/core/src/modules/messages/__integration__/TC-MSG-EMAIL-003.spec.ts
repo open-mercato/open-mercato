@@ -270,13 +270,17 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
       const senderEmail = `qa-reply-sender-${stamp}@example.test`
       recipientHashes = [firstEmail, senderEmail].map((email) => hashForLookup(email, 'messages.external_recipient'))
       let channelId: string | null = null
+      let senderPersonId: string | null = null
       let inbound: { messageId: string; conversationId: string; channelLinkId: string } | null = null
       try {
         channelId = await seedConnectedChannel(request, token, { externalIdentifier: `qa-reply-${stamp}@test-seed.local` })
+        senderPersonId = await createPersonFixture(request, token, {
+          firstName: 'Quota', lastName: 'Sender', displayName: `Quota Sender ${stamp}`, primaryEmail: senderEmail,
+        })
         const seeded = await ingestInboundEmailMessage(request, token, {
           channelId, senderAddress: senderEmail, senderDisplayName: 'Quota sender', subject: `QA reply quota ${stamp}`,
           body: 'An inbound message never consumes outbound quota.', externalMessageId: `<qa-reply-${stamp}@example.test>`,
-          externalConversationId: `qa-reply-${stamp}`,
+          externalConversationId: `inbound-seed:qa-reply-${stamp}`,
         })
         expect(seeded.status).toBe('created')
         expect(seeded.messageId && seeded.conversationId && seeded.channelLinkId).toBeTruthy()
@@ -301,6 +305,7 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
       } finally {
         if (inbound && channelId) await purgeSeededInboundMessage(request, token, channelId, inbound)
         await deleteChannelIfExists(request, token, channelId)
+        await deleteEntityIfExists(request, token, '/api/customers/people', senderPersonId)
       }
     })
   }

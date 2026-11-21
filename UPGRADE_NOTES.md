@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## CRM admission for inbound email (#5468)
+
+Ordinary inbound email now imports senders who match a CRM person in the receiving channel's tenant and organization, plus replies that match an existing thread in that channel. The ingest command returns `skipped` for other email, and provider workers consume the skip as they advance their cursor. Custom callers of `communication_channels.message.ingest_inbound` can handle `skipped` alongside `created` and `duplicate`.
+
+Operators can still import historical email explicitly. Existing imported messages remain accessible.
+
 ## Query index metadata cached across requests (#2967)
 
 The query index engine no longer re-reads table metadata and custom-field definitions

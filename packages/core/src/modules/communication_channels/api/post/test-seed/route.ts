@@ -717,7 +717,7 @@ export async function POST(req: Request): Promise<Response> {
         channelLinkId: result.channelLinkId ?? null,
         channelType: ownedChannel.channelType,
       },
-      { status: 201 },
+      { status: result.status === 'skipped' ? 200 : 201 },
     )
   }
 

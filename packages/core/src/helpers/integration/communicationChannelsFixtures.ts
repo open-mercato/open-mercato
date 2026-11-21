@@ -413,10 +413,6 @@ export async function ingestInboundEmailMessage(
     token,
     data: { action: 'ingest-inbound', senderIdentifier: senderAddress, ...rest },
   });
-  expect(
-    response.status(),
-    'POST /api/communication_channels/test-seed (ingest-inbound, email) should return 201',
-  ).toBe(201);
   const body = await readJsonSafe<{
     status?: string;
     messageId?: string | null;
@@ -424,6 +420,10 @@ export async function ingestInboundEmailMessage(
     channelLinkId?: string | null;
     channelType?: string | null;
   }>(response);
+  expect(
+    response.status(),
+    'POST /api/communication_channels/test-seed (ingest-inbound, email) should report successful ingest',
+  ).toBe(body?.status === 'skipped' ? 200 : 201);
   return {
     status: body?.status ?? 'unknown',
     messageId: body?.messageId ?? null,
