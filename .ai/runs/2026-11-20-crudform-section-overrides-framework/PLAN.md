@@ -61,6 +61,7 @@ Status: in-progress
 | 6 | 6.4-verify-harness-fixtures | Verify generated inventories, standalone OpenAPI and routing fixtures | self | done | 8c2c97c79e |
 | 6 | 6.2-concurrency-ci-fix | Assert the winning API operation and both supported browser conflict surfaces | self | done | 7859e02259 |
 | 6 | 6.2-concurrency-ci-followup | Settle the stale browser action before verifying captured responses | self | done | this commit |
+| 6 | 6.2-standalone-runtime-fix | Share the owned runtime state and keep the standalone ERP worker alive across retries | self | done | this commit |
 | 6 | 6.5 | Record example, harness and integration evidence | dispatch | done | 7859e02259 |
 
 ## Goal

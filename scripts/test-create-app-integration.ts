@@ -3,7 +3,8 @@ import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { once } from 'node:events'
 import { createRequire } from 'node:module'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
@@ -38,7 +39,8 @@ const STANDALONE_BUILD_NODE_OPTIONS = '--max-old-space-size=8192'
 type EphemeralEnvState = {
   status?: string
   baseUrl?: string
-  port?: number
+  databaseUrl?: string
+  queueBaseDir?: string
 }
 
 function assertExists(filePath: string, label: string): void {
@@ -151,32 +153,22 @@ async function waitForStandaloneEphemeralApp(params: {
   process: ChildProcessWithoutNullStreams
   baseUrl: string
   databaseUrl: string
+  queueBaseDir: string
 }> {
   const statePath = path.join(params.appDir, '.ai', 'qa', 'ephemeral-env.json')
   try {
     fs.rmSync(statePath, { force: true })
   } catch {}
 
-  let databaseUrl: string | null = null
   let exited: { code: number | null; signal: NodeJS.Signals | null } | null = null
-  let outputBuffer = ''
-  const child = spawn('yarn', ['mercato', 'test:ephemeral', '--no-reuse-env', '--no-screenshots'], {
+  const child = spawn(process.execPath, [path.join(params.appDir, 'scripts/mercato-cli.mjs'), 'test:ephemeral', '--no-reuse-env', '--no-screenshots'], {
     cwd: params.appDir,
     env: { ...process.env, ...params.env },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
 
-  const handleOutput = (chunk: Buffer): void => {
-    const text = chunk.toString()
-    process.stdout.write(text)
-    outputBuffer = `${outputBuffer}${text}`.slice(-2_000)
-    const match = outputBuffer.match(/Ephemeral database ready at ([^\s:]+):(\d+)/)
-    if (match) {
-      databaseUrl = `postgres://mercato:secret@${match[1]}:${match[2]}/mercato_test`
-    }
-  }
-  child.stdout.on('data', handleOutput)
-  child.stderr.on('data', handleOutput)
+  child.stdout.on('data', (chunk) => process.stdout.write(chunk))
+  child.stderr.on('data', (chunk) => process.stderr.write(chunk))
   child.on('exit', (code, signal) => {
     exited = { code, signal }
   })
@@ -190,11 +182,12 @@ async function waitForStandaloneEphemeralApp(params: {
     if (fs.existsSync(statePath)) {
       try {
         const state = readJson<EphemeralEnvState>(statePath)
-        if (state.status === 'running' && state.baseUrl && databaseUrl) {
+        if (state.status === 'running' && state.baseUrl && state.databaseUrl && state.queueBaseDir) {
           return {
             process: child,
             baseUrl: state.baseUrl,
-            databaseUrl,
+            databaseUrl: state.databaseUrl,
+            queueBaseDir: state.queueBaseDir,
           }
         }
       } catch {}
@@ -202,24 +195,22 @@ async function waitForStandaloneEphemeralApp(params: {
     await delay(500)
   }
 
-  throw new Error('Timed out waiting for standalone ephemeral app readiness and database URL')
+  await stopStandaloneProcess(child)
+  throw new Error('Timed out waiting for standalone ephemeral app readiness and runtime state')
 }
 
-async function stopStandaloneEphemeralApp(child: ChildProcessWithoutNullStreams | null): Promise<void> {
-  if (!child || child.killed || child.exitCode !== null) return
-
-  const closed = new Promise<void>((resolve) => {
-    child.once('close', () => resolve())
-  })
+async function stopStandaloneProcess(child: ChildProcess | null): Promise<void> {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return
+  const exited = once(child, 'exit')
   child.kill('SIGTERM')
-  await Promise.race([
-    closed,
-    delay(30_000).then(() => {
-      if (!child.killed && child.exitCode === null) {
-        child.kill('SIGKILL')
-      }
-    }),
-  ])
+  const timeout = setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+  }, 30_000)
+  try {
+    await exited
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 // --template case (spec .ai/specs/2026-11-04-create-app-template-flag.md, "Integration test"). The scaffolded app
@@ -451,6 +442,7 @@ async function main(): Promise<void> {
     NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
     PLATFORM_PORTAL_BASE_URL: 'http://localhost:3000',
     OM_TEST_EMAIL_CAPTURE_PATH: standaloneEmailCapturePath(),
+    OM_INIT_SUPERADMIN_PASSWORD: 'StandaloneSmokeTest-Only-1!',
     JWT_SECRET: 'ci-standalone-test-jwt-secret-32-chars-min',
     OM_SECURITY_MFA_SETUP_SECRET: 'ci-standalone-test-mfa-setup-secret',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
@@ -553,17 +545,27 @@ async function main(): Promise<void> {
     if (testArgs.length > 0) {
       console.log(cyan(`Playwright args: ${testArgs.join(' ')}`))
     }
-    runCommand('yarn', ['test:integration', ...testArgs], {
-      cwd: ROOT,
-      env: {
-        ...integrationEnv,
-        BASE_URL: standalone.baseUrl,
-        APP_URL: standalone.baseUrl,
-        NEXT_PUBLIC_APP_URL: standalone.baseUrl,
-        DATABASE_URL: standalone.databaseUrl,
-        OM_TEST_APP_ROOT: appDir,
-      },
+    const testEnvironment = {
+      ...integrationEnv,
+      BASE_URL: standalone.baseUrl,
+      APP_URL: standalone.baseUrl,
+      NEXT_PUBLIC_APP_URL: standalone.baseUrl,
+      DATABASE_URL: standalone.databaseUrl,
+      QUEUE_BASE_DIR: standalone.queueBaseDir,
+      OM_INTEGRATION_TEST: 'true',
+      OM_TEST_APP_ROOT: appDir,
+    }
+    const outboxWorker = spawn(process.execPath, [path.join(appDir, 'scripts/mercato-cli.mjs'), 'queue', 'worker', 'crud-form-section-outbox'], {
+      cwd: appDir,
+      env: { ...process.env, ...testEnvironment },
+      stdio: 'inherit',
     })
+    try {
+      await once(outboxWorker, 'spawn')
+      runCommand('yarn', ['test:integration', ...testArgs], { cwd: ROOT, env: testEnvironment })
+    } finally {
+      await stopStandaloneProcess(outboxWorker)
+    }
 
     assertExists(
       path.join(ROOT, '.ai', 'qa', 'test-results', 'results.json'),
@@ -575,7 +577,7 @@ async function main(): Promise<void> {
     console.log(yellow(`Standalone app dependencies were installed from Verdaccio at ${VERDACCIO_URL}.`))
 
     if (cleanup) {
-      await stopStandaloneEphemeralApp(standaloneProcess)
+      await stopStandaloneProcess(standaloneProcess)
       standaloneProcess = null
       fs.rmSync(tempRoot, { recursive: true, force: true })
       console.log(yellow(`Cleaned up ${tempRoot}`))
@@ -588,7 +590,7 @@ async function main(): Promise<void> {
     console.error(yellow(`Temporary app preserved at: ${appDir}`))
     process.exitCode = 1
   } finally {
-    await stopStandaloneEphemeralApp(standaloneProcess)
+    await stopStandaloneProcess(standaloneProcess)
   }
 }
 

@@ -11,6 +11,10 @@ All eight commands in the ordered local gate passed on `8c2c97c79e` with Node 24
 - The six cases in the repaired Todo spec each passed twice with retries disabled on the fresh Enterprise-enabled local app. This includes both concurrent outcomes, stale browser edits, server defaults, legacy saves and replay.
 - GitHub passed 14 of 15 integration shards on `8c2c97c79e`. The remaining shard exposed a test that assumed the first update won and a browser test that waited for the OSS banner while CI showed the Enterprise conflict dialog. The repaired fixtures remain subject to the full integration run. [CI run](https://github.com/open-mercato/open-mercato/actions/runs/44812902523)
 
+The full GitHub integration matrix passed all 15 shards on `fd0b28bed3`. The required Linux `test` job repeatedly exited during typechecking without a compiler diagnostic, including a job-only retry. [Full CI run](https://github.com/open-mercato/open-mercato/actions/runs/44825377493)
+
+The standalone `test:create-app:integration` run reproduced missing runtime fixture state. The runner now uses the disposable app's database and queue directory, passes the same test login fixture to initialization and Playwright, and keeps a dedicated outbox worker alive across retries. Both brand persistence and ERP delivery passed on the fresh standalone app with the repaired worker setup. The canonical focused runner is being repeated to verify that setup from startup through teardown.
+
 ## Standalone harness
 
 The twelve new cases fail the focused route and source contract against the previous baseline and pass against the new owner changes. All 255 deterministic cases pass, the knowledge-change contract certificate passes, and every new case has a live Codex pass. The last single live cohort passed 10 of 12, with the other two passing separately. A fresh macOS scaffold using verified package archives passed generation, typecheck, lint and build.
