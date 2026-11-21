@@ -223,7 +223,9 @@ mercato-backup status /srv/recovery/output/.BACKUP_ID.partial --workspace /srv/r
 
 The original protected workspace identity is sufficient for same-host resume. Before moving partial state to a new host, obtain `partialStateSha256` from status while the original trusted workspace identity is available and transport it independently. Artifact-only cross-host resume additionally requires `--trusted-partial-sha256` plus an escrow identity. This binds the run-key envelope, preparation and encrypted checkpoint bytes; public-recipient encryption alone does not authenticate a checkpoint. Preserve newly recovered workspace identities privately for later retries. If the original trusted identity and an independent partial-state digest are both lost, start a fresh backup.
 
-Do not bypass live locks. Explicit `--take-over-lock RUN_ID` is an operator decision that can disrupt a live run. Automatic takeover is limited to stale local locks whose process is no longer alive.
+Do not bypass live locks. Explicit `--take-over-lock RUN_ID` is an operator decision that can disrupt a live run. Automatic takeover is limited to stale local locks whose process is no longer alive. Stop the old process before an explicit takeover; the flag does not cancel it.
+
+Backup lock acquisition, stale-owner replacement and removal use a private `lock.guard` beside the lock. A competing resume refuses while that short filesystem transaction is active. A crash during the transaction leaves the guard in place and subsequent resumes refuse, including with `--take-over-lock`. Inspect the guard's run, host and PID, stop and positively verify every involved backup process, then remove only the abandoned guard and retry the original resume command. Age alone is insufficient; retain the lock, encrypted journal, workspace and backup data.
 
 ## Isolated recovery
 
