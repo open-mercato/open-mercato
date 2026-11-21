@@ -2,11 +2,13 @@
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
+const selectedOrganizationId = '77777777-7777-4777-8777-777777777777'
 const personId = '33333333-3333-4333-8333-333333333333'
 const companyId = '44444444-4444-4444-8444-444444444444'
 
 const mockFindWithDecryption = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
+const mockGetGrantedFeatures = jest.fn()
 
 const em = {
   fork: jest.fn(),
@@ -15,6 +17,7 @@ const em = {
 const container = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return em
+    if (token === 'rbacService') return { getGrantedFeatures: mockGetGrantedFeatures }
     throw new Error(`[internal] Unexpected container token: ${token}`)
   }),
 }
@@ -23,7 +26,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(async () => ({
     sub: '55555555-5555-4555-8555-555555555555',
     tenantId,
-    orgId: organizationId,
+    orgId: selectedOrganizationId,
   })),
 }))
 
@@ -34,8 +37,8 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
   resolveOrganizationScopeForRequest: jest.fn(async () => ({
     tenantId,
-    selectedId: organizationId,
-    filterIds: [organizationId],
+    selectedId: selectedOrganizationId,
+    filterIds: [selectedOrganizationId, organizationId],
   })),
 }))
 
@@ -59,11 +62,13 @@ jest.mock('../../../../../../lib/personCompanyLinkTable', () => ({
   filterActivePersonCompanyLinks: jest.fn((links: unknown[]) => links),
 }))
 
-jest.mock('@open-mercato/shared/lib/logger', () => ({
-  createLogger: jest.fn(() => ({ error: jest.fn() })),
-}))
-
 import { GET } from '../route'
+import { CustomerDealCompanyLink } from '../../../../../../data/entities'
+
+const getEnrichedCompanies = () => GET(
+  new Request(`http://localhost/api/customers/people/${personId}/companies/enriched`),
+  { params: { id: personId } },
+)
 
 function buildDeal(
   id: string,
@@ -85,6 +90,8 @@ function buildDeal(
 describe('GET /api/customers/people/[id]/companies/enriched deal status vocabulary', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFindWithDecryption.mockReset()
+    mockGetGrantedFeatures.mockResolvedValue(['customers.*'])
     em.fork.mockReturnValue(em)
 
     const person = {
@@ -124,10 +131,7 @@ describe('GET /api/customers/people/[id]/companies/enriched deal status vocabula
   })
 
   it('excludes every closed spelling from activeDeal and includes both won spellings in CLV', async () => {
-    const response = await GET(
-      new Request(`http://localhost/api/customers/people/${personId}/companies/enriched`),
-      { params: { id: personId } },
-    )
+    const response = await getEnrichedCompanies()
     const body = await response.json()
 
     expect(response.status).toBe(200)
@@ -138,5 +142,33 @@ describe('GET /api/customers/people/[id]/companies/enriched deal status vocabula
       valueCurrency: 'PLN',
     })
     expect(body.items[0].clv).toEqual({ amount: 700, currency: 'PLN' })
+  })
+
+  it('requires company view access in the person’s organization before loading linked records', async () => {
+    mockGetGrantedFeatures.mockResolvedValue(['customers.people.view', 'customers.deals.view'])
+
+    const response = await getEnrichedCompanies()
+
+    expect(response.status).toBe(403)
+    expect(mockGetGrantedFeatures).toHaveBeenCalledWith('55555555-5555-4555-8555-555555555555', {
+      tenantId, organizationId,
+    })
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('returns company rows without loading or returning deal data when deal access is missing', async () => {
+    mockGetGrantedFeatures.mockResolvedValue(['customers.people.view', 'customers.companies.view'])
+    mockFindWithDecryption.mockReset()
+    mockFindWithDecryption.mockResolvedValueOnce([{ id: 'link-1', company: { id: companyId, displayName: 'Acme Corp' } }])
+    mockFindWithDecryption.mockResolvedValue([])
+
+    const response = await getEnrichedCompanies()
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      items: [{ companyId, displayName: 'Acme Corp', activeDeal: null, clv: null }],
+      total: 1,
+    })
+    expect(mockFindWithDecryption.mock.calls.some(([, entity]) => entity === CustomerDealCompanyLink)).toBe(false)
   })
 })

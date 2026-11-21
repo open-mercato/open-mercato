@@ -15,6 +15,7 @@
 | 1.0 | 2026-04-06 | Initial spec: collapsible CrudForm groups, zone collapse, inline activity composer, roles, pipeline stepper, closure flow, WCAG 2.1 AA. |
 | 1.1 | 2026-04-12 | Added Enhancements 6–8 during implementation: dashboard widgets, AI action chips, per-user labels, dictionary kind settings, person-company roles UI, decision-makers footer, mini week calendar, entity-scoped tag dialogs, activity log tab, changelog tab. |
 | 1.2 | 2026-04-19 | Addressed CR 5 feedback: DS token migration across CRM detail screens, unit tests for persistence hooks, i18n wrapping in new API error responses, `findWithDecryption` on attachments route, minor a11y/log-level/docs cleanups. |
+| 1.3 | 2026-11-21 | Enforced record-scoped company and deal view permissions on linked companies in person detail (#9350). |
 
 ## TLDR
 
@@ -1352,6 +1353,12 @@ Pin an activity:
 ## Migration & Backward Compatibility
 
 This section satisfies the root `BACKWARD_COMPATIBILITY.md` deprecation-protocol requirement for every PR that touches contract surfaces. The feat/crm-details-screens branch introduces:
+
+### Linked company view permissions on person details (#9350)
+
+The person detail response adds `canViewCompanies`, evaluated in the person’s organization. The Companies tab and header company link are visible only with `customers.companies.view`. A restricted person response keeps the existing keys and returns empty `companies`, null `company` and `profile.companyEntityId`, zero `counts.companies`, and false `isPrimary`. Its cache key includes the evaluated company permission so a permission change takes effect even when an earlier response is cached.
+
+Both linked-company GET endpoints return 403 when the caller lacks company view access. On the enriched endpoint, `activeDeal` and `clv` are null without `customers.deals.view`. Existing routes, authorized response fields, and the database schema are preserved. `TC-CRM-9350-person-company-permissions.spec.ts` covers authorized access, deal redaction, and company access revocation for the person detail and linked-company APIs.
 
 ### Deprecated deal header inputs (2026-11-10, #8552)
 
