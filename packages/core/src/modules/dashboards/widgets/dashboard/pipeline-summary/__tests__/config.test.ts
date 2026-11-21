@@ -148,3 +148,15 @@ describe('pipeline summary settings', () => {
     })
   })
 })
+
+
+it('excludes configured terminal aliases while preserving unknown-active and closure-outcome rules', () => {
+  const vocabulary = { won: ['signed'], lost: ['declined'], closed: ['archived'] }
+  const request = buildPipelineDataRequest({ dateRange: 'this_year', statusScope: 'open' }, vocabulary)
+  for (const status of ['signed', 'declined', 'archived', 'win', 'won', 'lost', 'loose', 'closed']) {
+    expect(request.filters).toContainEqual({ field: 'status', operator: 'neq', value: status })
+  }
+  expect(request.filters).toContainEqual({ field: 'closureOutcome', operator: 'is_null' })
+  expect(request.filters?.some((filter) => filter.value === 'negotiating')).toBe(false)
+  expect(buildPipelineDataRequest({ dateRange: 'this_year', statusScope: 'all' }, vocabulary).filters).toBeUndefined()
+})

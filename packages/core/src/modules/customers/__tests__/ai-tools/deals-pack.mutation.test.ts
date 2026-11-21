@@ -83,7 +83,7 @@ function makeMutationCtx(options: {
     tenantId: 'tenantId' in options ? options.tenantId : 'tenant-1',
     organizationId: 'organizationId' in options ? options.organizationId : 'org-1',
     userId: 'user-1',
-    container: container as any,
+    container: container as unknown as import('awilix').AwilixContainer,
     userFeatures: options.userFeatures ?? ['customers.deals.manage'],
     isSuperAdmin: false,
     em,
@@ -257,7 +257,7 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
         lossNotes: null,
       },
       after: {
-        status: 'won',
+        status: 'win',
         pipelineStageId: WIN_STAGE_ID,
         closureOutcome: 'won',
         lossReasonId: null,
@@ -276,7 +276,7 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
           pipelineStageId: 'Prospect',
         },
         after: {
-          status: 'Won',
+          status: 'Win',
           pipelineStageId: 'Win',
           closureOutcome: 'Won',
         },
@@ -353,7 +353,7 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
       // clear the loss columns — and the update command must agree (see the matching
       // case in commands/__tests__/deals.stage-transitions.test.ts).
       expect(before?.after).toEqual({
-        status: statusSpelling,
+        status: 'closed',
         pipelineStageId: WIN_STAGE_ID,
         closureOutcome: 'lost',
         lossReasonId: 'e1b2c3d4-e5f6-4f01-8f02-0123456789ab',
@@ -535,11 +535,57 @@ describe('customers.update_deal_stage — handler delegates to API runner', () =
     const operation = runMock.mock.calls[0][0]
     expect(operation.method).toBe('PUT')
     expect(operation.path).toBe('/customers/deals')
-    expect(operation.body.status).toBe('won')
+    expect(operation.body.status).toBe('win')
     expect(operation.body.pipelineStageId).toBeUndefined()
     expect(operation.body.id).toBe(DEAL_ID)
     expect(operation.body.tenantId).toBe('tenant-1')
     expect(operation.body.organizationId).toBe('org-1')
+  })
+
+  it('uses the same tenant canonical spelling in preview and API mutation', async () => {
+    const deal = { id: DEAL_ID, tenantId: 'tenant-1', organizationId: 'org-1', status: 'open', updatedAt: new Date() }
+    findOneWithDecryptionMock.mockResolvedValue(deal)
+    findWithDecryptionMock.mockResolvedValue([])
+    runMock.mockResolvedValue({ success: true, statusCode: 200, data: { ok: true } })
+    const ctx = makeMutationCtx()
+    const vocabulary = { won: ['accepted'], lost: ['declined'], closed: ['archived'] }
+    ctx.container.resolve = jest.fn((name: string) => {
+      if (name === 'moduleConfigService') return { getRecord: async () => ({ source: 'tenant', tenantId: 'tenant-1', value: vocabulary }) }
+      if (name === 'em') return ctx.em
+      throw new Error('[internal] Unexpected service')
+    })
+    const toolCtx = ctx as unknown as import('../../ai-tools/types').CustomersToolContext
+    const before = await tool.loadBeforeRecord!({ dealId: DEAL_ID, toStage: 'won' }, toolCtx)
+    await tool.handler({ dealId: DEAL_ID, toStage: 'won' }, toolCtx)
+    expect(before?.after?.status).toBe('accepted')
+    expect(before?.after?.closureOutcome).toBe('won')
+    expect(runMock.mock.calls[0]![0].body.status).toBe('accepted')
+  })
+
+  it('rejects confirmation when vocabulary semantics change after the approval preview', async () => {
+    const { checkRecordVersion } = await import('@open-mercato/ai-assistant/modules/ai_assistant/lib/pending-action-recheck')
+    findOneWithDecryptionMock.mockResolvedValue({ id: DEAL_ID, tenantId: 'tenant-1', organizationId: 'org-1', status: 'open', updatedAt: new Date('2026-10-18T00:00:00Z') })
+    findWithDecryptionMock.mockResolvedValue([])
+    const ctx = makeMutationCtx()
+    let vocabulary = { won: ['signed'], lost: ['declined'], closed: ['finished'] }
+    ctx.container.resolve = jest.fn((name: string) => {
+      if (name === 'moduleConfigService') return { getRecord: async () => ({ source: 'tenant', tenantId: 'tenant-1', value: vocabulary }) }
+      if (name === 'em') return ctx.em
+      throw new Error('[internal] Unexpected service')
+    })
+    const toolCtx = ctx as unknown as import('../../ai-tools/types').CustomersToolContext
+    const normalizedInput = { dealId: DEAL_ID, toStage: 'signed' }
+    const preview = await tool.loadBeforeRecord!(normalizedInput, toolCtx)
+    expect(preview?.after?.closureOutcome).toBe('won')
+    vocabulary = { won: ['accepted'], lost: ['signed'], closed: ['finished'] }
+    const action = { normalizedInput, recordVersion: preview?.recordVersion, records: null } as unknown as import('@open-mercato/ai-assistant/modules/ai_assistant/data/entities').AiPendingAction
+    const result = await checkRecordVersion(
+      action,
+      tool as unknown as import('@open-mercato/ai-assistant/modules/ai_assistant/lib/types').AiToolDefinition,
+      { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1', container: ctx.container, userFeatures: ['customers.deals.manage'], isSuperAdmin: false },
+    )
+    expect(result).toMatchObject({ ok: false, status: 412, code: 'stale_version' })
+    expect(runMock).not.toHaveBeenCalled()
   })
 
   it('throws without calling the runner when the deal is outside the caller scope', async () => {

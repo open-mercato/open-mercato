@@ -14,6 +14,8 @@ import {
   WidgetDataEncryptionUnavailableError,
 } from '../../../../services/widgetDataService'
 import { runWidgetDataBatch } from '../../../../lib/widgetDataBatch'
+import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
+import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
 import type { AnalyticsRegistry } from '../../../../services/analyticsRegistry'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../../openapi'
@@ -116,6 +118,14 @@ export async function POST(req: Request) {
     ) => Promise<boolean>
   }>('rbacService')
 
+  const headers: Record<string, string> = {}
+  req.headers.forEach((value, key) => { headers[key] = value })
+  const interceptorContext: InterceptorContext = {
+    em, container, userId: auth.sub, tenantId, organizationId: rbacOrganizationId ?? '',
+    userFeatures: Array.isArray(auth.features) ? auth.features.filter((feature): feature is string => typeof feature === 'string') : [],
+    metadata: { authenticatedScope: { auth, organizationScope: scope, selectedOrganizationId: scope.selectedId ?? null, organizationIds } },
+  }
+
   try {
     const results = await runWidgetDataBatch(parsed.data.requests as Array<{ id: string; request: WidgetDataRequest }>, {
       getRequiredFeatures: (entityType) => analyticsRegistry.getRequiredFeatures(entityType),
@@ -126,7 +136,19 @@ export async function POST(req: Request) {
           organizationId: rbacOrganizationId,
         })
       },
-      fetchOne: (request) => service.fetchWidgetData(request),
+      fetchOne: async (request) => {
+        const result = await runApiInterceptorsBefore({
+          routePath: 'dashboards/widgets/data/batch', method: 'POST',
+          request: { method: 'POST', url: req.url, headers, body: request as unknown as Record<string, unknown> },
+          context: interceptorContext,
+        })
+        if (!result.ok) {
+          const message = result.body.error
+          if (typeof message === 'string') throw new WidgetDataValidationError(message)
+          throw new Error('[internal] Widget data interceptor rejected request')
+        }
+        return service.fetchWidgetData((result.request.body ?? request) as WidgetDataRequest)
+      },
       describeError: (error) =>
         error instanceof WidgetDataValidationError
         || error instanceof WidgetDataScanLimitError

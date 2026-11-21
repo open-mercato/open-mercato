@@ -85,3 +85,18 @@ describe('useDealClosure', () => {
     })
   })
 })
+
+
+it('writes preferred tenant spellings while preserving stable closure outcomes', async () => {
+  updateCrudMock.mockReset().mockResolvedValue({ ok: true })
+  const { result } = renderHook(() => useDealClosure({
+    vocabulary: { won: ['signed'], lost: ['declined'], closed: ['archived'] },
+    currentDealId: 'deal-1', dealUpdatedAt: null,
+    runMutationWithContext: async (operation) => operation(),
+    confirmDiscardIfDirty: async () => true, onClosed: async () => {},
+  }))
+  await act(async () => { await result.current.handleWon() })
+  expect(updateCrudMock).toHaveBeenCalledWith('customers/deals', { id: 'deal-1', status: 'signed', closureOutcome: 'won' })
+  await act(async () => { await result.current.handleLostConfirm({ lossReasonId: 'reason' }) })
+  expect(updateCrudMock).toHaveBeenCalledWith('customers/deals', expect.objectContaining({ status: 'declined', closureOutcome: 'lost' }))
+})

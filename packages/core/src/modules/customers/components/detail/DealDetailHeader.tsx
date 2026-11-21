@@ -12,6 +12,7 @@ import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { ObjectHistoryButton } from './ObjectHistoryButton'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { formatFallbackLabel } from './utils'
+import type { DealStatusVocabulary } from '../../lib/dealStatus'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
 import { StageSelectMenu, type StageSelectOption } from './StageSelectMenu'
 
@@ -23,6 +24,7 @@ type DealAssociation = {
 }
 
 type DealDetailHeaderProps = {
+  vocabulary?: DealStatusVocabulary
   deal: {
     id: string
     title: string
@@ -121,6 +123,7 @@ function HeaderChip({
 }
 
 export function DealDetailHeader({
+  vocabulary,
   deal,
   owner,
   people,
@@ -160,11 +163,11 @@ export function DealDetailHeader({
   }, [deal.closureOutcome, deal.expectedCloseAt])
   const primaryCompany = companies[0] ?? null
   const statusLabel = statusEntry?.label ?? (deal.status ? formatFallbackLabel(deal.status) : null)
-  const showStatusChip = statusLabel && (!deal.closureOutcome || !isTerminalPipelineOutcomeLabel(deal.status))
+  const showStatusChip = statusLabel && (!deal.closureOutcome || !isTerminalPipelineOutcomeLabel(deal.status, vocabulary))
   const pipelineBadgeLabel = pipelineName ?? null
   const legacyStageMenu = stageOptions.length > 0 && !deal.closureOutcome && typeof onStageChange === 'function' ? (
     <StageSelectMenu
-      stages={stageOptions}
+      stages={stageOptions.filter((stage) => !isTerminalPipelineOutcomeLabel(stage.label, vocabulary))}
       currentStageId={currentStageId}
       onStageChange={onStageChange}
       disabled={isDirty || isSaving}

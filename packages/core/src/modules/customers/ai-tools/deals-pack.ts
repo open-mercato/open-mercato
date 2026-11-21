@@ -16,6 +16,7 @@
  */
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { z } from 'zod'
+import { createHash } from 'node:crypto'
 import { defineApiBackedAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-backed-tool'
 import {
   createAiApiOperationRunner,
@@ -32,6 +33,7 @@ import {
   loadClosurePipelineStageSnapshot,
 } from '../lib/closureStage'
 import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
+import { resolveDealStatusVocabulary } from '../lib/dealStatusVocabulary'
 import {
   assertTenantScope,
   type CustomersAiToolDefinition,
@@ -462,6 +464,11 @@ const updateDealStageTool: CustomersAiToolDefinition = {
     const em = resolveEm(ctx)
     const deal = await loadDealWithStage(em, ctx, tenantId, input.dealId)
     if (!deal) return null
+    const resolvedVocabulary = await resolveDealStatusVocabulary(ctx.container, tenantId)
+    const { vocabulary } = resolvedVocabulary
+    const vocabularyVersion = resolvedVocabulary.source === 'default'
+      ? null
+      : createHash('sha256').update(JSON.stringify(vocabulary)).digest('hex')
     let afterStatus = deal.status ?? null
     let afterPipelineStageId = deal.pipelineStageId ?? null
     let afterPipelineStageLabel = deal.pipelineStage ?? null
@@ -473,16 +480,17 @@ const updateDealStageTool: CustomersAiToolDefinition = {
       afterPipelineStageId = input.toPipelineStageId
       afterPipelineStageLabel = stage?.label ?? input.toPipelineStageId
     } else if (input.toStage) {
-      afterStatus = input.toStage
+      afterStatus = canonicalDealStatus(input.toStage, vocabulary)
       // The update command derives a closure outcome from terminal status spellings and
       // relocates the deal to the pipeline's terminal stage (#5107) — preview that same
       // projection so the approval card states the full blast radius.
       const organizationId = deal.organizationId ?? ctx.organizationId ?? null
-      const outcome = dealClosureOutcomeFromStatus(input.toStage)
+      const outcome = dealClosureOutcomeFromStatus(input.toStage, vocabulary)
       if (outcome && organizationId) {
         const terminalStage = await loadClosurePipelineStageSnapshot(em, {
           pipelineId: deal.pipelineId ?? null,
           closureOutcome: outcome,
+          vocabulary,
           tenantId,
           organizationId,
         })
@@ -504,12 +512,12 @@ const updateDealStageTool: CustomersAiToolDefinition = {
     // `toStage` is free-form model text, so canonicalize before the `closed` check — the
     // command does the same, and the two must stay in lockstep or the approval card would
     // preview a different write than the one that lands.
-    const requestedOutcome = dealClosureOutcomeFromStatus(input.toStage)
+    const requestedOutcome = dealClosureOutcomeFromStatus(input.toStage, vocabulary)
     const clearsClosure =
       input.toPipelineStageId === undefined &&
       input.toStage !== undefined &&
       !requestedOutcome &&
-      !isClosedDealStatus(canonicalDealStatus(input.toStage))
+      !isClosedDealStatus(canonicalDealStatus(input.toStage, vocabulary), vocabulary)
     const afterClosureOutcome = clearsClosure
       ? null
       : requestedOutcome ?? beforeClosureOutcome
@@ -519,7 +527,9 @@ const updateDealStageTool: CustomersAiToolDefinition = {
     return {
       recordId: deal.id,
       entityType: 'customers.deal',
-      recordVersion: recordVersionFromUpdatedAt(deal.updatedAt),
+      recordVersion: vocabularyVersion
+        ? `${recordVersionFromUpdatedAt(deal.updatedAt) ?? 'unversioned'}:${vocabularyVersion}`
+        : recordVersionFromUpdatedAt(deal.updatedAt),
       before: {
         status: beforeStatus,
         pipelineStageId: beforePipelineStageId,
@@ -594,7 +604,8 @@ const updateDealStageTool: CustomersAiToolDefinition = {
       }
       body.pipelineStageId = input.toPipelineStageId
     } else if (input.toStage) {
-      body.status = input.toStage
+      const { vocabulary } = await resolveDealStatusVocabulary(ctx.container, tenantId)
+      body.status = canonicalDealStatus(input.toStage, vocabulary)
     }
 
     const runner = createAiApiOperationRunner(ctx as unknown as AiToolExecutionContext)

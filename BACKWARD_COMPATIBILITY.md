@@ -25,7 +25,6 @@ This is not author or reviewer discretion. Every one of the following MUST hold,
 Downstream authors get no bridge in this case, so the compensating obligation is disclosure. The `UPGRADE_NOTES.md` entry MUST state plainly what stops working, for whom, and what to do about it — including any stored credential or data state that becomes unusable, or that becomes newly suspect, as a result.
 
 ---
-
 ## Contract Surface Categories
 
 ### 1. Auto-Discovery File Conventions (FROZEN)
@@ -281,7 +280,6 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 - Generated `.ai/guides/framework-extension-points.md` is a sibling framework-owned catalog, not a synthetic module-facts key. Existing module Markdown headings, including `Host extension points`, MUST remain available; additive `UMES hosts`/`UMES contributions` sections may not redefine existing IDs.
 
 ---
-
 ## Allowed vs Breaking Changes — Quick Reference
 
 |Surface|Add new|Add optional field|Remove field|Rename|Change type|
@@ -303,7 +301,6 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 \* Feature ID removal requires a data migration.
 
 ---
-
 ## Per-User Integration Credentials (2026-05-26)
 
 `.ai/specs/2026-05-21-email-integration-foundation.md` adds optional per-user scoping to integration credentials so two users on the same tenant can connect their own mailbox (Gmail / IMAP) without sharing one row. **All changes are additive** and pass the contract-surface checks above:
@@ -317,7 +314,6 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 **Migration path for existing tenants**: no action required. Existing integrations keep their single `user_id IS NULL` row and resolve exactly as before; only callers that pass `scope.userId` (the new per-user channels) read or write user-scoped rows.
 
 ---
-
 ## Spec C — Provider Push Delivery (2026-05-27)
 
 `.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md` extends the communication-channels module with provider push delivery. **All changes are additive** and pass the contract-surface checks above:
@@ -339,7 +335,6 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 **Migration path for existing tenants**: no action required. Push is opt-in per channel — until an operator explicitly registers (via connect flow or `POST /push/register`), Gmail channels keep polling on the Spec B baseline. The new ACL feature `communication_channels.channel.push.manage` must be granted via `yarn mercato auth sync-role-acls` post-deploy for the "Re-register push" button to appear.
 
 ---
-
 ## Command Interceptor HTTP Status (2026-08-06)
 
 `.ai/specs/2026-08-06-command-interceptor-http-status.md` lets a command interceptor's deliberate rejection carry an HTTP status and body, so a business block surfaces as (for example) `422` instead of a generic `500`. **All changes are additive** and pass the contract-surface checks above:
@@ -358,7 +353,6 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 **Migration**: no action required. The capability is opt-in per rejection — an interceptor that never sets `status` produces exactly the responses it produced before. Interceptors that want a deliberate status add `status` (and optionally `body`) to the `{ ok: false, message }` verdict they already return. First-party transports that call `commandBus.execute` inside their own `try/catch` **now do** honour the contract as of [#5181](https://github.com/open-mercato/open-mercato/pull/5181): every such route consults `getCommandInterceptorHttpRejection(err)` — directly, or through the module-level error mapper it already delegates to — immediately after its `isCrudHttpError` branch, or first in the `catch` where there is none, and the static coverage guard fails when a new bus-calling route ships without it. Third-party transports honour the same contract in the same two lines via `getCommandInterceptorHttpRejection(err)`, which validates the status is an integer in 400-599 before returning it.
 
 ---
-
 ## Canonical API Interceptor Route Identity (2026-10-04)
 
 API dispatch and API-interceptor selection now share the same matched-route identity.
@@ -381,7 +375,6 @@ Request wrappers should retain headers when reconstructing the request, or pass 
 authored route constant directly to the interceptor runner.
 
 ---
-
 ## CRUD Foreign-Key Violations Answer 409 (2026-09-07)
 
 Deleting a user who had customised their sidebar failed on the `user_sidebar_preferences` / `sidebar_variants` foreign keys and surfaced as a generic `500`. The fix clears those rows in `auth.users.delete`, gives both FKs `ON DELETE CASCADE`, and teaches `makeCrudRoute` to recognise a Postgres foreign-key violation (SQLSTATE 23503). **All changes are additive** and pass the contract-surface checks above:
@@ -397,7 +390,6 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 **Migration**: no action required. A client that branched on `5xx` for foreign-key failures should treat `409` with `code: 'FOREIGN_KEY_VIOLATION'` as the same condition; it was never retryable.
 
 ---
-
 ## Encrypt Path Rejects Wrong-Key Ciphertext (2026-09-11)
 
 `TenantDataEncryptionService.encryptFields` treats "already encrypted" as "decrypts under the current DEK" — a deliberate anti-forgery choice ([#2720](https://github.com/open-mercato/open-mercato/issues/2720)). Real ciphertext sealed under a *different* key failed that check too and was encrypted a second time, producing a nested envelope that no read path can undo, plus a lookup hash computed over ciphertext ([#5951](https://github.com/open-mercato/open-mercato/issues/5951)). That write is now rejected:
@@ -413,7 +405,6 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 **Migration**: no action required. Operationally, a write touching a record whose encrypted field is sealed under a stale key now fails loudly until the rotation is finished (`mercato entities rotate-encryption-key --old-key …`) or the sealing DEK is restored — a deliberate trade of availability for integrity, since the previous outcome was silent, undetectable corruption. This change does not repair envelopes that were already nested before the upgrade.
 
 ---
-
 ## Module Registry Registration Listeners (2026-08-12)
 
 [Registry listener spec](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
@@ -549,7 +540,6 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 **Migration**: none. Third-party commands remain on the established replay lifecycle unless they explicitly set `atomicReplay: true`. An opting-in handler must perform all replay database work through `ctx.transactionalEm`; when authorization depends on mutable domain rows it may add `stabilizeReplay` to acquire its complete footprint before guards and interceptors. The command bus supplies and owns the transaction by default. A caller deliberately composing replay inside an already-active `ctx.transactionalEm` must open that outer transaction with `withAtomicFlush(..., { transaction: true })`, obtain its exact `TransactionLifetime` inside the phase, and pass it as `ctx.transactionLifetime`; otherwise replay fails before mutation. Commit-only hooks and redo-finalization reporting follow the true outer completion. The capability does not claim that legacy non-opted-in action-log and domain writes are transactionally atomic.
 
 ---
-
 ## Organization Update Preserves Omitted Hierarchy Fields (2026-10-01)
 
 `directory.organizations.update` treated an omitted `parentId` as `null` and an omitted `childIds` as `[]`, so a partial update — notably `PUT /api/directory/organization-branding`, which sends only logo fields — detached the organization from its parent and orphaned its children. Omitted hierarchy fields are now preserved:
@@ -604,8 +594,9 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
 
----
+[Deal vocabulary](UPGRADE_NOTES.md#5546)
 
+---
 ## OAuth2 Grant Lifecycle Core (2026-10-12)
 
 [OAuth2 core spec](.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md) (parent: [OAuth2 app spec](.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md) §10.1) adds a tenant-level OAuth2 grant core to `integrations` that no existing integration uses yet. **All changes are additive** except the reserved `__oauth_grant` suffix, an intentional security narrowing that no first-party integration or bundle id hits. Developer guide: `apps/docs/docs/framework/modules/integrations-oauth-grants.mdx`.
@@ -631,7 +622,6 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 **Migration**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
 
 ---
-
 ## Attachment owner access (2026-10-01, #6726)
 
 STABLE HTTP/service BREAK (403/404/504), Documents only: org-wide files bypass sharing; bridging would retain disclosure. Discovery/schema additive. [Migration](UPGRADE_NOTES.md#documents-attachments-enforce-owner-permissions-at-host-urls-6726); [spec](.ai/specs/2026-10-01-attachment-access-resolvers.md). [@haxiorz: steps 1–3 waived; migration acknowledged](https://github.com/open-mercato/open-mercato/pull/6829#issuecomment-6505350022).
@@ -641,7 +631,6 @@ STABLE HTTP/service BREAK (403/404/504), Documents only: org-wide files bypass s
 [Cache fix](UPGRADE_NOTES.md)
 
 ---
-
 ## Public pay links (2026-10-27, #7823)
 
 STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them preserves disclosure. Client/operator migration: [notes](UPGRADE_NOTES.md). @haxiorz [approved](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29: steps 1–3 waived for all 18 admin fields; client/operator migration acknowledged.
