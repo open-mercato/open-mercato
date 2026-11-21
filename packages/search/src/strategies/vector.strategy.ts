@@ -10,6 +10,8 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { VectorDriver, VectorDriverDocument } from '../vector/types'
 import { searchDebugWarn } from '../lib/debug'
 import { plaintextSearchFields } from '../lib/plaintext-fields'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { decryptVectorResultFields } from '../vector/lib/result-decryption'
 
 /**
  * Embedding service interface - minimal subset needed by VectorSearchStrategy.
@@ -25,6 +27,7 @@ export interface EmbeddingService {
 export type VectorStrategyConfig = {
   /** Default limit for search results */
   defaultLimit?: number
+  encryptionService?: TenantDataEncryptionService | null
 }
 
 function normalizeOrganizationIds(options: SearchOptions): string[] | null {
@@ -52,6 +55,7 @@ export class VectorSearchStrategy implements SearchStrategy {
   }
 
   private readonly defaultLimit: number
+  private readonly encryptionService: TenantDataEncryptionService | null
   private ready = false
   private readyPromise: Promise<void> | null = null
 
@@ -61,6 +65,7 @@ export class VectorSearchStrategy implements SearchStrategy {
     config?: VectorStrategyConfig,
   ) {
     this.defaultLimit = config?.defaultLimit ?? 20
+    this.encryptionService = config?.encryptionService ?? null
   }
 
   async isAvailable(): Promise<boolean> {
@@ -119,20 +124,42 @@ export class VectorSearchStrategy implements SearchStrategy {
       filter,
     })
 
-    return results.map((hit) => ({
-      entityId: hit.entityId,
-      recordId: hit.recordId,
-      score: hit.score,
-      source: this.id,
-      organizationId: hit.organizationId ?? null,
-      presenter: hit.presenter ?? undefined,
-      url: hit.primaryLinkHref ?? hit.url ?? undefined,
-      links: hit.links?.map((link) => ({
-        href: link.href,
-        label: link.label ?? '',
-        kind: link.kind,
-      })),
-      metadata: hit.payload ?? undefined,
+    return Promise.all(results.map(async (hit) => {
+      const fields = await decryptVectorResultFields({
+        tenantId: options.tenantId,
+        organizationId: hit.organizationId ?? options.organizationId ?? null,
+        resultTitle: hit.resultTitle,
+        resultSubtitle: hit.resultSubtitle ?? null,
+        resultIcon: hit.resultIcon ?? null,
+        resultSnapshot: hit.resultSnapshot ?? null,
+        primaryLinkHref: hit.primaryLinkHref ?? null,
+        primaryLinkLabel: hit.primaryLinkLabel ?? null,
+        links: hit.links ?? null,
+        payload: hit.payload ?? null,
+      }, this.encryptionService)
+      const presenter = this.encryptionService?.isEnabled?.()
+        ? {
+          title: fields.resultTitle,
+          subtitle: fields.resultSubtitle ?? undefined,
+          icon: fields.resultIcon ?? undefined,
+          badge: hit.presenter?.badge ?? hit.resultBadge ?? undefined,
+        }
+        : hit.presenter ?? undefined
+      return {
+        entityId: hit.entityId,
+        recordId: hit.recordId,
+        score: hit.score,
+        source: this.id,
+        organizationId: hit.organizationId ?? null,
+        presenter,
+        url: fields.primaryLinkHref ?? hit.url ?? undefined,
+        links: (Array.isArray(fields.links) ? fields.links : undefined)?.map((link) => ({
+          href: link.href,
+          label: link.label ?? '',
+          kind: link.kind,
+        })),
+        metadata: (typeof fields.payload === 'object' ? fields.payload : undefined) ?? undefined,
+      }
     }))
   }
 

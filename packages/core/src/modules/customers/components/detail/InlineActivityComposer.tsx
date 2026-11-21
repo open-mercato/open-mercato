@@ -49,6 +49,8 @@ interface InlineActivityComposerProps {
   runGuardedMutation?: GuardedMutationRunner
   onScheduleRequested?: () => void
   useCanonicalInteractions?: boolean
+  /** Host refresh signal forwarded to the week preview so it follows activities created, changed or deleted outside the composer. */
+  refreshKey?: number
 }
 
 export function InlineActivityComposer({
@@ -59,6 +61,7 @@ export function InlineActivityComposer({
   runGuardedMutation,
   onScheduleRequested,
   useCanonicalInteractions,
+  refreshKey,
 }: InlineActivityComposerProps) {
   const t = useT()
   const calendarRefreshRef = React.useRef<(() => void) | null>(null)
@@ -276,6 +279,7 @@ export function InlineActivityComposer({
               entityId={entityId}
               useCanonicalInteractions={useCanonicalInteractions}
               refreshRef={calendarRefreshRef}
+              refreshKey={refreshKey}
             />
           </div>
         ) : null}
