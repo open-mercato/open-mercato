@@ -667,6 +667,31 @@ describe('executeCallApi', () => {
       expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
     })
 
+    it('does not retry when no traceable user roles can be resolved', async () => {
+      ;(mockEm.find as unknown as jest.Mock).mockImplementation(() => Promise.resolve([]))
+
+      const result = await executeWithRetries('/api/sales/orders')
+
+      expect(result.success).toBe(false)
+      expect(result.error).toMatch(/no traceable user roles/)
+      expect(result.retryCount).toBe(1)
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(createdApiKeys).toHaveLength(0)
+    })
+
+    it('does not resend a request whose response belongs to another tenant', async () => {
+      mockFetch.mockResolvedValue(okJson({ tenantId: 'tenant-other' }))
+
+      const result = await executeWithRetries('/api/sales/orders')
+
+      expect(result.success).toBe(false)
+      expect(result.error).toMatch(/Tenant ID mismatch/)
+      expect(result.retryCount).toBe(1)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(createdApiKeys).toHaveLength(1)
+      expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+    })
+
     it.each(['network', 'server'])('still retries a transient %s failure and cleans up both keys', async (failure) => {
       if (failure === 'network') {
         mockFetch.mockRejectedValueOnce(new Error('[internal] connection reset'))

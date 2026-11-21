@@ -1836,7 +1836,7 @@ export async function executeCallApi(
   const resolvedRoleIds = await resolveCallApiRoleIds(apiKeyEm, context.workflowInstance)
 
   if (resolvedRoleIds.length === 0) {
-    throw new Error(
+    throw new CallApiRefusalError(
       `[CALL_API] Refusing to execute CALL_API for workflow instance ${context.workflowInstance.id}: ` +
       `no traceable user roles could be resolved from the workflow instance or definition. ` +
       `CALL_API activities must run under the identity of the user who triggered them.`
@@ -1895,7 +1895,7 @@ export async function executeCallApi(
       // Validate tenant match (security check)
       if (validateTenantMatch && responseBody && typeof responseBody === 'object') {
         if (responseBody.tenantId && responseBody.tenantId !== context.workflowInstance.tenantId) {
-          throw new Error(
+          throw new CallApiRefusalError(
             `Tenant ID mismatch: workflow expects ${context.workflowInstance.tenantId} but API returned ${responseBody.tenantId}`
           )
         }
