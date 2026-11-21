@@ -55,6 +55,14 @@ function setBackendChromeLoading() {
   backendChromeReady = false
 }
 
+// Mirrors `useBackendChrome()`'s default outside a `BackendChromeProvider` — e.g. every
+// customer-portal page, which never mounts one. `isReady` is hardcoded `true` there, unlike
+// the "still loading" case above where `isReady` is `false`.
+function setNoBackendChromeProvider() {
+  backendChromePayload = null
+  backendChromeReady = true
+}
+
 function visualWidget(
   id: string,
   features: string[] | undefined,
@@ -264,6 +272,46 @@ describe('Injection widget feature gating', () => {
     expect(beforeSaveResult).toEqual({ ok: true })
     expect(onBeforeSaveHiddenMock).not.toHaveBeenCalled()
     expect(result.current.widgets).toEqual([])
+  })
+
+  it('excludes feature-gated lifecycle widgets outside a BackendChromeProvider (e.g. the portal), but still runs unguarded ones', async () => {
+    const onBeforeSaveStaffOnlyMock = jest.fn()
+    const onBeforeSaveUnguardedMock = jest.fn()
+    setNoBackendChromeProvider()
+    // Hoisted outside the hook callback so re-renders see stable widget/module identities —
+    // constructing these inline would hand `useInjectionSpotEvents` a new `prefetchedWidgets`
+    // array (and new widget objects) on every render, defeating its reference-equality bailout
+    // and causing an infinite re-render loop.
+    const prefetched = [
+      loadedSpotWidget(lifecycleWidget('staff-only-lifecycle-widget', ['record_locks.view'], onBeforeSaveStaffOnlyMock)),
+      loadedSpotWidget(lifecycleWidget('unguarded-lifecycle-widget', undefined, onBeforeSaveUnguardedMock)),
+    ]
+
+    const { result } = renderHook(() =>
+      useInjectionSpotEvents<Record<string, unknown>, Record<string, unknown>>(SPOT_ID, prefetched)
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    await result.current.triggerEvent('onBeforeSave', {}, {})
+
+    expect(onBeforeSaveStaffOnlyMock).not.toHaveBeenCalled()
+    expect(onBeforeSaveUnguardedMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('excludes feature-gated data widgets outside a BackendChromeProvider, but keeps unguarded ones', async () => {
+    loadInjectionDataWidgetsForSpotMock.mockResolvedValueOnce([
+      dataWidget('always-visible'),
+      dataWidget('staff-only-data-widget', ['record_locks.view']),
+    ])
+    setNoBackendChromeProvider()
+
+    const { result } = renderHook(() => useInjectionDataWidgets(SPOT_ID))
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.widgets.map((widget) => widget.metadata.id)).toEqual(['always-visible'])
   })
 })
 

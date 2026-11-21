@@ -70,9 +70,12 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
         if (!mounted) return
         setWidgets(
           loaded.filter((widget) => {
-            if (!hasBackendChromePayload) return true
             const features = widget.metadata.features ?? []
-            return features.length === 0 || hasAllFeatures(grantedFeatureList, features)
+            if (features.length === 0) return true
+            // No BackendChromeProvider payload (e.g. the customer portal) means there is no
+            // staff ACL to check, so a feature-gated widget must be excluded, not allowed through.
+            if (!hasBackendChromePayload) return false
+            return hasAllFeatures(grantedFeatureList, features)
           })
         )
       } catch (loadError) {

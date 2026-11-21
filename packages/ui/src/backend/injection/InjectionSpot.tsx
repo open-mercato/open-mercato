@@ -75,9 +75,13 @@ function hasGrantedWidgetFeatures(
   grantedFeatures: string[],
   hasBackendChromePayload: boolean,
 ): boolean {
-  if (!hasBackendChromePayload) return true
   const features = widget.module.metadata.features ?? []
-  return features.length === 0 || hasAllFeatures(grantedFeatures, features)
+  if (features.length === 0) return true
+  // Without a BackendChromeProvider payload (e.g. the customer portal, which never mounts
+  // one) there is no staff ACL to check against, so a feature-gated widget must be excluded
+  // rather than let it run unchecked against staff-only endpoints.
+  if (!hasBackendChromePayload) return false
+  return hasAllFeatures(grantedFeatures, features)
 }
 
 function filterWidgetsByGrantedFeatures<TWidget extends { module: { metadata: InjectionWidgetMetadata } }>(
