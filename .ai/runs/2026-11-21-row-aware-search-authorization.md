@@ -25,6 +25,7 @@ Re-enable `messages:message`, `sales:sales_note`, and `sales:sales_document_addr
 - Existing tenants with records created while entities were `enabled: false` need a reindex for historical records to appear.
 
 ## Progress
+PR: #10256
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
