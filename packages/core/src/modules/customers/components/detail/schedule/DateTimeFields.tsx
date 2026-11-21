@@ -115,7 +115,7 @@ export function DateTimeFields({
           <label className="text-overline font-semibold text-muted-foreground tracking-wider">
             {getFieldLabel(activityType, 'date', t, 'customers.schedule.date', 'Date')}
             {dateRequired ? (
-              <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+              <span aria-hidden="true" className="ml-1 text-status-error-text">*</span>
             ) : null}
           </label>
           <DatePicker
@@ -133,7 +133,7 @@ export function DateTimeFields({
             )}
           />
           {dateMissing ? (
-            <p id={dateErrorId} className="text-xs text-status-error-foreground">
+            <p id={dateErrorId} className="text-xs text-status-error-text">
               {t('customers.activities.errors.dateRequired', 'Date is required')}
             </p>
           ) : null}
@@ -143,7 +143,7 @@ export function DateTimeFields({
             <label className="text-overline font-semibold text-muted-foreground tracking-wider">
               {getFieldLabel(activityType, 'startTime', t, 'customers.schedule.start', 'Start')}
               {timeRequired ? (
-                <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+                <span aria-hidden="true" className="ml-1 text-status-error-text">*</span>
               ) : null}
             </label>
             <TimePicker
@@ -159,7 +159,7 @@ export function DateTimeFields({
               showClearButton={!timeRequired}
             />
             {timeMissing ? (
-              <p id={timeErrorId} className="text-xs text-status-error-foreground">
+              <p id={timeErrorId} className="text-xs text-status-error-text">
                 {t('customers.activities.errors.timeRequired', 'Time is required')}
               </p>
             ) : null}
