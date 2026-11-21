@@ -16,6 +16,11 @@ import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import {
+  assertTranslationFields,
+  filterTargetTranslations,
+  resolveTranslationTargetFields,
+} from '@open-mercato/core/modules/translations/lib/target-access'
 
 const logger = createLogger('translations').child({ component: 'entity-translations' })
 
@@ -74,6 +79,7 @@ export async function GET(req: Request, ctx: { params?: { entityType?: string; e
       entityId: ctx.params?.entityId,
     })
 
+    const allowedFields = await resolveTranslationTargetFields(context, entityType, entityId, 'view')
     const row = await (context.db as any)
       .selectFrom('entity_translations')
       .selectAll()
@@ -91,7 +97,7 @@ export async function GET(req: Request, ctx: { params?: { entityType?: string; e
     return NextResponse.json({
       entityType: row.entity_type,
       entityId: row.entity_id,
-      translations: row.translations,
+      translations: filterTargetTranslations(row.translations, allowedFields),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     })
@@ -116,6 +122,7 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
       entityId: ctx.params?.entityId,
     })
 
+    const allowedFields = await resolveTranslationTargetFields(context, entityType, entityId, 'manage')
     const rawText = await req.text()
     let rawBody: unknown = {}
     if (rawText.trim().length > 0) {
@@ -126,6 +133,7 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
       }
     }
     const translations = translationBodySchema.parse(rawBody)
+    await assertTranslationFields(translations, allowedFields)
 
     const guardUserId = resolveTranslationsActorId(context.auth)
     const guardResult = await validateCrudMutationGuard(context.container, {
@@ -251,6 +259,7 @@ export async function DELETE(req: Request, ctx: { params?: { entityType?: string
       entityId: ctx.params?.entityId,
     })
 
+    await resolveTranslationTargetFields(context, entityType, entityId, 'manage')
     const guardUserId = resolveTranslationsActorId(context.auth)
     const guardResult = await validateCrudMutationGuard(context.container, {
       tenantId: context.tenantId,
@@ -355,27 +364,31 @@ const translationsTag = 'Translations'
 
 const getDoc: OpenApiMethodDoc = {
   summary: 'Get entity translations',
-  description: 'Returns the full translation record for a single entity.',
+  description: 'Returns registered translations for a record accessible to the caller.',
   tags: [translationsTag],
   responses: [
     { status: 200, description: 'Translation record found.' },
   ],
   errors: [
+    { status: 400, description: 'Entity type is not registered for translation' },
     { status: 401, description: 'Authentication required' },
-    { status: 404, description: 'No translations found for this entity, or the entity is soft-deleted' },
+    { status: 403, description: 'Target record view feature required' },
+    { status: 404, description: 'Record or translations not found in the effective scope, or the record is soft-deleted' },
   ],
 }
 
 const putDoc: OpenApiMethodDoc = {
   summary: 'Create or update entity translations',
-  description: 'Full replacement of translations JSONB for an entity.',
+  description: 'Replaces translations for registered fields on a record the caller can manage.',
   tags: [translationsTag],
   responses: [
     { status: 200, description: 'Translations saved.' },
   ],
   errors: [
-    { status: 400, description: 'Validation failed' },
+    { status: 400, description: 'Invalid payload, unregistered type, or unregistered field' },
     { status: 401, description: 'Authentication required' },
+    { status: 403, description: 'Target record manage feature required' },
+    { status: 404, description: 'Record not found in the effective scope' },
   ],
 }
 
@@ -387,7 +400,10 @@ const deleteDoc: OpenApiMethodDoc = {
     { status: 204, description: 'Translations deleted.' },
   ],
   errors: [
+    { status: 400, description: 'Entity type is not registered for translation' },
     { status: 401, description: 'Authentication required' },
+    { status: 403, description: 'Target record manage feature required' },
+    { status: 404, description: 'Record not found in the effective scope' },
   ],
 }
 

@@ -187,11 +187,13 @@ describe('OrganizationBrandingPage', () => {
     }))
 
     await screen.findByText('Second organization')
-    expect(screen.queryByText('Acme')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Logo URL')).toHaveValue(brandingPayload.logoUrl)
-    expect(screen.getByRole('switch', { name: 'Keep the aspect ratio' })).toHaveAttribute('aria-checked', 'false')
-    expect(screen.getByRole('img')).toHaveAttribute('src', brandingPayload.logoUrl)
-    expect(revokeObjectUrlMock).toHaveBeenCalledWith('blob:organization-logo-preview')
+    await waitFor(() => {
+      expect(screen.queryByText('Acme')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('Logo URL')).toHaveValue(brandingPayload.logoUrl)
+      expect(screen.getByRole('switch', { name: 'Keep the aspect ratio' })).toHaveAttribute('aria-checked', 'false')
+      expect(screen.getByRole('img')).toHaveAttribute('src', brandingPayload.logoUrl)
+      expect(revokeObjectUrlMock).toHaveBeenCalledWith('blob:organization-logo-preview')
+    })
     fireEvent.click(screen.getByRole('button', { name: /Save branding/ }))
     await waitFor(() => expect(apiCallOrThrowMock).toHaveBeenCalled())
     expect(readApiResultOrThrowMock.mock.calls.some(([path]) => path === '/api/attachments')).toBe(false)

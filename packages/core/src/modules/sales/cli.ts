@@ -1,26 +1,15 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { backfillDealLossReasonDictionary, seedSalesAdjustmentKinds, seedSalesStatusDictionaries } from './lib/dictionaries'
+import { backfillDealLossReasonDictionary } from '@open-mercato/core/modules/customers/lib/dealLossReasons'
+import { seedSalesAdjustmentKinds, seedSalesStatusDictionaries } from './lib/dictionaries'
 import { seedSalesTaxRates } from './lib/seeds'
 import { ensureExamplePaymentMethods, ensureExampleShippingMethods } from './seed/examples-data'
 import { seedSalesExamples } from './seed/examples'
 
 function parseArgs(rest: string[]) {
-  const args: Record<string, string> = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
-    if (!part) continue
-    if (part.startsWith('--')) {
-      const [rawKey, rawValue] = part.slice(2).split('=')
-      if (rawValue !== undefined) args[rawKey] = rawValue
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) {
-        args[rawKey] = rest[i + 1]!
-        i += 1
-      }
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest, { flagValue: undefined })
 }
 
 const seedTaxRatesCommand: ModuleCli = {
@@ -126,6 +115,7 @@ const backfillDealLossReasonsCommand: ModuleCli = {
           `Deal loss reasons dictionary ready for organization ${organizationId}.`,
           `dictionaryId=${result.dictionaryId}`,
           `createdDictionary=${String(result.createdDictionary)}`,
+          `revivedDictionary=${String(result.revivedDictionary)}`,
           `copiedLegacyEntries=${String(result.copiedLegacyEntries)}`,
           `seededDefaultEntries=${String(result.seededDefaultEntries)}`,
           `existingEntries=${String(result.existingEntries)}`,

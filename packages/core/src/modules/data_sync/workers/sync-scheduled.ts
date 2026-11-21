@@ -2,7 +2,7 @@ import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
-import type { ProgressService } from '../../progress/lib/progressService'
+import { resolveProgressService } from '../lib/resolve-progress-service'
 import type { SyncRunService } from '../lib/sync-run-service'
 import { SyncSchedule } from '../data/entities'
 import { startDataSyncRun } from '../lib/start-run'
@@ -33,7 +33,7 @@ type HandlerContext = JobContext & {
 export default async function handle(job: QueuedJob<ScheduledSyncPayload>, ctx: HandlerContext): Promise<void> {
   const em = ctx.resolve<EntityManager>('em')
   const syncRunService = ctx.resolve<SyncRunService>('dataSyncRunService')
-  const progressService = ctx.resolve<ProgressService>('progressService')
+  const progressService = resolveProgressService(ctx)
   const integrationStateService = ctx.resolve<IntegrationStateService>('integrationStateService')
 
   const schedule = await findOneWithDecryption(

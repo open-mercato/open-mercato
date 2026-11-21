@@ -33,6 +33,18 @@ jest.mock('@open-mercato/core/modules/attachments/lib/ocrConfig', () => ({
   resolveDefaultAttachmentOcrEnabled: () => true,
 }))
 
+const mockEnqueueDocumentSectionSearch = jest.fn(async (_container: unknown, _input: unknown) => 'section-search-job')
+
+jest.mock('@open-mercato/core/modules/attachments/lib/documentStructure/queue', () => ({
+  enqueueDocumentSectionSearch: (container: unknown, input: unknown) => mockEnqueueDocumentSectionSearch(container, input),
+}))
+
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 type AuthFixture = {
   sub?: string
   tenantId?: string | null
@@ -56,6 +68,8 @@ type PartitionRow = {
   isPublic: boolean
   requiresOcr: boolean
   ocrModel?: string | null
+  extractDocumentStructure?: boolean
+  indexDocumentSections?: boolean
   tenantId: string | null
   organizationId: string | null
   createdAt: Date
@@ -125,6 +139,8 @@ const mockEm = {
       isPublic: data.isPublic ?? false,
       requiresOcr: data.requiresOcr ?? true,
       ocrModel: data.ocrModel ?? null,
+      extractDocumentStructure: data.extractDocumentStructure ?? false,
+      indexDocumentSections: data.indexDocumentSections ?? false,
       tenantId: data.tenantId ?? null,
       organizationId: data.organizationId ?? null,
       createdAt: new Date(),
@@ -365,6 +381,217 @@ describe('attachment partitions API — tenant scoping', () => {
       buildRequest('PUT', { id: '22222222-2222-4222-8222-222222222222', code: 'tenantAPriv', title: 'x' }),
     )
     expect(res.status).toBe(401)
+  })
+
+  describe('document structure flags', () => {
+    const ownPartitionId = '22222222-2222-4222-8222-222222222222'
+
+    it('GET returns both flags defaulting to false', async () => {
+      const { GET } = await loadHandlers()
+      const res = await GET(buildRequest('GET', null))
+      const body = await res.json()
+      const own = body.items.find((it: any) => it.id === ownPartitionId)
+      expect(own.extractDocumentStructure).toBe(false)
+      expect(own.indexDocumentSections).toBe(false)
+    })
+
+    it('POST persists and returns the flags', async () => {
+      const { POST } = await loadHandlers()
+      const res = await POST(
+        buildRequest('POST', {
+          code: 'manuals',
+          title: 'Manuals',
+          extractDocumentStructure: true,
+          indexDocumentSections: true,
+        }),
+      )
+      expect(res.status).toBe(201)
+      const body = await res.json()
+      expect(body.item.extractDocumentStructure).toBe(true)
+      expect(body.item.indexDocumentSections).toBe(true)
+      const row = store.partitions.find((p) => p.code === 'manuals')!
+      expect(row.extractDocumentStructure).toBe(true)
+      expect(row.indexDocumentSections).toBe(true)
+    })
+
+    it('POST defaults the flags to false', async () => {
+      const { POST } = await loadHandlers()
+      const res = await POST(buildRequest('POST', { code: 'plain', title: 'Plain' }))
+      expect(res.status).toBe(201)
+      const body = await res.json()
+      expect(body.item.extractDocumentStructure).toBe(false)
+      expect(body.item.indexDocumentSections).toBe(false)
+    })
+
+    it('POST rejects section indexing without extraction with a field error', async () => {
+      const { POST } = await loadHandlers()
+      const res = await POST(
+        buildRequest('POST', { code: 'bad', title: 'Bad', indexDocumentSections: true }),
+      )
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      expect(body.fieldErrors.indexDocumentSections).toBeTruthy()
+      expect(store.partitions.some((p) => p.code === 'bad')).toBe(false)
+    })
+
+    it('PUT updates the flags', async () => {
+      const { PUT } = await loadHandlers()
+      const res = await PUT(
+        buildRequest('PUT', {
+          id: ownPartitionId,
+          code: 'tenantAPriv',
+          title: 'Tenant A Private',
+          extractDocumentStructure: true,
+          indexDocumentSections: true,
+        }),
+      )
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.item.extractDocumentStructure).toBe(true)
+      expect(body.item.indexDocumentSections).toBe(true)
+      const row = store.partitions.find((p) => p.id === ownPartitionId)!
+      expect(row.extractDocumentStructure).toBe(true)
+      expect(row.indexDocumentSections).toBe(true)
+    })
+
+    it('PUT enqueues a partition index sync after the flush when section indexing is enabled', async () => {
+      const { PUT } = await loadHandlers()
+      const res = await PUT(
+        buildRequest('PUT', {
+          id: ownPartitionId,
+          code: 'tenantAPriv',
+          title: 'Tenant A Private',
+          extractDocumentStructure: true,
+          indexDocumentSections: true,
+        }),
+      )
+      expect(res.status).toBe(200)
+      expect(mockEnqueueDocumentSectionSearch).toHaveBeenCalledTimes(1)
+      expect(mockEnqueueDocumentSectionSearch).toHaveBeenCalledWith(expect.anything(), {
+        mode: 'index',
+        tenantId: 'tenantA',
+        organizationId: null,
+        partitionCode: 'tenantAPriv',
+      })
+      expect(mockEm.flush.mock.invocationCallOrder[0]).toBeLessThan(
+        mockEnqueueDocumentSectionSearch.mock.invocationCallOrder[0],
+      )
+    })
+
+    it('PUT enqueues a partition delete sync when section indexing is disabled', async () => {
+      const row = store.partitions.find((p) => p.id === ownPartitionId)!
+      row.extractDocumentStructure = true
+      row.indexDocumentSections = true
+      const { PUT } = await loadHandlers()
+      const res = await PUT(
+        buildRequest('PUT', {
+          id: ownPartitionId,
+          code: 'tenantAPriv',
+          title: 'Tenant A Private',
+          indexDocumentSections: false,
+        }),
+      )
+      expect(res.status).toBe(200)
+      expect(mockEnqueueDocumentSectionSearch).toHaveBeenCalledWith(expect.anything(), {
+        mode: 'delete',
+        tenantId: 'tenantA',
+        organizationId: null,
+        partitionCode: 'tenantAPriv',
+      })
+    })
+
+    it('PUT enqueues an all-scope sync for a global partition toggled by a superadmin', async () => {
+      currentAuth = { sub: 'root', tenantId: 'tenantA', orgId: 'orgA', isSuperAdmin: true }
+      const { PUT } = await loadHandlers()
+      const res = await PUT(
+        buildRequest('PUT', {
+          id: '11111111-1111-4111-8111-111111111111',
+          code: 'privateAttachments',
+          title: 'Platform Private',
+          extractDocumentStructure: true,
+          indexDocumentSections: true,
+        }),
+      )
+      expect(res.status).toBe(200)
+      expect(mockEnqueueDocumentSectionSearch).toHaveBeenCalledWith(expect.anything(), {
+        mode: 'index',
+        tenantId: null,
+        organizationId: null,
+        partitionCode: 'privateAttachments',
+      })
+    })
+
+    it('PUT does not enqueue a sync when section indexing is unchanged', async () => {
+      const row = store.partitions.find((p) => p.id === ownPartitionId)!
+      row.extractDocumentStructure = true
+      row.indexDocumentSections = true
+      const { PUT } = await loadHandlers()
+      const renamed = await PUT(buildRequest('PUT', { id: ownPartitionId, code: 'tenantAPriv', title: 'Renamed' }))
+      const repeated = await PUT(
+        buildRequest('PUT', {
+          id: ownPartitionId,
+          code: 'tenantAPriv',
+          title: 'Renamed again',
+          extractDocumentStructure: true,
+          indexDocumentSections: true,
+        }),
+      )
+      expect(renamed.status).toBe(200)
+      expect(repeated.status).toBe(200)
+      expect(mockEnqueueDocumentSectionSearch).not.toHaveBeenCalled()
+    })
+
+    it('PUT still succeeds and reports the error when enqueueing the sync fails', async () => {
+      mockEnqueueDocumentSectionSearch.mockRejectedValueOnce(new Error('queue down'))
+      const { PUT } = await loadHandlers()
+      const res = await PUT(
+        buildRequest('PUT', {
+          id: ownPartitionId,
+          code: 'tenantAPriv',
+          title: 'Tenant A Private',
+          extractDocumentStructure: true,
+          indexDocumentSections: true,
+        }),
+      )
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.item.indexDocumentSections).toBe(true)
+      expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+        module: 'attachments',
+        code: 'attachments.document_structure_search_enqueue_failed',
+      })
+    })
+
+    it('PUT keeps stored flags when they are omitted', async () => {
+      const row = store.partitions.find((p) => p.id === ownPartitionId)!
+      row.extractDocumentStructure = true
+      row.indexDocumentSections = true
+      const { PUT } = await loadHandlers()
+      const res = await PUT(
+        buildRequest('PUT', { id: ownPartitionId, code: 'tenantAPriv', title: 'Renamed' }),
+      )
+      expect(res.status).toBe(200)
+      expect(row.extractDocumentStructure).toBe(true)
+      expect(row.indexDocumentSections).toBe(true)
+    })
+
+    it('PUT rejects enabling section indexing while stored extraction is off', async () => {
+      const { PUT } = await loadHandlers()
+      const res = await PUT(
+        buildRequest('PUT', {
+          id: ownPartitionId,
+          code: 'tenantAPriv',
+          title: 'Tenant A Private',
+          indexDocumentSections: true,
+        }),
+      )
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      expect(body.fieldErrors.indexDocumentSections).toBeTruthy()
+      expect(mockEm.flush).not.toHaveBeenCalled()
+      const row = store.partitions.find((p) => p.id === ownPartitionId)!
+      expect(row.indexDocumentSections ?? false).toBe(false)
+    })
   })
 
   // Fresh-install / demo-mode invariant (#2635 review): when the database has

@@ -83,3 +83,20 @@ test('the root test script caps turbo concurrency and the V8 heap', () => {
     'root test heap must stay at 1024 MB: Docusaurus exceeds 768 MB, while concurrency=2 keeps aggregate memory bounded',
   )
 })
+
+test('module fact-sheet builds carry their own heap above the root test cap', () => {
+  // `create-mercato-app#test` depends on `^build`, so both fact-sheet builds run inside the root
+  // `yarn test` and inherit its 1024 MB NODE_OPTIONS. Their live heap sits near 950 MB and peaks
+  // near 2.1 GB when unconstrained, so each pins its own cap; a CLI flag overrides NODE_OPTIONS (#9933).
+  const scripts = [
+    ['packages/cli', 'build'],
+    ['packages/create-app', 'build'],
+    ['packages/create-app', 'test'],
+  ]
+  for (const [packageDir, scriptName] of scripts) {
+    const script = require(path.join(REPO_ROOT, packageDir, 'package.json')).scripts[scriptName]
+    const match = script.match(/\bnode --max-old-space-size=(\d+) build\.mjs\b/)
+    assert.ok(match, `${packageDir} ${scriptName} must run build.mjs with its own --max-old-space-size`)
+    assert.ok(Number(match[1]) >= 3072, `${packageDir} ${scriptName} heap must stay >= 3072 MB, got ${match[1]}`)
+  }
+})
