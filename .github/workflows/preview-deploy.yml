@@ -17,7 +17,7 @@ env:
 
 jobs:
   deploy:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     outputs:
       sandbox_id: ${{ steps.sandbox.outputs.sandbox_id }}
