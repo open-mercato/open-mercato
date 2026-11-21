@@ -1,12 +1,15 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
+
+export const integrationMeta = { dependsOnModules: ['search', 'catalog'] }
 
 type IndexEntry = { entityId?: string; recordId?: string }
 type IndexResponse = { entries?: IndexEntry[]; limit?: number; offset?: number }
 
-const COMPANY_ENTITY = 'customers:customer_company_profile'
+const PRODUCT_ENTITY = 'catalog:catalog_product'
 
 async function getIndex(
   request: APIRequestContext,
@@ -38,7 +41,8 @@ test.describe('TC-SEARCH-008: vector index list pagination & entityId filter', (
     test.slow()
 
     let token: string | null = null
-    const companyIds: string[] = []
+    let vectorReindexQueued = false
+    const productIds: string[] = []
     const stamp = Date.now()
 
     try {
@@ -48,31 +52,30 @@ test.describe('TC-SEARCH-008: vector index list pagination & entityId filter', (
       // or 500 (no embedding config / vector table) means the index cannot be
       // paginated in this environment — skip rather than fail.
       const probe = await getIndex(request, token, {})
-      if (probe.status !== 200) {
-        test.skip(true, `vector index is not listable in this environment (status ${probe.status})`)
-        return
+      test.skip(probe.status === 503 || probe.status === 500, `vector index is not listable in this environment (status ${probe.status})`)
+      expect(probe.status).toBe(200)
+
+      for (const fixtureNumber of [1, 2, 3]) {
+        const sku = `QASRCH008-${stamp}-${fixtureNumber}`
+        productIds.push(await createProductFixture(request, token, { title: sku, sku }))
       }
 
-      for (let i = 0; i < 3; i += 1) {
-        companyIds.push(await createCompanyFixture(request, token, `QASRCH008-${stamp}-${i}`))
-      }
-
-      // Trigger a (queued) vector reindex and wait for rows to materialize.
-      await apiRequest(request, 'POST', '/api/search/embeddings/reindex', {
+      const reindex = await apiRequest(request, 'POST', '/api/search/embeddings/reindex', {
         token,
-        data: { entityId: COMPANY_ENTITY },
-      }).catch(() => undefined)
+        data: { entityId: PRODUCT_ENTITY },
+      })
+      expect(reindex.status()).toBe(200)
+      const reindexResult = await readJsonSafe<{ ok?: boolean; jobsEnqueued?: number }>(reindex)
+      vectorReindexQueued = (reindexResult?.jobsEnqueued ?? 0) > 0
+      expect(reindexResult).toMatchObject({ ok: true })
+      expect(vectorReindexQueued, 'product vector reindex must queue jobs').toBe(true)
+      await drainIntegrationQueue('vector-indexing')
 
-      let entries: IndexEntry[] = []
-      for (let attempt = 0; attempt < 20; attempt += 1) {
-        entries = (await getIndex(request, token, {})).body.entries ?? []
-        if (entries.length >= 2) break
-        await new Promise((resolve) => setTimeout(resolve, 1_000))
-      }
-      if (entries.length < 2) {
-        test.skip(true, 'vector index did not reach 2 entries; the embedding pipeline does not produce rows here')
-        return
-      }
+      const authToken = token
+      await expect.poll(async () => {
+        const filtered = await getIndex(request, authToken, { entityId: PRODUCT_ENTITY, limit: '100' })
+        return filtered.body.entries?.map((entry) => entry.recordId) ?? []
+      }, { message: 'vector index must contain the product fixtures' }).toEqual(expect.arrayContaining(productIds))
 
       // Default paging metadata, with enough rows to page over.
       const base = await getIndex(request, token, {})
@@ -103,21 +106,16 @@ test.describe('TC-SEARCH-008: vector index list pagination & entityId filter', (
 
       // entityId filter narrows to the requested entity type (and is non-empty,
       // so the uniformity assertion is not vacuous).
-      const filtered = await getIndex(request, token, { entityId: COMPANY_ENTITY, limit: '50' })
-      expect((filtered.body.entries ?? []).length, 'company entityId filter returns at least our fixtures').toBeGreaterThan(
-        0,
-      )
-      for (const entry of filtered.body.entries ?? []) {
-        expect(entry.entityId, 'entityId filter returns only that entity type').toBe(COMPANY_ENTITY)
-      }
+      const filtered = await getIndex(request, token, { entityId: PRODUCT_ENTITY, limit: '2' })
+      expect(filtered.body.entries).toMatchObject([{ entityId: PRODUCT_ENTITY }, { entityId: PRODUCT_ENTITY }])
     } finally {
       // Vector reindex acquires a lock that its route does NOT release (workers
       // own it), so explicitly cancel to avoid leaving a lock behind.
-      if (token) {
+      if (token && vectorReindexQueued) {
         await apiRequest(request, 'POST', '/api/search/embeddings/reindex/cancel', { token }).catch(() => undefined)
       }
-      for (const id of companyIds) {
-        await deleteEntityIfExists(request, token, '/api/customers/companies', id)
+      for (const id of productIds) {
+        await deleteCatalogProductIfExists(request, token, id)
       }
     }
   })

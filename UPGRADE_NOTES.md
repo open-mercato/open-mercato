@@ -7,7 +7,8 @@ The built-in `customers:customer_person_profile`,
 registrations now use fulltext and tokens. Hashed lookup and search permissions
 continue to apply. Deployments that only enable vector search need to enable a
 lexical strategy to find these records after cleanup. Downstream registrations
-can retain their custom strategies through the existing per-entity override.
+can retain a custom strategy by including its ID alongside `fulltext` and `tokens`
+in the existing per-entity override.
 
 **Operators:** pause indexing, drain or discard pending vector jobs, and deploy to
 all apps and indexing workers. For each affected tenant and entity ID, use the
@@ -19,9 +20,12 @@ before restarting indexing. The driver-level operation preserves the fulltext
 and token stores.
 
 The embeddings reindex endpoint skips these entities before `purgeFirst`, so
-use the driver operation for cleanup. The query-index status page can still
-display vector coverage based on the presence of a source builder. Verify
-cleanup in the vector store. A rollback that restores vector indexing also
+use the driver operation for cleanup. The query-index vector reindex and purge
+actions call that endpoint. The status page can still display vector coverage
+based on the presence of a source builder. Verify cleanup in the vector store.
+If upgrading across #7826 without having rebuilt fulltext, run scoped
+`POST /api/search/reindex` for each affected entity and verify completion to
+replace pre-#7826 presenter data. A rollback that restores vector indexing
 requires a scoped vector rebuild to repopulate purged records.
 
 ## Backend API documentation permission (#3810)
@@ -918,8 +922,8 @@ migration is required.
 ### Rebuild customer search vectors after the privacy fix (#7826)
 
 On releases with #8135, follow the [customer vector purge above](#customer-profiles-and-accounts-use-fulltext-and-token-search-8135)
-for the three built-in registrations. Rebuild vectors only where a deployment
-explicitly retains vector eligibility.
+and rebuild fulltext separately if that part of the #7826 cleanup is pending.
+Continue the procedure below for deployments that explicitly retain vectors.
 
 The person, company, and customer-account vector builders now use explicit safe
 fields. Contact email/phone, `hashOnly` and `excluded` custom fields, unapproved

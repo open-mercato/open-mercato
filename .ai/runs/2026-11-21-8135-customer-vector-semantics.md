@@ -11,6 +11,6 @@ Keep fulltext and token lookup for customer users and person/company profiles. U
 ### Phase 1 · Verify and apply the registration policy
 
 - [x] 1.1 Characterize the existing provider and storage behavior. All 100 tests in `vector-index-security.test.ts` and `reindex-strategy-policy.test.ts` passed on upstream baseline `56d0700f9b`.
-- [ ] 1.2 Apply and test the strategy policy across indexing and reindex paths.
+- [x] 1.2 Apply and test the strategy policy across indexing and reindex paths. `bd4459f4d4` adds the three strategy overrides and provider-boundary coverage.
 - [ ] 1.3 Verify lexical lookup and vector pagination integration coverage. Document the scoped purge and rollback.
 - [ ] 1.4 Archive the capability delta and run the repository validation and review gates.
