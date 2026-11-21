@@ -33,6 +33,17 @@ const SALES_NOTE_ENTITY = 'sales:sales_note'
 const SALES_ADDRESS_ENTITY = 'sales:sales_document_address'
 const USER_PASSWORD = 'QaSearch5183!Password'
 
+function decodeJwtSubject(token: string): string {
+  const payloadPart = token.split('.')[1] ?? ''
+  const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
+  const decoded = JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as { sub?: unknown }
+  if (typeof decoded.sub !== 'string' || decoded.sub.length === 0) {
+    throw new Error('Auth token does not contain user subject')
+  }
+  return decoded.sub
+}
+
 async function searchRecords(
   request: APIRequestContext,
   token: string,
@@ -125,7 +136,7 @@ test.describe('TC-SEARCH-019: row-aware search authorization for messages and po
       adminToken = await getAuthToken(request, 'admin')
       const employeeToken = await getAuthToken(request, 'employee')
       const adminCtx = getTokenContext(adminToken)
-      const employeeCtx = getTokenContext(employeeToken)
+      const employeeUserId = decodeJwtSubject(employeeToken)
       expect(adminCtx.organizationId, 'admin token must carry an organizationId').toBeTruthy()
       const organizationId = adminCtx.organizationId as string
 
@@ -159,7 +170,7 @@ test.describe('TC-SEARCH-019: row-aware search authorization for messages and po
       const deniedRes = await apiRequest(request, 'POST', '/api/messages', {
         token: adminToken,
         data: {
-          recipients: [{ userId: employeeCtx.userId, type: 'to' }],
+          recipients: [{ userId: employeeUserId, type: 'to' }],
           subject: `${sharedToken} ${deniedSecret}`,
           body: `Private message body ${sharedToken} ${deniedSecret}`,
           sendViaEmail: false,
