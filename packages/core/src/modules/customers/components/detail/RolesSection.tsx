@@ -378,13 +378,13 @@ function RolesSectionContent({
             {t('customers.roles.assignRole', 'Assign role')}
           </Button>
         ) : null
-      ) : (
+      ) : cards.length > 0 ? (
         <Button asChild type="button" variant="ghost" size="sm">
           <Link href="/backend/config/customers">
             {t('customers.roles.configureRoleTypes', 'Configure role types')}
           </Link>
         </Button>
-      )}
+      ) : null}
 
       <AssignRoleDialog
         open={dialogOpen}
