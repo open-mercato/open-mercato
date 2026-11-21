@@ -7,6 +7,7 @@ import { InventoryReservation } from '../../../data/entities'
 import { inventoryReservationListQuerySchema } from '../../../data/validators'
 import { createPagedListResponseSchema } from '../../openapi'
 import {
+  attachReservationAllocationStateToListItems,
   attachReservationSourceLabelsToListItems,
   attachVariantLabelsToListItems,
   attachWarehouseLabelsToListItems,
@@ -44,6 +45,7 @@ const crud = makeCrudRoute({
       'source_id',
       'expires_at',
       'status',
+      'metadata',
       'created_at',
       'updated_at',
     ],
@@ -74,6 +76,7 @@ const crud = makeCrudRoute({
   },
   hooks: {
     afterList: async (payload, ctx) => {
+      attachReservationAllocationStateToListItems(payload)
       await Promise.all([
         attachWarehouseLabelsToListItems(payload, ctx),
         attachVariantLabelsToListItems(payload, ctx),
@@ -104,6 +107,7 @@ const reservationListItemSchema = z.object({
   source_label: z.string().nullable().optional(),
   expires_at: z.string().nullable().optional(),
   status: z.string().nullable().optional(),
+  allocation_state: z.enum(['reserved', 'allocated']).optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
 })

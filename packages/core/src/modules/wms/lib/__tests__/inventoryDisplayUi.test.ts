@@ -11,6 +11,7 @@ import {
   inventoryReferenceTypeLabel,
   inventoryReservationSourceTypeLabel,
   inventoryReservationStatusLabel,
+  resolveInventoryReservationDisplayStatus,
 } from '../inventoryDisplayUi'
 
 describe('inventoryDisplayUi', () => {
@@ -119,5 +120,14 @@ describe('inventoryDisplayUi', () => {
       referenceType: 'manual',
       referenceId: '88888888-8888-4888-8888-888888888888',
     }, t)).toBe('Manual')
+  })
+
+  it('shows an active allocated reservation as allocated', () => {
+    expect(resolveInventoryReservationDisplayStatus({ status: 'active', allocation_state: 'allocated' })).toBe('allocated')
+    expect(resolveInventoryReservationDisplayStatus({ status: 'active', allocation_state: 'reserved' })).toBe('active')
+    expect(resolveInventoryReservationDisplayStatus({ status: 'active' })).toBe('active')
+    expect(resolveInventoryReservationDisplayStatus({ status: 'released', allocation_state: 'allocated' })).toBe('released')
+    expect(resolveInventoryReservationDisplayStatus({ status: null })).toBe('')
+    expect(inventoryReservationStatusLabel('allocated', t)).toBe('Allocated')
   })
 })

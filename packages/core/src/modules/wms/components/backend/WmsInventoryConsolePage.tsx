@@ -30,6 +30,7 @@ import {
   inventoryReferenceTypeLabel,
   inventoryReservationSourceTypeLabel,
   inventoryReservationStatusLabel,
+  resolveInventoryReservationDisplayStatus,
 } from '../../lib/inventoryDisplayUi'
 import { parseInventoryQuantity } from '../../lib/inventoryMutationUi'
 import { ReservationNotActiveError } from '../../lib/reservationMutationError'
@@ -93,6 +94,7 @@ type InventoryReservationRow = {
   source_id?: string | null
   source_label?: string | null
   status?: string | null
+  allocation_state?: string | null
 }
 
 type InventoryMovementRow = {
@@ -139,6 +141,7 @@ const movementStatusMap: Record<string, StatusBadgeVariant> = {
 
 const reservationStatusMap: Record<string, StatusBadgeVariant> = {
   active: 'info',
+  allocated: 'success',
   released: 'neutral',
   fulfilled: 'success',
 }
@@ -791,7 +794,9 @@ export function InventoryReservationsSection({
           return
         }
         flash(t('wms.backend.inventory.allocate.errors.submit', 'Failed to allocate reservation.'), 'error')
+        return
       }
+      await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
     },
     [access.organizationId, access.tenantId, allocateMutationContext, queryClient, runAllocateMutation, t],
   )
@@ -864,7 +869,7 @@ export function InventoryReservationsSection({
         ),
         enableSorting: true,
         cell: ({ row }) => {
-          const status = row.original.status?.trim()
+          const status = resolveInventoryReservationDisplayStatus(row.original)
           if (!status) return '—'
           return (
             <StatusBadge variant={reservationStatusMap[status] ?? 'neutral'} dot>
@@ -880,8 +885,9 @@ export function InventoryReservationsSection({
   const rowActions = React.useCallback(
     (row: InventoryReservationRow) => {
       const status = (row.status ?? '').trim().toLowerCase()
+      const isAllocated = row.allocation_state === 'allocated'
       const items = []
-      if (access.canAllocate && status === 'active') {
+      if (access.canAllocate && status === 'active' && !isAllocated) {
         items.push({
           id: 'allocate',
           label: t('wms.backend.inventory.reservations.actions.allocate', 'Allocate'),

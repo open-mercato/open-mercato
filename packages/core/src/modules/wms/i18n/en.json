@@ -736,6 +736,7 @@
   "wms.backend.inventory.release.summary.warehouse": "Warehouse",
   "wms.backend.inventory.release.warning": "This action cannot be undone — the reserved quantity will be released immediately.",
   "wms.backend.inventory.reservationStatuses.active": "Active",
+  "wms.backend.inventory.reservationStatuses.allocated": "Allocated",
   "wms.backend.inventory.reservationStatuses.fulfilled": "Fulfilled",
   "wms.backend.inventory.reservationStatuses.released": "Released",
   "wms.backend.inventory.reservations.actions.allocate": "Allocate",
