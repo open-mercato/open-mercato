@@ -57,6 +57,10 @@ function calculateSalesCycleDays(createdAt: Date, closedAt: Date): number {
   return Math.floor(diffMs / 86400000)
 }
 
+function compareScopeIds(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
 export async function GET(request: Request, context: { params?: Record<string, unknown> }) {
   const { translate } = await resolveTranslations()
   const parsedParams = paramsSchema.safeParse(context.params)
@@ -115,8 +119,8 @@ export async function GET(request: Request, context: { params?: Record<string, u
         homeOrganizationId: auth.orgId,
         tenantId: scope?.tenantId,
         selectedId: scope?.selectedId,
-        allowedIds: scope?.allowedIds ? [...scope.allowedIds].sort() : scope?.allowedIds,
-        filterIds: scope?.filterIds ? [...scope.filterIds].sort() : scope?.filterIds,
+        allowedIds: scope?.allowedIds ? [...scope.allowedIds].sort(compareScopeIds) : scope?.allowedIds,
+        filterIds: scope?.filterIds ? [...scope.filterIds].sort(compareScopeIds) : scope?.filterIds,
       },
     })).digest('hex')}`
     : null
