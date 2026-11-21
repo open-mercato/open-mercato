@@ -729,13 +729,16 @@ describe('compiled CrudForm extensions', () => {
 
   it('compiles mixed finite alternatives and binds browser and server implementations to the same revision', async () => {
     host()
+    const optionValue = 'draft<internal>\u2028pending'
     const definition = makeExtension(`
       details: modify({ fields: {
         title: field.patch({ labelKey: 'extension.fields.title', validate: { server: serverOnlyRule, minLength: 2, enforce: 'client-and-server', messageKey: 'extension.errors.short' } }),
         description: field.remove(),
       } }),
       private: hide(),
-      extra: add({ after: 'details', titleKey: 'extension.extra', fields: { alias: field.add({ type: 'text' }) } }),
+      extra: add({ after: 'details', titleKey: 'extension.extra', fields: {
+        alias: field.add({ type: 'select', options: [{ value: ${JSON.stringify(optionValue)}, labelKey: 'extension.options.draft' }] }),
+      } }),
     `, "{ description: ({ payload }) => String(payload.title ?? '') }")
     write('app/src/modules/extension/form-sections.ts', definition)
     await generate()
@@ -750,6 +753,9 @@ describe('compiled CrudForm extensions', () => {
     })
     expect(browser).toContain('deriveCrudFormFieldGranularSection')
     expect(browser).toContain('customFields.alias')
+    const encodedValue = browser.match(/"value":("draft[^"]+")/)?.[1]
+    expect(encodedValue).toBe('"draft\\u003cinternal\\u003e\\u2028pending"')
+    expect(JSON.parse(encodedValue!)).toBe(optionValue)
     expect(browser).toContain('extension.fields.title')
     expect(browser).not.toMatch(/serverOnlyRule|\.validate\.server|\.defaults|form-sections["']/)
     expect(generated('facts')).toContain('.validate.server')
