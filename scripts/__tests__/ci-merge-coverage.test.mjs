@@ -140,6 +140,12 @@ test('documentation and module PRs preserve affected-package validation', () => 
   }
 })
 
+test('forced full-suite PRs run full typecheck and unit gates', () => {
+  for (const changedPath of ['README.md', 'packages/core/src/modules/customers/index.ts']) {
+    assert.deepEqual(runValidationSteps({ changedPath, fullSuite: true }), ['typecheck', 'test'])
+  }
+})
+
 test('protected branch pushes run full typecheck and unit gates', () => {
   assert.deepEqual(runValidationSteps({ eventName: 'push' }), ['typecheck', 'test'])
 })
