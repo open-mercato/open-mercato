@@ -2,6 +2,7 @@ import type { Kysely } from 'kysely'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { EventBus } from '@open-mercato/events'
+import type { CacheStrategy } from '@open-mercato/cache'
 import { asScopedService, defineProcessDiRegistrar, registerProcessEventSetup } from '@open-mercato/shared/lib/di/process-registrar'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -20,6 +21,7 @@ import {
 } from './lib/subscriber-scope'
 
 const logger = createLogger('query_index').child({ component: 'crud-bridge' })
+const LEGACY_BUS_SETUP_MAX_ATTEMPTS = 50
 
 function hasOwn(value: unknown, key: string): boolean {
   return !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, key)
@@ -240,16 +242,32 @@ function registerLegacy(container: AppContainer) {
           return null
         }
       },
+      () => {
+        try {
+          return container.resolve<CacheStrategy>('cache')
+        } catch {
+          return null
+        }
+      },
     )
     // Replace existing registration
     ;(container as any).register({ queryEngine: { resolve: () => hybrid } })
   } catch {}
 
   // Subscribe to CRUD events and forward to query_index subscribers for unified handling
+  let setupAttempts = 0
   const setup = () => {
     let bus: any
     try { bus = (container.resolve('eventBus') as any) } catch { bus = null }
-    if (!bus) { setTimeout(setup, 0); return }
+    if (!bus) {
+      setupAttempts += 1
+      if (setupAttempts >= LEGACY_BUS_SETUP_MAX_ATTEMPTS) {
+        logger.warn('Event bus never registered; query index CRUD bridge not wired for this container', { attempts: setupAttempts })
+        return
+      }
+      setTimeout(setup, Math.min(setupAttempts * 10, 1000))
+      return
+    }
 
 
     // Build list of entity ids to subscribe to
@@ -360,6 +378,7 @@ function registerProcess(container: AppContainer): void {
         () => scope.hasRegistration('eventBus') ? scope.resolve<EventBus>('eventBus') : null,
         () => scope.hasRegistration('vectorIndexService') ? scope.resolve<VectorIndexService>('vectorIndexService') : null,
         encryption,
+        () => scope.hasRegistration('cache') ? scope.resolve<CacheStrategy>('cache') : null,
       )
     }),
   })
