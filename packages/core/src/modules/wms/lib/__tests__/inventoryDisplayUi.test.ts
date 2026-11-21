@@ -6,6 +6,7 @@ import {
   formatInventoryMovementActivitySubtitle,
   formatInventoryQuantity,
   formatReservationSourceLabel,
+  inventoryLocationTypeLabel,
   inventoryMovementReasonLabel,
   inventoryMovementTypeLabel,
   inventoryReferenceTypeLabel,
@@ -54,6 +55,16 @@ describe('inventoryDisplayUi', () => {
     expect(inventoryReferenceTypeLabel('so', t)).toBe('Sales order')
     expect(inventoryReservationStatusLabel('active', t)).toBe('Active')
     expect(inventoryReservationSourceTypeLabel('order', t)).toBe('Sales order')
+  })
+
+  it('translates location types through the shared location type keys', () => {
+    const translations: Record<string, string> = { 'wms.backend.location.types.rack': 'Regał' }
+    const translate = (key: string, fallback?: string) => translations[key] ?? fallback ?? key
+    expect(inventoryLocationTypeLabel('rack', translate)).toBe('Regał')
+    expect(inventoryLocationTypeLabel('staging', t)).toBe('Staging')
+    expect(inventoryLocationTypeLabel('custom_type', t)).toBe('custom_type')
+    expect(inventoryLocationTypeLabel(null, t)).toBe('—')
+    expect(inventoryLocationTypeLabel('  ', t)).toBe('—')
   })
 
   it('formats reservation source without exposing raw UUIDs', () => {
