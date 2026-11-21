@@ -1,0 +1,514 @@
+{
+  "types": [
+    {
+      "number": "010",
+      "name": "Środki trwałe",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "020",
+      "name": "Wartości niematerialne i prawne",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "070",
+      "name": "Umorzenie środków trwałych",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "071",
+      "name": "Umorzenie wartości niematerialnych i prawnych",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "072",
+      "name": "Odpisy aktualizujące środki trwałe oraz wartości niematerialne i prawne",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "100",
+      "name": "Kasa",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "130",
+      "name": "Rachunki bankowe",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "200",
+      "name": "Rozrachunki z odbiorcami",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "210",
+      "name": "Rozrachunki z dostawcami",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "220",
+      "name": "VAT naliczony",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "221",
+      "name": "VAT należny",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "225",
+      "name": "Rozrachunki z ZUS",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "230",
+      "name": "Rozrachunki z tytułu wynagrodzeń",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "300",
+      "name": "Rozliczenie zakupu",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "310",
+      "name": "Materiały",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "330",
+      "name": "Towary",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "400",
+      "name": "Amortyzacja",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "401",
+      "name": "Zużycie materiałów i energii",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "402",
+      "name": "Usługi obce",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "403",
+      "name": "Podatki i opłaty",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "404",
+      "name": "Wynagrodzenia",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "405",
+      "name": "Ubezpieczenia społeczne i inne świadczenia",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "409",
+      "name": "Pozostałe koszty rodzajowe",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "490",
+      "name": "Rozliczenie kosztów",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "550",
+      "name": "Koszty zarządu",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "552",
+      "name": "Koszty sprzedaży",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "600",
+      "name": "Produkty gotowe",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "640",
+      "name": "Rozliczenia międzyokresowe kosztów czynne",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "700",
+      "name": "Przychody ze sprzedaży produktów",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "701",
+      "name": "Koszt sprzedanych produktów",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "730",
+      "name": "Przychody ze sprzedaży towarów",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "731",
+      "name": "Wartość sprzedanych towarów w cenie zakupu",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "750",
+      "name": "Przychody finansowe",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "751",
+      "name": "Koszty finansowe",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "760",
+      "name": "Pozostałe przychody operacyjne",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "761",
+      "name": "Pozostałe koszty operacyjne",
+      "normal": "DEBIT"
+    },
+    {
+      "number": "800",
+      "name": "Kapitał (fundusz) podstawowy",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "820",
+      "name": "Rozliczenie wyniku finansowego",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "840",
+      "name": "Rozliczenia międzyokresowe przychodów",
+      "normal": "CREDIT"
+    },
+    {
+      "number": "860",
+      "name": "Wynik finansowy",
+      "normal": "CREDIT"
+    }
+  ],
+  "accounts": [
+    {
+      "number": "010-1",
+      "name": "Budynki i lokale",
+      "type": "010",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "010-2",
+      "name": "Maszyny i urządzenia techniczne",
+      "type": "010",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "010-3",
+      "name": "Środki transportu",
+      "type": "010",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "020-1",
+      "name": "Licencje i oprogramowanie",
+      "type": "020",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "070-1",
+      "name": "Umorzenie środków trwałych",
+      "type": "070",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "071-1",
+      "name": "Umorzenie wartości niematerialnych i prawnych",
+      "type": "071",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "072-1",
+      "name": "Odpisy aktualizujące środki trwałe oraz WNiP",
+      "type": "072",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "100-1",
+      "name": "Kasa złotowa",
+      "type": "100",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "130-1",
+      "name": "Rachunek bieżący PLN",
+      "type": "130",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "130-2",
+      "name": "Rachunek walutowy EUR",
+      "type": "130",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "200-1",
+      "name": "Rozrachunki z odbiorcami krajowymi",
+      "type": "200",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "210-1",
+      "name": "Rozrachunki z dostawcami krajowymi",
+      "type": "210",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "220-1",
+      "name": "VAT naliczony podlegający odliczeniu",
+      "type": "220",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "221-1",
+      "name": "VAT należny",
+      "type": "221",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "225-1",
+      "name": "Rozrachunki z ZUS",
+      "type": "225",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "230-1",
+      "name": "Rozrachunki z pracownikami z tytułu wynagrodzeń",
+      "type": "230",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "300-1",
+      "name": "Rozliczenie zakupu materiałów i towarów",
+      "type": "300",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "310-1",
+      "name": "Materiały w magazynie",
+      "type": "310",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "330-1",
+      "name": "Towary w magazynie",
+      "type": "330",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "400-1",
+      "name": "Amortyzacja środków trwałych",
+      "type": "400",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "401-1",
+      "name": "Zużycie materiałów",
+      "type": "401",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "401-2",
+      "name": "Zużycie energii",
+      "type": "401",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "402-1",
+      "name": "Usługi obce",
+      "type": "402",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "403-1",
+      "name": "Podatki i opłaty",
+      "type": "403",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "404-1",
+      "name": "Wynagrodzenia",
+      "type": "404",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "405-1",
+      "name": "Ubezpieczenia społeczne",
+      "type": "405",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "409-1",
+      "name": "Pozostałe koszty rodzajowe",
+      "type": "409",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "490-1",
+      "name": "Rozliczenie kosztów międzyzespołowe (4 -> 5)",
+      "type": "490",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "550-1",
+      "name": "Koszty zarządu",
+      "type": "550",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "552-1",
+      "name": "Koszty sprzedaży",
+      "type": "552",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "600-1",
+      "name": "Wyroby gotowe",
+      "type": "600",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "640-1",
+      "name": "Rozliczenia międzyokresowe kosztów czynne",
+      "type": "640",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "700-1",
+      "name": "Przychody ze sprzedaży produktów",
+      "type": "700",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "701-1",
+      "name": "Koszt sprzedanych produktów",
+      "type": "701",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "730-1",
+      "name": "Przychody ze sprzedaży towarów",
+      "type": "730",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "731-1",
+      "name": "Wartość sprzedanych towarów w cenie zakupu",
+      "type": "731",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "750-1",
+      "name": "Przychody finansowe",
+      "type": "750",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "751-1",
+      "name": "Koszty finansowe",
+      "type": "751",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "760-1",
+      "name": "Pozostałe przychody operacyjne",
+      "type": "760",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "761-1",
+      "name": "Pozostałe koszty operacyjne",
+      "type": "761",
+      "normal": "DEBIT",
+      "used": false
+    },
+    {
+      "number": "800-1",
+      "name": "Kapitał (fundusz) podstawowy",
+      "type": "800",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "820-1",
+      "name": "Rozliczenie wyniku finansowego",
+      "type": "820",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "840-1",
+      "name": "Rozliczenia międzyokresowe przychodów",
+      "type": "840",
+      "normal": "CREDIT",
+      "used": false
+    },
+    {
+      "number": "860-1",
+      "name": "Wynik finansowy",
+      "type": "860",
+      "normal": "CREDIT",
+      "used": false
+    }
+  ]
+}

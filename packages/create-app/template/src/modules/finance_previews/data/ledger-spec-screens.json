@@ -1,0 +1,38 @@
+[
+  {
+    "id": "s44",
+    "area": "Księga główna",
+    "title": "Plan kont i okresy obrachunkowe",
+    "subtitle": "Import planu, edycja kont i kontrola blokady okresów",
+    "kind": "spec-workflow",
+    "refs": ["#5663", "#6137"],
+    "next": "s45"
+  },
+  {
+    "id": "s45",
+    "area": "Koszty",
+    "title": "Przeksięgowania kosztów 4 → 5",
+    "subtitle": "Reguły, centra kosztów i uzgodnienie konta rozliczeniowego",
+    "kind": "spec-workflow",
+    "refs": ["#6015", "#5972"],
+    "next": "s47"
+  },
+  {
+    "id": "s46",
+    "area": "Kontrahenci",
+    "title": "Kontrahenci i rachunki",
+    "subtitle": "Wspólna kartoteka dostawcy i odbiorcy, akceptacja i weryfikacja",
+    "kind": "spec-workflow",
+    "refs": ["#5955"],
+    "next": "s43"
+  },
+  {
+    "id": "s47",
+    "area": "Raporty",
+    "title": "Obroty i salda",
+    "subtitle": "ZSiO, saldo na dzień i zapisy wybranego konta",
+    "kind": "spec-workflow",
+    "refs": ["#6013", "#5663"],
+    "next": "s6"
+  }
+]
