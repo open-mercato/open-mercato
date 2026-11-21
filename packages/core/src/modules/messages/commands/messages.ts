@@ -228,6 +228,7 @@ async function requireMessageById(
       id: messageId,
       tenantId: scope.tenantId,
       deletedAt: null,
+      ...(lockForUpdate ? { organizationId: scope.organizationId } : {}),
     },
     lockForUpdate ? { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true } : undefined,
     {

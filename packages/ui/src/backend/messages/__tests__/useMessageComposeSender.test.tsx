@@ -138,7 +138,7 @@ describe('useMessageCompose sender selection', () => {
     expect(payload.senderChannelId).toBe('mailbox-other')
   })
 
-  it('drops a mailbox that is no longer offered', async () => {
+  it('omits the mailbox when composing an internal message', async () => {
     const { result } = renderHook(
       () => useMessageCompose({ variant: 'compose', inline: true, senderOptions }),
       { wrapper: createWrapper() },
@@ -151,6 +151,22 @@ describe('useMessageCompose sender selection', () => {
     })
 
     expect(result.current.senderChannelId).toBe('')
+  })
+
+  it('keeps the selected mailbox when the available mailbox list refreshes', async () => {
+    const { result, rerender } = renderHook(
+      ({ options }) => useMessageCompose({ variant: 'compose', inline: true, senderOptions: options }),
+      { wrapper: createWrapper(), initialProps: { options: senderOptions } },
+    )
+
+    await fillExternalCompose(result)
+    act(() => {
+      result.current.setSenderChannelId('mailbox-other')
+    })
+    rerender({ options: [] })
+
+    expect(result.current.senderOptions).toEqual([expect.objectContaining({ id: 'mailbox-other' })])
+    expect((await submitAndReadPayload(() => result.current.handleSubmit())).senderChannelId).toBe('mailbox-other')
   })
 
   it('never routes a saved draft through a mailbox', async () => {

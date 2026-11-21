@@ -6,6 +6,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
@@ -403,7 +404,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 
   if (input.isDraft === false && input.senderChannelId && !(await canUseMessageEmailFeature(ctx, scope))) {
-    return Response.json({ error: 'Missing feature: messages.email' }, { status: 403 })
+    const { t } = await resolveTranslations()
+    const error = t('messages.errors.senderUnavailable', 'Sending from your own mailbox is not available.')
+    return Response.json({ error, fieldErrors: { senderChannelId: error } }, { status: 403 })
   }
 
   // A draft is filed on its parent's thread and skips the compose route's
@@ -411,7 +414,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const finalVisibility = input.visibility !== undefined ? input.visibility : message.visibility
   if (
     input.isDraft === false &&
-    finalVisibility === 'public' &&
+    (finalVisibility === 'public' || input.senderChannelId) &&
     !(await canPostToChannelThread(ctx, scope, message.threadId ?? message.id))
   ) {
     return Response.json({ error: 'Access denied' }, { status: 403 })
@@ -659,7 +662,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 409, description: 'Draft is already sent, changed concurrently, or the sender mailbox is unavailable', schema: draftErrorResponseSchema },
         { status: 422, description: 'Sender mailbox or message payload is unavailable for delivery', schema: draftErrorResponseSchema },
         { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
-        { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
+        { status: 503, description: 'External email budget or mailbox delivery is temporarily unavailable', schema: draftErrorResponseSchema },
       ],
     },
     DELETE: {

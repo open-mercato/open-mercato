@@ -607,7 +607,11 @@ describe('messages /api/messages/[id] PATCH', () => {
     }))
   })
 
-  it.each([true, false])('checks the email grant for a mailbox draft send (granted: %s)', async (emailGranted) => {
+  it.each([
+    { emailGranted: true, threadAccess: true, status: 200 },
+    { emailGranted: false, threadAccess: true, status: 403 },
+    { emailGranted: true, threadAccess: false, status: 403 },
+  ])('checks both grants for a mailbox draft send ($emailGranted, $threadAccess)', async ({ emailGranted, threadAccess, status }) => {
     const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
     const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
     const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -620,6 +624,7 @@ describe('messages /api/messages/[id] PATCH', () => {
       organizationId,
       senderUserId: userId,
       isDraft: true,
+      visibility: 'internal',
       deletedAt: null,
     }
 
@@ -635,6 +640,7 @@ describe('messages /api/messages/[id] PATCH', () => {
         if (name === 'em') return em
         if (name === 'commandBus') return commandBus
         if (name === 'rbacService') return { userHasAllFeatures: async () => emailGranted }
+        if (name === 'communicationChannelsResolveChannelThreadAccess' && !threadAccess) return async () => ({ canAccess: false })
         return null
       },
     }
@@ -656,15 +662,14 @@ describe('messages /api/messages/[id] PATCH', () => {
 
     const response = await PATCH(request, { params: { id: messageId } })
 
-    if (emailGranted) {
-      expect(response.status).toBe(200)
+    expect(response.status).toBe(status)
+    if (status === 200) {
       expect(await response.json()).toEqual({ ok: true, id: messageId })
       expect(commandBus.execute).toHaveBeenCalledWith(
         'messages.messages.update_draft',
         expect.objectContaining({ input: expect.objectContaining({ isDraft: false, messageId, senderChannelId: channelId }) }),
       )
     } else {
-      expect(response.status).toBe(403)
       expect(commandBus.execute).not.toHaveBeenCalled()
     }
   })

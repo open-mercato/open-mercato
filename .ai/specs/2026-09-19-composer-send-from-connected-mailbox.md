@@ -79,9 +79,11 @@ None. No entity, migration or snapshot change. All rows written on the mailbox p
 
 The draft editor offers the same connected email mailboxes as the fresh composer. The sender choice applies to the current send.
 
-`PATCH /api/messages/:id` uses the optional `senderChannelId` when `isDraft` is `false`. The existing draft update command checks ownership, the draft state and the optimistic lock, then uses the hub facade to write the outbound link and thread mapping in the transaction that marks the draft sent. A successful response remains `{ ok: true, id }` with the original message ID. The hub queues delivery after the transaction commits. Mailbox validation failures leave the draft editable and carry a field error on `senderChannelId`.
+`PATCH /api/messages/:id` uses the optional `senderChannelId` when `isDraft` is `false`. The existing draft update command locks the draft and checks its owner, state and version. It uses the hub facade to write the outbound link and thread mapping in the transaction that marks the draft sent. The hub queues the exact link before commit, and the delivery worker waits for the draft lock before checking that the draft and link committed together. A successful response remains `{ ok: true, id }` with the original message ID. Mailbox validation and queue failures leave the draft editable and carry a field error on `senderChannelId`.
 
 The mailbox send requires `messages.email` and passes the existing channel-thread and mutation guards. Attachments and linked records retain the composer limitation above, including those already saved with the draft. Queued mailbox sends are irreversible.
+
+The hub uses a separate queue for draft delivery so workers on an older release only consume their existing jobs during rolling upgrades. The draft worker uses the existing outbound delivery command and its retry policy.
 
 ## API Contracts
 
@@ -180,7 +182,7 @@ Integration tests are self-contained: the channel is seeded per test through the
 
 ## Changelog
 
-- 2026-11-21 — Added connected mailbox delivery when sending a saved draft. The message keeps its ID and the hub writes the threading records before queuing delivery (#6291).
+- 2026-11-21 — Added connected mailbox delivery for saved drafts, with an atomic draft transition and a delivery job tied to its outbound link (#6291).
 
 - 2026-09-19 — Spec written. Architectural choice recorded: route-level delegation to `sendAsUser` with a provider-agnostic UI option contract; widget injection and a UI-level submit override rejected.
 - 2026-09-19 — Review follow-up: delegation failure messages moved onto `messages.errors.sender*` locale keys resolved server-side; markdown bodies rendered to HTML through the shared `renderMarkdownEmailBody` instead of being sent as raw source.

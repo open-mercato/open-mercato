@@ -183,7 +183,7 @@ export function useMessageCompose({
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const [submitFieldErrors, setSubmitFieldErrors] = React.useState<Record<string, string> | null>(null)
   // Empty means the platform sender: the default the composer has always used.
-  const [senderChannelId, setSenderChannelId] = React.useState('')
+  const [selectedSender, setSelectedSender] = React.useState<MessageSenderOption | null>(null)
   // Tracks whether the composer is currently in the "open" lifecycle so the init
   // effect below only runs on the closed → open transition, not on every parent
   // re-render that produces a new `defaultValues` / `contextObject` reference
@@ -517,16 +517,21 @@ export function useMessageCompose({
     onCancel?.()
   }, [inline, onCancel, onOpenChange, submitting])
 
-  // The "Send from" control only exists for a compose addressing an external
-  // recipient, so a selection made before the mode changed must not survive into
-  // a payload the control is no longer shown for.
-  const resolvedSenderOptions = React.useMemo(
-    () => (isComposePublicVisibility ? senderOptions ?? [] : []),
-    [isComposePublicVisibility, senderOptions],
-  )
-  const effectiveSenderChannelId = resolvedSenderOptions.some((option) => option.id === senderChannelId)
-    ? senderChannelId
-    : ''
+  const setSenderChannelId = React.useCallback<React.Dispatch<React.SetStateAction<string>>>((action) => {
+    setSelectedSender((current) => {
+      const id = typeof action === 'function' ? action(current?.id ?? '') : action
+      if (id === current?.id) return current
+      return senderOptions?.find((option) => option.id === id) ?? null
+    })
+  }, [senderOptions])
+  const resolvedSenderOptions = React.useMemo(() => {
+    if (!isComposePublicVisibility) return []
+    const available = senderOptions ?? []
+    return selectedSender && !available.some((option) => option.id === selectedSender.id)
+      ? [...available, selectedSender]
+      : available
+  }, [isComposePublicVisibility, selectedSender, senderOptions])
+  const effectiveSenderChannelId = isComposePublicVisibility ? selectedSender?.id ?? '' : ''
 
   const composeSendOperation = useComposeSendOperation({
     senderChannelId: effectiveSenderChannelId,

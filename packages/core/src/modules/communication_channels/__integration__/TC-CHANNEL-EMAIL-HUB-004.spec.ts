@@ -96,7 +96,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
       const replay = await apiRequest(request, 'PATCH', draftPath, { token, data: { isDraft: false, senderChannelId: channelId } })
       expect(replay.status()).toBe(409)
 
-      await drainIntegrationQueue('communication-channels-outbound')
+      await drainIntegrationQueue('communication-channels-draft-outbound')
       const { links, threadMappings } = await inspectMessageChannelLinks(request, token, draftId)
       expect(links).toHaveLength(1)
       expect(links[0]).toMatchObject({ direction: 'outbound', deliveryStatus: 'sent', channelType: 'email' })

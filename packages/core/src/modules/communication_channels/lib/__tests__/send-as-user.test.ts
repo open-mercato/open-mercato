@@ -15,7 +15,7 @@ jest.mock('../mutation-guards', () => {
 
 const enqueue = jest.fn(async () => undefined)
 jest.mock('../queue', () => ({
-  COMMUNICATION_CHANNELS_QUEUES: { outbound: 'communication-channels-outbound' },
+  COMMUNICATION_CHANNELS_QUEUES: { outbound: 'communication-channels-outbound', draftOutbound: 'communication-channels-draft-outbound' },
   getCommunicationChannelsQueue: jest.fn(() => ({ enqueue })),
 }))
 
@@ -24,6 +24,7 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { sendAsUser } from '../send-as-user'
+import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../queue'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   ChannelThreadMapping,
@@ -153,37 +154,42 @@ function createdLink(created: Created[]): Row | undefined {
 describe('sendAsUser: saved drafts', () => {
   beforeEach(() => {
     enqueue.mockClear()
+    jest.mocked(getCommunicationChannelsQueue).mockClear()
     primeStore({ channels: [channel], conversations: [], mappings: [], links: [] })
   })
 
-  it('links and enqueues the saved draft in place, after the transaction commits', async () => {
+  it('queues the exact outbound link before committing the saved draft', async () => {
     const { container, created, commandBus, em } = makeContainer()
     const transaction = em as unknown as EntityManager
 
     await withAtomicFlush(transaction, [async () => {
       await expect(sendAsUser(container, actor, input, { em: transaction, messageId: THREAD, threadId: THREAD }))
         .resolves.toMatchObject({ ok: true, messageId: THREAD, threadId: THREAD })
-      expect(createdLink(created)).toMatchObject({ messageId: THREAD, direction: 'outbound' })
-      expect(enqueue).not.toHaveBeenCalled()
+      const link = createdLink(created)
+      expect(link).toMatchObject({ messageId: THREAD, direction: 'outbound' })
+      expect(getCommunicationChannelsQueue).toHaveBeenCalledWith(COMMUNICATION_CHANNELS_QUEUES.draftOutbound)
+      expect(enqueue).toHaveBeenCalledWith({ messageId: THREAD, scope: scoped, attempt: 1, draftLinkId: link?.id })
+      expect(em.commit).not.toHaveBeenCalled()
     }], { transaction: true })
 
     expect(commandBus.execute).not.toHaveBeenCalled()
     expect(em.commit).toHaveBeenCalledTimes(1)
     expect(enqueue).toHaveBeenCalledTimes(1)
-    expect(enqueue).toHaveBeenCalledWith({ messageId: THREAD, scope: scoped, attempt: 1 })
   })
 
-  it('does not enqueue a delivery when the draft transaction rolls back', async () => {
+  it('reports an unavailable queue so the caller can roll back the draft and link', async () => {
     const { container, em } = makeContainer()
     const transaction = em as unknown as EntityManager
+    enqueue.mockRejectedValueOnce(new Error('queue unavailable'))
 
     await expect(withAtomicFlush(transaction, [async () => {
-      await sendAsUser(container, actor, input, { em: transaction, messageId: THREAD, threadId: THREAD })
-      throw new Error('draft write failed')
-    }], { transaction: true })).rejects.toThrow('draft write failed')
+      const result = await sendAsUser(container, actor, input, { em: transaction, messageId: THREAD, threadId: THREAD })
+      expect(result).toMatchObject({ ok: false, status: 503 })
+      if (!result.ok) throw new CrudHttpError(result.status, result.error)
+    }], { transaction: true })).rejects.toMatchObject({ status: 503 })
 
     expect(em.rollback).toHaveBeenCalledTimes(1)
-    expect(enqueue).not.toHaveBeenCalled()
+    expect(em.commit).not.toHaveBeenCalled()
   })
 })
 

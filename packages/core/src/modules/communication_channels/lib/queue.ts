@@ -31,6 +31,7 @@ export function getCommunicationChannelsQueue(queueName: string): Queue<Record<s
 export const COMMUNICATION_CHANNELS_QUEUES = {
   inbound: 'communication-channels-inbound',
   outbound: 'communication-channels-outbound',
+  draftOutbound: 'communication-channels-draft-outbound',
   reactions: 'communication-channels-reactions',
   /**
    * Per-channel polling queue (email integration spec — Phase 0 Delta 6).

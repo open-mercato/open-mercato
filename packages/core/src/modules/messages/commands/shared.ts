@@ -1,7 +1,10 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageObject, MessageRecipient, type MessageActionData, type RecipientStatus } from '../data/entities'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
+import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../lib/messageSourceEntityTypes'
 import {
   deleteMessageAttachmentRows,
   enqueueMessageAttachmentSectionCleanup,
@@ -199,7 +202,14 @@ export async function restoreMessageAggregateSnapshot(
     // mutation and the flush can silently reset the Unit of Work (SPEC-018
     // Problem 1). withAtomicFlush flushes once at the end, so ordering is ours.
     const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-    const existingMessage = await em.findOne(Message, { id: snapshot.message.id })
+    const scope = { tenantId: snapshot.message.tenantId, organizationId: snapshot.message.organizationId }
+    const where = { id: snapshot.message.id, ...scope }
+    const existingMessage = snapshot.message.isDraft
+      ? await findOneWithDecryption(em, Message, where, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }, scope)
+      : await em.findOne(Message, where)
+    if (snapshot.message.isDraft && existingMessage?.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE && !existingMessage.isDraft) {
+      throw new Error('[internal] Undo cannot reopen a draft sent through a mailbox')
+    }
     const existingRecipients = await em.find(MessageRecipient, { messageId: snapshot.message.id })
     const existingObjects = await em.find(MessageObject, { messageId: snapshot.message.id })
     const attachmentsToRelink = snapshot.attachmentIds.length > 0

@@ -2,7 +2,9 @@ import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/d
 
 type RegisteredCommand = {
   id: string
+  prepare: (input: unknown, ctx: unknown) => Promise<{ before?: unknown }>
   execute: (input: unknown, ctx: unknown) => Promise<unknown>
+  undo: (context: { logEntry: unknown; ctx: unknown }) => Promise<void>
 }
 
 const mockRegisteredCommands = new Map<string, RegisteredCommand>()
@@ -85,7 +87,7 @@ function createHarness(messageOverrides: Partial<Message> = {}, recipients: Arra
   const emFork = {
     flush: jest.fn(async () => {}),
     find: jest.fn(async () => []),
-    findOne: jest.fn(async () => null),
+    findOne: jest.fn(async (): Promise<Message | null> => null),
     nativeDelete: jest.fn(async () => {}),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
     persist: jest.fn(),
@@ -185,6 +187,20 @@ describe('messages.messages.update_draft command send transition', () => {
     expect(draft).toMatchObject({ isDraft: true, subject: 'Draft subject' })
     expect(emFork.rollback).toHaveBeenCalledTimes(1)
     expect(emitMessagesEventMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses to reopen a mailbox send by undoing an older draft edit', async () => {
+    const { command, draft, emFork, ctx } = createHarness({ visibility: 'public', externalEmail: 'customer@example.com' })
+    emFork.findOne.mockResolvedValueOnce(draft)
+    const { before } = await command.prepare(updateInput({ isDraft: undefined, subject: 'Updated draft' }), ctx)
+    await command.execute(updateInput({ isDraft: undefined, subject: 'Updated draft' }), ctx)
+    delegateComposeToSenderMock.mockResolvedValueOnce({ ok: true, messageId, threadId: messageId })
+    await command.execute(updateInput({ senderChannelId: mailboxId }), ctx)
+
+    await expect(command.undo({ ctx, logEntry: { payload: { undo: { before } } } }))
+      .rejects.toThrow('Undo cannot reopen a draft sent through a mailbox')
+    expect(draft).toMatchObject({ isDraft: false, subject: 'Updated draft', sourceEntityId: mailboxId })
+    expect(emFork.rollback).toHaveBeenCalledTimes(1)
   })
 
   it('rejects sending an internal draft without input or preloaded recipients', async () => {

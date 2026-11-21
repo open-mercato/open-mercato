@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import { onTransactionLifetimeComplete } from '@open-mercato/shared/lib/commands/transaction-lifetime'
+import { getTransactionLifetime } from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   ChannelThreadMapping,
@@ -122,6 +122,9 @@ export async function sendAsUser(
   }
 
   const em = draft?.em ?? (container.resolve('em') as EntityManager).fork()
+  if (draft && !getTransactionLifetime(em)) {
+    throw new Error('[internal] Mailbox draft delivery requires the draft transaction')
+  }
   const { tenantId } = actor
   const organizationId = actor.organizationId
   const dscope = { tenantId, organizationId }
@@ -392,24 +395,28 @@ export async function sendAsUser(
     })
     em.persist(channelLink)
     await em.flush()
+    return channelLink.id
   }
 
-  const deliveryJob: OutboundDeliveryPayload = {
-    messageId,
-    scope: dscope,
-    attempt: 1,
-  }
-  const enqueueDelivery = async () => {
-    const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
-    await queue.enqueue(deliveryJob as unknown as Record<string, unknown>)
+  const enqueueDelivery = async (draftLinkId?: string) => {
+    const deliveryJob: OutboundDeliveryPayload = { messageId, scope: dscope, attempt: 1, ...(draftLinkId ? { draftLinkId } : {}) }
+    const queueName = draftLinkId ? COMMUNICATION_CHANNELS_QUEUES.draftOutbound : COMMUNICATION_CHANNELS_QUEUES.outbound
+    await getCommunicationChannelsQueue(queueName).enqueue(deliveryJob)
   }
   if (draft) {
-    onTransactionLifetimeComplete(em, async (outcome) => {
-      if (outcome === 'committed') await enqueueDelivery()
-    })
-    await persistDelivery()
+    const linkId = await persistDelivery()
+    try {
+      await enqueueDelivery(linkId)
+    } catch (error) {
+      logger.error('Could not queue mailbox draft delivery', { err: error, messageId })
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'communication_channels',
+        code: 'communication_channels.draft_delivery_enqueue_failed',
+      })
+      return { ok: false, status: 503, error: '[internal] Mailbox draft delivery queue unavailable' }
+    }
   } else {
-    await em.transactional(persistDelivery)
+    await em.transactional(async () => { await persistDelivery() })
     await enqueueDelivery()
   }
 

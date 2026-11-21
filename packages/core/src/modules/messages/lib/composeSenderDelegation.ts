@@ -177,6 +177,10 @@ export async function delegateComposeToSender(
     return { ok: true, messageId: result.messageId, threadId: result.threadId }
   }
 
+  if (draft && result.status === 503) {
+    return fail(503, t('messages.errors.senderUnavailable', 'Sending from your own mailbox is not available.'))
+  }
+
   const fieldMessage = Object.values(result.fieldErrors ?? {})[0] ?? result.error
   return {
     ok: false,
