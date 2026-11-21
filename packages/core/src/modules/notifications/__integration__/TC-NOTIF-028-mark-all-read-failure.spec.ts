@@ -6,7 +6,7 @@ import {
   test,
 } from './helpers/keyboardFixtures'
 
-test.describe('TC-NOTIF-027: Mark all read failure feedback and retry', () => {
+test.describe('TC-NOTIF-028: Mark all read failure feedback and retry', () => {
   for (const locale of ['en', 'pl'] as const) {
     test(`${locale} preserves unread notifications on network failure and permits retry`, async ({ page, keyboardFixture }) => {
       await openKeyboardNotification(page, keyboardFixture, locale)
