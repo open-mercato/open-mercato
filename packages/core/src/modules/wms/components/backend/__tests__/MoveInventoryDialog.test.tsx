@@ -189,3 +189,46 @@ describe('MoveInventoryDialog destination capacity preview', () => {
     expect(screen.queryByText(/would exceed the destination capacity/)).toBeNull()
   })
 })
+
+describe('MoveInventoryDialog reason validation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockFetchBalanceAvailable.mockResolvedValue(10)
+    mockFetchLocationCapacitySnapshot.mockResolvedValue({ capacityUnits: null, totalOnHand: 0 })
+  })
+
+  it('shows a localized error instead of the raw enum message when no reason is selected', async () => {
+    render(
+      <MoveInventoryDialog
+        open
+        onOpenChange={jest.fn()}
+        access={buildAccess()}
+        initialCatalogVariantId="11111111-1111-4111-8111-111111111111"
+        initialWarehouseId="22222222-2222-4222-8222-222222222222"
+        initialFromLocationId="33333333-3333-4333-8333-333333333333"
+      />,
+    )
+
+    fireEvent.change(screen.getByPlaceholderText('Select destination location'), {
+      target: { value: '44444444-4444-4444-8444-444444444444' },
+    })
+    fireEvent.click(screen.getByTestId('wms-inventory-move-submit'))
+
+    expect(await screen.findByText('Reason is required.')).toBeTruthy()
+    expect(screen.queryByText(/Invalid option/)).toBeNull()
+  })
+
+  it('shows localized errors for every empty picker instead of raw zod messages', async () => {
+    render(<MoveInventoryDialog open onOpenChange={jest.fn()} access={buildAccess()} />)
+
+    fireEvent.click(screen.getByTestId('wms-inventory-move-submit'))
+
+    expect(await screen.findByText('Variant is required.')).toBeTruthy()
+    expect(screen.getByText('Warehouse is required.')).toBeTruthy()
+    expect(screen.getByText('Source location is required.')).toBeTruthy()
+    expect(screen.getByText('Destination location is required.')).toBeTruthy()
+    expect(screen.getByText('Reason is required.')).toBeTruthy()
+    expect(screen.queryByText(/Invalid UUID/)).toBeNull()
+    expect(screen.queryByText(/Invalid option/)).toBeNull()
+  })
+})

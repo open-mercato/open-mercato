@@ -123,9 +123,15 @@ export function AdjustInventoryDialog({
   const adjustFormSchema = React.useMemo(
     () =>
       z.object({
-        catalogVariantId: z.string().uuid(),
-        warehouseId: z.string().uuid(),
-        locationId: z.string().uuid(),
+        catalogVariantId: z.string().uuid({
+          error: t('wms.backend.inventory.adjust.errors.variantRequired', 'Variant is required.'),
+        }),
+        warehouseId: z.string().uuid({
+          error: t('wms.backend.inventory.adjust.errors.warehouseRequired', 'Warehouse is required.'),
+        }),
+        locationId: z.string().uuid({
+          error: t('wms.backend.inventory.adjust.errors.locationRequired', 'Location is required.'),
+        }),
         lotNumber: z.string().trim().max(120).optional(),
         delta: z.coerce.number().refine((value) => value !== 0, {
           message: t(
@@ -133,7 +139,9 @@ export function AdjustInventoryDialog({
             'Inventory delta must be non-zero.',
           ),
         }),
-        reasonCode: z.enum(ADJUST_REASON_CODES),
+        reasonCode: z.enum(ADJUST_REASON_CODES, {
+          error: t('wms.backend.inventory.adjust.errors.reasonRequired', 'Reason is required.'),
+        }),
         notes: z.string().trim().max(500).optional(),
         serialNumber: z.string().trim().max(120).optional(),
       }),
