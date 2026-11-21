@@ -1415,7 +1415,7 @@ These handles are declared via `useRegisteredComponent(handle, FallbackComponent
 - Staff create and list responses can include `ownershipRecord` with a TXT `name` and `value` and `verificationExpiresAt` for unverified mappings. Clients publish the record and keep their routing configuration. Registrations expire 48 hours after creation and the existing two-domain organization limit is enforced transactionally.
 - A released verified or active hostname is unavailable to other tenants for seven days. The releasing tenant may register it again with a new mapping ID and TXT record. A failed attempt carries the original reservation through to its deadline. Unverified registrations without a prior reservation are reclaimed on expiry or deletion.
 - New hostnames must leave room for the `_om-verify.` label within the 253-character DNS limit. The migration returns legacy `active`, `verified` and `tls_failed` rows to pending and clears their verification. They cannot route or authorize TLS until mapping-specific TXT proof succeeds. Creation timestamps are retained; mappings more than 48 hours old must be registered again with a fresh TXT value. Plan custom-domain downtime and use the platform portal URL while re-verifying. Restart all app, edge and worker instances before reopening traffic; versioned service cache keys ignore stored pre-TXT routing entries.
-- Retaining shared-target-only verification would preserve the security defect. See [the compatibility exception](../../../BACKWARD_COMPATIBILITY.md) and [upgrade instructions](../../../UPGRADE_NOTES.md#custom-domains-require-dns-ownership-proof-9146). Pause older app and worker writers during migration and cutover.
+- Retaining shared-target-only verification would preserve the security defect. See [the compatibility exception](../../../BACKWARD_COMPATIBILITY.md) and [upgrade instructions](../../../UPGRADE_NOTES.md#custom-domains-require-dns-ownership-proof-9146). Pause older app and worker writers during migration and cutover. Rollback must keep custom-domain traffic, TLS authorization and DNS/TLS workers disabled at the deployment boundary until a TXT-capable version is restored; pending status alone does not constrain an older verifier.
 - Regression coverage exercises TXT success and failure, concurrent registration, expired mappings, replacement reservations, staff list scoping, and migration and re-verification of legacy active/TLS candidates, expired legacy refusal, and pre-TXT cache rejection. The settings panel shows copyable DNS instructions and the registration deadline.
 
 ### Migration & Backward Compatibility — bundled edge ports (#7833)
@@ -1951,6 +1951,12 @@ None.
 10. Canonical URLs + email-domain awareness.
 
 ## Changelog
+
+### 2026-11-21 — Enforce registered domain mutation guards (#9146)
+
+- Staff create, remove, DNS verification and TLS health-check routes now run the shared registry and legacy guard bridge, preserving tenant/organization authorization and successful callbacks. Registration revalidates transformed input and refuses a different organization.
+- The overlong TXT hostname field error uses the existing localized guidance. The rollout instructions explicitly require edge/TLS and verification-worker shutdown across a binary rollback until TXT-capable code returns.
+- Four registry-only refusal controls fail on the previous routes. Focused route/RBAC/service regressions and the disposable PostgreSQL lifecycle suite cover refusal-before-write, callbacks, transformations, stale deletion and migration down state. Personal rollout/rollback boundary QA and the named compatibility waiver remain required.
 
 ### 2026-11-20 — Preserve domain lifecycle refusals (#9146)
 

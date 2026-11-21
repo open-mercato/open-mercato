@@ -6,14 +6,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import {
-  validateCrudMutationGuard,
-  runCrudMutationGuardAfterSuccess,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { registerDomainSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import {
   DomainMappingService,
@@ -133,8 +131,12 @@ export async function POST(req: Request) {
   const body = await readJsonSafe(req, {})
   const parsed = registerDomainSchema.safeParse(body)
   if (!parsed.success) {
+    const { translate } = await resolveTranslations()
+    const issues = parsed.error.flatten((issue) => issue.message === 'customer_accounts.domainMapping.dns.txtNameTooLong'
+      ? translate(issue.message)
+      : issue.message)
     return NextResponse.json(
-      { ok: false, error: 'Invalid request', issues: parsed.error.flatten() },
+      { ok: false, error: 'Invalid request', issues },
       { status: 400 },
     )
   }
@@ -144,34 +146,31 @@ export async function POST(req: Request) {
   })
   if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
-  const guardResult = await validateCrudMutationGuard(container, {
-    tenantId: auth.tenantId,
-    organizationId: parsed.data.organizationId,
-    userId: auth.sub,
+  const registrationGuardInput = {
     resourceKind: 'customer_accounts.domain_mapping',
     resourceId: parsed.data.organizationId,
-    operation: 'create',
-    requestMethod: req.method,
-    requestHeaders: req.headers,
+    operation: 'create' as const,
     mutationPayload: parsed.data as unknown as Record<string, unknown>,
+  }
+  const guardResult = await runRouteMutationGuards({
+    container,
+    req,
+    auth: { tenantId: auth.tenantId, organizationId: parsed.data.organizationId, userId: auth.sub },
+    input: registrationGuardInput,
   })
-  if (guardResult && !guardResult.ok) {
-    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  if (!guardResult.ok) return guardResult.response
+
+  const guarded = registerDomainSchema.safeParse({ ...parsed.data, ...guardResult.modifiedPayload })
+  if (!guarded.success || guarded.data.organizationId !== parsed.data.organizationId) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.domainMapping.hostname.validation.invalid') }, { status: 400 })
   }
 
   const service = container.resolve('domainMappingService') as DomainMappingService
 
   let entity: DomainMapping
   try {
-    // service.register normalizes hostname internally — guards may have
-    // returned modifiedPayload but the typed runner doesn't expose it,
-    // so we rely on the service for the canonical form.
-    entity = await service.register({
-      hostname: parsed.data.hostname,
-      organizationId: parsed.data.organizationId,
-      tenantId: auth.tenantId,
-      replacesDomainId: parsed.data.replacesDomainId,
-    })
+    entity = await service.register({ ...guarded.data, tenantId: auth.tenantId })
   } catch (err: unknown) {
     if (isUniqueViolation(err)) {
       return NextResponse.json(
@@ -192,19 +191,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: message }, { status: 500 })
   }
 
-  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-    await runCrudMutationGuardAfterSuccess(container, {
-      tenantId: auth.tenantId,
-      organizationId: parsed.data.organizationId,
-      userId: auth.sub,
-      resourceKind: 'customer_accounts.domain_mapping',
-      resourceId: entity.id,
-      operation: 'create',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-      metadata: guardResult.metadata ?? null,
-    })
-  }
+  registrationGuardInput.resourceId = entity.id
+  await guardResult.runAfterSuccess()
 
   return NextResponse.json({ ok: true, domainMapping: serializeRecord(entity) }, { status: 201 })
 }
@@ -229,19 +217,17 @@ export async function DELETE(req: Request) {
   })
   if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
-  const guardResult = await validateCrudMutationGuard(container, {
-    tenantId: auth.tenantId,
-    organizationId: existing.organizationId,
-    userId: auth.sub,
-    resourceKind: 'customer_accounts.domain_mapping',
-    resourceId: id,
-    operation: 'delete',
-    requestMethod: req.method,
-    requestHeaders: req.headers,
+  const guardResult = await runRouteMutationGuards({
+    container,
+    req,
+    auth: { tenantId: auth.tenantId, organizationId: existing.organizationId, userId: auth.sub },
+    input: {
+      resourceKind: 'customer_accounts.domain_mapping',
+      resourceId: id,
+      operation: 'delete',
+    },
   })
-  if (guardResult && !guardResult.ok) {
-    return NextResponse.json(guardResult.body, { status: guardResult.status })
-  }
+  if (!guardResult.ok) return guardResult.response
 
   try {
     await service.remove(id, {
@@ -256,19 +242,7 @@ export async function DELETE(req: Request) {
     throw error
   }
 
-  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-    await runCrudMutationGuardAfterSuccess(container, {
-      tenantId: auth.tenantId,
-      organizationId: existing.organizationId,
-      userId: auth.sub,
-      resourceKind: 'customer_accounts.domain_mapping',
-      resourceId: id,
-      operation: 'delete',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-      metadata: guardResult.metadata ?? null,
-    })
-  }
+  await guardResult.runAfterSuccess()
 
   return NextResponse.json({ ok: true })
 }

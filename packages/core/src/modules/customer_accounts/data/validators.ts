@@ -156,7 +156,7 @@ export const hostnameSchema = z
   })
 
 export const registerDomainSchema = z.object({
-  hostname: hostnameSchema.refine((hostname) => hostname.length <= MAX_VERIFIABLE_HOSTNAME_LENGTH, 'Hostname is too long for a DNS verification record'),
+  hostname: hostnameSchema.refine((hostname) => hostname.length <= MAX_VERIFIABLE_HOSTNAME_LENGTH, 'customer_accounts.domainMapping.dns.txtNameTooLong'),
   organizationId: z.string().uuid(),
   replacesDomainId: z.string().uuid().optional(),
 })
