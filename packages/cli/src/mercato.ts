@@ -279,7 +279,12 @@ function formatInitFailureMessage(error: unknown): string {
   return fallbackMessage
 }
 
-async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
+// `create: false` only probes `pg_database` and never issues `CREATE DATABASE` — used by
+// the ordinary (non-reinstall) init flow to decide *whether* a fresh database is about to
+// be created, before credentials are validated. Creating eagerly there would persist a new
+// database for a rejected fresh init with a missing/placeholder production password (#8974).
+async function ensureDatabaseExists(dbUrl: string, options: { create?: boolean } = {}): Promise<boolean> {
+  const { create = true } = options
   let parsed: URL
   try {
     parsed = new URL(dbUrl)
@@ -301,6 +306,7 @@ async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
 
     const result = await adminClient.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName])
     if (result.rows.length > 0) return true
+    if (!create) return false
 
     console.log(`   Database "${dbName}" does not exist. Attempting to create it...`)
     try {
@@ -1052,7 +1058,15 @@ export async function run(argv = process.argv) {
         delete process.env.OM_INIT_REINSTALL
       }
       const skipIfInitialized = initArgs.includes('--skip-if-initialized')
-      const credentials = skipIfInitialized && !reinstall ? undefined : resolveInitSuperadminCredentials(initArgs)
+      // Only --reinstall needs credentials resolved up front, since it drops every table
+      // before this point is reached. Ordinary init (with or without --skip-if-initialized)
+      // defers credential resolution until after the existing-users check below ONLY when the
+      // target database already exists, so a preserved production database without its init
+      // marker still reaches the recoverable "existing user(s)" abort instead of failing on a
+      // missing/placeholder password first. A genuinely fresh database (one that does not
+      // exist yet) still validates credentials before anything is created — see the
+      // non-creating ensureDatabaseExists probe below.
+      let credentials = reinstall ? resolveInitSuperadminCredentials(initArgs) : undefined
       const skipExamples = initArgs.includes('--no-examples')
       const skipDemoUsers = initArgs.includes('--no-demo-users')
       const stressTestEnabled =
@@ -1192,41 +1206,52 @@ export async function run(argv = process.argv) {
         }
 
         const { Client } = await import('pg')
-        const dbExists = await ensureDatabaseExists(dbUrl)
-        if (!dbExists) return 1
-        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
-        try {
-          await client.connect()
-          const tableCheck = await client.query<{ regclass: string | null }>(
-            `SELECT to_regclass('public.users') AS regclass`,
-          )
-          const hasUsersTable = Boolean(tableCheck.rows?.[0]?.regclass)
-          if (hasUsersTable) {
-            const countResult = await client.query<{ count: string }>(
-              'SELECT COUNT(*)::text AS count FROM users',
-            )
-            const existingUsersCount = Number.parseInt(countResult.rows?.[0]?.count ?? '0', 10)
-            const existingDatabase = decideExistingDatabase(existingUsersCount, skipIfInitialized)
-            if (existingDatabase === 'skip') {
-              for (const line of formatSkipIfInitializedMessage(existingUsersCount, dbUrl)) console.log(line)
-              return 0
-            }
-            if (existingDatabase === 'abort') {
-              console.error(
-                `❌ Initialization aborted: found ${existingUsersCount} existing user(s) in the database.`,
-              )
-              console.error(
-                '   To reset and initialize from scratch, run: yarn mercato init --reinstall',
-              )
-              console.error('   Standalone shortcut: yarn setup --reinstall')
-              console.error('   Shortcut script: yarn reinstall')
-              return 1
-            }
-          }
-        } finally {
+        // Read-only probe first: a database that already exists may hold the preserved
+        // production data this flow needs to recover (the existing-users check below), so
+        // credential validation stays deferred for it. A database that does NOT exist yet is
+        // a genuinely fresh init — validate credentials before creating anything, so a
+        // rejected fresh init (missing/placeholder production password) never leaves a new
+        // empty database behind (#8974).
+        const databaseAlreadyExists = await ensureDatabaseExists(dbUrl, { create: false })
+        if (!databaseAlreadyExists) {
+          credentials = resolveInitSuperadminCredentials(initArgs)
+          const created = await ensureDatabaseExists(dbUrl, { create: true })
+          if (!created) return 1
+        } else {
+          const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
           try {
-            await client.end()
-          } catch {}
+            await client.connect()
+            const tableCheck = await client.query<{ regclass: string | null }>(
+              `SELECT to_regclass('public.users') AS regclass`,
+            )
+            const hasUsersTable = Boolean(tableCheck.rows?.[0]?.regclass)
+            if (hasUsersTable) {
+              const countResult = await client.query<{ count: string }>(
+                'SELECT COUNT(*)::text AS count FROM users',
+              )
+              const existingUsersCount = Number.parseInt(countResult.rows?.[0]?.count ?? '0', 10)
+              const existingDatabase = decideExistingDatabase(existingUsersCount, skipIfInitialized)
+              if (existingDatabase === 'skip') {
+                for (const line of formatSkipIfInitializedMessage(existingUsersCount, dbUrl)) console.log(line)
+                return 0
+              }
+              if (existingDatabase === 'abort') {
+                console.error(
+                  `❌ Initialization aborted: found ${existingUsersCount} existing user(s) in the database.`,
+                )
+                console.error(
+                  '   To reset and initialize from scratch, run: yarn mercato init --reinstall',
+                )
+                console.error('   Standalone shortcut: yarn setup --reinstall')
+                console.error('   Shortcut script: yarn reinstall')
+                return 1
+              }
+            }
+          } finally {
+            try {
+              await client.end()
+            } catch {}
+          }
         }
       }
 
