@@ -426,14 +426,14 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
               {t('wms.backend.config.actions.addWarehouse', 'Add warehouse')}
             </Button>
           ) : null}
-          rowActions={(row) => (
+          rowActions={access.canManageWarehouses ? (row) => (
             <RowActions
               items={[
                 { id: 'edit', label: t('common.edit', 'Edit'), onSelect: () => setDialog({ mode: 'edit', row }) },
                 { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
               ]}
             />
-          )}
+          ) : undefined}
           pagination={{
             page,
             pageSize: 10,
@@ -715,14 +715,14 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
               {t('wms.backend.config.actions.addZone', 'Add zone')}
             </Button>
           ) : null}
-          rowActions={(row) => (
+          rowActions={access.canManageZones ? (row) => (
             <RowActions
               items={[
                 { id: 'edit', label: t('common.edit', 'Edit'), onSelect: () => setDialog({ mode: 'edit', row }) },
                 { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
               ]}
             />
-          )}
+          ) : undefined}
           pagination={{
             page,
             pageSize: 10,
@@ -924,14 +924,14 @@ export function LocationSection({ viewAllHref }: ConfigSectionOptions = {}) {
               router.push(`/backend/wms/location/${encodeURIComponent(locationId)}`)
             }
           }}
-          rowActions={(row) => (
+          rowActions={access.canManageLocations ? (row) => (
             <RowActions
               items={[
                 { id: 'edit', label: t('common.edit', 'Edit'), onSelect: () => setDialog({ mode: 'edit', row }) },
                 { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
               ]}
             />
-          )}
+          ) : undefined}
           pagination={{
             page,
             pageSize: 10,
@@ -1220,14 +1220,14 @@ export function InventoryProfilesSection() {
               {t('wms.backend.config.actions.addProfile', 'Add profile')}
             </Button>
           ) : null}
-          rowActions={(row) => (
+          rowActions={access.canManage ? (row) => (
             <RowActions
               items={[
                 { id: 'edit', label: t('common.edit', 'Edit'), onSelect: () => setDialog({ mode: 'edit', row }) },
                 { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
               ]}
             />
-          )}
+          ) : undefined}
           pagination={{
             page,
             pageSize: 10,
