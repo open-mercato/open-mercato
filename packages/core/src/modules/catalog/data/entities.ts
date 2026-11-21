@@ -80,6 +80,7 @@ export class CatalogProduct {
     | 'containsLithiumBattery'
     | 'requiresShipping'
     | 'isQuoteOnly'
+    | 'omnibusExempt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -232,6 +233,12 @@ export class CatalogProduct {
 
   @Property({ name: 'is_quote_only', type: 'boolean', default: false })
   isQuoteOnly: boolean = false
+
+  @Property({ name: 'omnibus_exempt', type: 'boolean', default: false })
+  omnibusExempt: boolean = false
+
+  @Property({ name: 'first_listed_at', type: Date, nullable: true })
+  firstListedAt?: Date | null
 
   @Property({ name: 'seo_title', type: 'text', nullable: true })
   seoTitle?: string | null
@@ -599,6 +606,9 @@ export class CatalogProductVariant {
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
+
+  @Property({ name: 'omnibus_exempt', type: 'boolean', nullable: true })
+  omnibusExempt?: boolean | null
 
   @Property({ name: 'weight_value', type: 'numeric', precision: 16, scale: 4, nullable: true })
   weightValue?: string | null

@@ -8,9 +8,13 @@ import {
   type CompiledQuery,
 } from 'kysely'
 import {
+  OMNIBUS_IN_WINDOW_LIMIT,
+  fetchOmnibusCampaignIds,
   fetchOmnibusFirstOfferIds,
   fetchOmnibusLatestPriceEntryIds,
+  fetchOmnibusPrecedingIds,
   fetchOmnibusWindowIds,
+  type OmnibusCampaignLookup,
   type OmnibusWindowLookup,
 } from '../omnibusHistoryQueries'
 
@@ -19,12 +23,19 @@ type EmptyDatabase = Record<string, never>
 const TOMBSTONE_EXCLUSION = /h\.change_type <> 'delete'\s+AND NOT \(h\.change_type = 'undo' AND h\.metadata->>'undoneCommand' = \$\d+\)/g
 const CHANNEL_OR_NULL = /\(h\.channel_id = w\.channel_id OR h\.channel_id IS NULL\)/g
 
-function recordingEm(): { em: EntityManager; queries: CompiledQuery[] } {
+function recordingEm(rows: Array<{ ord: number; part: string; id: string }> = []): { em: EntityManager; queries: CompiledQuery[] } {
   const queries: CompiledQuery[] = []
+  const driver = new DummyDriver()
+  const acquireConnection = driver.acquireConnection.bind(driver)
+  jest.spyOn(driver, 'acquireConnection').mockImplementation(async () => {
+    const connection = await acquireConnection()
+    jest.spyOn(connection, 'executeQuery').mockResolvedValue({ rows })
+    return connection
+  })
   const db = new Kysely<EmptyDatabase>({
     dialect: {
       createAdapter: () => new PostgresAdapter(),
-      createDriver: () => new DummyDriver(),
+      createDriver: () => driver,
       createQueryCompiler: () => new PostgresQueryCompiler(),
       createIntrospector: (instance: Kysely<EmptyDatabase>) => new PostgresIntrospector(instance),
     },
@@ -127,5 +138,103 @@ describe('fetchOmnibusLatestPriceEntryIds SQL', () => {
       },
     ])
     expect(queries[0].sql).not.toMatch(TOMBSTONE_EXCLUSION)
+  })
+})
+
+describe('fetchOmnibusPrecedingIds SQL', () => {
+  it('reads the newest observations strictly before the bound, grouped by scope and channel', async () => {
+    const { em, queries } = recordingEm()
+    const lookup = {
+      ...windowLookup('40000000-0000-4000-8000-000000000001'),
+      before: new Date('2026-06-05T00:00:00.000Z'),
+    }
+    const result = await fetchOmnibusPrecedingIds(em, [lookup, { ...lookup, channelId: null }])
+    expect(result).toEqual([[], []])
+    expect(queries).toHaveLength(2)
+    expect(queries[0].sql.match(TOMBSTONE_EXCLUSION)).toHaveLength(1)
+    expect(queries[0].sql.match(CHANNEL_OR_NULL)).toHaveLength(1)
+    expect(queries[0].sql).toMatch(/h\.recorded_at < w\.before_at/)
+    expect(queries[0].sql).toContain('undone.recorded_at = h.recorded_at')
+    expect(queries[0].sql).toContain("h.metadata->>'redoneCommand' IS DISTINCT FROM")
+    expect(queries[0].sql).toContain('undone.recorded_at < w.before_at')
+    expect(queries[0].sql).toMatch(/ended\.recorded_at > h\.recorded_at\s+AND ended\.recorded_at < w\.before_at/)
+    expect(queries[0].sql).toMatch(/ORDER BY h\.recorded_at DESC, h\.id DESC/)
+    expect(queries[1].sql).not.toContain('h.channel_id')
+  })
+})
+
+describe('fetchOmnibusCampaignIds SQL', () => {
+  function campaignLookup(overrides: Partial<OmnibusCampaignLookup> = {}): OmnibusCampaignLookup {
+    return {
+      tenantId: '10000000-0000-4000-8000-000000000001',
+      organizationId: '10000000-0000-4000-8000-000000000002',
+      offerId: '50000000-0000-4000-8000-000000000001',
+      baselineScopeColumn: 'variant_id',
+      baselineScopeId: '20000000-0000-4000-8000-000000000003',
+      priceKindId: '30000000-0000-4000-8000-000000000001',
+      currencyCode: 'EUR',
+      channelId: '40000000-0000-4000-8000-000000000001',
+      ...overrides,
+    }
+  }
+
+  it('reads the offer in recording order and the non-offer price live before its first entry', async () => {
+    const { em, queries } = recordingEm()
+    await fetchOmnibusCampaignIds(em, [campaignLookup()])
+    expect(queries).toHaveLength(1)
+    const sql = queries[0].sql
+    const [campaignPart, baselinePart] = sql.split('UNION ALL')
+    expect(campaignPart).toMatch(/h\.offer_id = w\.offer_id/)
+    expect(campaignPart).toContain('"h"."variant_id" = w.scope_id')
+    expect(campaignPart).toMatch(/ORDER BY h\.recorded_at ASC, h\.id ASC/)
+    expect(baselinePart).toMatch(/AND h\.offer_id IS NULL/)
+    expect(baselinePart).toMatch(/h\.recorded_at < cs\.started_at/)
+    expect(baselinePart).toMatch(/ended\.recorded_at < cs\.started_at/)
+    expect(baselinePart).toContain('undone.recorded_at < cs.started_at')
+    expect(baselinePart).toContain('undone.recorded_at = h.recorded_at')
+    expect(campaignPart).toContain('undone.recorded_at <= w.as_of')
+    expect(campaignPart.indexOf('undone.recorded_at <= w.as_of')).toBeLessThan(campaignPart.indexOf('LIMIT'))
+    expect(baselinePart).toContain('"h"."variant_id" = w.scope_id')
+    expect(sql.match(TOMBSTONE_EXCLUSION)).toHaveLength(2)
+    expect(sql.match(CHANNEL_OR_NULL)).toHaveLength(2)
+  })
+
+  it('requests one observation beyond the window cap so overflow is detectable', async () => {
+    const { em, queries } = recordingEm()
+    await fetchOmnibusCampaignIds(em, [campaignLookup()])
+    const [campaignPart] = queries[0].sql.split('UNION ALL')
+    expect(campaignPart).toContain('LIMIT')
+    expect(queries[0].parameters).toContain(OMNIBUS_IN_WINDOW_LIMIT + 1)
+  })
+
+  it('bounds campaign observations by runtime before applying the cap', async () => {
+    const { em, queries } = recordingEm()
+    const asOf = new Date('2026-06-10T12:00:00.000Z')
+    await fetchOmnibusCampaignIds(em, [campaignLookup({ asOf })])
+    const [campaignPart] = queries[0].sql.split('UNION ALL')
+    expect(campaignPart).toContain('h.recorded_at <= w.as_of')
+    expect(campaignPart.indexOf('h.recorded_at <= w.as_of')).toBeLessThan(campaignPart.indexOf('LIMIT'))
+    expect(queries[0].parameters).toContainEqual([asOf.toISOString()])
+  })
+
+  it.each([OMNIBUS_IN_WINDOW_LIMIT, OMNIBUS_IN_WINDOW_LIMIT + 1])('reports truncation only beyond the cap (%s rows)', async (count) => {
+    const rows = Array.from({ length: count }, (_, index) => ({ ord: 1, part: 'campaign', id: `campaign-${index}` }))
+    const { em } = recordingEm([...rows, { ord: 1, part: 'baseline', id: 'baseline' }])
+    const [result] = await fetchOmnibusCampaignIds(em, [campaignLookup()])
+    expect(result.campaignIds).toEqual(rows.map((row) => row.id))
+    expect(result.baselineId).toBe('baseline')
+    expect(result.campaignTruncated).toBe(count > OMNIBUS_IN_WINDOW_LIMIT)
+  })
+
+  it('keeps variant rows out of a product-level campaign and baseline and splits lookups by scope', async () => {
+    const { em, queries } = recordingEm()
+    await fetchOmnibusCampaignIds(em, [
+      campaignLookup({ baselineScopeColumn: 'product_id', baselineScopeId: '20000000-0000-4000-8000-000000000001' }),
+      campaignLookup(),
+    ])
+    expect(queries).toHaveLength(2)
+    expect(queries[0].sql.match(/AND h\.variant_id IS NULL/g)).toHaveLength(2)
+    expect(queries[0].sql.match(/"h"\."product_id" = w\.scope_id/g)).toHaveLength(2)
+    expect(queries[1].sql).not.toContain('h.variant_id IS NULL')
   })
 })

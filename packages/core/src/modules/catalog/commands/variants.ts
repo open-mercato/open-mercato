@@ -93,6 +93,7 @@ type VariantSnapshot = {
   statusEntryId: string | null
   isDefault: boolean
   isActive: boolean
+  omnibusExempt: boolean | null
   weightValue: string | null
   weightUnit: string | null
   taxRateId: string | null
@@ -122,6 +123,7 @@ const VARIANT_CHANGE_KEYS = [
   'statusEntryId',
   'isDefault',
   'isActive',
+  'omnibusExempt',
   'weightValue',
   'weightUnit',
   'taxRateId',
@@ -169,6 +171,7 @@ async function loadVariantSnapshot(
     statusEntryId: record.statusEntryId ?? null,
     isDefault: record.isDefault,
     isActive: record.isActive,
+    omnibusExempt: record.omnibusExempt ?? null,
     weightValue: record.weightValue ?? null,
     weightUnit: record.weightUnit ?? null,
     taxRateId: record.taxRateId ?? null,
@@ -198,6 +201,7 @@ function variantSeedFromSnapshot(snapshot: VariantSnapshot): Record<string, unkn
     statusEntryId: snapshot.statusEntryId ?? null,
     isDefault: snapshot.isDefault,
     isActive: snapshot.isActive,
+    omnibusExempt: snapshot.omnibusExempt ?? null,
     weightValue: snapshot.weightValue ?? null,
     weightUnit: snapshot.weightUnit ?? null,
     taxRateId: snapshot.taxRateId ?? null,
@@ -222,6 +226,7 @@ function applyVariantSnapshot(record: CatalogProductVariant, snapshot: VariantSn
   record.statusEntryId = snapshot.statusEntryId ?? null
   record.isDefault = snapshot.isDefault
   record.isActive = snapshot.isActive
+  record.omnibusExempt = snapshot.omnibusExempt ?? null
   record.weightValue = snapshot.weightValue ?? null
   record.weightUnit = snapshot.weightUnit ?? null
   record.taxRateId = snapshot.taxRateId ?? null
@@ -680,6 +685,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       statusEntryId: parsed.statusEntryId ?? null,
       isDefault: parsed.isDefault ?? false,
       isActive: parsed.isActive ?? true,
+      omnibusExempt: parsed.omnibusExempt ?? null,
       weightValue: toNumericString(parsed.weightValue),
       weightUnit: parsed.weightUnit ?? null,
       taxRateId,
@@ -978,6 +984,9 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
             if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
             if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
             if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+            if (Object.prototype.hasOwnProperty.call(parsed, 'omnibusExempt')) {
+              record.omnibusExempt = parsed.omnibusExempt ?? null
+            }
             if (Object.prototype.hasOwnProperty.call(parsed, 'weightValue')) {
               record.weightValue = toNumericString(parsed.weightValue)
             }
@@ -1102,6 +1111,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
         statusEntryId: before.statusEntryId ?? null,
         isDefault: before.isDefault,
         isActive: before.isActive,
+        omnibusExempt: before.omnibusExempt ?? null,
         weightValue: before.weightValue ?? null,
         weightUnit: before.weightUnit ?? null,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
@@ -1268,6 +1278,7 @@ const deleteVariantCommand: CommandHandler<
         statusEntryId: before.statusEntryId ?? null,
         isDefault: before.isDefault,
         isActive: before.isActive,
+        omnibusExempt: before.omnibusExempt ?? null,
         weightValue: before.weightValue ?? null,
         weightUnit: before.weightUnit ?? null,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,

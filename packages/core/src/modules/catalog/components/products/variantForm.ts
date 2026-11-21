@@ -27,6 +27,7 @@ export type VariantFormValues = {
   sku: string
   barcode: string
   gtinType: string | null
+  omnibusExempt: boolean | null
   hsCode: string
   isDefault: boolean
   isActive: boolean
@@ -47,6 +48,7 @@ export const VARIANT_BASE_VALUES: VariantFormValues = {
   sku: '',
   barcode: '',
   gtinType: null,
+  omnibusExempt: null,
   hsCode: '',
   isDefault: false,
   isActive: true,

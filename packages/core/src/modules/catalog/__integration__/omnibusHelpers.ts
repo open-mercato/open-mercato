@@ -120,6 +120,7 @@ export async function createOmnibusProductFixture(
   request: APIRequestContext,
   token: string,
   stamp: string,
+  firstListedAt?: string | null,
 ): Promise<string> {
   const response = await apiRequest(request, 'POST', PRODUCTS_PATH, {
     token,
@@ -128,6 +129,7 @@ export async function createOmnibusProductFixture(
       sku: `QA-OMNI-${stamp}`,
       description:
         'Long enough description for SEO checks in QA automation flows. This text keeps the create validation satisfied.',
+      ...(firstListedAt === undefined ? {} : { firstListedAt }),
     },
   });
   expect(response.status(), `product fixture create should be 201 (${await response.text()})`).toBe(201);
@@ -136,6 +138,7 @@ export async function createOmnibusProductFixture(
 
 export type PriceFixtureInput = {
   productId: string;
+  variantId?: string;
   priceKindId: string;
   currencyCode?: string;
   unitPriceNet: number;
@@ -224,6 +227,8 @@ export type HistoryRowInput = {
   organizationId: string;
   priceId: string;
   productId: string;
+  variantId?: string | null;
+  offerId?: string | null;
   channelId: string | null;
   priceKindId: string;
   priceKindCode: string;
@@ -240,16 +245,17 @@ export async function insertPriceHistoryRows(rows: HistoryRowInput[]): Promise<v
     for (const row of rows) {
       await client.query(
         `insert into catalog_price_history_entries
-           (id, tenant_id, organization_id, price_id, product_id, channel_id, price_kind_id, price_kind_code,
+           (id, tenant_id, organization_id, price_id, product_id, offer_id, channel_id, price_kind_id, price_kind_code,
             currency_code, unit_price_net, unit_price_gross, tax_rate, min_quantity, recorded_at,
-            change_type, source, is_announced, idempotency_key)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 1, $13, $14, 'system', false, null)`,
+            change_type, source, is_announced, idempotency_key, variant_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 1, $14, $15, 'system', false, null, $16)`,
         [
           randomUUID(),
           row.tenantId,
           row.organizationId,
           row.priceId,
           row.productId,
+          row.offerId ?? null,
           row.channelId,
           row.priceKindId,
           row.priceKindCode,
@@ -259,6 +265,7 @@ export async function insertPriceHistoryRows(rows: HistoryRowInput[]): Promise<v
           row.taxRate,
           row.recordedAt.toISOString(),
           row.changeType,
+          row.variantId ?? null,
         ],
       );
     }

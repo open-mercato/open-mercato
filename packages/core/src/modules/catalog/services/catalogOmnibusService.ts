@@ -3,16 +3,19 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { padDecimalPlaces, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { CatalogPriceHistoryEntry } from '../data/entities'
+import { CatalogOffer, CatalogPriceHistoryEntry, CatalogProduct, CatalogProductVariant } from '../data/entities'
 import {
   OMNIBUS_CONFIG_MODULE_ID,
   OMNIBUS_CONFIG_NAME,
   OMNIBUS_DEFAULT_LOOKBACK_DAYS,
+  OMNIBUS_DEFAULT_PROGRESSIVE_MAX_GAP_DAYS,
   OMNIBUS_PRICE_REMOVING_UNDO_COMMAND,
   omnibusConfigSchema,
   type OmnibusApplicabilityReason,
   type OmnibusBlock,
+  type OmnibusChannelConfig,
   type OmnibusConfig,
   type OmnibusHistoryRow,
   type OmnibusLowestPriceResult,
@@ -28,24 +31,28 @@ import {
   writeOmnibusCache,
 } from '../lib/omnibusCache'
 import {
+  OMNIBUS_IN_WINDOW_LIMIT,
+  fetchOmnibusCampaignIds,
   fetchOmnibusFirstOfferIds,
+  fetchOmnibusPrecedingIds,
   fetchOmnibusWindowIds,
+  type OmnibusCampaignLookup,
   type OmnibusFirstOfferLookup,
+  type OmnibusPrecedingLookup,
   type OmnibusScopeColumn,
   type OmnibusWindowLookup,
 } from '../lib/omnibusHistoryQueries'
-import { formatFixedDecimal4 } from '../lib/priceHistoryQuery'
 
 const logger = createLogger('catalog')
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-const DECIMAL_SCALE = 4
-
 export type OmnibusConfigScope = {
   tenantId: string
   organizationId?: string | null
 }
+
+export type OmnibusScopedConfig = { scope: Pick<OmnibusResolutionContext, 'tenantId' | 'organizationId'>; value: OmnibusConfig | null }
 
 export interface CatalogOmnibusService {
   getConfig(scope: OmnibusConfigScope): Promise<OmnibusConfig | null>
@@ -70,7 +77,7 @@ export interface CatalogOmnibusService {
     presentedEntry?: OmnibusPresentedEntry | null,
     priceKindIsPromotion?: boolean,
   ): Promise<OmnibusBlock | null>
-  resolveOmnibusBlocks(em: EntityManager, requests: OmnibusResolutionRequest[]): Promise<Array<OmnibusBlock | null>>
+  resolveOmnibusBlocks(em: EntityManager, requests: OmnibusResolutionRequest[], config?: OmnibusScopedConfig): Promise<Array<OmnibusBlock | null>>
 }
 
 type HistoryScope = { column: OmnibusScopeColumn; id: string }
@@ -82,11 +89,15 @@ type PreparedLookup = {
   presentedPriceKindId: string
   scope: HistoryScope
   channelId: string | null
+  channelConfig: OmnibusChannelConfig | null
   lookbackDays: number
   axis: OmnibusMinimizationAxis
   offerId: string | null
   anchor: Date | null
   now: Date
+  omnibusExempt: boolean | null
+  firstListedAt: Date | null
+  newArrival: boolean
 }
 
 type WindowedLookup = PreparedLookup & {
@@ -107,17 +118,25 @@ function truncToUtcDay(date: Date): string {
   return date.toISOString().slice(0, 10)
 }
 
-function parseScaledDecimal(value: string | null): bigint | null {
-  if (value === null) return null
-  const match = /^(-?)(\d+)(?:\.(\d*))?$/.exec(value.trim())
-  if (!match) return null
-  const [, sign, whole, fraction = ''] = match
-  const scaled = BigInt(`${whole}${fraction.slice(0, DECIMAL_SCALE).padEnd(DECIMAL_SCALE, '0')}`)
-  return sign === '-' ? -scaled : scaled
+function priceValue(row: OmnibusHistoryRow, axis: OmnibusMinimizationAxis) {
+  return parseDecimal(axis === 'gross' ? row.unitPriceGross : row.unitPriceNet)
 }
 
-function priceValue(row: OmnibusHistoryRow, axis: OmnibusMinimizationAxis): bigint | null {
-  return parseScaledDecimal(axis === 'gross' ? row.unitPriceGross : row.unitPriceNet)
+function formatReferenceAmount(value: string | null | undefined): string | null {
+  const amount = parseDecimal(value)
+  return amount === null ? value ?? null : padDecimalPlaces(amount, 4)
+}
+
+export function serializeCatalogOmnibusBlock(block: OmnibusBlock | null): OmnibusBlock | null {
+  if (!block) return null
+  const fixedAmount = (value: string | null) => parseDecimal(value)?.toFixed(4) ?? value
+  return {
+    ...block,
+    lowestPriceNet: fixedAmount(block.lowestPriceNet),
+    lowestPriceGross: fixedAmount(block.lowestPriceGross),
+    previousPriceNet: fixedAmount(block.previousPriceNet),
+    previousPriceGross: fixedAmount(block.previousPriceGross),
+  }
 }
 
 function compareChronological(left: OmnibusHistoryRow, right: OmnibusHistoryRow): number {
@@ -131,7 +150,7 @@ function compareByAxis(left: OmnibusHistoryRow, right: OmnibusHistoryRow, axis: 
   const rightValue = priceValue(right, axis)
   if (leftValue === null && rightValue !== null) return 1
   if (leftValue !== null && rightValue === null) return -1
-  if (leftValue !== null && rightValue !== null && leftValue !== rightValue) return leftValue < rightValue ? -1 : 1
+  if (leftValue !== null && rightValue !== null && !leftValue.eq(rightValue)) return leftValue.lt(rightValue) ? -1 : 1
   return compareChronological(left, right)
 }
 
@@ -184,6 +203,109 @@ export function selectOmnibusCandidates(input: {
   }
   const oldest = [...candidates].sort(compareChronological)[0]
   return { lowestRow, previousRow: oldest, insufficientHistory: true, coverageStartAt: oldest.recordedAt }
+}
+
+export type OmnibusProgressiveFreeze = {
+  lowestRow: OmnibusHistoryRow
+  previousRow: OmnibusHistoryRow
+  anchorAt: string
+}
+
+/**
+ * Art. 6a(5): a reduction progressively increased within one offer keeps the price in effect before
+ * the first reduction as its reference. The offer's observations must start at or below that price,
+ * never rise, and never pause longer than `maxGapDays`; otherwise the standard window applies.
+ */
+export function evaluateProgressiveCampaign(input: {
+  campaign: OmnibusHistoryRow[]
+  baseline: OmnibusHistoryRow | null
+  axis: OmnibusMinimizationAxis
+  maxGapDays: number
+}): OmnibusProgressiveFreeze | null {
+  const campaign = [...input.campaign].sort(compareChronological)
+  if (!input.baseline || campaign.length < 2) return null
+  if (campaign.length > OMNIBUS_IN_WINDOW_LIMIT) return null
+  const baselineValue = priceValue(input.baseline, input.axis)
+  const firstValue = priceValue(campaign[0], input.axis)
+  if (baselineValue === null || firstValue === null || firstValue.gt(baselineValue)) return null
+  const maxGapMs = input.maxGapDays * DAY_MS
+  for (let position = 1; position < campaign.length; position += 1) {
+    const previous = campaign[position - 1]
+    const current = campaign[position]
+    const previousValue = priceValue(previous, input.axis)
+    const currentValue = priceValue(current, input.axis)
+    if (previousValue === null || currentValue === null || currentValue.gt(previousValue)) return null
+    if (Date.parse(current.recordedAt) - Date.parse(previous.recordedAt) > maxGapMs) return null
+  }
+  return { lowestRow: input.baseline, previousRow: campaign[campaign.length - 1], anchorAt: campaign[0].recordedAt }
+}
+
+/** Art. 6a(3) `last_price`: the newest observation recorded before the presented reduction, never the reduction itself. */
+export function selectPrecedingObservation(
+  rows: OmnibusHistoryRow[],
+  presentedEntry: OmnibusPresentedEntry | null,
+): OmnibusHistoryRow | null {
+  const newestFirst = [...rows].sort((left, right) => compareChronological(right, left))
+  return newestFirst.find((row) => isPriceObservation(row) && !isPresentedReduction(row, presentedEntry)) ?? null
+}
+
+/** Art. 6a(4): a product on the market for less than the lookback is measured over a shorter window. */
+export function resolveNewArrivalLookbackDays(input: {
+  channelConfig: OmnibusChannelConfig | null
+  firstListedAt: Date | null
+  lookbackDays: number
+  at: Date
+}): number | null {
+  if (input.channelConfig?.newArrivalRule !== 'shorter_window' || !input.firstListedAt) return null
+  const ageDays = Math.floor((input.at.getTime() - input.firstListedAt.getTime()) / DAY_MS)
+  if (ageDays >= input.lookbackDays) return null
+  const reduced = input.channelConfig.newArrivalsLookbackDays ?? ageDays
+  return Math.min(input.lookbackDays, Math.max(1, reduced))
+}
+
+function needsExemptFlag(lookup: PreparedLookup): boolean {
+  const rule = lookup.channelConfig?.perishableGoodsRule ?? 'standard'
+  return rule !== 'standard' && lookup.context.omnibusExempt === undefined
+}
+
+function needsFirstListedAt(lookup: PreparedLookup): boolean {
+  return lookup.channelConfig?.newArrivalRule === 'shorter_window' && lookup.context.firstListedAt === undefined
+}
+
+function isProgressiveCandidate(lookup: PreparedLookup): boolean {
+  return (
+    lookup.channelConfig?.progressiveReductionRule === true &&
+    lookup.offerId !== null &&
+    Boolean(lookup.context.variantId || lookup.context.productId)
+  )
+}
+
+function referenceId(ref: unknown): string | null {
+  if (typeof ref === 'string') return ref
+  if (ref && typeof ref === 'object' && typeof (ref as { id?: unknown }).id === 'string') return (ref as { id: string }).id
+  return null
+}
+
+function derogationResult(
+  lookup: PreparedLookup,
+  reason: OmnibusApplicabilityReason,
+  rows: { lowestRow: OmnibusHistoryRow; previousRow: OmnibusHistoryRow },
+  windowEnd: Date,
+  promotionAnchorAt: string | null,
+): OmnibusLowestPriceResult {
+  return {
+    reason,
+    presentedPriceKindId: lookup.presentedPriceKindId,
+    lowestRow: rows.lowestRow,
+    previousRow: rows.previousRow,
+    insufficientHistory: false,
+    promotionAnchorAt,
+    coverageStartAt: null,
+    windowStart: new Date(windowEnd.getTime() - lookup.lookbackDays * DAY_MS).toISOString(),
+    windowEnd: windowEnd.toISOString(),
+    lookbackDays: lookup.lookbackDays,
+    minimizationAxis: lookup.axis,
+  }
 }
 
 function toHistoryRow(entry: CatalogPriceHistoryEntry): OmnibusHistoryRow {
@@ -277,10 +399,10 @@ export function buildOmnibusBlock(
     windowStart: result.windowStart,
     windowEnd: result.windowEnd,
     coverageStartAt: result.coverageStartAt,
-    lowestPriceNet: formatFixedDecimal4(result.lowestRow.unitPriceNet),
-    lowestPriceGross: formatFixedDecimal4(result.lowestRow.unitPriceGross),
-    previousPriceNet: formatFixedDecimal4(result.previousRow?.unitPriceNet ?? null),
-    previousPriceGross: formatFixedDecimal4(result.previousRow?.unitPriceGross ?? null),
+    lowestPriceNet: formatReferenceAmount(result.lowestRow.unitPriceNet),
+    lowestPriceGross: formatReferenceAmount(result.lowestRow.unitPriceGross),
+    previousPriceNet: formatReferenceAmount(result.previousRow?.unitPriceNet ?? null),
+    previousPriceGross: formatReferenceAmount(result.previousRow?.unitPriceGross ?? null),
     currencyCode: context.currencyCode,
     applicable,
     applicabilityReason: reason,
@@ -351,8 +473,10 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       if ('reason' in gated) results[index] = gated
       else prepared.push(gated)
     })
-    await this.resolveOfferAnchors(em, prepared)
-    const windowed = prepared.map((lookup) => this.applyWindow(lookup))
+    await this.loadDerogationAttributes(em, prepared)
+    const standard = await this.resolveDerogations(em, prepared, results)
+    await this.resolveOfferAnchors(em, standard)
+    const windowed = standard.map((lookup) => this.applyWindow(lookup))
     const pending: WindowedLookup[] = []
     for (const lookup of windowed) {
       const cached = await readOmnibusCache<OmnibusLowestPriceResult>(this.cache, lookup.context.tenantId, lookup.cacheKey)
@@ -391,10 +515,10 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     return block ?? null
   }
 
-  async resolveOmnibusBlocks(em: EntityManager, requests: OmnibusResolutionRequest[]): Promise<Array<OmnibusBlock | null>> {
+  async resolveOmnibusBlocks(em: EntityManager, requests: OmnibusResolutionRequest[], config?: OmnibusScopedConfig): Promise<Array<OmnibusBlock | null>> {
     const blocks: Array<OmnibusBlock | null> = requests.map(() => null)
     if (!requests.length) return blocks
-    const configs = await this.loadConfigs(requests)
+    const configs = await this.loadConfigs(requests, config)
     const enabled: Array<{ index: number; config: OmnibusConfig }> = []
     requests.forEach((request, index) => {
       const config = configs.get(configKey(request.context)) ?? null
@@ -440,8 +564,9 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     return blocks
   }
 
-  private async loadConfigs(requests: OmnibusResolutionRequest[]): Promise<Map<string, OmnibusConfig | null>> {
+  private async loadConfigs(requests: OmnibusResolutionRequest[], config?: OmnibusScopedConfig): Promise<Map<string, OmnibusConfig | null>> {
     const configs = new Map<string, OmnibusConfig | null>()
+    if (config) configs.set(configKey(config.scope), config.value)
     for (const request of requests) {
       const key = configKey(request.context)
       if (configs.has(key)) continue
@@ -487,12 +612,171 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       presentedPriceKindId,
       scope,
       channelId,
+      channelConfig: channelConfig ?? null,
       lookbackDays,
       axis,
       offerId: context.offerId ?? presentedEntry?.offerId ?? null,
       anchor: toDate(presentedEntry?.startsAt ?? null),
       now: context.now ?? new Date(),
+      omnibusExempt: context.omnibusExempt ?? null,
+      firstListedAt: toDate(context.firstListedAt ?? null),
+      newArrival: false,
     }
+  }
+
+  private async loadDerogationAttributes(em: EntityManager, prepared: PreparedLookup[]): Promise<void> {
+    const needing = prepared.filter((lookup) => needsExemptFlag(lookup) || needsFirstListedAt(lookup))
+    if (!needing.length) return
+    const groups = new Map<string, PreparedLookup[]>()
+    for (const lookup of needing) {
+      const key = configKey(lookup.context)
+      const bucket = groups.get(key) ?? []
+      bucket.push(lookup)
+      groups.set(key, bucket)
+    }
+    for (const group of groups.values()) {
+      const scope = { tenantId: group[0].context.tenantId, organizationId: group[0].context.organizationId }
+      const variantIds = uniqueIds(group.map((lookup) => lookup.context.variantId ?? null))
+      const variants = variantIds.length
+        ? await findWithDecryption(em, CatalogProductVariant, { id: { $in: variantIds }, ...scope }, undefined, scope)
+        : []
+      const variantById = new Map(variants.map((variant) => [variant.id, variant]))
+      const offerIds = uniqueIds(
+        group
+          .filter((lookup) => !lookup.context.productId && !lookup.context.variantId)
+          .map((lookup) => lookup.context.offerId ?? null),
+      )
+      const offers = offerIds.length
+        ? await findWithDecryption(em, CatalogOffer, { id: { $in: offerIds }, ...scope }, undefined, scope)
+        : []
+      const offerById = new Map(offers.map((offer) => [offer.id, offer]))
+      const productIdOf = (lookup: PreparedLookup): string | null =>
+        lookup.context.productId ??
+        referenceId(lookup.context.variantId ? variantById.get(lookup.context.variantId)?.product : null) ??
+        referenceId(lookup.context.offerId ? offerById.get(lookup.context.offerId)?.product : null)
+      const productIds = uniqueIds(group.map(productIdOf))
+      const products = productIds.length
+        ? await findWithDecryption(em, CatalogProduct, { id: { $in: productIds }, ...scope }, undefined, scope)
+        : []
+      const productById = new Map(products.map((product) => [product.id, product]))
+      for (const lookup of group) {
+        const productId = productIdOf(lookup)
+        const product = productId ? productById.get(productId) : undefined
+        const variant = lookup.context.variantId ? variantById.get(lookup.context.variantId) : undefined
+        if (lookup.context.omnibusExempt === undefined) {
+          lookup.omnibusExempt = variant?.omnibusExempt ?? product?.omnibusExempt ?? null
+        }
+        if (lookup.context.firstListedAt === undefined) {
+          lookup.firstListedAt = toDate(product?.firstListedAt ?? null)
+        }
+      }
+    }
+  }
+
+  private async resolveDerogations(
+    em: EntityManager,
+    prepared: PreparedLookup[],
+    results: Array<OmnibusLowestPriceResult | null>,
+  ): Promise<PreparedLookup[]> {
+    const resolved = new Set<number>()
+    const progressive = prepared.filter(isProgressiveCandidate)
+    if (progressive.length) {
+      const outcomes = await this.resolveProgressive(em, progressive)
+      progressive.forEach((lookup, position) => {
+        const outcome = outcomes[position]
+        if (!outcome) return
+        results[lookup.index] = outcome
+        resolved.add(lookup.index)
+      })
+    }
+    const lastPrice: PreparedLookup[] = []
+    for (const lookup of prepared) {
+      if (resolved.has(lookup.index) || lookup.omnibusExempt !== true) continue
+      const rule = lookup.channelConfig?.perishableGoodsRule ?? 'standard'
+      if (rule === 'exempt') {
+        results[lookup.index] = earlyResult('perishable_exempt', lookup.presentedPriceKindId, lookup.lookbackDays, lookup.axis)
+        resolved.add(lookup.index)
+      } else if (rule === 'last_price') {
+        lastPrice.push(lookup)
+      }
+    }
+    if (lastPrice.length) {
+      const outcomes = await this.resolveLastPrice(em, lastPrice)
+      lastPrice.forEach((lookup, position) => {
+        const outcome = outcomes[position]
+        if (!outcome) return
+        results[lookup.index] = outcome
+        resolved.add(lookup.index)
+      })
+    }
+    return prepared.filter((lookup) => !resolved.has(lookup.index))
+  }
+
+  private async resolveProgressive(
+    em: EntityManager,
+    lookups: PreparedLookup[],
+  ): Promise<Array<OmnibusLowestPriceResult | null>> {
+    const campaignLookups: OmnibusCampaignLookup[] = lookups.map((lookup) => ({
+      tenantId: lookup.context.tenantId,
+      organizationId: lookup.context.organizationId,
+      offerId: lookup.offerId as string,
+      baselineScopeColumn: lookup.context.variantId ? 'variant_id' : 'product_id',
+      baselineScopeId: (lookup.context.variantId ?? lookup.context.productId) as string,
+      asOf: lookup.now,
+      priceKindId: lookup.presentedPriceKindId,
+      currencyCode: lookup.context.currencyCode,
+      channelId: lookup.channelId,
+    }))
+    const sets = await fetchOmnibusCampaignIds(em, campaignLookups)
+    const ids = new Set<string>()
+    for (const set of sets) {
+      if (set.baselineId) ids.add(set.baselineId)
+      for (const id of set.campaignIds) ids.add(id)
+    }
+    const rows = await this.hydrate(em, lookups.map((lookup) => lookup.context), Array.from(ids))
+    return lookups.map((lookup, position) => {
+      const set = sets[position]
+      if (set.campaignTruncated) return null
+      const frozen = evaluateProgressiveCampaign({
+        campaign: set.campaignIds.map((id) => rows.get(id)).filter(isPresent),
+        baseline: set.baselineId ? rows.get(set.baselineId) ?? null : null,
+        axis: lookup.axis,
+        maxGapDays: lookup.channelConfig?.progressiveMaxGapDays ?? OMNIBUS_DEFAULT_PROGRESSIVE_MAX_GAP_DAYS,
+      })
+      if (!frozen) return null
+      return derogationResult(lookup, 'progressive_reduction_frozen', frozen, new Date(frozen.anchorAt), frozen.anchorAt)
+    })
+  }
+
+  private async resolveLastPrice(
+    em: EntityManager,
+    lookups: PreparedLookup[],
+  ): Promise<Array<OmnibusLowestPriceResult | null>> {
+    const bounds = lookups.map((lookup) => toDate(lookup.presentedEntry?.recordedAt ?? null) ?? lookup.now)
+    const precedingLookups: OmnibusPrecedingLookup[] = lookups.map((lookup, position) => ({
+      tenantId: lookup.context.tenantId,
+      organizationId: lookup.context.organizationId,
+      scopeColumn: lookup.scope.column,
+      scopeId: lookup.scope.id,
+      priceKindId: lookup.presentedPriceKindId,
+      currencyCode: lookup.context.currencyCode,
+      channelId: lookup.channelId,
+      before: bounds[position],
+    }))
+    const idSets = await fetchOmnibusPrecedingIds(em, precedingLookups)
+    const rows = await this.hydrate(
+      em,
+      lookups.map((lookup) => lookup.context),
+      Array.from(new Set(idSets.flat())),
+    )
+    return lookups.map((lookup, position) => {
+      const preceding = selectPrecedingObservation(
+        idSets[position].map((id) => rows.get(id)).filter(isPresent),
+        lookup.presentedEntry,
+      )
+      if (!preceding || priceValue(preceding, lookup.axis) === null) return null
+      return derogationResult(lookup, 'perishable_last_price', { lowestRow: preceding, previousRow: preceding }, bounds[position], null)
+    })
   }
 
   private async resolveOfferAnchors(em: EntityManager, prepared: PreparedLookup[]): Promise<void> {
@@ -531,8 +815,19 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     }
   }
 
-  private applyWindow(lookup: PreparedLookup): WindowedLookup {
-    const windowEnd = lookup.anchor ?? lookup.now
+  private applyWindow(prepared: PreparedLookup): WindowedLookup {
+    const windowEnd = prepared.anchor ?? prepared.now
+    const reducedLookbackDays = resolveNewArrivalLookbackDays({
+      channelConfig: prepared.channelConfig,
+      firstListedAt: prepared.firstListedAt,
+      lookbackDays: prepared.lookbackDays,
+      at: windowEnd,
+    })
+    const lookup: PreparedLookup = {
+      ...prepared,
+      lookbackDays: reducedLookbackDays ?? prepared.lookbackDays,
+      newArrival: reducedLookbackDays !== null,
+    }
     const windowStart = new Date(windowEnd.getTime() - lookup.lookbackDays * DAY_MS)
     const cacheKey = buildOmnibusCacheKey('lowest', [
       lookup.context.tenantId,
@@ -547,6 +842,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       lookup.anchor ? truncToUtcDay(lookup.anchor) : 'none',
       lookup.anchor ? lookup.anchor.toISOString() : 'sliding',
       presentedIdentity(lookup.presentedEntry),
+      lookup.newArrival ? 'new_arrival' : 'standard',
     ])
     return { ...lookup, windowStart, windowEnd, cacheKey }
   }
@@ -582,7 +878,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
         axis: lookup.axis,
       })
       return {
-        reason: null,
+        reason: lookup.newArrival && selection.lowestRow ? 'new_arrival_reduced_window' : null,
         presentedPriceKindId: lookup.presentedPriceKindId,
         lowestRow: selection.lowestRow,
         previousRow: selection.previousRow,
@@ -639,4 +935,8 @@ function firstOfferCacheKey(lookup: PreparedLookup): string {
 
 function isPresent<T>(value: T | null | undefined): value is T {
   return value !== null && value !== undefined
+}
+
+function uniqueIds(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.filter(isPresent)))
 }
