@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Clock3, Search } from 'lucide-react'
-import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
@@ -14,7 +14,6 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { pluralCategory } from '../../lib/calendar/labels'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { ActivityCard } from './ActivityCard'
 import { useActivityDelete } from './hooks/useActivityDelete'
@@ -192,7 +191,6 @@ export function ActivityHistorySection({
   excludeInteractionType = 'task',
 }: ActivityHistorySectionProps) {
   const t = useT()
-  const locale = useLocale()
   const [searchInput, setSearchInput] = React.useState('')
   const [search, setSearch] = React.useState('')
   const [activeTypes, setActiveTypes] = React.useState<string[]>([])
@@ -351,12 +349,6 @@ export function ActivityHistorySection({
   const filteredLabel = activeTypes.length > 0
     ? activeTypes.map((type) => t(`customers.timeline.filter.${type}`, type)).join(', ')
     : t('customers.timeline.filter.all', 'All')
-  const historySummaryParams = { types: filteredLabel, count: activities.length }
-  const historySummary = t(
-    `customers.timeline.history.filtered.${pluralCategory(locale, activities.length)}`,
-    '',
-    historySummaryParams,
-  ) || t('customers.timeline.history.filtered', 'filtered: {{types}}, {{count}} results', historySummaryParams)
 
   const handleTypeToggle = React.useCallback((type: string) => {
     setActiveTypes((current) => (
@@ -385,7 +377,12 @@ export function ActivityHistorySection({
           <h3 className="text-base font-semibold text-foreground">
             {t('customers.activityLog.title', 'Activity history')}
           </h3>
-          <p className="text-xs text-muted-foreground">{historySummary}</p>
+          <p className="text-xs text-muted-foreground">
+            {t('customers.timeline.history.filtered', 'filtered: {{types}}, {{count}} results', {
+              types: filteredLabel,
+              count: activities.length,
+            })}
+          </p>
         </div>
       </div>
 
