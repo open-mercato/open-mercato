@@ -159,7 +159,7 @@ Events consumed by WMS (subscribers):
 | Event | Source Module | WMS Action |
 |-------|-------------|------------|
 | `sales.order.confirmed` | Sales | Create inventory reservation for order line items (`source_type = order`) |
-| `sales.order.cancelled` | Sales | Release active reservations that are still fully reserved and have no pick task. A reservation with a non-cancelled pick task or an allocated bucket follows the phase 3 order-cancel rules |
+| `sales.order.cancelled` | Sales | Release active reservations that have no non-cancelled pick task, including an allocated reservation with no pick task. A reservation with a non-cancelled pick task follows the phase 3 order-cancel rules |
 
 Undo expectations:
 - CRUD-style configuration commands are undoable by reverting fields or soft-deleting the created row.
@@ -247,6 +247,7 @@ Indexes required:
 - `source_id`: UUID
 - `expires_at`: timestamp nullable
 - `status`: `active | released | fulfilled`
+- `order_cancelled_at`: timestamp nullable. Set only by the phase 3 `sales.order.cancelled` subscriber. Public reserve, allocate, and release do not accept or clear it.
 
 Indexes required:
 - `(organization_id, source_type, source_id)`
@@ -346,7 +347,7 @@ All list routes:
 - `POST /api/wms/inventory/release`
 - Request: `{ "reservationId": "uuid", "reason": "order_cancelled" }`
 - Response: `{ "ok": true }`
-- A reservation that is still fully reserved, with no non-cancelled pick task, releases as before. When a pick task is non-cancelled or any bucket is `allocated`, the command returns `409 release_blocked_by_wave` and writes nothing. The phase 3 order-cancel subscriber handles that case.
+- A reservation with no non-cancelled pick task releases as before. `allocationState = allocated` decrements `quantity_allocated`. Every other state decrements `quantity_reserved`. A non-cancelled pick task returns `409 release_blocked_by_wave` and writes nothing. The phase 3 order-cancel subscriber handles that reservation.
 
 #### Allocate reservation
 - `POST /api/wms/inventory/allocate`
@@ -677,6 +678,9 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-11-21
+- `409 release_blocked_by_wave` is only for a reservation that has a non-cancelled pick task. Allocate then release with no pick task still decrements `quantity_allocated` and restores availability. `InventoryReservation.order_cancelled_at` is the phase 3 cancellation stamp. The order-cancel row above matches that rule.
 
 ### 2026-11-19
 - `POST /api/wms/inventory/release` returns `409 release_blocked_by_wave` when the reservation has a non-cancelled pick task or an allocated bucket. Fully reserved reservations with no pick task still release. Order cancel of in-flight phase 3 work is specified in `2026-04-15-wms-phase-3-picking-packing.md`.

@@ -181,7 +181,7 @@ Task events:
 | `wms.packing.created` | packing_task_id, pick_wave_id, sales_order_id | 3 |
 | `wms.packing.completed` | packing_task_id, sales_order_id, lines | 3 |
 | `wms.packing.shipped` | packing_task_id, sales_shipment_id, movement_ids | 3 |
-| `wms.packing.label_requested` | packing_task_id, sales_order_id, sales_shipment_id | 3 |
+| `wms.packing.label_requested` | packing_task_id, label_request_id, sales_order_id, sales_shipment_id | 3 |
 
 Yard events:
 
@@ -213,7 +213,7 @@ Returns events:
 | Event | Source Module | WMS Action | Phase |
 |-------|-------------|------------|-------|
 | `sales.order.confirmed` | Sales | Create inventory reservation for order items | 1 |
-| `sales.order.cancelled` | Sales | Release all active reservations linked to the order | 1 |
+| `sales.order.cancelled` | Sales | Release reservations with no non-cancelled pick task, including an allocated reservation with no pick task. A reservation with a non-cancelled pick task follows the phase 3 order-cancel rules | 1 |
 | `procurement.goods_receipt.created` | Procurement | Create ASN or trigger receiving workflow | 2 |
 | `freight.shipment.eta_updated` | Freight | Update yard appointment expected arrival | 4 |
 | `billing.invoice.created` | Billing | Mark detention charge as invoiced | 4 |
@@ -591,6 +591,10 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-11-21 (rev 13)
+- `sales.order.cancelled` releases reservations that have no non-cancelled pick task. A reservation with a non-cancelled pick task follows the phase 3 order-cancel rules.
+- `wms.packing.label_requested` carries `label_request_id`.
 
 ### 2026-11-18 (rev 12)
 - Added `wms.pick_task.started` and `wms.pick_task.cancelled` to the phase 3 task events. The phase 3 spec emits both.
