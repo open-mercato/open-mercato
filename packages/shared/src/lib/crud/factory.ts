@@ -133,12 +133,20 @@ function translateFiltersForOrm(
       }
     }
     if (columnToProperty.size === 0) return filters
-    const translated: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(filters)) {
-      const mappedKey = columnToProperty.get(key) ?? key
-      translated[mappedKey] = value
+    const translateNode = (node: unknown): unknown => {
+      if (node === null || typeof node !== 'object' || Array.isArray(node)) return node
+      return translateWhere(node as Record<string, unknown>)
     }
-    return translated
+    const translateWhere = (where: Record<string, unknown>): Record<string, unknown> =>
+      Object.fromEntries(Object.entries(where).map(([key, value]) => {
+        if ((key === '$and' || key === '$or') && Array.isArray(value)) {
+          return [key, value.map(translateNode)]
+        }
+        if (key === '$not') return [key, translateNode(value)]
+        return [columnToProperty.get(key) ?? key, value]
+      }))
+
+    return translateWhere(filters)
   } catch {
     return filters
   }
@@ -1087,6 +1095,9 @@ function buildCrudCacheKey(
     `query:${serializeSearchParams(url.searchParams)}`,
     `deletedPolicy:${allowWithDeleted ? 'allowed' : 'hidden'}`,
   ]
+  if (Array.from(url.searchParams.keys()).some((key) => key.startsWith('filter['))) {
+    segments.push('advancedFilters:intersection-v1')
+  }
   // The cached list payload already embeds enricher output (enrichment runs before
   // the cache store), so the cache key MUST partition by the set of enrichers a
   // request's entitlements actually select. Two callers in the same tenant/org

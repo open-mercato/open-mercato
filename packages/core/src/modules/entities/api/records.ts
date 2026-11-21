@@ -90,7 +90,7 @@ const listRecordsQuerySchema = z
     sortDir: z.enum(['asc', 'desc']).optional(),
     search: z.string().optional(),
     searchFields: z.string().optional(),
-    withDeleted: z.coerce.boolean().optional(),
+    withDeleted: z.coerce.boolean().optional().describe('Legacy parameter. Deleted records are excluded from lists and exports.'),
     format: z.enum(['csv', 'json', 'xml', 'markdown']).optional(),
     exportScope: z.enum(['full']).optional(),
     export_scope: z.enum(['full']).optional(),
@@ -639,7 +639,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List records',
       description:
-        'Returns paginated records for the supplied entity. Supports custom field filters, exports, and soft-delete toggles.',
+        'Returns paginated, non-deleted records for the supplied entity. Supports custom field filters and exports.',
       query: listRecordsQuerySchema,
       responses: [
         {
