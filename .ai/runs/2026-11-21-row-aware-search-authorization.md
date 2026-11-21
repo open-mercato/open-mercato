@@ -37,8 +37,8 @@ Re-enable `messages:message`, `sales:sales_note`, and `sales:sales_document_addr
 
 ### Phase 2: Row-Aware Visibility Filter for `messages:message`
 
-- [ ] 2.1 Implement and wire `filterVisibleMessages` in `messages/search.ts`
-- [ ] 2.2 Add comprehensive `messages/search.ts` visibility unit tests
+- [x] 2.1 Implement and wire `filterVisibleMessages` in `messages/search.ts` — eca9eb28a6
+- [x] 2.2 Add comprehensive `messages/search.ts` visibility unit tests — eca9eb28a6
 
 ### Phase 3: Row-Aware Visibility Filters for `sales:sales_note` and `sales:sales_document_address`
 
