@@ -452,6 +452,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, CurrencyCommand
   id: 'currencies.currencies.update',
   async prepare(input, ctx) {
     requireId(input.id, 'Currency ID is required')
+    currencyUpdateSchema.shape.id.parse(input.id)
     const em = ctx.container.resolve('em') as EntityManager
     const before = await loadCurrencySnapshot(em, input.id, ctx)
     return { before }
@@ -636,6 +637,7 @@ const deleteCurrencyCommand: CommandHandler<CurrencyDeleteInput, { currencyId: s
   id: 'currencies.currencies.delete',
   async prepare(input, ctx) {
     requireId(input.id, 'Currency ID is required')
+    currencyDeleteSchema.shape.id.parse(input.id)
     const em = ctx.container.resolve('em') as EntityManager
     const before = await loadCurrencySnapshot(em, input.id, ctx)
     return { before }
