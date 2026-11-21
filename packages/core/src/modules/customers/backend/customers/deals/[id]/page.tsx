@@ -60,6 +60,17 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const { payload, isReady: isChromeReady } = useBackendChrome()
   const canViewActivities = hasFeature(payload?.grantedFeatures, 'customers.interactions.view')
   const canManageActivities = hasFeature(payload?.grantedFeatures, 'customers.interactions.manage')
+  const canViewNotes = hasFeature(payload?.grantedFeatures, 'customers.activities.view')
+  const canManageNotes = hasFeature(payload?.grantedFeatures, 'customers.activities.manage')
+  const canViewFiles = hasFeature(payload?.grantedFeatures, 'attachments.view')
+  const canManageFiles = hasFeature(payload?.grantedFeatures, 'attachments.manage')
+  const canViewChangelog = hasFeature(payload?.grantedFeatures, 'audit_logs.view_self')
+  const hiddenTabIds = isChromeReady ? [
+    ...(!canViewActivities ? ['activities'] : []),
+    ...(!canViewNotes ? ['notes'] : []),
+    ...(!canViewFiles ? ['files'] : []),
+    ...(!canViewChangelog ? ['changelog'] : []),
+  ] : undefined
   const canManageDeal = hasFeature(payload?.grantedFeatures, 'customers.deals.manage')
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -598,7 +609,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           )
         }
 
-        if (activeTab === 'notes') {
+        if (activeTab === 'notes' && canViewNotes) {
           return (
             <NotesSection
               entityId={null}
@@ -615,6 +626,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                 actionLabel: t('customers.deals.detail.notesEmptyAction', 'Add a note'),
               }}
               translator={detailTranslator}
+              readOnly={!canManageNotes}
               dataAdapter={notesAdapter}
               renderIcon={renderDictionaryIcon}
               renderColor={renderDictionaryColor}
@@ -625,17 +637,18 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           )
         }
 
-        if (activeTab === 'files') {
+        if (activeTab === 'files' && canViewFiles) {
           return (
             <AttachmentsSection
               entityId={E.customers.customer_deal}
               recordId={data.deal.id}
+              readOnly={!canManageFiles}
               title={t('customers.deals.detail.tabs.files', 'Files')}
             />
           )
         }
 
-        if (activeTab === 'changelog') {
+        if (activeTab === 'changelog' && canViewChangelog) {
           return <ChangelogTab entityId={data.deal.id} entityType="deal" />
         }
 
@@ -697,7 +710,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           <DealDetailTabs
             isLoadingInjectedTabs={injectedTabsLoading}
             activeTab={activeTab}
-            hiddenTabIds={isChromeReady && !canViewActivities ? ['activities'] : undefined}
+            hiddenTabIds={hiddenTabIds}
             onTabChange={handleTabChange}
             injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, priority: tab.priority }))}
             peopleCount={data.counts.people}

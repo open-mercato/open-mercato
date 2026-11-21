@@ -87,19 +87,21 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
     recordId,
     title,
     description,
+    readOnly,
   }: {
     entityId: string
     recordId: string | null
     title?: string
     description?: string
+    readOnly?: boolean
   }) => (
-    <div data-testid="attachments-section">
+    <div data-testid="attachments-section" data-read-only={readOnly}>
       {entityId}:{recordId}:{title}:{description}
     </div>
   ),
   ErrorMessage: ({ label }: { label: string }) => <div>{label}</div>,
   LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
-  NotesSection: () => <div>notes</div>,
+  NotesSection: ({ readOnly }: { readOnly?: boolean }) => <div data-testid="notes-section" data-read-only={readOnly}>notes</div>,
 }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
@@ -562,6 +564,7 @@ describe('DealDetailPage', () => {
 
   it('renders the attachments section on the files tab', async () => {
     activeTabParam = 'files'
+    grantedFeatures.push('attachments.view', 'attachments.manage')
 
     renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
 
@@ -570,6 +573,34 @@ describe('DealDetailPage', () => {
         'customer_deal:deal-1:Files:',
       )
     })
+  })
+
+  it('renders notes in read-only mode with notes view access', async () => {
+    activeTabParam = 'notes'
+    grantedFeatures = ['customers.deals.view', 'customers.activities.view']
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    expect(await screen.findByTestId('notes-section')).toHaveAttribute('data-read-only', 'true')
+  })
+
+  it('renders attachments in read-only mode with attachment view access', async () => {
+    activeTabParam = 'files'
+    grantedFeatures = ['customers.deals.view', 'attachments.view']
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    expect(await screen.findByTestId('attachments-section')).toHaveAttribute('data-read-only', 'true')
+  })
+
+  it('does not mount attachments from a direct tab URL without attachment view access', async () => {
+    activeTabParam = 'files'
+    grantedFeatures = ['customers.deals.view']
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    expect(await screen.findByText('The renewal includes an expanded rollout.')).toBeVisible()
+    expect(screen.queryByTestId('attachments-section')).not.toBeInTheDocument()
   })
 
   it('requires view access for the detail page', () => {
