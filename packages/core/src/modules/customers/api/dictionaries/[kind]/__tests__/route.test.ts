@@ -1,8 +1,10 @@
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
+const userId = '33333333-3333-4333-8333-333333333333'
 const ancestorId = '99999999-9999-9999-9999-999999999999'
 const siblingId = '88888888-8888-4888-8888-888888888888'
 const resolveAncestorIdsMock = jest.fn(async () => [ancestorId])
+const userHasAllFeaturesMock = jest.fn(async () => true)
 
 const em = {
   find: jest.fn(),
@@ -12,21 +14,33 @@ const em = {
   flush: jest.fn(),
 }
 
-jest.mock('../../context', () => ({
-  mapDictionaryKind: jest.fn((kind?: string) => ({
-    kind,
-    mappedKind: kind === 'statuses' ? 'status' : kind === 'pipeline-stages' ? 'pipeline_stage' : kind,
-  })),
-  resolveDictionaryRouteContext: jest.fn(async () => ({
-    translate: (_key: string, fallback?: string) => fallback ?? 'error',
-    em,
-    organizationId,
-    tenantId,
-    readableOrganizationIds: [organizationId, ancestorId, siblingId],
-    cache: undefined,
-    container: { resolve: (key: string) => key === 'organizationHierarchyService' ? { resolveAncestorIds: resolveAncestorIdsMock } : undefined },
-  })),
-}))
+const defaultContainer = {
+  resolve: (key: string) => {
+    if (key === 'organizationHierarchyService') return { resolveAncestorIds: resolveAncestorIdsMock }
+    if (key === 'rbacService') return { userHasAllFeatures: userHasAllFeaturesMock }
+    return undefined
+  },
+}
+
+const defaultAuth = { sub: userId, tenantId, orgId: organizationId }
+
+jest.mock('../../context', () => {
+  const actual = jest.requireActual('../../context')
+  return {
+    ...actual,
+    mapDictionaryKind: jest.fn((kind?: string) => actual.mapDictionaryKind(kind)),
+    resolveDictionaryRouteContext: jest.fn(async () => ({
+      auth: defaultAuth,
+      translate: (_key: string, fallback?: string) => fallback ?? 'error',
+      em,
+      organizationId,
+      tenantId,
+      readableOrganizationIds: [organizationId, ancestorId, siblingId],
+      cache: undefined,
+      container: defaultContainer,
+    })),
+  }
+})
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   loadDictionary: jest.fn(async (locale: string) => require(`../../../../i18n/${locale}.json`)),
@@ -49,13 +63,15 @@ jest.mock('../../../../commands/settings', () => ({
   loadCustomerSettings: jest.fn(async () => null),
 }))
 
-import { GET } from '../route'
-import { mapDictionaryKind, resolveDictionaryRouteContext } from '../../context'
+import { GET, metadata } from '../route'
+import { CUSTOMER_DICTIONARY_READ_FEATURES, mapDictionaryKind, resolveDictionaryRouteContext } from '../../context'
 import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../../lib/dictionaries'
 
 describe('customer dictionary route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    em.find.mockReset()
+    userHasAllFeaturesMock.mockResolvedValue(true)
   })
 
   it('returns local dictionary entries first while preserving inherited entries that are not overridden', async () => {
@@ -205,12 +221,14 @@ describe('customer dictionary route', () => {
 
   it('returns a stable error code when organization context is unavailable', async () => {
     jest.mocked(resolveDictionaryRouteContext).mockResolvedValueOnce({
+      auth: defaultAuth,
       translate: (_key: string, fallback?: string) => fallback ?? 'error',
       em,
       organizationId: null,
       tenantId,
       readableOrganizationIds: [],
       cache: undefined,
+      container: defaultContainer,
     } as never)
 
     const response = await GET(
@@ -254,6 +272,96 @@ describe('customer dictionary route', () => {
     expect(em.persist).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
   })
+
+  it('requires only authentication in GET metadata while keeping settings.manage on POST', () => {
+    expect(metadata.GET).toEqual({ requireAuth: true })
+    expect(metadata.POST).toEqual({ requireAuth: true, requireFeatures: ['customers.settings.manage'] })
+  })
+
+  it.each([
+    ['customers.deals.view', 'deal-statuses'],
+    ['customers.deals.view', 'pipeline-stages'],
+    ['customers.companies.view', 'statuses'],
+    ['customers.companies.view', 'industries'],
+    ['customers.people.view', 'statuses'],
+    ['customers.settings.manage', 'deal-statuses'],
+    ['customers.pipelines.view', 'pipeline-stages'],
+    ['customers.activities.view', 'activity-types'],
+    ['customers.interactions.view', 'interaction-statuses'],
+    ['customers.roles.view', 'person-company-roles'],
+  ])('allows %s to read %s dictionary entries', async (grantedFeature, kind) => {
+    userHasAllFeaturesMock.mockImplementation(async (_actor: string, required: string[]) => required[0] === grantedFeature)
+    em.find.mockResolvedValueOnce([])
+
+    const response = await GET(
+      new Request(`http://localhost/api/customers/dictionaries/${kind}`),
+      { params: { kind } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(userId, [grantedFeature], { tenantId, organizationId })
+  })
+
+  it('denies callers without any matching dictionary read feature before querying the database', async () => {
+    userHasAllFeaturesMock.mockResolvedValue(false)
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/deal-statuses'),
+      { params: { kind: 'deal-statuses' } },
+    )
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Forbidden',
+      requiredFeatures: [...CUSTOMER_DICTIONARY_READ_FEATURES],
+    })
+    expect(em.find).not.toHaveBeenCalled()
+  })
+
+  it('denies kind-specific features on unrelated dictionary kinds', async () => {
+    userHasAllFeaturesMock.mockImplementation(async (_actor: string, required: string[]) => required[0] === 'customers.pipelines.view')
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/statuses'),
+      { params: { kind: 'statuses' } },
+    )
+
+    expect(response.status).toBe(403)
+    expect(em.find).not.toHaveBeenCalled()
+  })
+
+  it('fails closed with 403 before validating invalid kinds for unauthorized callers', async () => {
+    userHasAllFeaturesMock.mockResolvedValue(false)
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/INVALID_KIND'),
+      { params: { kind: 'INVALID_KIND' } },
+    )
+
+    expect(response.status).toBe(403)
+    expect(em.find).not.toHaveBeenCalled()
+  })
+
+  it('fails closed with 403 when rbacService or actor subject is missing', async () => {
+    jest.mocked(resolveDictionaryRouteContext).mockResolvedValueOnce({
+      auth: { tenantId, orgId: organizationId },
+      translate: (_key: string, fallback?: string) => fallback ?? 'error',
+      em,
+      organizationId,
+      tenantId,
+      readableOrganizationIds: [organizationId],
+      cache: undefined,
+      container: { resolve: () => undefined },
+    } as never)
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/deal-statuses'),
+      { params: { kind: 'deal-statuses' } },
+    )
+
+    expect(response.status).toBe(403)
+    expect(em.find).not.toHaveBeenCalled()
+  })
 })
 
 
@@ -265,6 +373,7 @@ describe('localized customer dictionary reads', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    userHasAllFeaturesMock.mockResolvedValue(true)
     em.find.mockReset()
     mockOverlay.mockImplementation(async (items) => items)
   })
@@ -286,8 +395,9 @@ describe('localized customer dictionary reads', () => {
       set: jest.fn(async (key: string, payload: unknown) => { stored.set(key, payload) }),
     }
     jest.mocked(resolveDictionaryRouteContext).mockResolvedValue({
+      auth: defaultAuth,
       translate: (key: string, fallback?: string) => fallback ?? key,
-      em, tenantId, organizationId, readableOrganizationIds: [organizationId], cache,
+      em, tenantId, organizationId, readableOrganizationIds: [organizationId], cache, container: defaultContainer,
     } as never)
     em.find.mockResolvedValue(entries)
     const req = new Request('http://localhost/api/customers/dictionaries/statuses?locale=pl')
@@ -318,14 +428,16 @@ describe('base customer dictionary labels for management screens', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    userHasAllFeaturesMock.mockResolvedValue(true)
     em.find.mockReset()
     mockOverlay.mockImplementation(async (items) => items.map((item) => ({ ...item, label: `Przetłumaczone ${item.label}` })))
   })
 
   it('returns stored labels under a non-English locale without applying seeded or explicit translations', async () => {
     jest.mocked(resolveDictionaryRouteContext).mockResolvedValue({
+      auth: defaultAuth,
       translate: (key: string, fallback?: string) => fallback ?? key,
-      em, tenantId, organizationId, readableOrganizationIds: [organizationId], cache: undefined,
+      em, tenantId, organizationId, readableOrganizationIds: [organizationId], cache: undefined, container: defaultContainer,
     } as never)
     em.find.mockResolvedValueOnce(entries)
 
@@ -349,8 +461,9 @@ describe('base customer dictionary labels for management screens', () => {
       set: jest.fn(async (key: string, payload: unknown) => { stored.set(key, payload) }),
     }
     jest.mocked(resolveDictionaryRouteContext).mockResolvedValue({
+      auth: defaultAuth,
       translate: (key: string, fallback?: string) => fallback ?? key,
-      em, tenantId, organizationId, readableOrganizationIds: [organizationId], cache,
+      em, tenantId, organizationId, readableOrganizationIds: [organizationId], cache, container: defaultContainer,
     } as never)
     em.find.mockResolvedValue(entries)
 

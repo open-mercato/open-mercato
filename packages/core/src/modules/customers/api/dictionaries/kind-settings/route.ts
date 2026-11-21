@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { TableNotFoundException } from '@mikro-orm/core'
 import { CustomerDictionaryKindSetting } from '../../../data/entities'
-import { resolveDictionaryRouteContext } from '../context'
+import { assertCustomerDictionaryReadAccess, resolveDictionaryRouteContext } from '../context'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -25,7 +25,7 @@ import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/com
 const logger = createLogger('customers')
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
+  GET: { requireAuth: true },
   PATCH: { requireAuth: true, requireFeatures: ['customers.settings.manage'] },
 }
 
@@ -56,6 +56,13 @@ export async function GET(req: Request) {
     })
     const context = await resolveDictionaryRouteContext(req, {
       selectedId: query.organizationId ?? undefined,
+    })
+    await assertCustomerDictionaryReadAccess({
+      container: context.container,
+      auth: context.auth,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      translate: context.translate,
     })
     const em = context.em
 
@@ -228,6 +235,7 @@ export const openApi: OpenApiRouteDoc = {
       ],
       errors: [
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Forbidden', schema: errorSchema },
       ],
     },
     PATCH: {
