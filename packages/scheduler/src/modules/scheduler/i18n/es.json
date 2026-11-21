@@ -37,6 +37,7 @@
   "scheduler.error.fetch_job_failed": "No se pudieron obtener los detalles del trabajo",
   "scheduler.error.forbidden": "Prohibido",
   "scheduler.error.invalidPayload": "Carga JSON no válida",
+  "scheduler.error.invalid_id": "ID de programación no válido",
   "scheduler.error.invalid_queue_name": "Nombre de cola inválido",
   "scheduler.error.invalid_schedule_value": "Valor de programación no válido.",
   "scheduler.error.job_not_found": "Trabajo no encontrado en BullMQ (puede haber sido eliminado)",
