@@ -1,7 +1,16 @@
 import { enrichers } from '../enrichers'
 import { CommunicationChannel, ExternalConversation, MessageChannelLink } from '../entities'
 import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+import {
+  DummyDriver,
+  Kysely,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler,
+  type CompiledQuery,
+} from 'kysely'
 import { applyMessageParticipantScope } from '../../../messages/lib/participantScope'
+import { buildChannelInboxPredicate } from '../../lib/channel-inbox-predicate'
 
 const findEnricher = (id: string): ResponseEnricher => {
   const e = enrichers.find((x) => x.id === id)
@@ -363,6 +372,74 @@ describe('message-channel enricher — participant scope agrees with the list ro
         ['r.message_id', 'is not', null],
       ],
     })
+  })
+})
+
+describe('message-channel enricher — channel-inbox widening follows the list route (#6106)', () => {
+  function run(options: { granted: boolean; hub?: boolean }) {
+    const recorded: CompiledQuery[] = []
+    const db = new Kysely<any>({
+      dialect: {
+        createAdapter: () => new PostgresAdapter(),
+        createDriver: () => new DummyDriver(),
+        createQueryCompiler: () => new PostgresQueryCompiler(),
+        createIntrospector: (instance: Kysely<any>) => new PostgresIntrospector(instance),
+      },
+    })
+    ;(db.getExecutor() as any).executeQuery = async (query: CompiledQuery) => {
+      recorded.push(query)
+      return { rows: [] }
+    }
+    const rbac = { userHasAllFeatures: jest.fn(async () => options.granted) }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'rbacService') return rbac
+        if (name === 'communicationChannelsBuildChannelInboxPredicate') {
+          if (options.hub === false) throw new Error('not registered')
+          return buildChannelInboxPredicate
+        }
+        return null
+      },
+    }
+    const enricher = findEnricher('communication_channels.message-channel')
+    return enricher
+      .enrichMany!([{ id: 'm1' }] as any, {
+        organizationId: 'org',
+        tenantId: 'tenant',
+        userId: 'user-1',
+        em: { find: jest.fn(async () => []), getKysely: () => db },
+        container,
+      } as any)
+      .then(() => ({ recorded, rbac }))
+  }
+
+  it('gates channel data on the same channel-inbox predicate the list applies', async () => {
+    const { recorded, rbac } = await run({ granted: true })
+
+    const text = recorded[0]!.sql.replace(/\s+/g, ' ')
+    expect(rbac.userHasAllFeatures).toHaveBeenCalledWith('user-1', ['messages.view'], {
+      tenantId: 'tenant',
+      organizationId: 'org',
+    })
+    expect(text).toContain('"mcl"."direction" = $')
+    expect(text).toContain('"ctm"."assigned_user_id" is null')
+    expect(text).toMatch(/not exists \(select 1 as "one" from "message_recipients" as "rx"/)
+    expect(recorded[0]!.parameters).toEqual(
+      expect.arrayContaining(['public', 'communication_channels.external_conversation', 'inbound']),
+    )
+  })
+
+  it('stays participant-only for a caller without messages.view', async () => {
+    const { recorded } = await run({ granted: false })
+
+    expect(recorded[0]!.sql).not.toContain('message_channel_links')
+    expect(recorded[0]!.sql).not.toContain('channel_thread_mappings')
+  })
+
+  it('stays participant-only when the predicate is not registered', async () => {
+    const { recorded } = await run({ granted: true, hub: false })
+
+    expect(recorded[0]!.sql).not.toContain('channel_thread_mappings')
   })
 })
 

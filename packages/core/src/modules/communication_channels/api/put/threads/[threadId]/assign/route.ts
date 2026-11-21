@@ -11,6 +11,11 @@ import {
   resolveThreadNotFoundMessage,
 } from '../../../../../commands/reassign-conversation'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'thread-assign-route' })
 
 export const metadata = {
   path: '/communication_channels/threads/[threadId]/assign',
@@ -103,6 +108,30 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
     )
   }
   await guard.afterSuccess()
+  // The messages Inbox/All list widens to unassigned conversations (#6106), so a
+  // reassignment changes who lists the conversation. Its per-user list cache is
+  // tagged on the messages collection; flush it for the tenant/org so the new
+  // owner and the operators who lose it see the change immediately.
+  try {
+    await invalidateCrudCache(
+      container,
+      'messages.message',
+      { tenantId: auth.tenantId, organizationId: (auth as { orgId?: string | null }).orgId ?? null },
+      auth.tenantId,
+      'communication_channels.conversation.reassigned',
+    )
+  } catch (err) {
+    logger.warn('messages list cache invalidation failed after reassignment', { err, threadId })
+    try {
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'communication_channels',
+        code: 'communication_channels.reassign_inbox_cache_invalidate_failed',
+        attributes: { threadId, tenantId: auth.tenantId },
+      })
+    } catch (reportErr) {
+      logger.warn('reassign cache invalidation failure could not be reported', { err: reportErr })
+    }
+  }
   return NextResponse.json(
     {
       threadId: result.threadId,
