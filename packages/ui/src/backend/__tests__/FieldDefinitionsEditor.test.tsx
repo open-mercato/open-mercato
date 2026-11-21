@@ -95,4 +95,48 @@ describe('FieldDefinitionsEditor', () => {
       consoleErrorSpy.mockRestore()
     }
   })
+  it('does not submit an enclosing form when a rule is added', () => {
+    const handleSubmit = jest.fn((event: { preventDefault: () => void }) => event.preventDefault())
+    const handleDefinitionChange = jest.fn()
+
+    const definitions: FieldDefinition[] = [
+      {
+        key: 'nickname',
+        kind: 'text',
+        configJson: { label: 'Nickname' },
+        isActive: true,
+      },
+    ]
+
+    renderWithProviders(
+      <form onSubmit={handleSubmit}>
+        <FieldDefinitionsEditor
+          definitions={definitions}
+          onAddField={() => undefined}
+          onRemoveField={() => undefined}
+          onDefinitionChange={handleDefinitionChange}
+        />
+      </form>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add rule' }))
+
+    expect(handleSubmit).not.toHaveBeenCalled()
+    expect(handleDefinitionChange).toHaveBeenCalledWith(0, expect.objectContaining({
+      key: 'nickname',
+      configJson: expect.objectContaining({
+        validation: [expect.objectContaining({ rule: 'required' })],
+      }),
+    }))
+  })
+
+  it('declares every editor action button as type="button" so it never submits a host form', () => {
+    const source = readEditorSource()
+    const buttonOpenings = source.match(/<Button\b[^>]*>/g) ?? []
+
+    expect(buttonOpenings.length).toBeGreaterThan(0)
+    for (const opening of buttonOpenings) {
+      expect(opening).toMatch(/\btype="button"/)
+    }
+  })
 })
