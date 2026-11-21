@@ -8,12 +8,18 @@ on:
         required: true
         type: string
         default: main
+      delete_after_idle:
+        description: "Delete after idle time (e.g. 24h); blank disables. Requires an idle-deletion CLI release."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 env:
   MERCATO_CLI_VERSION: "0.1.3"
+  # Select the released CLI with --delete-after-idle support before using that input.
 
 jobs:
   deploy:
@@ -27,6 +33,7 @@ jobs:
     env:
       MERCATO_API_TOKEN: ${{ secrets.MERCATO_API_TOKEN }}
       BRANCH: ${{ inputs.branch }}
+      DELETE_AFTER_IDLE: ${{ inputs.delete_after_idle }}
     defaults:
       run:
         shell: bash
@@ -63,9 +70,15 @@ jobs:
           random_suffix=$(openssl rand -hex 3)
           sandbox_name="${branch_slug:0:247}-${random_suffix:0:5}"
 
+          idle_args=()
+          if [[ -n "$DELETE_AFTER_IDLE" ]]; then
+            idle_args=(--delete-after-idle "$DELETE_AFTER_IDLE")
+          fi
+
           sandbox=$(mercato sandbox create \
             --name "$sandbox_name" \
             --template custom-workspace-template-default \
+            "${idle_args[@]}" \
             --json)
           sandbox_id=$(jq -er '.id | select(type == "string" and length > 0)' <<< "$sandbox")
 
