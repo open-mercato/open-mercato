@@ -1090,6 +1090,9 @@ function buildCrudCacheKey(
     `user:${normalizeTagSegment((ctx.auth?.keyId ?? ctx.auth?.sub) ?? null)}`,
     `query:${serializeSearchParams(url.searchParams)}`,
   ]
+  if (Array.from(url.searchParams.keys()).some((key) => key.startsWith('filter['))) {
+    segments.push('advancedFilters:intersection-v1')
+  }
   // The cached list payload already embeds enricher output (enrichment runs before
   // the cache store), so the cache key MUST partition by the set of enrichers a
   // request's entitlements actually select. Two callers in the same tenant/org
