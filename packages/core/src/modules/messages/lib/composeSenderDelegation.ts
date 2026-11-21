@@ -1,3 +1,4 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { renderMarkdownEmailBody } from './markdownEmailBody'
 
@@ -32,6 +33,12 @@ type SendAsUserResult =
   | { ok: true; messageId: string; threadId: string; channelId: string; providerKey: string }
   | { ok: false; status: number; error: string; fieldErrors?: Record<string, string>; headers?: Record<string, string> }
 
+type DraftDelivery = {
+  em: EntityManager
+  messageId: string
+  threadId: string
+}
+
 type SendAsUserService = (
   container: ContainerLike,
   actor: { userId: string; tenantId: string; organizationId: string | null; auth?: unknown },
@@ -43,6 +50,7 @@ type SendAsUserService = (
     parentMessageId?: string
     channelMetadata?: Record<string, unknown>
   },
+  draft?: DraftDelivery,
 ) => Promise<SendAsUserResult>
 
 /** The composer field the selector renders, so a failure lands on that control. */
@@ -107,6 +115,7 @@ export async function delegateComposeToSender(
   container: ContainerLike,
   actor: ComposeSenderActor,
   input: ComposeSenderRequest,
+  draft?: DraftDelivery,
 ): Promise<ComposeSenderResult> {
   const senderChannelId = input.senderChannelId as string
   const { t } = await resolveTranslations()
@@ -153,22 +162,16 @@ export async function delegateComposeToSender(
     )
   }
 
-  const result = await sendAsUser(
-    container,
-    {
-      userId: actor.userId,
-      tenantId: actor.tenantId,
-      organizationId: actor.organizationId,
-      auth: actor.auth,
-    },
-    {
-      userChannelId: senderChannelId,
-      to: [input.externalEmail],
-      subject: input.subject ?? '',
-      body: await buildSenderBody(input.body ?? '', input.bodyFormat),
-      parentMessageId: input.parentMessageId,
-    },
-  )
+  const sendInput = {
+    userChannelId: senderChannelId,
+    to: [input.externalEmail],
+    subject: input.subject ?? '',
+    body: await buildSenderBody(input.body ?? '', input.bodyFormat),
+    parentMessageId: input.parentMessageId,
+  }
+  const result = draft
+    ? await sendAsUser(container, actor, sendInput, draft)
+    : await sendAsUser(container, actor, sendInput)
 
   if (result.ok) {
     return { ok: true, messageId: result.messageId, threadId: result.threadId }

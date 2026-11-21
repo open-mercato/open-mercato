@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import {
   createRoleFixture,
@@ -7,7 +8,9 @@ import {
   getAuthToken,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
-import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { login } from '@open-mercato/core/helpers/integration/auth'
+import { deleteEntityByPathIfExists, expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import {
   deleteChannelIfExists,
   inspectMessageChannelLinks,
@@ -27,6 +30,85 @@ import {
  * fixture, so the suite skips when `OM_ENABLE_TEST_CHANNEL_SEEDING` is off.
  */
 test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () => {
+  test('sends a resumed draft through the selected mailbox and keeps its message ID', async ({ page, request }) => {
+    test.slow()
+    const stamp = randomUUID()
+    const subject = `Resumed mailbox draft ${stamp}`
+    const mailbox = `Draft mailbox ${stamp}`
+    let token: string | null = null
+    let channelId: string | null = null
+    let draftPath: string | null = null
+
+    try {
+      token = await getAuthToken(request)
+      test.skip(!await isChannelSeedingAvailable(request, token), 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
+      channelId = await seedConnectedChannel(request, token, {
+        displayName: mailbox,
+        externalIdentifier: `draft-mailbox-${stamp}@example.com`,
+      })
+
+      const draft = await apiRequest(request, 'POST', '/api/messages', {
+        token,
+        data: {
+          type: 'default',
+          isDraft: true,
+          visibility: 'public',
+          externalEmail: `draft-recipient-${stamp}@example.com`,
+          subject,
+          body: 'Saved first and sent when reopened.',
+          bodyFormat: 'text',
+        },
+      })
+      expect(draft.status()).toBe(201)
+      const draftId = expectId((await readJsonSafe<{ id: string }>(draft))?.id, 'The draft has its own ID')
+      draftPath = `/api/messages/${draftId}`
+
+      const rejected = await apiRequest(request, 'PATCH', draftPath, {
+        token,
+        data: { isDraft: false, senderChannelId: randomUUID() },
+      })
+      expect(rejected.status()).toBe(404)
+      expect((await readJsonSafe<{ fieldErrors: Record<string, string> }>(rejected))?.fieldErrors.senderChannelId).toBeTruthy()
+      const before = await apiRequest(request, 'GET', draftPath, { token })
+      expect(await readJsonSafe(before)).toMatchObject({ isDraft: true, subject })
+      expect((await inspectMessageChannelLinks(request, token, draftId)).links).toEqual([])
+
+      await login(page, 'admin')
+      await page.goto(`/backend/messages/${draftId}`)
+      await page.getByRole('button', { name: 'Actions', exact: true }).hover()
+      await page.getByRole('menuitem', { name: 'Edit', exact: true }).click()
+      const composer = page.getByRole('dialog')
+      await composer.getByLabel('Send from', { exact: true }).click()
+      await page.getByRole('option', { name: new RegExp(mailbox) }).click()
+      const sentResponse = page.waitForResponse((response) => (
+        response.request().method() === 'PATCH' && new URL(response.url()).pathname === draftPath
+      ))
+      await composer.getByRole('button', { name: 'Send', exact: true }).click()
+      const sent = await sentResponse
+      expect(sent.status()).toBe(200)
+      expect(await sent.json()).toMatchObject({ ok: true, id: draftId })
+      await expect(composer).toBeHidden()
+
+      const detail = await apiRequest(request, 'GET', draftPath, { token })
+      expect(await readJsonSafe(detail)).toMatchObject({ isDraft: false, threadId: draftId, subject })
+      const drafts = await apiRequest(request, 'GET', `/api/messages?folder=drafts&search=${encodeURIComponent(subject)}`, { token })
+      expect(await readJsonSafe(drafts)).toMatchObject({ items: [] })
+      const replay = await apiRequest(request, 'PATCH', draftPath, { token, data: { isDraft: false, senderChannelId: channelId } })
+      expect(replay.status()).toBe(409)
+
+      await drainIntegrationQueue('communication-channels-outbound')
+      const { links, threadMappings } = await inspectMessageChannelLinks(request, token, draftId)
+      expect(links).toHaveLength(1)
+      expect(links[0]).toMatchObject({ direction: 'outbound', deliveryStatus: 'sent', channelType: 'email' })
+      expect(threadMappings).toEqual([
+        expect.objectContaining({ channelId, messageThreadId: draftId, externalConversationId: links[0].externalConversationId }),
+      ])
+    } finally {
+      await deleteEntityByPathIfExists(request, token, draftPath)
+      await deleteChannelIfExists(request, token, channelId)
+    }
+  })
+
   test('a chosen mailbox writes the outbound link and the thread mapping', async ({ request }) => {
     const stamp = Date.now()
     let token: string | null = null

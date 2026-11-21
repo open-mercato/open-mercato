@@ -267,7 +267,6 @@ export const updateDraftSchema = z.object({
   actionData: messageActionDataSchema.optional(),
   sendViaEmail: z.boolean().optional(),
   isDraft: z.literal(false).optional(),
-  /** Accepted only so the route can refuse it explicitly; zod would otherwise strip it and the send would fall back to the platform sender unnoticed. */
   senderChannelId: z.string().uuid().optional(),
 }).superRefine((value, ctx) => {
   if (value.recipients) {

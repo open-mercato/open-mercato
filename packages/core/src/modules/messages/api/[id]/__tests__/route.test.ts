@@ -607,7 +607,7 @@ describe('messages /api/messages/[id] PATCH', () => {
     }))
   })
 
-  it('refuses to send a saved draft through a connected mailbox instead of silently dropping the field', async () => {
+  it.each([true, false])('checks the email grant for a mailbox draft send (granted: %s)', async (emailGranted) => {
     const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
     const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
     const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -634,6 +634,7 @@ describe('messages /api/messages/[id] PATCH', () => {
       resolve: (name: string) => {
         if (name === 'em') return em
         if (name === 'commandBus') return commandBus
+        if (name === 'rbacService') return { userHasAllFeatures: async () => emailGranted }
         return null
       },
     }
@@ -655,10 +656,17 @@ describe('messages /api/messages/[id] PATCH', () => {
 
     const response = await PATCH(request, { params: { id: messageId } })
 
-    expect(response.status).toBe(422)
-    const body = await response.json()
-    expect(body.fieldErrors?.senderChannelId).toBeTruthy()
-    expect(commandBus.execute).not.toHaveBeenCalled()
+    if (emailGranted) {
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ ok: true, id: messageId })
+      expect(commandBus.execute).toHaveBeenCalledWith(
+        'messages.messages.update_draft',
+        expect.objectContaining({ input: expect.objectContaining({ isDraft: false, messageId, senderChannelId }) }),
+      )
+    } else {
+      expect(response.status).toBe(403)
+      expect(commandBus.execute).not.toHaveBeenCalled()
+    }
   })
 })
 

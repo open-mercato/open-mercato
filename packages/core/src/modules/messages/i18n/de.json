@@ -135,7 +135,6 @@
   "messages.errors.noSubject": "Bitte Betreff eingeben.",
   "messages.errors.parentMessageNotFound": "Die Nachricht, auf die Sie antworten, wurde nicht gefunden",
   "messages.errors.sendFailed": "Nachricht konnte nicht gesendet werden.",
-  "messages.errors.senderDraftSendUnsupported": "Das Senden eines gespeicherten Entwurfs über ein verbundenes Postfach wird noch nicht unterstützt.",
   "messages.errors.senderPayloadUnsupported": "Der Versand aus dem eigenen Postfach unterstützt noch keine Anhänge oder verknüpften Datensätze.",
   "messages.errors.senderRequiresExternalRecipient": "Ein Absender-Postfach lässt sich nur für eine Nachricht an einen externen Empfänger verwenden.",
   "messages.errors.senderUnavailable": "Der Versand aus dem eigenen Postfach ist nicht verfügbar.",

@@ -19,6 +19,8 @@ jest.mock('../queue', () => ({
   getCommunicationChannelsQueue: jest.fn(() => ({ enqueue })),
 }))
 
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { sendAsUser } from '../send-as-user'
@@ -85,6 +87,9 @@ function makeContainer() {
     }),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
     transactional: jest.fn(async (work: () => Promise<void>) => work()),
     fork: (): unknown => em,
   }
@@ -98,7 +103,7 @@ function makeContainer() {
       throw new Error(`unexpected resolve: ${name}`)
     },
   } as unknown as AppContainer
-  return { container, created, commandBus }
+  return { container, created, commandBus, em }
 }
 
 const channel: Row = {
@@ -144,6 +149,43 @@ const actor = { userId: USER, tenantId: TENANT, organizationId: ORG }
 function createdLink(created: Created[]): Row | undefined {
   return created.find((row) => row.entity === MessageChannelLink)?.data
 }
+
+describe('sendAsUser: saved drafts', () => {
+  beforeEach(() => {
+    enqueue.mockClear()
+    primeStore({ channels: [channel], conversations: [], mappings: [], links: [] })
+  })
+
+  it('links and enqueues the saved draft in place, after the transaction commits', async () => {
+    const { container, created, commandBus, em } = makeContainer()
+    const transaction = em as unknown as EntityManager
+
+    await withAtomicFlush(transaction, [async () => {
+      await expect(sendAsUser(container, actor, input, { em: transaction, messageId: THREAD, threadId: THREAD }))
+        .resolves.toMatchObject({ ok: true, messageId: THREAD, threadId: THREAD })
+      expect(createdLink(created)).toMatchObject({ messageId: THREAD, direction: 'outbound' })
+      expect(enqueue).not.toHaveBeenCalled()
+    }], { transaction: true })
+
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(em.commit).toHaveBeenCalledTimes(1)
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue).toHaveBeenCalledWith({ messageId: THREAD, scope: scoped, attempt: 1 })
+  })
+
+  it('does not enqueue a delivery when the draft transaction rolls back', async () => {
+    const { container, em } = makeContainer()
+    const transaction = em as unknown as EntityManager
+
+    await expect(withAtomicFlush(transaction, [async () => {
+      await sendAsUser(container, actor, input, { em: transaction, messageId: THREAD, threadId: THREAD })
+      throw new Error('draft write failed')
+    }], { transaction: true })).rejects.toThrow('draft write failed')
+
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+})
 
 describe('sendAsUser: conversation of a follow-up send', () => {
   beforeEach(() => {

@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { onTransactionLifetimeComplete } from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   ChannelThreadMapping,
@@ -25,6 +26,7 @@ import { buildOutboundConversationRef } from './outbound-conversation-ref'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../../messages/lib/messageSourceEntityTypes'
 
 const logger = createLogger('communication_channels')
 
@@ -107,6 +109,7 @@ export async function sendAsUser(
   container: AppContainer,
   actor: SendAsUserActor,
   input: SendAsUserInput,
+  draft?: { em: EntityManager; messageId: string; threadId: string },
 ): Promise<SendAsUserResult> {
   if (!input.body.plain && !input.body.html) {
     return { ok: false, status: 422, error: 'Either body.plain or body.html is required' }
@@ -118,7 +121,7 @@ export async function sendAsUser(
     return { ok: false, status: 422, error: 'At least one recipient is required' }
   }
 
-  const em = (container.resolve('em') as EntityManager).fork()
+  const em = draft?.em ?? (container.resolve('em') as EntityManager).fork()
   const { tenantId } = actor
   const organizationId = actor.organizationId
   const dscope = { tenantId, organizationId }
@@ -126,7 +129,7 @@ export async function sendAsUser(
   const channel = await findOneWithDecryption(
     em,
     CommunicationChannel,
-    { id: input.userChannelId, tenantId, organizationId, deletedAt: null },
+    { id: input.userChannelId, tenantId, organizationId, deletedAt: null, ...(draft ? { channelType: 'email' } : {}) },
     undefined,
     dscope,
   )
@@ -180,12 +183,11 @@ export async function sendAsUser(
   // Create the Message via the messages module compose command. The outbound
   // subscriber picks it up via `messages.message.sent` and routes through the
   // adapter chain.
-  const commandBus = container.resolve('commandBus') as CommandBus
   const messageBody = input.body.plain ?? htmlToText(input.body.html ?? '')
   const composeInput = {
     type: `channel.${channel.providerKey}`,
     visibility: 'public' as const,
-    sourceEntityType: 'communication_channels.send_as_user',
+    sourceEntityType: SEND_AS_USER_SOURCE_ENTITY_TYPE,
     sourceEntityId: channel.id,
     externalEmail: input.to[0],
     ...(channel.channelType === 'email'
@@ -204,39 +206,46 @@ export async function sendAsUser(
     organizationId,
     userId: actor.userId,
   }
-  let result
-  try {
-    result = await commandBus.execute<typeof composeInput, { id: string; threadId: string | null }>(
-      'messages.messages.compose',
-      {
-        input: composeInput,
-        ctx: {
-          container,
-          auth: actor.auth as never,
-          organizationScope: null,
-          selectedOrganizationId: organizationId,
-          organizationIds: organizationId ? [organizationId] : null,
+  let messageId: string
+  let messageThreadId: string
+  if (draft) {
+    messageId = draft.messageId
+    messageThreadId = draft.threadId
+  } else {
+    try {
+      const commandBus = container.resolve('commandBus') as CommandBus
+      const { result } = await commandBus.execute<typeof composeInput, { id: string; threadId: string | null }>(
+        'messages.messages.compose',
+        {
+          input: composeInput,
+          ctx: {
+            container,
+            auth: actor.auth as never,
+            organizationScope: null,
+            selectedOrganizationId: organizationId,
+            organizationIds: organizationId ? [organizationId] : null,
+          },
         },
-      },
-    )
-  } catch (err) {
-    if (isCrudHttpError(err)) {
-      return {
-        ok: false,
-        status: err.status,
-        error: typeof err.body.error === 'string' ? err.body.error : err.message,
-        ...('headers' in err && err.headers instanceof Headers
-          ? { headers: Object.fromEntries(err.headers.entries()) }
-          : {}),
+      )
+      messageId = result.id
+      messageThreadId = result.threadId ?? messageId
+    } catch (err) {
+      if (isCrudHttpError(err)) {
+        return {
+          ok: false,
+          status: err.status,
+          error: typeof err.body.error === 'string' ? err.body.error : err.message,
+          ...('headers' in err && err.headers instanceof Headers
+            ? { headers: Object.fromEntries(err.headers.entries()) }
+            : {}),
+        }
       }
+      logger.error('communication_channels send-as-user compose failed', { err })
+      getTelemetryRuntime()?.reportError(err, { module: 'communication_channels', code: 'communication_channels.compose_failed' })
+      return { ok: false, status: 500, error: '[internal] compose failed' }
     }
-    logger.error('communication_channels send-as-user compose failed', { err })
-    getTelemetryRuntime()?.reportError(err, { module: 'communication_channels', code: 'communication_channels.compose_failed' })
-    return { ok: false, status: 500, error: '[internal] compose failed' }
   }
 
-  const messageId = result.result.id
-  const messageThreadId = result.result.threadId ?? messageId
   const externalThreadRef = buildOutboundConversationRef(messageThreadId)
 
   // Persist the conversation, thread mapping, and channel link as one unit. The
@@ -245,7 +254,7 @@ export async function sendAsUser(
   // rather than `withAtomicFlush` (single trailing flush). `em.transactional`
   // wraps the whole sequence so a mid-way failure rolls back all three writes
   // instead of leaving an orphaned conversation row.
-  await em.transactional(async () => {
+  const persistDelivery = async () => {
     // A reply belongs to the conversation its parent lives in on this channel.
     // One logical thread can map to several provider conversations on the same
     // channel, so the thread alone cannot pick the right one.
@@ -383,15 +392,26 @@ export async function sendAsUser(
     })
     em.persist(channelLink)
     await em.flush()
-  })
+  }
 
-  const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
   const deliveryJob: OutboundDeliveryPayload = {
     messageId,
     scope: dscope,
     attempt: 1,
   }
-  await queue.enqueue(deliveryJob as unknown as Record<string, unknown>)
+  const enqueueDelivery = async () => {
+    const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
+    await queue.enqueue(deliveryJob as unknown as Record<string, unknown>)
+  }
+  if (draft) {
+    onTransactionLifetimeComplete(em, async (outcome) => {
+      if (outcome === 'committed') await enqueueDelivery()
+    })
+    await persistDelivery()
+  } else {
+    await em.transactional(persistDelivery)
+    await enqueueDelivery()
+  }
 
   return {
     ok: true,

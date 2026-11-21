@@ -1,11 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
@@ -16,6 +16,7 @@ import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
 import {
   canPostToChannelThread,
+  canUseMessageEmailFeature,
   hasOrganizationAccess,
   resolveMessageContext,
   resolveMessageReadAccess,
@@ -398,20 +399,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return Response.json({ error: 'Only draft messages can be edited' }, { status: 409 })
   }
 
-  // `sendAsUser` composes a fresh message rather than updating an existing
-  // one, so sending a saved draft through a connected mailbox is not
-  // implemented yet. Refuse explicitly instead of silently stripping the
-  // field and falling back to the platform sender.
-  if (input.senderChannelId) {
-    const { t } = await resolveTranslations()
-    const errorMessage = t(
-      'messages.errors.senderDraftSendUnsupported',
-      'Sending a saved draft through a connected mailbox is not supported yet.',
-    )
-    return Response.json(
-      { error: errorMessage, fieldErrors: { senderChannelId: errorMessage } },
-      { status: 422 },
-    )
+  if (input.isDraft === false && input.senderChannelId && !(await canUseMessageEmailFeature(ctx, scope))) {
+    return Response.json({ error: 'Missing feature: messages.email' }, { status: 403 })
   }
 
   // A draft is filed on its parent's thread and skips the compose route's
@@ -656,15 +645,16 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
     PATCH: {
-      summary: 'Update draft message',
+      summary: 'Update or send a draft message',
       requestBody: { schema: updateDraftOpenApiSchema },
       responses: [
-        { status: 200, description: 'Draft updated', schema: okResponseSchema },
+        { status: 200, description: 'Draft updated or accepted for sending', schema: okResponseSchema },
       ],
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
-        { status: 404, description: 'Message not found', schema: errorResponseSchema },
-        { status: 409, description: 'Only drafts can be edited, or the draft was modified concurrently (optimistic lock conflict)', schema: errorResponseSchema },
+        { status: 404, description: 'Message or sender mailbox not found', schema: errorResponseSchema },
+        { status: 409, description: 'Draft is already sent, changed concurrently, or the sender mailbox is disconnected', schema: errorResponseSchema },
+        { status: 422, description: 'Sender mailbox or message payload is unavailable for delivery', schema: errorResponseSchema.extend({ fieldErrors: z.record(z.string(), z.string()).optional() }) },
         { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
         { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
       ],

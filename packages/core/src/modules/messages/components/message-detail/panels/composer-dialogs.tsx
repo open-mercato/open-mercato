@@ -1,6 +1,7 @@
 "use client"
 
 import { MessageComposer } from '@open-mercato/ui/backend/messages'
+import { useComposeSenderOptions } from '../../useComposeSenderOptions'
 import type { MessageAttachment, MessageDetail } from '../types'
 
 type ComposerDialogsProps = {
@@ -13,12 +14,16 @@ type ComposerDialogsProps = {
 }
 
 export function MessageDetailComposerDialogs(props: ComposerDialogsProps) {
+  const open = props.editOpen && props.detail.isDraft && props.detail.canEditDraft
+  const senderOptions = useComposeSenderOptions(open)
+
   return (
     <MessageComposer
       variant="compose"
       messageId={props.id}
       expectedUpdatedAt={props.detail.updatedAt}
-      open={props.editOpen && props.detail.isDraft && props.detail.canEditDraft}
+      open={open}
+      senderOptions={senderOptions}
       onOpenChange={props.setEditOpen}
       defaultValues={{
         type: props.detail.type,
