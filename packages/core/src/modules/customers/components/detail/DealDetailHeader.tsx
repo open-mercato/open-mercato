@@ -55,6 +55,7 @@ type DealDetailHeaderProps = {
   onStageChange?: (stageId: string) => Promise<void> | void
   /** @deprecated See `stageOptions`. */
   isStageSaving?: boolean
+  canManage?: boolean
   onSave: () => void
   onDelete: () => Promise<void> | void
   isDirty: boolean
@@ -132,6 +133,7 @@ export function DealDetailHeader({
   currentStageId = null,
   onStageChange,
   isStageSaving = false,
+  canManage = true,
   onSave,
   onDelete,
   isDirty,
@@ -162,7 +164,7 @@ export function DealDetailHeader({
   const statusLabel = statusEntry?.label ?? (deal.status ? formatFallbackLabel(deal.status) : null)
   const showStatusChip = statusLabel && (!deal.closureOutcome || !isTerminalPipelineOutcomeLabel(deal.status))
   const pipelineBadgeLabel = pipelineName ?? null
-  const legacyStageMenu = stageOptions.length > 0 && !deal.closureOutcome && typeof onStageChange === 'function' ? (
+  const legacyStageMenu = canManage && stageOptions.length > 0 && !deal.closureOutcome && typeof onStageChange === 'function' ? (
     <StageSelectMenu
       stages={stageOptions}
       currentStageId={currentStageId}
@@ -262,28 +264,32 @@ export function DealDetailHeader({
             organizationId={deal.organizationId ?? undefined}
             includeRelated
           />
-          <IconButton
-            variant="outline"
-            size="sm"
-            type="button"
-            aria-label={t('customers.deals.detail.actions.delete', 'Delete')}
-            className="h-8 w-8 rounded-md"
-            onClick={() => {
-              void onDelete()
-            }}
-          >
-            <Trash2 className="size-4" />
-          </IconButton>
-          <Button
-            type="button"
-            size="sm"
-            onClick={onSave}
-            disabled={!isDirty || isSaving}
-            className="h-8 rounded-md px-3"
-          >
-            <Save className="size-4" />
-            {t('customers.deals.detail.actions.save', 'Save')}
-          </Button>
+          {canManage ? (
+            <>
+              <IconButton
+                variant="outline"
+                size="sm"
+                type="button"
+                aria-label={t('customers.deals.detail.actions.delete', 'Delete')}
+                className="h-8 w-8 rounded-md"
+                onClick={() => {
+                  void onDelete()
+                }}
+              >
+                <Trash2 className="size-4" />
+              </IconButton>
+              <Button
+                type="button"
+                size="sm"
+                onClick={onSave}
+                disabled={!isDirty || isSaving}
+                className="h-8 rounded-md px-3"
+              >
+                <Save className="size-4" />
+                {t('customers.deals.detail.actions.save', 'Save')}
+              </Button>
+            </>
+          ) : null}
         </div>
         {secondaryActions}
       </div>

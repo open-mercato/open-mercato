@@ -25,7 +25,10 @@ function sanitizeDictionaryId(value: unknown): string | null {
   return trimmed.length ? trimmed : null
 }
 
-export function useCustomFieldDisplay(entityIds: string | string[] | null | undefined): CustomFieldDisplayResources {
+export function useCustomFieldDisplay(
+  entityIds: string | string[] | null | undefined,
+  { includeDictionaryEntries = true }: { includeDictionaryEntries?: boolean } = {},
+): CustomFieldDisplayResources {
   const normalizedIds = React.useMemo(() => normalizeEntityIds(entityIds ?? []), [entityIds])
   const defsQuery = useCustomFieldDefs(normalizedIds, { enabled: normalizedIds.length > 0 })
   const scopeVersion = useOrganizationScopeVersion()
@@ -35,7 +38,7 @@ export function useCustomFieldDisplay(entityIds: string | string[] | null | unde
   const [dictionaryLoading, setDictionaryLoading] = React.useState(false)
 
   React.useEffect(() => {
-    const defs = defsQuery.data ?? []
+    const defs = includeDictionaryEntries ? defsQuery.data ?? [] : []
     const dictionaryIds = defs
       .map((def) => sanitizeDictionaryId(def.dictionaryId))
       .filter((value): value is string => !!value)
@@ -86,7 +89,7 @@ export function useCustomFieldDisplay(entityIds: string | string[] | null | unde
     return () => {
       cancelled = true
     }
-  }, [defsQuery.data, queryClient, scopeVersion])
+  }, [defsQuery.data, includeDictionaryEntries, queryClient, scopeVersion])
 
   const dictionaryMapsByKey = React.useMemo(() => {
     const defs = defsQuery.data ?? []
