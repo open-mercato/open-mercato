@@ -26,6 +26,14 @@ export type CheckoutTotals<TItem extends CheckoutCartItem> = {
   total: number
 }
 
+function resolveDecimalPlaces(currencyCode: string): number {
+  return resolveIsoCurrencyDecimalPlaces(currencyCode) ?? FALLBACK_DECIMAL_PLACES
+}
+
+export function convertCheckoutPrice(price: number, exchangeRate: number, currencyCode: string): number {
+  return decimalToNumber(roundDecimal(multiplyDecimals(price, exchangeRate), resolveDecimalPlaces(currencyCode)))
+}
+
 /**
  * Converts USD cart prices to the selected currency and computes the demo's
  * subtotal, 8% tax, flat shipping and total, each rounded to the currency's
@@ -37,11 +45,11 @@ export function computeCheckoutTotals<TItem extends CheckoutCartItem>(
   exchangeRate: number,
   currencyCode: string,
 ): CheckoutTotals<TItem> {
-  const decimalPlaces = resolveIsoCurrencyDecimalPlaces(currencyCode) ?? FALLBACK_DECIMAL_PLACES
+  const decimalPlaces = resolveDecimalPlaces(currencyCode)
   const round = (value: DecimalInput) => roundDecimal(value, decimalPlaces)
   const items = cart.map((item) => ({
     ...item,
-    price: decimalToNumber(round(multiplyDecimals(item.price, exchangeRate))),
+    price: convertCheckoutPrice(item.price, exchangeRate, currencyCode),
   }))
   const subtotal = round(sumDecimals(items.map((item) => multiplyDecimals(item.price, item.quantity))))
   const tax = round(multiplyDecimals(subtotal, TAX_RATE))

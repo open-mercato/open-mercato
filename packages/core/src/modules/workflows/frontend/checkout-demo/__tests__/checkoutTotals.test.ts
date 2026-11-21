@@ -1,5 +1,5 @@
 import { describe, test, expect } from '@jest/globals'
-import { computeCheckoutTotals } from '../checkoutTotals'
+import { computeCheckoutTotals, convertCheckoutPrice } from '../checkoutTotals'
 
 describe('computeCheckoutTotals', () => {
   test('rounds the 8% tax to cents instead of sending the raw float', () => {
@@ -11,7 +11,7 @@ describe('computeCheckoutTotals', () => {
     expect(totals.total).toBe(63.98)
   })
 
-  test('rounds converted unit prices and shipping to the target currency', () => {
+  test('rounds converted prices and keeps the total equal to the sum of its rounded parts', () => {
     const totals = computeCheckoutTotals(
       [
         { id: 'p1', name: 'Widget', price: 99.99, quantity: 1 },
@@ -28,14 +28,12 @@ describe('computeCheckoutTotals', () => {
     expect(totals.total).toBe(168.13)
   })
 
-  test('keeps the total equal to the sum of its rounded parts', () => {
-    const totals = computeCheckoutTotals([{ id: 'p1', name: 'Widget', price: 0.1, quantity: 3 }], 4.02, 'PLN')
+  test('rounds a half-cent conversion up the same way in the picker and the cart', () => {
+    const totals = computeCheckoutTotals([{ id: 'p1', name: 'Widget', price: 1.25, quantity: 1 }], 4.02, 'PLN')
 
-    expect(totals.items[0].price).toBe(0.4)
-    expect(totals.subtotal).toBe(1.2)
-    expect(totals.tax).toBe(0.1)
-    expect(totals.shipping).toBe(40.16)
-    expect(totals.total).toBe(41.46)
+    expect(convertCheckoutPrice(1.25, 4.02, 'PLN')).toBe(5.03)
+    expect(totals.items[0].price).toBe(5.03)
+    expect(totals.subtotal).toBe(5.03)
   })
 
   test('uses zero decimal places for a currency without minor units', () => {
