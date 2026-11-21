@@ -953,7 +953,7 @@
       <div class="main">
         <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Customers</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Meeting requests</span></div></div></header>
         <main class="page">
-          <div class="alert alert-error" role="alert"><svg><use href="#ic-warn"/></svg><div><span class="alert-title">This request expired at 13:40</span><div>It was not accepted. The time was released and Jordan Doe was told by e-mail.</div></div></div>
+          <div class="alert alert-error" role="alert"><svg><use href="#ic-warn"/></svg><div><span class="alert-title">This request expired at 13:40</span><div>It was not accepted, and the time was released.</div></div></div>
           <div class="dt">
             <div class="dt-head">
               <div class="dt-head-row"><h2 class="t-table-title">Meeting requests</h2></div>
@@ -1222,7 +1222,7 @@
           </div>
         </main>
       </div>
-      <div class="toast"><svg style="color:var(--status-success-icon)"><use href="#ic-check"/></svg> Meeting with Riley Novak accepted. Invite sent. <button class="btn btn-ghost btn-xs">Undo</button></div>
+      <div class="toast"><svg style="color:var(--status-success-icon)"><use href="#ic-check"/></svg> Meeting with Riley Novak accepted. <button class="btn btn-ghost btn-xs">Undo</button></div>
     </div>
   </div>
   <div class="notes">
@@ -1235,7 +1235,7 @@
 <section class="screen" id="s17">
   <div class="screen-meta">
     <h2>17. Link to an existing person</h2>
-    <p>The auto-created Alex Rivera is merged into the existing CRM person.</p>
+    <p>The meeting moves to the existing CRM person; the auto-created Alex Rivera stays in the CRM.</p>
     <div class="screen-refs"><span class="ref">§API link-person</span><span class="ref">US-C2</span></div>
   </div>
   <div class="frame">
@@ -1262,7 +1262,7 @@
             <div class="person-opt hl"><span class="avatar avatar-sm">AR</span><div class="lines"><span>Alexandra Rivera</span><span class="t-hint">a.rivera@tailspin.example</span><span class="t-hint">Tailspin Toys</span></div></div>
             <div class="person-opt"><span class="avatar avatar-sm">AR</span><div class="lines"><span>Alex Rivas</span><span class="t-hint">alex.rivas@example.com</span></div></div>
           </div>
-          <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div>The meeting moves to the person you pick. The auto-created "Alex Rivera" is removed if nothing else is attached to it.</div></div>
+          <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div>The meeting moves to the person you pick. The auto-created "Alex Rivera" stays in the CRM, where you can delete it.</div></div>
         </div>
         <div class="modal-foot" style="justify-content:flex-end"><div class="row" style="gap:0.5rem"><button class="btn btn-outline" data-goto="s16">Cancel</button><button class="btn btn-primary" data-goto="s16">Link person</button></div></div>
       </div>
@@ -1270,7 +1270,7 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>The toast is the post-submit state, shown together for review. Persons with the same e-mail are listed first as suggestions but never preselected. If the auto-created person had other data, the toast says it was kept.</span></div>
+    <div class="note"><b>1</b><span>The toast is the post-submit state, shown together for review. Persons with the same e-mail are listed first as suggestions but never preselected. The auto-created person is kept; it can be deleted from the CRM like any person.</span></div>
   </div>
 </section>
 
