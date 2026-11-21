@@ -86,6 +86,7 @@ import { TimePicker } from './inputs/TimePicker'
 import { DatePicker } from './inputs/DatePicker'
 import {
   mapCrudServerErrorToFormErrors,
+  normalizeCrudServerError,
   parseServerMessage,
   resolveFieldIssueTranslation,
   type CrudServerFieldIssues,
@@ -660,6 +661,18 @@ function serializeIssuePath(path: ReadonlyArray<string | number | symbol>): stri
     })
     .filter((segment): segment is string => segment !== null)
   return segments.length > 0 ? segments.join('.') : null
+}
+
+function collectSchemaFieldIssues(issues: readonly z.ZodIssue[]): CrudServerFieldIssues | undefined {
+  const { fieldIssues } = normalizeCrudServerError({
+    details: issues.map((issue) => ({ ...issue, path: [serializeIssuePath(issue.path)] })),
+  })
+  if (!fieldIssues) return undefined
+  return Object.fromEntries(Object.entries(fieldIssues).filter(([, issue]) => {
+    if (issue.code === 'too_big') return issue.params?.maximum !== undefined
+    if (issue.code === 'too_small') return issue.params?.minimum !== undefined
+    return true
+  }))
 }
 
 function normalizeDirtySnapshotValue(value: unknown): unknown {
@@ -2356,7 +2369,10 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         })
         if (Object.keys(schemaFieldErrors).length) {
           const transformedErrors = await transformValidationErrors(schemaFieldErrors)
-          Object.assign(nextFieldErrors, translateValidationErrors(transformedErrors))
+          Object.assign(
+            nextFieldErrors,
+            translateValidationErrors(transformedErrors, collectSchemaFieldIssues(result.error.issues)),
+          )
         }
       }
     }
@@ -3259,7 +3275,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           logger.debug('Schema validation failed', { issues: res.error.issues })
         }
         const transformedErrors = await transformValidationErrors(fieldErrors)
-        setErrors(translateValidationErrors(transformedErrors))
+        setErrors(translateValidationErrors(transformedErrors, collectSchemaFieldIssues(res.error.issues)))
         flash(highlightedMessage, 'error')
         return
       }

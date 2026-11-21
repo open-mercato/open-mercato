@@ -26,6 +26,73 @@ import { CrudForm, type CrudField } from '../CrudForm'
 import { createCrudFormError } from '../utils/serverErrors'
 
 describe('CrudForm validation state', () => {
+  it.each(['submit', 'blur'])('localizes structured client schema errors on %s', async (validationTrigger) => {
+    const onSubmit = jest.fn()
+    const { container, getByLabelText, findByText, queryByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        schema={z.object({ description: z.string().max(20) })}
+        fields={[{ id: 'description', label: 'Description', type: 'text' }]}
+        initialValues={{ description: '' }}
+        onSubmit={onSubmit}
+      />,
+      { dict: { 'ui.forms.errors.tooBig': 'Wartość przekracza maksimum {{maximum}}.' } },
+    )
+
+    await act(async () => {
+      fireEvent.change(getByLabelText('Description'), { target: { value: 'A description exceeding twenty characters' } })
+    })
+    await act(async () => {
+      if (validationTrigger === 'blur') fireEvent.blur(getByLabelText('Description'))
+      else fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+    })
+
+    expect(await findByText('Wartość przekracza maksimum 20.')).toBeInTheDocument()
+    expect(queryByText('Too big: expected string to have <=20 characters')).toBeNull()
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('localizes nested client schema errors without losing their complete paths', async () => {
+    const { container, findByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        schema={z.object({ labels: z.array(z.object({ value: z.string().max(3) })) })}
+        fields={[]}
+        initialValues={{ labels: [{ value: 'Long label' }] }}
+        groups={[{ id: 'labels', component: ({ errors }) => <div>{errors['labels.0.value']}</div> }]}
+        onSubmit={jest.fn()}
+      />,
+      { dict: { 'ui.forms.errors.tooBig': 'Value exceeds {{maximum}}.' } },
+    )
+
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+    })
+
+    expect(await findByText('Value exceeds 3.')).toBeInTheDocument()
+  })
+
+  it('preserves explicit client schema messages that start with default wording', async () => {
+    const message = 'Too big: use a shorter description'
+    const { container, findByText, queryByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        schema={z.object({ description: z.string().max(3, message) })}
+        fields={[{ id: 'description', label: 'Description', type: 'text' }]}
+        initialValues={{ description: 'Long description' }}
+        onSubmit={jest.fn()}
+      />,
+      { dict: { 'ui.forms.errors.tooBig': 'Value exceeds {{maximum}}.' } },
+    )
+
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+    })
+
+    expect(await findByText(message)).toBeInTheDocument()
+    expect(queryByText('Value exceeds 3.')).toBeNull()
+  })
+
   it('renders each custom field error through exactly one declared owner', async () => {
     const fields: CrudField[] = [
       {
