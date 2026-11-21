@@ -104,6 +104,13 @@ previously enabled transitively through `sales` → `customers`. Apps that pass
 relied on `sync_akeneo` to force `sales` (and its `customers` chain) on. No API, schema
 or configuration change. See
 [module dependencies](apps/docs/docs/architecture/module-dependencies.mdx).
+## Custom domains require DNS ownership proof (#9146)
+
+New and in-progress custom-domain registrations must publish the TXT record shown in **Settings → Customer Portal → Custom Domain** alongside their routing records. API clients can read the `ownershipRecord` and `verificationExpiresAt` fields from the staff domain-mappings create and list responses. Publish the name and value exactly as returned. If a registration expires after 48 hours, register again and use the new TXT value. An organization can hold up to two live mappings. A released, verified hostname stays reserved to its prior tenant for seven days.
+
+**Operator rollout.** Stop older app and DNS/TLS worker instances before applying the customer accounts migration and starting the new versions. The migration moves legacy active mappings and mappings awaiting TLS back to pending and clears their prior verification. Custom-domain routing and TLS authorization stop until the mapping-specific TXT record is verified again; plan a maintenance window and use the platform portal URL meanwhile. Existing creation timestamps are retained: re-register mappings already past the 48-hour deadline and publish the new mapping ID’s TXT value. An unverified hostname longer than 242 characters requires a shorter hostname to accommodate the TXT record name. Restart every app, edge and worker instance before reopening traffic so old in-memory routes cannot survive cutover; new service cache namespaces ignore stored pre-TXT routes. Confirm assignments with DNS owners and remove unexpected mappings. Remove old routing records after a hostname is retired.
+
+**Rollback is fail-closed.** Before downgrading the application or running the migration’s `down`, block custom-domain traffic and TLS authorization at the edge, stop DNS/TLS verification workers, and keep them disabled until a TXT-capable release is restored and mappings are re-verified. Use the platform portal URL during this interval. The down migration removes lifecycle reservation data without restoring active statuses; an older verifier can nevertheless reactivate pending rows without TXT proof. Resetting rows to pending alone does not make a binary rollback safe.
 
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
 

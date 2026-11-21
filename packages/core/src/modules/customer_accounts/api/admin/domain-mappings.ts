@@ -6,20 +6,29 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import {
-  validateCrudMutationGuard,
-  runCrudMutationGuardAfterSuccess,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { registerDomainSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import {
   DomainMappingService,
   DomainMappingOrgScopeError,
+  DomainMappingRegistrationConflict,
   type ResolveResult,
 } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 import { DomainMapping } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import {
+  DOMAIN_UNAVAILABLE_MESSAGE,
+  MAX_VERIFIABLE_HOSTNAME_LENGTH,
+  UNVERIFIED_DOMAIN_STATUSES,
+  domainOwnershipRecord,
+  domainVerificationDeadline,
+  liveDomainMappings,
+} from '../../lib/domainMappingLifecycle'
 
 const FEATURE = 'customer_accounts.domain.manage'
 
@@ -40,6 +49,7 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 function serializeRecord(record: DomainMapping) {
+  const pending = UNVERIFIED_DOMAIN_STATUSES.includes(record.status)
   return {
     id: record.id,
     hostname: record.hostname,
@@ -54,6 +64,8 @@ function serializeRecord(record: DomainMapping) {
     tlsRetryCount: record.tlsRetryCount,
     cnameTarget: process.env.CUSTOM_DOMAIN_CNAME_TARGET ?? null,
     aRecordTarget: process.env.CUSTOM_DOMAIN_A_RECORD_TARGET ?? null,
+    ownershipRecord: pending && record.hostname.length <= MAX_VERIFIABLE_HOSTNAME_LENGTH ? domainOwnershipRecord(record) : null,
+    verificationExpiresAt: pending ? domainVerificationDeadline(record.createdAt).toISOString() : null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt?.toISOString() ?? null,
   }
@@ -81,7 +93,7 @@ export async function GET(req: Request) {
   }
 
   const em = container.resolve('em') as EntityManager
-  const where: FilterQuery<DomainMapping> = { tenantId: auth.tenantId }
+  const where: FilterQuery<DomainMapping> = { tenantId: auth.tenantId, ...liveDomainMappings() }
   if (orgFilter) {
     where.organizationId = orgFilter
   } else {
@@ -119,8 +131,12 @@ export async function POST(req: Request) {
   const body = await readJsonSafe(req, {})
   const parsed = registerDomainSchema.safeParse(body)
   if (!parsed.success) {
+    const { translate } = await resolveTranslations()
+    const issues = parsed.error.flatten((issue) => issue.message === 'customer_accounts.domainMapping.dns.txtNameTooLong'
+      ? translate(issue.message)
+      : issue.message)
     return NextResponse.json(
-      { ok: false, error: 'Invalid request', issues: parsed.error.flatten() },
+      { ok: false, error: 'Invalid request', issues },
       { status: 400 },
     )
   }
@@ -130,40 +146,40 @@ export async function POST(req: Request) {
   })
   if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
-  const guardResult = await validateCrudMutationGuard(container, {
-    tenantId: auth.tenantId,
-    organizationId: parsed.data.organizationId,
-    userId: auth.sub,
+  const registrationGuardInput = {
     resourceKind: 'customer_accounts.domain_mapping',
     resourceId: parsed.data.organizationId,
-    operation: 'create',
-    requestMethod: req.method,
-    requestHeaders: req.headers,
+    operation: 'create' as const,
     mutationPayload: parsed.data as unknown as Record<string, unknown>,
+  }
+  const guardResult = await runRouteMutationGuards({
+    container,
+    req,
+    auth: { tenantId: auth.tenantId, organizationId: parsed.data.organizationId, userId: auth.sub },
+    input: registrationGuardInput,
   })
-  if (guardResult && !guardResult.ok) {
-    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  if (!guardResult.ok) return guardResult.response
+
+  const guarded = registerDomainSchema.safeParse({ ...parsed.data, ...guardResult.modifiedPayload })
+  if (!guarded.success || guarded.data.organizationId !== parsed.data.organizationId) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.domainMapping.hostname.validation.invalid') }, { status: 400 })
   }
 
   const service = container.resolve('domainMappingService') as DomainMappingService
 
   let entity: DomainMapping
   try {
-    // service.register normalizes hostname internally — guards may have
-    // returned modifiedPayload but the typed runner doesn't expose it,
-    // so we rely on the service for the canonical form.
-    entity = await service.register({
-      hostname: parsed.data.hostname,
-      organizationId: parsed.data.organizationId,
-      tenantId: auth.tenantId,
-      replacesDomainId: parsed.data.replacesDomainId,
-    })
+    entity = await service.register({ ...guarded.data, tenantId: auth.tenantId })
   } catch (err: unknown) {
     if (isUniqueViolation(err)) {
       return NextResponse.json(
-        { ok: false, error: 'This domain is not available. Please choose a different hostname.' },
+        { ok: false, error: DOMAIN_UNAVAILABLE_MESSAGE },
         { status: 409 },
       )
+    }
+    if (err instanceof DomainMappingRegistrationConflict) {
+      return NextResponse.json({ ok: false, error: err.message }, { status: 409 })
     }
     if (err instanceof DomainMappingOrgScopeError) {
       return NextResponse.json(
@@ -175,19 +191,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: message }, { status: 500 })
   }
 
-  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-    await runCrudMutationGuardAfterSuccess(container, {
-      tenantId: auth.tenantId,
-      organizationId: parsed.data.organizationId,
-      userId: auth.sub,
-      resourceKind: 'customer_accounts.domain_mapping',
-      resourceId: entity.id,
-      operation: 'create',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-      metadata: guardResult.metadata ?? null,
-    })
-  }
+  registrationGuardInput.resourceId = entity.id
+  await guardResult.runAfterSuccess()
 
   return NextResponse.json({ ok: true, domainMapping: serializeRecord(entity) }, { status: 201 })
 }
@@ -212,35 +217,32 @@ export async function DELETE(req: Request) {
   })
   if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
-  const guardResult = await validateCrudMutationGuard(container, {
-    tenantId: auth.tenantId,
-    organizationId: existing.organizationId,
-    userId: auth.sub,
-    resourceKind: 'customer_accounts.domain_mapping',
-    resourceId: id,
-    operation: 'delete',
-    requestMethod: req.method,
-    requestHeaders: req.headers,
-  })
-  if (guardResult && !guardResult.ok) {
-    return NextResponse.json(guardResult.body, { status: guardResult.status })
-  }
-
-  await service.remove(id, { tenantId: auth.tenantId })
-
-  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-    await runCrudMutationGuardAfterSuccess(container, {
-      tenantId: auth.tenantId,
-      organizationId: existing.organizationId,
-      userId: auth.sub,
+  const guardResult = await runRouteMutationGuards({
+    container,
+    req,
+    auth: { tenantId: auth.tenantId, organizationId: existing.organizationId, userId: auth.sub },
+    input: {
       resourceKind: 'customer_accounts.domain_mapping',
       resourceId: id,
       operation: 'delete',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-      metadata: guardResult.metadata ?? null,
+    },
+  })
+  if (!guardResult.ok) return guardResult.response
+
+  try {
+    await service.remove(id, {
+      tenantId: auth.tenantId,
+      expectedUpdatedAt: readOptimisticLockExpected(req),
+      container,
     })
+  } catch (error: unknown) {
+    if (isCrudHttpError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
+    throw error
   }
+
+  await guardResult.runAfterSuccess()
 
   return NextResponse.json({ ok: true })
 }
@@ -260,6 +262,8 @@ const domainMappingSchema = z.object({
   tlsRetryCount: z.number().int().nonnegative(),
   cnameTarget: z.string().nullable(),
   aRecordTarget: z.string().nullable(),
+  ownershipRecord: z.object({ name: z.string(), value: z.string() }).nullable().optional(),
+  verificationExpiresAt: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string().nullable(),
 })
@@ -292,7 +296,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Register a custom domain',
-      description: 'Registers a new custom domain mapping for an organization. Verifies via DNS asynchronously.',
+      description: 'Registers a custom domain mapping and returns its DNS ownership record. Unverified registrations expire after 48 hours.',
       requestBody: {
         contentType: 'application/json',
         schema: z.object({
@@ -320,6 +324,7 @@ export const openApi: OpenApiRouteDoc = {
       description: 'Removes the domain mapping identified by ?id=. Cache and Traefik routing drain within TTL.',
       responses: [{ status: 200, description: 'OK', schema: z.object({ ok: z.literal(true) }) }],
       errors: [
+        { status: 409, description: 'The mapping changed after it was loaded', schema: z.object({ error: z.string(), code: z.literal('optimistic_lock_conflict'), currentUpdatedAt: z.string(), expectedUpdatedAt: z.string() }) },
         { status: 400, description: 'Bad request', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Forbidden', schema: errorSchema },

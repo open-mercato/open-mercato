@@ -78,9 +78,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   ) => em.findOne(entity, where, options),
 }))
 
-jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
-  validateCrudMutationGuard: (...args: unknown[]) => mockGuard(...args),
-  runCrudMutationGuardAfterSuccess: (...args: unknown[]) => mockAfterSuccess(...args),
+jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
+  runRouteMutationGuards: (...args: unknown[]) => mockGuard(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/customer_accounts/services/domainMappingService', () => ({
@@ -152,7 +151,7 @@ describe('custom-domain routes with real organization-scoped RBAC', () => {
     mappings = [createMapping(MAPPING_A, ORGANIZATION_A), createMapping(MAPPING_B, ORGANIZATION_B)]
     organizations = [ORGANIZATION_A, ORGANIZATION_B].map((id) => ({ id, ancestorIds: [] }))
     mockAuth.mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, orgId: ORGANIZATION_A })
-    mockGuard.mockResolvedValue(null)
+    mockGuard.mockResolvedValue({ ok: true, runAfterSuccess: mockAfterSuccess })
     mockAfterSuccess.mockResolvedValue(undefined)
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
@@ -215,7 +214,7 @@ describe('custom-domain routes with real organization-scoped RBAC', () => {
     )
     expect(mockEm.find).toHaveBeenCalledWith(
       DomainMapping,
-      { tenantId: TENANT_ID, organizationId: { $in: [ORGANIZATION_A] } },
+      expect.objectContaining({ tenantId: TENANT_ID, organizationId: { $in: [ORGANIZATION_A] }, deletedAt: null }),
       { orderBy: { createdAt: 'desc' } },
     )
   })
@@ -234,7 +233,7 @@ describe('custom-domain routes with real organization-scoped RBAC', () => {
     })
     expect(mockEm.find).toHaveBeenCalledWith(
       DomainMapping,
-      { tenantId: TENANT_ID, organizationId: { $in: [ORGANIZATION_A, childOrganizationId] } },
+      expect.objectContaining({ tenantId: TENANT_ID, organizationId: { $in: [ORGANIZATION_A, childOrganizationId] }, deletedAt: null }),
       { orderBy: { createdAt: 'desc' } },
     )
   })
@@ -249,7 +248,7 @@ describe('custom-domain routes with real organization-scoped RBAC', () => {
     expect(mockEm.find).not.toHaveBeenCalledWith(Organization, expect.anything(), expect.anything())
     expect(mockEm.find).toHaveBeenCalledWith(
       DomainMapping,
-      { tenantId: TENANT_ID },
+      expect.objectContaining({ tenantId: TENANT_ID, deletedAt: null }),
       { orderBy: { createdAt: 'desc' } },
     )
   })
@@ -274,7 +273,7 @@ describe('custom-domain routes with real organization-scoped RBAC', () => {
   it.each<Operation>(['create', 'delete', 'verify', 'health-check'])('allows %s through a wildcard grant in organization A', async (operation) => {
     const response = await invokeOperation(operation, ORGANIZATION_A, MAPPING_A)
     expect(response.status).toBe(operation === 'create' ? 201 : 200)
-    expect(mockGuard).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ organizationId: ORGANIZATION_A }))
+    expect(mockGuard).toHaveBeenCalledWith(expect.objectContaining({ auth: expect.objectContaining({ organizationId: ORGANIZATION_A }) }))
   })
 
   it('keeps a global feature wildcard confined to its role organization', async () => {

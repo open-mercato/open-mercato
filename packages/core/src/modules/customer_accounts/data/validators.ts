@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { normalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
+import { MAX_VERIFIABLE_HOSTNAME_LENGTH } from '../lib/domainMappingLifecycle'
 
 const emailField = z.string().email().max(255)
 const passwordField = z.string().min(8).max(128)
@@ -155,7 +156,7 @@ export const hostnameSchema = z
   })
 
 export const registerDomainSchema = z.object({
-  hostname: hostnameSchema,
+  hostname: hostnameSchema.refine((hostname) => hostname.length <= MAX_VERIFIABLE_HOSTNAME_LENGTH, 'customer_accounts.domainMapping.dns.txtNameTooLong'),
   organizationId: z.string().uuid(),
   replacesDomainId: z.string().uuid().optional(),
 })

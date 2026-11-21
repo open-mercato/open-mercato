@@ -15,6 +15,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { MAX_VERIFIABLE_HOSTNAME_LENGTH } from '@open-mercato/core/modules/customer_accounts/lib/domainMappingLifecycle'
 
 export type RegisterDialogProps = {
   open: boolean
@@ -56,7 +57,9 @@ export function RegisterDialog({
     (value: string): string | null => {
       const trimmed = value.trim()
       if (!trimmed) return t('customer_accounts.domainMapping.errors.required', 'Domain is required')
-      if (trimmed.length > 253) return t('customer_accounts.domainMapping.hostname.validation.invalid', 'Enter a valid domain name (no protocol, path, or port)')
+      if (trimmed.length > MAX_VERIFIABLE_HOSTNAME_LENGTH) {
+        return t('customer_accounts.domainMapping.dns.txtNameTooLong', 'Register a shorter hostname to make room for the TXT record name.')
+      }
       if (trimmed.includes('://') || trimmed.includes('/') || trimmed.includes(':')) {
         return t('customer_accounts.domainMapping.hostname.validation.invalid', 'Enter a valid domain name (no protocol, path, or port)')
       }

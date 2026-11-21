@@ -2,6 +2,7 @@ import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerUser, DomainMapping, type DomainStatus } from './entities'
+import { liveDomainMappings } from '../lib/domainMappingLifecycle'
 
 type EntityRecord = Record<string, unknown> & { id: string }
 type EnricherScope = EnricherContext & { em: EntityManager }
@@ -171,6 +172,7 @@ const organizationCustomDomainEnricher: ResponseEnricher<EntityRecord, OrgCustom
     const em = context.em.fork()
     const recordIds = records.map((r) => r.id)
     const domains = await em.find(DomainMapping, {
+      ...liveDomainMappings(),
       organizationId: { $in: recordIds },
       tenantId: context.tenantId,
     } as never)

@@ -3,12 +3,11 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import {
-  validateCrudMutationGuard,
-  runCrudMutationGuardAfterSuccess,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
-import { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { DomainMappingService, DomainMappingUnavailableError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
 const FEATURE = 'customer_accounts.domain.manage'
 
@@ -33,43 +32,40 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   })
   if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
-  const guardResult = await validateCrudMutationGuard(container, {
-    tenantId: auth.tenantId,
-    organizationId: record.organizationId,
-    userId: auth.sub,
-    resourceKind: 'customer_accounts.domain_mapping',
-    resourceId: id,
-    operation: 'update',
-    requestMethod: req.method,
-    requestHeaders: req.headers,
+  const guardResult = await runRouteMutationGuards({
+    container,
+    req,
+    auth: { tenantId: auth.tenantId, organizationId: record.organizationId, userId: auth.sub },
+    input: {
+      resourceKind: 'customer_accounts.domain_mapping',
+      resourceId: id,
+      operation: 'update',
+    },
   })
-  if (guardResult && !guardResult.ok) {
-    return NextResponse.json(guardResult.body, { status: guardResult.status })
-  }
+  if (!guardResult.ok) return guardResult.response
 
   let updated
   try {
     updated = await service.healthCheck(id)
   } catch (err) {
+    if (isCrudHttpError(err) && err.status === 409 && err.body.code === 'domain_mapping_not_verified') {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({
+        ok: false,
+        error: translate('customer_accounts.domainMapping.dns.txtUnverified'),
+        code: 'domain_mapping_not_verified',
+      }, { status: 409 })
+    }
+    if (err instanceof DomainMappingUnavailableError) {
+      return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+    }
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : 'Health check failed' },
       { status: 500 },
     )
   }
 
-  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-    await runCrudMutationGuardAfterSuccess(container, {
-      tenantId: auth.tenantId,
-      organizationId: record.organizationId,
-      userId: auth.sub,
-      resourceKind: 'customer_accounts.domain_mapping',
-      resourceId: id,
-      operation: 'update',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-      metadata: guardResult.metadata ?? null,
-    })
-  }
+  await guardResult.runAfterSuccess()
 
   return NextResponse.json({
     ok: true,
@@ -110,6 +106,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
+        { status: 409, description: 'DNS ownership must be verified before checking TLS health', schema: errorSchema.extend({ code: z.literal('domain_mapping_not_verified') }) },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Forbidden', schema: errorSchema },
         { status: 404, description: 'Not found', schema: errorSchema },

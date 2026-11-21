@@ -4,11 +4,8 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import {
-  validateCrudMutationGuard,
-  runCrudMutationGuardAfterSuccess,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
-import { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { DomainMappingService, DomainMappingUnavailableError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
 const FEATURE = 'customer_accounts.domain.manage'
 
@@ -33,43 +30,32 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   })
   if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
-  const guardResult = await validateCrudMutationGuard(container, {
-    tenantId: auth.tenantId,
-    organizationId: record.organizationId,
-    userId: auth.sub,
-    resourceKind: 'customer_accounts.domain_mapping',
-    resourceId: id,
-    operation: 'update',
-    requestMethod: req.method,
-    requestHeaders: req.headers,
+  const guardResult = await runRouteMutationGuards({
+    container,
+    req,
+    auth: { tenantId: auth.tenantId, organizationId: record.organizationId, userId: auth.sub },
+    input: {
+      resourceKind: 'customer_accounts.domain_mapping',
+      resourceId: id,
+      operation: 'update',
+    },
   })
-  if (guardResult && !guardResult.ok) {
-    return NextResponse.json(guardResult.body, { status: guardResult.status })
-  }
+  if (!guardResult.ok) return guardResult.response
 
   let result
   try {
     result = await service.verify(id)
   } catch (err) {
+    if (err instanceof DomainMappingUnavailableError) {
+      return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+    }
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : 'DNS verification failed' },
       { status: 500 },
     )
   }
 
-  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-    await runCrudMutationGuardAfterSuccess(container, {
-      tenantId: auth.tenantId,
-      organizationId: record.organizationId,
-      userId: auth.sub,
-      resourceKind: 'customer_accounts.domain_mapping',
-      resourceId: id,
-      operation: 'update',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-      metadata: guardResult.metadata ?? null,
-    })
-  }
+  await guardResult.runAfterSuccess()
 
   return NextResponse.json({
     ok: true,
@@ -94,7 +80,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Trigger DNS verification',
       description:
-        'Runs DNS verification (CNAME → A → reverse-resolve fallback) for the domain mapping. Returns diagnostics on failure.',
+        'Checks the mapping-specific TXT record and the CNAME, A, or reverse-resolve routing configuration. Returns diagnostics on failure.',
       responses: [
         {
           status: 200,

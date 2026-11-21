@@ -599,6 +599,30 @@ describe('module extension activations and incoming index', () => {
     expect(resolution?.activationIds).toEqual([])
   })
 
+  it.each(['literal', 'local-constant'])('binds a canonical custom mutation resource without an ORM entity (%s)', (shape) => {
+    const input = "{ resourceKind: 'host.record', operation: 'create' }"
+    write(moduleRoot('host'), 'api/records/route.ts', `
+      import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+      export async function POST(req) {
+        ${shape === 'local-constant' ? `const registrationInput = ${input}` : ''}
+        return runRouteMutationGuards({ container, req, auth, input: ${shape === 'local-constant' ? 'registrationInput' : input} })
+      }
+    `)
+    write(moduleRoot('host'), 'data/guards.ts', `
+      export const guards = [{ id: 'host.record.guard', targetEntity: 'host.record', operations: ['create'], async validate() { return { ok: true } } }]
+    `)
+
+    const result = runPipeline(roots, [{ id: 'host' }])
+
+    expect(result.host.unresolved).toEqual([])
+    expect(result.host.contributionResolutions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ contributionId: 'host.record.guard', resolution: 'bound' }),
+    ]))
+    expect(result.host.activations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'mutation-guard', host: { kind: 'entity', id: 'host.record', moduleId: 'host' }, operations: ['create'] }),
+    ]))
+  })
+
   it('binds the canonical runRouteMutationGuards shape declared in a lib wrapper', () => {
     write(moduleRoot('host'), 'lib/route-mutation-guard.ts', `
       import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'

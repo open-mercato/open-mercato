@@ -392,4 +392,10 @@ export class DomainMapping {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
   updatedAt?: Date | null
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @Property({ name: 'reserved_until', type: Date, nullable: true })
+  reservedUntil?: Date | null
 }
