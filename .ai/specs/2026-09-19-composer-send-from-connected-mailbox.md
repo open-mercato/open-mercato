@@ -94,7 +94,7 @@ Failure responses on the mailbox path mirror `sendAsUser`'s status and message, 
   "fieldErrors": { "senderChannelId": "This channel needs reconnection before it can send messages. …" } }
 ```
 
-Statuses passed through unchanged: `404` (channel not found), `403` (not the caller's channel), `422` (`requires_reauth` / `disconnected` / unsupported payload / module absent), `409` (channel not `connected`), `500`.
+Statuses passed through from the facade include `404` (channel not found), `403` (the caller does not own the channel), `422` (non-email channel, `requires_reauth`, or `disconnected`), `409` (channel not `connected`), and `500`. The Messages route also returns `422` for an unsupported compose payload or an unavailable facade.
 
 Success stays `{ id, threadId }` with status 201.
 
@@ -137,7 +137,7 @@ No deprecation protocol applies: nothing is removed, renamed or narrowed. No `UP
 | 1b | A markdown compose reaches the client as raw markup | High | outbound content | Markdown is rendered to `body.html` with the platform path's own renderer, markdown source kept as `body.plain`; unit-tested | Rendering differences between the two paths are impossible: they share one renderer |
 | 2 | Duplicate send — a `send_as_user`-sourced message also triggers a platform SMTP send | High | messages notification subscriber | Out of scope here: handled by the concurrent fix in `messages/subscribers/message-notification.ts`, which keys on `sourceEntityType === 'communication_channels.send_as_user'` — the exact value this path produces | Depends on that fix landing; without it a mailbox send double-delivers |
 | 3 | A user selects a mailbox that has gone stale between page load and send | Medium | UX | `sendAsUser` re-validates ownership and status at send time and returns 422/409; the composer shows the message on the field, not as a generic failure | User re-picks or reconnects the mailbox |
-| 4 | The selector leaks non-email channels (Discord, Slack) as "mailboxes" | Medium | UX / delivery | `toComposeSenderOptions` filters on `channelType === 'email'` as well as `status === 'connected'`; unit-tested | None |
+| 4 | An email send selects a non-email channel | Medium | UX / delivery | The selector lists connected email channels. The shared `sendAsUser` facade returns `422` for a non-email channel before message creation or delivery | None |
 | 5 | `packages/ui` acquires a dependency on `communication_channels` | Medium | architecture | The prop contract is provider-agnostic; the channel fetch and the filtering both live in the messages module | None |
 | 6 | Cross-tenant send through someone else's channel id | High | security | `sendAsUser` loads the channel scoped to `{ tenantId, organizationId, deletedAt: null }` and rejects `channel.userId !== actor.userId` with 403, before any write | None |
 
@@ -153,6 +153,7 @@ Affected API paths and UI paths, with the tests shipping in this change:
 |---|---|
 | `POST /api/messages` with `senderChannelId` (happy path) | `packages/core/src/modules/communication_channels/__integration__/TC-CHANNEL-EMAIL-HUB-004.spec.ts` — seeds a connected channel, composes through the composer's own endpoint, asserts 201 and that an outbound `MessageChannelLink` plus a `ChannelThreadMapping` exist for the thread |
 | `POST /api/messages` with an unknown/foreign `senderChannelId` | same spec — asserts 404/403 rather than a platform-sender fallback |
+| `POST /api/messages` and `POST /api/communication_channels/send-as-user` with an owned chat channel | same spec — asserts `422` on `senderChannelId` and `userChannelId`, respectively |
 | `POST /api/messages` without `senderChannelId` | same spec — asserts the platform path still answers 201 and writes no channel link |
 | `GET /api/communication_channels/me/channels` shape the selector consumes | existing `TC-CHANNEL-EMAIL-HUB-001.spec.ts` |
 | Composer UI — selector visibility, default, payload | unit tests in `packages/ui/src/backend/messages/__tests__/` and `packages/core/src/modules/messages/lib/__tests__/composeSenderOptions.test.ts` |
@@ -173,3 +174,4 @@ Integration tests are self-contained: the channel is seeded per test through the
 
 - 2026-09-19 — Spec written. Architectural choice recorded: route-level delegation to `sendAsUser` with a provider-agnostic UI option contract; widget injection and a UI-level submit override rejected.
 - 2026-09-19 — Review follow-up: delegation failure messages moved onto `messages.errors.sender*` locale keys resolved server-side; markdown bodies rendered to HTML through the shared `renderMarkdownEmailBody` instead of being sent as raw source.
+- 2026-11-21 — #6451 adds server-side channel type validation for email sends through both endpoints.

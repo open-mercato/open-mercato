@@ -121,7 +121,7 @@ export const openApi = {
   tags: ['CommunicationChannels'],
   methods: {
     POST: {
-      summary: 'Send a message through the current user\'s own channel',
+      summary: 'Send an email through the current user\'s own email channel',
       tags: ['CommunicationChannels'],
       requestBody: { required: true, contentType: 'application/json', schema: bodySchema },
       responses: [
@@ -133,7 +133,7 @@ export const openApi = {
         {
           status: 422,
           description:
-            'Invalid body, channel requires_reauth / disconnected, or attachments rejected (`code`: attachments_unsupported, too_many_attachments, duplicate_attachment, attachment_not_found, attachment_type_not_allowed, attachments_too_large)',
+            'Invalid body, non-email channel, channel requires_reauth / disconnected, or attachments rejected (`code`: attachments_unsupported, too_many_attachments, duplicate_attachment, attachment_not_found, attachment_type_not_allowed, attachments_too_large)',
         },
       ],
     },

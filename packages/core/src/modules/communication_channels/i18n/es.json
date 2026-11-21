@@ -29,6 +29,7 @@
   "communication_channels.errors.attachments.tooMany": "Un mensaje puede llevar como máximo {max} adjuntos.",
   "communication_channels.errors.attachments.typeNotAllowed": "Uno de los archivos adjuntos tiene un tipo que este buzón no envía.",
   "communication_channels.errors.attachments.unsupported": "Este buzón no puede enviar adjuntos.",
+  "communication_channels.errors.emailChannelRequired": "Selecciona un canal de correo electrónico para enviar este mensaje.",
   "communication_channels.errors.loadDetail": "No se pudo cargar el canal",
   "communication_channels.errors.loadList": "No se pudieron cargar los canales",
   "communication_channels.errors.messageNotFound": "Mensaje no encontrado",

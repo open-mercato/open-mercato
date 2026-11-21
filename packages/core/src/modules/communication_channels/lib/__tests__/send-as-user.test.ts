@@ -3,6 +3,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ t: (_key: string, fallback: string) => fallback }),
+}))
+
 jest.mock('../mutation-guards', () => {
   class ChannelMutationBlockedError extends Error {
     errors: Record<string, string> = {}
@@ -259,6 +263,28 @@ describe('sendAsUser external email admission', () => {
   beforeEach(() => {
     mockFindOne.mockReset()
     enqueue.mockClear()
+  })
+
+  it('refuses a connected chat channel before composing or enqueuing email', async () => {
+    const { container, commandBus, created } = makeContainer()
+    primeStore({
+      channels: [{ ...channel, providerKey: 'discord', channelType: 'chat' }],
+      conversations: [],
+      mappings: [],
+      links: [],
+    })
+
+    const result = await sendAsUser(container, actor, input)
+
+    expect(result).toEqual({
+      ok: false,
+      status: 422,
+      error: 'Select an email channel to send this message.',
+      fieldErrors: { userChannelId: 'Select an email channel to send this message.' },
+    })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(created).toHaveLength(0)
+    expect(enqueue).not.toHaveBeenCalled()
   })
 
   it('carries all to/cc/bcc recipients into the existing compose boundary', async () => {

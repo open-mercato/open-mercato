@@ -14,6 +14,7 @@ import {
   isChannelSeedingAvailable,
   seedConnectedChannel,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
+import { deleteMessageIfExists } from '../../messages/__integration__/helpers'
 
 /**
  * TC-CHANNEL-EMAIL-HUB-004 — composing from a connected mailbox (#6258).
@@ -132,6 +133,52 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
       body?.fieldErrors?.senderChannelId,
       'the failure should land on the composer sender field',
     ).toBeTruthy()
+  })
+
+  test('both email entry points reject an owned chat channel on the sender field', async ({ request }) => {
+    const token = await getAuthToken(request)
+    test.skip(!(await isChannelSeedingAvailable(request, token)), 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
+
+    const stamp = Date.now()
+    const channelId = await seedConnectedChannel(request, token, {
+      displayName: `Composer chat channel ${stamp}`,
+      providerFlavor: 'chat',
+    })
+    const messageIds: string[] = []
+    const recipient = `client-${stamp}@example.com`
+    const subject = `Refused chat sender ${stamp}`
+    const text = 'An email requires an email channel.'
+
+    try {
+      const composeResponse = await apiRequest(request, 'POST', '/api/messages', {
+        token,
+        data: {
+          type: 'default',
+          visibility: 'public',
+          externalEmail: recipient,
+          subject,
+          body: text,
+          bodyFormat: 'text',
+          senderChannelId: channelId,
+        },
+      })
+      const composeBody = await readJsonSafe<{ id?: string; fieldErrors?: Record<string, string> }>(composeResponse)
+      if (composeBody?.id) messageIds.push(composeBody.id)
+      expect(composeResponse.status()).toBe(422)
+      expect(composeBody?.fieldErrors?.senderChannelId).toBeTruthy()
+
+      const hubResponse = await apiRequest(request, 'POST', '/api/communication_channels/send-as-user', {
+        token,
+        data: { userChannelId: channelId, to: [recipient], subject, body: { plain: text } },
+      })
+      const hubBody = await readJsonSafe<{ messageId?: string; fieldErrors?: Record<string, string> }>(hubResponse)
+      if (hubBody?.messageId) messageIds.push(hubBody.messageId)
+      expect(hubResponse.status()).toBe(422)
+      expect(hubBody?.fieldErrors?.userChannelId).toBeTruthy()
+    } finally {
+      for (const messageId of messageIds) await deleteMessageIfExists(request, token, messageId)
+      await deleteChannelIfExists(request, token, channelId)
+    }
   })
 
   test('a mailbox connected by a different employee is refused, not silently ignored', async ({ request }) => {

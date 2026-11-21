@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -177,6 +178,15 @@ export async function sendAsUser(
     storedAttachments = validation.stored
   }
 
+  if (channel.channelType !== 'email') {
+    const { t } = await resolveTranslations()
+    const error = t(
+      'communication_channels.errors.emailChannelRequired',
+      'Select an email channel to send this message.',
+    )
+    return { ok: false, status: 422, error, fieldErrors: { userChannelId: error } }
+  }
+
   // Create the Message via the messages module compose command. The outbound
   // subscriber picks it up via `messages.message.sent` and routes through the
   // adapter chain.
@@ -188,9 +198,7 @@ export async function sendAsUser(
     sourceEntityType: 'communication_channels.send_as_user',
     sourceEntityId: channel.id,
     externalEmail: input.to[0],
-    ...(channel.channelType === 'email'
-      ? { externalEmailRecipients: [...input.to, ...(input.cc ?? []), ...(input.bcc ?? [])] }
-      : {}),
+    externalEmailRecipients: [...input.to, ...(input.cc ?? []), ...(input.bcc ?? [])],
     externalName: input.subject,
     recipients: [],
     subject: input.subject,
