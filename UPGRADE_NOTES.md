@@ -1,5 +1,22 @@
 # Upgrade Notes
 
+## Deals timeline view tab
+
+The Deals area gains a fourth view, **Timeline** (`/backend/customers/deals/timeline`),
+backed by the new read-only `GET /api/customers/deals/timeline` route. This is
+informational; no migration or configuration is required.
+
+- `KanbanView` and `DEALS_VIEWS` (exported from the deals `ViewTabsRow`) now include
+  `'timeline'`, appended after `'map'`. The union is additive-only, so code that keys a
+  `Record<KanbanView, …>` must add a `timeline` entry when it upgrades.
+- Deployments that override `section:customers.deals.viewTabs` with an explicit
+  `visibleViews` list keep showing exactly the views they list, so the Timeline tab stays
+  hidden until `'timeline'` is added. The page route stays published either way; disable
+  it through `entry.overrides.pages` if it is not wanted.
+- `GET /api/customers/deals` accepts an optional `hasExpectedCloseAt` boolean
+  (`false` = no close date). Combining `hasExpectedCloseAt=false` with a close-date range,
+  or with `isOverdue` while `needsAttention` is not `true`, returns `400`.
+
 ## Deal loss reasons seeded by customers (#8801)
 
 `customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.
@@ -134,6 +151,7 @@ now warns when a connected channel relies on polling but no scheduler is enabled
 or the organization's poll schedule is missing or disabled, and
 `GET /api/communication_channels/me/channels` returns an additive
 `automaticSyncEnabled` boolean that drives that warning.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.

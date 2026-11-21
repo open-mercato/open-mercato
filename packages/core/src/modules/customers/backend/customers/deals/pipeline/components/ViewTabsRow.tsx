@@ -5,14 +5,18 @@ import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
-export type KanbanView = 'kanban' | 'list' | 'map'
+/**
+ * Additive-only union: new deal views may be appended in any minor release, so
+ * consumers keying a `Record<KanbanView, …>` must expect new members on upgrade.
+ */
+export type KanbanView = 'kanban' | 'list' | 'map' | 'timeline'
 
 /**
  * Canonical left-to-right order of the deals views. `visibleViews` selects a
  * subset of these; it never reorders them, so a host that hides one view keeps
  * the same tab order as every other deployment.
  */
-export const DEALS_VIEWS: readonly KanbanView[] = ['kanban', 'list', 'map']
+export const DEALS_VIEWS: readonly KanbanView[] = ['kanban', 'list', 'map', 'timeline']
 
 export type ViewTabsRowProps = {
   active: KanbanView
@@ -31,7 +35,7 @@ export type ViewTabsRowProps = {
  * Registered component id for the deals view switcher. Downstream apps can
  * target it from `widgets/components.ts` to replace or wrap the row, or — the
  * reason it is resolved through the registry at all — to transform its props
- * from one place instead of forking each of the three pages that render it:
+ * from one place instead of forking each of the pages that render it:
  *
  * ```ts
  * export const componentOverrides: ComponentOverride[] = [{
@@ -51,6 +55,7 @@ const VIEW_HREFS: Record<KanbanView, string> = {
   kanban: '/backend/customers/deals/pipeline',
   list: '/backend/customers/deals',
   map: '/backend/customers/deals/map',
+  timeline: '/backend/customers/deals/timeline',
 }
 
 /**
@@ -74,9 +79,10 @@ export function ViewTabsRow({ active, className, visibleViews }: ViewTabsRowProp
     kanban: translateWithFallback(t, 'customers.deals.kanban.view.kanban', 'Kanban'),
     list: translateWithFallback(t, 'customers.deals.kanban.view.list', 'List'),
     map: translateWithFallback(t, 'customers.deals.kanban.view.map', 'Map'),
+    timeline: translateWithFallback(t, 'customers.deals.kanban.view.timeline', 'Timeline'),
   }
 
-  // Link-based tab row (three routes), so the Tabs primitive (state-driven,
+  // Link-based tab row (one route per view), so the Tabs primitive (state-driven,
   // onValueChange) does not fit — real <Link> semantics must stay. Classes
   // mirror the Tabs underline variant: accent-indigo active border,
   // shadow-focus halo.
