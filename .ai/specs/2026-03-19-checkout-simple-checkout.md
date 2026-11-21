@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v2.4 — Release 5 re-landing remediation 2026-11-19, recovery of the pay-link slot and of finalized on-account orders, one compensation sequence and recovery fencing 2026-11-20, on top of the v2.3 revision of 2026-10-26; Phases B.1–B.5 in eComm Release 5, re-landed as steps CH0a–CH6b (§17); B.6 out except the security minimum moved into B.1/B.3) |
+| **Status** | Specification (v2.4 — Release 5 re-landing remediation 2026-11-19, recovery of the pay-link slot and of finalized on-account orders, one compensation sequence and recovery fencing 2026-11-20, merged with #9691's attempt fencing and gateway activation gate 2026-11-21, on top of the v2.3 revision of 2026-10-26; Phases B.1–B.5 in eComm Release 5, re-landed as steps CH0a–CH6b (§17); B.6 out except the security minimum moved into B.1/B.3) |
 | **Author** | Piotr Karwatka (v1), rescoped for the ecommerce suite (v2) |
 | **Created** | 2026-03-19 |
 | **Rescoped** | 2026-08-14 |
@@ -38,7 +38,7 @@
 - `checkout` declares no new `requires`. Session features soft-resolve their peers, and Phase A pay links keep working with none of them installed (D-R5-18). Checkout reads other modules' data only through their services, never with queries on their tables (D-R5-CH5).
 
 **Scope:**
-- `CheckoutSession`, `CheckoutSessionEvent`; `CheckoutTransaction` extended with `session_id`, `quote_id`, `order_id` and the payment-recording markers (§4.4)
+- `CheckoutSession`, `CheckoutSessionAttempt`, `CheckoutSessionEvent`; `CheckoutTransaction` extended with `session_id`, `quote_id`, `order_id` and the payment-recording markers (§4.4)
 - Cart lock/extend/unlock protocol across payment; the submit sequence and its compensation; payment recording on the order; the recovery decision table and the repair jobs
 - Three Phase A changes: fail-closed rate limits answer `503` without a limiter, and the gateway subscribers rethrow retryable failures and resume session payments (§3.2)
 - Address capture, delivery rate selection via `shipping_carriers` with a flat-rate fallback, delivery promotions, payment via `payment_gateways`
@@ -129,7 +129,7 @@ Phase A pay links keep their existing path end to end. They create a `CheckoutTr
 | → `availability` | `commandBus`: `availability.reserve`, `availability.release`, `availability.commit`, every input scoped by `{ tenantId, organizationId }` and keyed by `stock_reservation_key`; `reserve` also passes `storeId: cart.storeId` (null for a store-less cart; the optional `storeId` input of availability §4.1 `reserveAvailability`, D-R5-AV6) |
 | → `customer_groups` | DI `customerGroupsService.resolveTerms` (terms incl. `approval_required_above`, `min_order_value`, `terms_currency_code`, `allow_purchase_on_account`, `allow_quote_requests`, `requires_po_number`). DI `customerCreditService`: `checkCredit`, `reserveCredit`, `releaseCredit`, `linkCreditReservationToOrder`. DI `customerPurchaseApprovalService`: `getApproval`, `getActiveApprovalForSubject` (read only; checkout creates no approval, D-R5-3). Subscribes to `customer_groups.approval.*` (§8.2). |
 | → `ecommerce` (SPEC-029) | DI `storeContextService.resolve(request, { fresh: true })` at the edge; `cart.create` calls `storeContextService.resolveForBuyer(...)` for pay-link buyer identity from the `customerUserId` checkout passes (D-R5-22, §4.3); recovery never calls it (SPEC-029 D-R5-SF4, #10000) |
-| → `promotions` | DI `promotionsService`: `evaluate` with delivery context (D-R5-17), `useCode` with the `orderId` (`UseCodeInput.orderId`), `registerUsage` before payment (C5, D-R4-26). Checkout calls no reversal itself. Reversal after cancellation is **promotions-owned**: a promotions subscriber on `sales.order.cancelled` runs `revertUsage({ orderId })` and `revertCodeUse({ orderId })` idempotently (SPEC-055 amendment, C5). Because `useCode` already carries the `orderId`, that subscriber covers every use checkout consumed. `revertCodeUse?` is an optional member of the service; a caller that needs it checks for it and fails closed when it is absent. `sales` never calls promotions. |
+| → `promotions` | DI `promotionsService`: `evaluate` with delivery context (D-R5-17), `useCode` with the `orderId` (`UseCodeInput.orderId`), `registerUsage` before payment (C5, D-R4-26). Consumption and budget registration are one fenced transaction at step 6c (§7.5). Checkout calls no reversal itself. Reversal after cancellation is **promotions-owned**: a promotions subscriber on `sales.order.cancelled` runs `revertUsage({ orderId })` and `revertCodeUse({ orderId })` idempotently (SPEC-055 amendment, C5). Because `useCode` already carries the `orderId`, that subscriber covers every use checkout consumed. `revertCodeUse?` is an optional member of the service; a caller that needs it checks for it and fails closed when it is absent. Checkout calls neither on quote creation. A discounted quote-to-order conversion has its own sales-owned integration gate (§8.6). `sales` never calls promotions. |
 | → `shipping_carriers` | DI `shippingCarrierService.calculateRates` (§5.3); selected method snapshotted onto the session |
 | → `wms` | Soft. The primary warehouse's address as the delivery origin (§5.3), through a new `wms` read method (below). Carrier quoting is gated on that method's availability, never on `wmsReservationService`. |
 | → `payment_gateways` | `paymentGatewayService.createPaymentSession` and status read, the Phase A surface, unchanged |
@@ -152,7 +152,7 @@ Phase A pay links keep their existing path end to end. They create a `CheckoutTr
 
 The reference reads `carts`, `cart_promotion_applications`, `promotions`, `sales_quotes`, `sales_orders`, `sales_order_lines`, `sales_payments`, `dictionaries` and `wms_warehouses` with raw Kysely (`lib/cartPeer.ts`, `lib/cartLinesPeer.ts`, `lib/warehousePeer.ts`, `commands/submit.ts`); the port replaces every such read with the service calls above.
 
-Checkout's own tables (`checkout_sessions`, `checkout_session_events`, `checkout_transactions`, `checkout_links`, `checkout_link_cart_templates`) are read with `findWithDecryption`/`findOneWithDecryption`.
+Checkout's own tables (`checkout_sessions`, `checkout_session_attempts`, `checkout_session_events`, `checkout_transactions`, `checkout_links`, `checkout_link_cart_templates`) are read with `findWithDecryption`/`findOneWithDecryption`.
 
 ### 3.4 Soft dependencies (D-R5-18)
 
@@ -220,7 +220,7 @@ Standard scoped columns (`id`, `tenant_id`, `organization_id`, `created_at`, `up
 
 `pending_events` (the terminal events a write still owes, §7.3) and its partial index come from #10000 §4.1, which owns the column and its delivery (§17 merge gate).
 
-Indexes: unique `token_hash`; unique `(tenant_id, submit_idempotency_key)` where non-null; `(tenant_id, status, expires_at)`; `(tenant_id, cart_id, status)` for the approval subscriber (§8.2); a partial unique `(tenant_id, cart_id) WHERE status IN ('open', 'awaiting_approval', 'submitting', 'awaiting_payment') AND deleted_at IS NULL` for the one-live-session-per-cart rule (§9.0).
+Indexes: unique `token_hash`; `(tenant_id, status, expires_at)`; partial unique `(tenant_id, organization_id, cart_id) WHERE status IN ('open', 'awaiting_approval', 'submitting', 'awaiting_payment') AND deleted_at IS NULL` for the one-live-session-per-cart rule (§9.0); a scoped `(tenant_id, organization_id, cart_id, status)` lookup for the approval subscriber (§8.2). There is no session-level unique index on `submit_idempotency_key`: the attempt table (§4.5) is the record of every key.
 
 **Removed in v2.3**: `token` (plaintext, C4), `approval_id` (the cart holds `Cart.approvalId`; the session reads it, D-R5-3, X6) and `workflow_instance_id` (no workflow drives the session in Release 5, C11; B.6 adds a correlation column additively if its definitions need one). None of the three was ever implemented.
 
@@ -289,7 +289,31 @@ Partial index `(tenant_id, organization_id, payment_repair_attempted_at nulls fi
 
 The intent's `checkout_disposition` (`setup`, `published`, `completing`, `completed`, `compensating`, `compensated`), its completion claim token and lease columns come from #10000 §4.4, which owns them (§17 merge gate). §7.3 and §12 use them as #10000 defines them.
 
-A session-backed gateway payment creates one `CheckoutTransaction` per attempt at §7.2 step 7, with `session_id` and `order_id` set and `link_id` null. Phase A rows keep `session_id`, `quote_id` and `order_id` null and always carry a `link_id`. Dropping NOT NULL on `link_id` changes the `CheckoutTransaction.linkId` type to `string | null` and lets `GET /api/checkout/transactions` return `linkId: null` for session rows: a BC warning recorded in §14a row 15 with an UPGRADE_NOTES entry.
+A session-backed gateway payment creates one `CheckoutTransaction` per attempt at §7.2 step 7, with `session_id` and `order_id` set and, for a basket with no link, `link_id` null. Phase A rows keep `session_id`, `quote_id` and `order_id` null and always carry a `link_id`. Dropping NOT NULL on `link_id` changes the `CheckoutTransaction.linkId` type to `string | null` and lets `GET /api/checkout/transactions` return `linkId: null` for session rows: a BC warning recorded in §14a row 15 with an UPGRADE_NOTES entry.
+
+Keep the existing scoped idempotency guarantee for link-bound rows with a partial index where `link_id IS NOT NULL`. Add a scoped unique `(organization_id, tenant_id, session_id, idempotency_key)` index where `session_id IS NOT NULL`. Keep link lookup, counter updates and legacy event production on the link-backed path. For a null link require and scope the checkout session and its order and gateway transaction, apply the same transition validation and status CAS, and use the session event contract in §10. A missing or out-of-scope non-null link remains an error. Audit the callback, poll and admin readers for nullable links.
+
+---
+
+### 4.5 `CheckoutSessionAttempt` (`checkout_session_attempts`)
+
+One row per submit attempt, so each `Idempotency-Key` replays its own result instead of overwriting a single session column (§4.1, §7.4). Standard scoped columns (`id`, `tenant_id`, `organization_id`, `created_at`) apply as everywhere in this spec; the columns below are the attempt-specific additions.
+
+| Column | Type | Notes |
+|---|---|---|
+| `session_id` | uuid | |
+| `idempotency_key` | text | Client-generated, one per attempt |
+| `outcome` | text | `in_flight \| completed \| failed` |
+| `sales_order_id` / `sales_quote_id` | uuid, nullable | The document this attempt produced |
+| `terminal_result` | jsonb, nullable | Original success response or definitive failure code, HTTP status and replay-safe details. No credentials or PII |
+| `owner_generation` | bigint | Internal attempt fence, starts at 1 and advances on atomic takeover |
+| `claimed_until` | timestamptz | Database time plus 120 s on claim or renewal. Expiry permits a takeover attempt (§7.4) |
+| `checkpoints` | jsonb | Scoped operation identities and durable issued or settled results for step recovery, including the promotion checkpoint; no provider secrets or raw payment data |
+| `updated_at` | timestamptz | |
+
+Indexes: unique `(tenant_id, session_id, idempotency_key)`; `(session_id, created_at)`.
+
+The current attempt's key is also kept on `CheckoutSession.submit_idempotency_key` (§4.1) for convenience; the table is the record, and there is no session-level unique index on the key. The session's `submit_attempt`, `submit_progress` and `link_slot_attempt` stay on the session row (§4.1): the attempt fence decides **who** may write, and the conditional checkpoint writes of §7.3 decide **from which state** (§7.4).
 
 ---
 
@@ -402,7 +426,7 @@ The `delivery_method` rule and the `DELIVERY_DISCOUNT` effect are authorable in 
 ### 5.5 Payment methods
 
 `GET /api/checkout/sessions/current/payment-methods` returns, server-side:
-- the gateway methods from the store or link configuration whose descriptor supports the session currency;
+- the gateway methods from the store or link configuration whose descriptor supports the session currency and whose B.4 path meets the activation gate in §12.1;
 - `on_account` when the cart is identified (OQ1), the resolved terms have `allow_purchase_on_account`, and `customerCreditService.checkCredit` returns an account in the cart currency that is not on hold (D-R5-5). The response carries the `checkCredit` reason when it is not offered (`no_account`, `on_hold`, `not_permitted`), so the client can explain it;
 - `request_quote` when the resolved terms have `allow_quote_requests = true` (tenant default `false`, D-R5-20).
 
@@ -418,12 +442,13 @@ The `delivery_method` rule and the `DELIVERY_DISCOUNT` effect are authorable in 
 | `awaiting_approval` | `active` (not locked, not abandoned: cart K5) | Yes |
 | Entering `review` | `active` | Yes |
 | Submit begins | `locked` (forced re-price, fresh visibility pass, session id recorded) | No |
-| `awaiting_payment` | `locked`, lock extended to the payment expiry plus a margin (C1) | No |
+| `awaiting_payment` within the committed lock window | `locked`, with an extension covering the payment expiry plus the margin (C1) | No |
+| Cart lock expires with the payment outcome unresolved | Cart sweeper can return it to `active` at its committed expiry | Yes. The unresolved checkout attempt still excludes another submit (§12.1) |
 | Submit succeeds | `converted` (`markConverted` with the session id) | No |
 | Submit fails, compensated | `active` (`unlock` with the session id) | Yes |
 | Session expires or is canceled before submit | `active` (nothing to unlock) | Yes |
 
-The cart is locked **from submit until the outcome**, including payment, and never for the whole funnel. Locking at session creation would strand a cart behind every abandoned checkout, and abandoned checkouts are the majority.
+The cart lock is acquired during submit. The lock covers payment up to its committed expiry or until an earlier terminal cart transition. Locking at session creation would strand a cart behind every abandoned checkout, and abandoned checkouts are the majority.
 
 **Lock input (cart contract, C1, C2, D-R5-23; cart §9.1 in #9999).** `cartService.lock({ cartId, tenantId, organizationId, checkoutSessionId, lockTtlMs?, purpose, request?, extendOnly? })`:
 - `checkoutSessionId` is the session id. A second `lock` with the **same** `checkoutSessionId` on a locked cart is an idempotent extend: it returns the cart and sets the new expiry, with no re-price and no visibility pass (X15). A different session gets `423 cart_locked`. Step 1 of a new attempt always takes a fresh lock: when `cart.lock` answers as a same-session extend (`extended: true`), checkout unlocks and locks again, so the re-price and the visibility pass run for every attempt even when a stalled lock of an earlier attempt still holds the cart (§7.3, a live submit that loses to recovery).
@@ -434,11 +459,11 @@ The cart is locked **from submit until the outcome**, including payment, and nev
 
 **Unlock and convert.** `unlock` and `markConverted` carry `checkoutSessionId`; a mismatch is a uniform `404` (C1), so a stale session can never release or convert a cart another session holds.
 
-**Re-price on lock.** If the forced re-price changes any total, `cart.lock` returns `priceChanges` and submit **aborts before any side effect** with `409 price_changed`. The buyer re-confirms an amount they have seen. The cart's own refusals pass through unchanged: `409 cart_has_unavailable_lines` (visibility, D-R4-24 (1)), `409 cart_requires_approval`, `409 approval_requires_identified_buyer` (D-R5-12), `409 cart_not_active`, `423 cart_locked`, `409 cart_lock_conflict` (a fresh lock lost its compare-and-set to a concurrent cart write; nothing was taken and the buyer can submit again), and the identity refusals of the lock's re-price, `409 cart_buyer_unresolvable` and `503 buyer_resolution_unavailable` (SPEC-029 §6.3, #10000). `409 cart_lock_lost` (an `extendOnly` call on a lapsed lock) is never passed through: it is compensated (§7.3). `409 cart_lock_purpose_mismatch` and `400 invalid_lock_ttl_ms` are checkout defects, answered as `500` and compensated.
+**Re-price on lock.** If the forced re-price changes any total, `cart.lock` returns `priceChanges`; submit releases its own lock and returns `409 price_changed` before reserving anything or creating a document. The buyer re-confirms an amount they have seen. The cart's own refusals pass through unchanged: `409 cart_has_unavailable_lines` (visibility, D-R4-24 (1)), `409 cart_requires_approval`, `409 approval_requires_identified_buyer` (D-R5-12), `409 cart_not_active`, `423 cart_locked`, `409 cart_lock_conflict` (a fresh lock lost its compare-and-set to a concurrent cart write; nothing was taken and the buyer can submit again), and the identity refusals of the lock's re-price, `409 cart_buyer_unresolvable` and `503 buyer_resolution_unavailable` (SPEC-029 §6.3, #10000). `409 cart_lock_lost` (an `extendOnly` call on a lapsed lock) is never passed through: it is compensated (§7.3). `409 cart_lock_purpose_mismatch` and `400 invalid_lock_ttl_ms` are checkout defects, answered as `500` and compensated.
 
 A locked cart rejects mutation with `423 cart_locked` and the session id, so a second tab sends the buyer back to checkout rather than showing a broken basket.
 
-The cart's `release-stale-locks` sweeper can never release a cart mid-payment: the lock outlives `payment_expires_at` by the margin, and `expire-awaiting-payment` (§12) resolves the session at `payment_expires_at`.
+The cart's `release-stale-locks` sweeper applies the committed expiry. Checkout verifies the extension covers the payment expiry plus its margin before handing off to the buyer. When payment cannot be reconciled before expiry, apply the gate in §12.1. An expired cart lock does not prove gateway failure.
 
 ---
 
@@ -456,7 +481,7 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
 4. **Consistency (C9, X13, D-R4-24 (4)).** Tenant, organization, `cart.channel` and the cart currency equal the session's; when the cart has a `store_id`, it equals the store resolved for the request (`storeContextService.resolve(request, { fresh: true })`). Otherwise `409 cart_store_mismatch`. The same check runs at session creation.
 5. **Sales channel (R-5, `sales/AGENTS.md`: every document is scoped to a channel).** The document's `channelId` resolves as: the cart's `salesChannelId`; else, for a storefront cart, the store's default channel binding (`storeContextService`); else, for a link cart, the link's `sales_channel_id` (§4.3). API, agent and POS carts must carry `salesChannelId` from `cart.create`. No channel → `422 sales_channel_unresolved`. The same check runs at session creation.
 6. Required steps complete for the effective configuration, including a shipping method and a shipping address for every cart (D-R5-CH4); otherwise `422 steps_incomplete`. Terms accepted where required.
-7. The stored `payment_method_code` is still offered by the §5.5 listing, re-run now (D-R5-CH2); otherwise `422 payment_method_unavailable`.
+7. The stored `payment_method_code` is still offered by the §5.5 listing, re-run now (D-R5-CH2), including the gateway activation gate (§12.1); otherwise `422 payment_method_unavailable` before any submit side effect.
 8. **Approval (order purpose only).** Advisory read of the cart's approval state: if the cart requires approval (cart K1 basis: goods gross after promotions, excluding delivery, in the cart currency; a currency other than `terms_currency_code` always requires it, D-R5-4; `terms_currency_code` falls back to the organization's base currency, D-R5-37) and `Cart.approvalId` is not `approved` for at least the current total, answer `409 cart_requires_approval` with `request-approval` as the next action. A guest cart above the threshold answers `409 approval_requires_identified_buyer` (D-R5-12). `cart.lock` re-checks both authoritatively (K2).
 9. **`min_order_value` (order purpose only, D-R5-4).** Compared with the goods gross after promotions when the cart currency equals `terms_currency_code` (base-currency fallback, D-R5-37); not checked otherwise. Below it: `409 below_min_order_value`. Amounts compare as exact decimals, never floats.
 10. **PO number.** The stored `purchase_order_number` is present when the resolved `requires_po_number` is true (D-R5-28), otherwise `422 purchase_order_number_required`; it matches the tenant's format when one is configured, otherwise `422 purchase_order_number_invalid`.
@@ -464,21 +489,22 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
 
 ### 7.2 Sequence
 
-Each step commits on its own (every `commandBus.execute()` commits its own transaction), is idempotent under its key, and records `submit_progress` plus a `CheckoutSessionEvent` when it completes. No step holds a database connection while it waits on another: a nested command runs on the caller's transaction (`ctx.transactionalEm`) when the caller has one, and never opens a second connection inside an open transaction (#8414). `attempt = submit_attempt` after the `open → submitting` CAS increments it. `stock_reservation_key = 'checkout:' + sessionId + ':' + attempt + ':stock'`, `credit_reservation_key = 'checkout:' + sessionId + ':' + attempt + ':credit'` and `documentRef = 'checkout:' + sessionId + ':' + attempt`.
+Each step commits on its own (every `commandBus.execute()` commits its own transaction), is idempotent under its key, and records `submit_progress` plus a `CheckoutSessionEvent` when it completes. Each local step advances the scoped attempt checkpoint (§4.5) in the same fenced transaction as its mutation (§7.4); commands join a caller transaction only when their ambient EntityManager and after-commit behaviour support it. Before dispatching an independent command or gateway operation, checkout records it as issued and reconciles its outcome per §12.1 before any incompatible action. No step holds a database connection while it waits on another: a nested command runs on the caller's transaction (`ctx.transactionalEm`) when the caller has one, and never opens a second connection inside an open transaction (#8414). `attempt = submit_attempt` after the `open → submitting` CAS increments it. `stock_reservation_key = 'checkout:' + sessionId + ':' + attempt + ':stock'`, `credit_reservation_key = 'checkout:' + sessionId + ':' + attempt + ':credit'` and `documentRef = 'checkout:' + sessionId + ':' + attempt`.
 
 **Money.** Checkout does no money arithmetic (ADR-2, D-R5-CH6). Every total comes from `sales`: the cart's own totals, or `salesCalculationService.calculateDocumentTotals`. Checkout only compares, as exact decimal strings at the currency's decimal places; it never compares floats or uses an epsilon.
 
 ```
- 0. One transaction: CAS open → submitting; submit_attempt += 1; fresh keys.
+ 0. One transaction: CAS open → submitting; submit_attempt += 1; insert the scoped
+    attempt row (§4.5) with its initial ownership claim; fresh keys.
     Pay-link session, in the same transaction: the conditional completion_count increment
     and link_slot_attempt = attempt (§4.3)
     ├─ limit reached → the transaction rolls back; the session stays open with no slot;
     │  ABORT 409 link_usage_limit_reached
-    └─ committed → emit checkout.session.submitted
+    └─ committed → emit checkout.session.submitted after commit
 
  1. cartService.lock({ cartId, tenantId, organizationId, checkoutSessionId: sessionId,
                        purpose: 'order' | 'quote', request })                      [§6]
-    ├─ priceChanges non-empty → ABORT 409 price_changed (nothing else taken)
+    ├─ priceChanges non-empty → owner unlock; ABORT 409 price_changed (nothing else taken)
     ├─ cart refusal (409/423, §6)  → ABORT, code passed through
     └─ progress = locked
 
@@ -532,6 +558,9 @@ Each step commits on its own (every `commandBus.execute()` commits its own trans
                      + ops notification
     d. lineMap from the persisted order lines' metadata.cartLineId (C18)
     e. Write sales_order_id; progress = document_created
+    sales.orders.create is an independent operation: its issued checkpoint (documentRef)
+    is recorded before dispatch, and a crash with it unresolved is reconciled by the
+    external_reference lookup of 5a, never by a second create under a new key (§7.4, §12.1)
 
     QUOTE OUTCOME (request_quote) — instead of 5a–5e:
        findQuoteByExternalReference(documentRef) → reuse, or sales.quotes.create with the
@@ -557,11 +586,13 @@ Each step commits on its own (every `commandBus.execute()` commits its own trans
           ever started on a stock_lost order.
     b. IF on_account: customerCreditService.linkCreditReservationToOrder({ scope,
        idempotencyKey: credit_reservation_key, orderId })             (C6)
-    c. promotionsService.useCode({ codeId, codeString, cartId, orderId, customerId, type })
-       per snapshot.appliedCodes entry; promotionsService.registerUsage({ orderId,
-       orderType: 'order', customerId, currency, appliedPromotions })  (C5, D-R4-26)
-       └─ refused code or non-empty budgetExceeded → compensate (§7.3);
-          ABORT 409 promotion_unavailable (the next lock re-prices without it)
+    c. In one attempt-fenced transaction (§7.5): promotionsService.registerUsage({ orderId,
+       orderType: 'order', customerId, currency, appliedPromotions }), then
+       promotionsService.useCode({ codeId, codeString, cartId, orderId, customerId, type })
+       per snapshot.appliedCodes entry, and the promotion checkpoint     (C5, D-R4-26)
+       └─ refused code or non-empty budgetExceeded → roll back all of 6c;
+          compensate (§7.3); ABORT 409 promotion_unavailable before payment
+          (the next lock re-prices without it)
     d. progress = finalized
 
  7. IF gateway:
@@ -571,11 +602,13 @@ Each step commits on its own (every `commandBus.execute()` commits its own trans
        payment_intent_ref, payment_expires_at (provider expiry, default 60 min);
        cartService.lock(same checkoutSessionId,
                         lockTtlMs = payment_expires_at − now + 15 min)          (C1 extend)
+       Verify the committed lock extension before returning the hand-off.
        status = awaiting_payment;
        progress = payment_initiated; emit checkout.payment.initiated
        respond with the payment hand-off (§9.3)
        └─ intent creation fails → compensate (§7.3); ABORT 502 payment_unavailable
-    Payment result (below) → complete or compensate.
+    Payment result (below) → complete on success, compensate on a definitive failure;
+    an unknown result reconciles the issued operation (§12.1).
 
  8. IF on_account (no gateway). Each sub-step is idempotent and records its checkpoint,
     so recovery resumes after the last one (§12.1):
@@ -643,17 +676,17 @@ Outcomes:
 
 ### 7.3 Compensation
 
-Reverse of acquisition, each action idempotent under the acquisition key and safe to re-run.
+Reverse of acquisition, each action idempotent under the acquisition key and safe to re-run. Admit compensation only under the current attempt fence (§7.4) after proving that incompatible issued operations settled (§12.1). An owner-only cart command returning 404 is a no-op for this compensation only after a scoped read proves this attempt no longer holds that lock.
 
 | Failure at | Compensation |
 |---|---|
-| 1 (lock refused / price changed) | Nothing |
+| 1 (lock refused / price changed) | Nothing on refusal; release the owner lock if acquired before returning `price_changed` |
 | 2 (snapshot self-check, delivery re-evaluation) | Unlock cart |
 | 3 (stock shortfall) | `availability.release` (no-op if nothing held); unlock cart |
 | 4 (credit refused) | Release stock; unlock cart |
 | 5a/5b with no order (order creation failed, and the `documentRef` probe finds none) | Release credit (`releaseCredit({ scope, reserveIdempotencyKey, reason })`); release stock; unlock cart |
 | Quote outcome, 5c mismatch | As above; the draft quote stays as an ordinary, visible quote. Checkout does not delete documents |
-| 5c–8a, before the order is confirmed (order exists: totals mismatch, commit/link/code failure, intent failure, payment failure or expiry, a failed confirmation) | **Cancel the order** by the compensation sequence below: the `compensating` checkpoint, then the fenced `sales.orders.update(statusEntryId of canceled)`, emitting `sales.order.cancelled`. That one event releases the order's stock hold (`wms`), the linked credit reservation (`customer_groups` subscriber, D-R5-2 via C6) and the promotion usage and code uses (`promotions` subscriber, C5; every use carries the `orderId`, so checkout calls no `revertCodeUse` itself). Checkout then releases credit by key if step 6b did not run, releases stock by key if step 6a did not run, releases the pay-link slot with the write that sets `compensated` (§4.3), and unlocks the cart |
+| 5c–8a, before the order is confirmed (order exists: totals mismatch, commit/link/code failure, intent failure, payment failure or expiry, a failed confirmation) | **Cancel the order** by the compensation sequence below: the `compensating` checkpoint, then the fenced `sales.orders.update(statusEntryId of canceled)`, emitting `sales.order.cancelled`. That one event releases the order's stock hold (`wms`), the linked credit reservation (`customer_groups` subscriber, D-R5-2 via C6) and the promotion usage and code uses (`promotions` subscriber, C5; every use carries the `orderId`, so checkout calls no `revertCodeUse` itself). Checkout then releases credit by key if step 6b did not run, releases stock by key if step 6a did not run, releases the pay-link slot with the write that sets `compensated` (§4.3), and unlocks the cart. A rolled-back step 6c leaves zero promotion writes; after a committed step 6c the subscriber reverses only the ledger entries attributed to this scoped order (§7.5) |
 | 8b–8c, the order confirmed (cart conversion failed or the lock was lost) | **Never cancel.** Conversion pending, below |
 
 Every compensation writes a `CheckoutSessionEvent` of kind `compensation` and emits `checkout.compensation.executed`.
@@ -721,7 +754,7 @@ Submit-step commands are not undoable (§11, D-R5-10); compensation is the only 
 
 ### 7.4 Idempotency and concurrency
 
-`Idempotency-Key` is client-generated and sent on every submit attempt; it is stored as `submit_idempotency_key`.
+The buyer sends a fresh `Idempotency-Key` for each new attempt. Look up the scoped attempt (§4.5) after authorization and before testing its old optimistic-lock value. A different key while any attempt is in flight cannot start another attempt. A repeat of an in-flight submit returns `409 submit_in_progress`; the current attempt's key in `awaiting_payment` returns its payment hand-off (200). Completed and failed keys replay their own stored outcomes. A retry after an abort before a document uses a new key, the usual preconditions and fresh reservation identities; a `failed` session takes no new attempt (below). The active-session index (§4.1) and the owner-bound cart lock (§6) also guard against cross-session submit.
 
 - First call proceeds.
 - A repeat while the attempt is in flight (`submitting`) returns `409 submit_in_progress`; it does not queue behind it.
@@ -733,6 +766,26 @@ Submit-step commands are not undoable (§11, D-R5-10); compensation is the only 
 Concurrency is enforced by the conditional update `status = 'open' → 'submitting'` (row-level CAS on `status` plus `updated_at`). Exactly one caller wins. This is the guard against the double-tap and the retried-request duplicate order. The `external_reference` lookup-before-create on the document itself (`sales_orders` for an order, `sales_quotes` for a quote, §7.2 step 5a) is the guard against a crash between document creation and the session write. The key lives on the document that survives, so no later step can delete it.
 
 A repeat request gets the same response body as the original (§9.3, `SubmitResponse`), except a repeat after an abort before a document, which starts a fresh attempt (above). The payment hand-off of a repeat is read again from the gateway transaction; checkout never stores a `clientSecret`.
+
+**Fence continuation and compensation.** Acquire locks in session-then-attempt order. Every submit, recovery, result callback/poll, retry, or expiry continuation must match tenant, organization, session, current attempt key, immutable attempt id, observed generation and allowed state before it writes. The submitting owner starts at generation 1. When its claim expires, a contender may take over by a non-waiting lock and scoped conditional update that checks `in_flight` and the observed generation/expired database-clock claim, increments the generation and commits a new claim. A locked row or zero-row update means no takeover. After an acknowledged hand-off the idle synchronous owner can relinquish its claim so a verified payment result can continue it; callback/poll races use the same atomic acquisition.
+
+The result callback must first authenticate the provider event and match the scoped gateway transaction and current attempt. An unmatched callback does not acquire or advance a checkout attempt.
+
+For a local effect, revalidate and renew ownership while holding the locks through the domain/checkpoint commit. If validation or the checkpoint write fails, roll back the transaction. Retry after a rollback reacquires ownership. `sales.orders.create` and `sales.quotes.create` are independent operations today: the `external_reference` lookup of step 5a is how an issued create is reconciled, and the approved external-reference index (D-R5-30) is a correlation aid, not a uniqueness or fencing guarantee by itself.
+
+**Fence and checkpoint writes together.** The attempt fence decides which caller may act for an attempt; the conditional checkpoint writes of §7.3 decide which state transition that caller may make. Every `submit_progress` or session-status write matches both: the session row's attempt, eligible status and expected prior checkpoint, and the attempt row's owner generation. A caller that loses either re-reads and follows the newer state (§7.3, checkpoint writes).
+
+For an independent effect, durably record its stable operation identity as issued before dispatch. Takeover preserves that record even if the old caller paused before sending the call. A stale owner cannot admit another operation, update a result, or release the successor's resources. The current owner may reconcile the original operation, never infer rollback from a missing row while an issued call could still commit. Only a definitive outcome, or a documented idempotent provider operation using the identical durable identity, permits the next applicable step (§12.1). Terminal writes and cleanup match the exact scoped attempt and owner token.
+
+### 7.5 Promotion consumption and budget allocation (step 6c)
+
+Use `promotions.usage.register` with the existing `RegisterUsageInput { orderId, orderType, customerId, currency, appliedPromotions }` and `promotions.code.use` with `UseCodeInput { codeId, codeString, cartId, orderId, customerId, type }`, always passing the `orderId` (SPEC-055's additive optional `orderId` and its replay key `(codeId, cartId, orderId)`). The handlers accept `ctx.transactionalEm`; the current convenience facade builds its own context. The future integration must compose the handlers in the same attempt-fenced outer transaction, preserve their authorization and run audit/cache/event effects after its commit. Prove this boundary before exposing the flow.
+
+Run registration for the full locked price snapshot before consuming any codes. `ok: true` is insufficient: any entry in `budgetExceeded` aborts and rolls back every accepted promotion write. The authoritative checks lock promotion rows and keep the existing budget currency and basis rules. Acquire overlapping promotion locks in a deterministic id order and consume each distinct resolved code once in a deterministic order after all allocations are accepted. A code refusal rolls back both the discount usage and all code writes. On either refusal, run §7.3 and return the existing `409 promotion_unavailable` without starting payment or completing an on-account order.
+
+Commit the ledger writes, including promotions-owned attribution of each exact code usage row to the scoped order for reversal, and the attempt's 6c completion checkpoint in that one transaction. Recording a detached checkpoint after `useCode` returns does not meet the guarantee. After an unknown commit, the owner re-reads under the attempt fence: a committed checkpoint skips both operations; a definitively rolled-back transaction allows both again. On cancellation, promotions reverses only the attributed order's code consumption and budget rows idempotently. The shipped command input and existing callers keep their contracts. The existing code command returns no usage id. Its future internal composition must record the usage id and, for a dynamic code, the generated-code identity in the scoped attribution record as it creates the usage. Checkout must not infer attribution from a cart-wide lookup. This composition and reversal are implementation requirements, not available behavior today.
+
+A post-capture local completion failure retries from the last durable checkpoint, with an ops notification. It neither repeats promotion consumption nor treats the captured payment as failed. Gateway settlement and cart ownership still govern whether checkout can complete (§12.1).
 
 ---
 
@@ -788,7 +841,7 @@ Checked by checkout as precondition 9 (§7.1), on the K1 basis (goods gross afte
 - Lock with `purpose: 'quote'`; the stock reservation still surfaces shortfalls and is released right after the quote exists (a quote is non-binding; stock is taken when the merchant converts and confirms, through the existing automation).
 - The quote is created by `sales.quotes.create`, the only checkout use of that command (D-R5-CH1), in the `draft` status entry (C17), with `externalReference = documentRef`, the PO number as `customerReference`, the §7.2 field mapping and `metadata.cartLineId` on every line. It is idempotent through `findQuoteByExternalReference` and the `sales_quotes (tenant_id, external_reference)` index (D-R5-30). The cart is converted with `salesQuoteId` and a quote `lineMap`.
 - Creating the quote notifies `sales.quotes.manage` holders (`sales.quote.created`). That is the intended signal here: the merchant has a quote to review.
-- No payment, no credit, no promotion code consumption or usage registration. Approval returns at quote acceptance (`subject_type: 'quote'`), which is outside Release 5: the merchant converts the quote.
+- Quote creation takes no payment or credit and does not consume codes or budgets. Approval returns at quote acceptance (`subject_type: 'quote'`), outside Release 5. The current sales conversion handler has no promotion hook. Before a later conversion can commit a quoted discount, its sales-owned integration must revalidate it and use §7.5's atomic allocation and code consumption with a durable conversion checkpoint keyed by the scoped quote/order identity. A retry skips committed usage. A code or budget refusal leaves the quote unconverted. The expired-code and repricing policy for quote acceptance remains open (§18); quote creation confers no promise that the original discount is still available.
 
 ---
 
@@ -981,7 +1034,7 @@ type ResultResponse = Omit<SubmitResponse, 'outcomeKind' | 'next'> & {
 
 ## 10) Events
 
-Declared with `createModuleEvents`. These are state signals: no checkout event sends a notification to a buyer or approver (D-R5-32). The only notification checkout raises is the staff-facing ops notification of §10.1. Every payload carries `tenantId` and `organizationId`, carries ids and statuses only, and never PII (C22).
+Declare the new session events with `createModuleEvents`. These are state signals: no checkout event sends a notification to a buyer or approver (D-R5-32). The only notification checkout raises is the staff-facing ops notification of §10.1. Every payload carries `tenantId` and `organizationId`, carries ids and statuses only, and never PII (C22).
 
 | Event | Payload (besides `tenantId`, `organizationId`, `sessionId`) |
 |---|---|
@@ -1004,7 +1057,15 @@ Declared with `createModuleEvents`. These are state signals: no checkout event s
 
 The approval events are emitted by the §8.2 handlers. They are not the approval's own events, which are `customer_groups.approval.*`.
 
-**Relationship to Phase A's `checkout.transaction.*` events.** Phase A's `checkout.transaction.sessionStarted`/`.completed`/`.failed` are unchanged and continue to fire for every `CheckoutTransaction` row, session-backed or not. `checkout.payment.*` is additive and session-scoped, firing *alongside* the transaction-level events for a session-based checkout, not instead of them.
+**Transaction and session events.** Publish only from committed transitions and preserve the existing repeat-delivery guards.
+
+| Transaction | Emission contract |
+|---|---|
+| Link-backed Phase A pay link | Keep the existing `checkout.transaction.*` triggers, payload values and delivery behavior. A real non-null `linkId` and `slug` still identify the scoped link. The existing nullable payment fields, scope and amount fields keep their shapes. There is no session event. |
+| Link-backed session checkout | Keep the same legacy events for their corresponding transitions and real link, and publish the applicable `checkout.payment.*` and `checkout.session.*` events for the scoped session. Link-based counters and notifications still use their existing triggers. |
+| Linkless session checkout | Publish only the applicable scoped `checkout.payment.*` and `checkout.session.*` events from the table above. Legacy link events, including `checkout.transaction.sessionStarted`, terminal transaction events, and `checkout.link.usageLimitReached`, are inapplicable. Do not synthesize a link id or slug. |
+
+The link-backed events keep `transactionId`, `linkId`, `templateId`, `slug`, `status`, `paymentStatus`, `amount`, `amountExact`, `currency`, `gatewayProvider`, `gatewayTransactionId`, `occurredAt`, `tenantId` and `organizationId` under their existing contracts. Existing subscribers can continue to resolve links and send Phase A notifications without changes.
 
 Every event in the table is declared in `checkout/events.ts`, including `checkout.session.stepChanged` and `checkout.cartTemplate.*`, which the reference does not declare; the port must add them. The payloads are exactly the table's: `checkout.session.submitted` carries `paymentMethodCode`, and `checkout.compensation.failed` carries one `action` per event.
 
@@ -1060,8 +1121,8 @@ All via the `queue` worker contract. Every worker reads checkout rows with `find
 | Job | Cadence | Purpose |
 |---|---|---|
 | `expire-checkout-sessions` | every 5 min | Expire `open` and `awaiting_approval` sessions past TTL. Nothing is reserved in either state, so nothing is released; the cart's approval is kept (X6) |
-| `recover-stuck-submits` | every minute | Sessions in `submitting` with `submit_started_at` older than 120 s, and sessions in `awaiting_payment` at `payment_initiated` whose session transaction has reached a final gateway status and whose `updated_at` is older than 120 s (a lost or failed webhook): §12.1. #10000's clauses of this job stay: session transactions in `completing` whose `completion_lease_expires_at` has passed, and the terminal-event sweep of `pending_events` (§17 merge gate). A stalled compensation is resumed by `repair-order-compensation`, never by this job |
-| `expire-awaiting-payment` | every 5 min | `awaiting_payment` past `payment_expires_at`, excluding `submit_progress = compensating` (a compensation already owned, §7.3): read the gateway status; paid → complete (§7.2 "Payment result"); otherwise run the §7.3 compensation sequence, whose `compensating` checkpoint commits with the intent's `published → compensating`, and fail with `payment_expired`. A paid callback that won `published → completing` first leaves the job nothing to do (§7.3, payment failure or expiry against a paid result). Runs before the extended cart lock can lapse (§6) |
+| `recover-stuck-submits` | every minute | Expired attempt claims (§7.4): acquire the fence, then reconcile per §12.1. That covers sessions in `submitting` with `submit_started_at` older than 120 s, and sessions in `awaiting_payment` at `payment_initiated` whose session transaction has reached a final gateway status and whose `updated_at` is older than 120 s (a lost or failed webhook): §12.1. #10000's clauses of this job stay: session transactions in `completing` whose `completion_lease_expires_at` has passed, and the terminal-event sweep of `pending_events` (§17 merge gate). A stalled compensation is resumed by `repair-order-compensation`, never by this job |
+| `expire-awaiting-payment` | every 5 min | `awaiting_payment` past `payment_expires_at`, excluding `submit_progress = compensating` (a compensation already owned, §7.3): read the gateway status; paid → complete (§7.2 "Payment result"); otherwise run the §7.3 compensation sequence, whose `compensating` checkpoint commits with the intent's `published → compensating`, and fail with `payment_expired`. A paid callback that won `published → completing` first leaves the job nothing to do (§7.3, payment failure or expiry against a paid result). An unknown gateway status, or a paid result after this session lost the cart lock, is not definitive: §12.1. Runs before the extended cart lock can lapse (§6) |
 | `repair-gateway-payments` | every 15 min | Session transactions that are `completed` with `payment_recorded_at` null (the §4.4 partial index): record the `sales` payment idempotently (§7.2 "Payment recording"), set `payment_repair_attempted_at`; ops notification after 5 failed attempts on one transaction |
 | `repair-order-compensation` | every 10 min | Sessions at `submit_progress = compensating` that are `failed`, or `submitting` or `awaiting_payment` with `updated_at` older than 120 s (a compensator that crashed between the checkpoint and its terminal write): resume the §7.3 compensation sequence at step 2 until it writes `compensated` (§7.3, who resumes a compensation). A `confirmed` order is never cancelled (§7.3, confirmation boundary). Every cancellation passes `expectedStatusEntryId` (§7.3, transition fencing); a `409 order_status_conflict` with `confirmed` follows "Cancel loses to a confirm": an `on_account` session is promoted and continues as conversion pending, and a gateway session takes the external-confirmation terminal write (§7.3). Also, sessions `completed` at `order_confirmed` with a null `failure_code`: `markConverted` is the probe (no cart read first); 200 or the replay → `cart_converted`; 404 → `failure_code = 'cart_conversion_lost'`, retries stop (§7.3, conversion pending). Also, attempts recovery returned to `open` (`recovery` events with `payload.outcome = reopened`, older than the 30 min cart lock TTL and created within the last 24 h, without a later `recovery` event with `payload.outcome = reopened_swept` for that `payload.attempt`; index `(tenant_id, kind, created_at)` on `checkout_session_events`): probe the order by that attempt's `documentRef` and fence-cancel a `draft` one (expected `draft`), release the credit and stock by that attempt's keys (no-ops when already released), then append that `reopened_swept` event (§7.3, a live submit that loses to recovery). Also, session transactions at `checkout_disposition = compensating`, whatever the session status (any status, `submit_progress = compensated` included): re-send the intent's cancel or refund with the same request (#10000 §7.2, cancel and refund operation contract) until it is settled, then `compensating → compensated` under #10000's settlement predicate (§4.4). The session's `compensated` checkpoint never ends this scan; only the intent's own settlement does. Ops notification on the first failure of each session |
 
@@ -1071,7 +1132,7 @@ All via the `queue` worker contract. Every worker reads checkout rows with `find
 
 ### 12.1 Recovery decision table (C24)
 
-Recovery runs under `buildTrustedCommandContext({ tenantId, organizationId, actorType: 'system', reason: 'checkout.recovery:' + sessionId })` (`@open-mercato/shared/lib/commands/trusted-context`, D-R5-CH7; the helper is added by #10011) with the session's own scope. Recovery never takes a fresh cart lock and never calls `resolveForBuyer` (SPEC-029 D-R5-SF4, #10000): it only unlocks, converts, or extends a cart this session still holds. Each probe reads by the attempt's key. The document probe is `salesDocumentLookupService.findOrderByExternalReference` (or `findQuoteByExternalReference` for `request_quote`) with `documentRef` (D-R5-CH1).
+Recovery acquires the attempt fence (§7.4) before any continuation, and runs under `buildTrustedCommandContext({ tenantId, organizationId, actorType: 'system', reason: 'checkout.recovery:' + sessionId })` (`@open-mercato/shared/lib/commands/trusted-context`, D-R5-CH7; the helper is added by #10011) with the session's own scope. Recovery never takes a fresh cart lock and never calls `resolveForBuyer` (SPEC-029 D-R5-SF4, #10000): it only unlocks, converts, or extends a cart this session still holds. Each probe reads by the attempt's stored identity and its scoped keys. The document probe is `salesDocumentLookupService.findOrderByExternalReference` (or `findQuoteByExternalReference` for `request_quote`) with `documentRef` (D-R5-CH1).
 
 | `submit_progress` | Probe | Action |
 |---|---|---|
@@ -1084,14 +1145,19 @@ Recovery runs under `buildTrustedCommandContext({ tenantId, organizationId, acto
 | `order_confirmed` (`on_account`, session `submitting`) | — (the call is the probe) | The confirmed order stands; recovery never compensates it (§7.3, confirmation boundary). Resume step 8b: `markConverted` with this session and this order. A conversion that committed before the crash, with the checkpoint missing, answers the cart's replay (`alreadyConverted: true`, D-R5-CA12) → write `cart_converted`, continue as the next row. A 404, which covers a lost lock and a cart converted for a different order, → conversion pending (§7.3): complete the session, raise the ops notification, `409 cart_already_ordered` guard. The cart read contract (§3.3) carries no conversion order id; the replay is the only identity check |
 | `cart_converted` (`on_account`) | — | Step 8c: the CAS `submitting → completed` with `pending_events [checkout.session.completed]`; deliver it (§7.3, terminal events) |
 | `payment_initiated` / `awaiting_payment` with a settled transaction | Gateway status | Run the "Payment result" outcome (§7.2) |
+| an issued operation (document create, reservation, intent creation or capture) unresolved at a deadline | The issued operation by its durable identity | Keep its identity and report the unresolved outcome to ops. An absent order, quote or provider reference, an unavailable gateway and an elapsed deadline are not definitive failure: issue no new operation under a new key, and neither complete, cancel nor release on that evidence. A definitive outcome resumes the matching row above |
 | `compensating` | — | Left to `repair-order-compensation`, whose scan selects this `submitting` session once `updated_at` is 120 s old and resumes the §7.3 compensation sequence at step 2. Recovery never compensates it itself |
-| any except `compensating` and `compensated`, gateway method, attempt older than the payment TTL without an intent | — | Compensate per §7.3 and fail with `submit_recovery_failed`; ops notification. Once the attempt is older than the payment TTL, this row wins over the forward-resume rows above (`finalized` with no intent never resumes step 7 then). Never applied to `on_account`, which has no intent by design and resumes by the rows above |
+| any except `compensating` and `compensated`, gateway method, attempt older than the payment TTL without an intent and with no intent creation issued | — | Compensate per §7.3 and fail with `submit_recovery_failed`; ops notification. Once the attempt is older than the payment TTL, this row wins over the forward-resume rows above (`finalized` with no intent never resumes step 7 then). Never applied to `on_account`, which has no intent by design and resumes by the rows above |
 
 **Payment-method branch.** Recovery branches on the session's `payment_method_code`, which cannot change while the session is `submitting` (`POST /sessions/current/payment` and every other buyer write require `open`, §7.1), and which the order also carries as `paymentMethodCode` (§7.2 field mapping). A mismatch between the two is an internal error: compensate, fail with `submit_recovery_failed`, ops notification.
 
 **Pay-link slot.** Every row that returns the session to `open` or fails it releases the pay-link slot in the same transaction as that status write, through the one conditional release of §4.3. The one exception is a failure whose order cancellation is still outstanding: the slot is released by the later write that sets `compensated` (§7.3, compensation sequence step 4), and an `on_account` promotion keeps it. A row that completes the session keeps it.
 
 A recovery that resumes forward never creates a second document: the order (or quote) carries `external_reference = documentRef`, and the lookup runs before every create (C3, D-R5-CH1). A recovery never releases holds while an order for the attempt exists; only cancelling that order releases them (§7.3).
+
+**Gateway route activation (B.4).** Keep a session gateway method disabled until its provider path has a documented and approved settlement contract and passing acceptance coverage for every supported expiry outcome, including late capture and unavailable provider status. The contract must cover the bounded lock and stock timing, authoritative reconciliation and the buyer-visible outcome. Store or link configuration alone cannot enable an unqualified route. Keep the method out of discovery and refuse selection and submit with the existing `422 payment_method_unavailable` before creating an attempt, reserving resources, writing a sales document or calling the provider. Recheck eligibility before dispatch if configuration or availability changed; resolve an already issued call through the attempt checkpoint. This gate applies only to the B.4 session gateway flow.
+
+**Reconciliation at expiry.** Existing cart and stock expiry remain bounded, and their jobs still run. An unresolved attempt remains active for the one-session constraint. The cart becoming editable does not permit a second checkout attempt or session. Recovery may not infer from such expiry that the old call stopped. If a gateway can still settle or a sales operation can still commit after expiry, the provider eligibility, late-settlement and buyer-facing outcome require the approved contract before this B.4 provider path can be enabled. This amendment does not select a new refund rule, extend the maximum hold, change Phase A or claim that escalation settles the transaction. See §18 and the blocked acceptance case in §16.
 
 ---
 
@@ -1168,7 +1234,7 @@ Checkout's session surface is new or additive. Phase A changes in four rows (14�
 | # | Surface (BACKWARD_COMPATIBILITY.md) | Change | Classification | Owner spec |
 |---|---|---|---|---|
 | 1 | Module metadata / generated (1, 13) | `checkout/index.ts` `requires` **unchanged** (C10, D-R5-18) | No change | this spec |
-| 2 | DB schema (8) | New `checkout_sessions` (with the partial unique live-session index, §4.1), `checkout_session_events` (with the `(tenant_id, kind, created_at)` index, §4.2), `checkout_link_cart_templates`; nullable `session_id`/`quote_id`/`order_id`/`payment_recorded_at`/`payment_repair_attempted_at` on `checkout_transactions`, index `(tenant_id, session_id)` and the repair partial index (§4.4) | Additive | this spec |
+| 2 | DB schema (8) | New `checkout_sessions` (with the partial unique live-session index, §4.1), `checkout_session_attempts` (§4.5), `checkout_session_events` (with the `(tenant_id, kind, created_at)` index, §4.2), `checkout_link_cart_templates`; nullable `session_id`/`quote_id`/`order_id`/`payment_recorded_at`/`payment_repair_attempted_at` on `checkout_transactions`, index `(tenant_id, session_id)`, the repair partial index and the scoped link-bound and session-bound idempotency indexes (§4.4) | Additive; audit old readers for nullable link ids | this spec |
 | 3 | Signatures (3) | `sales.quotes.create` gains `externalReference` and `customerReference`. `sales.orders.create` gains the optional `suppressStaffNotification` (D-R5-CH8); omitted, behaviour is unchanged. `sales.orders.update` gains the optional `expectedStatusEntryId`, checked under the order row lock it already takes, with `409 order_status_conflict` and no side effects on a mismatch (§7.3, transition fencing); omitted, behaviour is unchanged. The shared line schemas (`linePricingSchema`, `lineSharedSchema`), used by order **and** quote lines, accept `null` wherever `SalesLineSnapshot` declares `\| null` | Warning (widening a validator); UPGRADE_NOTES entry listing every widened field | sales |
 | 4 | DB schema (8) | Index `sales_quotes (tenant_id, external_reference)` | Additive, approved (D-R5-30) | sales migration |
 | 5 | DB schema (8) | Index `sales_orders (tenant_id, external_reference)` | Additive, Ask First on `sales` approved (D-R5-CH1) | sales migration |
@@ -1195,6 +1261,8 @@ Checkout's session surface is new or additive. Phase A changes in four rows (14�
 
 No row removes or renames a contract; no deprecation protocol applies beyond row 11's, which cart D-R5-CA13 owns.
 
+**Legacy event payloads remain stable (§10).** Only link-backed transactions use the legacy event family. Linkless sessions publish the additive session-scoped events with their own payloads. Existing Phase A subscribers retain the real link id and slug.
+
 **Requirements the owner spec has not accepted yet.** A row owned by another spec is a requirement this spec places on that owner. Where the owner spec does not carry it yet, on `main` or in the open PR named, the phase that needs it does not start until it does (§17): `cartService.getCheckoutView` (row 12; absent from the cart spec on `main` and in #9999, CH1a), `appliedCodes` on `getSalesSnapshot` (row 12; #9999's snapshot returns `{ lines: Array<{ cartLineId, snapshot }>, adjustments, totals, currencyCode, updatedAt }` without codes, CH4), `EcommerceStoreSettings.shipping` (row 23; absent from SPEC-029 on `main` and in #10000, and `ecommerceStoreSettingsPatchSchema` is `.strict()`, CH2a), `wmsWarehouseLookupService` (row 24, CH2a), and the `sales` inputs of rows 3 and 6 (`expectedStatusEntryId`, `suppressStaffNotification`, `salesDocumentLookupService`, CH4).
 
 **Phase A non-regression (C10).** A test boots an app with only `checkout` + `payment_gateways` and completes a pay link end to end. The existing Phase A tests run unchanged, including the `update-transaction-status` suite, except the #5030 rate-limit tests, which assert the new `503` (row 14).
@@ -1214,18 +1282,18 @@ UPGRADE_NOTES carries one entry per Warning row (3, 6, 14, 15) and one for step 
 
 | # | Risk | Severity | Failure scenario | Mitigation | Residual |
 |---|---|---|---|---|---|
-| R1 | Payment captured without an order | **Critical** | Payment succeeds; the completion write fails; the buyer is charged and sees a failure. | The order is created and finalized **before** the intent (§7.2 steps 5–7), so a successful payment always has an order; the webhook resume, `expire-awaiting-payment` and recovery read the gateway status before compensating; the gateway subscribers rethrow retryable failures so the event is redelivered (D-R5-CH3) | Low |
-| R2 | Duplicate order from double submit | **Critical** | Double-tap or a retried request creates two orders and two charges. | Conditional `open → submitting` admits exactly one caller; `Idempotency-Key` per attempt; a repeat returns the original result (§7.4); concurrent-submit test is a merge gate | Low |
-| R3 | Leaked stock or credit reservation | **High** | The process dies mid-submit; stock and credit stay reserved against a session that will never complete. | `recover-stuck-submits` with the §12.1 table; checkout holds have a 900 s TTL as a backstop until commit; after commit, cancellation releases through `sales.order.cancelled`; `checkout.compensation.failed` raises an ops notification | Low |
-| R4 | Price changed between review and charge | **High** | A promotion expires or a delivery promotion changes during checkout; the buyer is charged more than the reviewed total. | `cart.lock` re-price and the submit-time delivery evaluation abort with `409 price_changed` before any side effect (§6, §7.2 step 2) | Low |
+| R1 | Payment captured without an order | **Critical** | Payment succeeds; the completion write fails; the buyer is charged and sees a failure. | The order is created and finalized **before** the intent (§7.2 steps 5–7), so a successful payment always has an order to reconcile; the webhook resume, `expire-awaiting-payment` and recovery read the gateway status before compensating; local completion retries from the committed checkpoint; the gateway subscribers rethrow retryable failures so the event is redelivered (D-R5-CH3); an unknown gateway outcome or a paid result after lock loss follows §12.1 | Unresolved expiry gate (§12.1) |
+| R2 | Duplicate order from double submit | **Critical** | Double-tap or a retried request creates two orders and two charges. | Conditional `open → submitting` admits exactly one caller; `Idempotency-Key` per attempt with scoped result replay (§4.5); a single active session per cart; takeover fenced by attempt id and generation (§7.4); concurrent-submit and paused-owner tests are merge gates | Unresolved expiry gate (§12.1) |
+| R3 | Leaked stock or credit reservation | **High** | The process dies mid-submit; stock and credit stay reserved against a session that will never complete. | `recover-stuck-submits` settles issued operations before compensating, by the §12.1 table; checkout holds have a 900 s TTL as a backstop until commit; after commit, cancellation releases through `sales.order.cancelled`; `checkout.compensation.failed` raises an ops notification | Unresolved expiry gate |
+| R4 | Price changed between review and charge | **High** | A promotion expires or a delivery promotion changes during checkout; the buyer is charged more than the reviewed total. | `cart.lock` re-price and the submit-time delivery evaluation abort with `409 price_changed` before reservations, document creation or charging (§6, §7.2 steps 1–2) | Low |
 | R5 | Stale shipping rate | Medium | The buyer changes the address after selecting delivery; the merchant absorbs the difference. | An address change invalidates the quote (§5.2); the snapshot carries `quotedAt` and is re-validated at submit | Low |
-| R6 | Cart stranded in `locked` | Medium | Submit crashes after locking. | Recovery unlocks (§12.1); every compensation unlocks; the cart's `release-stale-locks` sweeper remains the backstop | Low |
+| R6 | Cart stranded in `locked` | Medium | Submit crashes after locking. | Owner-scoped recovery and compensation follow §12.1. The cart sweeper uses the committed expiry as a backstop | Unresolved expiry gate |
 | R7 | Credit overshoot via concurrent checkouts | **High** | Two on-account checkouts for one company jointly exceed the limit. | `reserveCredit` takes a `PESSIMISTIC_WRITE` row lock on the credit account (G1); the eligibility check is advisory and the reservation authoritative; N=20 parallel test | Low |
 | R8 | Approval bypassed by a price change | Medium | A cart approved at 150 000 re-prices to 180 000 and is submitted against the stale approval. | `cart.lock` compares the re-priced total with the approved amount (K2, D-R5-3) and refuses with `409 cart_requires_approval` | Low |
 | R9 | Compensation failure swallowed | **High** | A release call fails and is logged but not surfaced. | Never swallowed: `failure` event, `checkout.compensation.failed`, ops notification, retry job (§7.3) | Low |
 | R10 | Rate-quote API abuse | Medium | Scripted `delivery-options` calls incur carrier cost. | 30/min per session; 5 min cache; flat-rate fallback on carrier failure (§5.3) | Low |
-| R11 | Cart unlocked mid-payment (C1) | **Critical** | The 30 min cart lock lapses during a slow payment; the buyer edits or re-buys the basket while the first order completes. | Lock extended to the payment expiry + 15 min under the same session id; `unlock`/`markConverted` require the session id; `expire-awaiting-payment` resolves first (§6) | Low |
-| R12 | Duplicate or orphan order after a crash (C3) | **Critical** | A crash after `sales.orders.create` and before the session write; recovery releases the holds of a live order, or creates a second one, and the buyer pays twice. | The order itself carries `external_reference = documentRef`, indexed on `sales_orders` (D-R5-CH1); recovery looks it up first and resumes forward when it exists, releasing nothing (§12.1); a kill test placed exactly after order creation | Low |
+| R11 | Cart unlocked mid-payment (C1) | **Critical** | The 30 min cart lock lapses during a slow payment; the buyer edits or re-buys the basket while the first order completes. | Lock extended to the payment expiry + 15 min under the same session id, within the cart bound; `unlock`/`markConverted` require the session id; expiry uses the current lock and attempt checkpoints; uncovered payment paths fail the B.4 activation gate (§6, §12.1) | Unresolved expiry paths disabled |
+| R12 | Duplicate or orphan order after a crash (C3) | **Critical** | A crash after `sales.orders.create` and before the session write; recovery releases the holds of a live order, or creates a second one, and the buyer pays twice. | The order itself carries `external_reference = documentRef`, indexed on `sales_orders` (D-R5-CH1); the create is recorded as issued before dispatch (§7.4); recovery looks the order up first and resumes forward when it exists, releasing nothing (§12.1); a kill test placed exactly after order creation | Definitively settle outstanding creates (§12.1) |
 | R13 | Codes reused or budgets overrun (C5) | **High** | A single-use code is never consumed, or a budget overrun is found after capture. | `useCode` + `registerUsage` before payment; abort with `409 promotion_unavailable`; promotions-owned reversal on cancellation | Low |
 | R14 | Visibility pass skipped at submit (C2) | **High** | A product that left the buyer's assortment is bought. | Storefront lock without a fresh context is refused by the cart; checkout always passes the request; recovery never fresh-locks (D-R5-SF4) | Low |
 | R15 | Phase A regression (C10) | **High** | Hard `requires` stop pay-link-only apps from booting. | No new `requires`; soft peers; non-regression boot test | Low |
@@ -1277,10 +1345,18 @@ Integration tests are self-contained: each creates its tenant, store, products, 
 - No resolvable sales channel → `422 sales_channel_unresolved`.
 - Backorder line holds `min(requested, sellable)` and does not abort; a shortfall line aborts with only the shortfall lines listed; `not_tracked` with `availability` disabled (D-R5-9).
 
+**Promotion and submit recovery implementation gates:**
+- Kill checkout after step 6c commits but before the next step. Replay with the original attempt and verify one use per code, one usage row per promotion and one successfully completed paid checkout. Kill before the 6c commit and verify no usage or counter change survives rollback. Simulate a lost commit response and reconcile from the checkpoint.
+- Race two checkouts for the final same-currency budget. Include a second promotion that the losing checkout could register successfully. The winner alone starts payment; the loser gets 409 without payment, order completion, surviving partial budget allocation, or code use.
+- Exercise the future discounted quote-conversion hook by killing the converter at the checkpoint boundary and replaying. Assert one conversion and one set of promotion effects; on budget refusal, the quote stays unconverted. This is a gate for that hook.
+- Pause a submitter before its `document_created` or `cart_converted` checkpoint, let recovery acquire a new generation, then resume the original. The old owner cannot admit a create or conversion, write a result or release the new owner's holds. Pause inside a composed sales transaction past 120 s; takeover must wait for a later attempt or skip, and a rollback leaves no committed checkpoint.
+- Pause an independent sales or gateway call after its issued checkpoint, including before physical dispatch. Race recovery with callback/poll and expiry. Absence does not permit compensation or a second dispatch under a fresh key. Exercise both definitive settlement and unknown settlement at expiry. The latter remains blocked on the approved §12.1 contract.
+- Replay keys across two organizations and tenants and create competing sessions over the same cart. Verify scoped reads/writes, one active session, previous-attempt result replay, and the existing same-key payment hand-off.
+
 **Compensation and recovery (C26):**
 - `availability.commit` returning `stock_lost` (expiry sweep forced to win before step 6a, stock taken by another order): the order is cancelled, no payment intent is created, submit answers `409 stock_shortfall` (D-R5-8).
 - Injected failure at each of steps 1, 2, 3, 4, 5a, 5b, 5c, 6a, 6b, 6c, 7 (intent) and payment failure: no stock held, no credit reserved, codes and usage reverted, the order (if any) cancelled, and the cart unlocked.
-- A process killed after each of steps 1–7 is reconciled by `recover-stuck-submits` per §12.1 **without a duplicate quote or order** (C3, C24).
+- A process killed after each of steps 1–7 is reconciled by `recover-stuck-submits` per §12.1 from a definitively settled checkpoint **without a duplicate quote or order** (C3, C24). Unresolved issued calls follow the §12.1 gate.
 - **On-account kill after `finalized` (R31):** recovery makes no gateway call and creates no intent; with the lock held it confirms the order, converts the cart and completes the session; with the lock gone it cancels the order, the linked credit reservation is released, and the session fails with `submit_recovery_failed`.
 - **On-account kill after the order confirmation, before the session completes (R31):** recovery does not confirm twice (one `sales.order.confirmed`), converts the cart once (a cart already converted by this session counts as done), completes the session and keeps the credit reservation; an attempt older than the payment TTL is not compensated.
 - **Lock swept after the confirmation, live submit (R32):** a test hook lets `release-stale-locks` release the cart between step 8a and 8b. `markConverted` answers 404 and the order stays `confirmed` (no `sales.order.cancelled`), with the credit reservation standing. The session ends `completed` at `order_confirmed`, the ops notification is raised once, and a new `POST /sessions` or a submit on that cart answers `409 cart_already_ordered`.
@@ -1309,13 +1385,18 @@ Integration tests are self-contained: each creates its tenant, store, products, 
 - Credit released by `customer_groups` when the order is cancelled (C6).
 - Code reuse refused; code returned on payment failure; budget overrun aborts with `409 promotion_unavailable` before payment (C5).
 
+**Link-backed and linkless transaction events:**
+- Run the existing Phase A link-backed success and failure fixtures with the post-commit event assertions. Assert exactly one event per applicable transition under callback/poll redelivery, real scoped link id and slug, the unchanged legacy payload (§10), and the existing link counter and subscriber behavior. Exercise a link-backed B.4 session separately to verify it emits its session events in addition to the legacy payloads.
+- Run a B.4 linkless session through intent creation, definitive success and definitive failure. Its transaction and session results commit without loading or updating a link. Assert scoped payment/session events with the proper ids, no legacy link-bound events, and no duplicate terminal emission on redelivery.
+
 **Lock and payment (C1, C2):**
-- Lock held through a payment longer than 30 min; the cart sweeper does not release it; `expire-awaiting-payment` compensates at the payment expiry.
+- A qualifying payment can outlast the 30 min default. Verify the owner extends the lock within the cart bound, confirms the expiry covers the intent and margin before returning the hand-off, and retains it until the committed deadline. At that deadline, the cart sweeper may release it even if the outcome is unknown. Assert no conflicting compensation or second submit on the unresolved attempt.
+- Configure a session method whose late-settlement case lacks approved acceptance coverage. Verify it is absent from discovery, and direct selection and submit get `422 payment_method_unavailable`. Assert no attempt, lock, holds, sales document, or gateway call. The Phase A pay-link fixture still works. Before enabling a qualified B.4 path, pass its approved late-capture and provider-unavailable acceptance cases. Until the policy is approved, test the disabled path and leave the late-settlement outcome case blocked.
 - `unlock`/`markConverted` with another session id → 404.
 - A storefront cart locked without a context is refused; checkout always supplies one.
 
 **Price, delivery and consistency:**
-- A promotion expiring mid-checkout aborts with `409 price_changed` and no side effect (R4).
+- When a promotion expires mid-checkout, submit returns `409 price_changed`, releases any acquired cart lock and starts no reservation, document or payment (R4).
 - A delivery promotion changing between review and submit aborts with `delivery_changed`; a newly eligible one with `promotion_newly_eligible` (C8).
 - An address change after delivery selection invalidates the quote (R5); a stale rate is re-quoted at submit.
 - Store, channel and currency mismatch → `409 cart_store_mismatch`; a link cart without a store is not compared on store (C9, X13).
@@ -1403,7 +1484,7 @@ The four `gateway-payment-*` subscribers rethrow retryable failures and keep `re
 
 ### CH2b — Delivery selection, delivery promotions, payment methods and `/payment`
 `POST /delivery` with the snapshot and `quoted_totals` (payable from `salesCalculationService`, D-R5-CH6); the §5.2 invalidation rules; delivery promotion evaluation with identical inputs (§5.4); `GET /payment-methods` for gateway methods; `POST /payment` storing the method and PO number (D-R5-CH2), new work.
-**Prerequisites:** CH2a; SPEC-055 delivery promotions un-hidden (D-R5-17). **Gate:** stale-rate invalidation; `quoted_totals` cleared on a cart change; unoffered method → `422`.
+**Prerequisites:** CH2a; SPEC-055 delivery promotions un-hidden (D-R5-17). **Gate:** stale-rate invalidation; `quoted_totals` cleared on a cart change; unoffered method → `422`; a gateway method that fails the B.4 activation gate (§12.1) is absent from discovery and refused at `/payment`.
 
 ### CH3 — Cart-backed links
 `CheckoutLinkCartTemplate`, the `checkout.cartTemplate.*` commands and the link `CrudForm` group, currency and gateway-descriptor validation, the link's `sales_channel_id`, `POST /sessions` from a link with trusted seeding and the capacity probe (§4.3).
@@ -1415,11 +1496,11 @@ The §7.2 steps 0–6 as commands: the pay-link slot reservation, lock, snapshot
 
 ### CH5a — Submit route, replay, return URLs, payment recording
 `POST /sessions/current/submit` and `GET /sessions/current/result` with the §9.3 schemas; `Idempotency-Key` replay (§7.4); step 7 (intent, lock extension, hand-off); the return-URL rule; the `checkout_transactions` columns, nullable `link_id` and the link-less `updateStatus` branch (§14a rows 15, 17); the session resume in the gateway subscribers; payment recording with `sales.payments.create`; submit rate limits. `/result` is new work.
-**Prerequisites:** CH0b, CH4; `sales.payments.create` idempotent per #10000's `operationKey` (§17 merge gate; this PR's `(order, paymentReference)` rule is replaced). **Gate:** the B2C happy path end to end with a recorded payment; concurrent double submit creates one order; same-key replay returns the same body; unsafe return URLs refused.
+**Prerequisites:** CH0b, CH4; `sales.payments.create` idempotent per #10000's `operationKey` (§17 merge gate; this PR's `(order, paymentReference)` rule is replaced). **Gate:** the B2C happy path end to end with a recorded payment; concurrent double submit creates one order; same-key replay returns the same body; unsafe return URLs refused; the §16 link-backed and linkless transaction event cases pass. Each B.4 gateway path stays disabled until its approved settlement and expiry cases pass, and discovery, selection and direct submit are proven to fail closed while those cases are missing (§12.1).
 
 ### CH5b — Recovery and repair workers
 `recover-stuck-submits` (§12.1, order-level probe), `expire-awaiting-payment`, `repair-gateway-payments`, `repair-order-compensation`, all registered by `ensureCheckoutSessionSchedules`; reads with `findWithDecryption`, errors with `isCrudHttpError` and `reportError`.
-**Prerequisites:** CH5a; the container hand-off for workers. **Gate:** recovery overlapping a create or credit reservation still in flight leaves no orphan order or hold (R35); a process killed after each step, including right after order creation and between the pay-link slot increment and the cart lock, is reconciled without a duplicate order, without releasing a live order's holds, and with the slot released once; a payment-recording failure and a failed cancellation are each repaired; a compensator killed before or after the cancel is finished by `repair-order-compensation`, and payment expiry racing a paid callback has one winner in both commit orders (R34).
+**Prerequisites:** CH5a; the container hand-off for workers. **Gate:** recovery overlapping a create or credit reservation still in flight leaves no orphan order or hold (R35); a process killed after each step, including right after order creation and between the pay-link slot increment and the cart lock, is reconciled without a duplicate order, without releasing a live order's holds, and with the slot released once; a payment-recording failure and a failed cancellation are each repaired; a compensator killed before or after the cancel is finished by `repair-order-compensation`, and payment expiry racing a paid callback has one winner in both commit orders (R34); the §16 promotion and submit recovery implementation gates (attempt fencing, issued-operation reconciliation, step 6c atomicity) pass.
 
 ### CH6a — On-account credit, PO number, minimum order, quote requests
 `on_account` and `request_quote` in `/payment-methods`; credit reserve, link and release (§8.3); PO required and format checks (§8.4); `min_order_value` (§8.5); the quote branch with `sales.quotes.create` (§8.6).
@@ -1442,6 +1523,8 @@ None blocks Release 5. Each item states the assumption Release 5 runs on, or is 
 2. **Partial fulfilment of non-backorder lines at submit** — narrowed by D-R5-9: backorder-enabled lines already hold what is sellable and admit the rest. What remains open is a split for lines **without** backorder (ship what is available, cancel or defer the rest), which needs its own design.
 3. **Saved payment methods** — repeat B2B buyers will want stored instruments. Belongs to `payment_gateways` plus spec 9, not here.
 4. **Multi-currency on account** — a credit account is per currency. A buyer checking out in a currency with no account is not offered `on_account` (`no_account`); whether that should fall back to prepayment automatically is a merchandising decision.
+5. **Outstanding operations at expiry** — approve the supported sales and gateway reconciliation and the late-capture/buyer outcome when holds have expired (§12.1). This blocks enabling B.4 for that scenario.
+6. **Discounted quote acceptance** — determine what the merchant/buyer must do when a previously quoted code or discount can no longer be honored. The sales hook must refuse conversion without allocating the entire discount (§8.6).
 
 ---
 
@@ -1511,7 +1594,7 @@ Every refusal names what went wrong and what the buyer can do instead (§9.2).
 ### Epic D — Two tabs, two taps
 
 - **US-D1** — As a buyer with the basket open in a second tab, I want editing it during submit or payment to send me back to checkout (§6, R6, R11).
-  - AC: a locked cart rejects mutation with `423 cart_locked` **and the session id**; the lock holds for the whole payment.
+  - AC: the cart rejects mutation while locked with `423 cart_locked` and the session id. After the bounded expiry the cart may be editable, but an unresolved checkout attempt prevents another submit (§12.1).
 - **US-D2** — As a buyer who double-tapped submit, I want the second attempt refused rather than queued (R2).
   - AC: a repeat in flight returns `409 submit_in_progress`; a repeat after success returns the original result including `sales_order_id`; a new key after an abort before a document starts a fresh attempt, and a `failed` session answers `409 session_not_open` (§7.4).
 
@@ -1536,6 +1619,22 @@ Every refusal names what went wrong and what the buyer can do instead (§9.2).
 ---
 
 ## 21) Changelog
+
+### 2026-11-21 — merge of #9691 into the v2.4 re-landing remediation
+
+- Reconciles #9691 (submit and cart reconciliation, transaction event compatibility and payment activation) with this revision. Kept from #9691: the `checkout_session_attempts` table with per-attempt replay and owner-generation fencing (§4.5, §7.4), issued-operation checkpoints and the unresolved-operation row (§7.2, §12.1), the B.4 gateway activation gate (§5.5, §7.1, §12.1), the atomic step 6c promotion transaction (§7.5), the scoped transaction indexes and the link-backed/linkless event contract (§4.4, §10, §14a), the cart-lock expiry rows (§6), Open Questions 5 and 6, and the §16 implementation gates.
+- Kept from v2.4 where #9691 was written against the v2.3 text: the order is created directly with `sales.orders.create` (D-R5-CH1), so #9691's quote-conversion rules for the order outcome no longer apply and remain only for the merchant's later quote conversion (§8.6); recovery never calls `resolveForBuyer` and never fresh-locks (D-R5-SF4); `useCode` carries the `orderId` (SPEC-055); the conditional checkpoint writes and the compensation sequence of §7.3; `repair-order-compensation` replaces `retry-failed-compensations` (§12). The attempt fence decides who may write and the checkpoint writes decide from which state (§4.5, §7.4).
+
+### 2026-11-20 — transaction event compatibility and payment activation
+
+- **§4.4/§10/§16.** Preserve the existing link-backed event payloads, link counters and subscriber behavior. Linkless sessions use scoped payment and session events. Cover both paths and callback/poll replay.
+- **§5.5/§6/§12.1/§16/§17.** Make the lock deadline explicit and keep B.4 gateway paths disabled until their approved expiry cases pass. Cover direct submit and method-selection refusal with the existing error.
+
+### 2026-11-20 — submit and cart reconciliation
+
+- Carry forward per-attempt result replay, the active-session constraint and the nullable transaction link from the submit-path amendment. Keep Release 5's header-authenticated routes, same-key payment hand-off, cart TTL extension and quote/order branches.
+- Keep D-R5-8 stock commit and C5 promotion allocation before payment. Require atomic promotion ledger writes and a replay checkpoint, with rollback of partial budget registration and future paid-checkout, budget-race and quote-conversion tests.
+- Fence recovery with atomic ownership and durable operation checkpoints. Keep the unresolved operation/expiry and discounted quote acceptance decisions as explicit implementation gates. The storefront submit protocol remains unbuilt.
 
 ### 2026-11-19 — v2.4 (Re-landing audit — remediation of `.ai/analysis/pre-implement-2026-03-19-checkout-simple-checkout-release-5.md`)
 

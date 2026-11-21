@@ -1,5 +1,5 @@
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
-import type { ProgressService } from '../../progress/lib/progressService'
+import { resolveProgressService } from '../lib/resolve-progress-service'
 import type { SyncEngine } from '../lib/sync-engine'
 import type { SyncRunService } from '../lib/sync-run-service'
 import {
@@ -47,13 +47,13 @@ export default async function handle(job: QueuedJob<SyncJobPayload>, ctx: Handle
 
     try {
       const syncRunService = ctx.resolve<SyncRunService>('dataSyncRunService')
-      const progressService = ctx.resolve<ProgressService>('progressService')
+      const progressService = resolveProgressService(ctx)
       const run = await syncRunService.getRun(job.payload.runId, job.payload.scope)
 
       if (run && run.status !== 'completed' && run.status !== 'failed' && run.status !== 'cancelled') {
         await syncRunService.markStatus(run.id, 'failed', job.payload.scope, message)
         if (run.progressJobId) {
-          await progressService.failJob(
+          await progressService?.failJob(
             run.progressJobId,
             {
               errorMessage: message,
