@@ -9,10 +9,14 @@ import {
 test.describe('TC-NOTIF-028: Mark all read failure feedback and retry', () => {
   for (const locale of ['en', 'pl'] as const) {
     test(`${locale} preserves unread notifications on network failure and permits retry`, async ({ page, keyboardFixture }) => {
+      if (locale === 'pl') await page.setViewportSize({ width: 390, height: 844 })
       await openKeyboardNotification(page, keyboardFixture, locale)
       const messages = notificationMessages[locale]
       const panel = page.getByRole('dialog', { name: messages['notifications.title'], exact: true })
       const button = panel.getByRole('button', { name: messages['notifications.markAllRead'], exact: true })
+      const close = panel.getByRole('button', { name: messages['notifications.close'], exact: true })
+      await expect(button).toBeInViewport({ ratio: 1 })
+      await expect(close).toBeInViewport({ ratio: 1 })
       const unreadTab = panel.getByRole('tab', { name: new RegExp(messages['notifications.filters.unread']) })
       await unreadTab.click()
       const unreadBefore = await unreadTab.textContent() ?? ''
@@ -25,6 +29,7 @@ test.describe('TC-NOTIF-028: Mark all read failure feedback and retry', () => {
         await button.click()
         await expect(panel.getByRole('alert')).toHaveText(messages['notifications.error.markAllRead'])
         await expect(button).toBeEnabled()
+        await expect(close).toBeInViewport({ ratio: 1 })
         await expect(unreadTab).toHaveText(unreadBefore)
         await expect(panel.getByText(keyboardFixture.title, { exact: true })).toBeVisible()
         expect(await keyboardFixture.read()).toEqual(keyboardFixture.before)
