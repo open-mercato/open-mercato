@@ -68,8 +68,16 @@ jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({
   emitCrudSideEffects: jest.fn(async () => undefined),
 }))
 
+const mockCreateForFeature = jest.fn(async () => [])
+const mockReportError = jest.fn()
+
 jest.mock('@open-mercato/core/modules/notifications/lib/notificationService', () => ({
-  resolveNotificationService: () => ({ createForFeature: jest.fn(async () => undefined) }),
+  resolveNotificationService: () => ({ createForFeature: mockCreateForFeature }),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
 }))
 
 const TEST_TENANT_ID = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
@@ -195,6 +203,21 @@ describe('sales.orders.create — deprecated payment ledger input (#4695)', () =
     expect(handler).toBeTruthy()
     return handler!
   }
+
+  it('reports notification failures without failing direct order creation', async () => {
+    const { ctx } = buildHarness()
+    const failure = new Error('notification unavailable')
+    mockCreateForFeature.mockRejectedValueOnce(failure)
+
+    const { orderId } = await getHandler().execute(buildInput(), ctx)
+
+    expect(orderId).toBeTruthy()
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      module: 'sales',
+      code: 'sales.order_created_notification_failed',
+      attributes: { commandId: 'sales.orders.create', orderId },
+    })
+  })
 
   it('ignores supplied totals, returns a stable warning, and logs once per process', async () => {
     const first = buildHarness()

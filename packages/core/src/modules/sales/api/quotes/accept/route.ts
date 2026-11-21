@@ -22,6 +22,7 @@ import { resolveEffectiveTenantId } from '../../../lib/publicQuoteTenantScope'
 import { QuoteAcceptedAdminEmail } from '../../../emails/QuoteAcceptedAdminEmail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 
 const logger = createLogger('sales')
 
@@ -85,8 +86,12 @@ export async function POST(req: Request) {
     // PESSIMISTIC_WRITE lock) via ctx.transactionalEm, so the status flip and the
     // order creation are atomic: if conversion fails the whole transaction rolls
     // back, leaving the quote in its prior 'sent' state with no partial order and
-    // no need for an out-of-band compensating write.
-    const { quote, orderId } = await em.transactional(async (trx) => {
+    // no need for an out-of-band compensating write. withAtomicFlush also owns the
+    // transaction lifetime, so the command defers its order-created notification
+    // and CRUD side effects until this transaction commits.
+    let accepted = null as { quote: SalesQuote; orderId: string } | null
+    await withAtomicFlush(em, [async () => {
+      const trx = em
       const findQuoteByToken = (acceptanceToken: string) =>
         findOneWithDecryption(
           trx,
@@ -138,8 +143,10 @@ export async function POST(req: Request) {
       const result = (await commandBus.execute('sales.quotes.convert_to_order', { input: { quoteId: quote.id }, ctx })) as ConvertToOrderResult | null
       const orderId = result?.result?.orderId ?? result?.orderId ?? quote.id
 
-      return { quote, orderId }
-    })
+      accepted = { quote, orderId }
+    }], { transaction: true, label: 'sales.quotes.accept' })
+    if (!accepted) throw new Error('[internal] Quote acceptance finished without a result')
+    const { quote, orderId } = accepted
 
     const order = await findOneWithDecryption(em, SalesOrder, { id: orderId, deletedAt: null }, {}, tenantScope)
     const orderNumber = order?.orderNumber ?? orderId

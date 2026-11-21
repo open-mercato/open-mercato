@@ -158,6 +158,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
     const container = createContainer({ injectionMode: InjectionMode.PROXY })
     container.register({
       em: asValue(mockEm),
+      dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
       salesDocumentNumberGenerator: asValue(mockGenerator),
       eventBus: asValue({ emit: jest.fn() }),
     })
