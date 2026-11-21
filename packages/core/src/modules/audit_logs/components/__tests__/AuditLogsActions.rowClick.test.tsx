@@ -57,6 +57,7 @@ jest.mock('../ActionLogDetailsDialog', () => ({
 
 import { AuditLogsActions, type ActionLogItem } from '../AuditLogsActions'
 import polish from '../../i18n/pl.json'
+import { clearAllOperations } from '@open-mercato/ui/backend/operations/store'
 
 const baseItem: ActionLogItem = {
   id: 'log-1',
@@ -108,6 +109,7 @@ function addInspectAction(onSelect = jest.fn(), relativeTo?: string) {
 
 describe('AuditLogsActions row controls', () => {
   beforeEach(() => {
+    clearAllOperations()
     ;(apiCallOrThrow as jest.Mock).mockReset()
     Object.assign(mockPermissions, { canUndoSelf: true, canUndoTenant: true, canRedoSelf: true, canRedoTenant: true })
     registerRowWidget()
@@ -341,4 +343,23 @@ describe('AuditLogsActions row controls', () => {
     await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1))
     expect(apiCallOrThrow).toHaveBeenCalledTimes(1)
   })
+  it('removes the row and header Undo after a final EUDR conflict, including after refresh', async () => {
+    jest.mocked(apiCallOrThrow).mockRejectedValue(Object.assign(new Error('Reopen the record'), {
+      status: 409, code: 'eudr.errors.undoConflict',
+    }))
+    const onUndoError = jest.fn()
+    const onRefresh = jest.fn().mockResolvedValue(undefined)
+    const props = { items: [baseItem], onRefresh, onUndoError }
+    const view = renderWithProviders(<AuditLogsActions {...props} />, {
+      dict: { 'audit_logs.actions.undo_this': 'Undo row', 'audit_logs.actions.undo': 'Undo header' },
+    })
+    fireEvent.click(await findRowButton('Undo row'))
+    await waitFor(() => expect(onUndoError).toHaveBeenCalledWith('Reopen the record'))
+    expect(screen.queryByRole('button', { name: 'Undo row' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Undo header' })).not.toBeInTheDocument()
+    expect(onRefresh).not.toHaveBeenCalled()
+    view.rerender(<AuditLogsActions {...props} items={[{ ...baseItem }]} />)
+    expect(screen.queryByRole('button', { name: 'Undo row' })).not.toBeInTheDocument()
+  })
+
 })

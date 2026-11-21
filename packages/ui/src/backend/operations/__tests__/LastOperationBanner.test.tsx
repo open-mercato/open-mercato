@@ -9,7 +9,7 @@ import { LastOperationBanner } from '../LastOperationBanner'
 import { apiCall } from '../../utils/apiCall'
 import { flash } from '../../FlashMessages'
 import { useBackendChrome } from '../../BackendChromeProvider'
-import { markUndoSuccess, dismissOperation, useLastOperation } from '../store'
+import { markUndoSuccess, markUndoRefused, dismissOperation, useLastOperation } from '../store'
 
 jest.setTimeout(20000)
 
@@ -28,6 +28,7 @@ jest.mock('../../FlashMessages', () => ({
 jest.mock('../store', () => ({
   useLastOperation: jest.fn(),
   markUndoSuccess: jest.fn(),
+  markUndoRefused: jest.fn(),
   dismissOperation: jest.fn(),
   operationStackConstants: {
     LAST_OPERATION_TTL_MS: 60_000,
@@ -209,7 +210,7 @@ describe('LastOperationBanner', () => {
   it('does not auto-dismiss while an undo request is in flight', async () => {
     jest.useFakeTimers()
     try {
-      let resolveCall: ((value: unknown) => void) | null = null
+      let resolveCall!: (value: unknown) => void
       ;(apiCall as jest.Mock).mockImplementation(() => new Promise((resolve) => { resolveCall = resolve }))
 
       renderWithProviders(<LastOperationBanner />, { dict })
@@ -218,7 +219,7 @@ describe('LastOperationBanner', () => {
       jest.advanceTimersByTime(10_000)
       expect(dismissOperation).not.toHaveBeenCalled()
 
-      resolveCall?.({ ok: true, status: 200, result: {}, response: createMockResponse(200) })
+      resolveCall({ ok: true, status: 200, result: {}, response: createMockResponse(200) })
       await Promise.resolve()
     } finally {
       jest.useRealTimers()
@@ -228,13 +229,13 @@ describe('LastOperationBanner', () => {
   it('does not fire a spurious dismiss after a successful undo removes the operation', async () => {
     jest.useFakeTimers()
     try {
-      let resolveCall: ((value: unknown) => void) | null = null
+      let resolveCall!: (value: unknown) => void
       ;(apiCall as jest.Mock).mockImplementation(() => new Promise((resolve) => { resolveCall = resolve }))
 
       const { rerender } = renderWithProviders(<LastOperationBanner />, { dict })
       fireEvent.click(screen.getByRole('button', { name: /undo/i }))
 
-      resolveCall?.({ ok: true, status: 200, result: {}, response: createMockResponse(200) })
+      resolveCall({ ok: true, status: 200, result: {}, response: createMockResponse(200) })
       await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
@@ -284,4 +285,32 @@ describe('LastOperationBanner', () => {
     })
     expect(markUndoSuccess).not.toHaveBeenCalled()
   })
+  it('dismisses an EUDR conflict without recording a successful undo', async () => {
+    jest.mocked(apiCall).mockResolvedValue({
+      ok: false, status: 409, cacheStatus: null,
+      result: { code: 'eudr.errors.undoConflict', error: 'The later version was kept. Reopen the record and re-apply your change manually.' },
+      response: createMockResponse(409),
+    })
+    renderWithProviders(<LastOperationBanner />, { dict })
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(markUndoRefused).toHaveBeenCalledWith('token-123'))
+    expect(markUndoSuccess).not.toHaveBeenCalled()
+    expect(flash).toHaveBeenCalledWith(expect.stringContaining('Reopen the record'), 'error')
+  })
+
+  it.each([
+    { status: 409, code: 'other.conflict' },
+    { status: 500, code: 'eudr.errors.undoConflict' },
+  ])('keeps retry available for $status $code', async ({ status, code }) => {
+    jest.mocked(apiCall).mockResolvedValue({
+      ok: false, status, cacheStatus: null,
+      result: { code, error: 'Try again' }, response: createMockResponse(status),
+    })
+    renderWithProviders(<LastOperationBanner />, { dict })
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(flash).toHaveBeenCalledWith('Try again', 'error'))
+    expect(markUndoRefused).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled()
+  })
+
 })

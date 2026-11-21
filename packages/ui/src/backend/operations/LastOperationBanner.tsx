@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '../../primitives/button'
 import { apiCall } from '../utils/apiCall'
 import { flash } from '../FlashMessages'
-import { useLastOperation, markUndoSuccess, dismissOperation, operationStackConstants } from './store'
+import { useLastOperation, markUndoSuccess, markUndoRefused, dismissOperation, operationStackConstants } from './store'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { useBackendChrome } from '../BackendChromeProvider'
@@ -51,6 +51,10 @@ export function LastOperationBanner() {
           body: JSON.stringify({ undoToken: token }),
         })
         if (!call.ok) {
+          if (call.status === 409 && call.result?.code === 'eudr.errors.undoConflict') {
+            markUndoRefused(token)
+            router.refresh()
+          }
           const message =
             (call.result && typeof call.result.error === 'string' && call.result.error) ||
             ''

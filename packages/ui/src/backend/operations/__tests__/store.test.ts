@@ -5,6 +5,7 @@
 import {
   coalesceLastOperations,
   dismissOperation,
+  markUndoRefused,
   markUndoSuccess,
   pushOperation,
   clearAllOperations,
@@ -273,5 +274,34 @@ describe('LAST_OPERATION_AUTO_DISMISS_MS — env override (NEXT_PUBLIC_OM_UNDO_B
   it('falls back to the default when the env value is negative', () => {
     const mod = loadStoreWithEnv('-1000')
     expect(mod.operationStackConstants.LAST_OPERATION_AUTO_DISMISS_MS).toBe(10_000)
+  })
+})
+
+
+describe('markUndoRefused', () => {
+  beforeEach(() => clearAllOperations())
+
+  it('persists refusal without creating a redo candidate', () => {
+    pushOperation(makeMeta('stale', 'stale-token'))
+    markUndoRefused('stale-token')
+    const state = JSON.parse(window.localStorage.getItem('om:last-operations:v1')!)
+    expect(state.stack).toEqual([])
+    expect(state.undone).toEqual([])
+    expect(state.refusedUndoTokens).toEqual(['stale-token'])
+    pushOperation(makeMeta('fresh', 'fresh-token'))
+    const afterPush = JSON.parse(window.localStorage.getItem('om:last-operations:v1')!)
+    expect(afterPush.refusedUndoTokens).toEqual(['stale-token'])
+    clearAllOperations()
+    expect(JSON.parse(window.localStorage.getItem('om:last-operations:v1')!).refusedUndoTokens).toEqual([])
+  })
+
+  it('removes only the refused token from a bulk operation', () => {
+    pushOperation(makeMeta('first', 'first-token'))
+    pushOperation(makeMeta('second', 'second-token'))
+    coalesceLastOperations(2)
+    markUndoRefused('second-token')
+    const state = JSON.parse(window.localStorage.getItem('om:last-operations:v1')!)
+    expect(state.stack[0].bulkUndoTokens).toEqual(['first-token'])
+    expect(state.undone).toEqual([])
   })
 })

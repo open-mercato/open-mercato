@@ -1,8 +1,9 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import EudrStatementsPage from '../page'
+import { clearAllOperations, markUndoRefused } from '@open-mercato/ui/backend/operations/store'
 
 type StatementRowStub = {
   id: string
@@ -64,6 +65,7 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
     <div>
       {(data ?? []).map((row) => (
         <div key={row.id} data-testid={`row-${row.id}`}>
+          {row.title}
           {rowActions?.(row)}
         </div>
       ))}
@@ -96,7 +98,7 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({
-    confirm: (...args: unknown[]) => mockConfirm(...args),
+    confirm: () => mockConfirm(),
     ConfirmDialogElement: null,
   }),
 }))
@@ -130,10 +132,10 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,
 }))
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useLocale: () => 'en',
-  useT: () => (key: string) => messages[key] ?? key,
-}))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  const translate = (key: string) => messages[key] ?? key
+  return { useLocale: () => 'en', useT: () => translate }
+})
 
 async function renderListWith(rows: StatementRowStub[]): Promise<void> {
   mockApiCall.mockResolvedValue({
@@ -188,4 +190,17 @@ describe('EUDR statements list delete affordance', () => {
     await waitFor(() => expect(mockFlash).toHaveBeenCalled())
     expect(mockFlash).toHaveBeenCalledWith('Could not delete the statement.', 'error')
   })
+  it('reloads current rows when an undo is refused', async () => {
+    clearAllOperations()
+    await renderListWith([statementRow('current-1', 'draft')])
+    mockApiCall.mockResolvedValue({
+      ok: true, result: { items: [{ ...statementRow('current-1', 'draft'), title: 'Later version kept' }], total: 1, totalPages: 1 },
+    })
+    const previousCalls = mockApiCall.mock.calls.length
+    act(() => markUndoRefused('stale-statement-undo'))
+    await waitFor(() => expect(mockApiCall.mock.calls.length).toBeGreaterThan(previousCalls))
+    await waitFor(() => expect(screen.getByText('Later version kept')).toBeTruthy())
+    act(() => clearAllOperations())
+  })
+
 })

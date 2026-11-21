@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useRefusedUndoTokens } from '@open-mercato/ui/backend/operations/store'
 import { Plus } from 'lucide-react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -124,6 +125,7 @@ export function MitigationActionsSection({
   const [dialogMode, setDialogMode] = React.useState<'create' | 'edit' | null>(null)
   const [editingRow, setEditingRow] = React.useState<MitigationActionRow | null>(null)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const refusedUndoTokens = useRefusedUndoTokens()
   const mutationContextId = `eudr-mitigation-actions:${riskAssessmentId}`
   const { runMutation, retryLastMutation } = useGuardedMutation<MutationContext>({
     contextId: mutationContextId,
@@ -156,7 +158,7 @@ export function MitigationActionsSection({
     return () => {
       cancelled = true
     }
-  }, [reloadToken, riskAssessmentId, translate])
+  }, [reloadToken, riskAssessmentId, translate, refusedUndoTokens])
 
   const refreshRows = React.useCallback(() => {
     setReloadToken((currentToken) => currentToken + 1)
