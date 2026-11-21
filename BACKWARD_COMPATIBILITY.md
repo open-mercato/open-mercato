@@ -714,3 +714,7 @@ the emergency waiver of steps 1–3 on 2026-11-20:
 
 STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
 
+## Record-lock settings (2026-11-21, #3889)
+
+STABLE service signature: `saveSettings(input)` now requires a trusted tenant id. Restoring the unscoped write would retain its instance-wide effect on other tenants. Named human acceptance of the proposed emergency exception is pending. [Migration](UPGRADE_NOTES.md#record-lock-settings-are-scoped-per-tenant-3889) and [spec](.ai/specs/enterprise/implemented/SPEC-ENT-003-2026-01-23-record-locking-module.md#migration--backward-compatibility).
+
