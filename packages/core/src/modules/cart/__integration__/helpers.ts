@@ -323,6 +323,7 @@ export async function createCartProductFixture(
     categoryId?: string | null
     unitPriceNet?: number | string
     unitPriceGross?: number | string
+    grossPrice?: { unitPriceGross: number; taxRate: number }
   },
 ): Promise<CartProductFixture> {
   const categoryId =
@@ -366,8 +367,10 @@ export async function createCartProductFixture(
       channelId: input.salesChannelId,
       priceKindId,
       currencyCode: 'EUR',
-      unitPriceNet: input.unitPriceNet ?? 10,
-      unitPriceGross: input.unitPriceGross ?? 12,
+      ...(input.grossPrice ?? {
+        unitPriceNet: input.unitPriceNet ?? 10,
+        unitPriceGross: input.unitPriceGross ?? 12,
+      }),
     },
     'price fixture',
   );
