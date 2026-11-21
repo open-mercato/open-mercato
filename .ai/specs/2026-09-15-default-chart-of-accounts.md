@@ -311,11 +311,16 @@ document adds.
   written. *(Added 2026-10-29, PR #6137 re-review, R4: schema-only
   validation let a row through that the single-row commands would reject.
   The rules are #6340's and #5663's, not new ones; all 42 types and 46
-  accounts of the template satisfy them.)*
+  accounts of the template satisfy them.)* The numbering check runs over the
+  whole template before the transaction opens, so a broken row writes
+  nothing, not even the account groups; it is a defect in the hardcoded
+  template, not caller input, so it fails with an `[internal]` error (500,
+  reported to telemetry) rather than a translated 4xx.
 - **Write**: inserts every `LedgerAccountType` row first (each linked to
   its zespół's `accountGroupId`), then every `LedgerAccount` row (each
-  linked to its `accountTypeId`), inside one `withAtomicFlush`
-  transaction. The chart is flat, so there is no parent ordering.
+  linked to its `accountTypeId`), inside one transaction that also holds
+  the group provisioning and the precondition check (`withAtomicFlush`
+  joins it). The chart is flat, so there is no parent ordering.
 - **Undo**: records every created id in its own `buildLog` payload
   (`{ undo: { createdAccountTypeIds, createdAccountIds } }`). Before
   soft-deleting anything, `undo` checks the same two guards ordinary
@@ -338,8 +343,9 @@ document adds.
   contract"). *(2026-10-29, PR #6137 re-review, R2.)* The guards and the
   soft-delete run in one transaction under `PESSIMISTIC_WRITE` locks on
   the imported types, then the imported accounts, each in id order, so a
-  posting cannot commit between the check and the delete (decision OQ-R2;
-  #6439 does not implement it yet).
+  posting cannot commit between the check and the delete (decision OQ-R2).
+  Each guard is one query over every imported id (`$in`), on the
+  transaction's own entity manager. *(Implemented in #6439, 2026-11-20.)*
 - **Permission**: `ledger.accounts.manage`.
 
 ### Events
@@ -352,7 +358,9 @@ subscribers never saw the imported rows. After the transaction commits, the
 command reports one `created` change per `LedgerAccountType` and per
 `LedgerAccount` it wrote — the same `ledger.ledger_account_type.created` /
 `ledger.ledger_account.created` events and the same indexer configuration the
-single-row commands use (shared in `lib/crudSideEffects.ts`). `undo` reports
+single-row commands use (shared in `lib/ledgerAccountCrud.ts`, the module
+#6340 introduced for the account config, which now holds the account-type
+config too). `undo` reports
 `deleted` for every row it soft-deletes. A refused import (409) reports
 nothing. There is no separate "chart of accounts imported" event: a consumer
 that needs one can count the `created` events of one command call, and nothing
@@ -379,9 +387,11 @@ stays hidden until both reads have answered. A chart with account types but
 no accounts, a normal intermediate state when building a chart by hand, does
 not show the button, matching the server, which refuses either nonzero
 total.
-The confirmation text takes its row counts from the template data
-(`{{typeCount}}` / `{{accountCount}}`) instead of carrying literal numbers in
-each locale file, so it cannot drift from what the import creates. On success,
+The confirmation text takes its row counts from the template
+(`{{typeCount}}` / `{{accountCount}}`, via `lib/defaultChartOfAccountsCounts.ts`,
+which a unit test checks against the template so the page does not bundle the
+whole template) instead of carrying literal numbers in each locale file, so it
+cannot drift from what the import creates. On success,
 the page's existing `DataTable` refreshes to show every imported row. On the precondition failure, the
 page surfaces the command's own refusal message rather than a generic
 error, so an admin immediately understands why ("your chart of accounts
@@ -598,11 +608,13 @@ every other route in this module.
 
 | Status | Body | When |
 | --- | --- | --- |
-| 400 | `{ "error": "..." }` | No organization context resolved for the request. |
+| 422 | `{ "error": "..." }`, translated `ledger.errors.importRequiresSingleOrganization` | No single organization is selected ("All organizations", or a super admin with no selection). Unlike the module's list routes, the import never falls back to the caller's home organization. *(Added 2026-11-20.)* |
+| 422 | `{ "error": "..." }`, translated `ledger.errors.importOrganizationSelectionUnavailable` | The selected organization could not be honored (deleted or not accessible). *(Added 2026-11-20.)* |
 | 401 | `{ "error": "..." }` | Not authenticated. |
 | 403 | `{ "error": "...", "requiredFeatures": ["ledger.accounts.manage"] }` | Caller lacks `ledger.accounts.manage` (framework-level `requireFeatures` rejection, before the route handler runs). |
 | 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsNotEmpty` | Chart of accounts already has account types and/or accounts. |
 | 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsImportConflict` | A concurrent import lost the unique-number race (see Risks & Impact Review, "Concurrent import attempts"). |
+| 500 | `{ "error": "..." }`, translated `ledger.errors.internal` | Unexpected failure; logged and reported through `reportError` (`ledger.chart_of_accounts_import_failed`). |
 
 (PR #6137 review, m2 — this section previously named the route but
 gave no request/response contract, read directly from `route.ts`'s own
@@ -747,10 +759,14 @@ after them.
 
 ## File Manifest
 
-- `lib/crudSideEffects.ts` (new, 2026-10-16) — the CRUD event and indexer
-  configuration for `LedgerAccount`/`LedgerAccountType`, moved out of
-  `commands/ledgerAccounts.ts` and `commands/ledgerAccountTypes.ts` so the
-  import raises the same events (see Events).
+- `lib/ledgerAccountCrud.ts` (from #6340, extended) — the CRUD event and
+  indexer configuration for `LedgerAccount` and `LedgerAccountType`, shared by
+  `commands/ledgerAccounts.ts`, `commands/ledgerAccountTypes.ts` (including
+  type renumbering) and the import, so the import raises the same events (see
+  Events). It replaces this document's earlier `lib/crudSideEffects.ts`
+  (2026-10-16), merged into #6340's module on 2026-11-20.
+- `lib/defaultChartOfAccountsCounts.ts` (new, 2026-11-20) — the template's
+  row counts for the confirmation dialog (see Backend Pages).
 - `lib/defaultChartOfAccounts.ts` (new) — the hardcoded Phase 1
   template data (42 `LedgerAccountType` rows, 46 `LedgerAccount` rows
   across zespoły 0–8), following `lib/seeds.ts`'s existing
@@ -833,6 +849,17 @@ after them.
 - **Zespół 5 content** (PR #6439 review, point 4): the template offers `500`,
   `501`, `550` and `552`, each with exactly one first account numbered
   `<type>-1`.
+- **Missing account groups** (OQ-R1, added 2026-11-20): with no PL groups the
+  command seeds zespoły 0-8 and imports; with some present it creates only the
+  missing codes; a unique violation on `ledger_account_groups_scope_code_unique`
+  from the seed is tolerated and the import succeeds; a unique violation on any
+  other constraint is not swallowed.
+- **Undo lock** (OQ-R2, added 2026-11-20): `undo` opens one transaction, locks
+  the imported types and then the imported accounts with `PESSIMISTIC_WRITE`
+  ordered by id, and only then runs the two guards (one query each).
+- **Organization selection** (added 2026-11-20): the route answers 422 and runs
+  nothing when no single organization is selected or the selection was
+  rejected, and reports unexpected errors through `reportError`.
 
 ### Integration Coverage
 
@@ -840,8 +867,9 @@ Per root `AGENTS.md` ("Documentation and Specifications": integration
 coverage is mandatory for every affected API path and key UI path, and
 must ship in the same change) — added retroactively (PR #6137 review,
 M2; the original draft had none). New file:
-`packages/core/src/modules/ledger/__integration__/TC-GL-006-import-default-chart-of-accounts.spec.ts`
-(renumbered from `TC-GL-005` when the General Ledger core engine took that number),
+`packages/core/src/modules/ledger/__integration__/TC-GL-007-import-default-chart-of-accounts.spec.ts`
+(renumbered from `TC-GL-005`, then from `TC-GL-006` when #6340's posting lock
+protocol spec took that number),
 following this module's existing `TC-GL-00x` fixture/teardown
 conventions (`.ai/qa/AGENTS.md`: self-contained fixtures, cleaned up in
 `finally`, no reliance on seeded/demo data).
@@ -864,6 +892,14 @@ conventions (`.ai/qa/AGENTS.md`: self-contained fixtures, cleaned up in
   and no account; `POST` returns 409 with the
   `ledger.errors.chartOfAccountsNotEmpty` message, and the accounts page
   does not show the import button.
+- **Undo versus post** (OQ-R2, added 2026-11-20): a second database
+  connection holds a posting to two imported accounts open (`for share`, lines
+  inserted); the undo sent through `POST /api/audit_logs/audit-logs/actions/undo`
+  is still pending after a short wait, and once the posting commits it answers
+  409 (`accountHasPostedEntriesCannotDelete`) with all 46 accounts still
+  present. Same two-connection harness as `TC-GL-006`.
+- **"All organizations"** (added 2026-11-20): with `om_selected_org=__all__`
+  the route answers 422 and the tenant's organization stays empty.
 - **UI path**: the button is absent entirely for a view-only principal
   (`ledger.accounts.view` only); for a principal with
   `ledger.accounts.manage`, clicking it, confirming the dialog, and
@@ -945,26 +981,31 @@ conventions (`.ai/qa/AGENTS.md`: self-contained fixtures, cleaned up in
 - **Mitigation:** Decision OQ-R2: one transaction that locks the
   imported rows in a fixed order, runs both guards and soft-deletes, plus
   an executable undo-versus-post contender test.
-- **Residual risk:** Open until #6439 implements OQ-R2.
+- **Residual risk:** None known. Implemented in #6439 (2026-11-20): undo
+  locks the imported types, then the imported accounts, `for update` in id
+  order, and checks both guards under those locks in the same transaction.
+  Posting takes `for share` on accounts only, and every other ledger command
+  locks type before account, so no lock cycle exists. `deleteLedgerAccountType`
+  (#6340) still takes no lock; that is #6340's scope, not this document's.
 
 ### Import in an organization created after setup
 
 - **Scenario:** An organization created in Directory has no PL account
   groups, because only `seedDefaults` creates them. Without the OQ-R1
   decision every import there would end in 409
-  `chartOfAccountsGroupsNotSeeded` (the behaviour of #6439 today), and the
+  `chartOfAccountsGroupsNotSeeded` (the behaviour of #6439 before 2026-11-20), and the
   button is offered anyway.
 - **Severity:** High (the feature does not work for these organizations).
 - **Affected area:** Every organization created after initial setup.
 - **Mitigation:** Decision OQ-R1: the import seeds missing PL groups
   itself.
-- **Residual risk:** Open until #6439 implements OQ-R1.
+- **Residual risk:** None known. Implemented in #6439 (2026-11-20).
 
 ## Decisions on the PR #6137 re-review of 2026-10-29 (OQ-R1, OQ-R2)
 
 Both were recorded as open questions on 2026-10-29 and are settled below
 by the author after checking the code of #6340 and #6439. Owner
-confirmation was not requested. #6439 does not implement them yet.
+confirmation was not requested. #6439 implements both since 2026-11-20.
 
 ### OQ-R1 — where PL account groups come from in organizations created after setup
 
@@ -1099,18 +1140,32 @@ no new tagging mechanism, no new control-account pattern, no new
 event declaration (the import raises the existing CRUD events, see Events);
 nothing to add to §2.
 
-**Verdict:** Not yet fully compliant (refreshed 2026-11-03). The design is complete; #6439 (`a09415a2`) implements only part of it.
+**Verdict:** Compliant (refreshed 2026-11-20). #6439 implements the whole design.
 
-- **Implemented in #6439:** the template (42 types, 46 accounts), the `importDefaultChartOfAccounts` command in one transaction with one undo entry, validation of every template row through the Zod schemas of `createLedgerAccountType`/`createLedgerAccount`, the refusal when either total is nonzero, the 409 for a concurrent import (`*_scope_number_unique`), the undo refusals checked one after another, the thin POST route, and the button gated by `ledger.accounts.manage` and shown while the accounts total is zero.
-- **Specified here, not yet in #6439:**
-  - OQ-R1: provisioning missing PL groups inside the import; #6439 still reads groups that `seedDefaults` must have created;
-  - OQ-R2: undo and delete in one locking transaction against posting;
-  - R3: hiding the button when account types exist; the page reads only the accounts total;
-  - runtime PL numbering checks (`checkTypeNumber`, `accountNumberFitsType`) on template rows in the import; the template data satisfies them, but the import calls only the Zod schemas.
+- **Implemented in #6439:** the template (42 types, 46 accounts), the `importDefaultChartOfAccounts` command in one transaction with one undo entry, validation of every template row through the Zod schemas of `createLedgerAccountType`/`createLedgerAccount` and through the PL numbering rules (`checkTypeNumber`, `accountNumberFitsType`), provisioning of missing PL groups inside the import (OQ-R1), the refusal when either total is nonzero, the 409 for a concurrent import (`*_scope_number_unique`), undo in one locking transaction against posting (OQ-R2), the thin POST route (422 without a single selected organization, unexpected errors reported to telemetry), and the button gated by `ledger.accounts.manage` and shown only while both the accounts and the account-types totals are zero (R3).
+- **Not run locally:** the integration spec `TC-GL-007` (needs a running app and database); unit and BDD suites pass.
 
 Updated through four rounds of external review (see Changelog).
 
 ## Changelog
+
+### 2026-11-20 — #6439 implements OQ-R1, OQ-R2, R3, R4
+
+- **OQ-R1**: the import seeds missing PL groups in a savepoint of its own
+  transaction; `chartOfAccountsGroupsNotSeeded` is gone from code and locales.
+- **OQ-R2**: undo locks types then accounts (`for update`, id order) and
+  checks both guards in the same transaction; Risks updated to "none known".
+- **R3**: the page reads the account-types total as well and hides the button
+  until both totals answered zero.
+- **R4**: the template is checked against the PL numbering rules before the
+  transaction; a broken row fails with an internal error and writes nothing.
+- **Route**: 422 when no single organization is selected (no fallback to the
+  home organization) or the selection was rejected; unexpected errors go to
+  `reportError`. API Contracts updated.
+- **Files**: the CRUD event/indexer config lives in #6340's
+  `lib/ledgerAccountCrud.ts` (replacing `lib/crudSideEffects.ts`); new
+  `lib/defaultChartOfAccountsCounts.ts`. The integration spec is `TC-GL-007`.
+- Final Compliance Report verdict: compliant.
 
 ### 2026-11-03 — PR #6137 re-review (@haxiorz, 2026-10-31): S1
 

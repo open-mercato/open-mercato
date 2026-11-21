@@ -1,0 +1,715 @@
+// Unit tests for `ledger.importDefaultChartOfAccounts` (OM-19), per the
+// (corrected, 42/46 — PR #6137 review, m3: added account 490; PR #6439
+// review: added 500/501) Testing
+// Strategy in
+// `2026-09-15-default-chart-of-accounts.md`.
+//
+// One bullet in that Testing Strategy is not testable at the command
+// level as written: "Permission enforcement: call the command as a
+// principal without ledger.accounts.manage, assert it's rejected the
+// same way createLedgerAccountType already rejects that principal."
+// Checked directly against the sibling commands this spec's own wording
+// points to (`grep -n "requireFeature|hasFeature|rbac|permission|
+// [Ff]orbidden" commands/ledgerAccountTypes.ts commands/ledgerAccounts.ts`
+// — zero matches): neither `createLedgerAccountType` nor
+// `createLedgerAccount` enforces permissions inside `execute()` at all.
+// Every command in this module is gated exclusively at the HTTP route
+// layer (`metadata.POST.requireFeatures`), checked by the framework
+// before `commandBus.execute()` is ever called — confirmed by this same
+// pattern in `api/fiscal-periods/[id]/lock/route.ts` and reused verbatim
+// for this command's own route,
+// `api/accounts/import-default-chart-of-accounts/route.ts`
+// (`requireFeatures: ['ledger.accounts.manage']`). There is nothing to
+// unit-test on `importDefaultChartOfAccountsCommand.execute` for this
+// bullet — the real enforcement point is that route's `metadata`, which
+// is exercised by manual QA (OM-20), not a command unit test.
+export {}
+
+import { randomUUID } from 'crypto'
+import { LockMode } from '@mikro-orm/core'
+import {
+  JournalEntryLine,
+  LedgerAccount,
+  LedgerAccountGroup,
+  LedgerAccountType,
+} from '../../data/entities'
+import { DEFAULT_CHART_OF_ACCOUNTS_PL } from '../../lib/defaultChartOfAccounts'
+import { buildFakeCtx, buildFakeEm, type FakeEm } from './support/fakeEntityManager'
+
+const registerCommand = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/commands', () => ({
+  registerCommand,
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
+
+// The single-row update commands write through `runCrudCommandWrite`; run its
+// phases directly on the fake EM (same stub as `ledgerAccountTypes.test.ts`).
+jest.mock('@open-mercato/shared/lib/commands/runCrudCommandWrite', () => ({
+  runCrudCommandWrite: jest.fn(async ({ phases }: { phases: Array<() => unknown> }) => {
+    for (const phase of phases) await phase()
+  }),
+}))
+
+const ORG_A = '11111111-1111-4111-8111-111111111111'
+const ORG_B = '33333333-3333-4333-8333-333333333333'
+const TENANT = '22222222-2222-4222-8222-222222222222'
+
+const ACCOUNT_GROUP_CODES_PL = ['0', '1', '2', '3', '4', '5', '6', '7', '8']
+const TOTAL_TEMPLATE_TYPES = DEFAULT_CHART_OF_ACCOUNTS_PL.length
+const TOTAL_TEMPLATE_ACCOUNTS = DEFAULT_CHART_OF_ACCOUNTS_PL.reduce((sum, type) => sum + type.accounts.length, 0)
+
+type ImportResult = { createdAccountTypeIds: string[]; createdAccountIds: string[] }
+type LogEntryLike = { commandPayload: unknown; organizationId: string | null; tenantId: string | null }
+type ImportCommandHandler = {
+  execute: (input: unknown, ctx: unknown) => Promise<ImportResult>
+  buildLog: (args: { input: unknown; result: ImportResult | undefined; ctx: unknown }) => Promise<{
+    payload: unknown
+    organizationId: string | null
+    tenantId: string | null
+  } | null>
+  undo: (args: { logEntry: LogEntryLike; ctx: unknown }) => Promise<void>
+}
+
+function loadImportCommand(): ImportCommandHandler {
+  let handler: unknown
+  jest.isolateModules(() => {
+    require('../importDefaultChartOfAccounts')
+    handler = registerCommand.mock.calls.find(
+      ([candidate]) => candidate.id === 'ledger.importDefaultChartOfAccounts',
+    )?.[0]
+  })
+  if (!handler) throw new Error('ledger.importDefaultChartOfAccounts was not registered')
+  return handler as ImportCommandHandler
+}
+
+function loadImportCommandWithTemplate(template: unknown): ImportCommandHandler {
+  let handler: unknown
+  jest.isolateModules(() => {
+    jest.doMock('../../lib/defaultChartOfAccounts', () => ({ DEFAULT_CHART_OF_ACCOUNTS_PL: template }))
+    require('../importDefaultChartOfAccounts')
+    handler = registerCommand.mock.calls.find(
+      ([candidate]) => candidate.id === 'ledger.importDefaultChartOfAccounts',
+    )?.[0]
+  })
+  jest.dontMock('../../lib/defaultChartOfAccounts')
+  if (!handler) throw new Error('ledger.importDefaultChartOfAccounts was not registered')
+  return handler as ImportCommandHandler
+}
+
+type UpdateHandler = { execute: (input: unknown, ctx: unknown) => Promise<Record<string, string>> }
+
+function loadRegisteredCommand(modulePath: string, commandId: string): UpdateHandler {
+  let handler: unknown
+  jest.isolateModules(() => {
+    require(modulePath)
+    handler = registerCommand.mock.calls.find(([candidate]) => candidate.id === commandId)?.[0]
+  })
+  if (!handler) throw new Error(`${commandId} was not registered`)
+  return handler as UpdateHandler
+}
+
+function seedAccountGroups(em: FakeEm, scope: { organizationId: string; tenantId: string }) {
+  return ACCOUNT_GROUP_CODES_PL.map((code) =>
+    em.seed(LedgerAccountGroup, {
+      id: randomUUID(),
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      jurisdiction: 'PL',
+      code,
+      name: `Zespół ${code}`,
+      createdAt: new Date(),
+    }),
+  )
+}
+
+function nonDeletedCount(em: FakeEm, entityClass: { name: string }, organizationId: string) {
+  return (em.tables.get(entityClass.name) ?? []).filter(
+    (row) => row.organizationId === organizationId && row.deletedAt == null,
+  ).length
+}
+
+describe('ledger.importDefaultChartOfAccounts', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    jest.resetModules()
+  })
+
+  it('the template itself is 42 account types / 46 accounts (sanity check backing every count below)', () => {
+    expect(TOTAL_TEMPLATE_TYPES).toBe(42)
+    expect(TOTAL_TEMPLATE_ACCOUNTS).toBe(46)
+  })
+
+  it('zespół 5 offers 500 and 501 next to 550 and 552, each with its own first account (PR #6439 review, point 4)', () => {
+    const zespol5 = DEFAULT_CHART_OF_ACCOUNTS_PL.filter((type) => type.accountGroupCode === '5')
+    expect(zespol5.map((type) => type.number)).toEqual(['500', '501', '550', '552'])
+    for (const type of zespol5) {
+      expect(type.normalBalance).toBe('DEBIT')
+      expect(type.accounts.map((account) => account.number)).toEqual([`${type.number}-1`])
+    }
+  })
+
+  it('refuses to run against a non-empty chart of accounts and writes nothing — one account type and no accounts (types-only chart, R3)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    em.seed(LedgerAccountType, {
+      id: 'existing-type',
+      organizationId: ORG_A,
+      tenantId: TENANT,
+      number: 'existing',
+      name: 'Existing type',
+      normalBalance: 'DEBIT',
+      accountGroupId: null,
+      deletedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    await expect(
+      command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx),
+    ).rejects.toMatchObject({ status: 409 })
+
+    // Nothing beyond the one pre-existing row was written.
+    expect(em.tables.get('LedgerAccountType')).toHaveLength(1)
+    expect(em.tables.get('LedgerAccount') ?? []).toHaveLength(0)
+  })
+
+  it('soft-deleted rows do not block the import, and the full template is created alongside them', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    em.seed(LedgerAccountType, {
+      id: 'deleted-type',
+      organizationId: ORG_A,
+      tenantId: TENANT,
+      number: 'deleted-type',
+      name: 'Deleted type',
+      normalBalance: 'DEBIT',
+      accountGroupId: null,
+      deletedAt: new Date('2026-01-01'),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.seed(LedgerAccount, {
+      id: 'deleted-account',
+      organizationId: ORG_A,
+      tenantId: TENANT,
+      number: 'deleted-account',
+      accountTypeId: 'deleted-type',
+      description: null,
+      deletedAt: new Date('2026-01-01'),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+
+    expect(result.createdAccountTypeIds).toHaveLength(TOTAL_TEMPLATE_TYPES)
+    expect(result.createdAccountIds).toHaveLength(TOTAL_TEMPLATE_ACCOUNTS)
+    // The soft-deleted rows are still there (untouched), plus the newly
+    // imported ones — non-deleted count is exactly the template size.
+    expect(em.tables.get('LedgerAccountType')).toHaveLength(1 + TOTAL_TEMPLATE_TYPES)
+    expect(em.tables.get('LedgerAccount')).toHaveLength(1 + TOTAL_TEMPLATE_ACCOUNTS)
+    expect(nonDeletedCount(em, LedgerAccountType, ORG_A)).toBe(TOTAL_TEMPLATE_TYPES)
+    expect(nonDeletedCount(em, LedgerAccount, ORG_A)).toBe(TOTAL_TEMPLATE_ACCOUNTS)
+  })
+
+  it('happy path: creates exactly the template\'s account types and accounts, correctly linked', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    const groups = seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const groupIds = new Set(groups.map((g) => g.id as string))
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+
+    expect(result.createdAccountTypeIds).toHaveLength(TOTAL_TEMPLATE_TYPES)
+    expect(result.createdAccountIds).toHaveLength(TOTAL_TEMPLATE_ACCOUNTS)
+
+    const typeIds = new Set(result.createdAccountTypeIds)
+    const typeRows = em.tables.get('LedgerAccountType') ?? []
+    const accountRows = em.tables.get('LedgerAccount') ?? []
+    expect(typeRows).toHaveLength(TOTAL_TEMPLATE_TYPES)
+    expect(accountRows).toHaveLength(TOTAL_TEMPLATE_ACCOUNTS)
+
+    for (const type of typeRows) {
+      expect(type.organizationId).toBe(ORG_A)
+      expect(type.tenantId).toBe(TENANT)
+      // Phase 1 template has no type hierarchy — every type is top-level.
+      expect(groupIds.has(type.accountGroupId as string)).toBe(true)
+    }
+    for (const account of accountRows) {
+      expect(account.organizationId).toBe(ORG_A)
+      expect(account.tenantId).toBe(TENANT)
+      // Phase 1 template has no account hierarchy — every account is top-level.
+      expect(typeIds.has(account.accountTypeId as string)).toBe(true)
+    }
+  })
+
+  it('provisions missing PL account groups (organization created after setup) and then imports (OQ-R1)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    // No groups seeded: an organization created in Directory never ran
+    // `seedDefaults`.
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+
+    expect(result.createdAccountTypeIds).toHaveLength(TOTAL_TEMPLATE_TYPES)
+    expect(result.createdAccountIds).toHaveLength(TOTAL_TEMPLATE_ACCOUNTS)
+    const groups = (em.tables.get('LedgerAccountGroup') ?? []).filter((row) => row.organizationId === ORG_A)
+    expect(groups.map((row) => row.code).sort()).toEqual(ACCOUNT_GROUP_CODES_PL)
+    expect(groups.every((row) => row.jurisdiction === 'PL' && row.tenantId === TENANT)).toBe(true)
+    const groupIdByCode = new Map(groups.map((row) => [row.code as string, row.id as string]))
+    const typeRows = em.tables.get('LedgerAccountType') ?? []
+    for (const seed of DEFAULT_CHART_OF_ACCOUNTS_PL) {
+      const row = typeRows.find((candidate) => candidate.number === seed.number)
+      expect(row?.accountGroupId).toBe(groupIdByCode.get(seed.accountGroupCode))
+    }
+    // The seed ran in a nested transaction (a savepoint) inside the import's
+    // own transaction.
+    expect(em.transactional.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('creates only the missing PL groups when some already exist (OQ-R1)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    const existing = em.seed(LedgerAccountGroup, {
+      id: randomUUID(),
+      organizationId: ORG_A,
+      tenantId: TENANT,
+      jurisdiction: 'PL',
+      code: '0',
+      name: 'Zespół 0',
+      createdAt: new Date(),
+    })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+
+    const groups = (em.tables.get('LedgerAccountGroup') ?? []).filter((row) => row.organizationId === ORG_A)
+    expect(groups).toHaveLength(ACCOUNT_GROUP_CODES_PL.length)
+    expect(groups.filter((row) => row.code === '0')).toEqual([existing])
+  })
+
+  it('tolerates a concurrent group seed that hits ledger_account_groups_scope_code_unique, and still imports (OQ-R1)', async () => {
+    const command = loadImportCommand()
+    // The seed's flush fails the way Postgres fails it when another writer
+    // committed the same groups first. The fake has no rollback, so the rows
+    // the failed seed created stay in its table and stand in for the
+    // concurrent writer's committed rows, which the import re-reads.
+    const em = buildFakeEm({
+      throwOnNextFlush: { code: '23505', constraint: 'ledger_account_groups_scope_code_unique' },
+    })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+
+    expect(result.createdAccountTypeIds).toHaveLength(TOTAL_TEMPLATE_TYPES)
+    expect(result.createdAccountIds).toHaveLength(TOTAL_TEMPLATE_ACCOUNTS)
+  })
+
+  it('does not swallow a unique violation on another constraint raised by the group seed', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm({ throwOnNextFlush: { code: '23505', constraint: 'some_other_unique' } })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    await expect(command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)).rejects.toMatchObject({
+      constraint: 'some_other_unique',
+    })
+  })
+
+  it.each([
+    [
+      'a type number that does not start with its zespół code',
+      [{ number: '110', name: 'Broken', normalBalance: 'DEBIT', accountGroupCode: '0', accounts: [{ number: '110-1', description: 'Broken' }] }],
+      /type 110 breaks the PL type numbering rule \(groupDigit\)/,
+    ],
+    [
+      'a type number that is not three digits',
+      [{ number: '01', name: 'Broken', normalBalance: 'DEBIT', accountGroupCode: '0', accounts: [] }],
+      /type 01 breaks the PL type numbering rule \(format\)/,
+    ],
+    [
+      'an account number that does not start with its type number',
+      [{ number: '010', name: 'OK type', normalBalance: 'DEBIT', accountGroupCode: '0', accounts: [{ number: '020-1', description: 'Broken' }] }],
+      /account 020-1 does not start with its type number 010/,
+    ],
+  ])('a template row with %s fails the import before anything is written (R4)', async (_label, template, message) => {
+    registerCommand.mockClear()
+    const command = loadImportCommandWithTemplate(template)
+    const em = buildFakeEm()
+    const { ctx, dataEngine } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    await expect(command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)).rejects.toThrow(message)
+
+    expect(em.tables.get('LedgerAccountType') ?? []).toHaveLength(0)
+    expect(em.tables.get('LedgerAccount') ?? []).toHaveLength(0)
+    expect(em.tables.get('LedgerAccountGroup') ?? []).toHaveLength(0)
+    expect(em.transactional).not.toHaveBeenCalled()
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  it('undo restores an empty chart of accounts by soft-deleting exactly the imported rows', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+    const logMeta = await command.buildLog({
+      input: { organizationId: ORG_A, tenantId: TENANT },
+      result,
+      ctx,
+    })
+    expect(logMeta).not.toBeNull()
+
+    await command.undo({
+      logEntry: {
+        commandPayload: logMeta!.payload,
+        organizationId: logMeta!.organizationId,
+        tenantId: logMeta!.tenantId,
+      },
+      ctx,
+    })
+
+    expect(nonDeletedCount(em, LedgerAccountType, ORG_A)).toBe(0)
+    expect(nonDeletedCount(em, LedgerAccount, ORG_A)).toBe(0)
+    // Soft-deleted, not hard-deleted — every row is still physically present.
+    expect(em.tables.get('LedgerAccountType')).toHaveLength(TOTAL_TEMPLATE_TYPES)
+    expect(em.tables.get('LedgerAccount')).toHaveLength(TOTAL_TEMPLATE_ACCOUNTS)
+  })
+
+  it('undo locks the imported types, then the imported accounts, for update in id order, before its guards (OQ-R2)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+    const logMeta = await command.buildLog({ input: { organizationId: ORG_A, tenantId: TENANT }, result, ctx })
+    em.find.mockClear()
+    em.count.mockClear()
+    em.transactional.mockClear()
+
+    // Record the order of every read the undo makes.
+    const reads: string[] = []
+    em.find.mockImplementationOnce(async (entityClass: { name: string }, where: Record<string, unknown>, options?: Record<string, unknown>) => {
+      reads.push(`find:${entityClass.name}`)
+      expect(options).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } })
+      return (em.tables.get(entityClass.name) ?? []).filter((row) => (where.id as { $in: unknown[] }).$in.includes(row.id))
+    })
+    em.find.mockImplementationOnce(async (entityClass: { name: string }, where: Record<string, unknown>, options?: Record<string, unknown>) => {
+      reads.push(`find:${entityClass.name}`)
+      expect(options).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } })
+      return (em.tables.get(entityClass.name) ?? []).filter((row) => (where.id as { $in: unknown[] }).$in.includes(row.id))
+    })
+    const countImpl = em.count.getMockImplementation()!
+    em.count.mockImplementation(async (entityClass: { name: string }, where: Record<string, unknown>) => {
+      reads.push(`count:${entityClass.name}`)
+      return countImpl(entityClass, where)
+    })
+
+    await command.undo({
+      logEntry: { commandPayload: logMeta!.payload, organizationId: logMeta!.organizationId, tenantId: logMeta!.tenantId },
+      ctx,
+    })
+
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(reads).toEqual([
+      'find:LedgerAccountType',
+      'find:LedgerAccount',
+      'count:JournalEntryLine',
+      'count:LedgerAccount',
+    ])
+    // One query per guard, over every imported id, not one query per row.
+    expect(em.count.mock.calls[0][1]).toMatchObject({ accountId: { $in: result.createdAccountIds } })
+    expect(em.count.mock.calls[1][1]).toMatchObject({
+      accountTypeId: { $in: result.createdAccountTypeIds },
+      id: { $nin: result.createdAccountIds },
+      deletedAt: null,
+    })
+    expect(nonDeletedCount(em, LedgerAccountType, ORG_A)).toBe(0)
+    expect(nonDeletedCount(em, LedgerAccount, ORG_A)).toBe(0)
+  })
+
+  it('announces every imported row to search and subscribers: one created change per type and per account (PR #6439 review, point 2)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx, dataEngine } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+
+    const calls = (dataEngine.markOrmEntityChange as jest.Mock).mock.calls.map(([arg]) => arg)
+    expect(calls).toHaveLength(TOTAL_TEMPLATE_TYPES + TOTAL_TEMPLATE_ACCOUNTS)
+    expect(calls.every((call) => call.action === 'created')).toBe(true)
+
+    const typeCalls = calls.filter((call) => call.events?.entity === 'ledger_account_type')
+    const accountCalls = calls.filter((call) => call.events?.entity === 'ledger_account')
+    expect(typeCalls.map((call) => call.identifiers.id).sort()).toEqual([...result.createdAccountTypeIds].sort())
+    expect(accountCalls.map((call) => call.identifiers.id).sort()).toEqual([...result.createdAccountIds].sort())
+    for (const call of calls) {
+      expect(call.identifiers.organizationId).toBe(ORG_A)
+      expect(call.identifiers.tenantId).toBe(TENANT)
+      expect(call.events.module).toBe('ledger')
+      // Same indexer configuration the single-row create commands use, so the
+      // query index picks the rows up.
+      expect(call.indexer).toBeDefined()
+    }
+  })
+
+  it('announces nothing when the import is refused', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    em.seed(LedgerAccountType, {
+      id: 'existing-type',
+      organizationId: ORG_A,
+      tenantId: TENANT,
+      number: 'existing',
+      name: 'Existing type',
+      normalBalance: 'DEBIT',
+      accountGroupId: null,
+      deletedAt: null,
+    })
+    const { ctx, dataEngine } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    await expect(command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)).rejects.toMatchObject({ status: 409 })
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  it('undo announces the removal of every imported row', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx, dataEngine } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+    const logMeta = await command.buildLog({ input: { organizationId: ORG_A, tenantId: TENANT }, result, ctx })
+    ;(dataEngine.markOrmEntityChange as jest.Mock).mockClear()
+
+    await command.undo({
+      logEntry: {
+        commandPayload: logMeta!.payload,
+        organizationId: logMeta!.organizationId,
+        tenantId: logMeta!.tenantId,
+      },
+      ctx,
+    })
+
+    const calls = (dataEngine.markOrmEntityChange as jest.Mock).mock.calls.map(([arg]) => arg)
+    expect(calls).toHaveLength(TOTAL_TEMPLATE_TYPES + TOTAL_TEMPLATE_ACCOUNTS)
+    expect(calls.every((call) => call.action === 'deleted')).toBe(true)
+    expect(calls.map((call) => call.identifiers.id).sort()).toEqual(
+      [...result.createdAccountTypeIds, ...result.createdAccountIds].sort(),
+    )
+  })
+
+  it('imported rows are ordinary rows: updateLedgerAccountType and updateLedgerAccount edit them like hand-made rows', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+
+    const typeRows = em.tables.get('LedgerAccountType') ?? []
+    const accountRows = em.tables.get('LedgerAccount') ?? []
+    // Exactly the fields `createLedgerAccountType`/`createLedgerAccount`
+    // themselves would write: no "isImported"/"templateId" style marker.
+    expect(Object.keys(typeRows[0]).sort()).toEqual(
+      ['accountGroupId', 'createdAt', 'id', 'name', 'normalBalance', 'organizationId', 'number', 'tenantId', 'updatedAt'].sort(),
+    )
+    expect(Object.keys(accountRows[0]).sort()).toEqual(
+      ['accountTypeId', 'createdAt', 'description', 'id', 'organizationId', 'number', 'tenantId', 'updatedAt'].sort(),
+    )
+
+    // The real single-row update commands accept imported rows.
+    const fixedAssets = typeRows.find((row) => row.number === '010')!
+    const buildings = accountRows.find((row) => row.number === '010-1')!
+    const updateType = loadRegisteredCommand('../ledgerAccountTypes', 'ledger.updateLedgerAccountType')
+    const updateAccount = loadRegisteredCommand('../ledgerAccounts', 'ledger.updateLedgerAccount')
+
+    await expect(updateType.execute({ id: fixedAssets.id, name: 'Środki trwałe (zmienione)' }, ctx)).resolves.toEqual({
+      ledgerAccountTypeId: fixedAssets.id,
+    })
+    expect(fixedAssets.name).toBe('Środki trwałe (zmienione)')
+
+    await expect(
+      updateAccount.execute({ id: buildings.id, number: '010-9', description: 'Budynki (zmienione)' }, ctx),
+    ).resolves.toEqual({ ledgerAccountId: buildings.id })
+    expect(buildings.number).toBe('010-9')
+    expect(buildings.description).toBe('Budynki (zmienione)')
+
+    // A type renumber cascades to the imported accounts exactly as it does for
+    // hand-made ones (`010` -> `011`, accounts `010-x` -> `011-x`).
+    await updateType.execute({ id: fixedAssets.id, number: '011' }, ctx)
+    expect(fixedAssets.number).toBe('011')
+    const renumbered = accountRows.filter((row) => row.accountTypeId === fixedAssets.id).map((row) => row.number).sort()
+    expect(renumbered).toEqual(['011-2', '011-3', '011-9'])
+  })
+
+  it('tenant/organization scoping: importing into one organization does not touch another organization\'s chart of accounts', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    seedAccountGroups(em, { organizationId: ORG_B, tenantId: TENANT })
+    // ORG_B already has a populated chart of accounts.
+    em.seed(LedgerAccountType, {
+      id: 'org-b-type',
+      organizationId: ORG_B,
+      tenantId: TENANT,
+      number: 'org-b-type',
+      name: 'Org B type',
+      normalBalance: 'DEBIT',
+      accountGroupId: null,
+      deletedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+
+    expect(result.createdAccountTypeIds).toHaveLength(TOTAL_TEMPLATE_TYPES)
+    // ORG_A's new rows never carry ORG_B's id, and ORG_B's pre-existing row
+    // is untouched (still exactly one, non-deleted).
+    const allTypes = em.tables.get('LedgerAccountType') ?? []
+    expect(allTypes.filter((row) => row.organizationId === ORG_B)).toHaveLength(1)
+    expect(nonDeletedCount(em, LedgerAccountType, ORG_B)).toBe(1)
+    expect(allTypes.filter((row) => row.organizationId === ORG_A)).toHaveLength(TOTAL_TEMPLATE_TYPES)
+  })
+
+  it('maps a concurrent-import number-unique violation to its own 409 conflict, not a raw 500 (PR #6137 review, m1)', async () => {
+    const command = loadImportCommand()
+    // Simulates the loser of a race between two concurrent imports against
+    // the same empty chart of accounts: both pass the precondition check
+    // (buildFakeEm has no unique-index enforcement of its own), so the
+    // race is reproduced by making this call's own `flush` throw the same
+    // shape of error Postgres raises for the real partial unique index
+    // (`ledger_account_types_scope_number_unique`, #6340) — the fake doesn't
+    // model transactional rollback, so unlike the other refusal tests in
+    // this file this one only asserts the response, not "writes nothing".
+    const em = buildFakeEm({
+      throwOnNextFlush: { code: '23505', constraint: 'ledger_account_types_scope_number_unique' },
+    })
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    await expect(
+      command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: {
+        error: 'Another import completed for this organization at the same time; refresh and check the chart of accounts before retrying.',
+      },
+    })
+  })
+
+  it('undo refuses after a posting against an imported account, and deletes nothing (PR #6137 review, M1)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+    const logMeta = await command.buildLog({
+      input: { organizationId: ORG_A, tenantId: TENANT },
+      result,
+      ctx,
+    })
+    expect(logMeta).not.toBeNull()
+
+    // Post a journal entry line against one of the accounts the import
+    // just created.
+    const postedAccountId = result.createdAccountIds[0]
+    em.seed(JournalEntryLine, {
+      id: randomUUID(),
+      organizationId: ORG_A,
+      tenantId: TENANT,
+      journalEntryId: randomUUID(),
+      accountId: postedAccountId,
+      debit: '100.0000',
+      credit: '0.0000',
+      amountCurrency: '100.0000',
+      contractorSnapshot: null,
+    })
+
+    await expect(
+      command.undo({
+        logEntry: {
+          commandPayload: logMeta!.payload,
+          organizationId: logMeta!.organizationId,
+          tenantId: logMeta!.tenantId,
+        },
+        ctx,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'This account cannot be deleted because it has posted journal entries.' },
+    })
+
+    // Never a partial undo — nothing was soft-deleted, not even the
+    // accounts/types that had no posted entries against them.
+    expect(nonDeletedCount(em, LedgerAccountType, ORG_A)).toBe(TOTAL_TEMPLATE_TYPES)
+    expect(nonDeletedCount(em, LedgerAccount, ORG_A)).toBe(TOTAL_TEMPLATE_ACCOUNTS)
+  })
+
+  it('undo refuses when a manually created account still uses an imported account type, and deletes nothing (PR #6137 review, M1)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+    const logMeta = await command.buildLog({
+      input: { organizationId: ORG_A, tenantId: TENANT },
+      result,
+      ctx,
+    })
+    expect(logMeta).not.toBeNull()
+
+    // A manually created account (outside the import) that references one
+    // of the imported account types.
+    const reusedTypeId = result.createdAccountTypeIds[0]
+    em.seed(LedgerAccount, {
+      id: 'manually-created-account',
+      organizationId: ORG_A,
+      tenantId: TENANT,
+      number: 'manually-created-account',
+      accountTypeId: reusedTypeId,
+      description: null,
+      deletedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    await expect(
+      command.undo({
+        logEntry: {
+          commandPayload: logMeta!.payload,
+          organizationId: logMeta!.organizationId,
+          tenantId: logMeta!.tenantId,
+        },
+        ctx,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'This account type cannot be deleted because an account still uses it.' },
+    })
+
+    // Never a partial undo — the imported rows are untouched, and so is
+    // the manually created account that triggered the guard.
+    expect(nonDeletedCount(em, LedgerAccountType, ORG_A)).toBe(TOTAL_TEMPLATE_TYPES)
+    expect(nonDeletedCount(em, LedgerAccount, ORG_A)).toBe(TOTAL_TEMPLATE_ACCOUNTS + 1)
+  })
+})
