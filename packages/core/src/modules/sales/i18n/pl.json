@@ -858,6 +858,7 @@
   "sales.documents.errors.organization_required": "Wymagany jest kontekst organizacji.",
   "sales.documents.errors.organization_selection_invalid": "Wybrana organizacja nie jest już dostępna. Wybierz organizację ponownie i spróbuj jeszcze raz.",
   "sales.documents.errors.unauthorized": "Brak autoryzacji",
+  "sales.documents.errors.undoStaleCreditMemo": "Tej zmiany nie można już cofnąć, ponieważ nota kredytowa została później zmieniona.",
   "sales.documents.errors.undoStaleOrder": "Tej zmiany nie można już cofnąć, ponieważ zamówienie zostało później zmienione.",
   "sales.documents.errors.undoStaleQuote": "Tej zmiany nie można już cofnąć, ponieważ oferta została później zmieniona.",
   "sales.documents.form.address.city": "Miasto",

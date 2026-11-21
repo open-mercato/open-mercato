@@ -596,6 +596,7 @@ type CreditMemoGraphSnapshot = {
     metadata: Record<string, unknown> | null;
     customFieldSetId: string | null;
     customFields: Record<string, unknown> | null;
+    updatedAt?: string | Date | null;
   };
   lines: CreditMemoLineSnapshot[];
 };
@@ -2342,6 +2343,7 @@ async function loadCreditMemoSnapshot(
       metadata: creditMemo.metadata ?? null,
       customFieldSetId: creditMemo.customFieldSetId ?? null,
       customFields: creditMemoCustomFields[creditMemo.id] ?? null,
+      updatedAt: creditMemo.updatedAt ?? null,
     },
     lines: lines.map((line) => ({
       id: line.id,
@@ -4677,20 +4679,24 @@ async function restoreQuoteGraph(
   return quote;
 }
 
-async function throwDocumentUndoStale(kind: "order" | "quote"): Promise<never> {
+async function throwDocumentUndoStale(kind: "order" | "quote" | "credit_memo"): Promise<never> {
   const { translate } = await resolveTranslations();
-  throw new CrudHttpError(409, {
-    error:
-      kind === "order"
+  const error =
+    kind === "order"
+      ? translate(
+          "sales.documents.errors.undoStaleOrder",
+          "This change can no longer be undone because the order was changed afterwards.",
+        )
+      : kind === "quote"
         ? translate(
-            "sales.documents.errors.undoStaleOrder",
-            "This change can no longer be undone because the order was changed afterwards.",
-          )
-        : translate(
             "sales.documents.errors.undoStaleQuote",
             "This change can no longer be undone because the quote was changed afterwards.",
-          ),
-  });
+          )
+        : translate(
+            "sales.documents.errors.undoStaleCreditMemo",
+            "This change can no longer be undone because the credit memo was changed afterwards.",
+          );
+  throw new CrudHttpError(409, { error });
 }
 
 function canonicalizeForComparison(value: unknown): unknown {
@@ -11155,6 +11161,60 @@ function applyCreditMemoHeaderUpdate(
   if (input.metadata !== undefined) creditMemo.metadata = input.metadata;
 }
 
+function sameAuditDate(left: unknown, right: unknown): boolean {
+  if (left == null && right == null) return true;
+  if (left == null || right == null) return false;
+  const leftIso = toAuditISOString(left);
+  const rightIso = toAuditISOString(right);
+  return leftIso !== null && rightIso !== null && leftIso === rightIso;
+}
+
+function sameExactDecimal(
+  left: string | number | null | undefined,
+  right: string | number | null | undefined,
+): boolean {
+  const leftDecimal = parseDecimal(left);
+  const rightDecimal = parseDecimal(right);
+  if (!leftDecimal || !rightDecimal) return (left ?? null) === (right ?? null);
+  return leftDecimal.eq(rightDecimal);
+}
+
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  return isDeepStrictEqual(
+    JSON.parse(JSON.stringify(left ?? null)),
+    JSON.parse(JSON.stringify(right ?? null)),
+  );
+}
+
+function isCreditMemoHeaderUndoCurrent(
+  current: SalesCreditMemo,
+  expected: CreditMemoGraphSnapshot["creditMemo"],
+): boolean {
+  if (expected.updatedAt != null && !sameAuditDate(current.updatedAt, expected.updatedAt)) {
+    return false;
+  }
+  return (
+    current.id === expected.id &&
+    current.organizationId === expected.organizationId &&
+    current.tenantId === expected.tenantId &&
+    current.creditMemoNumber === expected.creditMemoNumber &&
+    (current.order?.id ?? null) === (expected.orderId ?? null) &&
+    (current.invoice?.id ?? null) === (expected.invoiceId ?? null) &&
+    (current.statusEntryId ?? null) === (expected.statusEntryId ?? null) &&
+    (current.status ?? null) === (expected.status ?? null) &&
+    (current.reason ?? null) === (expected.reason ?? null) &&
+    sameAuditDate(current.issueDate, expected.issueDate) &&
+    current.currencyCode === expected.currencyCode &&
+    sameExactDecimal(current.subtotalNetAmount, expected.subtotalNetAmount) &&
+    sameExactDecimal(current.subtotalGrossAmount, expected.subtotalGrossAmount) &&
+    sameExactDecimal(current.taxTotalAmount, expected.taxTotalAmount) &&
+    sameExactDecimal(current.grandTotalNetAmount, expected.grandTotalNetAmount) &&
+    sameExactDecimal(current.grandTotalGrossAmount, expected.grandTotalGrossAmount) &&
+    sameJsonValue(current.metadata, expected.metadata) &&
+    (current.customFieldSetId ?? null) === (expected.customFieldSetId ?? null)
+  );
+}
+
 const updateCreditMemoCommand: CommandHandler<
   z.infer<typeof creditMemoUpdateSchema>,
   { creditMemoId: string }
@@ -11258,31 +11318,60 @@ const updateCreditMemoCommand: CommandHandler<
     const payload = extractUndoPayload<CreditMemoUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
+    const after = payload?.after;
+    const scope = {
+      organizationId: before.creditMemo.organizationId,
+      tenantId: before.creditMemo.tenantId,
+    };
+    ensureOrganizationScope(ctx, scope.organizationId);
+    ensureTenantScope(ctx, scope.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const creditMemo = await em.findOne(SalesCreditMemo, { id: before.creditMemo.id });
-    if (!creditMemo) return;
-    ensureOrganizationScope(ctx, creditMemo.organizationId);
-    ensureTenantScope(ctx, creditMemo.tenantId);
-    creditMemo.creditMemoNumber = before.creditMemo.creditMemoNumber;
-    creditMemo.order = before.creditMemo.orderId
-      ? em.getReference(SalesOrder, before.creditMemo.orderId)
-      : null;
-    creditMemo.invoice = before.creditMemo.invoiceId
-      ? em.getReference(SalesInvoice, before.creditMemo.invoiceId)
-      : null;
-    creditMemo.statusEntryId = before.creditMemo.statusEntryId;
-    creditMemo.status = before.creditMemo.status;
-    creditMemo.reason = before.creditMemo.reason;
-    creditMemo.issueDate = before.creditMemo.issueDate ? new Date(before.creditMemo.issueDate as string) : null;
-    creditMemo.currencyCode = before.creditMemo.currencyCode;
-    creditMemo.subtotalNetAmount = before.creditMemo.subtotalNetAmount;
-    creditMemo.subtotalGrossAmount = before.creditMemo.subtotalGrossAmount;
-    creditMemo.taxTotalAmount = before.creditMemo.taxTotalAmount;
-    creditMemo.grandTotalNetAmount = before.creditMemo.grandTotalNetAmount;
-    creditMemo.grandTotalGrossAmount = before.creditMemo.grandTotalGrossAmount;
-    creditMemo.metadata = before.creditMemo.metadata;
-    creditMemo.updatedAt = new Date();
-    await em.flush();
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          const creditMemo = await findOneWithDecryption(
+            em,
+            SalesCreditMemo,
+            {
+              id: before.creditMemo.id,
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+              deletedAt: null,
+            },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            scope,
+          );
+          if (!creditMemo) {
+            if (after) await throwDocumentUndoStale("credit_memo");
+            return;
+          }
+          if (after && !isCreditMemoHeaderUndoCurrent(creditMemo, after.creditMemo)) {
+            await throwDocumentUndoStale("credit_memo");
+          }
+          creditMemo.creditMemoNumber = before.creditMemo.creditMemoNumber;
+          creditMemo.order = before.creditMemo.orderId
+            ? em.getReference(SalesOrder, before.creditMemo.orderId)
+            : null;
+          creditMemo.invoice = before.creditMemo.invoiceId
+            ? em.getReference(SalesInvoice, before.creditMemo.invoiceId)
+            : null;
+          creditMemo.statusEntryId = before.creditMemo.statusEntryId;
+          creditMemo.status = before.creditMemo.status;
+          creditMemo.reason = before.creditMemo.reason;
+          creditMemo.issueDate = before.creditMemo.issueDate ? new Date(before.creditMemo.issueDate as string) : null;
+          creditMemo.currencyCode = before.creditMemo.currencyCode;
+          creditMemo.subtotalNetAmount = before.creditMemo.subtotalNetAmount;
+          creditMemo.subtotalGrossAmount = before.creditMemo.subtotalGrossAmount;
+          creditMemo.taxTotalAmount = before.creditMemo.taxTotalAmount;
+          creditMemo.grandTotalNetAmount = before.creditMemo.grandTotalNetAmount;
+          creditMemo.grandTotalGrossAmount = before.creditMemo.grandTotalGrossAmount;
+          creditMemo.metadata = before.creditMemo.metadata ? cloneJson(before.creditMemo.metadata) : null;
+          creditMemo.updatedAt = new Date();
+        },
+      ],
+      { transaction: true },
+    );
   },
 };
 
