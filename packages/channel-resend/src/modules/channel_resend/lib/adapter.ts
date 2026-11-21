@@ -60,6 +60,27 @@ function attachmentsFromMeta(value: unknown): ResendAttachment[] | undefined {
   return attachments.length ? attachments : undefined
 }
 
+/**
+ * MIME headers the caller asked for, sanitised.
+ *
+ * Resend takes a `headers` object, so this is the one email adapter that can carry
+ * `List-Unsubscribe` / `List-Unsubscribe-Post` — the pair Gmail's and Yahoo's bulk-sender rules require.
+ * Values go through `sanitizeHeaderValue` for the same reason `to` and `from` do: a newline in a header
+ * value is a header-injection, and these values are composed from configuration and campaign data.
+ */
+function headersFromMeta(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const headers: Record<string, string> = {}
+  for (const [name, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof raw !== 'string') continue
+    // A header NAME with anything but token characters in it is not a header; drop it rather than send it.
+    if (!/^[A-Za-z0-9-]+$/.test(name)) continue
+    const sanitized = sanitizeHeaderValue(raw).trim()
+    if (sanitized) headers[name] = sanitized
+  }
+  return Object.keys(headers).length > 0 ? headers : undefined
+}
+
 class ResendChannelAdapter implements ChannelAdapter {
   readonly providerKey = 'resend'
   readonly channelType = 'email'
@@ -79,6 +100,7 @@ class ResendChannelAdapter implements ChannelAdapter {
 
     const client = new Resend(credentials.apiKey)
     const resendAttachments = attachmentsFromMeta(meta.attachments)
+    const resendHeaders = headersFromMeta(meta.headers)
     const replyTo = headerOrUndefined(meta.replyTo)
     const basePayload = {
       from: headerOrUndefined(meta.from) ?? credentials.fromAddress,
@@ -86,6 +108,7 @@ class ResendChannelAdapter implements ChannelAdapter {
       subject,
       ...(replyTo ? { replyTo } : {}),
       ...(resendAttachments?.length ? { attachments: resendAttachments } : {}),
+      ...(resendHeaders ? { headers: resendHeaders } : {}),
     }
     const payload: Parameters<typeof client.emails.send>[0] = input.content.html
       ? { ...basePayload, html: input.content.html, ...(input.content.text ? { text: input.content.text } : {}) }
@@ -133,6 +156,7 @@ class ResendChannelAdapter implements ChannelAdapter {
         from: headerOrUndefined(meta.from),
         replyTo: headerOrUndefined(meta.replyTo),
         attachments: attachmentsFromMeta(meta.attachments),
+        headers: headersFromMeta(meta.headers),
       },
     }
   }
