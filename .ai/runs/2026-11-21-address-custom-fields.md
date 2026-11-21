@@ -32,16 +32,22 @@ Additional values can contain personal information. Tests must check application
 
 ## Progress
 
+PR: #10266
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands.
 
 ### Phase 1: Customer address book
 
 - [x] 1.1 Register the CRM definition host and enforce reserved address keys. — 5867a3d7bb
 - [x] 1.2 Add encrypted storage and scoped customer address reads, writes and undo. — 47a7ab89a9
-- [ ] 1.3 Wire the CRM address editors and validate address-book and create flows.
+- [x] 1.3 Wire the CRM address editors and validate address-book and create flows. — 9a6ec48cef
 
 ### Phase 2: Sales address snapshots
 
 - [x] 2.1 Register Sales address definitions and save additional address values. — badf712c97
 - [x] 2.2 Save and freeze primary address values through document commands and conversion. — badf712c97
-- [ ] 2.3 Wire the Sales address editors and run feature and repository validation.
+- [x] 2.3 Wire the Sales address editors and run feature and repository validation. — a7c2b35d9c
+
+## Verification
+
+The managed local integration run passed all 11 issue-specific cases on a7c2b35d9c. Its production build, generation and package rebuild also passed. The full GitHub Linux test step passed on the same commit. The final tenant-switcher recovery change passed its targeted tests and workspace type checking. The local Windows workspace test command encountered a process-launch failure in the standalone app scaffold suite.
