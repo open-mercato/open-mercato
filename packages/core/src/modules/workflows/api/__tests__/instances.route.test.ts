@@ -5,6 +5,9 @@
  */
 
 import { NextRequest } from 'next/server'
+import { asFunction, asValue, createContainer } from 'awilix'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { bindRequestScopeContainer, runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { GET as listInstances, POST as startInstance } from '../instances/route'
 import { GET as getInstance } from '../instances/[id]/route'
 import { POST as cancelInstance } from '../instances/[id]/cancel/route'
@@ -172,6 +175,18 @@ describe('Workflow Instances API', () => {
         }),
         expect.any(Object)
       )
+    })
+
+    test('orders by createdAt with an id tiebreak so tied rows page deterministically', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      await listInstances(new NextRequest('http://localhost/api/workflows/instances?limit=2&offset=2'))
+
+      expect(mockEm.findAndCount.mock.calls[0][2]).toEqual({
+        orderBy: { createdAt: 'DESC', id: 'DESC' },
+        limit: 2,
+        offset: 2,
+      })
     })
 
     // Dry-run isolation (spec section 8.2): simulations are excluded from the
@@ -464,6 +479,62 @@ describe('Workflow Instances API', () => {
       events: [],
       executionTime: 100,
     }
+
+    test.each(['success', 'error'])('keeps background scope alive after HTTP completion until workflow %s', async (outcome) => {
+      const requestDisposed = jest.fn()
+      const backgroundDisposed = jest.fn()
+      const backgroundEm = { ...mockEm }
+      let releaseExecution!: () => void
+      const executionGate = new Promise<void>((resolve) => { releaseExecution = resolve })
+      let markStarted!: () => void
+      const started = new Promise<void>((resolve) => { markStarted = resolve })
+      const callers = [mockEm, backgroundEm].map((em, index) => {
+        const caller = createContainer()
+        caller.register({
+          em: asValue(em),
+          rbacService: asValue(mockRbacService),
+          resource: asFunction(() => ({})).scoped().disposer(index === 0 ? requestDisposed : backgroundDisposed),
+        })
+        caller.resolve('resource')
+        return caller
+      })
+      let nextCaller = 0
+      jest.mocked(createRequestContainer).mockImplementation(async () => {
+        const caller = callers[nextCaller++]
+        bindRequestScopeContainer(caller)
+        return caller
+      })
+      jest.mocked(workflowExecutor.startWorkflow).mockResolvedValue(mockInstance as never)
+      jest.mocked(workflowExecutor.executeWorkflow).mockImplementation(async (em, caller) => {
+        expect(em).toBe(backgroundEm)
+        expect(caller).toBe(callers[1])
+        markStarted()
+        await executionGate
+        expect(backgroundDisposed).not.toHaveBeenCalled()
+        if (outcome === 'error') throw new Error('[internal] Background workflow test failure')
+        return mockExecutionResult as never
+      })
+      try {
+        const response = await runInOwnedRequestScope(() => startInstance(new NextRequest('http://localhost/api/workflows/instances', {
+          method: 'POST',
+          body: JSON.stringify({ workflowId: 'checkout' }),
+        })))
+        expect(response.status).toBe(201)
+        await response.text()
+        await started
+        await flushBackgroundWorkflowExecution()
+        expect(requestDisposed).toHaveBeenCalledTimes(1)
+        expect(backgroundDisposed).not.toHaveBeenCalled()
+        releaseExecution()
+        await flushBackgroundWorkflowExecution()
+        expect(backgroundDisposed).toHaveBeenCalledTimes(1)
+        expect(requestDisposed).toHaveBeenCalledTimes(1)
+      } finally {
+        releaseExecution()
+        await flushBackgroundWorkflowExecution()
+        await Promise.all(callers.map((caller) => caller.dispose()))
+      }
+    })
 
     test('should start workflow successfully', async () => {
       (workflowExecutor.startWorkflow as jest.Mock).mockResolvedValue(mockInstance);

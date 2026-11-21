@@ -1,13 +1,11 @@
 import {
   bindRequestScopeContainer,
-  endRequestContainerSharing,
   getRequestScopeContainer,
-  getRequestScopeStats,
-  isRequestContainerMemoEnabled,
-  noteRequestContainerBuilt,
-  noteRequestContainerRequested,
-  resolveSharedRequestRoot,
   runInRequestScope,
+  runInOwnedRequestScope,
+  runWithRequestScopeContainer,
+  runWithRequestScopeAcquisition,
+  trackRequestScopeDisposal,
   type RequestScopeContainer,
 } from '../request-scope'
 
@@ -79,77 +77,110 @@ describe('request scope', () => {
   })
 })
 
-describe('request scope container sharing', () => {
-  const ORIGINAL_MEMO = process.env.OM_REQUEST_CONTAINER_MEMO
 
-  afterEach(() => {
-    if (ORIGINAL_MEMO === undefined) delete process.env.OM_REQUEST_CONTAINER_MEMO
-    else process.env.OM_REQUEST_CONTAINER_MEMO = ORIGINAL_MEMO
-  })
-
-  it('reads OM_REQUEST_CONTAINER_MEMO with a default of off', () => {
-    delete process.env.OM_REQUEST_CONTAINER_MEMO
-    expect(isRequestContainerMemoEnabled()).toBe(false)
-    process.env.OM_REQUEST_CONTAINER_MEMO = 'on'
-    expect(isRequestContainerMemoEnabled()).toBe(true)
-    process.env.OM_REQUEST_CONTAINER_MEMO = 'false'
-    expect(isRequestContainerMemoEnabled()).toBe(false)
-  })
-
-  it('offers no shared root outside a scope or in a scope that does not share', () => {
-    const build = jest.fn(async () => makeContainer('root'))
-    expect(resolveSharedRequestRoot(build)).toBeNull()
-    runInRequestScope(() => {
-      expect(resolveSharedRequestRoot(build)).toBeNull()
-    })
-    expect(build).not.toHaveBeenCalled()
-  })
-
-  it('builds the shared root once per scope and never across scopes', async () => {
-    const build = jest.fn(async () => makeContainer(`root-${build.mock.calls.length}`))
-    const runScope = () =>
-      runInRequestScope(async () => {
-        const first = resolveSharedRequestRoot(build)
-        await tick()
-        const second = resolveSharedRequestRoot(build)
-        expect(second).toBe(first)
-        return first
-      }, { shareContainer: true })
-    const [rootA, rootB] = await Promise.all([runScope(), runScope()])
-    expect(rootA).not.toBe(rootB)
-    expect(build).toHaveBeenCalledTimes(2)
-  })
-
-  it('forgets a failed shared build and stops sharing once ended', async () => {
-    await runInRequestScope(async () => {
-      const failing = resolveSharedRequestRoot(async () => {
-        throw new Error('[internal] build failed')
+describe('owned request scope', () => {
+  it('collects pinned helper scopes and cleans nested resources before their parent', async () => {
+    const { asFunction, createContainer } = await import('awilix')
+    const disposed: string[] = []
+    const caller = createContainer().register({ parent: asFunction(() => ({})).scoped().disposer(() => { disposed.push('parent') }) })
+    await runInOwnedRequestScope(async () => {
+      bindRequestScopeContainer(caller)
+      caller.resolve('parent')
+      const nested = caller.createScope().register({ child: asFunction(() => ({})).scoped().disposer(() => { disposed.push('child') }) })
+      nested.resolve('child')
+      await runWithRequestScopeContainer(caller, async () => {
+        const helper = { ...makeContainer('helper'), dispose: async () => { disposed.push('helper') } }
+        bindRequestScopeContainer(helper)
+        expect(getRequestScopeContainer()).toBe(caller)
       })
-      await expect(failing).rejects.toThrow('build failed')
-      const retried = resolveSharedRequestRoot(async () => makeContainer('retry'))
-      expect(retried).not.toBe(failing)
-      await expect(retried).resolves.toMatchObject({ label: 'retry' })
-
-      endRequestContainerSharing()
-      expect(resolveSharedRequestRoot(async () => makeContainer('late'))).toBeNull()
-      expect(getRequestScopeStats()).toMatchObject({ shareContainer: false })
-    }, { shareContainer: true })
+    })
+    expect(disposed).toEqual(['helper', 'child', 'parent'])
   })
 
-  it('keeps container counters per scope', async () => {
-    const counts = await Promise.all([2, 5].map((calls) =>
-      runInRequestScope(async () => {
-        for (let index = 0; index < calls; index += 1) {
-          noteRequestContainerRequested()
-          await tick()
-        }
-        noteRequestContainerBuilt()
-        return getRequestScopeStats()
-      })))
-    expect(counts).toEqual([
-      { shareContainer: false, containersBuilt: 1, containersRequested: 2 },
-      { shareContainer: false, containersBuilt: 1, containersRequested: 5 },
-    ])
-    expect(getRequestScopeStats()).toBeNull()
+  it('does not acquire ownership of scopes created by independent background work', async () => {
+    const dispose = jest.fn(async () => {})
+    await runInOwnedRequestScope(async () => {
+      await runInRequestScope(async () => bindRequestScopeContainer({ ...makeContainer('background'), dispose }))
+    })
+    expect(dispose).not.toHaveBeenCalled()
+    await dispose()
   })
+
+  it('waits for an in-flight acquisition to finish initialization before cleanup', async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    const dispose = jest.fn(async () => {})
+    let initialized = false
+    const boundary = runInOwnedRequestScope(() => {
+      void runWithRequestScopeAcquisition(async () => {
+        const scope = { ...makeContainer('initializing'), dispose }
+        trackRequestScopeDisposal(scope)
+        await blocked
+        expect(dispose).not.toHaveBeenCalled()
+        initialized = true
+        return scope
+      })
+      return 'result'
+    })
+    await tick()
+    expect(dispose).not.toHaveBeenCalled()
+    release()
+    expect(await boundary).toBe('result')
+    expect(initialized).toBe(true)
+    expect(dispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves handler outcomes when cleanup fails', async () => {
+    const setup = () => bindRequestScopeContainer({ ...makeContainer('failure'), dispose: async () => { throw new Error('[internal] cleanup failed') } })
+    expect(await runInOwnedRequestScope(() => { setup(); return 'success' })).toBe('success')
+    const failure = new Error('[internal] handler failed')
+    await expect(runInOwnedRequestScope(() => { setup(); throw failure })).rejects.toBe(failure)
+  })
+})
+
+
+it('awaits the same cleanup when stream cancellation races with a pending read', async () => {
+  let release!: () => void
+  const blocked = new Promise<void>((resolve) => { release = resolve })
+  const dispose = jest.fn(async () => blocked)
+  const response = await runInOwnedRequestScope(() => {
+    bindRequestScopeContainer({ ...makeContainer('stream'), dispose })
+    return new Response(new ReadableStream<Uint8Array>({}, { highWaterMark: 0 }))
+  })
+  const reader = response.body!.getReader()
+  const reading = reader.read()
+  let completed = false
+  const cancelling = reader.cancel().then(() => { completed = true })
+  await tick()
+  expect(dispose).toHaveBeenCalledTimes(1)
+  expect(completed).toBe(false)
+  release()
+  await Promise.all([reading, cancelling])
+  expect(completed).toBe(true)
+  expect(dispose).toHaveBeenCalledTimes(1)
+})
+
+
+it('keeps scopes alive until asynchronous source cancellation finishes despite pending read EOF', async () => {
+  let release!: () => void
+  const blocked = new Promise<void>((resolve) => { release = resolve })
+  const dispose = jest.fn(async () => {})
+  const cancelled = jest.fn(async () => {
+    await blocked
+    expect(dispose).not.toHaveBeenCalled()
+  })
+  const response = await runInOwnedRequestScope(() => {
+    bindRequestScopeContainer({ ...makeContainer('stream'), dispose })
+    return new Response(new ReadableStream<Uint8Array>({ cancel: cancelled }, { highWaterMark: 0 }))
+  })
+  const reader = response.body!.getReader()
+  const reading = reader.read()
+  await tick()
+  const cancelling = reader.cancel()
+  await tick()
+  expect(cancelled).toHaveBeenCalledTimes(1)
+  expect(dispose).not.toHaveBeenCalled()
+  release()
+  await Promise.all([reading, cancelling])
+  expect(dispose).toHaveBeenCalledTimes(1)
 })

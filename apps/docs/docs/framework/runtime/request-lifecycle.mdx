@@ -15,6 +15,37 @@ Understanding the request lifecycle helps when debugging complex modules. Every 
 
 The same lifecycle powers server actions and background jobs; in each case we create a scope, load module registrars, and execute the requested operation in a tenant-aware context.
 
+## Optional process DI root
+
+Set `OM_PROCESS_CONTAINER_ROOT=on` to initialize audited module registrations once per process generation. The default is `off`. Node startup initializes the root after the generated bootstrap; CLI and worker callers initialize it lazily. Each `createRequestContainer()` still returns an independent caller scope with its own EntityManager, command bus, encryption and query services. Do not use this option to share a unit of work between separate callers.
+
+`OM_REQUEST_CONTAINER_MEMO` is a compatibility alias used only when `OM_PROCESS_CONTAINER_ROOT` is unset. An explicit process-root value, including `off`, takes precedence. The alias selects the same process-wide reuse for HTTP, workers, CLI and server-rendered pages, with isolated caller services. `{ fresh: true }` remains accepted by `createRequestContainer()`; separate callers are always isolated.
+
+An unmarked module or app registrar, module DI overrides, a module/app-provided custom event bus, or disabled process infrastructure sharing selects the complete legacy builder. `getProcessContainerStats()` from `@open-mercato/shared/lib/di/container` reports the fallback reason and separate root, registrar and caller counts. Registry changes retire the current generation and direct new callers to a replacement. Existing callers and nested scopes retain their generation until they are disposed; the retired root then disposes its generation-owned singletons exactly once. The app and standalone API dispatcher own scopes acquired during authorization and handler execution until the response body closes, errors or is cancelled. For HEAD requests, the dispatcher starts cancellation of the ownership-wrapped response body and immediately returns the same status and headers without a body. The wrapper retains scopes until cancellation settles, including when a tee sibling keeps cancellation pending; cleanup does not depend on the transport consuming the suppressed body. Cancellation failures are observed without delaying or replacing the HEAD response. App-shell lookup and authorization boundaries own their scopes until that work finishes; returned React children do not inherit those resources. Other scope owners must dispose every caller and nested scope in a `finally` block, including background work. Abandoning an unowned scope without disposal does not release its ownership; garbage collection is not a deterministic resource-cleanup mechanism.
+
+Module authors opt in only after auditing every registration:
+
+```ts
+import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+
+export const register = defineProcessDiRegistrar((root: AppContainer) => {
+  root.register({
+    myService: asScopedService((caller) => createMyService(caller)),
+  })
+})
+```
+
+A process registrar must not eagerly resolve request services or capture the root in a request-service factory. Use scoped factories for mutable/request state. Reserve singleton registrations and values for audited process resources or immutable definitions. Existing `register(container)` exports remain supported without opting in. When moving immediate setup into process-only hooks, use `defineProcessDiRegistrar(processRegister, { legacy: legacyRegister })` so the disabled/fallback path retains its original setup.
+
+`registerCallerSetup(root, setup)` supports per-caller setup such as an EntityManager subscriber. `registerProcessEventSetup(root, setup)` installs generation-owned event listeners after both module and app registration finish and custom-bus fallback is decided. A failed caller setup disposes that caller's resources and rejects with the original setup error; it does not discard the healthy process root. `registerProcessActivation(root, activate, validate?)` publishes synchronous process callbacks only after successful initialization. All supplied validators run before any callback is published; activation must not perform fallible asynchronous work. Background reconciliation may be scheduled at activation, but it must acquire its own caller scope, report failures, and dispose that scope after completion; caller setup must not await queue reconciliation. A custom event bus selects the legacy builder so its existing subscriber registration order is preserved.
+
+`runInOwnedRequestScope(operation)` from `@open-mercato/shared/lib/di/request-scope` gives an execution boundary ownership of its acquired caller and nested scopes without sharing their EntityManagers. Ordinary results and failures trigger cleanup; a returned `Response` transfers cleanup to its body lifetime. Cleanup waits for in-flight acquisitions and reports failures without replacing the operation outcome. Pinning an event context with `runWithRequestScopeContainer` preserves that ownership. Independent background work must enter `runInRequestScope` and explicitly dispose its own callers, or use a separate owned boundary; it must not borrow a completed request’s scope.
+
+The CLI per-job worker handler owns caller, helper and nested scopes until all handlers finish or one throws. It clears the primary EntityManager before disposing the owned scopes. Handler return values do not extend the job lifetime; independent background work still needs a separate owner.
+
+A bus resolved from a caller stays bound to that caller. For code using module-level event helpers, wrap the operation in `runWithRequestScopeContainer(caller, operation)` from `@open-mercato/shared/lib/di/request-scope` to pin its context, including across nested helper-created containers. Independent background tasks need their own scopes. Scope lifetime follows the operation, including streaming and deferred work; returning a response does not automatically dispose it.
+
 ## Correlating an Unexpected 500
 
 When an unexpected exception escapes a [CRUD factory](../api/crud-factory) handler, the client still receives a generic `500` that leaks no internal detail — but it now carries a `requestId` so a support ticket has something citable, and a stable `code` so a caller can bucket the failure without server log access:
