@@ -453,7 +453,11 @@ function isEnvironmentVariableConfigured(name: string): boolean {
   return typeof value === 'string' && value.trim().length > 0
 }
 
-export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrationRoot: string): IntegrationSpecDiscoveryItem[] {
+export function discoverIntegrationSpecFiles(
+  projectRoot: string,
+  legacyIntegrationRoot: string,
+  options: { onExcluded?: (entry: { path: string; reason: string; details: string[] }) => void } = {},
+): IntegrationSpecDiscoveryItem[] {
   const discoveredByPath = new Map<string, IntegrationSpecDiscoveryItem>()
   const overlayRoot = resolveOverlayRootPath()
   const enterpriseEnabled = isEnterpriseModulesEnabled()
@@ -503,31 +507,38 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
     }
   }
 
+  const exclude = (file: IntegrationSpecDiscoveryItem, reason: string, details: string[] = []): false => {
+    options.onExcluded?.({ path: file.path, reason, details })
+    return false
+  }
+
   return discovered
     .filter((file) => {
-      if (file.requiredModules.some((moduleId) => !enabledModules.has(normalizeModuleId(moduleId)))) {
-        return false
+      const missingModules = file.requiredModules.filter((moduleId) => !enabledModules.has(normalizeModuleId(moduleId)))
+      if (missingModules.length > 0) {
+        return exclude(file, 'required-modules-disabled', missingModules)
       }
       if (testAppModules && !file.isOverlay) {
         const owningModuleId = resolveOwningModuleId(projectRoot, file.path)
         if (owningModuleId && !testAppModules.has(owningModuleId)) {
-          return false
+          return exclude(file, 'owning-module-disabled', [owningModuleId])
         }
       }
-      if (file.requiredEnvVars.some((envVar) => !isEnvironmentVariableConfigured(envVar))) {
-        return false
+      const missingEnvVars = file.requiredEnvVars.filter((envVar) => !isEnvironmentVariableConfigured(envVar))
+      if (missingEnvVars.length > 0) {
+        return exclude(file, 'required-environment-missing', missingEnvVars)
       }
       if (
         file.requiredAnyEnvVars.length > 0 &&
         !file.requiredAnyEnvVars.some((envVar) => isEnvironmentVariableConfigured(envVar))
       ) {
-        return false
+        return exclude(file, 'required-any-environment-missing', file.requiredAnyEnvVars)
       }
       if (!file.isOverlay) {
         return true
       }
       if (!enterpriseEnabled) {
-        return false
+        return exclude(file, 'enterprise-disabled')
       }
       if (!file.moduleName) {
         return true
@@ -536,6 +547,7 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
         return true
       }
       return enabledModules.has(normalizeModuleId(file.moduleName))
+        || exclude(file, 'overlay-module-disabled', [file.moduleName])
     })
     .sort((left, right) => left.path.localeCompare(right.path))
 }

@@ -49,6 +49,38 @@ describe('integration discovery', () => {
     previousTestEnvValues.clear()
   })
 
+  it('reports disabled modules and missing prerequisites without changing discovery or exposing values', async () => {
+    for (const moduleId of ['catalog', 'cart']) {
+      await writeTestFile(tempRoot, `packages/core/src/modules/${moduleId}/index.ts`)
+    }
+    const prefix = 'packages/core/src/modules/catalog/__integration__/'
+    await writeTestFile(tempRoot, `${prefix}TC-OK.spec.ts`)
+    await writeTestFile(tempRoot, 'packages/core/src/modules/cart/__integration__/TC-CART.spec.ts')
+    await writeTestFile(tempRoot, `${prefix}TC-DEPENDENCY.spec.ts`, "export const integrationMeta = { dependsOnModules: ['customer_groups'] }")
+    await writeTestFile(tempRoot, `${prefix}TC-ENV.spec.ts`, "export const integrationMeta = { requiredEnvVars: ['OM_TEST_DISCOVERY_REQUIRED_KEY'] }")
+    await writeTestFile(tempRoot, `${prefix}TC-ANY-ENV.spec.ts`, "export const integrationMeta = { requiredAnyEnvVars: ['OM_TEST_DISCOVERY_AI_KEY', 'OM_TEST_DISCOVERY_FALLBACK_AI_KEY'] }")
+    await writeTestFile(tempRoot, 'standalone-app/src/modules.ts', "export const enabledModules = [{ id: 'catalog', from: '@open-mercato/core' }]")
+    process.env.OM_TEST_APP_ROOT = path.join(tempRoot, 'standalone-app')
+    const excluded: { path: string; reason: string; details: string[] }[] = []
+    const legacyRoot = path.join(tempRoot, '.ai', 'qa', 'tests')
+    const selected = discoverIntegrationSpecFiles(tempRoot, legacyRoot, { onExcluded: (entry) => excluded.push(entry) })
+
+    expect(selected).toEqual(discoverIntegrationSpecFiles(tempRoot, legacyRoot))
+    expect(selected.map((entry) => entry.path)).toEqual([`${prefix}TC-OK.spec.ts`])
+    expect(excluded).toEqual(expect.arrayContaining([
+      { path: 'packages/core/src/modules/cart/__integration__/TC-CART.spec.ts', reason: 'owning-module-disabled', details: ['cart'] },
+      { path: `${prefix}TC-DEPENDENCY.spec.ts`, reason: 'required-modules-disabled', details: ['customer_groups'] },
+      { path: `${prefix}TC-ENV.spec.ts`, reason: 'required-environment-missing', details: ['OM_TEST_DISCOVERY_REQUIRED_KEY'] },
+      { path: `${prefix}TC-ANY-ENV.spec.ts`, reason: 'required-any-environment-missing', details: ['OM_TEST_DISCOVERY_AI_KEY', 'OM_TEST_DISCOVERY_FALLBACK_AI_KEY'] },
+    ]))
+
+    process.env.OM_TEST_DISCOVERY_REQUIRED_KEY = 'private-prerequisite-sentinel'
+    const configuredExclusions: typeof excluded = []
+    const configured = discoverIntegrationSpecFiles(tempRoot, legacyRoot, { onExcluded: (entry) => configuredExclusions.push(entry) })
+    expect(configured.some((entry) => entry.path === `${prefix}TC-ENV.spec.ts`)).toBe(true)
+    expect(JSON.stringify(configuredExclusions)).not.toContain('private-prerequisite-sentinel')
+  })
+
   it('applies folder and per-test metadata dependencies', async () => {
     await writeTestFile(tempRoot, 'apps/mercato/src/modules/sales/.gitkeep')
     await writeTestFile(tempRoot, 'apps/mercato/src/modules/auth/.gitkeep')

@@ -160,32 +160,69 @@ test('npm snapshot approval rejects self approval and fails closed before PR che
 })
 
 test('published standalone lanes verify the disabled baseline before activating TC-EXAMPLE-016', () => {
-  for (const workflowPath of [snapshotWorkflowPath, npmSnapshotPreviewWorkflowPath]) {
-    assertStandaloneExampleActivationLane(readText(workflowPath))
-  }
+  assertStandaloneExampleActivationLane(readText(npmSnapshotPreviewWorkflowPath))
+  assert.match(readText(snapshotWorkflowPath), /scripts\/ci\/standalone-integration\.mjs/)
+  const runner = readText(path.resolve('scripts/ci/standalone-integration.mjs'))
+  const baselineIndex = runner.indexOf("run('yarn', ['generate']")
+  const activationIndex = runner.indexOf('scripts/prepare-standalone-example-integration.ts')
+  const activatedGenerationIndex = runner.indexOf("run('yarn', ['generate']", baselineIndex + 1)
+  const buildIndex = runner.indexOf("run('yarn', ['build']")
+  const startIndex = runner.indexOf('await startServer()')
+  const testIndex = runner.indexOf("run('yarn', ['test:integration'")
+  assert.ok(baselineIndex >= 0 && baselineIndex < activationIndex)
+  assert.ok(activationIndex < activatedGenerationIndex && activatedGenerationIndex < buildIndex)
+  assert.ok(buildIndex < startIndex && startIndex < testIndex)
 })
 
-test('published standalone test processes drain queues when app workers are disabled', () => {
-  for (const workflowPath of [snapshotWorkflowPath, npmSnapshotPreviewWorkflowPath]) {
-    const workflow = parse(readText(workflowPath))
-    const steps = workflow.jobs['standalone-integration'].steps
-    const configure = steps.find((step) => step.name === 'Configure standalone app environment')
-    const integration = steps.find((step) => step.name === 'Run integration tests')
+function standaloneEnvironmentSource() {
+  return readText(path.resolve('scripts/lib/standalone-integration-env.mjs'))
+}
 
-    assert.match(configure.run, /^AUTO_SPAWN_WORKERS=false$/m, workflowPath)
-    assert.equal(integration.env.AUTO_SPAWN_WORKERS, 'false', workflowPath)
-    assert.equal(integration.env.OM_TEST_APP_ROOT, '/tmp/standalone-app', workflowPath)
-  }
+function standaloneRunnerStep(workflow) {
+  return workflow.jobs['standalone-integration'].steps.find(
+    (step) => step.run?.includes('scripts/ci/standalone-integration.mjs'),
+  )
+}
+
+test('published standalone test processes drain queues when app workers are disabled', () => {
+  const preview = parse(readText(npmSnapshotPreviewWorkflowPath))
+  const previewSteps = preview.jobs['standalone-integration'].steps
+  const previewConfigure = previewSteps.find((step) => step.name === 'Configure standalone app environment')
+  const previewIntegration = previewSteps.find((step) => step.name === 'Run integration tests')
+
+  assert.match(previewConfigure.run, /^AUTO_SPAWN_WORKERS=false$/m, npmSnapshotPreviewWorkflowPath)
+  assert.equal(previewIntegration.env.AUTO_SPAWN_WORKERS, 'false', npmSnapshotPreviewWorkflowPath)
+  assert.equal(previewIntegration.env.OM_TEST_APP_ROOT, '/tmp/standalone-app', npmSnapshotPreviewWorkflowPath)
+
+  const snapshot = parse(readText(snapshotWorkflowPath))
+  assert.ok(standaloneRunnerStep(snapshot), 'snapshot workflow runs the shared standalone lifecycle')
+  const environment = standaloneEnvironmentSource()
+  assert.match(environment, /AUTO_SPAWN_WORKERS: 'false'/)
+  assert.match(environment, /AUTO_SPAWN_SCHEDULER: 'false'/)
+  assert.match(environment, /OM_TEST_APP_ROOT: appDir/)
+  assert.match(environment, /assertStandaloneIntegrationEnvironment\(environment\)/)
 })
 
 for (const workflowPath of [snapshotWorkflowPath, npmSnapshotPreviewWorkflowPath]) {
   test(`${path.basename(workflowPath)} marks the standalone test process as isolated`, () => {
     const workflow = parse(readText(workflowPath))
     const standalone = workflow.jobs['standalone-integration']
+    assert.equal(standalone.services.postgres.env.POSTGRES_DB, 'mercato_test')
+
+    if (workflowPath === snapshotWorkflowPath) {
+      const runner = standaloneRunnerStep(workflow)
+      assert.ok(runner, 'snapshot workflow runs the shared standalone lifecycle')
+      assert.equal(new URL(runner.env.STANDALONE_DATABASE_URL).pathname, '/mercato_test')
+      const environment = standaloneEnvironmentSource()
+      assert.match(environment, /OM_INTEGRATION_TEST: 'true'/)
+      assert.match(environment, /OM_TEST_APP_ROOT: appDir/)
+      assert.match(environment, /DATABASE_URL: databaseUrl/)
+      return
+    }
+
     const configure = standalone.steps.find((step) => step.name === 'Configure standalone app environment')
     const integration = standalone.steps.find((step) => step.name === 'Run integration tests')
 
-    assert.equal(standalone.services.postgres.env.POSTGRES_DB, 'mercato_test')
     assert.match(configure.run, /^OM_INTEGRATION_TEST=true$/m)
     assert.equal(integration.env.OM_INTEGRATION_TEST, 'true')
     assert.equal(integration.env.OM_TEST_APP_ROOT, '/tmp/standalone-app')
@@ -196,15 +233,11 @@ for (const workflowPath of [snapshotWorkflowPath, npmSnapshotPreviewWorkflowPath
 
 test('develop snapshot standalone initialization replaces the scaffold database URL', () => {
   const workflow = readText(snapshotWorkflowPath)
-  const configureStart = stepIndex(workflow, 'Configure standalone app environment')
-  const installStart = stepIndex(workflow, 'Install standalone app dependencies')
-  const configureStep = workflow.slice(configureStart, installStart)
-  const appendedEnvironment = configureStep.slice(configureStep.indexOf("cat >> .env"))
-
-  assert.ok(configureStep.includes(
-    "sed -i 's|^DATABASE_URL=.*$|DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test|' .env",
-  ))
-  assert.equal(countOccurrences(appendedEnvironment, 'DATABASE_URL='), 0)
+  const runner = readText(path.resolve('scripts/ci/standalone-integration.mjs'))
+  assert.match(workflow, /STANDALONE_DATABASE_URL: postgres:\/\/mercato:secret@localhost:5432\/mercato_test/)
+  assert.match(runner, /process\.env\.STANDALONE_DATABASE_URL/)
+  assert.match(runner, /Object\.entries\(appEnv\)/)
+  assert.match(runner, /run\('yarn', \['initialize'\], \{ cwd: appDir, env: appEnv \}\)/)
 })
 
 test('standalone example activation helper is executable through the workflow CJS entrypoint', () => {

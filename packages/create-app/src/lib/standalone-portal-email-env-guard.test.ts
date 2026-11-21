@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { createStandaloneIntegrationEnvironment } from '../../../../scripts/lib/standalone-integration-env.mjs'
 
 // The standalone integration lanes serve a PRODUCTION build (`yarn start`), so
 // NODE_ENV is `production` inside the server process no matter what the app .env
@@ -69,9 +70,25 @@ function countAssignments(source: string, variable: string): number {
   return Array.from(matches).length
 }
 
+function sharedEnvironment(lane: string): { appEnv: Record<string, string>; testEnv: Record<string, string> } {
+  const source = readRepoFile(lane)
+  assert.match(source, /createStandaloneIntegrationEnvironment|scripts\/ci\/standalone-integration\.mjs/)
+  return createStandaloneIntegrationEnvironment({
+    appDir: '/tmp/standalone-app', repoRoot: REPO_ROOT,
+    baseUrl: 'http://localhost:3001', databaseUrl: 'postgres://fixture/fixture',
+  })
+}
+
 for (const lane of STANDALONE_LANES) {
   for (const variable of REQUIRED_VARIABLES) {
     test(`${lane} pins ${variable} for both the app and the test processes`, () => {
+      if (lane !== '.github/workflows/npm-snapshot-preview.yml') {
+        const { appEnv, testEnv } = sharedEnvironment(lane)
+        assert.ok(appEnv[variable])
+        assert.equal(testEnv[variable], appEnv[variable])
+        if (variable === 'OM_TEST_EMAIL_CAPTURE_PATH') assert.ok(path.isAbsolute(appEnv[variable]))
+        return
+      }
       const source = readRepoFile(lane)
       assert.ok(
         countAssignments(source, variable) >= 2,
@@ -84,6 +101,12 @@ for (const lane of STANDALONE_LANES) {
 for (const lane of STANDALONE_LANES) {
   for (const variable of APP_ONLY_VARIABLES) {
     test(`${lane} pins ${variable} for the app process only`, () => {
+      if (lane !== '.github/workflows/npm-snapshot-preview.yml') {
+        const { appEnv, testEnv } = sharedEnvironment(lane)
+        assert.equal(appEnv[variable], '1')
+        assert.ok(!testEnv[variable])
+        return
+      }
       const source = readRepoFile(lane)
       assert.equal(
         countAssignments(source, variable),
