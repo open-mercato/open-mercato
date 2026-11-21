@@ -29,7 +29,7 @@ function request(body: unknown): Request {
 function createEm() {
   return {
     transactional: async <T>(run: (tx: unknown) => Promise<T>): Promise<T> =>
-      run({ getConnection: () => ({ execute: async () => undefined }) }),
+      run({ execute: async () => undefined }),
   }
 }
 
