@@ -65,7 +65,9 @@ test('a viewer can read a person’s tasks without being offered write actions',
     await expect(page.getByRole('button', { name: 'Add task', exact: true })).toHaveCount(0)
     await expect(page.getByRole('link', { name: 'Go to all tasks' })).toHaveAttribute('href', '/backend/customer-tasks')
 
-    const denied = await page.request.put('/api/customers/interactions', {
+    const viewerToken = await withCredentialIsolatedRequest((loginRequest) => getAuthToken(loginRequest, email, password))
+    const denied = await apiRequest(request, 'PUT', '/api/customers/interactions', {
+      token: viewerToken,
       data: { id: taskId, title: 'Denied task edit' },
     })
     expect(denied.status()).toBe(403)
