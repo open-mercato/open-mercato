@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '../data/entities'
 
@@ -106,4 +107,66 @@ export async function findPeopleByAddresses(
     out.push({ id, email })
   }
   return out
+}
+
+const INBOUND_EMAIL_CONTACT_PAGE_SIZE = 100
+
+type ContactScope = { tenantId: string; organizationId: string | null }
+
+export function createInboundEmailContactLookup(em: EntityManager) {
+  const contactsByScope = new Map<string, Promise<Map<string, string>>>()
+
+  return async (email: string, { tenantId, organizationId }: ContactScope): Promise<string | undefined> => {
+    const [address] = normalizeAddresses([email])
+    if (!address || !organizationId) return undefined
+
+    const key = JSON.stringify([tenantId, organizationId])
+    let contacts = contactsByScope.get(key)
+    if (!contacts) {
+      contacts = loadInboundEmailContacts(em, { tenantId, organizationId }).catch((error: unknown) => {
+        contactsByScope.delete(key)
+        throw error
+      })
+      contactsByScope.set(key, contacts)
+    }
+    return (await contacts).get(address)
+  }
+}
+
+async function loadInboundEmailContacts(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+): Promise<Map<string, string>> {
+  const contacts = new Map<string, string>()
+  let lastPersonId: string | undefined
+
+  while (true) {
+    const people = await findWithDecryption(
+      em,
+      CustomerEntity,
+      {
+        ...scope,
+        kind: 'person',
+        deletedAt: null,
+        primaryEmail: { $ne: null },
+        ...(lastPersonId ? { id: { $gt: lastPersonId } } : {}),
+      },
+      {
+        fields: ['id', 'tenantId', 'organizationId', 'primaryEmail'],
+        orderBy: { id: 'ASC' },
+        limit: INBOUND_EMAIL_CONTACT_PAGE_SIZE,
+        disableIdentityMap: true,
+      },
+      scope,
+    )
+    for (const person of people) {
+      if (isEncryptedPayloadShape(person.primaryEmail)) {
+        throw new Error('[internal] CRM contact email could not be decrypted')
+      }
+      const [address] = normalizeAddresses([person.primaryEmail])
+      if (address && !contacts.has(address)) contacts.set(address, person.id)
+    }
+    if (people.length < INBOUND_EMAIL_CONTACT_PAGE_SIZE) return contacts
+    lastPersonId = people.at(-1)?.id
+  }
 }

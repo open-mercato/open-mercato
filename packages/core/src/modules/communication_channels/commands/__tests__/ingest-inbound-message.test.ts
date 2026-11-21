@@ -21,6 +21,7 @@ jest.mock('../../lib/system-user', () => ({
 }))
 
 import ingestInboundMessageCommand, {
+  COMMUNICATION_CHANNELS_HISTORY_IMPORT_ORIGIN,
   COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
   type IngestInboundMessageInput,
 } from '../ingest-inbound-message'
@@ -30,12 +31,185 @@ import { resolveCommunicationChannelsSystemUserId } from '../../lib/system-user'
 import { composeMessageSchema } from '../../../messages/data/validators'
 import { emitCommunicationChannelsEvent } from '../../events'
 import { matchThread } from '../../lib/thread-matcher'
+import {
+  ChannelThreadMapping,
+  CommunicationChannel,
+  ExternalConversation,
+  ExternalMessage,
+  MessageChannelLink,
+} from '../../data/entities'
 
 const mockMatchThread = matchThread as jest.MockedFunction<typeof matchThread>
 const mockIngestFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 const mockIngestEmit = emitCommunicationChannelsEvent as jest.MockedFunction<
   typeof emitCommunicationChannelsEvent
 >
+
+describe('ingestInboundMessageCommand email admission', () => {
+  const input: IngestInboundMessageInput = {
+    channelId: '550e8400-e29b-41d4-a716-446655440040',
+    providerKey: 'gmail',
+    channelType: 'email',
+    scope: {
+      tenantId: '550e8400-e29b-41d4-a716-446655440020',
+      organizationId: '550e8400-e29b-41d4-a716-446655440030',
+    },
+    message: {
+      externalMessageId: 'provider-message',
+      externalConversationId: 'provider-conversation',
+      senderIdentifier: 'sender@example.com',
+      subject: 'Inbound email',
+      body: 'Email body',
+      bodyFormat: 'text',
+      timestamp: new Date('2026-11-20T10:00:00Z'),
+      channelPayload: {},
+      channelContentType: 'email/mime',
+      channelMetadata: {},
+    },
+  }
+
+  function setup(withConversation = false, withThread = false) {
+    const conversation = { id: 'conversation-id', lastMessageAt: new Date('2026-11-19T10:00:00Z') }
+    const mapping = { id: 'mapping-id', messageThreadId: 'provider-mapped-thread' }
+    const entityManager = {
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ id: 'created-id', ...data })),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+      fork: () => entityManager,
+      getConnection: () => ({ execute: jest.fn(async () => []) }),
+    }
+    const execute = jest.fn(async () => ({ result: { id: 'platform-message', threadId: 'crm-thread' } }))
+    const lookup = jest.fn<Promise<string | undefined>, [string, IngestInboundMessageInput['scope']]>()
+    const services = {
+      em: entityManager,
+      channelAdapterRegistry: { get: () => ({ providerKey: 'gmail', capabilities: {} }) },
+      commandBus: { execute },
+      inboundEmailContactLookup: lookup,
+    }
+    const context = {
+      container: { resolve: (name: keyof typeof services) => services[name] },
+    } as unknown as Parameters<typeof ingestInboundMessageCommand.execute>[1]
+    mockIngestFindOne.mockReset().mockImplementation(async (_em, entity) => {
+      if (entity === CommunicationChannel) return { id: input.channelId, isActive: true, channelType: 'email' } as never
+      if (entity === ExternalConversation && withConversation) return conversation as never
+      if (entity === ChannelThreadMapping && withThread) return mapping as never
+      return null
+    })
+    mockMatchThread.mockReset().mockResolvedValue(null)
+    mockIngestEmit.mockClear()
+    return { entityManager, execute, lookup, context, conversation }
+  }
+
+  it('admits a verified CRM person in the exact receiving scope', async () => {
+    const { entityManager, execute, lookup, context } = setup()
+    lookup.mockResolvedValue('crm-person')
+
+    const result = await ingestInboundMessageCommand.execute(input, context)
+
+    expect(lookup).toHaveBeenCalledWith('sender@example.com', input.scope)
+    expect(result).toMatchObject({ status: 'created', messageId: 'platform-message', contactPersonId: 'crm-person' })
+    expect(execute).toHaveBeenCalledWith('messages.messages.compose', expect.anything())
+    expect(entityManager.create.mock.calls.map(([entity]) => entity)).toEqual([
+      ExternalConversation, ChannelThreadMapping, ExternalMessage, MessageChannelLink,
+    ])
+    expect(mockIngestEmit).toHaveBeenCalledWith('communication_channels.contact.resolved', expect.objectContaining({
+      contactPersonId: 'crm-person', ...input.scope,
+    }), { persistent: true })
+  })
+
+  it('consumes repeat skips without composing, writing, updating a conversation, or emitting', async () => {
+    const { entityManager, execute, lookup, context, conversation } = setup(true)
+    lookup.mockResolvedValue(undefined)
+    const misleadingInput = {
+      ...input,
+      channelType: 'chat',
+      syncOrigin: COMMUNICATION_CHANNELS_HISTORY_IMPORT_ORIGIN,
+    }
+
+    await expect(ingestInboundMessageCommand.execute(misleadingInput, context)).resolves.toEqual({ status: 'skipped' })
+    await expect(ingestInboundMessageCommand.execute(input, context)).resolves.toEqual({ status: 'skipped' })
+
+    expect(conversation.lastMessageAt).toEqual(new Date('2026-11-19T10:00:00Z'))
+    expect(entityManager.create).not.toHaveBeenCalled()
+    expect(entityManager.persist).not.toHaveBeenCalled()
+    expect(entityManager.flush).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+    expect(mockIngestEmit).not.toHaveBeenCalled()
+    expect(mockIngestFindOne).toHaveBeenCalledWith(entityManager, ChannelThreadMapping, {
+      channelId: input.channelId,
+      externalConversationId: 'conversation-id',
+      ...input.scope,
+    }, undefined, input.scope)
+  })
+
+  it('admits an unknown sender when the scoped reply matcher finds a thread', async () => {
+    const { execute, context } = setup()
+    mockMatchThread.mockResolvedValue({ messageThreadId: 'matched-thread', matchedBy: 'jwz-headers', confidence: 'medium' })
+    const reply = { ...input, message: { ...input.message, replyToExternalId: 'parent@example.com' } }
+
+    await expect(ingestInboundMessageCommand.execute(reply, context)).resolves.toMatchObject({ status: 'created' })
+
+    expect(mockMatchThread).toHaveBeenCalledWith(expect.objectContaining({
+      ...input.scope, channelId: input.channelId, inReplyTo: 'parent@example.com',
+    }), expect.anything())
+    expect(execute).toHaveBeenCalledWith('messages.messages.compose', expect.objectContaining({
+      input: expect.objectContaining({ parentMessageId: 'matched-thread' }),
+    }))
+  })
+
+  it('admits a provider-thread reply with no matching RFC headers', async () => {
+    const { execute, context } = setup(true, true)
+
+    await expect(ingestInboundMessageCommand.execute(input, context)).resolves.toMatchObject({ status: 'created' })
+
+    expect(execute).toHaveBeenCalledWith('messages.messages.compose', expect.objectContaining({
+      input: expect.objectContaining({ parentMessageId: 'provider-mapped-thread' }),
+    }))
+  })
+
+  it('does not use the mailbox fallback as CRM evidence when MIME From is missing', async () => {
+    const { lookup, context } = setup()
+    lookup.mockResolvedValue('mailbox-is-a-crm-person')
+    const withoutFrom = { ...input, message: { ...input.message, channelPayload: { from: null } } }
+
+    await expect(ingestInboundMessageCommand.execute(withoutFrom, context)).resolves.toEqual({ status: 'skipped' })
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it('keeps CRM and thread lookup failures retryable before any writes', async () => {
+    const { entityManager, lookup, context } = setup()
+    lookup.mockRejectedValue(new Error('lookup failed'))
+
+    await expect(ingestInboundMessageCommand.execute(input, context)).rejects.toMatchObject({ transient: true })
+
+    mockMatchThread.mockRejectedValueOnce(new Error('matcher failed'))
+    await expect(ingestInboundMessageCommand.execute(input, context)).rejects.toMatchObject({ transient: true })
+    expect(lookup).toHaveBeenCalledTimes(1)
+    expect(entityManager.flush).not.toHaveBeenCalled()
+    expect(mockIngestEmit).not.toHaveBeenCalled()
+  })
+
+  it('keeps a provider conversation lookup failure retryable', async () => {
+    const { entityManager, context } = setup()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: input.channelId, isActive: true, channelType: 'email' })
+      .mockRejectedValueOnce(new Error('conversation read failed'))
+
+    await expect(ingestInboundMessageCommand.execute(input, context)).rejects.toMatchObject({ transient: true })
+    expect(entityManager.flush).not.toHaveBeenCalled()
+  })
+
+  it('admits operator-requested history without requiring a CRM match', async () => {
+    const { lookup, context } = setup()
+
+    await expect(ingestInboundMessageCommand.execute(input, {
+      ...context,
+      syncOrigin: COMMUNICATION_CHANNELS_HISTORY_IMPORT_ORIGIN,
+    })).resolves.toMatchObject({ status: 'created' })
+    expect(lookup).not.toHaveBeenCalled()
+  })
+})
 
 describe('ingestInboundMessageCommand metadata', () => {
   it('exports the canonical command id', () => {
@@ -326,6 +500,7 @@ describe('ingestInboundMessageCommand — concurrent-insert race (M3)', () => {
             if (name === 'em') return em
             if (name === 'channelAdapterRegistry') return { get: () => adapter }
             if (name === 'commandBus') return commandBus
+            if (name === 'inboundEmailContactLookup') return async () => 'crm-person'
             return null
           },
         },
@@ -499,7 +674,10 @@ describe('ingestInboundMessageCommand — non-email sender identity (#4975)', ()
     const { ctx, commandBus } = makeCtx()
 
     const input = { ...discordInput(), providerKey: 'gmail', channelType: 'email' }
-    await ingestInboundMessageCommand.execute(input as never, ctx)
+    await ingestInboundMessageCommand.execute(input as never, {
+      ...ctx,
+      syncOrigin: COMMUNICATION_CHANNELS_HISTORY_IMPORT_ORIGIN,
+    })
 
     const composeCall = commandBus.execute.mock.calls.find(
       (call: unknown[]) => call[0] === 'messages.messages.compose',
@@ -536,6 +714,7 @@ describe('ingestInboundMessageCommand — provider timestamp (#6095)', () => {
             if (name === 'em') return em
             if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'gmail', capabilities: {} }) }
             if (name === 'commandBus') return commandBus
+            if (name === 'inboundEmailContactLookup') return async () => 'crm-person'
             return null
           },
         },
@@ -675,6 +854,7 @@ describe('ingestInboundMessageCommand — assigned conversation (#6093)', () => 
             if (name === 'em') return em
             if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'gmail', capabilities: {} }) }
             if (name === 'commandBus') return commandBus
+            if (name === 'inboundEmailContactLookup') return async () => 'crm-person'
             return null
           },
         },
@@ -946,6 +1126,7 @@ describe('ingestInboundMessageCommand — HTML body normalization', () => {
             if (name === 'em') return em
             if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'imap', capabilities: {} }) }
             if (name === 'commandBus') return commandBus
+            if (name === 'inboundEmailContactLookup') return async () => 'crm-person'
             return null
           },
         },

@@ -1,4 +1,5 @@
-import { normalizeAddresses, findPeopleByAddresses } from '../findPeopleByAddresses'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { createInboundEmailContactLookup, findPeopleByAddresses, normalizeAddresses } from '../findPeopleByAddresses'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -123,5 +124,97 @@ describe('findPeopleByAddresses', () => {
     const out = await findPeopleByAddresses({} as any, ['alice@example.com'], 'tenant-1', null)
     expect(out).toEqual([])
     expect(findWithDecryptionMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('createInboundEmailContactLookup', () => {
+  const em = {} as EntityManager
+  const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+
+  beforeEach(() => {
+    findWithDecryptionMock.mockReset()
+  })
+
+  it('finds normalized email addresses beyond the interactive lookup cap with one scan per scope', async () => {
+    const people = Array.from({ length: 501 }, (_, index) => ({
+      id: `person-${String(index).padStart(3, '0')}`,
+      primaryEmail: `contact-${index}@example.com`,
+    }))
+    findWithDecryptionMock.mockImplementation(async (
+      _em: unknown,
+      _entity: unknown,
+      where: { id?: { $gt: string } },
+      options: { limit: number },
+    ) => people.filter(({ id }) => !where.id || id > where.id.$gt).slice(0, options.limit))
+
+    const lookup = createInboundEmailContactLookup(em)
+    await expect(Promise.all([
+      lookup(' CONTACT-500@example.com ', scope),
+      lookup('contact-0@example.com', scope),
+      lookup('unknown@example.com', scope),
+    ])).resolves.toEqual(['person-500', 'person-000', undefined])
+
+    expect(findWithDecryptionMock).toHaveBeenCalledTimes(6)
+    expect(findWithDecryptionMock).toHaveBeenLastCalledWith(
+      em,
+      expect.any(Function),
+      {
+        ...scope,
+        kind: 'person',
+        deletedAt: null,
+        primaryEmail: { $ne: null },
+        id: { $gt: 'person-499' },
+      },
+      {
+        fields: ['id', 'tenantId', 'organizationId', 'primaryEmail'],
+        orderBy: { id: 'ASC' },
+        limit: 100,
+        disableIdentityMap: true,
+      },
+      scope,
+    )
+  })
+
+  it('isolates positive and negative results by tenant and organization', async () => {
+    findWithDecryptionMock
+      .mockResolvedValueOnce([{ id: 'person-1', primaryEmail: 'ALICE@example.com' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+    const lookup = createInboundEmailContactLookup(em)
+
+    await expect(lookup('alice@example.com', scope)).resolves.toBe('person-1')
+    await expect(lookup('alice@example.com', { ...scope, organizationId: 'org-2' })).resolves.toBeUndefined()
+    await expect(lookup('alice@example.com', { ...scope, tenantId: 'tenant-2' })).resolves.toBeUndefined()
+    await expect(lookup('alice@example.com', scope)).resolves.toBe('person-1')
+    expect(findWithDecryptionMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('requires a valid address and an organization before reading contact records', async () => {
+    const lookup = createInboundEmailContactLookup(em)
+
+    await expect(lookup('not-an-email', scope)).resolves.toBeUndefined()
+    await expect(lookup('alice@example.com', { ...scope, organizationId: null })).resolves.toBeUndefined()
+    expect(findWithDecryptionMock).not.toHaveBeenCalled()
+  })
+
+  it('propagates a database failure and retries the scan on a later lookup', async () => {
+    const readError = new Error('database unavailable')
+    findWithDecryptionMock
+      .mockRejectedValueOnce(readError)
+      .mockResolvedValueOnce([{ id: 'person-1', primaryEmail: 'alice@example.com' }])
+    const lookup = createInboundEmailContactLookup(em)
+
+    await expect(lookup('alice@example.com', scope)).rejects.toBe(readError)
+    await expect(lookup('alice@example.com', scope)).resolves.toBe('person-1')
+  })
+
+  it('rejects a lookup when decryption still returns an encrypted envelope', async () => {
+    const unreadableEmail = [Buffer.alloc(12), Buffer.alloc(10), Buffer.alloc(16)]
+      .map((part) => part.toString('base64'))
+      .join(':') + ':v1'
+    findWithDecryptionMock.mockResolvedValue([{ id: 'person-1', primaryEmail: unreadableEmail }])
+
+    const lookup = createInboundEmailContactLookup(em)
+    await expect(lookup('alice@example.com', scope)).rejects.toThrow('CRM contact email could not be decrypted')
   })
 })

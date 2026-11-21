@@ -6,6 +6,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { htmlToPlainText } from '@open-mercato/shared/lib/html/htmlToPlainText'
 import { emitCommunicationChannelsEvent } from '../events'
+import type { ContactHint } from '../lib/adapter'
 import { resolveContact } from '../lib/contact-resolver'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { matchThread, type ThreadMatch } from '../lib/thread-matcher'
@@ -38,7 +39,7 @@ const ingestInputSchema = z.object({
 export type IngestInboundMessageInput = z.infer<typeof ingestInputSchema>
 
 export type IngestInboundMessageResult = {
-  status: 'created' | 'duplicate'
+  status: 'created' | 'duplicate' | 'skipped'
   messageId?: string
   externalConversationId?: string
   externalMessageId?: string
@@ -48,6 +49,12 @@ export type IngestInboundMessageResult = {
 }
 
 export const COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID = 'communication_channels.message.ingest_inbound'
+export const COMMUNICATION_CHANNELS_HISTORY_IMPORT_ORIGIN = 'communication_channels.import_history'
+
+type InboundEmailContactLookup = (
+  email: string,
+  scope: IngestInboundMessageInput['scope'],
+) => Promise<string | undefined>
 
 /**
  * Idempotently ingest a normalized inbound channel message.
@@ -55,12 +62,11 @@ export const COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID = 'communication_c
  * Steps (per SPEC-045d §6):
  *   1. Dedup by `(channel_id, external_message_id)` — if a MessageChannelLink already
  *      exists for that pair, return `{ status: 'duplicate' }` without side effects.
- *   2. Create or load `ExternalConversation` by `(channel_id, external_conversation_id)`.
- *   3. Create or load `ChannelThreadMapping` (1:1 with ExternalConversation).
- *   4. Resolve CRM contact via adapter + QueryEngine (best-effort).
- *   5. Compose the platform `Message` via `messages.messages.compose` (separate transaction).
- *   6. Create `ExternalMessage` + `MessageChannelLink`.
- *   7. Emit `communication_channels.message.received` (and `.conversation.created` / `.contact.resolved` when applicable).
+ *   2. Find an existing thread and resolve the sender. Ordinary inbound email
+ *      without either a thread or a scoped CRM person is consumed without writes.
+ *   3. Upsert the provider conversation and compose the platform `Message`.
+ *   4. Create `ExternalMessage` + `MessageChannelLink` and update the thread mapping.
+ *   5. Emit `communication_channels.message.received` (and `.conversation.created` / `.contact.resolved` when applicable).
  *
  * The two-transaction model (compose-message-then-record-link) is acceptable for v1;
  * the link's unique-on-message-id constraint is the safety net against orphans. See
@@ -68,6 +74,9 @@ export const COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID = 'communication_c
  */
 const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, IngestInboundMessageResult> = {
   id: COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
+  buildLog({ result }) {
+    return result.status === 'skipped' ? { skipLog: true } : null
+  },
   async execute(rawInput, ctx) {
     const input = ingestInputSchema.parse(rawInput) as IngestInboundMessageInput
 
@@ -190,63 +199,33 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       )
     }
 
-    // (2) ExternalConversation upsert by (channel_id, externalConversationId).
+    const requiresAdmission = channel.channelType === 'email' && ctx.syncOrigin !== COMMUNICATION_CHANNELS_HISTORY_IMPORT_ORIGIN
     const m = input.message
-    let conversation = await findOneWithDecryption(
-      em,
-      ExternalConversation,
-      {
-        channelId: input.channelId,
-        externalConversationId: m.externalConversationId,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-      },
-      undefined,
-      dscope,
-    )
-    let conversationCreated = false
-    if (!conversation) {
-      conversation = em.create(ExternalConversation, {
-        channelId: input.channelId,
-        externalConversationId: m.externalConversationId,
-        subject: m.subject ?? null,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-        lastMessageAt: m.timestamp,
-        assignedUserId: channel.userId ?? null,
-      })
-      em.persist(conversation)
-      conversationCreated = true
+    let conversation: ExternalConversation | null
+    let mapping: ChannelThreadMapping | null
+    try {
+      conversation = await findOneWithDecryption(
+        em,
+        ExternalConversation,
+        { channelId: input.channelId, externalConversationId: m.externalConversationId, ...dscope },
+        undefined,
+        dscope,
+      )
+      mapping = conversation
+        ? await findOneWithDecryption(
+            em,
+            ChannelThreadMapping,
+            { channelId: input.channelId, externalConversationId: conversation.id, ...dscope },
+            undefined,
+            dscope,
+          )
+        : null
+    } catch (error) {
+      if (requiresAdmission) {
+        throw Object.assign(new Error('[internal] Inbound email conversation lookup failed'), { transient: true })
+      }
+      throw error
     }
-
-    // (3) ChannelThreadMapping upsert (1:1 with ExternalConversation per tenant).
-    let mapping = await findOneWithDecryption(
-      em,
-      ChannelThreadMapping,
-      {
-        externalConversationId: conversation.id,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-      },
-      undefined,
-      dscope,
-    )
-
-    // Last-activity bump on an existing conversation. Applied AFTER the mapping
-    // lookup, immediately before the flush, so the scalar mutation and its flush
-    // stay adjacent with no query in between (core flush-ordering rule — a query
-    // between a scalar mutation and `em.flush()` can drop the change under some
-    // flush modes / subscriber configurations).
-    if (
-      !conversationCreated &&
-      m.timestamp &&
-      (!conversation.lastMessageAt || m.timestamp > conversation.lastMessageAt)
-    ) {
-      conversation.lastMessageAt = m.timestamp
-    }
-    // We'll fill `messageThreadId` after composing the platform Message (since the
-    // first inbound message becomes the thread root in the messages module).
-    await em.flush()
 
     // (3b) Spec B — layered thread match.
     //
@@ -298,49 +277,75 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
           { em },
         )
       } catch (matcherErr) {
+        if (requiresAdmission) {
+          throw Object.assign(new Error('[internal] Inbound email thread lookup failed'), { transient: true })
+        }
         // Matcher failure must not block ingest — fall back to the existing
         // conversation-based thread mapping so the message still lands.
         logger.warn('thread matcher failed, falling back to conversation mapping', { err: matcherErr })
       }
     }
 
-    // (4) Contact resolution (best-effort, advisory).
-    let contactHint: {
-      matchedPersonId?: string | null
-      email?: string
-      displayName?: string
-    } | null = null
-    try {
-      contactHint = await resolveContact(
-        {
-          adapter,
-          senderIdentifier: m.senderIdentifier,
-          senderDisplayName: m.senderDisplayName,
-          channelMetadata: m.channelMetadata,
-          credentials: {}, // credentials decrypted at the webhook route; resolver doesn't re-fetch
-          scope: {
-            tenantId: input.scope.tenantId,
-            organizationId: input.scope.organizationId ?? input.scope.tenantId,
+    let contactHint: ContactHint | null = null
+    if (requiresAdmission) {
+      const email = m.senderIdentifier.trim()
+      let matchedPersonId: string | undefined
+      if (dscope.organizationId && m.channelPayload?.from !== null) {
+        try {
+          const lookup = ctx.container.resolve<InboundEmailContactLookup | undefined>(
+            'inboundEmailContactLookup',
+            { allowUnregistered: true },
+          )
+          matchedPersonId = await lookup?.(email, dscope)
+        } catch {
+          throw Object.assign(new Error('[internal] Inbound email contact lookup failed'), { transient: true })
+        }
+      }
+      if (!threadMatch && !mapping?.messageThreadId && !matchedPersonId) {
+        return { status: 'skipped' }
+      }
+      contactHint = { email, displayName: m.senderDisplayName, matchedPersonId }
+    } else {
+      try {
+        contactHint = await resolveContact(
+          {
+            adapter,
+            senderIdentifier: m.senderIdentifier,
+            senderDisplayName: m.senderDisplayName,
+            channelMetadata: m.channelMetadata,
+            credentials: {},
+            scope: {
+              tenantId: input.scope.tenantId,
+              organizationId: input.scope.organizationId ?? input.scope.tenantId,
+            },
           },
-        },
-        { container: ctx.container },
-      )
-    } catch (contactErr) {
-      // Best-effort: contact resolution is advisory and must not abort ingest.
-      // Log like the sibling dedup/matcher catches so a misbehaving resolver is
-      // visible in operator logs instead of failing silently.
-      logger.warn('contact resolution failed, continuing without a CRM match', { err: contactErr })
-      contactHint = null
+          { container: ctx.container },
+        )
+      } catch (contactErr) {
+        logger.warn('contact resolution failed, continuing without a CRM match', { err: contactErr })
+      }
+    }
+
+    const conversationCreated = !conversation
+    if (!conversation) {
+      conversation = em.create(ExternalConversation, {
+        channelId: input.channelId,
+        externalConversationId: m.externalConversationId,
+        subject: m.subject ?? null,
+        tenantId: dscope.tenantId,
+        organizationId: dscope.organizationId,
+        lastMessageAt: m.timestamp,
+        assignedUserId: channel.userId ?? null,
+      })
+      em.persist(conversation)
+    } else if (m.timestamp && (!conversation.lastMessageAt || m.timestamp > conversation.lastMessageAt)) {
+      conversation.lastMessageAt = m.timestamp
     }
     const matchedPersonId = contactHint?.matchedPersonId ?? null
     if (matchedPersonId && conversation.contactPersonId !== matchedPersonId) {
       conversation.contactPersonId = matchedPersonId
-      // Flush this scalar mutation before the system-user lookup below queries the
-      // same EntityManager. SPEC-018: a query between a scalar mutation and its
-      // flush can silently discard the pending UPDATE (mirrors the lastMessageAt
-      // bump above).
-      await em.flush()
     }
+    await em.flush()
 
     // (5) Compose the platform Message via the messages module command.
     //

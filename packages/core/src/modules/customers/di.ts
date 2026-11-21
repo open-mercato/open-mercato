@@ -9,6 +9,7 @@ import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from './lib/
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { CustomerEntity, CustomerAddress, CustomerInteraction } from './data/entities'
 import { loadCustomerAuditRedactionContext, redactCustomerAuditEntry } from './lib/auditRedaction'
+import { createInboundEmailContactLookup } from './lib/findPeopleByAddresses'
 
 const RESOURCE_KIND_COMPANY = 'customers.company'
 // The CRUD factory derives resourceKind via singularize-the-second-segment of
@@ -76,6 +77,9 @@ export function register(container: AppContainer) {
     CustomerEntity: asValue(CustomerEntity),
     CustomerAddress: asValue(CustomerAddress),
     CustomerInteraction: asValue(CustomerInteraction),
+    inboundEmailContactLookup: asScopedService((container) =>
+      createInboundEmailContactLookup(container.resolve<EntityManager>('em')),
+    ),
     calendarEventTypeRegistry: asValue(calendarEventTypeRegistry),
     calendarEventTypeCatalogService: asScopedService((container) => ({
       async resolveBehavior(input: { tenantId: string; organizationId: string; key: string }) {
