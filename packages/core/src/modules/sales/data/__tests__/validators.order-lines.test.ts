@@ -48,4 +48,63 @@ describe('sales order line invariant', () => {
   it('does not apply the order invariant to quotes', () => {
     expect(quoteCreateSchema.safeParse({ ...SCOPE, currencyCode: 'USD' }).success).toBe(true)
   })
+
+  // Regression: checkout's document creation spreads a SalesLineSnapshot straight
+  // into `lines`, and that type declares productVariantId/configuration/quantityUnit
+  // (among others) as `| null`, which entity-to-snapshot mappers like
+  // toCartTotalsLineSnapshot set explicitly rather than omitting. The schema must
+  // accept `null` wherever the snapshot type allows it, or a plain product with no
+  // variant/configuration fails order/quote creation with "expected string, received null".
+  const SNAPSHOT_SHAPED_LINE = {
+    ...LINE,
+    productId: null,
+    productVariantId: null,
+    description: null,
+    comment: null,
+    quantityUnit: null,
+    normalizedQuantity: null,
+    normalizedUnit: null,
+    uomSnapshot: null,
+    configuration: null,
+    promotionCode: null,
+    metadata: null,
+    customFieldSetId: null,
+    customFields: null,
+    discountAmount: null,
+    discountAmountBasis: null,
+    discountPercent: null,
+    taxRate: null,
+    taxAmount: null,
+    totalNetAmount: null,
+    totalGrossAmount: null,
+    amountsMode: null,
+  }
+
+  it('accepts an order line whose optional fields are explicit null, as a cart snapshot line produces', () => {
+    const result = orderCreateSchema.safeParse({ ...SCOPE, currencyCode: 'USD', lines: [SNAPSHOT_SHAPED_LINE] })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a quote line whose optional fields are explicit null, as a cart snapshot line produces', () => {
+    const result = quoteCreateSchema.safeParse({ ...SCOPE, currencyCode: 'USD', lines: [SNAPSHOT_SHAPED_LINE] })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a null name and unit prices, as SalesLineSnapshot allows', () => {
+    const result = orderCreateSchema.safeParse({
+      ...SCOPE,
+      currencyCode: 'USD',
+      lines: [{ ...LINE, name: null, unitPriceNet: null, unitPriceGross: null }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('still rejects a malformed non-null line value', () => {
+    const result = orderCreateSchema.safeParse({
+      ...SCOPE,
+      currencyCode: 'USD',
+      lines: [{ ...LINE, productVariantId: 'not-a-uuid' }],
+    })
+    expect(result.success).toBe(false)
+  })
 })

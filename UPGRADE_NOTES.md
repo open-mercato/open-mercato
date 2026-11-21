@@ -1,5 +1,37 @@
 # Upgrade Notes
 
+## Sales line validators accept snapshot `null`s; quotes take external references (eCommerce Release 5, SA1)
+
+- **Sales line validators** (`packages/core/src/modules/sales/data/validators.ts`):
+  these shared line fields changed from `.optional()` to `.nullable().optional()`,
+  so their inferred TypeScript types gain `| null`: `quantityUnit`,
+  `normalizedQuantity`, `unitPriceNet`, `unitPriceGross`, `discountAmount`,
+  `discountAmountBasis`, `discountPercent`, `taxRate`, `taxAmount`,
+  `totalNetAmount`, `totalGrossAmount`, `amountsMode`, `productId`,
+  `productVariantId`, `name`, `description`, `comment`, `configuration`,
+  `promotionCode`, `metadata`, `customFieldSetId` and `customFields`
+  (`normalizedUnit` and `uomSnapshot` already accepted `null`). They live in
+  `linePricingSchema` / `lineSharedSchema`, which `orderLineCreateSchema` /
+  `orderLineUpdateSchema` **and** `quoteLineCreateSchema` /
+  `quoteLineUpdateSchema` both extend, so the change applies to order lines and
+  quote lines alike, including the `lines` of `orderCreateSchema` and
+  `quoteCreateSchema`. A `SalesLineSnapshot`, which already declares these fields
+  nullable, can now be passed to `sales.orders.create` / `sales.quotes.create`
+  as is; `null` means the same as omitting the field. Every payload that
+  validated before still validates. **Module authors:** code that reads these
+  fields from `z.infer` types and assumed "string or undefined" needs to handle
+  `null` as well.
+- **`quoteCreateSchema`** gains optional `externalReference` and
+  `customerReference` (trimmed, at most 191 characters), the same pair
+  `orderCreateSchema` already has. `sales.quotes.create` and
+  `POST /api/sales/quotes` now write them to the quote; omitted, both stay
+  `null`. `quoteUpdateSchema` (derived from it) gains them too.
+- **Indexes:** `sales_quotes_tenant_external_reference_idx` and
+  `sales_orders_tenant_external_reference_idx` on `(tenant_id, external_reference)`.
+  Both migrations build the index `CONCURRENTLY` outside a transaction; run
+  `yarn db:migrate` as usual. On a large `sales_orders` table the build takes a
+  while but does not block writes.
+
 ## Backend API documentation permission (#3810)
 
 `/backend/docs` now requires `api_docs.view`. Staff without that feature lose the
