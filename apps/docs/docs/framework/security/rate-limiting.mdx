@@ -194,7 +194,9 @@ Content-Type: application/json
 The message deliberately reveals nothing about the limiter or its backing store; the cause is
 logged instead. `POST /api/checkout/pay/[slug]/submit` and
 `POST /api/checkout/pay/[slug]/verify-password` return it, so a client of those routes should
-treat `503` as retryable rather than as a submission failure.
+treat `503` as retryable rather than as a submission failure. These two routes also answer `503`
+when no `rateLimiterService` is registered (an invalid `RATE_LIMIT_*` configuration), until the
+configuration is fixed.
 
 AI agent tools also fail closed. `POST /api/ai_assistant/tools/execute` answers `503` with
 `{ "success": false, "error": "...", "code": "RATE_LIMIT_UNAVAILABLE" }`; over MCP the call returns
@@ -416,11 +418,16 @@ Two conditions that look alike are worth keeping apart at the call site: a limit
 **registered but cannot decide** is a transient outage and is what `failClosed` is for, while a
 `rateLimiterService` that is **not registered at all** means `readRateLimitConfig()` rejected the
 environment and lasts until an operator fixes it. Reporting the second as "temporarily
-unavailable" would take the endpoint down indefinitely, so resolve the service outside the
-fail-closed guard and skip the check when it is absent — as
-`packages/core/src/modules/sales/api/quotes/accept/route.ts` and
-`packages/checkout/src/modules/checkout/lib/rateLimiter.ts` both do — logging the
+unavailable" would take the endpoint down indefinitely, so by default resolve the service
+outside the fail-closed guard and skip the check when it is absent — as
+`packages/core/src/modules/sales/api/quotes/accept/route.ts` does — logging the
 misconfiguration for what it is.
+
+An endpoint where an unmetered request is worse than an outage can reject the missing-limiter
+case too. The checkout pay-link routes do: `enforceCheckoutRateLimit`
+(`packages/checkout/src/modules/checkout/lib/rateLimiter.ts`) answers `503` under `fail-closed`
+when `rateLimiterService` is not registered, and skips the check only under `fail-open`. Either
+way, log the misconfiguration so the operator can find the cause.
 
 ## Testing
 

@@ -1,5 +1,26 @@
 # Upgrade Notes
 
+## Rate limiting fails closed (checkout pay links)
+
+**Behaviour change (`checkout`, Phase A pay links).** A checkout route whose rate
+limit is declared `fail-closed` now answers `503` when no `rateLimiterService` is
+registered, instead of logging an error and serving the request unthrottled. This
+affects `POST /api/checkout/pay/[slug]/submit` and
+`POST /api/checkout/pay/[slug]/verify-password`. Fail-open reads
+(`GET /api/checkout/pay/[slug]` and the transaction status read) keep skipping the
+check. A limiter that is registered but cannot decide already answered `503` under
+`fail-closed`; that is unchanged.
+
+The service is not registered when the `RATE_LIMIT_*` configuration is invalid, so a
+deployment with a broken rate-limit configuration now rejects pay-link payments and
+password checks until the configuration is fixed. The error log
+"Rate limiter service is not registered — check RATE_LIMIT_* configuration" names the
+cause.
+
+**Action:** before upgrading, check that the app boots with a valid `RATE_LIMIT_*`
+configuration and registers `rateLimiterService` (the default memory strategy needs
+no extra setup).
+
 ## Backend API documentation permission (#3810)
 
 `/backend/docs` now requires `api_docs.view`. Staff without that feature lose the
