@@ -291,6 +291,8 @@ export type ListConfig<TList> = {
   decryptEncryptedFields?: boolean
   /** When true, skip server-side CRUD GET cache for this list (avoids stale empty payloads after mutations). */
   disableListCache?: boolean
+  /** When true for a validated query, serve the response without reading or storing the CRUD cache. */
+  disableListCacheForQuery?: (query: TList, ctx: CrudCtx) => boolean
 }
 
 export type CrudExportColumnConfig = {
@@ -1735,6 +1737,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       const cacheEnabled =
         isCrudCacheEnabled() && !exportRequested && !opts.list?.disableListCache
+          && !opts.list?.disableListCacheForQuery?.(validated as TList, ctx)
       const cacheTimerStart = cacheEnabled && isCrudCacheDebugEnabled()
         ? process.hrtime.bigint()
         : null

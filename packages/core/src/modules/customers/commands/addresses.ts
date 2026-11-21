@@ -1,8 +1,10 @@
+import { isDeepStrictEqual } from 'node:util'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { CustomerAddress } from '../data/entities'
 import { addressCreateSchema, addressUpdateSchema, type AddressCreateInput, type AddressUpdateInput } from '../data/validators'
 import {
@@ -16,11 +18,14 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { applyAddressCustomValues, readAddressCustomValues } from '@open-mercato/core/modules/entities/lib/addressCustomFields'
+import { sealCustomerAddressCustomValues } from '../lib/addressCustomValues'
 
 const addressCrudIndexer: CrudIndexerConfig<CustomerAddress> = {
   entityType: E.customers.customer_address,
@@ -57,6 +62,7 @@ type AddressSnapshot = {
   latitude: number | null
   longitude: number | null
   isPrimary: boolean
+  addressCustomValues?: CustomerAddress['customValues']
 }
 
 type DemotedPrimaryAddress = {
@@ -75,7 +81,19 @@ type AddressCommandResult = {
   demotedPrimaryAddresses?: DemotedPrimaryAddress[]
 }
 
-async function loadAddressSnapshot(em: EntityManager, id: string, ctx: CommandRuntimeContext): Promise<AddressSnapshot | null> {
+type AddressCustomValuesChange = {
+  before: Record<string, unknown> | null
+  after: Record<string, unknown> | null
+}
+
+const addressCustomValuesChanges = new WeakMap<AddressCommandResult, AddressCustomValuesChange>()
+
+async function loadAddressSnapshot(
+  em: EntityManager,
+  id: string,
+  ctx: CommandRuntimeContext,
+  includeCustomValues = true,
+): Promise<AddressSnapshot | null> {
   const address = await findScopedCustomerCommandRecord(
     em,
     CustomerAddress,
@@ -110,6 +128,7 @@ async function loadAddressSnapshot(em: EntityManager, id: string, ctx: CommandRu
     latitude: address.latitude ?? null,
     longitude: address.longitude ?? null,
     isPrimary: address.isPrimary,
+    ...(includeCustomValues ? { addressCustomValues: address.customValues ?? null } : {}),
   }
 }
 
@@ -195,6 +214,16 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
     const entity = await requireCustomerEntity(em, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, undefined, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
 
+    const customValues = parsed.customValues === undefined
+      ? undefined
+      : await sealCustomerAddressCustomValues(ctx.container, entity, await applyAddressCustomValues(em, {
+          entityId: E.customers.customer_address,
+          tenantId: entity.tenantId,
+          organizationId: entity.organizationId,
+          previous: null,
+          patch: parsed.customValues,
+        }))
+
     const address = em.create(CustomerAddress, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -213,6 +242,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
       latitude: parsed.latitude ?? null,
       longitude: parsed.longitude ?? null,
       isPrimary: parsed.isPrimary ?? false,
+      customValues,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -306,6 +336,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await requireCustomerEntity(em, after.entityId, { tenantId: after.tenantId, organizationId: after.organizationId }, undefined, 'Customer not found')
+    const customValues = await sealCustomerAddressCustomValues(ctx.container, after, after.addressCustomValues)
     let address = await findOneWithDecryption(
       em,
       CustomerAddress,
@@ -333,6 +364,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
         latitude: after.latitude,
         longitude: after.longitude,
         isPrimary: after.isPrimary,
+        customValues,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -353,6 +385,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
       address.latitude = after.latitude
       address.longitude = after.longitude
       address.isPrimary = after.isPrimary
+      if (customValues !== undefined) address.customValues = customValues
     }
     const restoredAddress = address
     let demotedPrimaryAddresses: DemotedPrimaryAddress[] = []
@@ -395,26 +428,50 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
   async prepare(rawInput, ctx) {
     const parsed = addressUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadAddressSnapshot(em, parsed.id, ctx)
+    const snapshot = await loadAddressSnapshot(em, parsed.id, ctx, false)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = addressUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const address = await findScopedCustomerCommandRecord(em, CustomerAddress, { id: parsed.id }, undefined, ctx)
-    if (!address) throw notFound('Address not found')
-    ensureTenantScope(ctx, address.tenantId)
-    ensureOrganizationScope(ctx, address.organizationId)
-
-    if (parsed.entityId !== undefined) {
-      const entity = await requireCustomerEntity(em, parsed.entityId, { tenantId: address.tenantId, organizationId: address.organizationId }, undefined, 'Customer not found')
-      ensureSameScope(entity, address.organizationId, address.tenantId)
-      address.entity = entity
-    }
-
+    let address!: CustomerAddress
     let demotedPrimaryAddresses: DemotedPrimaryAddress[] = []
+    let customValuesChange: AddressCustomValuesChange | undefined
     await withAtomicFlush(em, [
-      () => {
+      async () => {
+        const record = await findScopedCustomerCommandRecord(em, CustomerAddress, { id: parsed.id }, { lockMode: LockMode.PESSIMISTIC_WRITE }, ctx)
+        if (!record) throw notFound('Address not found')
+        ensureTenantScope(ctx, record.tenantId)
+        ensureOrganizationScope(ctx, record.organizationId)
+        await enforceCommandOptimisticLockWithGuards(ctx.container, {
+          resourceKind: 'customers.address',
+          resourceId: record.id,
+          current: record.updatedAt,
+          request: ctx.request,
+        })
+        address = record
+
+        let customValues: CustomerAddress['customValues']
+        if (parsed.customValues !== undefined) {
+          const before = readAddressCustomValues(address.customValues)
+          const after = await applyAddressCustomValues(em, {
+            entityId: E.customers.customer_address,
+            tenantId: address.tenantId,
+            organizationId: address.organizationId,
+            previous: before,
+            patch: parsed.customValues,
+          })
+          if (!isDeepStrictEqual(before, after)) {
+            customValuesChange = { before, after }
+            customValues = await sealCustomerAddressCustomValues(ctx.container, address, after, em)
+          }
+        }
+
+        if (parsed.entityId !== undefined) {
+          const entity = await requireCustomerEntity(em, parsed.entityId, { tenantId: address.tenantId, organizationId: address.organizationId }, undefined, 'Customer not found')
+          ensureSameScope(entity, address.organizationId, address.tenantId)
+          address.entity = entity
+        }
         if (parsed.name !== undefined) address.name = parsed.name ?? null
         if (parsed.purpose !== undefined) address.purpose = parsed.purpose ?? null
         if (parsed.companyName !== undefined) address.companyName = parsed.companyName ?? null
@@ -429,6 +486,10 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
         if (parsed.latitude !== undefined) address.latitude = parsed.latitude ?? null
         if (parsed.longitude !== undefined) address.longitude = parsed.longitude ?? null
         if (parsed.isPrimary !== undefined) address.isPrimary = parsed.isPrimary
+        if (customValues !== undefined) {
+          address.customValues = customValues
+          address.updatedAt = new Date()
+        }
       },
       async () => {
         if (address.isPrimary) {
@@ -454,20 +515,25 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
       events: addressCrudEvents,
     })
 
-    return {
+    const result = {
       addressId: address.id,
       ...(demotedPrimaryAddresses.length ? { demotedPrimaryAddresses } : {}),
     }
+    if (customValuesChange) addressCustomValuesChanges.set(result, customValuesChange)
+    return result
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadAddressSnapshot(em, result.addressId, ctx)
+    return await loadAddressSnapshot(em, result.addressId, ctx, false)
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const before = snapshots.before as AddressSnapshot | undefined
+    const beforeSnapshot = snapshots.before as AddressSnapshot | undefined
+    const customValues = addressCustomValuesChanges.get(result)
+    const before = customValues && beforeSnapshot ? { ...beforeSnapshot, addressCustomValues: customValues.before } : beforeSnapshot
     if (!before) return null
-    const afterSnapshot = snapshots.after as AddressSnapshot | undefined
+    const rawAfter = snapshots.after as AddressSnapshot | undefined
+    const afterSnapshot = customValues && rawAfter ? { ...rawAfter, addressCustomValues: customValues.after } : rawAfter
     const changes =
       afterSnapshot && before
         ? buildChanges(
@@ -519,68 +585,56 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let address = await findOneWithDecryption(em, CustomerAddress, { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId }, undefined, {
-      tenantId: before.tenantId,
-      organizationId: before.organizationId,
-    })
-    const primaryHeldForEntityId = address?.isPrimary === true ? resolveAddressEntityId(address) : null
-    const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
-    if (!address) {
-      address = em.create(CustomerAddress, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        entity,
-        name: before.name,
-        purpose: before.purpose,
-        companyName: before.companyName,
-        addressLine1: before.addressLine1,
-        addressLine2: before.addressLine2,
-        buildingNumber: before.buildingNumber,
-        flatNumber: before.flatNumber,
-        city: before.city,
-        region: before.region,
-        postalCode: before.postalCode,
-        country: before.country,
-        latitude: before.latitude,
-        longitude: before.longitude,
-        isPrimary: before.isPrimary,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(address)
-    } else {
-      address.entity = entity
-      address.name = before.name
-      address.purpose = before.purpose
-      address.companyName = before.companyName
-      address.addressLine1 = before.addressLine1
-      address.addressLine2 = before.addressLine2
-      address.buildingNumber = before.buildingNumber
-      address.flatNumber = before.flatNumber
-      address.city = before.city
-      address.region = before.region
-      address.postalCode = before.postalCode
-      address.country = before.country
-      address.latitude = before.latitude
-      address.longitude = before.longitude
-      address.isPrimary = before.isPrimary
-    }
+    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    const beforeCustomValues = before.addressCustomValues
+    const afterCustomValues = payload?.after?.addressCustomValues
+    let address!: CustomerAddress
+    let primaryHeldForEntityId: string | null = null
     await withAtomicFlush(em, [
       async () => {
+        const existing = await findOneWithDecryption(em, CustomerAddress, { id: before.id, ...scope }, { lockMode: LockMode.PESSIMISTIC_WRITE }, scope)
+        primaryHeldForEntityId = existing?.isPrimary === true ? resolveAddressEntityId(existing) : null
+        let customValues: CustomerAddress['customValues']
+        if (beforeCustomValues !== undefined && afterCustomValues !== undefined) {
+          const current = existing ? readAddressCustomValues(existing.customValues) : null
+          if (!existing || !isDeepStrictEqual(current, afterCustomValues)) {
+            const { translate } = await resolveTranslations()
+            throw new CrudHttpError(409, {
+              error: translate('auth.replay.errors.stale', 'This action cannot be replayed because the target has changed.'),
+            })
+          }
+          customValues = await sealCustomerAddressCustomValues(ctx.container, scope, beforeCustomValues, em)
+        }
+        const entity = await requireCustomerEntity(em, before.entityId, scope, undefined, 'Customer not found')
+        const fields = {
+          entity,
+          name: before.name,
+          purpose: before.purpose,
+          companyName: before.companyName,
+          addressLine1: before.addressLine1,
+          addressLine2: before.addressLine2,
+          buildingNumber: before.buildingNumber,
+          flatNumber: before.flatNumber,
+          city: before.city,
+          region: before.region,
+          postalCode: before.postalCode,
+          country: before.country,
+          latitude: before.latitude,
+          longitude: before.longitude,
+          isPrimary: before.isPrimary,
+          ...(customValues !== undefined ? { customValues } : {}),
+        }
+        address = existing ? Object.assign(existing, fields) : em.create(CustomerAddress, { id: before.id, ...scope, ...fields })
         em.persist(address)
-        await em.flush()
+      },
+      async () => {
         if (before.isPrimary) {
-          await enforcePrimaryAddress(em, before.entityId, before.id, {
-            tenantId: before.tenantId,
-            organizationId: before.organizationId,
-          })
+          await enforcePrimaryAddress(em, before.entityId, before.id, scope)
         }
         if (primaryHeldForEntityId) {
           await restoreDemotedPrimaryAddresses(em, payload?.demotedPrimaryAddresses, {
             entityId: primaryHeldForEntityId,
-            tenantId: before.tenantId,
-            organizationId: before.organizationId,
+            ...scope,
           })
         }
       },
@@ -662,6 +716,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
+      const customValues = await sealCustomerAddressCustomValues(ctx.container, before, before.addressCustomValues)
       let address = await findOneWithDecryption(em, CustomerAddress, { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId }, undefined, {
         tenantId: before.tenantId,
         organizationId: before.organizationId,
@@ -686,6 +741,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           latitude: before.latitude,
           longitude: before.longitude,
           isPrimary: before.isPrimary,
+          customValues,
           createdAt: new Date(),
           updatedAt: new Date(),
         })
@@ -705,6 +761,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
         address.latitude = before.latitude
         address.longitude = before.longitude
         address.isPrimary = before.isPrimary
+        if (customValues !== undefined) address.customValues = customValues
       }
       await withAtomicFlush(em, [
         async () => {

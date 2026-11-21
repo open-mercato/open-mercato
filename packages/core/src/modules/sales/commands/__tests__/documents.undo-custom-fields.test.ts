@@ -12,6 +12,12 @@
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { E } from '#generated/entities.ids.generated'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+jest.mock('@open-mercato/shared/lib/encryption/toggles', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/encryption/toggles'),
+  isTenantDataEncryptionEnabled: () => false,
+}))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -61,6 +67,7 @@ function makeEm() {
     remove: jest.fn(),
     nativeDelete: jest.fn(async () => 0),
     flush: jest.fn(async () => {}),
+    clear: jest.fn(),
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
     getConnection: () => ({ execute: jest.fn(async () => [{ value: 1 }]) }),
   }
@@ -147,6 +154,7 @@ describe('order/quote update undo restores custom fields under their definition 
 
   beforeEach(() => {
     setRecordCustomFieldsMock.mockClear()
+    jest.mocked(findOneWithDecryption).mockResolvedValue(null)
   })
 
   it('strips the cf_ prefix from order header, line and adjustment custom fields', async () => {
@@ -167,5 +175,49 @@ describe('order/quote update undo restores custom fields under their definition 
     expect(writes[E.sales.sales_quote]).toEqual({ k: 'B', tags: ['x', 'y'] })
     expect(writes[E.sales.sales_quote_line]).toEqual({ line_note: 'L' })
     expect(writes[E.sales.sales_quote_adjustment]).toEqual({ reason: 'promo' })
+  })
+
+  describe.each(['order', 'quote'] as const)('%s address custom values', (kind) => {
+    const beforeValues = { shipping: { instructions: 'Previous shipping' }, billing: { instructions: 'Previous billing' } }
+    const afterValues = { ...beforeValues, shipping: { instructions: 'Operation shipping' } }
+
+    function buildAddressSnapshot(addressCustomValues: typeof beforeValues | undefined) {
+      const { [kind]: doc } = buildSnapshot(kind)
+      return { [kind]: { ...doc, addressCustomValues }, lines: [], adjustments: [], addresses: [], notes: [], tags: [] }
+    }
+
+    async function undoAddressValues(currentValues: typeof beforeValues, legacy = false) {
+      const { [kind]: doc } = buildSnapshot(kind)
+      const entity = { ...doc, addressCustomValues: currentValues }
+      jest.mocked(findOneWithDecryption).mockResolvedValue(entity as never)
+      const command = commandRegistry.get(`sales.${kind}s.update`)!
+      await command.undo?.({
+        logEntry: { commandPayload: { undo: {
+          before: buildAddressSnapshot(legacy ? undefined : beforeValues),
+          after: buildAddressSnapshot(legacy ? undefined : afterValues),
+        } } },
+        ctx: makeCtx(makeEm()),
+        input: {},
+      } as never)
+      return entity.addressCustomValues
+    }
+
+    it('restores a changed slot and preserves later changes to the other slot', async () => {
+      await expect(undoAddressValues({
+        ...afterValues, billing: { instructions: 'Later billing' },
+      })).resolves.toEqual({
+        billing: { instructions: 'Later billing' }, shipping: beforeValues.shipping,
+      })
+    })
+
+    it('rejects undo when the same slot was later changed', async () => {
+      await expect(undoAddressValues({
+        ...afterValues, shipping: { instructions: 'Later shipping' },
+      })).rejects.toMatchObject({ status: 409 })
+    })
+
+    it('preserves address values when a historical operation has no private values in its snapshots', async () => {
+      await expect(undoAddressValues(afterValues, true)).resolves.toEqual(afterValues)
+    })
   })
 })

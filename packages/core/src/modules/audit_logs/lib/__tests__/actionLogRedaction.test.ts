@@ -58,6 +58,31 @@ describe('redactActionLogEntries', () => {
     expect(result[0]).toBe(entries[0])
   })
 
+  it('removes private address bags and their dotted changes without mutating undo data', async () => {
+    const entry = makeEntry({
+      resourceKind: 'sales.order',
+      snapshotAfter: {
+        id: 'order-1',
+        addresses: [{ addressLine1: 'Demo street', addressCustomValues: { instructions: 'private note' } }],
+      },
+      changesJson: {
+        'addressCustomValues.shipping.instructions': { from: 'old note', to: 'private note' },
+        'shippingAddressSnapshot.city': { from: 'Old city', to: 'New city' },
+      },
+    })
+    const [result] = await redactActionLogEntries(
+      { hasRegistration: () => false, resolve: jest.fn() },
+      mockEm,
+      { tenantId: 'tenant-1', organizationId: null },
+      'user-1',
+      [entry],
+    )
+
+    expect(result.snapshotAfter).toEqual({ id: 'order-1', addresses: [{ addressLine1: 'Demo street' }] })
+    expect(result.changesJson).toEqual({ 'shippingAddressSnapshot.city': { from: 'Old city', to: 'New city' } })
+    expect(entry.changesJson).toHaveProperty(['addressCustomValues.shipping.instructions'])
+  })
+
   it('does not report when the provider is simply unregistered', async () => {
     const hasRegistration = jest.fn(() => false)
     const resolve = jest.fn()

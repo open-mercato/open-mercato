@@ -1,5 +1,7 @@
 {
   "entities.customFields.addFirst": "Dodaj pierwszy",
+  "entities.customFields.address.invalidValue": "Wprowadź prawidłową wartość pola adresu.",
+  "entities.customFields.address.unsupportedDefinition": "Ta nazwa lub typ pola nie są dostępne dla adresów.",
   "entities.customFields.defaultFieldset": "Domyślny",
   "entities.customFields.editor.active": "Aktywne",
   "entities.customFields.editor.add": "Dodaj",

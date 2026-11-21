@@ -7,6 +7,7 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'customer_snapshot' },
       { field: 'billing_address_snapshot' },
       { field: 'shipping_address_snapshot' },
+      { field: 'address_custom_values' },
       { field: 'shipping_method_snapshot' },
       { field: 'delivery_window_snapshot' },
       { field: 'payment_method_snapshot' },
@@ -24,6 +25,7 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'customer_snapshot' },
       { field: 'billing_address_snapshot' },
       { field: 'shipping_address_snapshot' },
+      { field: 'address_custom_values' },
       { field: 'shipping_method_snapshot' },
       { field: 'delivery_window_snapshot' },
       { field: 'payment_method_snapshot' },
@@ -38,6 +40,7 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
   {
     entityId: 'sales:sales_document_address',
     fields: [
+      { field: 'custom_values' },
       { field: 'name' },
       { field: 'purpose' },
       { field: 'company_name' },

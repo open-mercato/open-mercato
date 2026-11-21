@@ -7,6 +7,7 @@ import {
 import { getPaymentProvider, getShippingProvider } from '../lib/providers'
 import { REFERENCE_UNIT_CODES } from '@open-mercato/shared/lib/units/unitCodes'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import { addressCustomValuesSchema } from '@open-mercato/core/modules/entities/lib/addressCustomValuesSchema'
 
 export const SALES_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
 
@@ -778,6 +779,13 @@ const quoteTotalsSchema = z.object({
 
 export const SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY = 'sales.orders.linesRequired'
 
+export const primaryAddressCustomFields = {
+  billingAddressCustomValues: addressCustomValuesSchema.optional(),
+  shippingAddressCustomValues: addressCustomValuesSchema.optional(),
+  copyBillingAddressCustomValues: z.boolean().optional(),
+  copyShippingAddressCustomValues: z.boolean().optional(),
+}
+
 export const orderCreateSchema = scoped.extend({
   orderNumber: z.string().trim().min(1).max(191).optional(),
   externalReference: z.string().trim().max(191).optional(),
@@ -789,6 +797,7 @@ export const orderCreateSchema = scoped.extend({
   shippingAddressId: uuid().optional(),
   billingAddressSnapshot: jsonRecord.optional(),
   shippingAddressSnapshot: jsonRecord.optional(),
+  ...primaryAddressCustomFields,
   currencyCode,
   exchangeRate: decimal({ min: 0 }).optional(),
   statusEntryId: uuid().optional(),
@@ -844,6 +853,7 @@ export const quoteCreateSchema = scoped.extend({
   shippingAddressId: uuid().optional(),
   billingAddressSnapshot: jsonRecord.optional(),
   shippingAddressSnapshot: jsonRecord.optional(),
+  ...primaryAddressCustomFields,
   currencyCode,
   validFrom: z.coerce.date().optional(),
   validUntil: z.coerce.date().optional(),
@@ -883,6 +893,8 @@ const documentAddressFields = {
   documentId: uuid(),
   documentKind,
   customerAddressId: uuid().optional(),
+  customValues: addressCustomValuesSchema.optional(),
+  copyCustomerAddressCustomValues: z.boolean().optional(),
   name: z.string().trim().max(255).nullable().optional(),
   purpose: z.string().trim().max(120).nullable().optional(),
   companyName: z.string().trim().max(255).nullable().optional(),
@@ -903,7 +915,12 @@ export const documentAddressCreateSchema = scoped.extend(documentAddressFields)
 export const documentAddressUpdateSchema = scoped.extend({
   id: uuid(),
   ...documentAddressFields,
-})
+  customerAddressId: uuid().nullable().optional(),
+  addressLine1: documentAddressFields.addressLine1.optional(),
+}).refine(
+  (input) => input.addressLine1 !== undefined || input.customValues !== undefined || input.copyCustomerAddressCustomValues === true,
+  { path: ['addressLine1'], message: 'sales.documents.detail.addresses.line1Required' },
+)
 
 export const documentAddressDeleteSchema = scoped.extend({
   id: uuid(),

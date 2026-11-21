@@ -887,6 +887,8 @@ type DocumentRecord = {
   customerSnapshot?: Record<string, unknown> | null
   billingAddressSnapshot?: Record<string, unknown> | null
   shippingAddressSnapshot?: Record<string, unknown> | null
+  billingAddressCustomValues?: Record<string, unknown> | null
+  shippingAddressCustomValues?: Record<string, unknown> | null
   shippingMethodId?: string | null
   shippingMethodCode?: string | null
   shippingMethodSnapshot?: Record<string, unknown> | null
@@ -3613,6 +3615,8 @@ export default function SalesDocumentDetailPage({
                 billingAddressId: changedCustomer ? null : prev.billingAddressId ?? null,
                 shippingAddressSnapshot: changedCustomer ? null : prev.shippingAddressSnapshot ?? null,
                 billingAddressSnapshot: changedCustomer ? null : prev.billingAddressSnapshot ?? null,
+                shippingAddressCustomValues: changedCustomer ? null : prev.shippingAddressCustomValues,
+                billingAddressCustomValues: changedCustomer ? null : prev.billingAddressCustomValues,
               }
             : prev
         )
@@ -4385,8 +4389,14 @@ export default function SalesDocumentDetailPage({
           billingAddressId={record.billingAddressId ?? null}
           shippingAddressSnapshot={shippingSnapshot ?? null}
           billingAddressSnapshot={billingSnapshot ?? null}
+          shippingAddressCustomValues={record.shippingAddressCustomValues}
+          billingAddressCustomValues={record.billingAddressCustomValues}
+          updatedAt={record.updatedAt}
           lockedReason={addressGuardMessage}
-          onUpdated={(patch) => setRecord((prev) => (prev ? { ...prev, ...patch } : prev))}
+          onReload={async () => {
+            const refreshed = await fetchDocumentByKind(record.id, kind)
+            if (refreshed) setRecord(refreshed)
+          }}
         />
       )
     }

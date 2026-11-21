@@ -1,7 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { normalizeExportFormat } from '@open-mercato/shared/lib/crud/exporters'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  filterAddressCustomValues,
+  loadAddressCustomFieldDefinitions,
+} from '@open-mercato/core/modules/entities/lib/addressCustomFields'
+import { addressCustomValuesSchema } from '@open-mercato/core/modules/entities/lib/addressCustomValuesSchema'
 import { CustomerAddress } from '../../data/entities'
 import { addressCreateSchema, addressUpdateSchema } from '../../data/validators'
 import { E } from '#generated/entities.ids.generated'
@@ -50,6 +58,7 @@ const crud = makeCrudRoute({
   list: {
     schema: listSchema,
     entityId: E.customers.customer_address,
+    disableListCache: true,
     fields: [
       'id',
       'entity_id',
@@ -80,6 +89,38 @@ const crud = makeCrudRoute({
       if (query.entityId) filters.entity_id = { $eq: query.entityId }
       if (query.id) filters.id = { $eq: query.id }
       return filters
+    },
+  },
+  hooks: {
+    async afterList(payload: { items?: Array<Record<string, unknown>> }, ctx) {
+      const tenantId = ctx.auth?.tenantId
+      const includeCustomValues = Boolean(tenantId) && !normalizeExportFormat(ctx.query.format)
+      const addressesByOrganization = new Map<string, Map<string, Record<string, unknown>>>()
+      if (!payload.items?.length) return
+      payload.items = payload.items.map((item) => Object.fromEntries(Object.entries(item).filter(([key]) => (
+        key !== 'customValues' && key !== 'custom_values' && !key.startsWith('cf:') && !key.startsWith('cf_')
+      ))))
+      for (const item of payload.items ?? []) {
+        if (!includeCustomValues || typeof item.id !== 'string') continue
+        const organizationId = item.organization_id ?? item.organizationId
+        if (typeof organizationId !== 'string' || (item.tenant_id ?? item.tenantId) !== tenantId) continue
+        const rows = addressesByOrganization.get(organizationId) ?? new Map<string, Record<string, unknown>>()
+        rows.set(item.id, item)
+        addressesByOrganization.set(organizationId, rows)
+      }
+      if (!tenantId || !addressesByOrganization.size) return
+      const em = ctx.container.resolve<EntityManager>('em').fork()
+      for (const [organizationId, rows] of addressesByOrganization) {
+        const scope = { tenantId, organizationId }
+        const addresses = await findWithDecryption(em, CustomerAddress, { ...scope, id: { $in: Array.from(rows.keys()) } }, undefined, scope)
+        if (!addresses.some((address) => address.customValues != null)) continue
+        const definitions = await loadAddressCustomFieldDefinitions(em, { ...scope, entityId: E.customers.customer_address })
+        for (const address of addresses) {
+          const item = rows.get(address.id)
+          const customValues = filterAddressCustomValues(address.customValues, definitions)
+          if (item && customValues) item.customValues = customValues
+        }
+      }
     },
   },
   actions: {
@@ -145,6 +186,7 @@ const addressListItemSchema = z.object({
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
   updated_at: z.string().nullable().optional(),
+  customValues: addressCustomValuesSchema.optional(),
 })
 
 const addressCreateResponseSchema = z.object({

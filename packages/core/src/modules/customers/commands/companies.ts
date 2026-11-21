@@ -1,4 +1,5 @@
 import { redactRestoredNextInteractionName } from '../lib/interactionProjection'
+import { sealCustomerAddressCustomValues } from '../lib/addressCustomValues'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -155,6 +156,7 @@ type CompanyAddressSnapshot = {
   latitude: number | null
   longitude: number | null
   isPrimary: boolean
+  addressCustomValues?: CustomerAddress['customValues']
 }
 
 type CompanyCommentSnapshot = {
@@ -397,6 +399,7 @@ async function loadCompanySnapshot(
       latitude: address.latitude ?? null,
       longitude: address.longitude ?? null,
       isPrimary: address.isPrimary,
+      ...(address.customValues != null ? { addressCustomValues: address.customValues } : {}),
     })),
     comments: comments.map((comment) => ({
       id: comment.id,
@@ -1378,6 +1381,10 @@ const deleteCompanyCommand: CommandHandler<
       const beforeActivities = (before as { activities?: CompanyActivitySnapshot[] }).activities ?? []
       const beforeComments = (before as { comments?: CompanyCommentSnapshot[] }).comments ?? []
       const beforeAddresses = (before as { addresses?: CompanyAddressSnapshot[] }).addresses ?? []
+      const addressCustomValues = new Map(await Promise.all(beforeAddresses.map(async (address) => [
+        address.id,
+        await sealCustomerAddressCustomValues(ctx.container, before.entity, address.addressCustomValues),
+      ] as const)))
       const beforeTodos = (before as { todos?: CompanyTodoSnapshot[] }).todos ?? []
       const beforeInteractions = (before as { interactions?: CompanyInteractionSnapshot[] }).interactions ?? []
 
@@ -1505,6 +1512,7 @@ const deleteCompanyCommand: CommandHandler<
               latitude: address.latitude,
               longitude: address.longitude,
               isPrimary: address.isPrimary,
+              customValues: addressCustomValues.get(address.id) ?? undefined,
             })
             em.persist(restoredAddress)
           }

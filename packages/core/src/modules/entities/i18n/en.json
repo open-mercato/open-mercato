@@ -1,5 +1,7 @@
 {
   "entities.customFields.addFirst": "Add the first one",
+  "entities.customFields.address.invalidValue": "Enter a valid address field value.",
+  "entities.customFields.address.unsupportedDefinition": "This field name or type is unavailable for addresses.",
   "entities.customFields.defaultFieldset": "Default",
   "entities.customFields.editor.active": "Active",
   "entities.customFields.editor.add": "Add",

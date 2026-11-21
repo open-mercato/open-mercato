@@ -12,11 +12,16 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
 
 jest.mock('../AddressEditor', () => ({
   __esModule: true,
-  default: ({ value, onChange }: { value: AddressEditorDraft; onChange: (next: AddressEditorDraft) => void }) => (
+  default: ({ value, onChange, children }: {
+    value: AddressEditorDraft
+    onChange: (next: AddressEditorDraft) => void
+    children?: React.ReactNode
+  }) => (
     <>
       <input aria-label="Label" value={value.name} onChange={(event) => onChange({ ...value, name: event.target.value })} />
       <input aria-label="Street" value={value.addressLine1} onChange={(event) => onChange({ ...value, addressLine1: event.target.value })} />
       <input aria-label="Nested selector" onKeyDown={(event) => event.preventDefault()} />
+      {children}
     </>
   ),
 }))
@@ -58,5 +63,38 @@ describe('AddressTiles keyboard actions', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Street' }), { target: { value: '1 Main Street' } })
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'Street' }), { key: 'Enter', ctrlKey: true })
     await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ addressLine1: '1 Main Street' })))
+  })
+
+  it('clears an address custom value with Ctrl+Enter and leaves untouched keys out of the patch', async () => {
+    const onUpdate = jest.fn(async () => undefined)
+    renderWithProviders(
+      <AddressTiles
+        addresses={[{ id: 'address-1', addressLine1: '1 Main Street', customValues: { delivery_note: 'North gate', parked_field: 'Keep this' } }]}
+        onCreate={() => {}}
+        onUpdate={onUpdate}
+        t={(_key, fallback) => fallback ?? ''}
+        emptyLabel="No addresses"
+        customFields={{
+          structure: {
+            entityId: 'customers:customer_address',
+            status: 'ready',
+            fields: [{ id: 'delivery_note', type: 'text', label: 'Delivery note' }],
+            definitions: [{ key: 'delivery_note', kind: 'text' }],
+            retry: () => {},
+          },
+          labels: { loading: 'Loading fields', error: 'Field error', retry: 'Retry' },
+          renderValues: () => null,
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Edit address' }))
+    const note = screen.getByRole('textbox', { name: 'Delivery note' })
+    expect(note).toHaveValue('North gate')
+    fireEvent.change(note, { target: { value: '' } })
+    fireEvent.keyDown(note, { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledWith('address-1', expect.objectContaining({
+      customValues: { delivery_note: null },
+    })))
+    expect(screen.queryByRole('textbox', { name: 'Delivery note' })).not.toBeInTheDocument()
   })
 })

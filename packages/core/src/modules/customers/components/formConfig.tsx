@@ -50,7 +50,8 @@ import { RolesSection } from './detail/RolesSection'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEmailDuplicateCheck } from '../backend/hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../utils/phoneDuplicates'
-import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from './AddressTiles'
+import type { CustomerAddressValue } from './AddressTiles'
+import { createCustomerAddressDraftsField, type CustomerAddressDraftOptions } from './customerAddressDraftsField'
 import {
   ensureCustomerDictionary,
   invalidateCustomerDictionary,
@@ -95,6 +96,7 @@ export type CustomerFormFieldOptions = {
   phoneCountries?: PhoneCountry[]
   /** Marks the VAT ID as required; off by default, since a company MAY have no tax ID (not VAT-registered, foreign, early-stage lead). */
   requireTaxId?: boolean
+  addressDrafts?: CustomerAddressDraftOptions
 }
 
 export type PersonFormValues = {
@@ -1065,83 +1067,7 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
     },
     ...dictionaryFields,
     { id: 'description', label: t('customers.people.form.description'), type: 'textarea' },
-    {
-      id: 'addresses',
-      label: '',
-      type: 'custom',
-      layout: 'full',
-      component: ({ value, setValue }: CrudCustomFieldRenderProps) => {
-        const addresses = Array.isArray(value) ? (value as CustomerAddressValue[]) : []
-        return (
-          <CustomerAddressTiles
-            addresses={addresses}
-            t={t}
-            emptyLabel={t('customers.people.detail.empty.addresses')}
-            gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
-            showCoordinateFields
-            onCreate={async (payload: CustomerAddressInput) => {
-              const nextId =
-                typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-                  ? crypto.randomUUID()
-                  : `tmp-${Math.random().toString(36).slice(2)}`
-              const next: CustomerAddressValue = {
-                id: nextId,
-                name: payload.name ?? undefined,
-                purpose: payload.purpose ?? undefined,
-                companyName: payload.companyName ?? undefined,
-                addressLine1: payload.addressLine1,
-                addressLine2: payload.addressLine2 ?? undefined,
-                buildingNumber: payload.buildingNumber ?? undefined,
-                flatNumber: payload.flatNumber ?? undefined,
-                city: payload.city ?? undefined,
-                region: payload.region ?? undefined,
-                postalCode: payload.postalCode ?? undefined,
-                country: payload.country ?? undefined,
-                latitude: payload.latitude ?? undefined,
-                longitude: payload.longitude ?? undefined,
-                isPrimary: payload.isPrimary ?? false,
-              }
-              const current = Array.isArray(addresses) ? addresses : []
-              const nextAddresses =
-                next.isPrimary === true
-                  ? [next, ...current.map((item) => ({ ...item, isPrimary: false }))]
-                  : [next, ...current]
-              setValue(nextAddresses)
-            }}
-            onUpdate={async (id, payload) => {
-              const current = Array.isArray(addresses) ? addresses : []
-              const updated = current.map((item) => {
-                if (item.id !== id) {
-                  return payload.isPrimary ? { ...item, isPrimary: false } : item
-                }
-                return {
-                  ...item,
-                  name: payload.name ?? null,
-                  purpose: payload.purpose ?? null,
-                  companyName: payload.companyName ?? null,
-                  addressLine1: payload.addressLine1,
-                  addressLine2: payload.addressLine2 ?? null,
-                  buildingNumber: payload.buildingNumber ?? null,
-                  flatNumber: payload.flatNumber ?? null,
-                  city: payload.city ?? null,
-                  region: payload.region ?? null,
-                  postalCode: payload.postalCode ?? null,
-                  country: payload.country ?? null,
-                  latitude: payload.latitude ?? null,
-                  longitude: payload.longitude ?? null,
-                  isPrimary: payload.isPrimary ?? false,
-                }
-              })
-              setValue(updated)
-            }}
-            onDelete={async (id) => {
-              const current = Array.isArray(addresses) ? addresses : []
-              setValue(current.filter((item) => item.id !== id))
-            }}
-          />
-        )
-      },
-    },
+    createCustomerAddressDraftsField(t, t('customers.people.detail.empty.addresses'), options?.addressDrafts),
   ]
 }
 
@@ -1453,83 +1379,7 @@ export const createCompanyFormFields = (t: Translator, options?: CustomerFormFie
       label: t('customers.companies.detail.fields.description', 'Description'),
       type: 'textarea',
     },
-    {
-      id: 'addresses',
-      label: '',
-      type: 'custom',
-      layout: 'full',
-      component: ({ value, setValue }: CrudCustomFieldRenderProps) => {
-        const addresses = Array.isArray(value) ? (value as CustomerAddressValue[]) : []
-        return (
-          <CustomerAddressTiles
-            addresses={addresses}
-            t={t}
-            emptyLabel={t('customers.companies.detail.empty.addresses')}
-            gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
-            showCoordinateFields
-            onCreate={async (payload: CustomerAddressInput) => {
-              const nextId =
-                typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-                  ? crypto.randomUUID()
-                  : `tmp-${Math.random().toString(36).slice(2)}`
-              const next: CustomerAddressValue = {
-                id: nextId,
-                name: payload.name ?? undefined,
-                purpose: payload.purpose ?? undefined,
-                companyName: payload.companyName ?? undefined,
-                addressLine1: payload.addressLine1,
-                addressLine2: payload.addressLine2 ?? undefined,
-                buildingNumber: payload.buildingNumber ?? undefined,
-                flatNumber: payload.flatNumber ?? undefined,
-                city: payload.city ?? undefined,
-                region: payload.region ?? undefined,
-                postalCode: payload.postalCode ?? undefined,
-                country: payload.country ?? undefined,
-                latitude: payload.latitude ?? undefined,
-                longitude: payload.longitude ?? undefined,
-                isPrimary: payload.isPrimary ?? false,
-              }
-              const current = Array.isArray(addresses) ? addresses : []
-              const nextAddresses =
-                next.isPrimary === true
-                  ? [next, ...current.map((item) => ({ ...item, isPrimary: false }))]
-                  : [next, ...current]
-              setValue(nextAddresses)
-            }}
-            onUpdate={async (id, payload) => {
-              const current = Array.isArray(addresses) ? addresses : []
-              const updated = current.map((item) => {
-                if (item.id !== id) {
-                  return payload.isPrimary ? { ...item, isPrimary: false } : item
-                }
-                return {
-                  ...item,
-                  name: payload.name ?? null,
-                  purpose: payload.purpose ?? null,
-                  companyName: payload.companyName ?? null,
-                  addressLine1: payload.addressLine1,
-                  addressLine2: payload.addressLine2 ?? null,
-                  buildingNumber: payload.buildingNumber ?? null,
-                  flatNumber: payload.flatNumber ?? null,
-                  city: payload.city ?? null,
-                  region: payload.region ?? null,
-                  postalCode: payload.postalCode ?? null,
-                  country: payload.country ?? null,
-                  latitude: payload.latitude ?? null,
-                  longitude: payload.longitude ?? null,
-                  isPrimary: payload.isPrimary ?? false,
-                }
-              })
-              setValue(updated)
-            }}
-            onDelete={async (id) => {
-              const current = Array.isArray(addresses) ? addresses : []
-              setValue(current.filter((item) => item.id !== id))
-            }}
-          />
-        )
-      },
-    },
+    createCustomerAddressDraftsField(t, t('customers.companies.detail.empty.addresses'), options?.addressDrafts),
   ]
 }
 

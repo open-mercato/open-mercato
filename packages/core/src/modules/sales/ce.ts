@@ -1,7 +1,16 @@
 import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
+import { cf } from '@open-mercato/shared/modules/dsl'
 import { E } from '#generated/entities.ids.generated'
 
 const systemEntities: CustomEntitySpec[] = [
+  {
+    id: E.sales.sales_document_address,
+    label: 'Sales Document Address',
+    description: 'A shipping, billing, or additional address on a sales document.',
+    labelField: 'name',
+    showInSidebar: false,
+    fields: [cf.text('delivery_instructions', { label: 'Delivery instructions', formEditable: true, indexed: false, encrypted: true })],
+  },
   {
     id: E.sales.sales_order,
     label: 'Sales Order',

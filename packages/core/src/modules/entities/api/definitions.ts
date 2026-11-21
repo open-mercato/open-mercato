@@ -42,6 +42,8 @@ import {
 } from '../lib/definition-scope'
 import { resolveEntityDefinitionsVersion } from '../lib/definitions-version'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isAddressCustomFieldHost, isSupportedAddressCustomField } from '../lib/addressCustomFieldPolicy'
 
 const logger = createLogger('entities').child({ component: 'definitions' })
 
@@ -421,6 +423,7 @@ export async function GET(req: Request) {
     winning.sort((a: any, b: any) => ((a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0)))
 
     for (const d of winning) {
+      if (isAddressCustomFieldHost(entityId) && !isSupportedAddressCustomField(d.key, d.kind)) continue
       const rawFieldset = typeof d.configJson?.fieldset === 'string' ? d.configJson.fieldset.trim() : ''
       const normalizedFieldset = rawFieldset.length > 0 ? rawFieldset : undefined
       const normalizedFieldsets = Array.isArray(d.configJson?.fieldsets)
@@ -545,6 +548,11 @@ export async function POST(req: Request) {
 
   if (!isSystemEntitySelectable(input.entityId)) {
     return NextResponse.json({ error: 'Custom fields are not supported for this entity' }, { status: 400 })
+  }
+
+  if (input.isActive !== false && isAddressCustomFieldHost(input.entityId) && !isSupportedAddressCustomField(input.key, input.kind)) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('entities.customFields.address.unsupportedDefinition', 'This field name or type is unavailable for addresses.') }, { status: 400 })
   }
 
   if (input.kind === 'dictionary') {
