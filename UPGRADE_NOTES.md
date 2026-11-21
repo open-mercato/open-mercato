@@ -1,5 +1,20 @@
 # Upgrade Notes
 
+## Fulltext reindex preserves record organization ownership (#8397)
+
+Tenant-wide fulltext reindexing now keeps each source row's `organization_id`
+in the indexed document and search build context. An explicit `null` stays
+global; a projection that omits the column keeps the existing request-scope
+fallback. Direct reindexes and queued batch reloads use the same rule.
+
+Operators with documents written by an older tenant-wide reindex should run a
+tenant-wide fulltext rebuild through Settings > Search or `POST /api/search/reindex`
+with All organizations selected. An organization-scoped rebuild cannot identify
+the original owners of historical documents incorrectly stored with a null
+organization. The general `search reindex` CLI does not rebuild fulltext.
+No startup command, environment variable, database migration, provider default,
+or public API shape changes.
+
 ## Backend API documentation permission (#3810)
 
 `/backend/docs` now requires `api_docs.view`. Staff without that feature lose the
