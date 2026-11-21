@@ -82,6 +82,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const existingOverride = await em.findOne(WorkflowDefinition, {
       workflowId: codeDef.workflowId,
       tenantId,
+      organizationId,
     }, { orderBy: { version: 'DESC' } })
 
     let saved: WorkflowDefinition
@@ -120,12 +121,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
       saved = override
     }
 
-    // Materializing the override moves trigger ownership from the code registry
-    // to the new `workflow_definitions` row, so the cached snapshot the wildcard
-    // subscriber reads is stale until TRIGGER_CACHE_TTL expires (#4425). Scope
-    // the invalidation to the saved row's own organization: reviving an existing
-    // override belonging to a sibling organization changes triggers for THAT
-    // organization, not for the caller's.
     if (saved.tenantId) invalidateTriggerCache(saved.tenantId, saved.organizationId ?? undefined)
 
     if (guardResult?.shouldRunAfterSuccess) {

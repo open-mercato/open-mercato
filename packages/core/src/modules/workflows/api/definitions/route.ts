@@ -301,6 +301,7 @@ export async function POST(request: NextRequest) {
     const existing = await em.findOne(WorkflowDefinition, {
       workflowId: input.workflowId,
       tenantId,
+      organizationId,
     }, { orderBy: { version: 'DESC' } })
 
     if (existing) {

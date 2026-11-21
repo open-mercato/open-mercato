@@ -215,6 +215,68 @@ describe('Workflow Definition customize/reset event emissions', () => {
     })
   })
 
+  describe.each(['customize', 'put'] as const)('%s organization isolation', (operation) => {
+    test.each([false, true])('creates its own override without exposing or reviving a sibling (deleted=%s)', async (deleted) => {
+      const sibling = Object.assign(new WorkflowDefinition(), {
+        id: 'sibling-definition',
+        workflowId: codeWorkflowId,
+        workflowName: 'Private sibling workflow',
+        tenantId,
+        organizationId: 'sibling-org',
+        definition: { steps: [], transitions: [] },
+        deletedAt: deleted ? new Date('2026-01-01') : null,
+        enabled: false,
+      })
+      const original = { ...sibling }
+      mockEm.findOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) =>
+        Object.entries(where).every(([key, value]) => Reflect.get(sibling, key) === value) ? sibling : null,
+      )
+      const context = { params: Promise.resolve({ id: `code:${codeWorkflowId}` }) }
+      const request = new NextRequest(`http://localhost/api/workflows/definitions/code:${codeWorkflowId}`, {
+        method: operation === 'put' ? 'PUT' : 'POST',
+        ...(operation === 'put' ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) } : {}),
+      })
+      const response = operation === 'put'
+        ? await updateDefinition(request, context)
+        : await customizeDefinition(request, context)
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.data.id).toBe('def-new')
+      expect(body.data.organizationId).toBe(organizationId)
+      expect(sibling).toEqual(original)
+      expect(mockEm.create).toHaveBeenCalledWith(WorkflowDefinition, expect.objectContaining({ tenantId, organizationId }))
+      expect(mockEventBus.emitEvent).toHaveBeenCalledWith(
+        'workflows.definition.customized',
+        expect.objectContaining({ id: 'def-new', organizationId }),
+        expect.objectContaining({ tenantId, organizationId }),
+      )
+    })
+
+    test('revives only the caller organization override', async () => {
+      const own = Object.assign(new WorkflowDefinition(), {
+        id: 'own-definition', workflowId: codeWorkflowId, tenantId, organizationId,
+        deletedAt: new Date('2026-01-01'), updatedAt: new Date('2026-01-01'),
+      })
+      mockEm.findOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) =>
+        Object.entries(where).every(([key, value]) => Reflect.get(own, key) === value) ? own : null,
+      )
+      const context = { params: Promise.resolve({ id: `code:${codeWorkflowId}` }) }
+      const request = new NextRequest(`http://localhost/api/workflows/definitions/code:${codeWorkflowId}`, {
+        method: operation === 'put' ? 'PUT' : 'POST',
+        ...(operation === 'put' ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) } : {}),
+      })
+      const response = operation === 'put'
+        ? await updateDefinition(request, context)
+        : await customizeDefinition(request, context)
+
+      expect(response.status).toBe(200)
+      expect(own.deletedAt).toBeNull()
+      expect(own.organizationId).toBe(organizationId)
+      expect(mockEm.create).not.toHaveBeenCalled()
+    })
+  })
+
   describe('POST /api/workflows/definitions/[id]/reset-to-code', () => {
     test('emits workflows.definition.reset_to_code after deleting override', async () => {
       const existing = new WorkflowDefinition()
