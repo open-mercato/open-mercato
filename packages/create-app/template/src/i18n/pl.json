@@ -1003,6 +1003,7 @@
   "ui.forms.unsavedChangesDiscard": "Odrzuć zmiany",
   "ui.forms.unsavedChangesKeep": "Wróć do edycji",
   "ui.forms.unsavedChangesTitle": "Odrzucić niezapisane zmiany?",
+  "ui.helpTip.ariaLabel": "Co to jest?",
   "ui.inputs.amountInput.currencyLabel": "Waluta",
   "ui.inputs.amountInput.placeholder": "0,00",
   "ui.inputs.cardInput.placeholder": "0000 0000 0000 0000",

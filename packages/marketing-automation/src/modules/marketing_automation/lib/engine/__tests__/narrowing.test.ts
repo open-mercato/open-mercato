@@ -1,0 +1,687 @@
+import { describeNarrowing, planNarrowing, recencyBounds } from '../narrowing'
+import type { Narrowing } from '../narrowing'
+import { matchesAudience } from '../audience'
+import type { SubjectDocument } from '../types'
+import type { ConditionExpression } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
+
+const logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }
+const NOW = new Date('2026-09-28T12:00:00.000Z')
+const MS_PER_DAY = 86_400_000
+
+const leaf = (field: string, operator: string, value?: unknown): ConditionExpression =>
+  ({ field, operator, value } as ConditionExpression)
+const group = (operator: 'AND' | 'OR' | 'NOT', rules: ConditionExpression[]): ConditionExpression =>
+  ({ operator, rules } as ConditionExpression)
+
+/**
+ * The narrowing, interpreted in memory exactly as the SQL interprets it.
+ *
+ * This mirror is what makes the superset property testable without a database: the resolver's
+ * queries return the customers this predicate is true for, including the part that is easy to
+ * forget — the aggregate query can only return customers who have orders at all.
+ */
+function satisfiesNarrowing(narrowing: Narrowing, subject: SubjectDocument): boolean {
+  switch (narrowing.kind) {
+    case 'all':
+      return true
+    case 'none':
+      return false
+    case 'and':
+      return narrowing.parts.every((part) => satisfiesNarrowing(part, subject))
+    case 'or':
+      return narrowing.parts.some((part) => satisfiesNarrowing(part, subject))
+    case 'predicate': {
+      const predicate = narrowing.predicate
+      if (predicate.kind === 'hasTag') return subject.tags.includes(predicate.slug)
+      if (predicate.kind === 'hasAnyTag') return subject.tags.length > 0
+      if (predicate.kind === 'purchasedSku') return subject.orders.skus.includes(predicate.sku)
+      if (predicate.kind === 'purchasedCategory') return subject.orders.categories.includes(predicate.slug)
+      if (predicate.kind === 'engagedEvent') {
+        // The query returns customers with at least one such event; a customer with none is excluded here too.
+        return (predicate.type === 'opened' ? subject.engagement.opened : subject.engagement.clicked) >= 1
+      }
+      if (predicate.kind === 'silentSince') {
+        // Absent means nobody ever wrote to them, and the query cannot produce them either.
+        if (subject.engagement.daysSinceEngaged === undefined) return false
+        return subject.engagement.daysSinceEngaged >= predicate.days
+      }
+      if (predicate.kind === 'npsScore') {
+        // The query returns only customers who ANSWERED; a non-answerer is excluded here too, which is why
+        // pushing this predicate stays a superset.
+        if (subject.survey.nps === null) return false
+        switch (predicate.op) {
+          case '=': return subject.survey.nps === predicate.value
+          case '>': return subject.survey.nps > predicate.value
+          case '>=': return subject.survey.nps >= predicate.value
+          case '<': return subject.survey.nps < predicate.value
+          case '<=': return subject.survey.nps <= predicate.value
+        }
+        return true
+      }
+      if (predicate.kind === 'scorePoints') {
+        // The ledger query can only return customers who HAVE entries, and a customer with no
+        // entries has a total of zero — the same shape as the order aggregate below.
+        if (subject.score.points === 0) return false
+        switch (predicate.op) {
+          case '=': return subject.score.points === predicate.value
+          case '>': return subject.score.points > predicate.value
+          case '>=': return subject.score.points >= predicate.value
+          case '<': return subject.score.points < predicate.value
+          case '<=': return subject.score.points <= predicate.value
+        }
+        return true
+      }
+      if (subject.orders.count === 0) return false
+      if (predicate.metric === 'daysSinceLast') {
+        if (subject.orders.lastPlacedAt === undefined) return false
+        const daysAgo = (NOW.getTime() - new Date(subject.orders.lastPlacedAt).getTime()) / MS_PER_DAY
+        const bounds = recencyBounds(predicate.op, predicate.value)
+        if (bounds.minDaysAgo !== undefined && daysAgo < bounds.minDaysAgo) return false
+        if (bounds.maxDaysAgo !== undefined && daysAgo > bounds.maxDaysAgo) return false
+        return true
+      }
+      const actual = predicate.metric === 'count' ? subject.orders.count : subject.orders.totalGross
+      switch (predicate.op) {
+        case '=': return actual === predicate.value
+        case '>': return actual > predicate.value
+        case '>=': return actual >= predicate.value
+        case '<': return actual < predicate.value
+        case '<=': return actual <= predicate.value
+      }
+      return true
+    }
+  }
+}
+
+function subjectOf(input: {
+  tags?: string[]
+  count?: number
+  totalGross?: number
+  daysAgo?: number | null
+  points?: number
+  skus?: string[]
+  categories?: string[]
+  country?: string | null
+  nps?: number | null
+  engagement?: SubjectDocument['engagement']
+}): SubjectDocument {
+  const orders: SubjectDocument['orders'] = {
+    count: input.count ?? 0,
+    totalGross: input.totalGross ?? 0,
+    skus: input.skus ?? [],
+    categories: input.categories ?? [],
+  }
+  if (input.daysAgo !== undefined && input.daysAgo !== null) {
+    const placedAt = new Date(NOW.getTime() - input.daysAgo * MS_PER_DAY)
+    orders.lastPlacedAt = placedAt.toISOString()
+    orders.daysSinceLast = Math.max(0, Math.floor((NOW.getTime() - placedAt.getTime()) / MS_PER_DAY))
+  }
+  return {
+    customer: { id: 'c1', email: null, displayName: null, createdAt: null },
+    tags: input.tags ?? [],
+    engagement: input.engagement ?? { sent: 0, opened: 0, clicked: 0 },
+    orders,
+    score: { points: input.points ?? 0, tier: null, tierRank: -1 },
+    address: input.country === undefined
+      ? null
+      : { country: input.country, region: null, city: null, postalCode: null },
+    survey: { nps: input.nps ?? null, answeredAt: input.nps === undefined || input.nps === null ? null : '2026-09-01T00:00:00.000Z' },
+    trigger: {},
+  }
+}
+
+describe('planNarrowing — what can be pushed', () => {
+  test('no audience is everyone, exactly', () => {
+    expect(planNarrowing(null)).toEqual({ narrowing: { kind: 'all' }, complete: true, pushed: [] })
+  })
+
+  test('a tag membership becomes a tag lookup', () => {
+    const plan = planNarrowing(leaf('tags', 'CONTAINS', 'vip'))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'hasTag', slug: 'vip' } })
+    expect(plan.complete).toBe(true)
+  })
+
+  test('"has any tag" becomes a lookup, "has no tag" does not', () => {
+    expect(planNarrowing(leaf('tags', 'IS_NOT_EMPTY')).narrowing.kind).toBe('predicate')
+    expect(planNarrowing(leaf('tags', 'IS_EMPTY')).narrowing.kind).toBe('all')
+    expect(planNarrowing(leaf('tags', 'NOT_CONTAINS', 'vip')).narrowing.kind).toBe('all')
+  })
+
+  test('order aggregates become aggregate comparisons', () => {
+    const plan = planNarrowing(leaf('orders.totalGross', '>=', 1000))
+    expect(plan.narrowing).toEqual({
+      kind: 'predicate',
+      predicate: { kind: 'orderMetric', metric: 'totalGross', op: '>=', value: 1000 },
+    })
+    expect(plan.complete).toBe(true)
+  })
+
+  test('a recency bound is pushed but never claimed as exact, because it is widened', () => {
+    const plan = planNarrowing(leaf('orders.daysSinceLast', '>=', 90))
+    expect(plan.narrowing.kind).toBe('predicate')
+    expect(plan.complete).toBe(false)
+  })
+
+  // The subtlest rule in the planner. The aggregate query cannot return a customer with no orders,
+  // so any comparison that a never-buyer satisfies must not be pushed down at all.
+  test.each([
+    ['orders.count', '<=', 5],
+    ['orders.count', '<', 3],
+    ['orders.count', '=', 0],
+    ['orders.count', '>=', 0],
+    ['orders.count', '>', -1],
+    ['orders.totalGross', '=', 0],
+    ['orders.totalGross', '>=', 0],
+    ['orders.totalGross', '<=', 100],
+  ])('does not push %s %s %s, which a never-buyer satisfies', (field, operator, value) => {
+    expect(planNarrowing(leaf(field, operator, value)).narrowing.kind).toBe('all')
+  })
+
+  test.each([
+    ['orders.count', '>=', 1],
+    ['orders.count', '>', 0],
+    ['orders.count', '=', 3],
+    ['orders.totalGross', '>', 0],
+    ['orders.totalGross', '>=', 500],
+  ])('pushes %s %s %s, which implies an order exists', (field, operator, value) => {
+    expect(planNarrowing(leaf(field, operator, value)).narrowing.kind).toBe('predicate')
+  })
+
+  test.each([
+    ['score.points', '>=', 1],
+    ['score.points', '>', 0],
+    ['score.points', '=', 50],
+  ])('pushes %s %s %s', (field, operator, value) => {
+    expect(planNarrowing(leaf(field, operator, value)).narrowing).toEqual({
+      kind: 'predicate',
+      predicate: { kind: 'scorePoints', op: operator === '==' ? '=' : operator, value },
+    })
+  })
+
+  // A customer who never scored has a total of zero, and the ledger has no row for them — the same
+  // trap as the order aggregates, and the same rule.
+  test.each([
+    ['score.points', '<=', 10],
+    ['score.points', '<', 5],
+    ['score.points', '=', 0],
+    ['score.points', '>=', 0],
+  ])('does not push %s %s %s, which a never-scored customer satisfies', (field, operator, value) => {
+    expect(planNarrowing(leaf(field, operator, value)).narrowing.kind).toBe('all')
+  })
+
+  /**
+   * A membership lookup, and a SUPERSET rather than an exact answer.
+   *
+   * The query sees every purchase; `matchesAudience` decides from the subject document's sku list, which is
+   * capped. For a customer beyond that cap the two can disagree, so claiming exactness made a segment report a
+   * size its own membership did not contain.
+   */
+  test('a purchased SKU becomes a membership lookup over order lines', () => {
+    const plan = planNarrowing(leaf('orders.skus', 'CONTAINS', 'ATLAS-RUNNER'))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'purchasedSku', sku: 'ATLAS-RUNNER' } })
+    expect(plan.complete).toBe(false)
+  })
+
+  test('"has not bought" is not pushed, because absence cannot be produced as a superset', () => {
+    expect(planNarrowing(leaf('orders.skus', 'NOT_CONTAINS', 'ATLAS-RUNNER')).narrowing.kind).toBe('all')
+  })
+
+  test('a purchased category becomes a membership lookup too', () => {
+    const plan = planNarrowing(leaf('orders.categories', 'CONTAINS', 'footwear'))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'purchasedCategory', slug: 'footwear' } })
+    // Same caveat as the skus, for the same reason: the projection behind `matchesAudience` is capped.
+    expect(plan.complete).toBe(false)
+  })
+
+  /**
+   * The pushdown is only sound because the category list is read from the CATALOGUE.
+   *
+   * Both sides — the SQL candidate query and `matchesAudience` over the subject document — read the same live
+   * assignment table, which is what makes this exact rather than merely a superset. Were the list read from the
+   * order snapshot instead, the two would be comparing different facts.
+   */
+  test('"has not bought from a category" is not pushed either', () => {
+    expect(planNarrowing(leaf('orders.categories', 'NOT_CONTAINS', 'footwear')).narrowing.kind).toBe('all')
+  })
+
+  test('an empty category slug is not pushed as a match-everything', () => {
+    expect(planNarrowing(leaf('orders.categories', 'CONTAINS', '   ')).narrowing.kind).toBe('all')
+  })
+
+  /**
+   * Engagement: existence pushes down, absence cannot.
+   *
+   * The event table can return exactly the customers who have an open; it cannot return the ones who have none
+   * without listing every customer first. Same shape as the score ledger, and the same reason.
+   */
+  test('"has opened at least once" becomes a membership lookup', () => {
+    const plan = planNarrowing(leaf('engagement.opened', '>=', 1))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'engagedEvent', type: 'opened' } })
+    expect(plan.complete).toBe(true)
+  })
+
+  test('"opened at least three times" narrows to "opened at all", which is a superset', () => {
+    const plan = planNarrowing(leaf('engagement.opened', '>=', 3))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'engagedEvent', type: 'opened' } })
+    // Not exact: the query returns everybody with one, and `matchesAudience` still decides who has three.
+    expect(plan.complete).toBe(false)
+  })
+
+  test.each([
+    ['never opened', '=', 0],
+    ['opened at most twice', '<=', 2],
+    ['opened fewer than five times', '<', 5],
+  ])('%s is not pushed down, because it is an absence', (_label, operator, value) => {
+    expect(planNarrowing(leaf('engagement.opened', operator, value)).narrowing.kind).toBe('all')
+  })
+
+  /**
+   * The sunset predicate, which is the reason engagement became an audience field at all.
+   *
+   * Computable exactly in SQL from the same two halves the subject document uses — the last open, or the first
+   * message when there has never been one — so a six-month silence is a query rather than a walk.
+   */
+  test('"silent for six months" is pushed down exactly', () => {
+    const plan = planNarrowing(leaf('engagement.daysSinceEngaged', '>=', 180))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'silentSince', days: 180 } })
+    expect(plan.complete).toBe(true)
+  })
+
+  test('a strict comparison shifts the boundary by a day rather than being refused', () => {
+    // `> 180` and `>= 181` describe the same set of whole days.
+    const plan = planNarrowing(leaf('engagement.daysSinceEngaged', '>', 180))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'silentSince', days: 181 } })
+  })
+
+  test.each([
+    ['engaged recently', '<=', 30],
+    ['engaged today', '=', 0],
+  ])('%s is not pushed down: the query would have to invent the customers it cannot see', (_label, operator, value) => {
+    expect(planNarrowing(leaf('engagement.daysSinceEngaged', operator, value)).narrowing.kind).toBe('all')
+  })
+
+  test('the plan describes engagement in terms somebody reading a log can check', () => {
+    expect(describeNarrowing(planNarrowing(leaf('engagement.daysSinceEngaged', '>=', 90))))
+      .toBe('engagement.daysSinceEngaged>=90')
+    expect(describeNarrowing(planNarrowing(leaf('engagement.clicked', '>=', 1)))).toBe('engagement.clicked>=1')
+  })
+
+  /**
+   * The most important non-pushdown in the file.
+   *
+   * Every column of a customer address is encrypted at rest, so a SQL comparison would run against
+   * ciphertext and match NOTHING — silently. A geographic audience must therefore be evaluated per
+   * customer, and this asserts that nobody optimises it later without noticing.
+   */
+  test.each([
+    ['address.country', '=', 'PL'],
+    ['address.city', '=', 'Warszawa'],
+    ['address.postalCode', '=', '00-001'],
+    ['address.region', 'CONTAINS', 'Mazo'],
+  ])('never pushes %s, because addresses are encrypted at rest', (field, operator, value) => {
+    expect(planNarrowing(leaf(field, operator, value)).narrowing.kind).toBe('all')
+    expect(planNarrowing(leaf(field, operator, value)).complete).toBe(false)
+  })
+
+  /**
+   * The contrast that shows the rule is about semantics, not syntax.
+   *
+   * `orders.count <= 5` cannot be pushed because a customer with no orders has a REAL zero and the aggregate
+   * cannot return them. `survey.nps <= 6` CAN be pushed, because a customer who never answered has null and
+   * the audience evaluator vetoes magnitude comparisons against null — so they can never match anyway.
+   */
+  test.each([
+    ['<=', 6],
+    ['<', 7],
+    ['>=', 9],
+    ['=', 10],
+  ])('pushes survey.nps %s %s, for every operator', (operator, value) => {
+    expect(planNarrowing(leaf('survey.nps', operator, value)).narrowing).toEqual({
+      kind: 'predicate',
+      predicate: { kind: 'npsScore', op: operator, value },
+    })
+  })
+
+  // The contrast holds for the DOWNWARD comparisons, which is exactly where the semantics differ: a
+  // customer with no orders has a real zero, a customer who never answered has null.
+  test.each([['<=', 6], ['<', 7]])('pushes survey.nps %s %s but never orders.count %s %s', (operator, value) => {
+    expect(planNarrowing(leaf('survey.nps', operator, value)).narrowing.kind).toBe('predicate')
+    expect(planNarrowing(leaf('orders.count', operator, value)).narrowing.kind).toBe('all')
+  })
+
+  test('a field the database cannot answer is left to the per-subject check', () => {
+    expect(planNarrowing(leaf('trigger.orderTotal', '>=', 100)).narrowing.kind).toBe('all')
+    expect(planNarrowing(leaf('customer.email', 'CONTAINS', '@example.com')).narrowing.kind).toBe('all')
+    expect(planNarrowing(leaf('orders.lastPlacedAt', '<', '2026-01-01')).narrowing.kind).toBe('all')
+  })
+
+  test('a template value is not a number', () => {
+    expect(planNarrowing(leaf('orders.count', '>=', '{{threshold}}')).narrowing.kind).toBe('all')
+  })
+
+  test('a numeric string is', () => {
+    expect(planNarrowing(leaf('orders.count', '>=', '2')).narrowing.kind).toBe('predicate')
+  })
+})
+
+describe('planNarrowing — combining', () => {
+  test('AND intersects what it can and ignores what it cannot', () => {
+    const plan = planNarrowing(group('AND', [
+      leaf('tags', 'CONTAINS', 'vip'),
+      leaf('trigger.source', '=', 'newsletter'),
+      leaf('orders.count', '>=', 2),
+    ]))
+    expect(plan.narrowing.kind).toBe('and')
+    expect(plan.pushed).toHaveLength(2)
+    // A leaf was dropped, so the narrowing is a superset and cannot be counted as the audience.
+    expect(plan.complete).toBe(false)
+  })
+
+  test('an AND of only pushable leaves is exact', () => {
+    const plan = planNarrowing(group('AND', [
+      leaf('tags', 'CONTAINS', 'vip'),
+      leaf('orders.totalGross', '>=', 100),
+    ]))
+    expect(plan.complete).toBe(true)
+  })
+
+  // Unioning the branches we understand would be TOO TIGHT: a subject matching only the branch we
+  // could not express would never be projected and never be mailed.
+  test('one untranslatable branch makes the whole OR untranslatable', () => {
+    const plan = planNarrowing(group('OR', [
+      leaf('tags', 'CONTAINS', 'vip'),
+      leaf('trigger.source', '=', 'newsletter'),
+    ]))
+    expect(plan.narrowing.kind).toBe('all')
+    expect(plan.complete).toBe(false)
+  })
+
+  test('an OR of pushable branches becomes a union', () => {
+    const plan = planNarrowing(group('OR', [
+      leaf('tags', 'CONTAINS', 'vip'),
+      leaf('orders.totalGross', '>=', 1000),
+    ]))
+    expect(plan.narrowing.kind).toBe('or')
+    expect(plan.complete).toBe(true)
+  })
+
+  test('NOT is never translated', () => {
+    expect(planNarrowing(group('NOT', [leaf('tags', 'CONTAINS', 'vip')])).narrowing.kind).toBe('all')
+  })
+
+  test('a NOT nested in an AND only costs that branch', () => {
+    const plan = planNarrowing(group('AND', [
+      leaf('tags', 'CONTAINS', 'vip'),
+      group('NOT', [leaf('tags', 'CONTAINS', 'churned')]),
+    ]))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'hasTag', slug: 'vip' } })
+    expect(plan.complete).toBe(false)
+  })
+
+  test('an empty group matches nobody, so there is nothing to sweep', () => {
+    const plan = planNarrowing(group('AND', []))
+    expect(plan.narrowing).toEqual({ kind: 'none' })
+    expect(plan.complete).toBe(true)
+  })
+
+  test('a nested group is planned recursively', () => {
+    const plan = planNarrowing(group('AND', [
+      leaf('orders.count', '>=', 1),
+      group('OR', [leaf('tags', 'CONTAINS', 'vip'), leaf('tags', 'CONTAINS', 'wholesale')]),
+    ]))
+    expect(plan.narrowing.kind).toBe('and')
+    expect(plan.pushed.map((predicate) => predicate.kind)).toEqual(['orderMetric', 'hasTag', 'hasTag'])
+    expect(plan.complete).toBe(true)
+  })
+})
+
+/**
+ * The property the whole design rests on: the narrowing is a SUPERSET.
+ *
+ * A narrowing that is merely imprecise wastes a few projections. One that is too tight silently
+ * stops mailing customers who qualify, and nothing in the system would report it — so this asserts
+ * it over the full cross-product of realistic audiences and subjects rather than on examples.
+ */
+describe('the narrowing never excludes a subject the audience accepts', () => {
+  const audiences: Array<[string, ConditionExpression]> = [
+    ['vip tag', leaf('tags', 'CONTAINS', 'vip')],
+    ['any tag', leaf('tags', 'IS_NOT_EMPTY')],
+    ['no tag', leaf('tags', 'IS_EMPTY')],
+    ['not vip', leaf('tags', 'NOT_CONTAINS', 'vip')],
+    ['has ordered', leaf('orders.count', '>=', 1)],
+    ['exactly three orders', leaf('orders.count', '=', 3)],
+    ['at most two orders', leaf('orders.count', '<=', 2)],
+    ['never ordered', leaf('orders.count', '=', 0)],
+    ['big spender', leaf('orders.totalGross', '>=', 500)],
+    ['small spender', leaf('orders.totalGross', '<', 100)],
+    ['dormant 90 days', leaf('orders.daysSinceLast', '>=', 90)],
+    ['dormant 30 days', leaf('orders.daysSinceLast', '>', 30)],
+    ['recent 7 days', leaf('orders.daysSinceLast', '<=', 7)],
+    ['exactly 45 days ago', leaf('orders.daysSinceLast', '=', 45)],
+    ['win-back', group('AND', [leaf('orders.count', '>=', 1), leaf('orders.daysSinceLast', '>=', 90)])],
+    ['vip win-back', group('AND', [
+      leaf('tags', 'CONTAINS', 'vip'),
+      leaf('orders.daysSinceLast', '>=', 60),
+      leaf('orders.totalGross', '>=', 200),
+    ])],
+    ['vip or big spender', group('OR', [leaf('tags', 'CONTAINS', 'vip'), leaf('orders.totalGross', '>=', 1000)])],
+    ['vip or newsletter', group('OR', [leaf('tags', 'CONTAINS', 'vip'), leaf('trigger.source', '=', 'newsletter')])],
+    ['vip and not churned', group('AND', [
+      leaf('tags', 'CONTAINS', 'vip'),
+      group('NOT', [leaf('tags', 'CONTAINS', 'churned')]),
+    ])],
+    ['nested', group('AND', [
+      leaf('orders.count', '>=', 1),
+      group('OR', [leaf('tags', 'CONTAINS', 'vip'), leaf('orders.daysSinceLast', '<=', 7)]),
+    ])],
+    ['bought a product', leaf('orders.skus', 'CONTAINS', 'ATLAS-RUNNER')],
+    ['did not buy a product', leaf('orders.skus', 'NOT_CONTAINS', 'ATLAS-RUNNER')],
+    ['bought from a category', leaf('orders.categories', 'CONTAINS', 'footwear')],
+    ['did not buy from a category', leaf('orders.categories', 'NOT_CONTAINS', 'footwear')],
+    ['in Poland', leaf('address.country', '=', 'PL')],
+    ['bought it and is in Poland', group('AND', [
+      leaf('orders.skus', 'CONTAINS', 'ATLAS-RUNNER'),
+      leaf('address.country', '=', 'PL'),
+    ])],
+    ['never opened anything', leaf('engagement.opened', '=', 0)],
+    ['opened at least once', leaf('engagement.opened', '>=', 1)],
+    ['clicked at least once', leaf('engagement.clicked', '>=', 1)],
+    ['silent for six months', leaf('engagement.daysSinceEngaged', '>=', 180)],
+    ['silent, and a buyer', group('AND', [
+      leaf('engagement.daysSinceEngaged', '>=', 180),
+      leaf('orders.count', '>=', 1),
+    ])],
+    ['detractors', leaf('survey.nps', '<=', 6)],
+    ['promoters', leaf('survey.nps', '>=', 9)],
+    ['scored at all', leaf('score.points', '>=', 1)],
+    ['hot lead', leaf('score.points', '>=', 100)],
+    ['cold lead', leaf('score.points', '<=', 10)],
+    ['never scored', leaf('score.points', '=', 0)],
+    ['negative score', leaf('score.points', '<', 0)],
+    ['hot vip', group('AND', [leaf('score.points', '>=', 50), leaf('tags', 'CONTAINS', 'vip')])],
+  ]
+
+  /**
+   * Generated one at a time, never collected.
+   *
+   * The population is a cartesian product — 5 tag sets × 5 order shapes × up to 12 recencies × 7 scores × 3
+   * sku/category/country triples × 4 NPS values × 4 engagement states — which is a little over eighty thousand
+   * subject documents. Materialising that into an array held every one of them for the whole file and killed the
+   * jest worker under the repo-wide `yarn test`, whose heap cap is 1 GB: the suite reported no failing TEST, it
+   * reported "Jest worker ran out of memory and crashed" and took its own 111 tests out of the run.
+   *
+   * A generator costs the same CPU — each test already walked the whole population once — and retains one subject
+   * at a time instead of all of them.
+   */
+  function* generateSubjects(): Generator<SubjectDocument> {
+  for (const tags of [[], ['vip'], ['churned'], ['vip', 'churned'], ['wholesale']]) {
+    for (const [count, totalGross] of [[0, 0], [1, 0], [1, 99.99], [3, 500], [12, 4200]] as const) {
+      for (const daysAgo of count === 0 ? [null] : [0, 1, 7, 30, 44, 45, 46, 60, 89, 90, 91, 400]) {
+        for (const points of [0, 1, 10, 99, 100, 101, -5]) {
+          /**
+           * Categories travel with the skus, because in a real shop they do.
+           *
+           * A product filed under `footwear` is bought by the same people who bought its sku, so pairing them
+           * here keeps the generated population realistic — and gives the category pushdown subjects it can
+           * actually match, which is what makes the property assertion mean something.
+           */
+          /**
+           * These three vary in LOCKSTEP, not as a further cross product — and that is a deliberate limit on
+           * what this test proves.
+           *
+           * Crossed, they multiplied the population by forty-eight and pushed one jest worker's peak past the
+           * 1 GB heap the repo-wide `yarn test` pins, so the suite crashed and took its own 111 tests out of the
+           * run. Cycled, every value of every list still appears against every combination of the dimensions the
+           * PUSHDOWNS actually key on — tags, order count, order total, recency and score — which is where the
+           * bugs this test exists to catch live ("never push `orders.count <= 5` down, a never-buyer satisfies
+           * it"). What is given up is the seven-way combination, and no narrowing decision reads more than one of
+           * these three at a time.
+           */
+          const incidental = [
+            { skus: [] as string[], categories: [] as string[], country: null as string | null },
+            { skus: ['ATLAS-RUNNER'], categories: ['footwear'], country: 'PL' },
+            { skus: ['OTHER-SKU'], categories: ['accessories'], country: 'DE' },
+          ]
+          const npsValues = [null, 2, 7, 10]
+          /**
+           * Four engagement states, and the last two are the point.
+           *
+           * Never written to (absent silence), engaged recently, mailed a year ago and never opened, and opened a
+           * year ago. A sunset audience must collect the last two and spare the first — which is only testable if
+           * the population contains all four.
+           */
+          const engagements = [
+            { sent: 0, opened: 0, clicked: 0 },
+            { sent: 10, opened: 4, clicked: 2, daysSinceEngaged: 3 },
+            { sent: 10, opened: 0, clicked: 0, daysSinceEngaged: 400 },
+            { sent: 10, opened: 1, clicked: 0, daysSinceEngaged: 365 },
+          ]
+          const lanes = Math.max(incidental.length, npsValues.length, engagements.length)
+          for (let lane = 0; lane < lanes; lane += 1) {
+            const { skus, categories, country } = incidental[lane % incidental.length]
+            yield subjectOf({
+              tags, count, totalGross, daysAgo, points,
+              skus: [...skus], categories: [...categories], country,
+              nps: npsValues[lane % npsValues.length],
+              engagement: { ...engagements[lane % engagements.length] },
+            })
+          }
+        }
+      }
+    }
+  }
+  }
+
+  const describeSubject = (subject: SubjectDocument) =>
+    `tags=[${subject.tags.join(',')}] orders=${JSON.stringify(subject.orders)}`
+
+  test.each(audiences)('%s', (_label, audience) => {
+    const plan = planNarrowing(audience)
+    const excluded: string[] = []
+    let matched = 0
+    for (const subject of generateSubjects()) {
+      if (!matchesAudience(audience, subject, { now: NOW, logger })) continue
+      matched += 1
+      if (!satisfiesNarrowing(plan.narrowing, subject)) excluded.push(describeSubject(subject))
+    }
+    // Listed rather than asserted one by one, so a failure names every subject that would stop
+    // being mailed instead of only the first.
+    expect(excluded).toEqual([])
+    // A test that matched nothing would assert nothing.
+    expect(matched).toBeGreaterThan(0)
+  })
+
+  test('a complete plan is not merely a superset — it matches the audience exactly', () => {
+    const disagreements: string[] = []
+    for (const [label, audience] of audiences) {
+      const plan = planNarrowing(audience)
+      if (!plan.complete) continue
+      for (const subject of generateSubjects()) {
+        const narrowed = satisfiesNarrowing(plan.narrowing, subject)
+        const matches = matchesAudience(audience, subject, { now: NOW, logger })
+        if (narrowed !== matches) disagreements.push(`${label}: ${describeSubject(subject)}`)
+      }
+    }
+    expect(disagreements).toEqual([])
+  })
+})
+
+describe('recencyBounds', () => {
+  test('"at least N days ago" widens towards the present', () => {
+    expect(recencyBounds('>=', 90)).toEqual({ minDaysAgo: 89 })
+    expect(recencyBounds('>', 30)).toEqual({ minDaysAgo: 29 })
+  })
+
+  test('"at most N days ago" widens away from the present', () => {
+    expect(recencyBounds('<=', 7)).toEqual({ maxDaysAgo: 9 })
+  })
+
+  test('equality becomes a window widened on both sides', () => {
+    expect(recencyBounds('=', 45)).toEqual({ minDaysAgo: 44, maxDaysAgo: 47 })
+  })
+
+  test('never asks for a negative age', () => {
+    expect(recencyBounds('>=', 0).minDaysAgo).toBe(0)
+  })
+})
+
+describe('describeNarrowing', () => {
+  test('summarises what went to the database', () => {
+    expect(describeNarrowing(planNarrowing(null))).toBe('all')
+    expect(describeNarrowing(planNarrowing(group('AND', [])))).toBe('none')
+    expect(describeNarrowing(planNarrowing(group('AND', [
+      leaf('tags', 'CONTAINS', 'vip'),
+      leaf('orders.daysSinceLast', '>=', 90),
+    ])))).toBe('tag:vip&orders.daysSinceLast>=90')
+  })
+})
+
+/**
+ * The crossing semantics the score trigger rests on.
+ *
+ * `score_changed` carries the PREVIOUS total precisely so an author can say "reached 100 points"
+ * rather than "is above 100 points". Without it a campaign would fire again on every later change
+ * while the customer stayed above the threshold, which is the difference between a milestone email
+ * and a nuisance.
+ */
+describe('reaching a score threshold, expressed in an audience', () => {
+  const reachedAHundred = group('AND', [
+    leaf('trigger.previousPoints', '<', 100),
+    leaf('score.points', '>=', 100),
+  ])
+
+  const scoredSubject = (points: number, previousPoints: number): SubjectDocument => ({
+    customer: { id: 'c1', email: null, displayName: null, createdAt: null },
+    tags: [],
+    orders: { count: 0, totalGross: 0, skus: [], categories: [] },
+    engagement: { sent: 0, opened: 0, clicked: 0 },
+    score: { points, tier: null, tierRank: -1 },
+    address: null,
+    survey: { nps: null, answeredAt: null },
+    trigger: { points, previousPoints, delta: points - previousPoints },
+  })
+
+  test('fires on the change that crosses the threshold', () => {
+    expect(matchesAudience(reachedAHundred, scoredSubject(105, 95), { now: NOW, logger })).toBe(true)
+  })
+
+  test('does not fire again once the customer is already above it', () => {
+    expect(matchesAudience(reachedAHundred, scoredSubject(130, 105), { now: NOW, logger })).toBe(false)
+  })
+
+  test('does not fire below the threshold', () => {
+    expect(matchesAudience(reachedAHundred, scoredSubject(60, 20), { now: NOW, logger })).toBe(false)
+  })
+
+  test('fires again after a deduction dropped them below and they came back', () => {
+    expect(matchesAudience(reachedAHundred, scoredSubject(100, 80), { now: NOW, logger })).toBe(true)
+  })
+
+  // The narrowing can only push the score half; the previous-total half is per-subject by nature,
+  // so the plan must report itself as a superset rather than exact.
+  test('the narrowing pushes the score half and stays a superset', () => {
+    const plan = planNarrowing(reachedAHundred)
+    expect(plan.pushed).toEqual([{ kind: 'scorePoints', op: '>=', value: 100 }])
+    expect(plan.complete).toBe(false)
+  })
+})
