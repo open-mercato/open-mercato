@@ -104,6 +104,9 @@ export class ExchangeRate {
   @Property({ type: 'text', nullable: true })
   type?: string | null
 
+  @Property({ name: 'external_reference', type: 'text', nullable: true })
+  externalReference?: string | null
+
   @Property({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
 

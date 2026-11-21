@@ -1,9 +1,11 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
+import { isDeepStrictEqual } from 'node:util'
 import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { ExchangeRate, Currency } from '../data/entities'
@@ -19,6 +21,8 @@ import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { buildCurrencyCommandWhere, ensureCurrencyCommandScope } from './scope'
 import { isDecimalInput, toDecimal } from '@open-mercato/shared/lib/decimal'
+import { NBP_AVERAGE_PROVIDER_SOURCE } from '../services/providers/nbpAverage'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const exchangeRateCrudEvents: CrudEventsConfig = {
   module: 'currencies',
@@ -41,6 +45,7 @@ type ExchangeRateSnapshot = {
   date: string
   source: string
   type: string | null
+  externalReference: string | null
   metadata: Record<string, unknown> | null
   isActive: boolean
   createdAt: string
@@ -60,6 +65,10 @@ async function loadExchangeRateSnapshot(
   )
   if (!record) return null
   ensureCurrencyCommandScope(ctx, record)
+  return exchangeRateSnapshot(record)
+}
+
+function exchangeRateSnapshot(record: ExchangeRate): ExchangeRateSnapshot {
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -70,6 +79,7 @@ async function loadExchangeRateSnapshot(
     date: record.date.toISOString(),
     source: record.source,
     type: record.type ?? null,
+    externalReference: record.externalReference ?? null,
     metadata: record.metadata ?? null,
     isActive: !!record.isActive,
     createdAt: record.createdAt.toISOString(),
@@ -110,6 +120,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
   async execute(input, ctx) {
     const parsed = exchangeRateCreateSchema.parse(input)
     ensureCurrencyCommandScope(ctx, parsed)
+    const source = parsed.source === NBP_AVERAGE_PROVIDER_SOURCE ? 'manual' : parsed.source
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
@@ -121,7 +132,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
       fromCurrencyCode: parsed.fromCurrencyCode,
       toCurrencyCode: parsed.toCurrencyCode,
       date: parsed.date,
-      source: parsed.source,
+      source,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       deletedAt: null,
@@ -138,8 +149,9 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
       toCurrencyCode: parsed.toCurrencyCode,
       rate: parsed.rate,
       date: parsed.date,
-      source: parsed.source,
+      source,
       type: parsed.type ?? null,
+      externalReference: null,
       metadata: parsed.metadata ?? null,
       isActive: parsed.isActive !== false,
       createdAt: now,
@@ -232,14 +244,22 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
     // Validate currencies if changed
     const fromCode = parsed.fromCurrencyCode ?? record.fromCurrencyCode
     const toCode = parsed.toCurrencyCode ?? record.toCurrencyCode
+    const factsChanged = fromCode !== record.fromCurrencyCode
+      || toCode !== record.toCurrencyCode
+      || (parsed.rate !== undefined && !toDecimal(parsed.rate).eq(toDecimal(record.rate)))
+      || (parsed.date !== undefined && parsed.date.getTime() !== record.date.getTime())
+      || (parsed.source !== undefined && parsed.source !== record.source)
+      || (parsed.type !== undefined && parsed.type !== (record.type ?? null))
+    const detachPublication = record.externalReference != null && factsChanged
+    const reservesProviderSource = parsed.source === NBP_AVERAGE_PROVIDER_SOURCE && parsed.source !== record.source
+    const source = detachPublication || reservesProviderSource ? 'manual' : parsed.source ?? record.source
     if (parsed.fromCurrencyCode || parsed.toCurrencyCode) {
       await validateCurrenciesExist(em, fromCode, toCode, record.organizationId, record.tenantId)
     }
 
     // Check for duplicate if changing pair, date, or source
-    if (parsed.fromCurrencyCode || parsed.toCurrencyCode || parsed.date || parsed.source) {
+    if (parsed.fromCurrencyCode || parsed.toCurrencyCode || parsed.date || parsed.source || detachPublication) {
       const date = parsed.date ?? record.date
-      const source = parsed.source ?? record.source
       const existing = await em.findOne(ExchangeRate, {
         fromCurrencyCode: fromCode,
         toCurrencyCode: toCode,
@@ -255,13 +275,15 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       }
     }
 
-    const allChanges = buildChanges(record as unknown as Record<string, unknown>, parsed, [
+    const updated = { ...parsed, source, ...(detachPublication ? { externalReference: null } : {}) }
+    const allChanges = buildChanges(record as unknown as Record<string, unknown>, updated, [
       'fromCurrencyCode',
       'toCurrencyCode',
       'rate',
       'date',
       'source',
       'type',
+      'externalReference',
       'metadata',
       'isActive',
     ])
@@ -273,9 +295,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       return { exchangeRateId: record.id }
     }
 
-    for (const [key, change] of Object.entries(changes)) {
-      ;(record as any)[key] = change.to
-    }
+    Object.assign(record, Object.fromEntries(Object.entries(changes).map(([key, change]) => [key, change.to])))
     record.updatedAt = new Date()
     
     // Validate final state after merging changes
@@ -329,20 +349,64 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
     const before = payload?.before ?? null
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(ExchangeRate, { id: before.id })
+    const { translate } = await resolveTranslations()
+    const occupiedMessage = translate('currencies.errors.undoRateKeyOccupied', 'This change cannot be undone because another exchange rate now occupies its original currency pair, date, and source.')
+    let record: ExchangeRate | null
+    try {
+      record = await em.transactional(async (transactionEm) => {
+        const currentWhere = buildCurrencyCommandWhere<ExchangeRate>(ctx, { id: before.id })
+        if (typeof currentWhere === 'object' && currentWhere !== null && 'deletedAt' in currentWhere) delete currentWhere.deletedAt
+        const current = await findOneWithDecryption(
+          transactionEm,
+          ExchangeRate,
+          currentWhere,
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null },
+        )
+        if (!current) return null
+        ensureCurrencyCommandScope(ctx, current)
+        const snapshot = exchangeRateSnapshot(current)
+        const changedSinceEdit = payload?.after && Object.entries(payload.after).some(([field, value]) => !isDeepStrictEqual(Reflect.get(snapshot, field), value))
+        if (current.deletedAt || changedSinceEdit) {
+          throw conflict(translate('currencies.errors.undoRateChanged', 'This change cannot be undone because the exchange rate has changed since this edit.'))
+        }
+        const occupied = await findOneWithDecryption(transactionEm, ExchangeRate, {
+          organizationId: current.organizationId,
+          tenantId: current.tenantId,
+          fromCurrencyCode: before.fromCurrencyCode,
+          toCurrencyCode: before.toCurrencyCode,
+          date: new Date(before.date),
+          source: before.source,
+          id: { $ne: current.id },
+        }, undefined, { tenantId: current.tenantId, organizationId: current.organizationId })
+        if (occupied) throw conflict(occupiedMessage)
+        Object.assign(current, {
+          fromCurrencyCode: before.fromCurrencyCode,
+          toCurrencyCode: before.toCurrencyCode,
+          rate: before.rate,
+          date: new Date(before.date),
+          source: before.source,
+          type: before.type,
+          externalReference: before.externalReference,
+          metadata: before.metadata ?? null,
+          isActive: before.isActive,
+          updatedAt: new Date(),
+        })
+        await transactionEm.flush()
+        return current
+      })
+    } catch (err) {
+      if (isUniqueViolation(err, 'exchange_rates_pair_datetime_source_unique')) throw conflict(occupiedMessage)
+      throw err
+    }
     if (!record) return
-    Object.assign(record, {
-      fromCurrencyCode: before.fromCurrencyCode,
-      toCurrencyCode: before.toCurrencyCode,
-      rate: before.rate,
-      date: new Date(before.date),
-      source: before.source,
-      type: before.type,
-      metadata: before.metadata ?? null,
-      isActive: before.isActive,
-      updatedAt: new Date(),
+    await emitCrudUndoSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+      action: 'updated',
+      entity: record,
+      identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+      events: exchangeRateCrudEvents,
     })
-    await em.flush()
   },
 }
 
