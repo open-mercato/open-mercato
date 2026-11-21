@@ -478,6 +478,12 @@ export const priceKindUpdateSchema = z
   })
 
 // Base schema without refinements (used for .partial() in the update schema).
+// `null` (or an empty string) clears a date; z.coerce.date() would turn it into the epoch.
+const nullableDateSchema = z.preprocess(
+  (value) => (value === null || value === '' ? null : value),
+  z.union([z.null(), z.coerce.date()]),
+)
+
 const priceBaseSchema = scoped.extend({
   variantId: uuid().optional(),
   productId: uuid().optional(),
@@ -496,8 +502,8 @@ const priceBaseSchema = scoped.extend({
   customerId: uuid().optional(),
   customerGroupId: uuid().optional(),
   metadata: metadataSchema,
-  startsAt: z.coerce.date().optional(),
-  endsAt: z.coerce.date().optional(),
+  startsAt: nullableDateSchema.optional(),
+  endsAt: nullableDateSchema.optional(),
 })
 
 // Both checks only fire when both sides of the comparison are present in this
@@ -522,7 +528,7 @@ const priceQuantityRangeRefinement = (
 }
 
 const priceValidityWindowRefinement = (
-  input: { startsAt?: Date; endsAt?: Date },
+  input: { startsAt?: Date | null; endsAt?: Date | null },
   ctx: z.RefinementCtx,
 ) => {
   if (input.startsAt && input.endsAt && input.endsAt < input.startsAt) {
