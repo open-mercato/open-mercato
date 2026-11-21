@@ -45,3 +45,15 @@ describe('AccessLogService.list organization scoping', () => {
     await expect(service.list({ tenantId, organizationIds: ['not-a-uuid'] })).rejects.toThrow()
   })
 })
+
+describe('AccessLogService.list ordering', () => {
+  it('orders by createdAt with an id tiebreak so tied rows page deterministically', async () => {
+    const { em, findAndCount } = makeEm()
+    const service = new AccessLogService(em as never)
+    await service.list({ tenantId, pageSize: 2, page: 2 })
+    const options = (findAndCount.mock.calls[0] as unknown[])[2] as Record<string, unknown>
+    expect(options.orderBy).toEqual({ createdAt: 'desc', id: 'desc' })
+    expect(options.limit).toBe(2)
+    expect(options.offset).toBe(2)
+  })
+})
