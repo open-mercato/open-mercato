@@ -1,5 +1,7 @@
 /** @jest-environment node */
 
+import { asValue, createContainer } from 'awilix'
+
 const mockFindOneWithDecryption = jest.fn()
 const mockGetSyncQueue = jest.fn()
 
@@ -107,6 +109,22 @@ describe('data-sync scheduled worker', () => {
     expect(createRunInput.progressJobId).toBe('progress-1')
     expect(createRunInput.triggeredBy).toBe('scheduler')
     expect(createRunInput.cursor).toBe('cursor-1')
+  })
+
+  it('queues the scheduled run without progress registered', async () => {
+    const container = createContainer()
+    container.register({
+      em: asValue(mockEm),
+      dataSyncRunService: asValue(mockSyncRunService),
+      integrationStateService: asValue(mockIntegrationStateService),
+    })
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: 'schedule-1', integrationId: 'sync_excel', entityType: 'customers.person',
+      direction: 'import', isEnabled: true, fullSync: false,
+    })
+    await handle(buildJob(), { resolve: container.resolve.bind(container) } as ReturnType<typeof buildContext>)
+    expect(mockSyncRunService.createRun).toHaveBeenCalledWith(expect.objectContaining({ progressJobId: null }), expect.anything())
+    expect(mockEnqueue).toHaveBeenCalledTimes(1)
   })
 
   it('enqueues the import job with a tenant/organization-scoped payload', async () => {
