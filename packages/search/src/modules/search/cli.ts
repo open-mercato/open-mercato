@@ -808,7 +808,7 @@ async function workerCommand(rest: string[]): Promise<void> {
       handler: async (job: QueuedJob<VectorIndexJobPayload>, ctx: JobContext) => {
         const container = await createRequestContainer()
         try {
-          await handleVectorIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
+          await handleVectorIndexJob(job, ctx, { resolve: container.resolve })
         } finally {
           await container.dispose()
         }
