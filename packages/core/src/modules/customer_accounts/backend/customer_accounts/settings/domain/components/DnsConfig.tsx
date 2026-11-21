@@ -62,7 +62,7 @@ export function DefaultDnsConfig({ hostname, cnameTarget, aRecordTarget, ownersh
         </div>
       ) : null}
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">
+        <p className="break-words text-sm font-medium text-foreground">
           {t('customer_accounts.domainMapping.cnameInstruction', 'Add a CNAME record for {hostname} pointing to {target} in your DNS provider', {
             hostname: exampleHost,
             target: cnameTarget ?? '—',
@@ -70,21 +70,21 @@ export function DefaultDnsConfig({ hostname, cnameTarget, aRecordTarget, ownersh
         </p>
         {cnameTarget ? (
           <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2">
-            <code className="flex-1 truncate font-mono text-sm">{cnameTarget}</code>
+            <code className="min-w-0 flex-1 truncate font-mono text-sm">{cnameTarget}</code>
             <CopyButton value={cnameTarget} label={t('customer_accounts.domainMapping.copyTarget', 'Copy')} />
           </div>
         ) : null}
       </div>
       {aRecordTarget ? (
         <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">
+          <p className="break-words text-sm text-muted-foreground">
             {t('customer_accounts.domainMapping.aRecordInstruction', 'For an apex domain, add an A record for {hostname} pointing to {target}', {
               hostname: exampleHost,
               target: aRecordTarget,
             })}
           </p>
           <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2">
-            <code className="flex-1 truncate font-mono text-sm">{aRecordTarget}</code>
+            <code className="min-w-0 flex-1 truncate font-mono text-sm">{aRecordTarget}</code>
             <CopyButton value={aRecordTarget} label={t('customer_accounts.domainMapping.copyTarget', 'Copy')} />
           </div>
         </div>
