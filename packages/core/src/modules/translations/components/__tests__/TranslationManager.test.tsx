@@ -29,7 +29,14 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/utils/optimisticLock'),
   buildOptimisticLockHeader: (...args: [string | undefined]) => buildOptimisticLockHeaderMock(...args),
+}))
+
+const surfaceRecordConflictMock = jest.fn((..._args: unknown[]) => false)
+
+jest.mock('@open-mercato/ui/backend/conflicts', () => ({
+  surfaceRecordConflict: (...args: unknown[]) => surfaceRecordConflictMock(...args),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -136,6 +143,57 @@ describe('TranslationManager guarded mutations (#3316)', () => {
 
     // flash behavior preserved
     await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Translations saved', 'success'))
+  })
+
+  function renderEmbeddedProductEditor() {
+    renderWithProviders(
+      <TranslationManager
+        mode="embedded"
+        entityType="catalog:product"
+        recordId="rec-1"
+        baseValues={{ name: 'Base name' }}
+        translatableFields={['name']}
+      />,
+    )
+  }
+
+  function failTranslationSaveWith(status: number, body: Record<string, unknown>) {
+    const defaultImplementation = apiCallMock.getMockImplementation()
+    apiCallMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === 'PUT' && url.startsWith('/api/translations/catalog')) {
+        return { ok: false, status, result: body, response: new Response(JSON.stringify(body), { status }) }
+      }
+      return defaultImplementation?.(url, init)
+    })
+  }
+
+  it('hands a 409 optimistic-lock conflict to the shared conflict surface', async () => {
+    surfaceRecordConflictMock.mockReturnValueOnce(true)
+    failTranslationSaveWith(409, {
+      error: 'Record modified',
+      code: 'optimistic_lock_conflict',
+      currentUpdatedAt: '2026-01-03T00:00:00Z',
+      expectedUpdatedAt: '2026-01-02T00:00:00Z',
+    })
+    renderEmbeddedProductEditor()
+
+    fireEvent.change(await screen.findByRole('textbox'), { target: { value: 'Nazwa testowa' } })
+    fireEvent.click(screen.getByTestId('translations-save'))
+
+    await waitFor(() => expect(surfaceRecordConflictMock).toHaveBeenCalledTimes(1))
+    const [error] = surfaceRecordConflictMock.mock.calls[0] as [Record<string, unknown>]
+    expect(error).toMatchObject({ status: 409, code: 'optimistic_lock_conflict' })
+    expect(flashMock).not.toHaveBeenCalledWith(expect.anything(), 'error')
+  })
+
+  it('shows the server rejection message instead of a generic save failure', async () => {
+    failTranslationSaveWith(400, { error: 'Invalid payload.', code: 'unregistered_translation_field' })
+    renderEmbeddedProductEditor()
+
+    fireEvent.change(await screen.findByRole('textbox'), { target: { value: 'Nazwa testowa' } })
+    fireEvent.click(screen.getByTestId('translations-save'))
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Invalid payload.', 'error'))
   })
 })
 

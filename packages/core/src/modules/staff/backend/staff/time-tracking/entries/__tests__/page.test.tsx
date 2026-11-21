@@ -419,7 +419,14 @@ describe('time entries list — optimistic delete with undo (screen 10 note 2)',
 })
 
 describe('time entries list — locked rows (screen 10 note 4)', () => {
-  it('drops the checkbox and the edit/delete actions, and keeps the link to the report', async () => {
+  it.each([
+    [['staff.timesheets.view', 'staff.timesheets.manage_own'], false],
+    [['staff.timesheets.view', 'staff.timesheets.manage_own', 'staff.timesheets.reports.view'], true],
+    [['staff.timesheets.*'], true],
+    [['staff.*'], true],
+    [['*'], true],
+  ] as const)('keeps locked rows read-only and gates report actions for %j', async (features, canViewReports) => {
+    grantedFeatures([...features])
     entryRows = [entryRow({ id: LOCKED_ID, isLocked: true, lockedReportId: REPORT_ID, duration_minutes: 360 })]
     await renderPage()
 
@@ -435,8 +442,13 @@ describe('time entries list — locked rows (screen 10 note 4)', () => {
     const actions = screen.getByTestId(`actions-${LOCKED_ID}`)
     expect(within(actions).queryByTestId('row-action-delete')).toBeNull()
     expect(within(actions).queryByTestId('row-action-duplicate')).toBeNull()
-    const reportLink = within(actions).getByTestId('row-action-show-report') as HTMLAnchorElement
-    expect(reportLink.getAttribute('href')).toBe(`/backend/staff/time-tracking/reports/${REPORT_ID}`)
+    if (canViewReports) {
+      const reportLink = within(actions).getByTestId('row-action-show-report') as HTMLAnchorElement
+      expect(reportLink.getAttribute('href')).toBe(`/backend/staff/time-tracking/reports/${REPORT_ID}`)
+    } else {
+      expect(within(actions).queryByTestId('row-action-show-report')).toBeNull()
+      expect(within(actions).queryByRole('button')).toBeNull()
+    }
   })
 })
 

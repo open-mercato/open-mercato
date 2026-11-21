@@ -96,7 +96,7 @@ const tagLabelSchema = z.string().trim().min(1).max(100)
 const offerBaseSchema = z.object({
   channelId: uuid(),
   title: z.string().trim().min(1).max(255),
-  description: z.string().trim().max(4000).optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   defaultMediaId: uuid().optional().nullable(),
   defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
   metadata: metadataSchema,
