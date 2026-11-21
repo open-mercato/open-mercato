@@ -12,6 +12,12 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: (...args: unknown[]) => mockResolveTranslations(...args),
 }))
 
+const mockReportError = jest.fn()
+const mockGetTelemetryRuntime = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => mockGetTelemetryRuntime(),
+}))
+
 const mockCheckRateLimit = jest.fn()
 const mockGetClientIp = jest.fn()
 jest.mock('@open-mercato/shared/lib/ratelimit/helpers', () => ({
@@ -36,15 +42,18 @@ function makeRequest(): Request {
   return new Request('http://localhost/api/auth/login', { method: 'POST' })
 }
 
-function makeFakeService(overrides?: Partial<{ trustProxyDepth: number; delete: jest.Mock }>) {
+function makeFakeService(overrides?: Partial<{ trustProxyDepth: number; delete: jest.Mock; get: jest.Mock }>) {
   return {
     trustProxyDepth: overrides?.trustProxyDepth ?? 1,
     delete: overrides?.delete ?? jest.fn(),
+    get: overrides?.get ?? jest.fn().mockResolvedValue(null),
   }
 }
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockGetTelemetryRuntime.mockReturnValue(null)
+  mockReportError.mockReset()
   mockResolveTranslations.mockResolvedValue({
     translate: (_key: string, fallback?: string) => fallback ?? '',
   })
@@ -95,6 +104,110 @@ describe('checkAuthRateLimit', () => {
       'global:hash_user@example.com',
       expect.any(String),
     )
+  })
+
+  it('checks blocked identifiers before consuming the shared fallback quota', async () => {
+    const limited = NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+    mockGetCachedRateLimiterService.mockReturnValue(makeFakeService({ trustProxyDepth: 0 }))
+    mockGetClientIp.mockReturnValue(null)
+    mockCheckRateLimit.mockImplementation(async (_service, _config, key: string) =>
+      key === 'global:hash_first@example.com' ? limited : null,
+    )
+    const options = { req: makeRequest(), ipConfig, compoundConfig, isolateByIdentifierWithoutTrustedIp: true }
+    const first = await checkAuthRateLimit({ ...options, compoundIdentifier: 'first@example.com' })
+    const second = await checkAuthRateLimit({ ...options, compoundIdentifier: 'second@example.com' })
+
+    expect(first.error).toBe(limited)
+    expect(second.error).toBeNull()
+    expect(second.compoundKey).toBe('global:hash_second@example.com')
+    expect(mockGetClientIp).toHaveBeenCalledWith(options.req, 0)
+    expect(mockCheckRateLimit.mock.calls.map(([, config, key]) => [config, key])).toEqual([
+      [compoundConfig, 'global:hash_first@example.com'],
+      [compoundConfig, 'global:hash_second@example.com'],
+      [ipConfig, 'global'],
+    ])
+  })
+
+  it('retains the aggregate ceiling across rotating identifiers with a real memory limiter', async () => {
+    const { RateLimiterService } = jest.requireActual<typeof import('@open-mercato/shared/lib/ratelimit/service')>('@open-mercato/shared/lib/ratelimit/service')
+    const { checkRateLimit } = jest.requireActual<typeof import('@open-mercato/shared/lib/ratelimit/helpers')>('@open-mercato/shared/lib/ratelimit/helpers')
+    const service = new RateLimiterService({ enabled: true, strategy: 'memory', keyPrefix: 'fallback-regression', trustProxyDepth: 0 })
+    mockGetCachedRateLimiterService.mockReturnValue(service)
+    mockGetClientIp.mockReturnValue(null)
+    mockCheckRateLimit.mockImplementation(checkRateLimit)
+    const options = {
+      req: makeRequest(),
+      ipConfig: { ...ipConfig, points: 3 },
+      compoundConfig: { ...compoundConfig, points: 1 },
+      isolateByIdentifierWithoutTrustedIp: true,
+    }
+    try {
+      expect((await checkAuthRateLimit({ ...options, compoundIdentifier: 'first@example.com' })).error).toBeNull()
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const limited = await checkAuthRateLimit({ ...options, compoundIdentifier: 'first@example.com' })
+        expect(limited.error?.status).toBe(429)
+        expect(limited.error?.headers.get('X-RateLimit-Limit')).toBe('1')
+      }
+      expect((await checkAuthRateLimit({ ...options, compoundIdentifier: 'second@example.com' })).error).toBeNull()
+      expect((await checkAuthRateLimit({ ...options, compoundIdentifier: 'third@example.com' })).error).toBeNull()
+      const limited = await checkAuthRateLimit({ ...options, compoundIdentifier: 'fourth@example.com' })
+      expect(limited.error?.status).toBe(429)
+      expect(limited.error?.headers.get('X-RateLimit-Limit')).toBe('3')
+      expect(limited.error?.headers.get('Retry-After')).toMatch(/^[1-9]\d*$/)
+      expect(await service.get('global:hash_fourth@example.com', options.compoundConfig)).toBeNull()
+    } finally {
+      await service.destroy()
+    }
+  })
+
+  it('enforces the shared quota when its preliminary read and error reporting are unavailable', async () => {
+    const limited = NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+    mockGetTelemetryRuntime.mockReturnValue({ reportError: mockReportError })
+    mockReportError.mockImplementation(() => { throw new Error('[internal] Telemetry unavailable') })
+    mockGetCachedRateLimiterService.mockReturnValue(makeFakeService({
+      get: jest.fn().mockRejectedValue(new Error('[internal] Quota read unavailable')),
+    }))
+    mockGetClientIp.mockReturnValue(null)
+    mockCheckRateLimit.mockImplementation(async (_service, _config, key: string) => key === 'global' ? limited : null)
+
+    const result = await checkAuthRateLimit({
+      req: makeRequest(), ipConfig, compoundConfig, compoundIdentifier: 'user@example.com', isolateByIdentifierWithoutTrustedIp: true,
+    })
+
+    expect(result.error).toBe(limited)
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), { module: 'auth', code: 'auth.fallback_rate_limit_read_failed' })
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(expect.anything(), ipConfig, 'global', expect.any(String))
+  })
+
+  it('consumes the aggregate only once when a previously exhausted window resets', async () => {
+    mockGetCachedRateLimiterService.mockReturnValue(makeFakeService({
+      get: jest.fn().mockResolvedValue({ allowed: false }),
+    }))
+    mockGetClientIp.mockReturnValue(null)
+    mockCheckRateLimit.mockResolvedValue(null)
+
+    const result = await checkAuthRateLimit({
+      req: makeRequest(), ipConfig, compoundConfig, compoundIdentifier: 'user@example.com', isolateByIdentifierWithoutTrustedIp: true,
+    })
+
+    expect(result.error).toBeNull()
+    expect(mockCheckRateLimit.mock.calls.map(([, config, key]) => [config, key])).toEqual([
+      [ipConfig, 'global'],
+      [compoundConfig, 'global:hash_user@example.com'],
+    ])
+  })
+
+  it('retains the endpoint fallback when an opted-in request has no identifier', async () => {
+    mockGetCachedRateLimiterService.mockReturnValue(makeFakeService({ trustProxyDepth: 0 }))
+    mockGetClientIp.mockReturnValue(null)
+    mockCheckRateLimit.mockResolvedValue(null)
+
+    await checkAuthRateLimit({
+      req: makeRequest(), ipConfig, compoundConfig, isolateByIdentifierWithoutTrustedIp: true,
+    })
+
+    expect(mockCheckRateLimit).toHaveBeenCalledTimes(1)
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(expect.anything(), ipConfig, 'global', expect.any(String))
   })
 
   it('returns IP-only error when IP rate limit is exceeded', async () => {
@@ -151,6 +264,7 @@ describe('checkAuthRateLimit', () => {
       ipConfig,
       compoundConfig,
       compoundIdentifier: 'test@acme.com',
+      isolateByIdentifierWithoutTrustedIp: true,
     })
 
     expect(result.error).toBeNull()
