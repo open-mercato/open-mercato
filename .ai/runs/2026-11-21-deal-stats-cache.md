@@ -2,7 +2,7 @@
 
 Source doc: .ai/specs/2026-11-21-deal-stats-cache.md
 
-Deliver #3666 by reusing the existing tenant-scoped CRUD cache after the route has authorized the deal. The implementation uses the existing 60-second TTL backstop and verifies write-driven eviction against a warmed response.
+Deliver #3666 by reusing the existing tenant-scoped CRUD cache after the route has authorized the deal. The implementation uses a 60-second TTL and verifies write-driven eviction against a warmed response.
 
 ## Implementation plan
 
@@ -20,10 +20,12 @@ Calendar rollover and authorization scope affect reuse of an entry. Unit coverag
 
 ## Progress
 
+PR: #10225
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Cache closed-deal stats
 
-- [ ] 1.1 Implement the scoped route cache and its unit coverage.
+- [x] 1.1 Implement the scoped route cache and its unit coverage. — 8e1bbc7c4d, 17880d7c40
 - [ ] 1.2 Add the API integration test for a real cache hit and invalidation after a peer deal closes.
 - [ ] 1.3 Regenerate route artifacts and run the configured validation and review gates.
