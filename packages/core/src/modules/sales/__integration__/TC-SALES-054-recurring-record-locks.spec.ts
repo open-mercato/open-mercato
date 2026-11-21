@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type APIResponse, type Locator, type Page, type Response } from '@playwright/test'
+import { expect, type APIRequestContext, type APIResponse, type Locator, type Page, type Response } from '@playwright/test'
+import { test } from './helpers/recurringStatusFixtures'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
@@ -80,14 +81,6 @@ async function readDocument(request: APIRequestContext, token: string, resource:
   return (((await readJson(response)).items ?? []) as JsonRecord[]).find((item) => item.id === id) ?? {}
 }
 
-async function orderStatus(request: APIRequestContext, token: string, value: string): Promise<{ id: string; label: string }> {
-  const response = await apiRequest(request, 'GET', '/api/sales/order-statuses?pageSize=100', { token })
-  expect(response.ok(), 'GET /api/sales/order-statuses should succeed').toBeTruthy()
-  const entry = (((await readJson(response)).items ?? []) as JsonRecord[]).find((item) => item.value === value)
-  expect(entry, `order status "${value}" should be seeded`).toBeTruthy()
-  return { id: entry?.id as string, label: String(entry?.label ?? entry?.value) }
-}
-
 async function openDocument(page: Page, id: string, kind: 'order' | 'quote') {
   const acquired = page.waitForResponse((response) =>
     new URL(response.url()).pathname === '/api/record_locks/acquire'
@@ -162,7 +155,7 @@ async function expectNoConflict(page: Page) {
 test.describe('TC-SALES-054 recurring schedule saves with record locks on', () => {
   test.describe.configure({ timeout: 240_000 })
 
-  test('order: a schedule save does not block the next status change, a stale tab still conflicts', async ({ page, request }, testInfo) => {
+  test('order: a schedule save does not block the next status change, a stale tab still conflicts', async ({ page, request, recurringOrderStatuses }, testInfo) => {
     const token = await getAuthToken(request, 'admin')
     const settingsToken = await getAuthToken(request, 'superadmin')
     let previousSettings: RecordLockSettings | null = null
@@ -176,8 +169,8 @@ test.describe('TC-SALES-054 recurring schedule saves with record locks on', () =
         strategy: 'optimistic',
         enabledResources: ['sales.order', 'sales.quote'],
       })
-      const confirmed = await orderStatus(request, token, 'confirmed')
-      const inFulfillment = await orderStatus(request, token, 'in_fulfillment')
+      const confirmed = await recurringOrderStatuses.ensure('confirmed')
+      const inFulfillment = await recurringOrderStatuses.ensure('in_fulfillment')
       orderId = await createDocument(request, token, 'orders', {
         currencyCode: 'USD',
         lines: [line],

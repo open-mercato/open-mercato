@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
+import { expect, type APIRequestContext, type APIResponse } from '@playwright/test'
+import { test } from './helpers/recurringStatusFixtures'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { createShipmentFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
@@ -87,14 +88,6 @@ async function firstLineId(request: APIRequestContext, token: string, orderId: s
   return (((await readJson(response)).items ?? []) as JsonRecord[])[0]?.id as string
 }
 
-async function orderStatusEntryId(request: APIRequestContext, token: string, value: string): Promise<string | null> {
-  const response = await apiRequest(request, 'GET', '/api/sales/order-statuses?pageSize=100', { token })
-  if (!response.ok()) return null
-  const items = ((await readJson(response)).items ?? []) as JsonRecord[]
-  const entry = items.find((item) => item.value === value)
-  return typeof entry?.id === 'string' ? entry.id : null
-}
-
 async function createPaymentMethod(request: APIRequestContext, token: string): Promise<string> {
   const stamp = `${Date.now()}${Math.floor(Math.random() * 1000)}`
   const response = await apiRequest(request, 'POST', '/api/sales/payment-methods', {
@@ -125,7 +118,7 @@ function expectCode(response: APIResponse, body: JsonRecord, status: number, cod
 }
 
 test.describe('TC-SALES-046 recurring order locks and status guards', () => {
-  test('locks billing-relevant edits and deletion once a period exists', async ({ request }) => {
+  test('locks billing-relevant edits and deletion once a period exists', async ({ request, recurringOrderStatuses }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
     const startsOn = isoDayFromToday(3)
@@ -196,8 +189,7 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
       expect(echoed.status(), 'sending the current schedule back with an unlocked edit still saves').toBe(200)
 
       for (const value of ['canceled', 'on_hold']) {
-        const statusEntryId = await orderStatusEntryId(request, token, value)
-        if (!statusEntryId) continue
+        const { id: statusEntryId } = await recurringOrderStatuses.ensure(value)
         const response = await apiRequest(request, 'PUT', '/api/sales/orders', { token, data: { id: orderId, statusEntryId } })
         expectCode(response, await readJson(response), 409, 'recurring_order_invoiced_stop', `status ${value}`)
       }
@@ -211,14 +203,13 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
     }
   })
 
-  test('refuses canceled and on-hold statuses on an unfinished recurring order', async ({ request }) => {
+  test('refuses canceled and on-hold statuses on an unfinished recurring order', async ({ request, recurringOrderStatuses }) => {
     const token = await getAuthToken(request, 'admin')
     let orderId: string | null = null
     try {
       orderId = await createRecurringOrder(request, token, isoDayFromToday(10))
       for (const value of ['canceled', 'on_hold']) {
-        const statusEntryId = await orderStatusEntryId(request, token, value)
-        test.skip(!statusEntryId, `order status "${value}" is not seeded`)
+        const { id: statusEntryId } = await recurringOrderStatuses.ensure(value)
         const response = await apiRequest(request, 'PUT', '/api/sales/orders', { token, data: { id: orderId, statusEntryId } })
         expectCode(response, await readJson(response), 409, 'recurring_order_use_cancel', `status ${value}`)
       }

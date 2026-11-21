@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
+import { expect, type APIRequestContext, type APIResponse } from '@playwright/test'
+import { test } from './helpers/recurringStatusFixtures'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
@@ -59,14 +60,6 @@ async function readOrder(request: APIRequestContext, token: string, id: string):
   const response = await apiRequest(request, 'GET', `/api/sales/orders?id=${encodeURIComponent(id)}`, { token })
   expect(response.status()).toBe(200)
   return (((await readJson(response)).items ?? []) as JsonRecord[])[0] ?? {}
-}
-
-async function orderStatusEntryId(request: APIRequestContext, token: string, value: string): Promise<string> {
-  const response = await apiRequest(request, 'GET', '/api/sales/order-statuses?pageSize=100', { token })
-  const items = response.ok() ? (((await readJson(response)).items ?? []) as JsonRecord[]) : []
-  const entry = items.find((item) => item.value === value)
-  test.skip(typeof entry?.id !== 'string', `order status "${value}" is not seeded`)
-  return entry?.id as string
 }
 
 async function createQuoteWithLine(request: APIRequestContext, token: string, data: JsonRecord = {}): Promise<string> {
@@ -145,10 +138,10 @@ async function sendWhileAnotherWriterCommits(
 }
 
 test.describe('TC-SALES-053 recurring order state integrity', () => {
-  test('refuses a stopped order carrying a new recurrence on create and update', async ({ request }) => {
+  test('refuses a stopped order carrying a new recurrence on create and update', async ({ request, recurringOrderStatuses }) => {
     const token = await getAuthToken(request, 'admin')
-    const onHold = await orderStatusEntryId(request, token, 'on_hold')
-    const canceled = await orderStatusEntryId(request, token, 'canceled')
+    const { id: onHold } = await recurringOrderStatuses.ensure('on_hold')
+    const { id: canceled } = await recurringOrderStatuses.ensure('canceled')
     const recurrence = { frequency: 'monthly', startsOn: isoDayFromToday(10) }
     let orderId: string | null = null
     try {
@@ -186,10 +179,10 @@ test.describe('TC-SALES-053 recurring order state integrity', () => {
     }
   })
 
-  test('re-checks a payment status change after a concurrent recurrence write', async ({ request }) => {
+  test('re-checks a payment status change after a concurrent recurrence write', async ({ request, recurringOrderStatuses }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
-    const onHold = await orderStatusEntryId(request, token, 'on_hold')
+    const { id: onHold } = await recurringOrderStatuses.ensure('on_hold')
     let orderId: string | null = null
     try {
       orderId = await createOrder(request, token)
@@ -214,10 +207,10 @@ test.describe('TC-SALES-053 recurring order state integrity', () => {
     }
   })
 
-  test('re-checks a shipment status change after a concurrent recurrence write', async ({ request }) => {
+  test('re-checks a shipment status change after a concurrent recurrence write', async ({ request, recurringOrderStatuses }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
-    const onHold = await orderStatusEntryId(request, token, 'on_hold')
+    const { id: onHold } = await recurringOrderStatuses.ensure('on_hold')
     let orderId: string | null = null
     try {
       orderId = await createOrder(request, token)
@@ -310,9 +303,9 @@ test.describe('TC-SALES-053 recurring order state integrity', () => {
     }
   })
 
-  test('refuses converting a canceled recurring quote and keeps the quote', async ({ request }) => {
+  test('refuses converting a canceled recurring quote and keeps the quote', async ({ request, recurringOrderStatuses }) => {
     const token = await getAuthToken(request, 'admin')
-    const canceled = await orderStatusEntryId(request, token, 'canceled')
+    const { id: canceled } = await recurringOrderStatuses.ensure('canceled')
     const quoteIds: string[] = []
     const orderIds: string[] = []
     try {
