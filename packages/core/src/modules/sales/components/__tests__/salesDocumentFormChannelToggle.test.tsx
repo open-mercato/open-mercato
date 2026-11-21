@@ -183,7 +183,10 @@ describe('SalesDocumentForm channel picker toggle', () => {
     await waitFor(() => expect(capturedFields).toBeDefined())
     expect(capturedFields?.find((field) => field.id === 'comments')).toMatchObject({
       id: 'comments',
-      type: 'textarea',
+      type: 'richtext',
+      editor: 'uiw',
+      label: 'Document note',
+      description: expect.stringContaining('Team notes'),
     })
     expect(capturedGroups?.find((group) => group.id === 'channels-comments')?.fields).toContain('comments')
   })
