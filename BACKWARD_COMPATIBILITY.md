@@ -306,7 +306,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ## Per-User Integration Credentials (2026-05-26)
 
-`.ai/specs/2026-05-21-email-integration-foundation.md` adds optional per-user scoping to integration credentials so two users on the same tenant can connect their own mailbox (Gmail / IMAP) without sharing one row. **All changes are additive** and pass the contract-surface checks above:
+`.ai/specs/2026-05-21-email-integration-foundation.md` adds optional per-user scoping to integration credentials so two users on the same tenant can connect their own mailbox (Gmail / IMAP) without sharing one row.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -320,7 +320,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ## Spec C — Provider Push Delivery (2026-05-27)
 
-`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md` extends the communication-channels module with provider push delivery. **All changes are additive** and pass the contract-surface checks above:
+`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md` extends the communication-channels module with provider push delivery.
 
 > **Update (2026-06-02):** the Microsoft Graph push surfaces (the two `/webhooks/microsoft/*` routes, the `…-microsoft-delta-sync` / `…-microsoft-renew-subscriptions` queues, and `OM_MICROSOFT_WEBHOOK_BASE_URL` / `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS`) were removed together with the `@open-mercato/channel-microsoft` provider — they never shipped in a release, so the removal is not a breaking change. The rows below reflect the Gmail-only surfaces that remain. The `client_state_encrypted` column — proposed solely for Microsoft Graph's anti-tampering nonce — was dropped from scope together with the provider before this branch's migrations were finalized; it appears in no committed migration or snapshot, so there is no schema change to reconcile.
 
@@ -682,6 +682,10 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## Attachment upload owner access (2026-11-07, #8891)
+
+Generic upload enforces #6726/#6829 via `create`. [Migration](.ai/specs/2026-10-01-attachment-access-resolvers.md). Ack pending.
 
 ## 2026-11-07 — Private next-interaction subjects (#8888)
 

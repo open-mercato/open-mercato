@@ -28,6 +28,15 @@ export async function assertAttachmentOwnerAccess(input: {
   attachment: AttachmentAccessRecord
   action: AttachmentAccessAction
   persistProtection?: boolean
+  /**
+   * True only for the recheck performed inside the attachment's own write
+   * transaction, right before the row is flushed. Lets a resolver that owns
+   * a locking protocol for its aggregate (e.g. Documents' pessimistic write
+   * lock on archive/share mutations) take the same lock on `input.em` here,
+   * so this recheck is serialized against those mutations instead of racing
+   * them with a plain read (#8975).
+   */
+  commitBoundary?: boolean
 }): Promise<void> {
   const partition = await findOneWithDecryption(input.em, AttachmentPartition, { code: input.attachment.partitionCode }, undefined, {
     tenantId: input.attachment.tenantId, organizationId: input.attachment.organizationId,
