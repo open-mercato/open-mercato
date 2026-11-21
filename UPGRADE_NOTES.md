@@ -1,5 +1,23 @@
 # Upgrade Notes
 
+## Payment gateway scoped not-found responses (#9441)
+
+Capture, refund and cancel now return HTTP 404 when the transaction is missing,
+deleted or outside the caller's tenant/organization scope. Previously the scoped
+lookup failure was reported as a provider 502. Missing and foreign records share
+the same localized not-found response, before provider calls or operation writes.
+Treat this 404 as a final invalid transaction/scope request rather than retrying it
+as a provider outage; genuine provider errors remain 502. Status refresh also
+preserves the scoped not-found 404 if the transaction disappears after its first
+read. Missing-adapter and unrelated typed provider failures retain their previous
+502 response. A capture reservation first observed under the cancellation lock
+returns the documented `payment_cancel_captured_funds` code with the existing
+reservation message.
+No schema, configuration, route or successful-payment migration is required.
+The capture/cancel serialization fix from #8224 is included: cancellation holds
+the transaction lock through provider completion, and capture reserves its exact
+amount against that same row. Protected current-head financial QA remains open.
+
 ## Optional process DI root (#8989)
 
 `OM_PROCESS_CONTAINER_ROOT=on` enables generation-owned registration/bootstrap with isolated caller scopes. It defaults to off pending workload qualification. Existing `createRequestContainer()` calls retain separate EntityManagers and mutation boundaries. No schema migration is required.
