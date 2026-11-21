@@ -47,5 +47,5 @@ Re-enable `messages:message`, `sales:sales_note`, and `sales:sales_document_addr
 
 ### Phase 4: Re-Enable Entities, Update Drift Guards, and Ship Integration Coverage
 
-- [ ] 4.1 Re-enable `messages:message`, `sales:sales_note`, and `sales:sales_document_address` and update `global-search-acl.test.ts`
-- [ ] 4.2 Add self-contained Playwright integration test `TC-SEARCH-019.spec.ts`
+- [x] 4.1 Re-enable `messages:message`, `sales:sales_note`, and `sales:sales_document_address` and update `global-search-acl.test.ts` — bd662bae5e
+- [x] 4.2 Add self-contained Playwright integration test `TC-SEARCH-019.spec.ts` — bd662bae5e
