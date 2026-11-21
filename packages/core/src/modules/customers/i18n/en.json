@@ -46,6 +46,7 @@
   "customers.activities.overdue": "{count} overdue",
   "customers.activities.retry": "Retry",
   "customers.activities.seeAll": "See all {count} activities",
+  "customers.activities.seeAll.single": "",
   "customers.activities.seeMatching": "Showing {visible} of {total} activities",
   "customers.activities.yearSeparator": "{year}",
   "customers.activityComposer.cancel": "Cancel",

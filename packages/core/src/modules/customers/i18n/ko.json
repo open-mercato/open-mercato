@@ -46,6 +46,7 @@
   "customers.activities.overdue": "{count}건 기한 초과",
   "customers.activities.retry": "다시 시도",
   "customers.activities.seeAll": "전체 활동 {count}건 보기",
+  "customers.activities.seeAll.single": "",
   "customers.activities.seeMatching": "전체 활동 {total}건 중 {visible}건 표시 중",
   "customers.activities.yearSeparator": "{year}",
   "customers.activityComposer.cancel": "취소",
