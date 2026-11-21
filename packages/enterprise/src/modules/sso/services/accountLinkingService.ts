@@ -95,13 +95,7 @@ export class AccountLinkingService {
     config: SsoConfig,
     idpPayload: SsoIdentityPayload,
     tenantId: string,
-<<<<<<< HEAD
   ): Promise<{ user: User; identity: SsoIdentity } | null> {
-    const emailHash = computeEmailHash(idpPayload.email)
-=======
-    pendingEvents: PendingIdentityEvent[],
-  ): Promise<AuthorizedSsoAccount | null> {
->>>>>>> 4cfb337a0d (fix(encryption): keep lookups working during pepper rotation (#10177) (#10207))
     const user = await findOneWithDecryption(
       this.em,
       User,
