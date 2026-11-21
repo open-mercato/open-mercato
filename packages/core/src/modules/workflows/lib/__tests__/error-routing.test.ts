@@ -242,6 +242,29 @@ describe('error routing — transition handler', () => {
     expect(result.failedStepId).toBe('risky')
     expect(result.errorRoute).toEqual({ transitionId: 't_risky_recover', toStepId: 'recover' })
     expect(result.parkForAttention).toBeUndefined()
+    expect(result).not.toHaveProperty('details')
+  })
+
+  test('a failed step hands its message details to the transition result', async () => {
+    const details = { i18n: { key: 'workflows.some.key', params: {} } }
+    const instance = makeInstance({ currentStepId: 'start' })
+    mockEm.findOne.mockResolvedValue(makeDefinition({
+      steps: baseSteps,
+      transitions: [{ transitionId: 't_start_risky', fromStepId: 'start', toStepId: 'risky', trigger: 'auto' }],
+    }))
+    ;(stepHandler.executeStep as jest.Mock).mockResolvedValue({ status: 'FAILED', error: 'boom', details })
+
+    const result = await transitionHandler.executeTransition(
+      mockEm,
+      mockContainer,
+      instance,
+      'start',
+      'risky',
+      { workflowContext: {} }
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.details).toEqual(details)
   })
 
   test('continueWithFallback advances past a failed step and lands the fallback in context', async () => {
@@ -397,8 +420,39 @@ describe('error routing — transition handler', () => {
       { workflowContext: {} }
     )
 
-    expect(result).toEqual({ success: false, error: 'boom' })
+    expect(result).toEqual({ success: false, error: 'boom', stepExecutionFailed: true })
     expect(createdEventTypes(mockEm)).not.toContain('ERROR_DIRECTIVE_APPLIED')
+  })
+
+  test('only a failure of the step the cursor advanced into is flagged as an executed-step failure', async () => {
+    const instance = makeInstance({ currentStepId: 'start' })
+    mockEm.findOne.mockResolvedValue(makeDefinition({
+      steps: baseSteps,
+      transitions: [{ transitionId: 't_start_risky', fromStepId: 'start', toStepId: 'risky', trigger: 'auto' }],
+    }))
+    ;(stepHandler.executeStep as jest.Mock).mockResolvedValue({ status: 'FAILED', error: 'boom' })
+
+    const stepFailure = await transitionHandler.executeTransition(
+      mockEm,
+      mockContainer,
+      instance,
+      'start',
+      'risky',
+      { workflowContext: {} }
+    )
+    expect(stepFailure.stepExecutionFailed).toBe(true)
+    expect(instance.currentStepId).toBe('risky')
+
+    const refused = await transitionHandler.executeTransition(
+      mockEm,
+      mockContainer,
+      makeInstance({ currentStepId: 'start' }),
+      'start',
+      'nowhere',
+      { workflowContext: {} }
+    )
+    expect(refused.success).toBe(false)
+    expect(refused).not.toHaveProperty('stepExecutionFailed')
   })
 })
 
@@ -530,11 +584,13 @@ describe('error routing — executor', () => {
       error: 'gateway timeout',
       failedStepId: 'risky',
       parkForAttention: true,
+      details: { i18n: { key: 'workflows.some.key', params: {} } },
     })
 
     await workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
 
     expect(instance.status).toBe('PAUSED')
+    expect(instance.errorDetails).toEqual({ i18n: { key: 'workflows.some.key', params: {} } })
     expect(instance.metadata?.attention).toMatchObject({
       reason: 'ERROR_DIRECTIVE',
       stepId: 'risky',

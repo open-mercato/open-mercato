@@ -47,6 +47,7 @@ const USER_TASK_INSPECTOR_KEYS = [
   'entityBindings',
   'priority',
   'deadline',
+  'deadlineAt',
   'reminders',
   'onBreach',
   'decisions',

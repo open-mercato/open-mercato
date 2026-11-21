@@ -117,6 +117,8 @@ export interface ExecutionResult {
   context: Record<string, any>
   events: WorkflowEventSummary[]
   errors?: string[]
+  /** A FAILED run's details, when the failure carries any. */
+  errorDetails?: unknown
   executionTime: number
 }
 
@@ -454,6 +456,7 @@ export async function executeWorkflow(
             errors.push(branchResult.error || 'Parallel branch failed')
             await completeWorkflow(trx, container, instanceId, 'FAILED', {
               error: branchResult.error || 'Parallel branch failed',
+              details: branchResult.details,
             })
             return {
               status: 'FAILED',
@@ -461,6 +464,7 @@ export async function executeWorkflow(
               context: currentInstance.context,
               events,
               errors,
+              ...(branchResult.details !== undefined ? { errorDetails: branchResult.details } : {}),
               executionTime: Date.now() - startTime,
             }
           }
@@ -749,6 +753,7 @@ export async function executeWorkflow(
               context: currentInstance.context,
               events,
               errors,
+              ...(transitionResult.details !== undefined ? { errorDetails: transitionResult.details } : {}),
               executionTime: Date.now() - startTime,
             }
           }
@@ -877,7 +882,7 @@ export async function executeWorkflow(
         if (instance && instance.status === 'RUNNING') {
           instance.status = 'FAILED'
           instance.errorMessage = errorMessage
-          instance.errorDetails = error instanceof WorkflowExecutionError ? error.details : undefined
+          instance.errorDetails = error instanceof WorkflowExecutionError ? error.details ?? null : null
           instance.updatedAt = new Date()
           await writeRunOutcome(trx, instance, 'FAILED')
           await trx.flush()
@@ -1111,7 +1116,7 @@ async function dispatchAgentOutcome(
 
 export type TransitionFailureInput = Pick<
   TransitionExecutionResult,
-  'error' | 'failedStepId' | 'errorRoute' | 'errorHandlerStepId' | 'parkForAttention'
+  'error' | 'failedStepId' | 'errorRoute' | 'errorHandlerStepId' | 'parkForAttention' | 'details'
 >
 
 export type TransitionFailureOutcome =
@@ -1198,7 +1203,7 @@ export async function handleTransitionFailure(
   }
 
   if (transitionResult.parkForAttention && failedStepId) {
-    await parkInstanceForAttention(em, instance, failedStepId, rejectionMessage)
+    await parkInstanceForAttention(em, instance, failedStepId, rejectionMessage, transitionResult.details)
     return { kind: 'parked', failedStepId, notes }
   }
 
@@ -1213,6 +1218,7 @@ export async function handleTransitionFailure(
 
   await completeWorkflow(em, container, instance.id, 'FAILED', {
     error: rejectionMessage,
+    details: transitionResult.details,
   })
 
   return { kind: 'failed', error: rejectionMessage, notes }
@@ -1365,12 +1371,14 @@ async function parkInstanceForAttention(
   em: EntityManager,
   instance: WorkflowInstance,
   failedStepId: string,
-  error: string
+  error: string,
+  details?: unknown
 ): Promise<void> {
   const now = new Date()
   instance.status = 'PAUSED'
   instance.pausedAt = now
   instance.errorMessage = error
+  instance.errorDetails = details ?? null
   instance.metadata = {
     ...(instance.metadata || {}),
     attention: {
@@ -1416,7 +1424,7 @@ async function persistFailedStatusAfterRollback(
     if (!instance || instance.status !== 'RUNNING') return
     instance.status = 'FAILED'
     instance.errorMessage = errorMessage
-    instance.errorDetails = errorDetails
+    instance.errorDetails = errorDetails ?? null
     instance.updatedAt = new Date()
     await writeRunOutcome(trx, instance, 'FAILED')
     await trx.flush()
@@ -1527,7 +1535,7 @@ export async function completeWorkflow(
         // Set error message before compensation
         if (result?.error) {
           instance.errorMessage = result.error
-          instance.errorDetails = result.details
+          instance.errorDetails = result.details ?? null
           await em.flush()
         }
 
@@ -1610,7 +1618,7 @@ export async function completeWorkflow(
       instance.completedAt = now
       if (result?.error) {
         instance.errorMessage = result.error
-        instance.errorDetails = result.details
+        instance.errorDetails = result.details ?? null
       }
       break
 
@@ -1917,10 +1925,11 @@ export async function resumeWorkflowAfterActivities(
     )
 
     if (stepResult.status === 'FAILED') {
-      return await handleResumedStepFailure(trx, container, instance, {
+      return await handleExecutedStepFailure(trx, container, instance, {
         failedStepId: pendingTransition.toStepId,
         fromStepId: resumedFromStepId,
         error: stepResult.error,
+        details: stepResult.details,
         userId: resumeUserId,
         definition,
       })
@@ -1939,12 +1948,14 @@ export async function resumeWorkflowAfterActivities(
 }
 
 /**
- * The async resume re-enters the pending step OUTSIDE `executeTransition`, so
- * the step-failure handling the transition handler applies to a FAILED step
- * has to be applied here: `continueWithFallback` advances with the fallback in
- * context, every other directive goes through `handleTransitionFailure`.
+ * A step entered OUTSIDE `executeTransition` (the async resume, a rerun from
+ * step) gets none of the step-failure handling the transition handler applies
+ * to a FAILED step, so it has to be applied here: `continueWithFallback`
+ * advances with the fallback in context, every other directive goes through
+ * `handleTransitionFailure`. The step's `details` travel with the failure so the
+ * run keeps its localizable diagnostic.
  */
-async function handleResumedStepFailure(
+export async function handleExecutedStepFailure(
   em: EntityManager,
   container: AwilixContainer,
   instance: WorkflowInstance,
@@ -1952,11 +1963,14 @@ async function handleResumedStepFailure(
     failedStepId: string
     fromStepId: string | null
     error?: string
+    details?: unknown
     userId?: string
     definition: WorkflowDefinition
+    source?: string
   }
 ): Promise<{ continueExecution: boolean }> {
   const error = failure.error || 'Step execution failed'
+  const source = failure.source ?? 'asyncResume'
   const handling = resolveStepFailureHandling(failure.definition.definition, failure.failedStepId)
 
   if (handling.kind === 'continue') {
@@ -1966,7 +1980,7 @@ async function handleResumedStepFailure(
       eventData: {
         stepId: failure.failedStepId,
         directive: 'continueWithFallback',
-        source: 'asyncResume',
+        source,
         error,
         hasFallbackValue: handling.fallbackValue !== undefined,
       },
@@ -1989,12 +2003,16 @@ async function handleResumedStepFailure(
     em,
     container,
     instance,
-    { error, ...buildFailureRouting(handling, failure.failedStepId) },
+    {
+      error,
+      ...(failure.details !== undefined ? { details: failure.details } : {}),
+      ...buildFailureRouting(handling, failure.failedStepId),
+    },
     {
       evalContext: { workflowContext: instance.context || {}, userId: failure.userId },
       fromStepId: failure.fromStepId,
       toStepId: failure.failedStepId,
-      source: 'asyncResume',
+      source,
     }
   )
   return {

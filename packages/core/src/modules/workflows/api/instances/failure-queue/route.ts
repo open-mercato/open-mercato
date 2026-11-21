@@ -14,6 +14,7 @@ import { WORKFLOW_LIST_MAX_OFFSET, WORKFLOW_LIST_OFFSET_ERROR } from '../../../d
 import { z } from 'zod'
 import { raw } from '@mikro-orm/core'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
@@ -24,6 +25,8 @@ import {
   matchesFailureGroup,
   type TriageInstanceInput,
 } from '../../../lib/failure-grouping'
+import type { IssueMessageTranslator } from '../../../lib/definition-error-body'
+import { localizeRuntimeErrorMessage } from '../../../lib/runtime-error-message'
 import { WORKFLOW_ATTENTION_OUTCOMES } from '../../../lib/run-outcome'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -50,12 +53,15 @@ function parsePositiveInt(rawValue: string | null, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function toTriageInput(instance: WorkflowInstance): TriageInstanceInput {
+function toTriageInput(instance: WorkflowInstance, translate?: IssueMessageTranslator): TriageInstanceInput {
   return {
     id: instance.id,
     workflowId: instance.workflowId,
     status: instance.status,
     errorMessage: instance.errorMessage ?? null,
+    ...(translate && instance.errorMessage
+      ? { localizedErrorMessage: localizeRuntimeErrorMessage(instance.errorMessage, instance.errorDetails, translate) }
+      : {}),
     attentionReason: instance.metadata?.attention?.reason ?? null,
     outcome: instance.outcome ?? null,
   }
@@ -116,7 +122,8 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'DESC' },
       limit: FAILURE_GROUP_SCAN_LIMIT,
     })) as WorkflowInstance[]
-    const scannedInputs = scanned.map(toTriageInput)
+    const { translate } = await resolveTranslations()
+    const scannedInputs = scanned.map((instance) => toTriageInput(instance, translate))
     const groups = groupFailures(scannedInputs)
 
     let rows = scanned

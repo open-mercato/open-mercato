@@ -29,6 +29,7 @@ const codeUserTaskConfigKeys = {
   entityBindings: true,
   priority: true,
   deadline: true,
+  deadlineAt: true,
   reminders: true,
   onBreach: true,
   decisions: true,

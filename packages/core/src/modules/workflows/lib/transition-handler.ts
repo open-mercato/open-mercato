@@ -138,6 +138,8 @@ export interface TransitionExecutionResult {
   }
   activitiesExecuted?: activityExecutor.ActivityExecutionResult[]
   error?: string
+  /** The failed step's `StepExecutionResult.details`, when it carries any. */
+  details?: unknown
   // Error routing (spec 5.9). Set only when the failure carries error handling
   // the executor must apply: `errorRoute` names the wired error transition to
   // follow, `parkForAttention` asks for a failure-queue park instead of a fail.
@@ -147,6 +149,11 @@ export interface TransitionExecutionResult {
   parkForAttention?: boolean
   // Definition-level handler step to jump to before failing (spec 5.9).
   errorHandlerStepId?: string
+  // True when the cursor already advanced and the target step itself failed:
+  // the run sits AT that failed step, so the caller must apply the failure
+  // contract (`handleTransitionFailure`) instead of merely reporting it.
+  // Absent on every failure that leaves the cursor where it was.
+  stepExecutionFailed?: boolean
 }
 
 export class TransitionError extends Error {
@@ -748,7 +755,9 @@ export async function executeTransitionForToken(
         return {
           success: false,
           error: stepExecutionResult.error || 'Step execution failed',
+          ...(stepExecutionResult.details !== undefined ? { details: stepExecutionResult.details } : {}),
           ...buildFailureRouting(failureHandling, toStepId),
+          stepExecutionFailed: true,
         }
       }
     }
