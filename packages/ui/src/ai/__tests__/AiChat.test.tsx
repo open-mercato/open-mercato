@@ -227,7 +227,7 @@ describe('<AiChat>', () => {
 
     const textarea = screen.getByLabelText('Message composer') as HTMLTextAreaElement
     expect(textarea.placeholder).toBe('Message the AI agent...')
-    expect(screen.getByRole('log', { name: 'Chat transcript' })).toBeInTheDocument()
+    expect(screen.getByRole('log', { name: 'Chat transcript' })).toHaveClass('overflow-x-auto')
     expect(screen.getByRole('region', { name: 'AI chat' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
   })
@@ -623,6 +623,8 @@ describe('<AiChat>', () => {
       expect(screen.getByText('Hello, world!')).toBeInTheDocument()
     })
     expect(screen.getByText('Hi there')).toBeInTheDocument()
+    const assistantRow = screen.getByText('Hello, world!').closest('[data-role="assistant"]')
+    expect(assistantRow?.lastElementChild).toHaveClass('min-w-0', 'break-words')
   })
 
   it('renders AI SDK tool-call chunks as tool call rows with display names', async () => {
