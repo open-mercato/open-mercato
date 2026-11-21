@@ -1359,7 +1359,7 @@ Person and company details use the record’s organization when evaluating view 
 
 Existing relation arrays remain present and return empty arrays when the caller lacks their view permission. Restricted counts return zero, next-interaction fields return null, and the planned preview and restricted KPI entries are omitted. Clients can continue to use the existing detail endpoints, with view access granted through their role or API key. The authorization behavior applies to cached and uncached responses. Regression coverage includes `TC-CRM-9149-detail-view-permissions.spec.ts` and both route cache suites.
 
-The company detail page uses the presence of the server-authorized Active deals count to render the Active deals and Customer value cards and the completed-deals caption. `TC-CRM-9335-company-kpi-permissions.spec.ts` covers card visibility for users with and without deal access, including a company with zero deals.
+The company detail page uses the presence of the server-authorized Active deals count to render the Active deals and Customer value cards and the completed-deals caption. The component's `canViewDeals` prop is optional and defaults to `true` for existing consumers; the company page always passes the server-authorized value explicitly. `TC-CRM-9335-company-kpi-permissions.spec.ts` covers card visibility for users with and without deal access, including a company with zero deals.
 
 ### Deprecated deal header inputs (2026-11-10, #8552)
 

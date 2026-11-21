@@ -63,10 +63,10 @@ function computeDealTrend(deals: DealSummary[]): KpiTrend | undefined {
 
 type CompanyKpiBarProps = {
   data: CompanyOverview
-  canViewDeals: boolean
+  canViewDeals?: boolean
 }
 
-export function CompanyKpiBar({ data, canViewDeals }: CompanyKpiBarProps) {
+export function CompanyKpiBar({ data, canViewDeals = true }: CompanyKpiBarProps) {
   const t = useT()
   const locale = useLocale()
 
