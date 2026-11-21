@@ -145,6 +145,32 @@ describe('RolesSection', () => {
     expect(apiCallMock).toHaveBeenCalledTimes(1)
   })
 
+  it('searches only for unmatched assignees when the roster has more than one page', async () => {
+    mockGrantedFeatures.push('customers.roles.manage')
+    readApiResultOrThrowMock.mockResolvedValueOnce({ items: [
+      { id: 'role-1', roleType: 'decision_maker', userId: 'user-1', userEmail: 'employee@example.com' },
+      { id: 'role-2', roleType: 'account_manager', userId: 'user-2', userEmail: 'admin@example.com' },
+    ] })
+    apiCallMock.mockResolvedValueOnce({ ok: true, result: { total: 1000, items: [
+      { userId: 'user-1', displayName: 'Priya Nair' },
+      ...Array.from({ length: 99 }, (_, index) => ({ userId: `staff-${index}`, displayName: 'Other person' })),
+    ] } })
+    apiCallMock.mockResolvedValueOnce({ ok: true, result: { items: [
+      { userId: 'other-user', displayName: 'Other person' },
+      { userId: 'user-2', displayName: 'Marta Lopez' },
+    ] } })
+
+    renderWithProviders(<RolesSection entityType="person" entityId="person-1" />)
+
+    expect(await screen.findByText('Marta Lopez')).toBeInTheDocument()
+    expect(screen.getByText('Priya Nair')).toBeInTheDocument()
+    expect(apiCallMock).toHaveBeenCalledTimes(2)
+    expect(apiCallMock).toHaveBeenLastCalledWith(
+      '/api/staff/team-members/assignable?page=1&pageSize=100&search=admin%40example.com',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+  })
+
   it.each([404, 403])('keeps the account name when the roster returns %s', async (status) => {
     mockGrantedFeatures.push('customers.roles.manage')
     readApiResultOrThrowMock.mockResolvedValueOnce({ items: [{

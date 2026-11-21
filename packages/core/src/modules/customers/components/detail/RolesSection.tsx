@@ -38,26 +38,40 @@ type GuardedMutationRunner = <T,>(
   mutationPayload?: Record<string, unknown>,
 ) => Promise<T>
 
+async function readRosterPage(signal: AbortSignal, search?: string) {
+  const params = new URLSearchParams({ page: '1', pageSize: '100' })
+  if (search) params.set('search', search)
+  const { ok, result } = await apiCall<{
+    items?: Array<{ userId: string; displayName?: string | null }>
+    total?: number
+  }>(`/api/staff/team-members/assignable?${params}`, {
+    headers: { 'x-om-forbidden-redirect': '0' },
+    signal,
+  })
+  if (!ok || !Array.isArray(result?.items)) return null
+  return { items: result.items, total: result.total ?? result.items.length }
+}
+
 async function resolveRosterNames(roles: RoleAssignment[], signal: AbortSignal) {
-  const remainingUserIds = new Set(roles.map((role) => role.userId))
   const names = new Map<string, string>()
-  const pageSize = 100
-  for (let page = 1; remainingUserIds.size > 0 && !signal.aborted; page += 1) {
-    const { ok, result } = await apiCall<{
-      items?: Array<{ userId: string; displayName?: string | null }>
-      total?: number
-    }>(`/api/staff/team-members/assignable?page=${page}&pageSize=${pageSize}`, {
-      headers: { 'x-om-forbidden-redirect': '0' },
-      signal,
-    })
-    if (!ok || !Array.isArray(result?.items)) return new Map<string, string>()
-    for (const member of result.items) {
-      if (!remainingUserIds.delete(member.userId)) continue
-      const name = member.displayName?.trim()
-      if (name) names.set(member.userId, name)
-    }
-    if (result.items.length < pageSize || page * pageSize >= (result.total ?? 0)) break
+  const roster = await readRosterPage(signal)
+  if (!roster || signal.aborted) return names
+  for (const member of roster.items) {
+    const name = member.displayName?.trim()
+    if (name) names.set(member.userId, name)
   }
+  if (roster.items.length >= roster.total) return names
+
+  const unresolvedEmails = new Map<string, string>()
+  for (const role of roles) {
+    const email = role.userEmail?.trim()
+    if (email && !names.has(role.userId)) unresolvedEmails.set(role.userId, email)
+  }
+  await Promise.allSettled(Array.from(unresolvedEmails, async ([userId, email]) => {
+    const matches = await readRosterPage(signal, email)
+    const name = matches?.items.find((member) => member.userId === userId)?.displayName?.trim()
+    if (name) names.set(userId, name)
+  }))
   return names
 }
 
