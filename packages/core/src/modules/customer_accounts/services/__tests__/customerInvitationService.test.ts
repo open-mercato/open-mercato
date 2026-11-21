@@ -5,6 +5,8 @@ import { hash } from 'bcryptjs'
 import {
   CustomerInvitationEmailConflictError,
   CustomerInvitationService,
+  CustomerInvitationOwnershipConflictError,
+  isCustomerInvitationOwnershipConflictError,
   isCustomerInvitationEmailConflictError,
 } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import {
@@ -569,11 +571,11 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
       organizationId,
       emailHash: 'email-hash',
       token: 'old-hashed-token',
-      customerEntityId: null,
+      customerEntityId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
       personEntityId,
       roleIdsJson: ['old-role'],
       invitedByUserId: null,
-      invitedByCustomerUserId: null,
+      invitedByCustomerUserId: 'portal-user-original',
       displayName: 'Old Name',
       expiresAt: new Date(Date.now() + 60_000),
       acceptedAt: null,
@@ -597,6 +599,56 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
     expect(existing.customerEntityId).toBe('cccccccc-cccc-4ccc-8ccc-cccccccccccc')
     expect(result.rollbackState?.personEntityId).toBe(personEntityId)
     expect(result.rollbackState?.displayName).toBe('Old Name')
+  })
+
+  it.each([
+    { customerEntityId: 'foreign-company', invitedByUserId: null, invitedByCustomerUserId: 'other-portal-user' },
+    { customerEntityId: 'foreign-company', invitedByUserId: 'staff-user', invitedByCustomerUserId: null },
+    { customerEntityId: 'own-company', invitedByUserId: 'staff-user', invitedByCustomerUserId: null },
+    { customerEntityId: null, invitedByUserId: null, invitedByCustomerUserId: null },
+    { customerEntityId: 'own-company', invitedByUserId: null, invitedByCustomerUserId: null },
+    { customerEntityId: 'own-company', invitedByUserId: 'staff-user', invitedByCustomerUserId: 'other-portal-user' },
+  ])('rejects portal replacement outside its ownership: %j', async (ownership) => {
+    const existing = {
+      id: 'pending-invitation',
+      email: 'recipient@example.test',
+      ...ownership,
+      personEntityId: 'original-person',
+      token: 'original-token',
+      roleIdsJson: ['original-role'],
+      displayName: 'Original name',
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+      tenantId,
+      organizationId,
+    } as CustomerUserInvitation
+    const before = { ...existing, roleIdsJson: [...existing.roleIdsJson!] }
+    mockEm.findOne.mockResolvedValue(existing)
+
+    await expect(service.createInvitation(existing.email, { tenantId, organizationId }, {
+      customerEntityId: 'own-company',
+      invitedByCustomerUserId: 'portal-inviter',
+      roleIds,
+      displayName: 'Replacement name',
+    })).rejects.toBeInstanceOf(CustomerInvitationOwnershipConflictError)
+
+    expect(existing).toEqual(before)
+    expect(mockEm.flush).not.toHaveBeenCalled()
+    expect(mockEm.create).not.toHaveBeenCalled()
+    expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(mockEm.findOne).toHaveBeenCalledWith(CustomerUserInvitation, expect.objectContaining({
+      tenantId, organizationId, acceptedAt: null, cancelledAt: null,
+    }), expect.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }))
+  })
+
+  it('recognizes ownership conflicts from a separately bundled service without matching unrelated errors', () => {
+    const marker = Symbol.for('@open-mercato/CustomerInvitationOwnershipConflictError')
+    expect(isCustomerInvitationOwnershipConflictError(new CustomerInvitationOwnershipConflictError())).toBe(true)
+    expect(isCustomerInvitationOwnershipConflictError({ [marker]: true })).toBe(true)
+    for (const error of [null, undefined, 'conflict', new Error('unknown'), { name: 'CustomerInvitationOwnershipConflictError' }]) {
+      expect(isCustomerInvitationOwnershipConflictError(error)).toBe(false)
+    }
   })
 
   it('inserts a new invitation row when no pending invitation exists', async () => {
