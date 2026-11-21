@@ -34,7 +34,7 @@ So context **IS** preserved end-to-end. But:
 
 Today's flow is opaque, hardcoded, and not reusable across agents:
 
-- **Upload pipeline** (`packages/core/src/modules/attachments/api/route.ts`) extracts text at upload time using `pdfjs-dist` (PDFs), `mammoth` (docx), and direct `fs.readFile` (text/CSV/JSON). Result is stored in `attachments.content`.
+- **Upload pipeline** (`packages/core/src/modules/attachments/api/route.ts`) extracts text at upload time using `pdfjs-dist` (PDFs), `mammoth` (docx), `hucre` (xlsx/xlsm), and direct `fs.readFile` (text/CSV/JSON). Result is stored in `attachments.content`.
 - **Resolution at chat time** (`packages/ai-assistant/src/modules/ai_assistant/lib/attachment-parts.ts:62–78, 273–342, 318–322`) classifies each attachment as `'image' | 'pdf' | 'file'`, then:
   - inlines bytes as base64 if ≤ 4 MB (hardcoded), OR
   - emits a signed URL (signer DI hook exists but no concrete impl ships), OR
@@ -97,7 +97,7 @@ Cap: `MAX_MESSAGES = 100`. No multi-turn integration test exists today.
 | Upload size limit (25 MB default, env override) | ✅ implemented | `attachments/api/route.ts` + `attachments/lib/upload-limits.ts` |
 | Tenant quota (512 MB) | ✅ implemented | `attachments/api/route.ts` |
 | Dangerous-extension block | ✅ implemented | `attachments/lib/imageSafety.ts` etc. |
-| Text extraction at upload (PDF/Docx/CSV/JSON/MD) | ✅ implemented | `attachments/lib/textExtraction.ts` |
+| Text extraction at upload (PDF/Docx/Xlsx/CSV/JSON/MD) | ✅ implemented | `attachments/lib/textExtraction.ts` |
 | OCR queue | ✅ implemented (async worker) | `attachments/lib/ocrService.ts` + `ocrQueue.ts` |
 | PDF page rasterization | ✅ implemented but **unused at chat-prep time** | `attachments/lib/pdfProcessing.ts` |
 | Inline base64 / signed URL / metadata-only triage | ✅ implemented | `ai_assistant/lib/attachment-parts.ts:213–247, 378–396` |
@@ -413,3 +413,4 @@ Tests are self-contained: each one creates fixtures via API at setup, cleans up 
 ## Changelog
 
 - **2026-04-27**: Initial draft — context lock-in (Phase 1), pluggable attachment processor (Phases 2–3), optional persistence (Phase 4).
+- **2026-10-03**: Upload text extraction now covers XLSX/XLSM workbooks via `hucre`, bounded by `OM_ATTACHMENT_SPREADSHEET_*` limits.
