@@ -141,7 +141,15 @@ export default function PricesDataTable({ productId }: { productId?: string } = 
     const label = typeof item.displayName === 'string' ? item.displayName : (typeof item.display_name === 'string' ? item.display_name : id)
     return { id, label }
   }, [])
-  const customerLabels = useBatchLabels('/api/customers/people', customerIds, mapCustomer)
+  // A price rule's customerId can be a person or a company — the two entities
+  // are not unioned behind a single endpoint, so labels must be resolved
+  // against both and merged (same pattern as the CRM-link pickers).
+  const customerPeopleLabels = useBatchLabels('/api/customers/people', customerIds, mapCustomer)
+  const customerCompanyLabels = useBatchLabels('/api/customers/companies', customerIds, mapCustomer)
+  const customerLabels = React.useMemo(
+    () => ({ ...customerPeopleLabels, ...customerCompanyLabels }),
+    [customerPeopleLabels, customerCompanyLabels],
+  )
 
   const channelIds = React.useMemo(() => rows.map((row) => row.channelId).filter((id): id is string => !!id), [rows])
   const mapChannel = React.useCallback((item: Record<string, unknown>) => {
