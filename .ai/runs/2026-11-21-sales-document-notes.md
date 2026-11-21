@@ -27,11 +27,13 @@ Creation offers the formatted editor while Details intentionally retains Markdow
 
 ## Progress
 
+PR: #10263
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Clear note purposes
 
-- [ ] 1.1 Characterize the existing creation note configuration.
+- [x] 1.1 Characterize the existing creation note configuration. — 7e357049c9
 - [ ] 1.2 Align editors, labels and localized help with persistence coverage.
 - [ ] 1.3 Archive capability and validate the final behavior.
 - [ ] 1.4 Complete independent review and publish evidence.
