@@ -3,6 +3,8 @@ import * as React from 'react'
 import Link from 'next/link'
 import { ArrowDown, ArrowUp, Bell, Loader2, RotateCcw, Settings2, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
+import { Alert } from '../../primitives/alert'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { IconButton } from '../../primitives/icon-button'
 import { Sheet, SheetContent, SheetTitle } from '../../primitives/sheet'
 import { Tabs, TabsList, TabsTrigger } from '../../primitives/tabs'
@@ -75,6 +77,7 @@ export function NotificationPanel({
 }: NotificationPanelProps) {
   const [filter, setFilter] = React.useState<'all' | 'unread' | 'action'>('all')
   const [markingAllRead, setMarkingAllRead] = React.useState(false)
+  const [markAllReadFailed, setMarkAllReadFailed] = React.useState(false)
 
   const filteredNotifications = React.useMemo(() => {
     switch (filter) {
@@ -91,8 +94,12 @@ export function NotificationPanel({
 
   const handleMarkAllRead = async () => {
     setMarkingAllRead(true)
+    setMarkAllReadFailed(false)
     try {
       await onMarkAllRead()
+    } catch (error) {
+      reportTelemetryError(error, { module: 'notifications', code: 'notifications.mark_all_read_failed' })
+      setMarkAllReadFailed(true)
     } finally {
       setMarkingAllRead(false)
     }
@@ -137,7 +144,7 @@ export function NotificationPanel({
                 size="sm"
                 onClick={handleMarkAllRead}
                 disabled={markingAllRead}
-                className="h-auto min-h-8 min-w-0 shrink whitespace-normal gap-1 px-1 text-accent-indigo hover:text-accent-indigo/80 hover:no-underline"
+                className="h-auto min-h-8 min-w-0 shrink gap-1 whitespace-normal px-1 text-accent-indigo hover:text-accent-indigo/80 hover:no-underline"
               >
                 {markingAllRead ? <Loader2 className="size-3.5 animate-spin" /> : null}
                 {t('notifications.markAllRead', 'Mark all read')}
@@ -154,6 +161,14 @@ export function NotificationPanel({
             </IconButton>
           </div>
         </div>
+
+        {markAllReadFailed ? (
+          <div className="px-5 py-3">
+            <Alert status="error" style="lighter">
+              {t('notifications.error.markAllRead', 'Could not mark notifications as read. Please try again.')}
+            </Alert>
+          </div>
+        ) : null}
 
         <Tabs value={filter} onValueChange={handleFilterChange} variant="underline">
           <TabsList className="flex w-full px-5">

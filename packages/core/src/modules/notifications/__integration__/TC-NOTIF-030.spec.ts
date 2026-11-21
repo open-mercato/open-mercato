@@ -14,7 +14,7 @@ async function expectWithinViewport(control: Locator, width: number) {
   expect(await control.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
 }
 
-test.describe('TC-NOTIF-028: translated notification header controls fit the viewport', () => {
+test.describe('TC-NOTIF-030: translated notification header controls fit the viewport', () => {
   for (const locale of ['en', 'pl'] as const) {
     test(`${locale} keeps mark all read and Close reachable, including while pending`, async ({ page, keyboardFixture }) => {
       await page.setViewportSize({ width: 375, height: 812 })
