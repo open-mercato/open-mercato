@@ -118,7 +118,7 @@ test.describe('TC-CRM-5232 address contact fields through the real forms', () =>
     await page.getByPlaceholder('Address line 1', { exact: true }).fill(addressLine1)
     await page.getByRole('textbox', { name: 'Recipient name', exact: true }).fill(recipientName)
     await page.getByRole('textbox', { name: 'Phone', exact: true }).fill(phone)
-    await page.getByRole('button', { name: 'Save address', exact: true }).click()
+    await page.getByRole('button', { name: 'Save address' }).click()
 
     const addressCreated = page.waitForResponse(
       (response) => new URL(response.url()).pathname === '/api/customers/addresses' && response.request().method() === 'POST',
