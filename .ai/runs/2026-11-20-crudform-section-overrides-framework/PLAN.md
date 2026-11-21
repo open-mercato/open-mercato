@@ -62,6 +62,7 @@ Status: in-progress
 | 6 | 6.2-concurrency-ci-fix | Assert the winning API operation and both supported browser conflict surfaces | self | done | 7859e02259 |
 | 6 | 6.2-concurrency-ci-followup | Settle the stale browser action before verifying captured responses | self | done | this commit |
 | 6 | 6.2-standalone-runtime-fix | Share the owned runtime state and keep the standalone ERP worker alive across retries | self | done | this commit |
+| 6 | 6.4-typecheck-memory-fix | Use the manifest loader contract and bound workspace typecheck memory | self | done | this commit |
 | 6 | 6.5 | Record example, harness and integration evidence | dispatch | done | 7859e02259 |
 
 ## Goal

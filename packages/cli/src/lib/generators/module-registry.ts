@@ -1924,6 +1924,7 @@ function buildManifestRouteLoader(importPath: string): WriterFunction {
 function buildManifestApiLoader(importPath: string): WriterFunction {
   return arrowFunction({
     async: true,
+    returnType: "ReturnType<ApiRouteManifestEntry['load']>",
     body: importExpression(sanitizeGeneratedModuleSpecifier(importPath)),
   })
 }
