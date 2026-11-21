@@ -123,12 +123,14 @@ describe('GET /api/customers/deals/[id]/stats', () => {
     })
 
     it('stores the payload in tenant context and skips both counts on an authorized hit', async () => {
+      const readTenants: Array<string | null> = []
+      const writeTenants: Array<string | null> = []
       mockCache.get.mockImplementation(async () => {
-        expect(getCurrentCacheTenant()).toBe('tenant-1')
+        readTenants.push(getCurrentCacheTenant())
         return mockCache.set.mock.calls.at(-1)?.[1]
       })
       mockCache.set.mockImplementation(async () => {
-        expect(getCurrentCacheTenant()).toBe('tenant-1')
+        writeTenants.push(getCurrentCacheTenant())
       })
 
       const payload = await (await readStats()).json()
@@ -150,6 +152,8 @@ describe('GET /api/customers/deals/[id]/stats', () => {
       expect(await (await readStats()).json()).toEqual(payload)
       expect(mockCache.get).toHaveBeenLastCalledWith(key)
       expect(mockCache.set).toHaveBeenCalledTimes(1)
+      expect(readTenants).toEqual(['tenant-1', 'tenant-1'])
+      expect(writeTenants).toEqual(['tenant-1'])
       expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(2)
       expect(mockEm.count).toHaveBeenCalledTimes(2)
     })
