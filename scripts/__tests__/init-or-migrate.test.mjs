@@ -19,12 +19,13 @@ function runScript({
   syncFails = false,
   migrateFails = false,
   migrateExitCode = 1,
+  script = scriptPath,
 } = {}) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'init-or-migrate-'))
   const markerFile = path.join(tempDir, 'marker', '.seeded')
   const stepsFile = path.join(tempDir, 'steps.txt')
   const copiedScript = path.join(tempDir, 'init-or-migrate.sh')
-  fs.copyFileSync(scriptPath, copiedScript)
+  fs.copyFileSync(script, copiedScript)
   fs.writeFileSync(path.join(tempDir, 'encryption-preflight.mjs'), `
     import { spawnSync } from 'node:child_process'
     if (process.env.TEST_ENCRYPTION_REJECTED === '1' || (process.env.TEST_ENCRYPTION_REJECTED_AT_SYNC === '1' && process.argv[3].includes('sync'))) { console.error('Encryption compatibility rejected'); process.exit(78) }
@@ -58,6 +59,7 @@ function runScript({
       SYNC_ROLE_ACLS_COMMAND: syncFails ? `${record('sync')}; exit 1` : record('sync'),
     },
     encoding: 'utf8',
+    timeout: 30_000,
   })
 
   const steps = fs.existsSync(stepsFile)
@@ -119,6 +121,14 @@ test('the create-app template ships the same boot script', () => {
   assert.equal(fs.readFileSync(templateScriptPath, 'utf8'), fs.readFileSync(scriptPath, 'utf8'))
 })
 
+test('the create-app first-run flow preserves initialization success and failure', () => {
+  for (const initFails of [false, true]) {
+    const { markerExists, result, steps } = runScript({ script: templateScriptPath, initFails })
+    assert.equal(result.status, initFails ? 1 : 0, result.stderr)
+    assert.equal(markerExists, !initFails)
+    assert.deepEqual(steps, ['init'])
+  }
+})
 
 test('container setup rejects incompatible encryption before initialize, migrate, ACL sync or marker writes', () => {
   for (const seeded of [false, true]) {
@@ -129,7 +139,6 @@ test('container setup rejects incompatible encryption before initialize, migrate
     assert.match(result.stdout, /Encryption compatibility rejected/)
   }
 })
-
 
 test('an encryption refusal before role ACL synchronization aborts startup instead of becoming a nonfatal sync warning', () => {
   const { result, steps } = runScript({ seeded: true, encryptionRejectedAtSync: true })

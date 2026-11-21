@@ -1084,6 +1084,31 @@ Workflow definitions, instances, instance events and global events now reject in
 
 **Client action:** split requests larger than 100 into pages, send whole nonnegative offsets, and narrow filters before reaching 100,000. Handle 400 responses for out-of-range offsets on every listed route, including Work Inbox claim-next. The seven fallback/clamping routes return the stable `WORKFLOW_LIST_OFFSET_EXCEEDED` error string; the four strict list endpoints return validation errors and also reject malformed pagination. **Operator action:** deploy the updated application; no database migration or new configuration is required. Definitions now fetch a small DB window around the requested page instead of materializing its entire prefix. Definitions also use consistent UTF-8 byte ordering (`COLLATE "C"` in PostgreSQL): uppercase names precede lowercase names and accented names follow ASCII. This replaces the mixed database/Node locale ordering, so case/accent positions can change; use server-provided ordering across pages.
 
+### Bootstrap credentials no longer appear in initialization output (#7822)
+
+`mercato init` now lists created accounts without printing their passwords. Module
+command banners mask secret-bearing options in both `--option value` and
+`--option=value` forms. CLI-owned failure diagnostics also mask known credential
+inputs and URI passwords. Commands, flags, execution arguments and exit codes stay
+the same; automation that reads passwords from stdout must change.
+
+**Client/module authors:** remove password-line parsing and pass credentials through
+the existing inputs. Custom module commands must continue sanitizing their own
+output; the dispatcher cannot protect arbitrary output emitted by a module.
+
+**Operators:** provide known bootstrap passwords from your secret manager through
+`OM_INIT_SUPERADMIN_PASSWORD`, `OM_INIT_ADMIN_PASSWORD` and
+`OM_INIT_EMPLOYEE_PASSWORD`, or use the configured password-reset flow for accounts
+whose passwords were generated. No replacement plaintext credential file is written.
+Rotate bootstrap credentials exposed by earlier initialization runs and review
+access to retained terminal, CI and deployment logs. Existing log copies are not
+removed by this upgrade.
+
+This narrow security-output removal has no compatibility toggle: a bridge would
+retain the disclosure. See the [spec](.ai/specs/2026-10-27-bootstrap-credential-output-redaction.md)
+and the dated entry in `BACKWARD_COMPATIBILITY.md`. Human maintainer
+[@haxiorz acknowledged this waiver and migration on 2026-10-29](https://github.com/open-mercato/open-mercato/pull/8089#issuecomment-6505347774).
+
 ### Inbound webhook receipt deduplication includes verified scope (#7830)
 
 Inbound receipts now identify duplicates by endpoint, message ID, tenant, and organization.

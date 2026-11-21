@@ -1,6 +1,6 @@
 # Module and Data Contracts
 
-Use this guide for entities, APIs, commands, scoping, compatibility, migrations, events, workers, search, and cache. Use `customers` as the CRUD reference after resolving its installed source.
+Entities, APIs, commands, scope, compatibility, migrations, events, workers, search and cache; CRUD reference: resolved installed `customers` source.
 
 ## Entity and Scope Contract
 
@@ -9,7 +9,7 @@ Use this guide for entities, APIs, commands, scoping, compatibility, migrations,
 - Give new user-editable rows `updated_at` with create/update behavior. Return it as `updatedAt` from list/detail APIs.
 - Use UUID primary keys, explicit scalar FK IDs, and module-prefixed plural table names. Do not create cross-module ORM relations.
 - Store sensitive/PII fields through `encryption.ts` `defaultEncryptionMaps`; use the framework decryption find helpers with both scope IDs. Add a deterministic hash sibling only when equality lookup requires it.
-- Model nullable/optional/clearable fields consistently through validator, command, entity, response, and form. Test create, edit, reload, and clearing to `null`.
+- Keep nullable/optional/clearable fields consistent across validators, commands, entities, responses and forms. Test create/edit/reload/clear-to-`null`.
 
 ## Migration Workflow
 
@@ -33,7 +33,7 @@ Create handlers under `api/<resource>/route.ts` and build them with the installe
 - `indexer: { entityType }`: query-index coverage;
 - `enrichers: { entityId }`: only when this route intentionally exposes the enricher host.
 
-Export the factory's handlers and a matching `openApi` document as a separate route export. `openApi` is not a `makeCrudRoute` option. Build it with `createCrudOpenApiFactory` and `createPagedListResponseSchema` from `@open-mercato/shared/lib/openapi/crud`, or provide a typed `OpenApiRouteDoc` from `@open-mercato/shared/lib/openapi`. Do not use the stale flat `create`/`update`/`del` factory shape, a top-level `requireAuth`, or an API file organized by HTTP-method directory.
+Export handlers and matching `openApi` separately; it is never a `makeCrudRoute` option. Use `createCrudOpenApiFactory` and `createPagedListResponseSchema` from `@open-mercato/shared/lib/openapi/crud`, or typed `OpenApiRouteDoc` from `@open-mercato/shared/lib/openapi`. Reject flat `create`/`update`/`del`, top-level `requireAuth` and HTTP-method directories.
 
 Reject malformed ID lists and filters explicitly. Preserve existing response keys; normalize custom fields deliberately and test compatibility when changing prefixed keys.
 
