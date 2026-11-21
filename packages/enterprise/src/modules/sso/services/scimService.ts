@@ -1,6 +1,6 @@
 import { EntityManager, type FilterQuery, type RequiredEntityData } from '@mikro-orm/postgresql'
 import { User, Session } from '@open-mercato/core/modules/auth/data/entities'
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { lockAuthorizationUserRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SsoIdentity, SsoUserDeactivation, ScimProvisioningLog } from '../data/entities'
@@ -53,11 +53,10 @@ export class ScimService {
     }
 
     // Check if user already exists by email
-    const emailHash = computeEmailHash(email)
     const where: FilterQuery<User> = {
       organizationId: scope.organizationId,
       deletedAt: null,
-      $or: [{ email }, { emailHash }],
+      $or: [{ email }, { emailHash: { $in: emailHashLookupValues(email) } }],
     }
     const existingUser = await findOneWithDecryption(
       this.em, User,
