@@ -7,6 +7,16 @@ import {
 
 export type WorkerJobContainer = {
   resolve: <T = unknown>(name: string) => T
+  /**
+   * #8268 review Major 1 (re-review): optional — the factory's real container,
+   * when it has one, so a worker that needs `.register()` (several command
+   * phases override the trusted `auth` scope for nested resolution, e.g. before
+   * resolving `promotionsService`) can use the SAME container a module's
+   * `register(container)` call closed over, rather than a `{ resolve }`-only
+   * shim whose overrides are invisible to an already-constructed dependent
+   * service holding its own reference to the original container.
+   */
+  register?: (registrations: Record<string, unknown>) => void
 }
 
 export type WorkerJobContainerFactory = () => Promise<WorkerJobContainer>
@@ -41,7 +51,13 @@ export function createPerJobWorkerHandler(
             operation: worker.id,
             resourceId: worker.id,
           },
-          () => worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) }),
+          () => worker.handler(job, {
+            ...ctx,
+            resolve: container.resolve.bind(container),
+            // See `WorkerJobContainer.register`'s own doc — present only when the
+            // factory handed back a real container, never a `{ resolve }`-only one.
+            container: typeof container.register === 'function' ? container : undefined,
+          }),
         )
       }
     } finally {

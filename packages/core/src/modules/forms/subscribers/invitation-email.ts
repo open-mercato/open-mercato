@@ -12,6 +12,8 @@
  *   - The PRIMARY personal-link email is enqueued inline by the
  *     `forms.invitation.create` command via `enqueueInvitationEmail(...)` while
  *     the raw token is still in hand (link = `<APP_URL>/i/<rawToken>`).
+ *     That emit is marked `source: 'create'` and skipped here, so the
+ *     recipient gets exactly one e-mail at create time.
  *   - This subscriber handles the RESEND path: it sends a generic
  *     "you have a form to complete" reminder WITHOUT a token link (since the
  *     raw token is unrecoverable). Operators re-issue a personal link by
@@ -47,6 +49,7 @@ type SubscriberContext = {
 type InvitationSentPayload = {
   invitationId: string
   distributionId: string
+  source?: 'create' | 'send'
 }
 
 type InvitationEmailCopy = {
@@ -154,6 +157,9 @@ export default async function handleInvitationSent(
   payload: InvitationSentPayload,
   ctx: SubscriberContext,
 ): Promise<void> {
+  // The create command already delivered the personal-link e-mail inline.
+  if (payload.source === 'create') return
+
   let em: EntityManager
   try {
     em = (ctx.container.resolve('em') as EntityManager).fork()

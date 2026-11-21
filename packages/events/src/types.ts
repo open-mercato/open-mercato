@@ -3,6 +3,7 @@
  *
  * Provides type-safe abstractions for the event bus system.
  */
+import type { ScopedResolveContainer } from '@open-mercato/shared/lib/di/scopedContainer'
 
 // ============================================================================
 // Core Types
@@ -29,6 +30,19 @@ export type SubscriberContext = {
   tenantId?: string | null
   /** Trusted organization scope attached by the event emitter */
   organizationId?: string | null
+  /**
+   * The REAL container backing `resolve`, when the caller that built/dispatched on
+   * this bus has one — never a `{ resolve }`-only shim. #8268 review Major 1
+   * (re-review): a handler that calls into command-bus code expecting
+   * `.register(...)` support (several command phases override the trusted `auth`
+   * scope for nested resolution, e.g. before resolving `promotionsService`) needs
+   * the SAME container object a module's `register(container)` call closed over —
+   * a local resolver overlay's `.register()` only shadows resolution for its OWN
+   * direct callers, never for an already-constructed dependent service holding its
+   * own reference to the original container. Optional and additive: a subscriber
+   * that does not need `.register()` ignores this field entirely.
+   */
+  container?: ScopedResolveContainer
 }
 
 /** Event handler function signature */
@@ -120,6 +134,12 @@ export type EmitOptions = {
 export type CreateBusOptions = {
   /** DI container resolve function */
   resolve: <T = unknown>(name: string) => T
+  /**
+   * The REAL container `resolve` was bound from, when the caller has one. Handed
+   * to inline subscribers via `SubscriberContext.container` (see its own doc for
+   * why a bound resolve function alone cannot support `.register()` overrides).
+   */
+  container?: ScopedResolveContainer
   /** Queue strategy for persistent events: 'local' (file-based) or 'async' (BullMQ) */
   queueStrategy?: 'local' | 'async'
 }
@@ -202,6 +222,12 @@ export interface EventBus {
    *   request containers while its captured resolver stays bound to the first —
    *   but the worker already holds the correct handle, so there is no reason to
    *   depend on the two coinciding.
+   * @param container - The REAL container `resolve` is bound from, when the
+   *   caller has one (see `SubscriberContext.container`). The events worker
+   *   passes its per-job container alongside `ctx.resolve`. A container without
+   *   `resolve` also supplies the resolver; a foreign `resolve` without a
+   *   container leaves `SubscriberContext.container` unset rather than pairing
+   *   it with the bus's container.
    * @returns One entry per dispatched subscriber, `error` set on failure
    */
   dispatchQueued?(
@@ -209,6 +235,7 @@ export interface EventBus {
     payload: EventPayload,
     options?: EmitOptions,
     resolve?: <T = unknown>(name: string) => T,
+    container?: ScopedResolveContainer,
   ): Promise<QueuedDispatchResult[]>
 
   /**

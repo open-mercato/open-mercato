@@ -1,5 +1,6 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
+import type { ScopedResolveContainer } from '@open-mercato/shared/lib/di/scopedContainer'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isSingleDeliveryRequested } from './single-delivery'
@@ -441,6 +442,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
             },
             () => subscriber.handler(payload, {
               resolve: opts.resolve,
+              container: opts.container,
               eventName: event,
               tenantId: options?.tenantId ?? null,
               organizationId: options?.organizationId ?? null,
@@ -515,13 +517,19 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     payload: EventPayload,
     options?: EmitOptions,
     resolve?: <T = unknown>(name: string) => T,
+    container?: ScopedResolveContainer,
   ): Promise<QueuedDispatchResult[]> {
     const subscribers = selectQueuedSubscribers(event)
     if (subscribers.length === 0) {
       return []
     }
 
-    const resolver = resolve ?? opts.resolve
+    // `resolve` and `container` MUST describe the same scope. A caller's
+    // container without a resolver resolves through that container; a caller's
+    // resolver without a container gets no container rather than the bus's,
+    // which under `OM_BOOTSTRAP_CACHE` belongs to a different request scope.
+    const resolver = resolve ?? (container ? container.resolve.bind(container) : opts.resolve)
+    const containerOverride = container ?? (resolve && resolve !== opts.resolve ? undefined : opts.container)
 
     const settled = await Promise.allSettled(
       subscribers.map((subscriber) =>
@@ -534,6 +542,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
           },
           () => subscriber.handler(payload, {
             resolve: resolver,
+            container: containerOverride,
             eventName: event,
             tenantId: options?.tenantId ?? null,
             organizationId: options?.organizationId ?? null,
