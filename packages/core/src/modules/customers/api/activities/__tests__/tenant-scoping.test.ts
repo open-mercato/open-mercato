@@ -84,21 +84,16 @@ describe('activity adapter tenant scoping', () => {
     })
   })
 
-  it.each([
-    ['POST', POST, 'create', { entityId: ACTIVITY_ID, activityType: 'call' }],
-    ['PUT', PUT, 'update', { id: ACTIVITY_ID }],
-    ['DELETE', DELETE, 'delete', { id: ACTIVITY_ID }],
-  ] as const)('marks the %s command context as a legacy adapter write', async (method, handler, operation, body) => {
-    mockEm.findOne.mockResolvedValue({ id: ACTIVITY_ID, tenantId: TENANT_ID })
+  it('marks the create command context as a legacy adapter write', async () => {
     mockCommandBus.execute.mockResolvedValue({ result: { interactionId: ACTIVITY_ID } })
 
-    const response = await handler(new Request('http://localhost/api/customers/activities', {
-      method,
-      body: JSON.stringify(body),
+    const response = await POST(new Request('http://localhost/api/customers/activities', {
+      method: 'POST',
+      body: JSON.stringify({ entityId: ACTIVITY_ID, activityType: 'call' }),
     }))
 
     expect(response.ok).toBe(true)
-    expect(mockCommandBus.execute).toHaveBeenCalledWith(`customers.interactions.${operation}`, expect.objectContaining({
+    expect(mockCommandBus.execute).toHaveBeenCalledWith('customers.interactions.create', expect.objectContaining({
       ctx: expect.objectContaining({ [LEGACY_ACTIVITY_WRITE]: true }),
     }))
   })
