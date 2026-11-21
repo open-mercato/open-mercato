@@ -1,7 +1,8 @@
 /** @jest-environment node */
 
 import { CustomerActivity, CustomerInteraction } from '../../../data/entities'
-import { PUT, DELETE } from '../route'
+import { POST, PUT, DELETE } from '../route'
+import { LEGACY_ACTIVITY_WRITE } from '../../../lib/interactionCompatibility'
 
 const ORG_ID = '123e4567-e89b-41d3-a456-426614174000'
 const TENANT_ID = '123e4567-e89b-41d3-a456-426614174010'
@@ -65,8 +66,8 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 jest.mock('../../../lib/interactionCompatibility', () => ({
+  ...jest.requireActual('../../../lib/interactionCompatibility'),
   mapInteractionRecordToActivitySummary: jest.fn(),
-  CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE: 'adapter:activity',
 }))
 
 describe('activity adapter tenant scoping', () => {
@@ -81,6 +82,25 @@ describe('activity adapter tenant scoping', () => {
       legacyAdapters: true,
       externalSync: false,
     })
+  })
+
+  it.each([
+    ['POST', POST, 'create', { entityId: ACTIVITY_ID, activityType: 'call' }],
+    ['PUT', PUT, 'update', { id: ACTIVITY_ID }],
+    ['DELETE', DELETE, 'delete', { id: ACTIVITY_ID }],
+  ] as const)('marks the %s command context as a legacy adapter write', async (method, handler, operation, body) => {
+    mockEm.findOne.mockResolvedValue({ id: ACTIVITY_ID, tenantId: TENANT_ID })
+    mockCommandBus.execute.mockResolvedValue({ result: { interactionId: ACTIVITY_ID } })
+
+    const response = await handler(new Request('http://localhost/api/customers/activities', {
+      method,
+      body: JSON.stringify(body),
+    }))
+
+    expect(response.ok).toBe(true)
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(`customers.interactions.${operation}`, expect.objectContaining({
+      ctx: expect.objectContaining({ [LEGACY_ACTIVITY_WRITE]: true }),
+    }))
   })
 
   it('scopes resolveCanonicalActivityTargetId lookups by tenantId on PUT', async () => {

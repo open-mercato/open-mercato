@@ -50,6 +50,7 @@ import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib
 import { CustomerEntity, CustomerInteraction } from '../../data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../../lib/conversationShares'
+import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE, LEGACY_ACTIVITY_WRITE } from '../../lib/interactionCompatibility'
 import '../interactions'
 import '../activities'
 
@@ -129,6 +130,7 @@ function createHarness(interaction = createInteraction(), authOverrides: Record<
     fork: (): TestEntityManager => em,
   }
   const emitEvent = jest.fn(async () => undefined)
+  const userHasAllFeatures = jest.fn(async () => false)
   const dataEngine = { setCustomFields: jest.fn(async () => undefined) }
   const ctx = {
     auth: authOverrides === null ? null : {
@@ -146,11 +148,12 @@ function createHarness(interaction = createInteraction(), authOverrides: Record<
         if (token === 'dataEngine') return dataEngine
         if (token === 'eventBus') return { emitEvent }
         if (token === 'organizationHierarchyService') return { resolveAncestorIds: async () => [] }
+        if (token === 'rbacService') return { userHasAllFeatures }
         throw new Error(`[internal] Unexpected dependency: ${token}`)
       },
     },
   } as unknown as CommandRuntimeContext
-  return { interaction, em, ctx, emitEvent }
+  return { interaction, em, ctx, emitEvent, userHasAllFeatures }
 }
 
 function handler(operation: string): CommandHandler {
@@ -179,6 +182,64 @@ beforeEach(() => {
   jest.clearAllMocks()
   jest.mocked(listGrantsForViewerOnPerson).mockResolvedValue([])
   jest.mocked(listSharedChannelIds).mockResolvedValue([])
+})
+
+describe('legacy activity command authorization', () => {
+  it.each(['update', 'delete'])('requires canonical permission to %s a canonical record', async (operation) => {
+    const { ctx, em, userHasAllFeatures } = createHarness(createInteraction({ interactionType: 'note' }))
+    const adapterContext = { ...ctx, [LEGACY_ACTIVITY_WRITE]: true }
+
+    await expect(handler(`interactions.${operation}`).execute({ id: INTERACTION_ID }, adapterContext))
+      .rejects.toMatchObject({ status: 403 })
+    expect(userHasAllFeatures).toHaveBeenCalledWith(VIEWER_ID, ['customers.interactions.manage'], {
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+    })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it.each(['update', 'delete'])('allows legacy callers to %s a bridged activity', async (operation) => {
+    const { ctx, em, userHasAllFeatures } = createHarness(createInteraction({
+      interactionType: 'note',
+      source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+    }))
+    const adapterContext = { ...ctx, [LEGACY_ACTIVITY_WRITE]: true }
+
+    await expect(handler(`interactions.${operation}`).execute({ id: INTERACTION_ID }, adapterContext))
+      .resolves.toEqual({ interactionId: INTERACTION_ID })
+    expect(userHasAllFeatures).not.toHaveBeenCalled()
+    expect(em.flush).toHaveBeenCalled()
+  })
+
+  it('preserves edits to historical tasks created as legacy activities', async () => {
+    const { ctx, userHasAllFeatures } = createHarness(createInteraction({
+      interactionType: 'task',
+      source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+    }))
+    const adapterContext = { ...ctx, [LEGACY_ACTIVITY_WRITE]: true }
+
+    await expect(handler('interactions.update').execute({ id: INTERACTION_ID, title: 'Updated task' }, adapterContext))
+      .resolves.toEqual({ interactionId: INTERACTION_ID })
+    expect(userHasAllFeatures).not.toHaveBeenCalled()
+  })
+
+  it('honors canonical permission in the stored organization for a visible interaction', async () => {
+    const { ctx, userHasAllFeatures } = createHarness(createInteraction({ interactionType: 'note' }))
+    userHasAllFeatures.mockResolvedValue(true)
+    const adapterContext = { ...ctx, [LEGACY_ACTIVITY_WRITE]: true }
+
+    await expect(handler('interactions.update').execute({ id: INTERACTION_ID }, adapterContext))
+      .resolves.toEqual({ interactionId: INTERACTION_ID })
+  })
+
+  it('keeps a private email hidden from the legacy route', async () => {
+    const { ctx, userHasAllFeatures } = createHarness()
+    const adapterContext = { ...ctx, [LEGACY_ACTIVITY_WRITE]: true }
+
+    await expect(handler('interactions.update').execute({ id: INTERACTION_ID }, adapterContext))
+      .rejects.toMatchObject({ status: 404 })
+    expect(userHasAllFeatures).not.toHaveBeenCalled()
+  })
 })
 
 describe('private email command authorization', () => {

@@ -12,8 +12,9 @@ import {
 import { DefaultDataEngine, type DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CustomerActivity, CustomerInteraction, CustomerEntity } from '../data/entities'
+import { CustomerActivity, CustomerDictionaryEntry, CustomerInteraction, CustomerEntity } from '../data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import {
   interactionCreateSchema,
   interactionUpdateSchema,
@@ -39,7 +40,7 @@ import {
   loadCustomFieldSnapshot,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { badRequest, CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { enforceRecordGoneIsConflict, enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
@@ -59,7 +60,8 @@ import { clearInapplicableCoreFields, findInapplicableCoreFields, omitHiddenCore
 import { calendarEventTypes, type CalendarEventTypeBehavior } from '../calendar-event-types'
 import { canonicalCalendarTimezone } from '../lib/calendar/timezone'
 import { findInteractionUserInScope, requireInteractionUsersInScope } from '../lib/interactionUsers'
-import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE } from '../lib/interactionCompatibility'
+import { ACTIVITY_TYPE_DEFAULTS } from '../lib/dictionaryDefaults'
+import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE, isTaskInteractionType, LEGACY_ACTIVITY_WRITE } from '../lib/interactionCompatibility'
 
 const logger = createLogger('customers')
 
@@ -162,14 +164,51 @@ async function ensureInteractionMutationAccess(
     personEntityId,
     channelId: interaction.channelId,
   }
-  if (!isEmailHiddenFrom(visibility)) return
   const scope = { tenantId: interaction.tenantId, organizationId: interaction.organizationId }
-  const sharedConversations = await listGrantsForViewerOnPerson(em, scope, currentUserId, personEntityId)
-  const sharedChannelIds = await listSharedChannelIds(em, scope, currentUserId)
-  if (isEmailHiddenFrom({ ...visibility, sharedConversations, sharedChannelIds })) {
-    const { translate } = await resolveTranslations()
-    throw notFound(translate('customers.errors.entity_not_found', 'Entity not found'))
+  if (isEmailHiddenFrom(visibility)) {
+    const sharedConversations = await listGrantsForViewerOnPerson(em, scope, currentUserId, personEntityId)
+    const sharedChannelIds = await listSharedChannelIds(em, scope, currentUserId)
+    if (isEmailHiddenFrom({ ...visibility, sharedConversations, sharedChannelIds })) {
+      const { translate } = await resolveTranslations()
+      throw notFound(translate('customers.errors.entity_not_found', 'Entity not found'))
+    }
   }
+
+  if (LEGACY_ACTIVITY_WRITE in ctx && interaction.source !== CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE) {
+    const rbac = ctx.container.resolve<RbacService>('rbacService')
+    if (!ctx.auth?.sub || !await rbac.userHasAllFeatures(ctx.auth.sub, ['customers.interactions.manage'], scope)) {
+      const { translate } = await resolveTranslations()
+      throw forbidden(translate('api.errors.forbidden', 'Forbidden'))
+    }
+  }
+}
+
+async function ensureLegacyActivityType(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  organizationIds: string[],
+  interactionType: string,
+): Promise<void> {
+  if (!(LEGACY_ACTIVITY_WRITE in ctx)) return
+  const normalizedValue = interactionType.trim().toLowerCase()
+  if (!isTaskInteractionType(normalizedValue)) {
+    if (ACTIVITY_TYPE_DEFAULTS.some(({ value }) => value === normalizedValue)) return
+    const configured = await findOneWithDecryption(
+      em,
+      CustomerDictionaryEntry,
+      {
+        tenantId: scope.tenantId,
+        organizationId: { $in: organizationIds },
+        kind: 'activity_type',
+        normalizedValue,
+      },
+      undefined,
+      scope,
+    )
+    if (configured) return
+  }
+  throw await activityTypeUnavailable()
 }
 
 async function ensureInteractionPrivacyChangeAccess(
@@ -328,8 +367,12 @@ async function resolveInteractionTypeBehavior(
     return { behavior: selected.behavior, organizationIds }
   }
   if (unchangedType) return { behavior: calendarEventTypes[0]!.behavior, organizationIds }
+  throw await activityTypeUnavailable()
+}
+
+async function activityTypeUnavailable(): Promise<CrudHttpError> {
   const { translate } = await resolveTranslations()
-  throw new CrudHttpError(400, {
+  return new CrudHttpError(400, {
     error: translate('customers.calendar.activityTypes.errors.unavailable', 'Activity type is unavailable'),
     code: 'activity_type_unavailable',
   })
@@ -602,6 +645,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       const { behavior, organizationIds } = await resolveInteractionTypeBehavior(
         ctx, trx, entity.tenantId, entity.organizationId, parsed.interactionType, false, enforceSelectableType,
       )
+      await ensureLegacyActivityType(ctx, trx, entity, organizationIds, parsed.interactionType)
       const inapplicableCore = findInapplicableCoreFields(behavior, parsed)
       const customKeys = Object.keys(custom).length
         ? await loadApplicableCustomFieldKeys(trx, entity.tenantId, organizationIds, behavior)
@@ -902,6 +946,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       const { behavior, organizationIds } = await resolveInteractionTypeBehavior(
         ctx, trx, interaction.tenantId, interaction.organizationId, nextType, !changingType, enforceSelectableType,
       )
+      if (changingType) await ensureLegacyActivityType(ctx, trx, interaction, organizationIds, nextType)
       const currentCoreValues = {
         durationMinutes: interaction.durationMinutes,
         timezone: interaction.timezone ?? null,

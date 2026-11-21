@@ -6,6 +6,7 @@ export const CUSTOMER_INTERACTION_TASK_TYPE = 'task'
 export const CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE = 'adapter:activity'
 export const CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE = 'adapter:todo'
 export const EXAMPLE_TODO_SOURCE = 'example:todo'
+export const LEGACY_ACTIVITY_WRITE = Symbol.for('@open-mercato/core/customers/legacy-activity-write')
 
 export type InteractionRecord = InteractionSummary & {
   authorName?: string | null
