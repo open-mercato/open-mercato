@@ -6,6 +6,7 @@ import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryp
 import { decryptCustomFieldValue, resolveTenantEncryptionService } from '../encryption/customFieldValues'
 import { parseBooleanToken } from '../boolean'
 import { extractCustomFieldEntries } from './custom-fields-client'
+import { IGNORED_FIELDS } from './write-payload'
 import { createLogger } from '../logger'
 import {
   buildCustomFieldDefinitionIndexFromRows,
@@ -191,6 +192,8 @@ export function splitCustomFieldPayload(raw: unknown): SplitCustomFieldPayload {
   const base: Record<string, unknown> = {}
   const custom: Record<string, unknown> = {}
   if (!raw || typeof raw !== 'object') return { base, custom }
+  const report = (raw as Record<symbol, unknown>)[IGNORED_FIELDS]
+  if (report !== undefined) Object.assign(base, { [IGNORED_FIELDS]: report })
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (key === 'customFields') {
       if (Array.isArray(value)) {

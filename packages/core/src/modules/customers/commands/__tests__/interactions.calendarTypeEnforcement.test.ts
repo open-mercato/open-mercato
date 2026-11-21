@@ -120,6 +120,31 @@ beforeEach(() => {
 })
 
 describe('interaction calendar-type command enforcement', () => {
+  it.each([
+    { phoneNumber: '+48221234567' },
+    { customValues: { callPhoneNumber: '+48221234567' } },
+  ])('rejects phone values outside the selected type fieldsets on create: %j', async (phoneInput) => {
+    loadCustomFieldDefinitionIndexMock.mockImplementation(async (options: { fieldset?: string[] }) =>
+      options.fieldset ? new Map() : new Map([['callPhoneNumber', []]]))
+    const { em, context } = makeContext()
+    await expect(registeredCommands.get('customers.interactions.create')!.execute({
+      tenantId: TENANT,
+      organizationId: ORG,
+      entityId: ENTITY,
+      interactionType: 'note',
+      enforceSelectableType: true,
+      ...phoneInput,
+    }, context)).rejects.toMatchObject({
+      status: 400,
+      body: { code: 'activity_type_field_not_applicable', fields: ['cf_callPhoneNumber'] },
+    })
+    expect(loadCustomFieldDefinitionIndexMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT, organizationIds: [ORG], fieldset: ['note-only'],
+    }))
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(setCustomFieldsIfAnyMock).not.toHaveBeenCalled()
+  })
+
   it('reuses a caller transaction without opening or committing a second transaction', async () => {
     const { em, context } = makeContext()
     const transactionalEm = Object.assign(em, {

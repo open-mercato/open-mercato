@@ -1,7 +1,56 @@
 import { z } from 'zod'
-import { parseScopedCommandInput } from '../scoped'
+import { parseScopedCommandInput, type ScopedContext } from '../scoped'
+import { IGNORED_FIELDS } from '../../crud/write-payload'
+import { withDecimalCaps, withExactAmounts } from '../../decimal'
 
 const translate = (_key: string, fallback?: string) => fallback ?? _key
+
+describe('schema-approved exact amount aliases', () => {
+  const ctx = { auth: { tenantId: 'tenant-1', orgId: 'org-1' } } as ScopedContext
+  const schema = z.object({ baseRate: withDecimalCaps(z.coerce.number()).default(10) })
+  const precise = '1234567890123456.1234'
+
+  it.each([{ base_rate: precise }, { baseRate: precise }, { baseRate: precise, base_rate: precise }])(
+    'recovers the approved raw value without changing the parsed payload shape', (raw) => {
+      const before = { ...raw }
+      const parsed = parseScopedCommandInput(schema, raw, ctx, translate)
+      expect(parsed).toEqual({ baseRate: Number(precise) })
+      expect(Object.getOwnPropertySymbols(parsed)).toEqual([])
+      expect(JSON.stringify(parsed)).toBe(JSON.stringify({ baseRate: Number(precise) }))
+      expect(withExactAmounts(parsed, raw, ['baseRate']).baseRateExact).toBe(precise)
+      expect(raw).toEqual(before)
+    },
+  )
+
+  it('rejects conflicting duplicates before exact recovery', () => {
+    expect(() => parseScopedCommandInput(schema, { baseRate: precise, base_rate: '12' }, ctx, translate))
+      .toThrow(expect.objectContaining({ status: 400 }))
+  })
+
+  it('does not recover aliases disabled by the caller or unsupported by the schema', () => {
+    const raw = { base_rate: '10.000000000000000001' }
+    const disabled = parseScopedCommandInput(schema, raw, ctx, translate, { aliasSnakeCaseKeys: false })
+    expect(withExactAmounts(disabled, raw, ['baseRate']).baseRateExact).toBe('10')
+    const union = z.union([schema, z.object({ name: z.string() })])
+    const unsupported = parseScopedCommandInput(union, raw, ctx, translate)
+    expect(withExactAmounts(unsupported, raw, ['baseRate']).baseRateExact).toBe('10')
+  })
+
+  it('preserves supplied exact siblings and still checks them against the parsed number', () => {
+    const raw = { base_rate: Number(precise), baseRateExact: precise }
+    const parsed = parseScopedCommandInput(schema, raw, ctx, translate)
+    expect(withExactAmounts(parsed, raw, ['baseRate']).baseRateExact).toBe(precise)
+    expect(withExactAmounts({ ...parsed, baseRate: 12 }, raw, ['baseRate']).baseRateExact).toBe('12')
+  })
+
+  it('retains the normalized source through successive exact field mappings', () => {
+    const pair = schema.extend({ grossRate: withDecimalCaps(z.coerce.number()) })
+    const raw = { base_rate: precise, gross_rate: precise }
+    const parsed = parseScopedCommandInput(pair, raw, ctx, translate)
+    const first = withExactAmounts(parsed, raw, ['baseRate'])
+    expect(withExactAmounts(first, raw, ['grossRate']).grossRateExact).toBe(precise)
+  })
+})
 
 describe('parseScopedCommandInput', () => {
   it('preserves custom fields when parsing scoped payloads', () => {
@@ -147,5 +196,112 @@ describe('withScopedPayload', () => {
     }
     const result = withScopedPayload({ tenantId: 'tenant-1' }, ctx as any, translate)
     expect(result.tenantId).toBe('tenant-1')
+  })
+})
+
+// Regression cover for the "accepted, then silently discarded" defect: a PUT that
+// answers 200 while dropping part of the body. Each case asserts the field is
+// either APPLIED or REPORTED — never swallowed in silence.
+describe('parseScopedCommandInput write guard', () => {
+  const ctx = {
+    auth: { tenantId: 'tenant-1', orgId: 'org-1' },
+    selectedOrganizationId: 'org-1',
+  } as ScopedContext
+
+  // Mirrors dealUpdateSchema: z.object({id}).merge(dealCreateSchema.partial())
+  const dealUpdateLike = z
+    .object({ id: z.string() })
+    .merge(
+      z
+        .object({
+          tenantId: z.string(),
+          organizationId: z.string().optional(),
+          status: z.string().optional(),
+          closureOutcome: z.enum(['won', 'lost']).optional(),
+          lossNotes: z.string().optional(),
+        })
+        .partial()
+    )
+
+  it('applies snake_case keys the read endpoints emit instead of dropping them', () => {
+    const result = parseScopedCommandInput(
+      dealUpdateLike,
+      { id: 'deal-1', status: 'closed', closure_outcome: 'lost', loss_notes: 'undercut on price' },
+      ctx,
+      translate
+    ) as Record<string, unknown>
+
+    expect(result.status).toBe('closed')
+    expect(result.closureOutcome).toBe('lost')
+    expect(result.lossNotes).toBe('undercut on price')
+    expect((result as Record<symbol, unknown>)[IGNORED_FIELDS]).toBeUndefined()
+  })
+
+  it('reports a key it cannot write rather than answering a bare ok', () => {
+    const result = parseScopedCommandInput(
+      dealUpdateLike,
+      { id: 'deal-1', status: 'closed', totally_made_up: 'x' },
+      ctx,
+      translate
+    ) as Record<string, unknown>
+
+    expect(result.status).toBe('closed')
+    // Carried on a Symbol so it never lands in a command input or an audit snapshot.
+    expect(result.ignoredFields).toBeUndefined()
+    expect((result as Record<symbol, unknown>)[IGNORED_FIELDS]).toEqual([{ key: 'totally_made_up', reason: 'unknown' }])
+  })
+
+  it('rejects an unknown key outright when the caller opts into strictness', () => {
+    expect(() =>
+      parseScopedCommandInput(
+        dealUpdateLike,
+        { id: 'deal-1', totally_made_up: 'x' },
+        ctx,
+        translate,
+        { rejectUnknownFields: true }
+      )
+    ).toThrow(/not writable/i)
+  })
+
+  it('rejects a real field that cannot change after creation', () => {
+    expect(() =>
+      parseScopedCommandInput(
+        dealUpdateLike,
+        { id: 'deal-1', entityId: 'entity-2' },
+        ctx,
+        translate,
+        { immutableFields: ['entityId'] }
+      )
+    ).toThrow(/cannot be changed/i)
+  })
+
+  it('refuses to guess when both spellings arrive with different values', () => {
+    expect(() =>
+      parseScopedCommandInput(
+        dealUpdateLike,
+        { id: 'deal-1', closureOutcome: 'won', closure_outcome: 'lost' },
+        ctx,
+        translate
+      )
+    ).toThrow(/sent twice/i)
+  })
+
+  it('leaves custom-field keys alone', () => {
+    const result = parseScopedCommandInput(
+      dealUpdateLike,
+      { id: 'deal-1', customFields: { foo: 'bar' }, cf_extra: '123' },
+      ctx,
+      translate
+    ) as Record<string, unknown>
+
+    expect(result.customFields).toEqual({ foo: 'bar', extra: '123' })
+    expect((result as Record<symbol, unknown>)[IGNORED_FIELDS]).toBeUndefined()
+  })
+
+  it('keeps trusted scope when snake-case scope accompanies writable aliases', () => {
+    const result = parseScopedCommandInput(dealUpdateLike, {
+      id: 'deal-1', closure_outcome: 'lost', tenant_id: 'foreign-tenant', organization_id: 'foreign-org',
+    }, ctx, translate)
+    expect(result).toMatchObject({ tenantId: 'tenant-1', organizationId: 'org-1', closureOutcome: 'lost' })
   })
 })
