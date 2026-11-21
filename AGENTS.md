@@ -58,7 +58,7 @@ The full CI-mirroring gate (used by review/automation skills) is the ordered `va
 
 ## Task Router — Where to Find Detailed Guidance
 
-IMPORTANT: Before any research or coding, match the task to this table. A single task often maps to **multiple rows** — "add a new module with search" needs both the Module Development and Search guides. Read **all** matching guides first; they carry the imports, patterns and constraints you need. Only use Explore agents for topics no AGENTS.md covers.
+IMPORTANT: Before any research or coding, match the task to this table. A task often maps to **multiple rows** ("add a module with search" needs Module Development + Search). Read **all** matching guides first; they carry the imports and patterns. Only use Explore agents for topics no AGENTS.md covers.
 
 Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/core/AGENTS.md`, `ui` = `packages/ui/AGENTS.md`), `core:<module>` = `packages/core/src/modules/<module>/AGENTS.md`, `ui:backend` = `packages/ui/src/backend/AGENTS.md`. `→ Section` names the heading to read inside that file.
 
@@ -103,6 +103,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | Forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX | `ui` + `om-backend-ui-design` skill (+ `om-ds-guardian` for DS-token compliance) |
 | Reusing backend component families (charts/KPIs, filters, detail sections, schedule, messages, notifications, page scaffolding, banners) — check BEFORE building any from scratch | [`.ai/ui-backend-components.md`](.ai/ui-backend-components.md) + `ui` |
 | Backend page components, `apiCall` usage, `RowActions` ids, `LoadingMessage`/`ErrorMessage` | `ui:backend` + `om-backend-ui-design` skill |
+| Storefront DS (`packages/storefront-ui`) + Storybook | `packages/storefront-ui/AGENTS.md` |
 | Fulltext/vector/token search, `search.ts`, reindexing entities, debugging search, search CLI | `search` |
 | MCP tools (`registerMcpTool`), OpenCode config, AI chat debugging, session tokens, command palette, two-tier auth | `ai-assistant` |
 | Generators (`yarn generate`), migrations (`yarn db:generate`), module scaffolding, build order | `cli` |
@@ -188,11 +189,11 @@ All packages use the `@open-mercato/<package>` naming convention: **shared** (cr
 
 ### `external/official-modules/` (git submodule)
 
-An optional, uncommitted git submodule. When present it is **real working code** — first-class for search, grep and refactoring, not vendored build output. Edits there commit to the submodule's own git and ship as a separate PR; **never `git add external/official-modules`** (pointer bump) unless explicitly asked. Activation, module-id convention and cross-repo merge order: [`.ai/docs/official-modules.md`](.ai/docs/official-modules.md).
+An optional, uncommitted git submodule. When present it is **real working code** — first-class for search, grep and refactoring, not build output. Edits there commit to the submodule's own git and ship as a separate PR; **never `git add external/official-modules`** (pointer bump) unless explicitly asked. Activation, module-id convention and cross-repo merge order: [`.ai/docs/official-modules.md`](.ai/docs/official-modules.md).
 
 ### When You Need an Import
 
-Each package's AGENTS.md is the authoritative cheat sheet for its own imports: UI primitives, backend utilities (`apiCall`, `CrudForm`) and portal hooks → `ui` + `ui:backend`; AI helpers (`defineAiAgent`, `defineAiTool`, `prepareMutation`, `<AiChat>`) → `ai-assistant`; cross-cutting helpers (i18n, commands, encryption, scoped payloads, boolean parsing, data/query engine types, overrides) → `shared`; customer/portal auth helpers, custom-field helpers, CRUD/Indexer types → `shared` + `core`; everything else → the matching package.
+Each package's AGENTS.md is the cheat sheet for its imports: UI primitives, backend utilities (`apiCall`, `CrudForm`) and portal hooks → `ui` + `ui:backend`; AI helpers (`defineAiAgent`, `defineAiTool`, `prepareMutation`, `<AiChat>`) → `ai-assistant`; cross-cutting helpers (i18n, commands, encryption, scoped payloads, boolean parsing, data/query engine types, overrides) → `shared`; customer/portal auth helpers, custom-field helpers, CRUD/Indexer types → `shared` + `core`; else → the matching package.
 
 Examples worth memorising (used everywhere): `apiCall` from `@open-mercato/ui/backend/utils/apiCall`, `useT` from `@open-mercato/shared/lib/i18n/context`, `resolveTranslations` from `@open-mercato/shared/lib/i18n/server`, `Spinner` from `@open-mercato/ui/primitives/spinner`.
 

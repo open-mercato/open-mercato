@@ -133,7 +133,10 @@
     "experiments:dashboard": "node scripts/experiment-dashboard/cli.mjs",
     "test:experiments-dashboard": "node --test scripts/experiment-dashboard/__tests__/*.test.mjs",
     "test:experiments-dashboard:browser": "node --test scripts/experiment-dashboard/__integration__/*.test.mjs",
-    "test:experiments-dashboard:typecheck": "tsc --project scripts/experiment-dashboard/tsconfig.json"
+    "test:experiments-dashboard:typecheck": "tsc --project scripts/experiment-dashboard/tsconfig.json",
+    "storybook:storefront": "storybook dev -c packages/storefront-ui/.storybook --host 127.0.0.1 -p 6007 --no-open --disable-telemetry",
+    "build-storybook:storefront": "storybook build -c packages/storefront-ui/.storybook -o packages/storefront-ui/storybook-static --disable-telemetry",
+    "storefront-ui:budget": "node scripts/check-storefront-ui-budget.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.50",

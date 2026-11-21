@@ -268,6 +268,17 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/storefront-ui',
+    workspaceDir: 'packages/storefront-ui',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/__tests__/guards/tokens.test.ts',
+        scans: 'apps/mercato globals.css — storefront tokens shared with the admin keep the admin values',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/enterprise',
     workspaceDir: 'packages/enterprise',
     jestConfig: 'jest.config.cjs',

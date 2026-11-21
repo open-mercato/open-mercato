@@ -1,0 +1,159 @@
+/*
+  Tailwind 4 theme mapping for @open-mercato/storefront-ui.
+  Import after "tailwindcss" in the consuming app's CSS entry and add
+  @source "<path to node_modules/@open-mercato/storefront-ui/src>" so the
+  utilities used by the primitives are generated.
+*/
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-bg-disabled: var(--bg-disabled);
+  --color-text-disabled: var(--text-disabled);
+  --color-border-disabled: var(--border-disabled);
+  --color-sf-surface: var(--sf-surface);
+  --color-sf-surface-tint: var(--sf-surface-tint);
+  --color-sf-primary-soft: var(--sf-primary-soft);
+  --color-sf-sale: var(--sf-sale);
+  --color-sf-sale-foreground: var(--sf-sale-foreground);
+  --color-sf-tile-warm: var(--sf-tile-warm);
+  --color-sf-tile-fresh: var(--sf-tile-fresh);
+  --color-sf-tile-bold: var(--sf-tile-bold);
+  --color-sf-tile-cool: var(--sf-tile-cool);
+  --color-sf-tile-soft: var(--sf-tile-soft);
+  --color-sf-tile-calm: var(--sf-tile-calm);
+  --color-sf-tile-bright: var(--sf-tile-bright);
+
+  --color-status-error-bg: var(--status-error-bg);
+  --color-status-error-text: var(--status-error-text);
+  --color-status-error-border: var(--status-error-border);
+  --color-status-error-icon: var(--status-error-icon);
+  --color-status-error-solid: var(--status-error-solid);
+  --color-status-error-solid-foreground: var(--status-error-solid-foreground);
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-success-text: var(--status-success-text);
+  --color-status-success-border: var(--status-success-border);
+  --color-status-success-icon: var(--status-success-icon);
+  --color-status-success-solid: var(--status-success-solid);
+  --color-status-success-solid-foreground: var(--status-success-solid-foreground);
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-warning-text: var(--status-warning-text);
+  --color-status-warning-border: var(--status-warning-border);
+  --color-status-warning-icon: var(--status-warning-icon);
+  --color-status-warning-solid: var(--status-warning-solid);
+  --color-status-warning-solid-foreground: var(--status-warning-solid-foreground);
+  --color-status-info-bg: var(--status-info-bg);
+  --color-status-info-text: var(--status-info-text);
+  --color-status-info-border: var(--status-info-border);
+  --color-status-info-icon: var(--status-info-icon);
+  --color-status-info-solid: var(--status-info-solid);
+  --color-status-info-solid-foreground: var(--status-info-solid-foreground);
+  --color-status-neutral-bg: var(--status-neutral-bg);
+  --color-status-neutral-text: var(--status-neutral-text);
+  --color-status-neutral-border: var(--status-neutral-border);
+  --color-status-neutral-icon: var(--status-neutral-icon);
+  --color-status-neutral-solid: var(--status-neutral-solid);
+  --color-status-neutral-solid-foreground: var(--status-neutral-solid-foreground);
+  --color-status-pink-bg: var(--status-pink-bg);
+  --color-status-pink-text: var(--status-pink-text);
+  --color-status-pink-border: var(--status-pink-border);
+  --color-status-pink-icon: var(--status-pink-icon);
+  --color-status-pink-solid: var(--status-pink-solid);
+  --color-status-pink-solid-foreground: var(--status-pink-solid-foreground);
+
+  /* Shadows, z-index and font-sans are plain :root tokens in tokens.css; Tailwind's
+     default utilities already reference var(--shadow-*) and var(--font-sans), so the
+     storefront values win without a theme mapping (same approach as the admin globals.css). */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+  --radius-sf-badge: var(--sf-radius-badge);
+  --radius-sf-button: var(--sf-radius-button);
+  --radius-sf-chip: var(--sf-radius-chip);
+  --radius-sf-field: var(--sf-radius-field);
+  --radius-sf-card: var(--sf-radius-card);
+  --radius-sf-tile: var(--sf-radius-tile);
+  --radius-sf-sheet: var(--sf-radius-sheet);
+
+  --spacing-sf-sm: var(--sf-control-sm);
+  --spacing-sf-md: var(--sf-control-md);
+  --spacing-sf-lg: var(--sf-control-lg);
+  --spacing-sf-gutter-sm: var(--sf-gutter-sm);
+  --spacing-sf-gutter-md: var(--sf-gutter-md);
+  --spacing-sf-gutter-lg: var(--sf-gutter-lg);
+  --spacing-sf-grid-gap: var(--sf-grid-gap);
+  --container-sf: var(--sf-container);
+
+  --text-sf-display-xl: var(--sf-text-display-xl);
+  --text-sf-display-xl--line-height: var(--sf-text-display-xl--line-height);
+  --text-sf-display-xl--letter-spacing: var(--sf-text-display-xl--letter-spacing);
+  --text-sf-display-xl--font-weight: var(--sf-text-display-xl--font-weight);
+  --text-sf-display-l: var(--sf-text-display-l);
+  --text-sf-display-l--line-height: var(--sf-text-display-l--line-height);
+  --text-sf-display-l--letter-spacing: var(--sf-text-display-l--letter-spacing);
+  --text-sf-display-l--font-weight: var(--sf-text-display-l--font-weight);
+  --text-sf-display-m: var(--sf-text-display-m);
+  --text-sf-display-m--line-height: var(--sf-text-display-m--line-height);
+  --text-sf-display-m--letter-spacing: var(--sf-text-display-m--letter-spacing);
+  --text-sf-display-m--font-weight: var(--sf-text-display-m--font-weight);
+  --text-sf-display-s: var(--sf-text-display-s);
+  --text-sf-display-s--line-height: var(--sf-text-display-s--line-height);
+  --text-sf-display-s--letter-spacing: var(--sf-text-display-s--letter-spacing);
+  --text-sf-display-s--font-weight: var(--sf-text-display-s--font-weight);
+  --text-sf-title: var(--sf-text-title);
+  --text-sf-title--line-height: var(--sf-text-title--line-height);
+  --text-sf-title--letter-spacing: var(--sf-text-title--letter-spacing);
+  --text-sf-title--font-weight: var(--sf-text-title--font-weight);
+  --text-sf-title-sm: var(--sf-text-title-sm);
+  --text-sf-title-sm--line-height: var(--sf-text-title-sm--line-height);
+  --text-sf-body-lg: var(--sf-text-body-lg);
+  --text-sf-body-lg--line-height: var(--sf-text-body-lg--line-height);
+  --text-sf-body: var(--sf-text-body);
+  --text-sf-body--line-height: var(--sf-text-body--line-height);
+  --text-sf-body-sm: var(--sf-text-body-sm);
+  --text-sf-body-sm--line-height: var(--sf-text-body-sm--line-height);
+  --text-sf-body-xs: var(--sf-text-body-xs);
+  --text-sf-body-xs--line-height: var(--sf-text-body-xs--line-height);
+  --text-sf-badge: var(--sf-text-badge);
+  --text-sf-badge--line-height: var(--sf-text-badge--line-height);
+
+}
+
+@utility font-display {
+  font-family: var(--font-display);
+}
+
+@utility shadow-focus {
+  box-shadow: var(--shadow-focus);
+}
+
+@utility sf-label-case {
+  text-transform: var(--sf-label-case);
+}
+
+@utility z-sticky { z-index: var(--z-index-sticky); }
+@utility z-dropdown { z-index: var(--z-index-dropdown); }
+@utility z-overlay { z-index: var(--z-index-overlay); }
+@utility z-modal { z-index: var(--z-index-modal); }
+@utility z-popover { z-index: var(--z-index-popover); }
+@utility z-toast { z-index: var(--z-index-toast); }
+@utility z-tooltip { z-index: var(--z-index-tooltip); }
