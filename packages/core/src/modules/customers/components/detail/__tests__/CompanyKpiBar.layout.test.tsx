@@ -35,7 +35,7 @@ const OVERVIEW: CompanyOverview = {
 
 describe('CompanyKpiBar layout (#7485)', () => {
   it('lets every card fill its grid cell so tiles in a row share the same outline', () => {
-    renderWithProviders(<CompanyKpiBar data={OVERVIEW} />, { locale: 'en-US' })
+    renderWithProviders(<CompanyKpiBar data={OVERVIEW} canViewDeals />, { locale: 'en-US' })
     const tiles = screen.getAllByTestId('company-kpi-tile')
     expect(tiles).toHaveLength(4)
     for (const tile of tiles) {

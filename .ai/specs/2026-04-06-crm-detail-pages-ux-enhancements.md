@@ -1359,6 +1359,8 @@ Person and company details use the record’s organization when evaluating view 
 
 Existing relation arrays remain present and return empty arrays when the caller lacks their view permission. Restricted counts return zero, next-interaction fields return null, and the planned preview and restricted KPI entries are omitted. Clients can continue to use the existing detail endpoints, with view access granted through their role or API key. The authorization behavior applies to cached and uncached responses. Regression coverage includes `TC-CRM-9149-detail-view-permissions.spec.ts` and both route cache suites.
 
+The company detail page uses the presence of the server-authorized Active deals count to render the Active deals and Customer value cards and the completed-deals caption. `TC-CRM-9335-company-kpi-permissions.spec.ts` covers card visibility for users with and without deal access, including a company with zero deals.
+
 ### Deprecated deal header inputs (2026-11-10, #8552)
 
 The decluttered deal header (Enhancement 4 revisited) moved stage changes to clickable `PipelineStepper` segments and the Won / Lost buttons to a "Close deal" menu in `DealDetailHeader.secondaryActions`. The component inputs that drove the previous presentation remain accepted and `@deprecated`, with a functional bridge where the input carried behavior:
@@ -1452,6 +1454,7 @@ Third-party modules need no migration to keep working. Consumers that want to:
 | Date | Change |
 | ---- | ------ |
 | 2026-11-21 | #9149 applies related-data view permissions to person and company detail rows, counts, previews, KPIs, and cached responses. |
+| 2026-11-21 | #9335 uses the scoped company detail response to control the visibility of deal KPIs. |
 | 2026-11-16 | Rev 11 (#7494, QA follow-up #9619): the activity tab fits phone widths down to 320 px. In history rows narrower than 448 px (container query) the date moves to a line above the title, and "Mark done" with the row menu wraps under the title instead of covering it; wider rows keep the date column. The AI chips row wraps. In `PlannedActivitiesSection` the header and the overdue row wrap: "Schedule" drops under the title and overdue count, and "Mark done" with the row menu drops under the row text as one group. No API, data or i18n change. |
 | 2026-11-14 | Rev 10 (#7494, QA follow-up #9483 #9484 #9489 #9491): `GET /api/customers/interactions` gains the additive `sortField=activityDate` (`coalesce(occurred_at, scheduled_at)`), which the history's newest-first order now requests so open activities are on the first page instead of the last. Mark done in the history sends the row's `updatedAt` and shows the record-conflict bar. `ActivityLogTab` checks `customers.interactions.manage` and renders the lists without the composer or write actions for a view-only user; `ActivitiesSection` gains the optional `readOnly` prop. The Log activity box wraps at phone width. |
 | 2026-11-10 | Rev 9 (#8552): deal header declutter review follow-up. `DealDetailHeader` stage inputs, `PipelineStepper.footer`, `DealClosureActionBar.embedded` restored as deprecated inputs with a functional bridge (`StageSelectMenu`); the same menu gives `PipelineStepper` a stage change below `sm`. Removal target and consumer regressions recorded under Migration & Backward Compatibility. |
