@@ -1,6 +1,7 @@
 {
   "storage_s3.errors.activeContentBlocked": "Przesyłanie treści aktywnych nie jest dozwolone.",
   "storage_s3.errors.dangerousExecutable": "Pliki wykonywalne nie są dozwolone jako załączniki.",
+  "storage_s3.errors.explicitCredentialsRequired": "Integracje S3 dzierżawcy wymagają jawnych kluczy dostępu i wyłącznie zadeklarowanych pól danych uwierzytelniających. Uwierzytelnianie środowiskowe i prefiksy zmiennych środowiskowych nie są obsługiwane.",
   "storage_s3.errors.fileNotFound": "Nie znaleziono pliku",
   "storage_s3.errors.fileRequired": "Pole file jest wymagane",
   "storage_s3.errors.integrationNotConfigured": "Integracja S3 nie jest skonfigurowana.",

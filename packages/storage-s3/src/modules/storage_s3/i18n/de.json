@@ -1,6 +1,7 @@
 {
   "storage_s3.errors.activeContentBlocked": "Das Hochladen aktiver Inhalte ist nicht erlaubt.",
   "storage_s3.errors.dangerousExecutable": "Ausführbare Dateitypen sind als Anhänge nicht erlaubt.",
+  "storage_s3.errors.explicitCredentialsRequired": "S3-Mandantenintegrationen erfordern explizite Zugriffsschlüssel und ausschließlich deklarierte Zugangsdatenfelder. Umgebungsbasierte Authentifizierung und Umgebungspräfixe werden nicht unterstützt.",
   "storage_s3.errors.fileNotFound": "Datei nicht gefunden",
   "storage_s3.errors.fileRequired": "Das Feld „file“ ist erforderlich",
   "storage_s3.errors.integrationNotConfigured": "Die S3-Integration ist nicht konfiguriert.",

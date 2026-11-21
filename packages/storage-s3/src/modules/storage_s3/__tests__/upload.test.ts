@@ -52,7 +52,7 @@ describe('storage_s3 direct upload route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockResolvedValue({ tenantId: 'tenant-1', orgId: 'org-1' })
-    mockResolveCredentials.mockResolvedValue({ bucket: 'test-bucket', region: 'eu-central-1' })
+    mockResolveCredentials.mockResolvedValue({ bucket: 'test-bucket', region: 'eu-central-1', accessKeyId: 'tenant-key', secretAccessKey: 'tenant-secret' })
     mockListObjects.mockResolvedValue({ files: [], truncated: false })
     mockPutObject.mockResolvedValue(undefined)
     mockReconcileStandaloneObjects.mockResolvedValue(undefined)

@@ -10,6 +10,7 @@ import {
   ListObjectsV2Command,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { tenantS3AuthenticationSchema } from '../data/validators'
 import type { PrepareFilePayload, StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from '@open-mercato/core/modules/attachments/lib/drivers'
 import {
   assertSafeS3Endpoint,
@@ -35,10 +36,11 @@ export type S3DriverConfig = {
    * - access_keys: use explicit credentials (direct values or env prefix)
    * - ambient: let AWS SDK resolve credentials from the default chain (STS/IRSA/instance profile/etc.)
    *
-   * Backward compat: missing authMode behaves like access_keys when keys are provided; otherwise ambient.
+   * Trusted unscoped callers retain ambient fallback when no keys are provided.
+   * Tenant-scoped callers require explicit nonblank access keys and cannot use ambient auth or an env prefix.
    */
   authMode?: 'access_keys' | 'ambient'
-  /** Resolve access key + secret from env vars: {PREFIX}_ACCESS_KEY_ID / {PREFIX}_SECRET_ACCESS_KEY */
+  /** Trusted unscoped callers only: resolve {PREFIX}_ACCESS_KEY_ID / {PREFIX}_SECRET_ACCESS_KEY. */
   credentialsEnvPrefix?: string
   /** Direct credentials (used when passed from Integration Marketplace) */
   accessKeyId?: string
@@ -88,6 +90,12 @@ export class S3StorageDriver implements StorageDriver {
     this.scope = cfg.organizationId && cfg.tenantId
       ? { organizationId: cfg.organizationId, tenantId: cfg.tenantId }
       : null
+
+    if (cfg.organizationId != null || cfg.tenantId != null) {
+      if (cfg.credentialsEnvPrefix !== undefined || !tenantS3AuthenticationSchema.safeParse(cfg).success) {
+        throw new Error('[internal] Tenant S3 storage requires explicit access keys')
+      }
+    }
 
     const authMode = cfg.authMode
     const shouldUseAccessKeys =

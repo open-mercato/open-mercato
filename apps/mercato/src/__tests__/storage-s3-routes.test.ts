@@ -45,7 +45,12 @@ describe('storage_s3 upload/download routes', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     getAuthFromRequestMock.mockResolvedValue({ tenantId: 'tenant-1', orgId: 'org-1' })
-    credentialsResolveMock.mockResolvedValue({ bucket: 'bucket' })
+    credentialsResolveMock.mockResolvedValue({
+      bucket: 'bucket',
+      region: 'eu-central-1',
+      accessKeyId: 'tenant-key',
+      secretAccessKey: 'tenant-secret',
+    })
     listObjectsMock.mockResolvedValue({ files: [], truncated: false, nextContinuationToken: undefined })
     putObjectMock.mockResolvedValue(undefined)
     readMock.mockResolvedValue({ buffer: Buffer.from('body'), contentType: 'image/png' })

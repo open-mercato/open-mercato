@@ -4,6 +4,7 @@ const mockPutObject = jest.fn(async () => {})
 const mockDelete = jest.fn(async () => {})
 const mockGetSignedUrl = jest.fn(async () => 'https://s3.test/signed')
 const mockListObjects = jest.fn(async () => ({ files: [], truncated: false }))
+const mockResolveCredentials = jest.fn()
 const mockScheduleRecovery = jest.fn(async () => {})
 
 jest.mock('../lib/s3-driver', () => ({
@@ -32,7 +33,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
     resolve: (key: string) => {
       if (key === 'integrationCredentialsService') {
-        return { resolve: jest.fn(async () => ({ bucket: 'bucket', region: 'us-east-1' })) }
+        return { resolve: mockResolveCredentials }
       }
       if (key === 'attachmentQuotaService') return mockQuotaService
       if (key === 'storageS3QuotaRecoveryScheduler') return mockScheduleRecovery
@@ -54,6 +55,7 @@ function multipartRequest() {
 describe('storage_s3 quota lifecycle', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockResolveCredentials.mockResolvedValue({ bucket: 'bucket', region: 'us-east-1', accessKeyId: 'tenant-key', secretAccessKey: 'tenant-secret' })
     process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = '5'
     process.env.OM_ATTACHMENT_TENANT_QUOTA_MB = '10'
   })
@@ -117,6 +119,32 @@ describe('storage_s3 quota lifecycle', () => {
       reservationId: 'reservation-1',
       url: expect.stringContaining('/api/storage-providers/s3/signed-upload/'),
     }))
+  })
+
+  it.each([
+    { bucket: 'bucket', region: 'us-east-1', authMode: 'ambient' },
+    { bucket: 'bucket', region: 'us-east-1', credentialsEnvPrefix: 'AWS' },
+    { bucket: 'bucket', region: 'us-east-1', accessKeyId: 'tenant-key', secretAccessKey: 'tenant-secret', pathPrefix: 'injected/' },
+  ])('releases the compatibility reservation without storing under unsafe credentials: %j', async (credentials) => {
+    mockResolveCredentials.mockResolvedValue(credentials)
+    mockQuotaService.claimPendingByUploadTokenHash.mockResolvedValueOnce({
+      id: 'reservation-1',
+      leaseToken: 'lease-claimed',
+      source: 'storage_s3_signed',
+      reservedBytes: 3,
+      storagePath: 'uploads/org_org-1/tenant_tenant-1/safe.pdf',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    const { PUT } = await import('../api/put/storage-providers/s3/signed-upload/[token]')
+    const response = await PUT(new Request('http://localhost/api/storage-providers/s3/signed-upload/token', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/pdf' },
+      body: new Uint8Array([1, 2, 3]),
+    }), { params: { token: 'token' } })
+    expect(response.status).toBe(400)
+    expect(mockQuotaService.release).toHaveBeenCalledWith('reservation-1', 'lease-claimed')
+    expect(mockPutObject).not.toHaveBeenCalled()
   })
 
   it('atomically consumes a compatibility token so replay cannot delete the winning object', async () => {

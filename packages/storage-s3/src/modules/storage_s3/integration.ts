@@ -22,11 +22,8 @@ export const integration: IntegrationDefinition = {
         label: 'Authentication',
         type: 'select',
         required: false,
-        helpText:
-          'Choose how the AWS SDK should authenticate. For production deployments, prefer IAM roles (IRSA/instance profile) when available.',
         options: [
           { value: 'access_keys', label: 'Access keys' },
-          { value: 'ambient', label: 'Credentials provided by AWS (STS / IRSA / instance profile)' },
         ],
       },
       {

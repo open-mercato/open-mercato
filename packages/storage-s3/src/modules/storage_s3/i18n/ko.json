@@ -1,6 +1,7 @@
 {
   "storage_s3.errors.activeContentBlocked": "활성 콘텐츠 업로드는 허용되지 않습니다.",
   "storage_s3.errors.dangerousExecutable": "실행 파일 형식은 첨부가 허용되지 않습니다.",
+  "storage_s3.errors.explicitCredentialsRequired": "S3 테넌트 통합에는 명시적인 액세스 키와 선언된 자격 증명 필드만 필요합니다. 환경 기반 인증 및 환경 변수 접두사는 지원되지 않습니다.",
   "storage_s3.errors.fileNotFound": "파일을 찾을 수 없습니다",
   "storage_s3.errors.fileRequired": "파일 필드는 필수입니다",
   "storage_s3.errors.integrationNotConfigured": "S3 통합이 구성되지 않았습니다.",

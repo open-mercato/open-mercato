@@ -10,6 +10,7 @@ jest.mock('@open-mercato/core/modules/attachments/lib/drivers', () => ({
   registerExternalCredentialEnhancer: (...args: unknown[]) => mockRegisterExternalCredentialEnhancer(...args),
 }))
 
+import { asValue, createContainer } from 'awilix'
 import { register } from '../di'
 
 describe('storage_s3 DI registration', () => {
@@ -40,5 +41,26 @@ describe('storage_s3 DI registration', () => {
       organizationId: 'org-owned',
       tenantId: 'tenant-owned',
     })
+  })
+})
+
+
+describe('storage_s3 tenant service credentials', () => {
+  it.each([
+    { bucket: 'tenant-bucket', region: 'eu-central-1', authMode: 'ambient' },
+    { bucket: 'tenant-bucket', region: 'eu-central-1', credentialsEnvPrefix: 'AWS' },
+    { bucket: 'tenant-bucket', region: 'eu-central-1', accessKeyId: '', secretAccessKey: '' },
+  ])('rejects unsafe stored credentials through the DI service: %j', async (credentials) => {
+    const resolveCredentials = jest.fn().mockResolvedValue(credentials)
+    const container = createContainer()
+    container.register({
+      integrationCredentialsService: asValue({ resolve: resolveCredentials }),
+      attachmentQuotaService: asValue({}),
+    })
+    register(container)
+    const service = container.resolve('storageService')
+    await expect(service._resolveService({ tenantId: 'tenant-1', organizationId: 'org-1' }))
+      .rejects.toThrow(/explicit access keys/)
+    expect(resolveCredentials).toHaveBeenCalledWith('storage_s3', { tenantId: 'tenant-1', organizationId: 'org-1' })
   })
 })

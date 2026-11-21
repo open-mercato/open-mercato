@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isS3KeyAddressableByScope, isS3KeyScopedToTenant } from '../../../../lib/key-scope'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
+import { buildTenantS3DriverConfig } from '../../../../lib/tenant-credentials'
 import { createHash, randomBytes } from 'node:crypto'
 import { resolveAttachmentMaxBytes } from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
@@ -37,7 +38,8 @@ async function resolveDriver(tenantId: string, orgId: string): Promise<S3Storage
   }
   const creds = await credentialsService.resolve('storage_s3', { tenantId, organizationId: orgId })
   if (!creds) return null
-  return new S3StorageDriver({ ...creds, organizationId: orgId, tenantId })
+  const config = buildTenantS3DriverConfig(creds, { organizationId: orgId, tenantId })
+  return config ? new S3StorageDriver(config) : null
 }
 
 export async function POST(req: Request) {
