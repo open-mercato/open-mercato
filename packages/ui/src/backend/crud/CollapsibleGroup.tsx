@@ -46,7 +46,7 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
     )
 
     const errorBadge = errorCount > 0 ? (
-      <span className="inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+      <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
         {errorCount === 1
           ? t('ui.collapsible.errorSingular', '{{count}} error', { count: errorCount })
           : t('ui.collapsible.errorPlural', '{{count}} errors', { count: errorCount })}
@@ -111,10 +111,7 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
                 // row toggles to `bg-muted` together (Figma Accordion behaviour)
                 // instead of stacking a second hover layer over the trigger
                 // button.
-                'flex-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-transparent dark:hover:bg-transparent',
-                // A long title wraps inside the row instead of pushing the page
-                // wider than a 320 px viewport.
-                'h-auto min-h-9 min-w-0 whitespace-normal text-left',
+                'h-auto min-h-9 min-w-0 flex-1 shrink whitespace-normal rounded-md px-2 py-1 text-left text-sm font-medium hover:bg-transparent dark:hover:bg-transparent',
                 chevronPosition === 'left' ? 'justify-start gap-2' : 'justify-between',
               )}
               aria-expanded={expanded}

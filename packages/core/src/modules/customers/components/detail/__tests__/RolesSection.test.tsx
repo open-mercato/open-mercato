@@ -10,6 +10,7 @@ import { RolesSection } from '../RolesSection'
 const readApiResultOrThrowMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const reportErrorMock = jest.fn()
+let mockGrantedFeatures: string[]
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({
@@ -31,7 +32,7 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
   useBackendChrome: () => ({
-    payload: { grantedFeatures: [] },
+    payload: { grantedFeatures: mockGrantedFeatures },
     isReady: true,
   }),
 }))
@@ -88,6 +89,7 @@ jest.mock('../AssignRoleDialog', () => ({
 
 describe('RolesSection', () => {
   beforeEach(() => {
+    mockGrantedFeatures = ['customers.roles.view', 'customers.people.view']
     reportErrorMock.mockReset()
     jest.mocked(flash).mockClear()
     apiCallOrThrowMock.mockReset()
@@ -102,6 +104,26 @@ describe('RolesSection', () => {
       }
       return { items: [] }
     })
+  })
+
+  it.each(['company', 'person'] as const)('skips role and dictionary requests without roles view access for a %s', (entityType) => {
+    mockGrantedFeatures = ['customers.companies.*', 'customers.people.view']
+
+    const { container } = renderWithProviders(<RolesSection entityType={entityType} entityId="entity-restricted" />)
+
+    expect(container).toBeEmptyDOMElement()
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
+    expect(flash).not.toHaveBeenCalled()
+  })
+
+  it('honors wildcard roles access without requesting a dictionary the viewer cannot read', async () => {
+    mockGrantedFeatures = ['customers.companies.view', 'customers.roles.*']
+
+    renderWithProviders(<RolesSection entityType="company" entityId="company-1" entityName="Acme" />)
+
+    expect(await screen.findByText('Roles at Acme')).toBeInTheDocument()
+    expect(readApiResultOrThrowMock).toHaveBeenCalledWith('/api/customers/companies/company-1/roles')
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith('/api/customers/dictionaries/person-company-roles')
   })
 
   it('shows a config CTA instead of fallback role types when the dictionary is empty', async () => {
