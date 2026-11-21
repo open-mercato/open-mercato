@@ -65,6 +65,8 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 }))
 
 jest.mock('next/navigation', () => ({
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: jest.fn() }),
 }))
 

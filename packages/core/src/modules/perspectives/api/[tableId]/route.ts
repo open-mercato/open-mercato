@@ -288,6 +288,7 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
             expectedUpdatedAtByRoleId: parsed.data.roleExpectedUpdatedAtByRoleId,
             expectedUpdatedAtByPerspectiveId: parsed.data.roleExpectedUpdatedAtByPerspectiveId,
             request: req,
+            createOnly: parsed.data.createOnly === true,
           })
         }
       },

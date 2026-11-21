@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -71,7 +72,7 @@ export default function WmsLotsListPage() {
   const expiryWindow = parseExpiryWindow(searchParams.get('expiryWindow'))
   const warehouseId = searchParams.get('warehouseId')?.trim() || null
   const [page, setPage] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'expiresAt', desc: false }])
   const [changeStatusOpen, setChangeStatusOpen] = React.useState(false)
   const [moveOpen, setMoveOpen] = React.useState(false)

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -109,7 +110,7 @@ export default function SupportTicketsPage() {
   const [page, setPage] = React.useState(1)
   const [isLoading, setIsLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState(false)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [filterValues, setFilterValues] = React.useState<FilterValues>(() =>
     searchParams?.get('supportUnnotified') === 'true' ? { supportUnnotified: true } : {},
   )

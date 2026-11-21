@@ -59,7 +59,7 @@ describe('DataTable sticky column header', () => {
     jest.useFakeTimers()
     jest.spyOn(window, 'getComputedStyle').mockImplementation((element) => {
       const style = nativeGetComputedStyle(element)
-      if (element.classList.contains('overflow-auto')) style.overflowY = 'auto'
+      if (element.classList.contains('overflow-auto') || element.classList.contains('overflow-x-auto')) style.overflowY = 'auto'
       style.setProperty('--topbar-height', '61px')
       return style
     })
@@ -138,43 +138,89 @@ describe('DataTable sticky column header', () => {
     }
   })
 
-  it('uses viewport coordinates for embedded tables without a scroll ancestor', () => {
+  it('gives embedded tables their own horizontal scroll container so they never widen the page', () => {
     const { header, wrapper, queryClient } = renderTable({ embedded: true })
     try {
+      expect(wrapper.classList.contains('overflow-x-auto')).toBe(true)
+      expect(wrapper.classList.contains('md:overflow-visible')).toBe(true)
       setTop(wrapper, -240)
       scroll()
-      expect(header.style.top).toBe('61px')
+      expect(header.style.top).toBe('301px')
+      setTop(wrapper, 180)
+      scroll()
+      expect(header.style.top).toBe('0px')
     } finally {
       queryClient.clear()
     }
   })
 
-  it('uses the actual scroll ancestor for embedded tables in a scrolling panel', () => {
+  it('keeps an embedded header below the top of a scrolling panel', () => {
     const { header, wrapper, scrollParent, queryClient } = renderTable({ embedded: true, nested: true })
     try {
       setTop(scrollParent, 120)
       setTop(wrapper, -240)
       scroll(scrollParent)
-      expect(header.style.top).toBe('0px')
+      expect(header.style.top).toBe('360px')
       setTop(scrollParent, -100)
       scroll()
-      expect(header.style.top).toBe('161px')
+      expect(header.style.top).toBe('301px')
     } finally {
       queryClient.clear()
     }
   })
 
-  it('compensates for a padded scroll panel before and after page scrolling', () => {
-    const { header, scrollParent, queryClient } = renderTable({ embedded: true, nested: true })
+  it('compensates for padding on the scroll owner before and after page scrolling', () => {
+    const { header, wrapper, queryClient } = renderTable({ embedded: true })
     try {
-      scrollParent.style.paddingTop = '16px'
-      setTop(scrollParent, 120)
-      scroll(scrollParent)
+      wrapper.style.paddingTop = '16px'
+      setTop(wrapper, 120)
+      scroll(wrapper)
       expect(header.style.top).toBe('-16px')
-      setTop(scrollParent, -100)
+      setTop(wrapper, -100)
       scroll()
       expect(header.style.top).toBe('145px')
     } finally {
+      queryClient.clear()
+    }
+  })
+
+  it('picks up an ancestor that becomes scrollable while the table stays mounted', () => {
+    const { header, wrapper, scrollParent, queryClient } = renderTable({ embedded: true })
+    try {
+      setTop(scrollParent, 120)
+      setTop(wrapper, -240)
+      scroll()
+      expect(header.style.top).toBe('301px')
+      scrollParent.style.overflowY = 'auto'
+      scroll(scrollParent)
+      expect(header.style.top).toBe('360px')
+      scrollParent.style.overflowY = ''
+      act(() => {
+        fireEvent(window, new Event('resize'))
+        jest.advanceTimersByTime(20)
+      })
+      expect(header.style.top).toBe('301px')
+    } finally {
+      queryClient.clear()
+    }
+  })
+
+  it('ignores scrolling of unrelated elements outside the table ancestry', () => {
+    const { header, queryClient } = renderTable()
+    const unrelated = document.createElement('div')
+    unrelated.style.overflowY = 'auto'
+    document.body.appendChild(unrelated)
+    const requestFrame = jest.spyOn(window, 'requestAnimationFrame')
+    try {
+      fireEvent.scroll(unrelated)
+      expect(requestFrame).not.toHaveBeenCalled()
+      fireEvent.scroll(window)
+      expect(requestFrame).toHaveBeenCalledTimes(1)
+      act(() => { jest.advanceTimersByTime(20) })
+      fireEvent.scroll(header.closest('table')!.parentElement!)
+      expect(requestFrame).toHaveBeenCalledTimes(2)
+    } finally {
+      unrelated.remove()
       queryClient.clear()
     }
   })

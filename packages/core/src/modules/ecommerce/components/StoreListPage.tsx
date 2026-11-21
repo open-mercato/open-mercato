@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -78,7 +79,7 @@ export function StoreListPage() {
   })
   const { canManage } = useStoreAccess()
   const [page, setPage] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
   const [createOpen, setCreateOpen] = React.useState(false)

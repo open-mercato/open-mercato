@@ -37,6 +37,23 @@ describe('validateTreeForApply', () => {
     expect(r.ok).toBe(false)
   })
 
+  it('flags tags multi-value op holding only blank entries', () => {
+    const t = tree({ id: 'a', type: 'rule', field: 'tags', operator: 'has_all_of', value: ['', '  '] })
+    const r = validateTreeForApply(t, fields)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.errors[0].messageKey).toBe('ui.advancedFilter.error.missingValue')
+  })
+
+  it('flags tags multi-value op holding a plain string instead of an array', () => {
+    const t = tree({ id: 'a', type: 'rule', field: 'tags', operator: 'has_none_of', value: 'vip' })
+    expect(validateTreeForApply(t, fields).ok).toBe(false)
+  })
+
+  it.each(['has_any_of', 'has_all_of', 'has_none_of'] as const)('accepts %s on a tags field with an array value', (operator) => {
+    const t = tree({ id: 'a', type: 'rule', field: 'tags', operator, value: ['vip', 'eu'] })
+    expect(validateTreeForApply(t, fields)).toEqual({ ok: true })
+  })
+
   it('flags between op with one endpoint missing', () => {
     const t = tree({ id: 'a', type: 'rule', field: 'created_at', operator: 'between', value: ['2026-01-01', ''] })
     const r = validateTreeForApply(t, fields)

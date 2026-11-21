@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { extensionPoints } from '@open-mercato/checkout/modules/checkout/extension-points'
 import { useSearchParams } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -66,7 +67,7 @@ export default function CheckoutTransactionsPage() {
   }, [searchParams])
   const [rows, setRows] = React.useState<TransactionRow[]>([])
   const [page, setPage] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [filters, setFilters] = React.useState<FilterValues>(() => (initialLinkId ? { linkId: initialLinkId } : {}))
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)

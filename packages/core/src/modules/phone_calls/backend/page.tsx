@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import type { SortingState } from '@tanstack/react-table'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -80,7 +81,7 @@ export default function PhoneCallsPage() {
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(50)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'started_at', desc: true }])
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 

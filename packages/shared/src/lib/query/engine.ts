@@ -1257,7 +1257,7 @@ export class BasicQueryEngine implements QueryEngine {
             })
           }
         }
-        if (isCountProjection) {
+        if (isCountProjection || f.op === 'overlap') {
           q = this.applyCfValueExistsFilter(q, {
             source: filterSource,
             qualify,
@@ -1268,11 +1268,9 @@ export class BasicQueryEngine implements QueryEngine {
           })
           continue
         }
-        q = f.op === 'overlap'
-          ? q.where(buildScalarOverlapPredicate(expr, f.value))
-          : f.op === 'noverlap'
-            ? q.where(sql<boolean>`false`)
-            : this.applyColumnOp(q, expr, f.op, f.value)
+        q = f.op === 'noverlap'
+          ? q.where(sql<boolean>`false`)
+          : this.applyColumnOp(q, expr, f.op, f.value)
       }
 
       // OR groups are applied here, after the cf:* value expressions exist, so a
@@ -1309,7 +1307,7 @@ export class BasicQueryEngine implements QueryEngine {
             const parts = group.map((rf) => {
               if (rf.kind === 'column') return this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
               if (rf.kind === 'cf') {
-                if (isCountProjection) {
+                if (isCountProjection || rf.op === 'overlap') {
                   return this.buildCfValueExistsExpression(eb, {
                     source: keySource.get(rf.key)!,
                     qualify,
@@ -1320,9 +1318,7 @@ export class BasicQueryEngine implements QueryEngine {
                   })
                 }
                 if (rf.op === 'noverlap') return sql<boolean>`false`
-                return rf.op === 'overlap'
-                  ? buildScalarOverlapPredicate(cfValueExprByKey[rf.key], rf.value)
-                  : this.buildColumnOpExpression(eb, cfValueExprByKey[rf.key], rf.op, rf.value)
+                return this.buildColumnOpExpression(eb, cfValueExprByKey[rf.key], rf.op, rf.value)
               }
               return this.buildIndexDocOpExpression(eb, {
                 entity: String(entity),

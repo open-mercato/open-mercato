@@ -175,6 +175,45 @@ export function deserializeAdvancedFilter(query: Record<string, unknown>): Advan
   return normalizeAdvancedFilterState({ logic, conditions })
 }
 
+export type MultiValueFilterOperator = Extract<FilterOperator, 'has_any_of' | 'has_all_of' | 'has_none_of'>
+
+/**
+ * Compile a `tags`-field rule (a multi-valued column, index-document array or multi custom field)
+ * into array-aware operators every query engine applies:
+ * - `has_any_of`  -> `$overlap` (Postgres `&&`, jsonb `?|`)
+ * - `has_none_of` -> `$noverlap` (`not &&`, `not ?|`; a NULL / missing array never matches)
+ * - `has_all_of`  -> one `$overlap` per value AND-ed together, so "contains all" reuses the
+ *   per-value overlap support instead of an operator the engines would drop (and widen results).
+ * Returns `null` for an empty value list so the rule is skipped like any other incomplete rule.
+ */
+export function buildMultiValueRuleFilter(
+  field: string,
+  operator: MultiValueFilterOperator,
+  values: unknown[],
+): Record<string, unknown> | null {
+  if (!field || values.length === 0) return null
+  switch (operator) {
+    case 'has_any_of':
+      return { [field]: { $overlap: values } }
+    case 'has_none_of':
+      return { [field]: { $noverlap: values } }
+    case 'has_all_of':
+      if (values.length === 1) return { [field]: { $overlap: values } }
+      return { $and: values.map((value) => ({ [field]: { $overlap: [value] } })) }
+  }
+}
+
+function mergeAndFilters(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...left, ...right }
+  if (Array.isArray(left.$and) && Array.isArray(right.$and)) {
+    merged.$and = [...left.$and, ...right.$and]
+  }
+  return merged
+}
+
 function buildConditionFilter(condition: FilterCondition): Record<string, unknown> | null {
   if (!condition.field || !condition.operator) return null
   const normalizeSingleValue = (value: unknown): unknown => {
@@ -261,21 +300,17 @@ function buildConditionFilter(condition: FilterCondition): Record<string, unknow
       filter[condition.field] = { $gt: normalizeSingleValue(condition.value) }
       break
     case 'is_any_of':
-    case 'has_any_of':
       if (normalizeListValue(condition.value).length === 0) return null
       filter[condition.field] = { $in: normalizeListValue(condition.value) }
       break
     case 'is_none_of':
-    case 'has_none_of':
       if (normalizeListValue(condition.value).length === 0) return null
       filter[condition.field] = { $nin: normalizeListValue(condition.value) }
       break
-    case 'has_all_of': {
-      const allOfValues = normalizeListValue(condition.value)
-      if (allOfValues.length === 0) return null
-      filter[condition.field] = { $contains: allOfValues }
-      break
-    }
+    case 'has_any_of':
+    case 'has_all_of':
+    case 'has_none_of':
+      return buildMultiValueRuleFilter(condition.field, condition.operator, normalizeListValue(condition.value))
     case 'is_true':
       filter[condition.field] = { $eq: true }
       break
@@ -310,10 +345,7 @@ export function convertAdvancedFilterToWhere(state: AdvancedFilterState): Record
       clauses = [...clauses, entry.filter]
       continue
     }
-    clauses = clauses.map((clause) => ({
-      ...clause,
-      ...entry.filter,
-    }))
+    clauses = clauses.map((clause) => mergeAndFilters(clause, entry.filter))
   }
 
   return clauses.length > 1 ? { $or: clauses } : clauses[0]

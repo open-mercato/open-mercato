@@ -2,7 +2,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback,
 }))
 
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { AdvancedFilterBuilder } from '../AdvancedFilterBuilder'
 import { createEmptyTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 
@@ -206,5 +206,56 @@ describe('AdvancedFilterBuilder — rewrite', () => {
     )
     expect(container.querySelector('.border-status-error-border')).not.toBeNull()
     expect(container.textContent).toContain('Pick a value')
+  })
+})
+
+describe('AdvancedFilterBuilder — tags fields (#7459)', () => {
+  const tagFields = [
+    { key: 'tags', label: 'Tags', type: 'tags' as const, options: [{ value: 'vip', label: 'VIP' }] },
+  ]
+  const tagTree = (operator: 'has_any_of' | 'has_all_of' | 'has_none_of' | 'is_empty', value: unknown) => ({
+    root: {
+      id: 'r',
+      type: 'group' as const,
+      combinator: 'and' as const,
+      children: [{ id: 'a', type: 'rule' as const, field: 'tags', operator, value }],
+    },
+  })
+
+  it.each(['has_any_of', 'has_all_of', 'has_none_of'] as const)('renders a multi-value tags input for %s instead of a text input', (operator) => {
+    render(
+      <AdvancedFilterBuilder fields={tagFields} value={tagTree(operator, ['vip'])} onChange={() => {}} onApply={() => {}} onClear={() => {}} />,
+    )
+    const wrapper = screen.getByTestId('tags-value-input')
+    expect(wrapper).toBeInTheDocument()
+    expect(wrapper.textContent).toContain('VIP')
+    expect(screen.queryByLabelText('Text value')).not.toBeInTheDocument()
+  })
+
+  it('appends a typed value to the rule as an array', () => {
+    const onChange = jest.fn()
+    render(
+      <AdvancedFilterBuilder fields={tagFields} value={tagTree('has_all_of', ['vip'])} onChange={onChange} onApply={() => {}} onClear={() => {}} />,
+    )
+    const input = screen.getByTestId('tags-value-input').querySelector('input') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'eu' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    const nextTree = onChange.mock.calls[onChange.mock.calls.length - 1][0]
+    expect(nextTree.root.children[0].value).toEqual(['vip', 'eu'])
+  })
+
+  it('treats a legacy string value as an empty selection', () => {
+    render(
+      <AdvancedFilterBuilder fields={tagFields} value={tagTree('has_any_of', '')} onChange={() => {}} onApply={() => {}} onClear={() => {}} />,
+    )
+    const wrapper = screen.getByTestId('tags-value-input')
+    expect(within(wrapper).queryByRole('button', { name: /^Remove/ })).not.toBeInTheDocument()
+  })
+
+  it('renders no value input for the valueless is_empty operator', () => {
+    render(
+      <AdvancedFilterBuilder fields={tagFields} value={tagTree('is_empty', undefined)} onChange={() => {}} onApply={() => {}} onClear={() => {}} />,
+    )
+    expect(screen.queryByTestId('tags-value-input')).not.toBeInTheDocument()
   })
 })
