@@ -529,3 +529,22 @@ describe('query_index process registrations', () => {
     expect(resolve).not.toHaveBeenCalled()
   })
 })
+
+describe('query_index legacy registrar event-bus wiring', () => {
+  it('stops retrying after a bounded number of attempts when no event bus is ever registered', () => {
+    jest.useFakeTimers()
+    try {
+      const container = createContainer()
+      const resolveSpy = jest.spyOn(container, 'resolve')
+
+      register(container as never)
+      jest.runAllTimers()
+
+      const busLookups = resolveSpy.mock.calls.filter(([name]) => name === 'eventBus').length
+      expect(busLookups).toBe(50)
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+})
