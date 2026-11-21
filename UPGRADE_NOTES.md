@@ -507,6 +507,18 @@ and font permissions, route/DB contracts and the attachment sandbox are unchange
 
 [Implementation specification](.ai/specs/2026-10-29-production-content-security-policy.md).
 
+## Undoing entity translation changes (#9099)
+
+Undo now returns HTTP 409 with code `translations.errors.undoConflict` when
+the current translations conflict with the saved action. The server leaves the
+translations unchanged. Refresh the record and inspect the current values
+before retrying. A successful undo of a delete restores the original row ID.
+No database migration is required.
+
+Actions recorded before the upgrade retain their original snapshots. If a
+translation was edited concurrently with one of those actions, verify its
+history before undoing it.
+
 Open Mercato `0.5.0` is our biggest release so far. It bundles more than 250 fixes and
 improvements that landed after the Hackathon in Sopot, alongside several important
 dependency and tooling upgrades. That combination is exactly why this document now exists:
