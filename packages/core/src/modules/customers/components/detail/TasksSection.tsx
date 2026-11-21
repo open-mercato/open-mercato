@@ -4,11 +4,13 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { mapDictionaryColorToTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { ForbiddenError } from '@open-mercato/ui/backend/utils/api'
 import { dismissRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import {
   extractOptimisticLockConflict,
@@ -50,12 +52,35 @@ type TasksSectionProps = {
   /** When true, use the canonical interactions API instead of the legacy todos API. */
   useCanonicalInteractions?: boolean
   runGuardedMutation?: GuardedMutationRunner
+  readOnly?: boolean
 }
 
 const RESERVED_TASK_CUSTOM_KEYS = new Set(['priority', 'description', 'due_at', 'dueAt'])
 
-function isRecordConflict(error: unknown): boolean {
-  return Boolean(extractOptimisticLockConflict(error) || extractRecordLockConflict(error))
+function reportTaskMutationError(error: unknown, fallback: string, t: Translator): unknown {
+  if (extractOptimisticLockConflict(error) || extractRecordLockConflict(error)) return error
+
+  if (
+    error instanceof Error
+    && 'status' in error && error.status === 403
+    && 'requiredFeatures' in error && Array.isArray(error.requiredFeatures)
+  ) {
+    const features = error.requiredFeatures.filter(
+      (feature): feature is string => typeof feature === 'string' && feature.length > 0,
+    )
+    if (features.length) {
+      const message = t(
+        'ui.auth.accessDenied.missingFeatures',
+        'Access denied: you are missing the required permission "{features}". Contact your administrator.',
+        { features: features.join(', ') },
+      )
+      if (!(error instanceof ForbiddenError)) flash(message, 'error')
+      return new Error(message, { cause: error })
+    }
+  }
+
+  flash(error instanceof Error ? error.message : fallback, 'error')
+  return error
 }
 
 function toTimestamp(value: string | null | undefined): number | null {
@@ -121,6 +146,7 @@ export function TasksSection({
   dialogContextFallback,
   useCanonicalInteractions = false,
   runGuardedMutation,
+  readOnly = false,
 }: TasksSectionProps) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
@@ -250,6 +276,10 @@ export function TasksSection({
   }, [])
 
   React.useEffect(() => {
+    if (readOnly) closeDialog()
+  }, [closeDialog, readOnly])
+
+  React.useEffect(() => {
     if (!dialogOpen || dialogMode !== 'edit' || !editingTask) return
     const refreshedTask = tasks.find((task) => task.id === editingTask.id)
     if (!refreshedTask || refreshedTask === editingTask) return
@@ -258,7 +288,7 @@ export function TasksSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
-    if (!entityId) {
+    if (!entityId || readOnly) {
       onActionChange(null)
       return
     }
@@ -270,7 +300,7 @@ export function TasksSection({
     return () => {
       onActionChange(null)
     }
-  }, [addActionLabel, entityId, isMutating, onActionChange, openCreateDialog])
+  }, [addActionLabel, entityId, isMutating, onActionChange, openCreateDialog, readOnly])
 
   React.useEffect(() => {
     if (!onLoadingChange) return
@@ -311,11 +341,7 @@ export function TasksSection({
         flash(t('customers.people.detail.tasks.createSuccess', 'Task created'), 'success')
         await Promise.resolve(onDataRefresh?.())
       } catch (err) {
-        if (!isRecordConflict(err)) {
-          const message = err instanceof Error ? err.message : t('customers.people.detail.tasks.error', 'Failed to create task')
-          flash(message, 'error')
-        }
-        throw err
+        throw reportTaskMutationError(err, t('customers.people.detail.tasks.error', 'Failed to create task'), t)
       }
     },
     [createTask, entityId, onDataRefresh, runWriteMutation, t],
@@ -337,12 +363,7 @@ export function TasksSection({
         flash(t('customers.people.detail.tasks.updateSuccess', 'Task updated'), 'success')
         await Promise.resolve(onDataRefresh?.())
       } catch (err) {
-        if (!isRecordConflict(err)) {
-          const message =
-            err instanceof Error ? err.message : t('customers.people.detail.tasks.updateError', 'Failed to update task')
-          flash(message, 'error')
-        }
-        throw err
+        throw reportTaskMutationError(err, t('customers.people.detail.tasks.updateError', 'Failed to update task'), t)
       }
     },
     [onDataRefresh, runWriteMutation, t, updateTask],
@@ -368,11 +389,7 @@ export function TasksSection({
         )
         await Promise.resolve(onDataRefresh?.())
       } catch (err) {
-        if (!isRecordConflict(err)) {
-          const message =
-            err instanceof Error ? err.message : t('customers.people.detail.tasks.toggleError', 'Failed to update task status')
-          flash(message, 'error')
-        }
+        reportTaskMutationError(err, t('customers.people.detail.tasks.toggleError', 'Failed to update task status'), t)
       }
     },
     [onDataRefresh, runWriteMutation, t, toggleTask],
@@ -403,11 +420,7 @@ export function TasksSection({
         await Promise.resolve(onDataRefresh?.())
         await refresh()
       } catch (err) {
-        if (!isRecordConflict(err)) {
-          const message =
-            err instanceof Error ? err.message : t('customers.people.detail.tasks.deleteError', 'Failed to remove task')
-          flash(message, 'error')
-        }
+        reportTaskMutationError(err, t('customers.people.detail.tasks.deleteError', 'Failed to remove task'), t)
       }
     },
     [confirm, onDataRefresh, refresh, runWriteMutation, t, unlinkTask],
@@ -425,11 +438,7 @@ export function TasksSection({
         flash(t('customers.people.detail.tasks.cancelSuccess', 'Task canceled'), 'success')
         await Promise.resolve(onDataRefresh?.())
       } catch (err) {
-        if (!isRecordConflict(err)) {
-          const message =
-            err instanceof Error ? err.message : t('customers.people.detail.tasks.cancelError', 'Failed to cancel task')
-          flash(message, 'error')
-        }
+        reportTaskMutationError(err, t('customers.people.detail.tasks.cancelError', 'Failed to cancel task'), t)
       }
     },
     [canonicalResult, onDataRefresh, runWriteMutation, t, useCanonicalInteractions],
@@ -508,7 +517,6 @@ export function TasksSection({
               const title = task.title ?? t('customers.people.detail.tasks.untitled', 'Untitled task')
               const isDone = task.isDone === true
               const isCanceled = task.status === 'canceled'
-              const checkboxId = `person-task-${task.id}`
               const isPendingToggle = pendingTaskId === task.todoId
               return (
                 <article key={task.id} className="group space-y-3 rounded-lg border bg-card p-4 transition hover:border-border/70">
@@ -516,16 +524,12 @@ export function TasksSection({
                     <TimelineItemHeader
                       title={
                         <span className="inline-flex items-center gap-2">
-                          <input
-                            id={checkboxId}
-                            type="checkbox"
+                          <Checkbox
+                            id={`person-task-${task.id}`}
+                            aria-label={title}
                             checked={isDone}
-                            onChange={(event) => {
-                              const next = event.target.checked
-                              void handleToggle(task, next)
-                            }}
-                            disabled={isMutating || isPendingToggle || isCanceled}
-                            className="h-4 w-4 rounded border"
+                            onCheckedChange={(checked) => { void handleToggle(task, checked === true) }}
+                            disabled={readOnly || isMutating || isPendingToggle || isCanceled}
                           />
                           <span
                             className={cn(
@@ -551,32 +555,34 @@ export function TasksSection({
                       timestamp={task.createdAt}
                       fallbackTimestampLabel={createdLabel}
                     />
-                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                      <IconButton
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEditDialog(task)}
-                        disabled={isMutating}
-                        aria-label={t('ui.actions.edit', 'Edit')}
-                      >
-                        {isMutating && editingTask?.id === task.id && dialogMode === 'edit' ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Pencil className="h-4 w-4" />
-                        )}
-                      </IconButton>
-                      <IconButton
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(task)}
-                        disabled={isMutating}
-                        aria-label={t('ui.actions.delete', 'Delete')}
-                      >
-                        {isMutating ? <Loader2 className="h-4 w-4 animate-spin text-destructive" /> : <Trash2 className="h-4 w-4" />}
-                      </IconButton>
-                    </div>
+                    {!readOnly ? (
+                      <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        <IconButton
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEditDialog(task)}
+                          disabled={isMutating}
+                          aria-label={t('ui.actions.edit', 'Edit')}
+                        >
+                          {isMutating && editingTask?.id === task.id && dialogMode === 'edit' ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Pencil className="h-4 w-4" />
+                          )}
+                        </IconButton>
+                        <IconButton
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(task)}
+                          disabled={isMutating}
+                          aria-label={t('ui.actions.delete', 'Delete')}
+                        >
+                          {isMutating ? <Loader2 className="h-4 w-4 animate-spin text-destructive" /> : <Trash2 className="h-4 w-4" />}
+                        </IconButton>
+                      </div>
+                    ) : null}
                   </div>
                   {meta.length ? (
                     <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
@@ -591,7 +597,7 @@ export function TasksSection({
                     <p className="text-sm text-muted-foreground whitespace-pre-wrap">{task.description}</p>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-3 text-xs">
-                    {useCanonicalInteractions && !isDone && !isCanceled ? (
+                    {!readOnly && useCanonicalInteractions && !isDone && !isCanceled ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -646,26 +652,29 @@ export function TasksSection({
         ) : null}
       </div>
 
-      <TaskDialog
-        open={dialogOpen}
-        mode={dialogMode}
-        onOpenChange={(next) => {
-          if (!next) closeDialog()
-          else setDialogOpen(true)
-        }}
-        initialValues={buildInitialFormValues(editingTask)}
-        onSubmit={handleDialogSubmit}
-        isSubmitting={isMutating}
-        contextMessage={dialogContextMessage}
-        useCanonicalInteractions={useCanonicalInteractions || Boolean(
-          editingTask?.todoSource === CUSTOMER_INTERACTION_TASK_SOURCE
-          && editingTask.status
-          && editingTask.status !== 'planned'
-          && editingTask.status !== 'done'
-        )}
-      />
-
-      {ConfirmDialogElement}
+      {!readOnly ? (
+        <>
+          <TaskDialog
+            open={dialogOpen}
+            mode={dialogMode}
+            onOpenChange={(next) => {
+              if (!next) closeDialog()
+              else setDialogOpen(true)
+            }}
+            initialValues={buildInitialFormValues(editingTask)}
+            onSubmit={handleDialogSubmit}
+            isSubmitting={isMutating}
+            contextMessage={dialogContextMessage}
+            useCanonicalInteractions={useCanonicalInteractions || Boolean(
+              editingTask?.todoSource === CUSTOMER_INTERACTION_TASK_SOURCE
+              && editingTask.status
+              && editingTask.status !== 'planned'
+              && editingTask.status !== 'done'
+            )}
+          />
+          {ConfirmDialogElement}
+        </>
+      ) : null}
     </div>
   )
 }

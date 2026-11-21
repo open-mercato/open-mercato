@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import type { TodoLinkSummary } from '../types'
 import { TasksSection } from '../TasksSection'
@@ -94,6 +94,62 @@ describe('TasksSection', () => {
       completeInteraction: jest.fn(async () => undefined),
       deleteInteraction: jest.fn(async () => undefined),
     })
+  })
+
+  it.each([false, true])('keeps tasks visible without offering writes in read-only mode (canonical=%s)', (useCanonicalInteractions) => {
+    usePersonTasksMock.mockReturnValue({ tasks: [sampleTask] })
+    useInteractionsMock.mockReturnValue({ interactions: [sampleTask] })
+    const onActionChange = jest.fn()
+
+    renderWithProviders(
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[sampleTask]}
+        emptyLabel="No date"
+        addActionLabel="Add task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Add task' }}
+        onActionChange={onActionChange}
+        useCanonicalInteractions={useCanonicalInteractions}
+        readOnly
+      />,
+    )
+
+    expect(screen.getByText('Follow up call')).toBeVisible()
+    expect(screen.getByRole('checkbox')).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel task' })).not.toBeInTheDocument()
+    expect(onActionChange.mock.calls).toEqual([[null]])
+    expect(taskDialogMock).not.toHaveBeenCalled()
+  })
+
+  it('names the required feature in the submission error if the server rejects a task write', async () => {
+    const error = Object.assign(new Error('Forbidden'), {
+      status: 403,
+      requiredFeatures: ['customers.interactions.manage'],
+    })
+    const onActionChange = jest.fn()
+    usePersonTasksMock.mockReturnValue({
+      ...usePersonTasksMock(),
+      createTask: jest.fn().mockRejectedValue(error),
+    })
+
+    renderWithProviders(
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[]}
+        emptyLabel="No date"
+        addActionLabel="Add task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Add task' }}
+        onActionChange={onActionChange}
+      />,
+    )
+
+    act(() => onActionChange.mock.lastCall?.[0].onClick())
+    const dialog = taskDialogMock.mock.lastCall?.[0]
+    expect(dialog?.open).toBe(true)
+    await expect(dialog?.onSubmit({ base: { title: 'Follow up call' }, custom: {} }))
+      .rejects.toThrow('customers.interactions.manage')
   })
 
   it('keeps the View all tasks navigation visible even when the task list is empty', () => {
@@ -245,7 +301,7 @@ describe('TasksSection', () => {
     expect(screen.queryByText('No tasks yet')).toBeNull()
     expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(2)
     expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2)
-    expect(screen.getAllByRole('checkbox').filter((checkbox) => (checkbox as HTMLInputElement).checked)).toHaveLength(1)
+    expect(screen.getAllByRole('checkbox', { checked: true })).toHaveLength(1)
 
     firstMount.unmount()
     renderWithProviders(section)

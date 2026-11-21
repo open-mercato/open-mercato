@@ -2,9 +2,10 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import type { SectionAction } from '../../../../../components/detail/types'
 import PersonDetailV2Page from '../page'
 
 const readApiResultOrThrowMock = jest.fn()
@@ -14,11 +15,13 @@ const personDetailTabsPropsCapture: {
   current: {
     injectedTabs?: Array<{ id: string; label: string; priority?: number }>
     hiddenTabIds?: string[]
+    sectionAction?: SectionAction | null
   } | null
 } = { current: null }
 let mockGrantedFeatures: string[] = []
 let activeTabParam: string | null = 'changelog'
 let injectedTabWidgets: Array<Record<string, unknown>> = []
+let taskActionChange: ((action: SectionAction | null) => void) | undefined
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
@@ -133,12 +136,14 @@ jest.mock('../../../../../components/detail/PersonDetailTabs', () => ({
     children,
     injectedTabs,
     hiddenTabIds,
+    sectionAction,
   }: {
     children: React.ReactNode
     injectedTabs?: Array<{ id: string; label: string; priority?: number }>
     hiddenTabIds?: string[]
+    sectionAction?: SectionAction | null
   }) => {
-    personDetailTabsPropsCapture.current = { injectedTabs, hiddenTabIds }
+    personDetailTabsPropsCapture.current = { injectedTabs, hiddenTabIds, sectionAction }
     return <div>{children}</div>
   },
 }))
@@ -156,7 +161,16 @@ jest.mock('../../../../../components/detail/DealsSection', () => ({
 }))
 
 jest.mock('../../../../../components/detail/TasksSection', () => ({
-  TasksSection: () => <div>tasks</div>,
+  TasksSection: ({
+    readOnly,
+    onActionChange,
+  }: {
+    readOnly?: boolean
+    onActionChange?: (action: SectionAction | null) => void
+  }) => {
+    taskActionChange = onActionChange
+    return <div data-read-only={readOnly}>tasks</div>
+  },
 }))
 
 jest.mock('../../../../../components/detail/hooks/useCanManageInteractions', () => ({
@@ -188,6 +202,7 @@ describe('PersonDetailV2Page', () => {
     activeTabParam = 'changelog'
     mockGrantedFeatures = ['customers.interactions.*', 'customers.roles.*']
     injectedTabWidgets = []
+    taskActionChange = undefined
     personDetailTabsPropsCapture.current = null
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockResolvedValue({
@@ -311,6 +326,34 @@ describe('PersonDetailV2Page', () => {
     expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(
       expect.stringContaining('/api/customers/interactions'),
     )
+  })
+
+  it.each([
+    ['customers.interactions.view', true],
+    ['customers.interactions.manage', false],
+    ['customers.*', false],
+    ['*', false],
+  ] as const)('sets task write access for %s', async (feature, readOnly) => {
+    activeTabParam = 'tasks'
+    mockGrantedFeatures = ['customers.people.view', 'customers.interactions.view', feature]
+    renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
+
+    expect(await screen.findByText('tasks')).toHaveAttribute('data-read-only', String(readOnly))
+  })
+
+  it('removes a previously registered task action when write access is lost', async () => {
+    activeTabParam = 'tasks'
+    const page = <PersonDetailV2Page params={{ id: 'person-123' }} />
+    const { rerender } = renderWithProviders(page)
+    await screen.findByText('tasks')
+    const action = { label: 'Add task', onClick: jest.fn() }
+    act(() => taskActionChange?.(action))
+    expect(personDetailTabsPropsCapture.current?.sectionAction).toBe(action)
+
+    mockGrantedFeatures = ['customers.people.view', 'customers.interactions.view']
+    rerender(<PersonDetailV2Page params={{ id: 'person-123' }} />)
+
+    expect(personDetailTabsPropsCapture.current?.sectionAction).toBeNull()
   })
 
   it('renders the AddressesSection when the addresses tab is active', async () => {

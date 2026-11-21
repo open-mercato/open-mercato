@@ -72,6 +72,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const { payload: chrome } = useBackendChrome()
   const grantedFeatures = chrome?.grantedFeatures ?? []
   const canViewInteractions = hasFeature(grantedFeatures, 'customers.interactions.view')
+  const canManageInteractions = hasFeature(grantedFeatures, 'customers.interactions.manage')
   const canViewRoles = hasFeature(grantedFeatures, 'customers.roles.view')
   const isMobile = useIsMobile()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -581,7 +582,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 companiesCount={companyCount}
                 addressesCount={data?.counts?.addresses ?? 0}
                 tasksCount={todoCount}
-                sectionAction={sectionAction}
+                sectionAction={activeTab === 'tasks' && !canManageInteractions ? null : sectionAction}
               >
                 <div className="min-w-0">
                 {(() => {
@@ -674,6 +675,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                       <TasksSection
                         entityId={personId}
                         initialTasks={[]}
+                        readOnly={!canManageInteractions}
                         useCanonicalInteractions={useCanonicalInteractions}
                         runGuardedMutation={runMutationWithContext}
                         onDataRefresh={loadData}
