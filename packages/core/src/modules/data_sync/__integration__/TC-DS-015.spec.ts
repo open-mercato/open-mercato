@@ -1,59 +1,114 @@
-import { expect, test, type APIResponse } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+import { expect, test as base, type APIRequestContext, type APIResponse } from '@playwright/test'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { login } from '@open-mercato/core/helpers/integration/auth'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
+import {
+  BATCH_SIZE_FIXTURE_ENTITY,
+  BATCH_SIZE_FIXTURE_ID,
+  BATCH_SIZE_FIXTURE_TITLE,
+} from './fixtures/batch-size-adapter'
+import { decodeTokenScope, deleteSyncAdapterFixture, seedSyncRun, type SyncRunScope } from './helpers/db'
+import { readJson } from './helpers/support'
 
-type JsonRecord = Record<string, unknown>
+const target = {
+  integrationId: BATCH_SIZE_FIXTURE_ID,
+  entityType: BATCH_SIZE_FIXTURE_ENTITY,
+  direction: 'import',
+} as const
 
-async function readJson(response: APIResponse): Promise<JsonRecord> {
-  return ((await readJsonSafe<JsonRecord>(response)) ?? {}) as JsonRecord
+const test = base.extend<{ syncFixture: { token: string; scope: SyncRunScope } }>({
+  syncFixture: async ({ request }, runWithFixture) => {
+    const token = await getAuthToken(request, 'admin')
+    const scope = decodeTokenScope(token)
+    const options = await apiRequest(request, 'GET', '/api/data_sync/options', { token })
+    expect(options.status()).toBe(200)
+    expect((await readJson(options)).items).toContainEqual(expect.objectContaining({
+      integrationId: target.integrationId,
+      supportedEntities: [target.entityType],
+      defaultBatchSizes: { [target.entityType]: 500 },
+    }))
+
+    try {
+      const credentials = await apiRequest(request, 'PUT', `/api/integrations/${target.integrationId}/credentials`, {
+        token,
+        data: { credentials: {} },
+      })
+      expect(credentials.status()).toBe(200)
+      await runWithFixture({ token, scope })
+    } finally {
+      await deleteSyncAdapterFixture(target.integrationId, scope)
+    }
+  },
+})
+
+async function startedRunId(response: APIResponse): Promise<string> {
+  expect(response.status()).toBe(201)
+  const { id } = await readJson(response)
+  expect(id).toEqual(expect.any(String))
+  return String(id)
 }
 
-/**
- * TC-DS-015: Data sync adapters advertise their declared default page size
- *
- * Covers the wire contract of `.ai/specs/2026-09-16-data-sync-adapter-default-batch-size.md`:
- * `GET /api/data_sync/options` ships a sparse `defaultBatchSizes` map per
- * integration — the map the dashboard reads to seed its Batch size field — and
- * every value must be one the run API itself accepts, so a declaration can never
- * produce a run request the API rejects. An adapter that declares nothing ships
- * `{}`; the dashboard then keeps core's 100, exactly as before the feature.
- *
- * The declared-value half of the contract (an adapter's number reaching the queued
- * run and the seeded field) is covered at the chokepoint in
- * `lib/__tests__/start-run.test.ts` and, for the shipped map, by
- * `api/__tests__/options.test.ts`; this spec pins the public shape the UI consumes.
- */
+async function expectAdapterBatchSize(
+  request: APIRequestContext,
+  token: string,
+  runId: string,
+  batchSize: number,
+): Promise<void> {
+  await drainIntegrationQueue('data-sync-import')
+  const response = await apiRequest(request, 'GET', `/api/data_sync/runs/${runId}`, { token })
+  expect(response.status()).toBe(200)
+  expect(await readJson(response)).toMatchObject({
+    status: 'completed',
+    batchesCompleted: 1,
+    cursor: `batch-size:${batchSize}`,
+  })
+}
+
 test.describe('TC-DS-015: Data sync adapter default batch size', () => {
-  test('options expose a well-formed defaultBatchSizes map for every data sync integration', async ({ request }) => {
-    const token = await getAuthToken(request, 'admin')
+  test('starts and retries at the adapter default and honors an explicit override', async ({ request, syncFixture }) => {
+    const { token, scope } = syncFixture
+    const omitted = await apiRequest(request, 'POST', '/api/data_sync/run', { token, data: target })
+    await expectAdapterBatchSize(request, token, await startedRunId(omitted), 500)
 
-    const response = await apiRequest(request, 'GET', '/api/data_sync/options', { token })
-    expect(response.status()).toBe(200)
-    const body = await readJson(response)
-    const items = Array.isArray(body.items) ? (body.items as JsonRecord[]) : []
+    const overridden = await apiRequest(request, 'POST', '/api/data_sync/run', {
+      token,
+      data: { ...target, batchSize: 100 },
+    })
+    await expectAdapterBatchSize(request, token, await startedRunId(overridden), 100)
 
-    // The contract is provider-agnostic: every integration advertises an object
-    // whose keys are its own entity types and whose values are page sizes the
-    // run API would itself accept. An adapter that declares nothing ships `{}`
-    // — the dashboard then seeds core's default, as it always has.
-    for (const item of items) {
-      const defaultBatchSizes = item.defaultBatchSizes
-      expect(defaultBatchSizes).toBeTruthy()
-      expect(Array.isArray(defaultBatchSizes)).toBe(false)
-      expect(typeof defaultBatchSizes).toBe('object')
+    const failedRunId = await seedSyncRun({ ...scope, ...target, status: 'failed' })
+    const retry = await apiRequest(request, 'POST', `/api/data_sync/runs/${failedRunId}/retry`, {
+      token,
+      data: { fromBeginning: true },
+    })
+    const retriedRunId = await startedRunId(retry)
+    expect(retriedRunId).not.toBe(failedRunId)
+    await expectAdapterBatchSize(request, token, retriedRunId, 500)
+  })
 
-      const supportedEntities = Array.isArray(item.supportedEntities)
-        ? (item.supportedEntities as unknown[]).filter((value): value is string => typeof value === 'string')
-        : []
+  test('seeds and submits the adapter default from the dashboard', async ({ page, request, syncFixture }) => {
+    await login(page, 'admin')
+    await page.goto('/backend/data-sync')
+    const startCard = page.locator('[data-slot="card"]').filter({
+      has: page.getByText('Start or schedule a sync', { exact: true }),
+    })
+    const integration = startCard.getByText('Integration', { exact: true }).locator('../..').getByRole('combobox')
+    await integration.click()
+    await page.getByRole('option', { name: BATCH_SIZE_FIXTURE_TITLE, exact: true }).click()
+    const batchSize = startCard.getByText('Batch size', { exact: true }).locator('../..').getByRole('textbox')
+    await expect(batchSize).toHaveValue('500')
 
-      for (const [entityType, declared] of Object.entries(defaultBatchSizes as JsonRecord)) {
-        expect(supportedEntities).toContain(entityType)
-        expect(Number.isInteger(declared)).toBe(true)
-        // Clamped to the same bounds the run API accepts, so a declared
-        // value can never be one the run API would reject.
-        expect(declared as number).toBeGreaterThanOrEqual(1)
-        expect(declared as number).toBeLessThanOrEqual(1000)
-      }
-    }
+    const [response] = await Promise.all([
+      page.waitForResponse((candidate) =>
+        new URL(candidate.url()).pathname === '/api/data_sync/run' && candidate.request().method() === 'POST',
+      ),
+      startCard.getByRole('button', { name: 'Start sync', exact: true }).click(),
+    ])
+    expect(response.request().postDataJSON()).toMatchObject({ ...target, batchSize: 500 })
+    expect(response.status()).toBe(201)
+    const { id } = await response.json() as { id: string }
+    expect(id).toEqual(expect.any(String))
+    await expect(page).toHaveURL(new RegExp(`/backend/data-sync/runs/${id}$`))
+    await expectAdapterBatchSize(request, syncFixture.token, id, 500)
   })
 })
