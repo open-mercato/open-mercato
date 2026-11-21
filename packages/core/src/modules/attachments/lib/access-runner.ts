@@ -157,7 +157,7 @@ export async function evaluateAttachmentAccess(input: {
     }
     try {
       const raw = await withinBudget(() => resolver.resolve(Object.freeze({
-        action, subject, em, commitBoundary,
+        action, subject, em: commitBoundary ? em : undefined, commitBoundary,
         attachment: Object.freeze({
           id: attachment.id, entityId: attachment.entityId, recordId: attachment.recordId,
           partitionCode: attachment.partitionCode, tenantId: attachment.tenantId,
