@@ -10,7 +10,6 @@ import { createFulltextIndexingQueue, type FulltextIndexJobPayload } from '../..
 import { createEmbeddingProviderProbe } from './lib/provider-probe'
 import type { Queue } from '@open-mercato/queue'
 
-const EMBEDDING_SERVICE_KEY = '__omSearchEmbeddingService__'
 const VECTOR_DRIVERS_KEY = '__omSearchVectorDrivers__'
 const VECTOR_INDEX_QUEUE_KEY = '__omSearchVectorIndexQueue__'
 const FULLTEXT_INDEX_QUEUE_KEY = '__omSearchFulltextIndexQueue__'
@@ -18,7 +17,6 @@ const PG_POOL_KEY = '__omSearchVectorPgPool__'
 const SHUTDOWN_KEY = '__omSearchSingletonsShutdown__'
 
 type SearchSingletonCache = {
-  [EMBEDDING_SERVICE_KEY]?: EmbeddingService
   [VECTOR_DRIVERS_KEY]?: ReturnType<typeof createPgVectorDriver>[]
   [VECTOR_INDEX_QUEUE_KEY]?: Queue<VectorIndexJobPayload>
   [FULLTEXT_INDEX_QUEUE_KEY]?: Queue<FulltextIndexJobPayload>
@@ -49,7 +47,6 @@ function buildQueueOptions(): {
 }
 
 function getOrCreateSingletons(): {
-  embeddingService: EmbeddingService
   drivers: ReturnType<typeof createPgVectorDriver>[]
   vectorIndexQueue: Queue<VectorIndexJobPayload>
   fulltextIndexQueue: Queue<FulltextIndexJobPayload>
@@ -57,20 +54,16 @@ function getOrCreateSingletons(): {
   const g = getSearchGlobals()
 
   if (
-    g[EMBEDDING_SERVICE_KEY] &&
     g[VECTOR_DRIVERS_KEY] &&
     g[VECTOR_INDEX_QUEUE_KEY] &&
     g[FULLTEXT_INDEX_QUEUE_KEY]
   ) {
     return {
-      embeddingService: g[EMBEDDING_SERVICE_KEY],
       drivers: g[VECTOR_DRIVERS_KEY],
       vectorIndexQueue: g[VECTOR_INDEX_QUEUE_KEY],
       fulltextIndexQueue: g[FULLTEXT_INDEX_QUEUE_KEY],
     }
   }
-
-  const embeddingService = new EmbeddingService()
 
   // Create the pgvector pool separately so we can close it in the shutdown hook
   let pgPool: PgPool | undefined
@@ -98,7 +91,6 @@ function getOrCreateSingletons(): {
     queueConnection,
   )
 
-  g[EMBEDDING_SERVICE_KEY] = embeddingService
   g[VECTOR_DRIVERS_KEY] = drivers
   g[VECTOR_INDEX_QUEUE_KEY] = vectorIndexQueue
   g[FULLTEXT_INDEX_QUEUE_KEY] = fulltextIndexQueue
@@ -116,7 +108,7 @@ function getOrCreateSingletons(): {
     g[SHUTDOWN_KEY] = true
   }
 
-  return { embeddingService, drivers, vectorIndexQueue, fulltextIndexQueue }
+  return { drivers, vectorIndexQueue, fulltextIndexQueue }
 }
 
 /**
@@ -128,9 +120,9 @@ function getOrCreateSingletons(): {
  * - vectorIndexQueue: Queue for vector indexing jobs
  * - fulltextIndexQueue: Queue for fulltext indexing jobs
  *
- * These four are process-scoped singletons (globalThis) to avoid per-request pg.Pool
+ * Drivers and queues are process-scoped singletons (globalThis) to avoid per-request pg.Pool
  * creation, DDL re-runs, and BullMQ/ioredis connection leaks. Disable with
- * SEARCH_DISABLE_SINGLETON_CACHE=1.
+ * SEARCH_DISABLE_SINGLETON_CACHE=1. Embedding state belongs to this request/job container.
  *
  * Note: VectorIndexService is no longer registered here. Use SearchIndexer instead,
  * which is registered in the main search module DI (packages/search/src/di.ts).
@@ -152,10 +144,10 @@ export function register(container: AppContainer) {
     return
   }
 
-  const { embeddingService, drivers, vectorIndexQueue, fulltextIndexQueue } = getOrCreateSingletons()
+  const { drivers, vectorIndexQueue, fulltextIndexQueue } = getOrCreateSingletons()
 
   container.register({
-    vectorEmbeddingService: asValue(embeddingService),
+    vectorEmbeddingService: asValue(new EmbeddingService()),
     vectorDrivers: asValue(drivers),
     vectorIndexQueue: asValue(vectorIndexQueue),
     fulltextIndexQueue: asValue(fulltextIndexQueue),

@@ -58,6 +58,7 @@ jest.mock('../modules/search/lib/reindex-progress', () => ({
   completeReindexProgress: jest.fn().mockResolvedValue(undefined),
 }))
 
+import { resolveEmbeddingConfig } from '../modules/search/lib/embedding-config'
 import { handleVectorIndexJob } from '../modules/search/workers/vector-index.worker'
 import {
   __resetSkippedWithoutIndexingMemo,
@@ -166,6 +167,7 @@ describe('Vector Index Worker', () => {
 
     await handleVectorIndexJob(job, ctx, mockContainer)
 
+    expect(resolveEmbeddingConfig).toHaveBeenCalledWith(mockContainer, { defaultValue: null, scope: { tenantId: 'tenant-123' } })
     expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledWith({
       entityId: 'customers:customer_person_profile',
       recordId: 'rec-123',
@@ -264,6 +266,7 @@ describe('Vector Index Worker', () => {
     expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
     expect(mockEmbeddingService.createEmbedding).not.toHaveBeenCalled()
     expect(searchLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(resolveEmbeddingConfig).toHaveBeenCalledWith(mockContainer, { defaultValue: null, scope: { tenantId: 'tenant-123' } })
     expect(String(searchLoggerWarn.mock.calls[0][0])).toContain('Skipping vector batch')
   })
 

@@ -49,6 +49,15 @@ export function assertSafeOllamaBaseUrl(rawUrl: string): void {
   })
 }
 
+export function assertTenantOllamaBaseUrl(rawUrl: string): void {
+  assertSafeOllamaBaseUrl(rawUrl)
+  const operatorUrl = new URL(process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434')
+  const candidate = new URL(rawUrl)
+  if (candidate.href.replace(/\/$/, '') === operatorUrl.href.replace(/\/$/, '')) return
+  if (candidate.protocol === 'https:' && allowlistMatches(rawUrl, getOllamaBaseUrlAllowlist())) return
+  throw new UnsafeOllamaBaseUrlError('operator_not_allowed')
+}
+
 export type SafeOllamaFetchDeps = {
   lookupHost?: HostLookup
   fetchImpl?: SafeOutboundFetchOptions['fetchImpl']
@@ -101,7 +110,12 @@ export async function safeOllamaFetch(
       )
     }
 
+    await response.body?.cancel()
     const nextUrl = new URL(location, currentUrl)
+    assertSafeOllamaBaseUrl(nextUrl.toString())
+    if (new URL(currentUrl).protocol === 'https:' && nextUrl.protocol === 'http:') {
+      throw new UnsafeOllamaBaseUrlError('operator_not_allowed')
+    }
     if (nextUrl.origin !== new URL(currentUrl).origin) {
       currentHeaders = new Headers(currentHeaders)
       currentHeaders.delete('authorization')
@@ -117,7 +131,6 @@ export async function safeOllamaFetch(
       currentHeaders.delete('content-length')
       currentHeaders.delete('content-type')
     }
-    await response.body?.cancel()
     currentUrl = nextUrl.toString()
   }
 

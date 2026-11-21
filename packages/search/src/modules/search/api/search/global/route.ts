@@ -105,7 +105,7 @@ export async function GET(req: Request) {
     // Load embedding config for vector strategy (only if vector is enabled)
     if (strategies.includes('vector')) {
       try {
-        const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
+        const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null, scope: { tenantId: auth.tenantId } })
         if (embeddingConfig) {
           const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
           embeddingService.updateConfig(embeddingConfig)

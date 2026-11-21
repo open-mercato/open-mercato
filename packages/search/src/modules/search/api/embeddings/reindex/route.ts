@@ -103,7 +103,7 @@ export async function POST(req: Request) {
 
     // Load saved embedding config and update the embedding service
     try {
-      const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
+      const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null, scope: { tenantId: auth.tenantId } })
       if (embeddingConfig) {
         const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
         embeddingService.updateConfig(embeddingConfig)

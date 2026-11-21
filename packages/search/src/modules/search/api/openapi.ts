@@ -549,7 +549,15 @@ export const embeddingsOpenApi: OpenApiRouteDoc = {
         { status: 200, description: 'Updated settings', schema: embeddingsSettingsResponseSchema },
         { status: 400, description: 'Invalid request', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
-        { status: 409, description: 'Auto-indexing disabled via environment', schema: errorResponseSchema },
+        {
+          status: 409,
+          description: 'Stale configuration version, incompatible provider dimension, unavailable provider, or auto-indexing disabled via environment',
+          schema: errorResponseSchema.extend({
+            code: z.string().optional(),
+            currentUpdatedAt: z.string().optional(),
+            expectedUpdatedAt: z.string().optional(),
+          }),
+        },
         { status: 500, description: 'Update failed', schema: errorResponseSchema },
         { status: 503, description: 'Configuration service unavailable', schema: errorResponseSchema },
       ],

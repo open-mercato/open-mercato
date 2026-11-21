@@ -6129,3 +6129,21 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+## Tenant embedding runtime isolation (#9135)
+
+Tenant embedding settings now affect only that tenant's request/job container.
+Clients sending an arbitrary public Ollama `baseUrl` to `POST /api/search/embeddings`
+receive `400` with `reason: operator_not_allowed`; use the operator-approved URL.
+Operators can retain approved destinations with the existing `OLLAMA_BASE_URL` or
+`OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST` host/host:port settings. Allowlist matches
+require HTTPS; an HTTP endpoint must exactly match `OLLAMA_BASE_URL`, including
+its scheme and path, and still satisfy the existing SSRF policy. HTTPS requests
+refuse HTTP redirects before forwarding any request body; explicitly configured
+HTTP endpoints remain supported for direct requests. No new startup or
+configuration mechanism, schema migration, provider default or index rebuild is
+required. Audit saved tenant endpoints and remove unexpected values, then restart
+web and worker processes to discard the previously shared mutable service.
+A rollback restores cross-tenant query disclosure and unrestricted tenant public
+endpoints. The security exception requires named maintainer approval before merge;
+see `.ai/specs/2026-11-18-tenant-embedding-runtime-isolation.md`.

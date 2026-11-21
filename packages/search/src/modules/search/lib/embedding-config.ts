@@ -154,9 +154,15 @@ export async function saveEmbeddingConfig(
   } catch {
     throw new Error('Configuration service unavailable')
   }
+  const current = await service.getValue<EmbeddingProviderConfig>('vector', EMBEDDING_CONFIG_KEY, {
+    defaultValue: null,
+    scope: options?.scope,
+  })
+  const previousVersion = Date.parse(current?.updatedAt ?? '')
+  const nextVersion = Math.max(Date.now(), Number.isFinite(previousVersion) ? previousVersion + 1 : 0)
   await service.setValue('vector', EMBEDDING_CONFIG_KEY, {
     ...config,
-    updatedAt: new Date().toISOString(),
+    updatedAt: new Date(nextVersion).toISOString(),
   }, options?.scope)
 }
 

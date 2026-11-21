@@ -101,7 +101,7 @@ export async function GET(req: Request) {
 
     // Load embedding config for vector strategy (same as Vector Search playground)
     try {
-      const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
+      const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null, scope: { tenantId: auth.tenantId } })
       if (embeddingConfig) {
         const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
         embeddingService.updateConfig(embeddingConfig)
