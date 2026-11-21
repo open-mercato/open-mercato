@@ -82,6 +82,17 @@ describe('describeOptionsSchema', () => {
   it('returns nothing for a schema that is not an object', () => {
     expect(describeOptionsSchema(moduleWith(z.string() as never))).toEqual([])
   })
+
+  it('recognizes URL checks wrapped in optional and default string options', () => {
+    const fields = describeOptionsSchema(moduleWith(z.object({
+      endpoint: z.string().url().optional(),
+      fallback: z.string().url().default('https://fallback.example'),
+    })))
+    expect(fields).toEqual([
+      expect.objectContaining({ name: 'endpoint', format: 'url', required: false }),
+      expect.objectContaining({ name: 'fallback', format: 'url', required: false }),
+    ])
+  })
 })
 
 describe('secret round-trip', () => {
