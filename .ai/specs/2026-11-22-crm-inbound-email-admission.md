@@ -14,9 +14,9 @@ The command creates or updates a provider conversation before checking whether i
 
 ## Proposed Solution
 
-Use the stored channel type to apply admission to email. Preserve duplicate detection and use the existing scoped thread matcher and provider conversation mapping to find an existing platform thread. An external conversation with no mapped thread gives no evidence of a reply. Resolve the sender against active CRM person records in the same tenant and organization. A missing MIME From address cannot qualify through the mailbox account that the normalizer uses as a fallback sender identifier.
+Use the stored channel type to apply admission to email. Preserve duplicate detection and use the existing scoped thread matcher and provider conversation mapping to find an existing platform thread. An external conversation with no mapped thread gives no evidence of a reply. Resolve the sender against non-deleted CRM person records in the same tenant and organization. A missing MIME From address cannot qualify through the mailbox account that the normalizer uses as a fallback sender identifier.
 
-When neither test admits a message, return `{ status: 'skipped' }` before creating, updating, or composing any records. A skip emits no events and leaves no dead letter or message diagnostic. The poll and Gmail history-sync workers already consume fulfilled ingest results when advancing a cursor. Treat failed admission reads as retryable so a failed read cannot discard a valid message or persist its payload in the dead-letter store.
+When neither test admits a message, return `{ status: 'skipped' }` before creating, updating, or composing any records. A skip emits no events and leaves no dead letter or message diagnostic. The poll and Gmail history-sync workers already consume fulfilled ingest results when advancing a cursor. Treat failed admission reads as retryable so a failed read cannot discard a valid message or persist its payload in the dead-letter store. Once either thread signal establishes admission, a failed CRM lookup affects only contact attribution.
 
 The operator history worker marks its trusted runtime context so the same command ID and interceptors continue to serve that flow. Ordinary command payloads carry no admission override. Existing behavior for non-email channels uses the advisory resolver.
 
