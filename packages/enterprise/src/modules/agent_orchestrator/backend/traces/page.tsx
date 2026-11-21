@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { SortingState } from '@tanstack/react-table'
 import { RotateCw, Smile, Meh, Frown, Clock, ArrowUpDown, ChevronDown, CheckCircle2, Gauge, TriangleAlert } from 'lucide-react'
@@ -34,10 +34,11 @@ import {
   type ServerSort,
 } from '../../components/serverSort'
 import { normalizeRunIdPrefix } from '../../data/validators'
+import { readTracesUrlFilters, type TracesFacetKey } from '../../components/tracesUrlFilters'
 
 type RunsResponse = { items?: Array<Record<string, unknown>>; total?: number; totalPages?: number; totalIsCapped?: boolean }
 type WindowKey = '24h' | '7d' | '30d'
-type FacetKey = 'all' | 'errors' | 'needs-review'
+type FacetKey = TracesFacetKey
 type SortKey = 'recentDesc' | 'recentAsc' | 'latencyDesc' | 'confidenceDesc' | 'confidenceAsc' | 'agentAsc'
 
 const SORT_OPTIONS: Array<{ key: SortKey; labelKey: string }> = [
@@ -106,6 +107,8 @@ export default function AgentTracesPage() {
   const t = useT()
   const locale = useLocale()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const urlFilters = readTracesUrlFilters(searchParams)
   const [runs, setRuns] = React.useState<RunView[]>([])
   const [total, setTotal] = React.useState(0)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
@@ -116,11 +119,15 @@ export default function AgentTracesPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [window, setWindow] = React.useState<WindowKey>('7d')
-  const [facet, setFacet] = React.useState<FacetKey>('all')
+  const [facet, setFacet] = React.useState<FacetKey>(urlFilters.facet ?? 'all')
   const [search, setSearch] = React.useState('')
   // Debounced run-id prefix pushed down to the server (full-history search).
   const [idPrefix, setIdPrefix] = React.useState<string | null>(null)
-  const [agentFilters, setAgentFilters] = React.useState<string[]>([])
+  const [agentFilters, setAgentFilters] = React.useState<string[]>(urlFilters.agent ? [urlFilters.agent] : [])
+  React.useEffect(() => {
+    if (urlFilters.facet) setFacet(urlFilters.facet)
+    if (urlFilters.agent) setAgentFilters([urlFilters.agent])
+  }, [urlFilters.facet, urlFilters.agent])
   // One canonical sort state — the toolbar Select and the column headers both
   // read and write it, so the two controls can never diverge.
   const [sort, setSort] = React.useState<ServerSort>(TRACES_DEFAULT_SORT)
