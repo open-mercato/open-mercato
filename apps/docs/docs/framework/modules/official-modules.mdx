@@ -1,20 +1,20 @@
 ---
 title: Modules catalog
 sidebar_label: Modules catalog
-description: Find, install, and list Open Mercato modules from the core team, partners, and the community on modules.openmercato.com.
+description: Find, install, and list Open Mercato modules from the core team, partners, and the community on www.openmercato.com/run/modules.
 ---
 
 # Modules catalog
 
-[Open Mercato Modules](https://modules.openmercato.com) lists the modules you can add to an app without forking the platform: official `@open-mercato/*` packages and community and third-party packages. Every entry is read from the published package. Its page shows what the module adds (pages, API routes, entities, events, environment variables), its license, the Open Mercato versions it was built for, and the result of a nightly install in a fresh app.
+[Open Mercato Modules](https://www.openmercato.com/run/modules) lists the modules you can add to an app without forking the platform: official `@open-mercato/*` packages and community and third-party packages. Every entry is read from the published package. Its page shows what the module adds (pages, API routes, entities, events, environment variables), its license, the Open Mercato versions it was built for, and the result of a nightly install in a fresh app.
 
-Before you build a feature, check whether it already exists. Modules that ship inside `@open-mercato/core` are listed under [Built-in](https://modules.openmercato.com/built-in). Many of them are already on in a new app; the module's page says when you need [`module enable`](/cli/module-enable).
+Before you build a feature, check whether it already exists. Modules that ship inside `@open-mercato/core` are listed under [Built-in](https://www.openmercato.com/run/built-in). Many of them are already on in a new app; the module's page says when you need [`module enable`](/cli/module-enable).
 
 ## Find a module
 
-- Search [modules.openmercato.com](https://modules.openmercato.com) for what you need, for example `ksef`, `exchange rates`, or `when a deal is won`.
-- Browse a category, for example [Integrations & Data Sync](https://modules.openmercato.com/c/integrations-sync) or [Payments & Finance](https://modules.openmercato.com/c/payments-finance).
-- Let your coding agent ask the same data before it writes code: [For agents](https://modules.openmercato.com/for-agents) lists the read-only tools, the `om-find-module` skill, and the plain-text files agents can read.
+- Search [www.openmercato.com/run/modules](https://www.openmercato.com/run/modules) for what you need, for example `ksef`, `exchange rates`, or `when a deal is won`.
+- Browse a category, for example [Integrations & Data Sync](https://www.openmercato.com/run/c/integrations-sync) or [Payments & Finance](https://www.openmercato.com/run/c/payments-finance).
+- Let your coding agent ask the same data before it writes code: [For agents](https://www.openmercato.com/run/for-agents) lists the read-only tools, the `om-find-module` skill, and the plain-text files agents can read.
 
 ## Install a module {#installing-an-official-module}
 
@@ -39,7 +39,7 @@ See the [`module add` CLI reference](/cli/module-add) for multi-module packages,
 - **Verified** (for example `VERIFIED · 0.9`): within the last 14 days the catalog installed the newest installable stable version in a fresh app of the latest Open Mercato line, with a green baseline, and the app generated, built, and started. The package must also fit the latest line statically and pass the supply chain, hygiene, and source checks. Granted and removed automatically. The module page shows the install result on each line separately. A release that is still waiting for **Installable from** does not remove the level from the previous version.
 - **OM Quality**: a human review against a published checklist. It requires Verified.
 
-Neither level is a code review of the module. The rules are on the [quality page](https://modules.openmercato.com/quality).
+Neither level is a code review of the module. The rules are on the [quality page](https://www.openmercato.com/run/quality).
 
 ## Eject a module {#ejecting-a-module}
 
@@ -64,12 +64,12 @@ See the [`module enable` CLI reference](/cli/module-enable) for details.
 ## Publish and list your module {#publishing-your-module}
 
 1. **Publish it.** [`create-mercato-module`](https://github.com/open-mercato/create-mercato-module) turns one module of your app into an npm package, optionally with its own GitHub repository. Follow [Publishing Custom Modules](/framework/modules/publishing-custom-modules).
-2. **List it.** Open [modules.openmercato.com/submit](https://modules.openmercato.com/submit) and paste the npm package name (or open `https://modules.openmercato.com/submit?npm=<your-package>`). The page checks the package, its license, and the **Installable from** date, builds the catalog entry, and opens GitHub with the file filled in; commit it and open the pull request.
+2. **List it.** Open [www.openmercato.com/run/submit](https://www.openmercato.com/run/submit) and paste the npm package name (or open `https://www.openmercato.com/run/submit?npm=<your-package>`). The page checks the package, its license, and the **Installable from** date, builds the catalog entry, and opens GitHub with the file filled in; commit it and open the pull request.
 
-After the pull request is merged, the module is read from its published source within minutes and installed in the next nightly run. To request an OM Quality review, follow the steps on the [quality page](https://modules.openmercato.com/quality).
+After the pull request is merged, the module is read from its published source within minutes and installed in the next nightly run. To request an OM Quality review, follow the steps on the [quality page](https://www.openmercato.com/run/quality).
 
 Contributors who still work on the legacy `official-modules` repository from inside this monorepo can find the git-submodule workflow in [Developing Official Modules](/framework/modules/official-modules-development).
 
 ## Browse available modules {#browse-available-modules}
 
-Visit **[modules.openmercato.com](https://modules.openmercato.com)** for the full list, the [compatibility matrix](https://modules.openmercato.com/compat) of modules and Open Mercato versions, and the [Built-in](https://modules.openmercato.com/built-in) modules.
+Visit **[www.openmercato.com/run/modules](https://www.openmercato.com/run/modules)** for the full list, the [compatibility matrix](https://www.openmercato.com/run/compat) of modules and Open Mercato versions, and the [Built-in](https://www.openmercato.com/run/built-in) modules.

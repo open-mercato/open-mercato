@@ -125,7 +125,7 @@ Follow the standard entity workflow: update `data/entities.ts`, run `yarn db:gen
 
 - **ACL features in `acl.ts`** decide *who may use* a capability, per role, wildcard-aware. They do not decide whether the deployment or the tenant has it. The exception is `modules.ts` `acl.features: null`, which removes the declaration itself — see above.
 - **`official-modules.json`** activates or deactivates whole modules at generate time. Coarser than everything on this page.
-- **Need a feature that might already exist?** Search the catalog before building: [Open Mercato Modules](https://modules.openmercato.com) lists installable modules, and the [Modules catalog](../framework/modules/official-modules.mdx) page explains how to install them.
+- **Need a feature that might already exist?** Search the catalog before building: [Open Mercato Modules](https://www.openmercato.com/run/modules) lists installable modules, and the [Modules catalog](../framework/modules/official-modules.mdx) page explains how to install them.
 - **Dictionaries** are tenant-editable enumerations — statuses, categories, reasons. They are data, not behaviour switches.
 - **Custom fields** extend an entity's shape per tenant. Also data.
 - **Client-side demo flags in `localStorage`** are per-browser escape hatches for surfaces that only exist in demo deployments. They are not feature toggles by the litmus test above: nothing is provisioned, nothing is tenant-scoped, and nothing is readable on the server. See below.

@@ -12,7 +12,7 @@ yarn setup
 
 `yarn setup` needs Node 24, Yarn 4 (`corepack enable`) and a running Docker engine. It checks Docker, starts PostgreSQL, Redis and Meilisearch from the app's `docker-compose.yml`, waits until they are healthy, then installs dependencies, migrates and initializes the database and starts the dev server. It copies `.env.example` to `.env` only when `.env` is missing and never overwrites it, so re-running is safe. Running PostgreSQL, Redis and Meilisearch yourself? Point `.env` at them and use `yarn setup --no-infra` (no Docker calls at all).
 
-To start from a working app instead of the bare scaffold, create it from an [app template](https://modules.openmercato.com/templates) or from any GitHub repository that holds a standalone app:
+To start from a working app instead of the bare scaffold, create it from an [app template](https://www.openmercato.com/run/templates) or from any GitHub repository that holds a standalone app:
 
 ```bash
 npx create-mercato-app my-crm --template crm
@@ -38,12 +38,12 @@ npx create-mercato-app <app-name> [options]
 |--------|-------------|
 | `--app <name>` | Bootstrap an official Open Mercato ready app from `open-mercato/ready-app-<name>` |
 | `--app-url <url>` | Bootstrap a ready app from a GitHub repository URL |
-| `--template <slug \| owner/repo>[#ref]` | Create the app from an app template: a slug listed at [modules.openmercato.com/templates](https://modules.openmercato.com/templates) or any GitHub repository. See [App Templates](#app-templates) |
+| `--template <slug \| owner/repo>[#ref]` | Create the app from an app template: a slug listed at [www.openmercato.com/run/templates](https://www.openmercato.com/run/templates) or any GitHub repository. See [App Templates](#app-templates) |
 | `--keep-name` | With `--template`, keep the template's `package.json` `name` |
 | `--preset <id>` | Select the `classic`, `empty`, `crm`, or `wms` starter without prompting |
 | `--agents <list>` | Set up `claude-code`, `codex`, `cursor`, a comma-separated subset, `all`, or `none` without prompting |
 | `--skip-agentic-setup` | Skip the interactive agentic setup wizard |
-| `--modules <list>` | Plan modules from the [Open Mercato Modules](https://modules.openmercato.com/) catalog, verified on this Open Mercato line. Prints the `yarn mercato module add` commands; installs nothing |
+| `--modules <list>` | Plan modules from the [Open Mercato Modules](https://www.openmercato.com/run/modules) catalog, verified on this Open Mercato line. Prints the `yarn mercato module add` commands; installs nothing |
 | `--module-picker` | Pick catalog modules interactively, with origin, license, level and any catalog warning shown first. Offered by default in a terminal when neither `--preset` nor `--modules` is given |
 | `--no-module-picker` | Do not offer the catalog module picker |
 | `--init-git` | Initialize a local Git repository after scaffolding |
@@ -95,7 +95,7 @@ npx create-mercato-app my-store --init-git
 
 ## App Templates
 
-An app template is a GitHub repository with a complete standalone app at its root. Listed templates are at [modules.openmercato.com/templates](https://modules.openmercato.com/templates). To save your own app as a template, use [create-mercato-template](https://github.com/open-mercato/create-mercato-template).
+An app template is a GitHub repository with a complete standalone app at its root. Listed templates are at [www.openmercato.com/run/templates](https://www.openmercato.com/run/templates). To save your own app as a template, use [create-mercato-template](https://github.com/open-mercato/create-mercato-template).
 
 ```bash
 npx create-mercato-app <app-name> --template <slug | owner/repo>[#ref] [--keep-name]

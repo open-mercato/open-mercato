@@ -601,8 +601,9 @@ test('om-find-module ships in the core tier and teaches agents to ask the module
   for (const source of [
     'search_modules({ query, omVersion, includeBuiltIn: true })',
     'yarn mercato module search "<query>" --json',
-    'https://modules.openmercato.com/llms.txt',
-    'https://modules.openmercato.com/raw/modules.md',
+    'curl -sL https://modules.openmercato.com/llms.txt',
+    'curl -sL https://modules.openmercato.com/raw/modules.md',
+    'curl -sL https://modules.openmercato.com/m/<package>.md',
   ]) {
     assert.ok(skill.includes(source), `om-find-module must name the catalog source ${source}`)
   }

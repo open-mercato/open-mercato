@@ -200,7 +200,7 @@ test('downloadReadyAppSnapshot points a missing official ready app to app templa
         error.message,
         `Official ready app repository not found: open-mercato/ready-app-prm. ${READY_APP_MISS_HINT}`,
       )
-      assert.match(error.message, /https:\/\/modules\.openmercato\.com\/templates/)
+      assert.match(error.message, /https:\/\/www\.openmercato\.com\/run\/templates/)
       assert.match(error.message, /--template <owner\/repo>/)
       return true
     },

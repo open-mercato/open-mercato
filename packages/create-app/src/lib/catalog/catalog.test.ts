@@ -354,7 +354,7 @@ test('runCatalogStep leaves out a module without an install command for a line o
   })
   assert.deepEqual(await runCatalogStep(requested.options), { commands: [], selectionFile: null, commandWarnings: {} })
   assert.deepEqual(requested.warnings, [
-    'integration_ksef_direct is verified on next, but the module catalog gives no install command for next. Add it later from https://modules.openmercato.com.',
+    'integration_ksef_direct is verified on next, but the module catalog gives no install command for next. Add it later from https://www.openmercato.com/run/modules.',
   ])
 
   const picker = stepOptions({
@@ -648,8 +648,8 @@ test('runCatalogStep tells a name the catalog lacks from a module it lists but h
   assert.deepEqual(await runCatalogStep(options), { commands: [], selectionFile: null, commandWarnings: {} })
   assert.deepEqual(warnings, [
     'Not in the module catalog: ksef_direct. Did you mean integration_ksef_direct?',
-    'Not in the module catalog: nonexistent-x. Search https://modules.openmercato.com for modules.',
-    'Not verified on 0.9: @piotrkarwatka/marketing-consents is in the module catalog, but the catalog has not verified it on 0.9. Check its page on https://modules.openmercato.com or pick an alternative there.',
+    'Not in the module catalog: nonexistent-x. Search https://www.openmercato.com/run/modules for modules.',
+    'Not verified on 0.9: @piotrkarwatka/marketing-consents is in the module catalog, but the catalog has not verified it on 0.9. Check its page on https://www.openmercato.com/run/modules or pick an alternative there.',
   ])
 })
 
@@ -902,7 +902,7 @@ test('runCatalogStep tells a preset other than classic why an older line or next
     const requested = withRequirements({ version, requested: ['gateway_stripe'], ...presetOptions('crm') })
     assert.deepEqual(await runCatalogStep(requested.options), { commands: [], selectionFile: null, commandWarnings: {} })
     assert.deepEqual(requested.warnings, [
-      `gateway_stripe is verified on ${line}, where a new classic app already ships it, and the module catalog has no install command for other presets on ${line}. Add it later from https://modules.openmercato.com.`,
+      `gateway_stripe is verified on ${line}, where a new classic app already ships it, and the module catalog has no install command for other presets on ${line}. Add it later from https://www.openmercato.com/run/modules.`,
     ])
     assert.ok(!requested.warnings.some((warning) => warning.includes(' yet')))
 
