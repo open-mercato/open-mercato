@@ -4932,6 +4932,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       {field.type === 'date' && (
         <div role="group" aria-labelledby={labelId}>
           <DatePicker
+            dismissBehavior="commit"
             value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
             onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
             disabled={disabled}
@@ -4948,6 +4949,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       {field.type === 'datetime-local' && (
         <div role="group" aria-labelledby={labelId}>
           <DateTimePicker
+            dismissBehavior="commit"
             value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
             onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
             disabled={disabled}
@@ -4964,6 +4966,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       {field.type === 'datepicker' && (
         <div role="group" aria-labelledby={labelId}>
           <DatePicker
+            dismissBehavior="commit"
             value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
             onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
             disabled={disabled}
@@ -4980,6 +4983,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       {field.type === 'datetime' && (
         <div role="group" aria-labelledby={labelId}>
           <DateTimePicker
+            dismissBehavior="commit"
             value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
             onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
             disabled={disabled}
