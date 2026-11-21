@@ -863,7 +863,7 @@
   "sales.documents.form.address.city": "도시",
   "sales.documents.form.address.company": "회사명 (선택)",
   "sales.documents.form.address.country": "국가",
-  "sales.documents.form.address.customerRequired": "먼저 고객을 선택하세요",
+  "sales.documents.form.address.customerRequired": "먼저 고객을 선택하거나 사용자 지정 주소를 입력하세요",
   "sales.documents.form.address.line1": "주소 1",
   "sales.documents.form.address.line2": "주소 2",
   "sales.documents.form.address.loading": "주소를 불러오는 중…",
