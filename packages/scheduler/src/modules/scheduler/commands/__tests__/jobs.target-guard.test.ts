@@ -55,6 +55,12 @@ function makeEm(schedule: Record<string, unknown>) {
     findOne: jest.fn().mockResolvedValue(schedule),
     persist: jest.fn(),
     flush: jest.fn().mockResolvedValue(undefined),
+    isInTransaction: jest.fn().mockReturnValue(false),
+    begin: jest.fn().mockResolvedValue(undefined),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
+    getTransactionContext: jest.fn().mockReturnValue(undefined),
+    getConnection: jest.fn().mockReturnValue({ execute: jest.fn().mockResolvedValue([]) }),
     count: jest.fn().mockResolvedValue(0),
   }
 }
