@@ -52,6 +52,11 @@ export type UserTaskResponse = {
   proposalId?: string | null
   priority?: string | number | null
   entityBindings?: UserTaskEntityBinding[] | null
+  /**
+   * Set when a host module's own UI owns completion (issue #7179): the page
+   * offers no generic form or Complete button and links to `href` instead.
+   */
+  completion?: { surface: 'host'; href: string | null } | null
   /** Definition step the task is parked on, when it could be resolved. */
   stepId?: string | null
   /**

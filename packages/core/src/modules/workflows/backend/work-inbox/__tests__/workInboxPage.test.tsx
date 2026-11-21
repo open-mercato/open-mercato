@@ -17,7 +17,7 @@
 import * as React from 'react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 const mockTranslate = (key: string, fallbackOrVars?: unknown) =>
@@ -87,7 +87,12 @@ jest.mock('@open-mercato/ui/backend/RowActions', () => ({
   RowActions: ({ items }: { items: Array<{ id: string; label: string; onSelect?: () => void; href?: string }> }) => (
     <>
       {items.map((item) => (
-        <button key={item.id} data-testid={`action-${item.id}`} onClick={() => item.onSelect?.()}>
+        <button
+          key={item.id}
+          data-testid={`action-${item.id}`}
+          data-href={item.href}
+          onClick={() => item.onSelect?.()}
+        >
           {item.label}
         </button>
       ))}
@@ -398,6 +403,62 @@ describe('Work Inbox page', () => {
 /**
  * BACKWARD_COMPATIBILITY.md §6 — widget spot ids are FROZEN.
  */
+describe('row actions on a host-owned task (issue #7179)', () => {
+  const HOST_ROW = {
+    ...TASK_ROW,
+    id: 'host-task-1',
+    title: 'Approve refund',
+    detailHref: '/backend/refunds/r-1/approve',
+    completion: { surface: 'host', href: '/backend/refunds/r-1/approve' },
+  }
+  const CORE_ROW = { ...TASK_ROW, id: 'core-task-1', completion: null }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    capturedTableProps = null
+    ;(apiCall as jest.Mock).mockResolvedValue(listResult([HOST_ROW, CORE_ROW]))
+  })
+
+  test('a host-owned row offers no generic complete action, only the host link', async () => {
+    render(<WorkInboxPage />)
+
+    await waitFor(() => expect(screen.getByTestId('row-host-task-1')).toBeTruthy())
+    const hostRow = within(screen.getByTestId('row-host-task-1'))
+    expect(hostRow.queryByTestId('action-complete')).toBeNull()
+    expect(hostRow.getByTestId('action-view').getAttribute('data-href')).toBe('/backend/refunds/r-1/approve')
+  })
+
+  test('a host-owned row without an href still offers no complete action', async () => {
+    ;(apiCall as jest.Mock).mockResolvedValue(
+      listResult([{ ...HOST_ROW, detailHref: '/backend/tasks/host-task-1', completion: { surface: 'host', href: null } }]),
+    )
+    render(<WorkInboxPage />)
+
+    await waitFor(() => expect(screen.getByTestId('row-host-task-1')).toBeTruthy())
+    const hostRow = within(screen.getByTestId('row-host-task-1'))
+    expect(hostRow.queryByTestId('action-complete')).toBeNull()
+    expect(hostRow.getByTestId('action-view').getAttribute('data-href')).toBe('/backend/tasks/host-task-1')
+  })
+
+  test('regression: a core row keeps its complete action on the task page', async () => {
+    render(<WorkInboxPage />)
+
+    await waitFor(() => expect(screen.getByTestId('row-core-task-1')).toBeTruthy())
+    const coreRow = within(screen.getByTestId('row-core-task-1'))
+    expect(coreRow.getByTestId('action-complete').getAttribute('data-href')).toBe('/backend/tasks/task-1')
+  })
+
+  test('claim-next on a host-owned task opens the host surface', async () => {
+    render(<WorkInboxPage />)
+    await waitFor(() => expect(apiCall).toHaveBeenCalled())
+    ;(apiCall as jest.Mock).mockResolvedValueOnce({ ok: true, status: 200, result: { data: HOST_ROW } })
+
+    fireEvent.click(screen.getByText('workflows.workInbox.actions.claimNext'))
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/backend/refunds/r-1/approve'))
+  })
+})
+
 describe('the frozen enterprise row-action spot still resolves', () => {
   const enterpriseInjectionTable = join(
     __dirname,

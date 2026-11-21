@@ -21,6 +21,8 @@ import {
   buildRoleNotificationFromType,
 } from '../../notifications/lib/notificationBuilder'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { buildTaskQuickActions } from './task-quick-action'
+import { isHostCompletedTask, resolveTaskCompletionHref, type TaskCompletion } from './task-completion'
 
 const logger = createLogger('workflows')
 
@@ -42,6 +44,8 @@ export interface TaskNotificationContent {
   /** Overrides the type definition's static actions when the caller computed them per task. */
   actions?: NotificationTypeDefinition['actions']
   primaryActionId?: string
+  /** Overrides the task-page deep link, e.g. with a host-owned completion `href`. */
+  linkHref?: string
 }
 
 export const TASK_NOTIFICATION_SOURCE_ENTITY_TYPE = 'workflows:user_task'
@@ -125,7 +129,7 @@ export async function deliverTaskNotification(
       bodyVariables: content.bodyVariables,
       sourceEntityType: TASK_NOTIFICATION_SOURCE_ENTITY_TYPE,
       sourceEntityId: content.taskId,
-      linkHref: buildTaskDeepLink(content.taskId),
+      linkHref: content.linkHref ?? buildTaskDeepLink(content.taskId),
       groupKey: content.groupKey,
     }
 
@@ -172,6 +176,11 @@ export type TaskLifecycleNotificationPayload = {
   assignedUserId?: string | null
   assignedToRoles?: string[] | null
   dueDate?: string | null
+  /**
+   * Resolved completion surface (issue #7179). A host-owned task deep-links to
+   * its host and its notifications never carry the one-click completion.
+   */
+  completion?: TaskCompletion | null
   tenantId: string
   organizationId?: string | null
 }
@@ -193,6 +202,15 @@ export async function notifyTaskLifecycleEvent(options: {
   const typeDef = options.notificationTypes.find((type) => type.type === notificationType)
   if (!typeDef) return
 
+  // A host-owned task overrides the type's static deep link everywhere — the
+  // in-app row, its action buttons and, because email renders the STORED
+  // hrefs, the email buttons too. Callers that computed their own actions
+  // already folded the completion into them.
+  const hostOwned = isHostCompletedTask(payload.completion)
+  const hostHref = resolveTaskCompletionHref(payload.completion)
+  const actions =
+    options.actions ?? (hostOwned ? buildTaskQuickActions({ completion: payload.completion }) : undefined)
+
   await deliverTaskNotification(
     ctx,
     typeDef,
@@ -210,8 +228,9 @@ export async function notifyTaskLifecycleEvent(options: {
         payload.taskId,
         options.groupByType ? notificationType : undefined
       ),
-      ...(options.actions ? { actions: options.actions } : {}),
+      ...(actions ? { actions } : {}),
       ...(options.primaryActionId ? { primaryActionId: options.primaryActionId } : {}),
+      ...(hostHref ? { linkHref: hostHref } : {}),
     },
     component
   )

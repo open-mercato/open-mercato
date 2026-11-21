@@ -38,6 +38,7 @@ import { WORK_INBOX_PRIORITIES } from '../../lib/work-inbox/provider'
 import type { WorkInboxWireRow } from '../../lib/work-inbox/provider'
 import { buildWorkInboxListQueryParams } from '../../lib/work-inbox/query'
 import { buildWorkInboxItemHref } from '../../lib/work-inbox/navigation'
+import { isHostCompletedTask } from '../../lib/task-completion'
 import { resolveWorkInboxEmptyState } from '../../lib/work-inbox/empty-state'
 import {
   WORK_INBOX_OVERDUE_TONE,
@@ -179,7 +180,7 @@ export default function WorkInboxPage() {
     }
     flash(t('workflows.tasks.messages.claimed'), 'success')
     invalidate()
-    router.push(buildWorkInboxItemHref(claimed.id))
+    router.push(claimed.detailHref ?? buildWorkInboxItemHref(claimed.id))
   }, [invalidate, router, t])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
@@ -431,7 +432,13 @@ export default function WorkInboxPage() {
             })
           }
 
-          if (item.detailHref && (item.status === 'PENDING' || item.status === 'IN_PROGRESS')) {
+          // A host-owned task (issue #7179) is finished in its host's flow, which
+          // `view` already links to; offering "Complete" would promise core's form.
+          if (
+            item.detailHref &&
+            (item.status === 'PENDING' || item.status === 'IN_PROGRESS') &&
+            !isHostCompletedTask(item.completion)
+          ) {
             items.push({
               id: 'complete',
               label: t('workflows.tasks.actions.complete'),

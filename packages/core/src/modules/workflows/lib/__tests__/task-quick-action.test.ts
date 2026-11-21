@@ -139,3 +139,37 @@ describe('workflows.task.assigned declares the quick completion action', () => {
     }
   })
 })
+
+describe('host-owned completion (issue #7179)', () => {
+  const host = { surface: 'host' as const, href: '/backend/invoices/inv-42/approve' }
+
+  test('a host-owned task is never one click, however simple its shape', () => {
+    expect(isOneClickTask({ decisions: [{ id: 'approve' }], completion: host })).toBe(false)
+    expect(isOneClickTask({ completion: { surface: 'host', href: null } })).toBe(false)
+  })
+
+  test('it gets only the deep link, pointed at the host href', () => {
+    const actions = buildTaskQuickActions({ decisions: [{ id: 'approve' }], completion: host })
+    expect(actions).toHaveLength(1)
+    expect(actions[0].id).toBe(TASK_QUICK_ACTION_VIEW_ID)
+    expect(actions[0].href).toBe(host.href)
+    expect(actions.some((action) => action.commandId)).toBe(false)
+    expect(resolveTaskPrimaryActionId({ decisions: [{ id: 'approve' }], completion: host })).toBe(
+      TASK_QUICK_ACTION_VIEW_ID
+    )
+  })
+
+  test('without an href it deep-links to the task page, where the host renders in the spot', () => {
+    const actions = buildTaskQuickActions({ completion: { surface: 'host', href: null } })
+    expect(actions.map((action) => action.href)).toEqual(['/backend/tasks/{sourceEntityId}'])
+  })
+
+  test('regression: no completion key keeps today\'s one-click action and task deep link', () => {
+    const actions = buildTaskQuickActions({ decisions: [{ id: 'approve' }], completion: null })
+    expect(actions.map((action) => action.id)).toEqual([
+      TASK_QUICK_ACTION_VIEW_ID,
+      TASK_QUICK_ACTION_COMPLETE_ID,
+    ])
+    expect(actions[0].href).toBe('/backend/tasks/{sourceEntityId}')
+  })
+})

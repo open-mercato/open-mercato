@@ -26,12 +26,16 @@
  *    task detail's comment box is always optional), so the input defaults to
  *    false; it is modelled explicitly so the rule does not have to be rewritten
  *    when one appears.
+ *  - **Core owns completion.** A step declaring `completion.surface: 'host'`
+ *    (issue #7179) is finished in a host module's own flow, so no one-click
+ *    button is offered and the deep link points at the declared host `href`.
  *
  * PURE: no ORM, DI, React or registry imports.
  */
 
 import type { NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
 import { countTaskFormFields } from './task-form-schema'
+import { isHostCompletedTask, resolveTaskCompletionHref, type TaskCompletion } from './task-completion'
 
 export const TASK_COMPLETE_COMMAND_ID = 'workflows.tasks.complete'
 
@@ -70,6 +74,8 @@ export interface TaskQuickActionInput {
   editablePrefilled?: string[] | null
   /** Reserved: no authoring surface exists yet, so callers leave it unset. */
   requiresComment?: boolean
+  /** Resolved completion surface; a host declaration suppresses the quick action. */
+  completion?: TaskCompletion | null
 }
 
 /**
@@ -81,6 +87,7 @@ export interface TaskQuickActionInput {
  * that drops data.
  */
 export function isOneClickTask(input: TaskQuickActionInput): boolean {
+  if (isHostCompletedTask(input.completion)) return false
   if (input.requiresComment) return false
   if (input.editablePrefilled?.length) return false
   if (countTaskFormFields(input.formSchema) > 0) return false
@@ -102,7 +109,7 @@ export function buildTaskQuickActions(input: TaskQuickActionInput): Notification
     id: TASK_QUICK_ACTION_VIEW_ID,
     labelKey: 'common.view',
     variant: 'outline',
-    href: TASK_DEEP_LINK_HREF,
+    href: resolveTaskCompletionHref(input.completion) ?? TASK_DEEP_LINK_HREF,
     icon: 'external-link',
   }
 
