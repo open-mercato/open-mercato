@@ -81,6 +81,7 @@ async function handlePortalLoginRequest(req: Request) {
     ipConfig: customerLoginIpRateLimitConfig,
     compoundConfig: customerLoginRateLimitConfig,
     compoundIdentifier: email,
+    isolateByIdentifierWithoutTrustedIp: true,
   })
   if (rateLimitError) return rateLimitError
 

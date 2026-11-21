@@ -118,6 +118,7 @@ async function handleLoginRequest(req: Request) {
   // Rate limit — two layers, both checked before validation and DB work
   const { error: rateLimitError, compoundKey: rateLimitCompoundKey } = await checkAuthRateLimit({
     req, ipConfig: loginIpRateLimitConfig, compoundConfig: loginRateLimitConfig, compoundIdentifier: email,
+    isolateByIdentifierWithoutTrustedIp: true,
   })
   if (rateLimitError) return rateLimitError
   const parsed = userLoginSchema.pick({ email: true, password: true, tenantId: true }).safeParse({
