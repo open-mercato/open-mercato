@@ -61,6 +61,8 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import { calendarEventTypes } from '../../calendar-event-types'
+import { CustomerDictionaryEntry } from '../../data/entities'
+import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE, LEGACY_ACTIVITY_WRITE } from '../../lib/interactionCompatibility'
 import '../interactions'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
@@ -68,11 +70,12 @@ const ORG = '22222222-2222-4222-8222-222222222222'
 const ENTITY = '33333333-3333-4333-8333-333333333333'
 const INTERACTION = '44444444-4444-4444-8444-444444444444'
 const NEW_DEAL = '55555555-5555-4555-8555-555555555555'
+const ANCESTOR_ORG = '66666666-6666-4666-8666-666666666666'
 
 const note = calendarEventTypes.find((type) => type.key === 'note')!
 const noteBehavior = { ...note.behavior, customFieldsetIds: ['note-only'], fields: { ...note.behavior.fields, resources: false } }
 
-function makeContext() {
+function makeContext(ancestorIds: string[] = []) {
   const interaction = {
     id: INTERACTION,
     tenantId: TENANT,
@@ -95,7 +98,7 @@ function makeContext() {
     container: {
       resolve: (token: string) => {
         if (token === 'em') return em
-        if (token === 'organizationHierarchyService') return { resolveAncestorIds: async () => [] }
+        if (token === 'organizationHierarchyService') return { resolveAncestorIds: async () => ancestorIds }
         if (token === 'dataEngine') return { setCustomFields: jest.fn() }
         if (token === 'eventBus') return { emitEvent: async () => {} }
         throw new Error(`Unexpected dependency ${token}`)
@@ -110,6 +113,7 @@ function makeContext() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  findOneWithDecryptionMock.mockReset()
   resolveScopedCalendarEventTypesMock.mockResolvedValue({
     items: [{ key: 'meeting', selectable: true, behavior: calendarEventTypes[0]!.behavior }, { key: 'note', selectable: true, behavior: noteBehavior }],
   })
@@ -120,6 +124,52 @@ beforeEach(() => {
 })
 
 describe('interaction calendar-type command enforcement', () => {
+  it('accepts a custom legacy activity type inherited from an ancestor organization', async () => {
+    const { em, context } = makeContext([ANCESTOR_ORG])
+    const adapterContext = { ...context, [LEGACY_ACTIVITY_WRITE]: true }
+    findOneWithDecryptionMock.mockResolvedValue({ normalizedValue: 'site-visit' })
+    resolveScopedCalendarEventTypesMock.mockResolvedValue({
+      items: [{ key: 'site-visit', selectable: true, behavior: noteBehavior }],
+    })
+
+    await expect(registeredCommands.get('customers.interactions.create')!.execute({
+      tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType: 'site-visit',
+    }, adapterContext)).resolves.toMatchObject({ interactionId: INTERACTION })
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
+      em, CustomerDictionaryEntry,
+      { tenantId: TENANT, organizationId: { $in: [ORG, ANCESTOR_ORG] }, kind: 'activity_type', normalizedValue: 'site-visit' },
+      undefined, expect.objectContaining({ tenantId: TENANT, organizationId: ORG }),
+    )
+  })
+
+  it.each(['Task', 'unconfigured-activity'])('rejects %s as a new legacy activity type', async (interactionType) => {
+    const { em, context } = makeContext()
+    const adapterContext = { ...context, [LEGACY_ACTIVITY_WRITE]: true }
+    findOneWithDecryptionMock.mockResolvedValue(null)
+    resolveScopedCalendarEventTypesMock.mockResolvedValue({
+      items: [{ key: interactionType.trim().toLowerCase(), selectable: true, behavior: noteBehavior }],
+    })
+
+    await expect(registeredCommands.get('customers.interactions.create')!.execute({
+      tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType,
+    }, adapterContext)).rejects.toMatchObject({ status: 400, body: { code: 'activity_type_unavailable' } })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('requires the task or interaction endpoint to change an activity to a task', async () => {
+    const { interaction, em, context } = makeContext()
+    const adapterContext = { ...context, [LEGACY_ACTIVITY_WRITE]: true }
+    findOneWithDecryptionMock.mockResolvedValue({ ...interaction, source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE })
+    resolveScopedCalendarEventTypesMock.mockResolvedValue({
+      items: [{ key: 'task', selectable: true, behavior: noteBehavior }],
+    })
+
+    await expect(registeredCommands.get('customers.interactions.update')!.execute({
+      id: INTERACTION, interactionType: 'task',
+    }, adapterContext)).rejects.toMatchObject({ status: 400, body: { code: 'activity_type_unavailable' } })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   it('reuses a caller transaction without opening or committing a second transaction', async () => {
     const { em, context } = makeContext()
     const transactionalEm = Object.assign(em, {
