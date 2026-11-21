@@ -248,3 +248,64 @@ describe('Tabs source menus and keyboard access', () => {
     expect(tabs.every(tab => document.getElementById(tab.getAttribute('aria-controls') ?? '') !== null)).toBe(true)
   })
 })
+
+// A tab's `aria-controls` must reference an element that exists. Pages that
+// use the tab strip as a section switcher and render the content themselves
+// have no `TabsContent`, so the selected tab used to point at a missing id.
+describe('Tabs panel relationship', () => {
+  const VARIANTS = ['pill', 'underline', 'card', 'list'] as const
+
+  it.each(VARIANTS)('%s leaves aria-controls off when the page renders the content itself', (variant) => {
+    const { getByRole, queryByRole } = render(
+      <Tabs defaultValue="a" variant={variant}>
+        <TabsList aria-label="Sections">
+          <TabsTrigger value="a">Alpha</TabsTrigger>
+          <TabsTrigger value="b">Beta</TabsTrigger>
+        </TabsList>
+        <div>Content rendered by the page</div>
+      </Tabs>,
+    )
+
+    expect(queryByRole('tabpanel')).toBeNull()
+    expect(getByRole('tab', { name: 'Alpha' })).toHaveAttribute('aria-selected', 'true')
+    expect(getByRole('tab', { name: 'Alpha' })).not.toHaveAttribute('aria-controls')
+  })
+
+  it.each(VARIANTS)('%s points the selected tab at its rendered panel', (variant) => {
+    const { getByRole } = render(
+      <Tabs defaultValue="a" variant={variant}>
+        <TabsList aria-label="Sections">
+          <TabsTrigger value="a">Alpha</TabsTrigger>
+          <TabsTrigger value="b">Beta</TabsTrigger>
+        </TabsList>
+        <TabsContent value="a">Alpha panel</TabsContent>
+        <TabsContent value="b">Beta panel</TabsContent>
+      </Tabs>,
+    )
+
+    expect(getByRole('tab', { name: 'Alpha' })).toHaveAttribute('aria-controls', getByRole('tabpanel').id)
+    expect(getByRole('tab', { name: 'Beta' })).not.toHaveAttribute('aria-controls')
+  })
+
+  it('follows the selection when only some tabs have a panel', () => {
+    const { getByRole, queryByRole } = render(
+      <Tabs defaultValue="a">
+        <TabsList aria-label="Sections">
+          <TabsTrigger value="a">Alpha</TabsTrigger>
+          <TabsTrigger value="b">Beta</TabsTrigger>
+        </TabsList>
+        <TabsContent value="a">Alpha panel</TabsContent>
+      </Tabs>,
+    )
+    const alpha = getByRole('tab', { name: 'Alpha' })
+    const beta = getByRole('tab', { name: 'Beta' })
+
+    fireEvent.click(beta)
+    expect(queryByRole('tabpanel')).toBeNull()
+    expect(beta).not.toHaveAttribute('aria-controls')
+    expect(alpha).not.toHaveAttribute('aria-controls')
+
+    fireEvent.click(alpha)
+    expect(alpha).toHaveAttribute('aria-controls', getByRole('tabpanel').id)
+  })
+})

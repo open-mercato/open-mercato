@@ -1032,7 +1032,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                   <Button
                     variant="muted"
                     onClick={() => toggleGroup(sectionKey)}
-                    className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground/70 py-1"
+                    className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground py-1"
                     aria-expanded={open}
                   >
                     <span>{sectionLabel}</span>
@@ -1215,7 +1215,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                             <Button
                               variant="muted"
                               onClick={() => toggleGroup(groupId)}
-                              className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground/70 py-1"
+                              className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground py-1"
                               aria-expanded={open}
                             >
                               <span>{g.name}</span>
@@ -1480,7 +1480,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                   ? t('ui.sidebar.chevron.scrollTop', 'Scroll to top')
                   : t('ui.sidebar.chevron.scrollBottom', 'Scroll to bottom')
               }
-              className="pointer-events-auto text-muted-foreground/70 hover:text-foreground"
+              className="pointer-events-auto text-muted-foreground hover:text-foreground"
               onClick={() => handleSidebarChevronScroll(sidebarScrollState === 'up' ? 'top' : 'bottom')}
             >
               <span
@@ -1554,8 +1554,9 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                           </Link>
                         </BreadcrumbLink>
                       ) : (
-                        <BreadcrumbPage aria-label={home.label}>
+                        <BreadcrumbPage>
                           <Home className="size-4" aria-hidden="true" />
+                          <span className="sr-only">{home.label}</span>
                         </BreadcrumbPage>
                       )}
                     </BreadcrumbItem>

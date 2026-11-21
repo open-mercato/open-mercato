@@ -433,8 +433,8 @@ export function ComboboxInput({
               input element. The DS wrapper introduces a <div> that desyncs autocomplete
               on this specific surface. Keeps the rest of the form on Input primitive. */}
           <input
-            ref={inputRef}
             id={id}
+            ref={inputRef}
             type="text"
             className={[
               'w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs transition-colors outline-none placeholder:text-muted-foreground focus-visible:shadow-focus focus-visible:border-foreground disabled:bg-bg-disabled disabled:border-border-disabled disabled:text-muted-foreground disabled:cursor-not-allowed',

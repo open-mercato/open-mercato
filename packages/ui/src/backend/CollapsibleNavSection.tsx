@@ -147,7 +147,7 @@ export function CollapsibleNavSection({
     return (
       <div key={group.id} className="flex flex-col gap-1">
         {!compact && (
-          <div className="px-2 py-1 text-xs uppercase text-muted-foreground/90">{group.name}</div>
+          <div className="px-2 py-1 text-xs uppercase text-muted-foreground">{group.name}</div>
         )}
         {visibleItems.map((item) => renderItem(item))}
       </div>
@@ -177,7 +177,7 @@ export function CollapsibleNavSection({
         variant="muted"
         onClick={() => setExpanded((prev) => !prev)}
         onKeyDown={handleKeyDown}
-        className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} text-xs uppercase text-muted-foreground/90 py-2 hover:text-foreground`}
+        className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} text-xs uppercase text-muted-foreground py-2 hover:text-foreground`}
         aria-expanded={expanded}
         aria-controls="collapsible-nav-content"
       >

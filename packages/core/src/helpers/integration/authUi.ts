@@ -31,7 +31,8 @@ export async function createUserViaUi(page: Page, input: { email: string; passwo
     await orgSelect.selectOption(orgValue);
   }
 
-  const rolesInput = page.getByRole('textbox', { name: /add tag and press enter/i });
+  const rolesInput = page.locator('[data-crud-field-id="roles"] input').first();
+  await expect(rolesInput).toBeVisible();
   await rolesInput.fill(role);
   await rolesInput.press('Enter');
 

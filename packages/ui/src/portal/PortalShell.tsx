@@ -300,7 +300,7 @@ export function PortalShell({
               <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? ""} width={20} height={20} className="" />
               <span className="text-sm font-medium text-foreground">{headerTitle}</span>
             </a>
-            <p className="text-xs text-muted-foreground/60">
+            <p className="text-xs text-muted-foreground">
               {t('portal.footer.copyright', '\u00A9 {year} All rights reserved.', { year: new Date().getFullYear() })}
             </p>
           </div>
@@ -331,7 +331,7 @@ export function PortalShell({
         <nav aria-label="Portal navigation" className="flex-1 overflow-y-auto px-3 py-5">
           {shouldRenderMainNav ? (
             <>
-              <p className="mb-2 px-3 text-overline font-semibold uppercase tracking-widest text-muted-foreground/50">
+              <p className="mb-2 px-3 text-overline font-semibold uppercase tracking-widest text-muted-foreground">
                 {t('portal.nav.home', 'Portal')}
               </p>
               {isNavLoading ? (
@@ -354,7 +354,7 @@ export function PortalShell({
 
           {shouldRenderAccountNav ? (
             <div className={shouldRenderMainNav ? 'mt-8' : ''}>
-              <p className="mb-2 px-3 text-overline font-semibold uppercase tracking-widest text-muted-foreground/50">
+              <p className="mb-2 px-3 text-overline font-semibold uppercase tracking-widest text-muted-foreground">
                 {t('portal.nav.account', 'Account')}
               </p>
               <div className="flex flex-col gap-0.5">
@@ -444,7 +444,7 @@ export function PortalShell({
         </main>
 
         <footer className="border-t px-4 py-4 lg:px-8" data-portal-handle={PORTAL_FOOTER_HANDLE}>
-          <p className="text-overline text-muted-foreground/50">
+          <p className="text-overline text-muted-foreground">
             {t('portal.footer.copyright', '\u00A9 {year} All rights reserved.', { year: new Date().getFullYear() })}
           </p>
         </footer>

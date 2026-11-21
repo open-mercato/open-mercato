@@ -289,6 +289,10 @@ export type CrudBuiltinField = CrudFieldBase & {
 
 export type CrudCustomFieldRenderProps = {
   id: string
+  // DOM id of the field's visible label. A custom field renders its own control,
+  // so the wrapper cannot target it with `htmlFor`; pass this as `aria-labelledby`
+  // to name the control. Undefined when the field has no visible label.
+  labelId?: string
   value: unknown
   error?: string
   autoFocus?: boolean
@@ -2646,22 +2650,27 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       return
     }
 
-    const container = form.querySelector<HTMLElement>(`[data-crud-field-id="${fieldId}"]`)
-    const target =
-      container?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ??
-      form.querySelector<HTMLElement>(`[name="${fieldId}"]`) ??
-      container ??
-      null
-
-    if (target && typeof target.focus === 'function') {
+    // Take the first invalid field that can actually receive focus. The first
+    // error is not always one: a field may render no control of its own (a
+    // preview, a custom block), or its control may be disabled or hidden. Trying
+    // only the first entry left focus on <body>, where the submit's blur put it.
+    for (const [candidateId] of entries) {
+      const container = form.querySelector<HTMLElement>(`[data-crud-field-id="${candidateId}"]`)
+      const target =
+        container?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ??
+        form.querySelector<HTMLElement>(`[name="${candidateId}"]`) ??
+        null
+      if (!target || typeof target.focus !== 'function') continue
       target.focus()
+      if (document.activeElement !== target) continue
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
         try {
           target.select()
         } catch {}
       }
-      lastErrorFieldRef.current = fieldId
+      break
     }
+    lastErrorFieldRef.current = fieldId
   }, [errors, formId])
 
   // When an injection widget blocks save (e.g. the SEO helper), the blocking
@@ -4222,12 +4231,14 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
 }
 
 function RelationSelect({
+  id,
   value,
   onChange,
   options,
   placeholder,
   autoFocus,
 }: {
+  id?: string
   value: string
   onChange: (v: string) => void
   options: CrudFieldOption[]
@@ -4247,6 +4258,7 @@ function RelationSelect({
   return (
     <div className="space-y-1">
       <Input
+        id={id}
         ref={inputRef}
         placeholder={placeholder || t('ui.forms.listbox.searchPlaceholder', 'Search...')}
         value={query}
@@ -4579,10 +4591,10 @@ function TextAreaInput({
 }
 
 // Markdown editor — WYSIWYG MDXEditor (Lexical) wired to the CrudForm value/onChange contract.
-type MDProps = { value?: string; onChange: (md: string) => void }
+type MDProps = { id?: string; ariaLabelledBy?: string; value?: string; onChange: (md: string) => void }
 
-const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange }: MDProps) {
-  return <MarkdownField value={value} onChange={onChange} />
+const MarkdownEditor = React.memo(function MarkdownEditor({ id, ariaLabelledBy, value = '', onChange }: MDProps) {
+  return <MarkdownField id={id} ariaLabelledBy={ariaLabelledBy} value={value} onChange={onChange} />
 }, (prev, next) => prev.value === next.value)
 
 // HTML Rich Text editor wrapper for the CrudForm builtin `editor: 'html'`.
@@ -4590,8 +4602,8 @@ const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange
 // `labels` contract and pins the `standard` toolbar variant — heading
 // dropdown + B/I/U + lists + link, matching the legacy behaviour plus
 // the Figma `164611:20259` heading selector.
-type HtmlRichEditorFieldProps = { value?: string; onChange: (html: string) => void }
-const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = '', onChange }: HtmlRichEditorFieldProps) {
+type HtmlRichEditorFieldProps = { id?: string; ariaLabelledBy?: string; value?: string; onChange: (html: string) => void }
+const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ id, ariaLabelledBy, value = '', onChange }: HtmlRichEditorFieldProps) {
   const t = useT()
   const labels = React.useMemo<Partial<RichEditorLabels>>(() => ({
     bold: t('ui.forms.richtext.bold'),
@@ -4611,12 +4623,12 @@ const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = ''
     mention: t('ui.forms.richtext.mention', 'Mention'),
     more: t('ui.forms.richtext.more', 'More'),
   }), [t])
-  return <RichEditor value={value} onChange={onChange} variant="full" labels={labels} />
+  return <RichEditor id={id} aria-labelledby={ariaLabelledBy} value={value} onChange={onChange} variant="full" labels={labels} />
 }, (prev, next) => prev.value === next.value)
 
 // Very simple markdown editor with Bold/Italic/Underline + shortcuts.
-type SimpleMDProps = { value?: string; onChange: (md: string) => void }
-const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange }: SimpleMDProps) {
+type SimpleMDProps = { id?: string; value?: string; onChange: (md: string) => void }
+const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ id, value = '', onChange }: SimpleMDProps) {
   const t = useT()
   const boldLabel = t('ui.forms.richtext.bold')
   const italicLabel = t('ui.forms.richtext.italic')
@@ -4663,6 +4675,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</Button>
       </div>
       <textarea
+        id={id}
         ref={taRef}
         className="w-full min-h-[100px] sm:min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
         spellCheck={false}
@@ -4706,7 +4719,49 @@ function supportsWrapperBlurValidation(field: CrudField): boolean {
   )
 }
 
+const CUSTOM_FIELD_CONTROL_SELECTOR = [
+  'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"])',
+  'select',
+  'textarea',
+  '[role="combobox"]',
+  '[role="switch"]',
+  '[role="checkbox"]',
+  '[role="spinbutton"]',
+  '[role="slider"]',
+  '[role="textbox"]',
+].join(', ')
+const AUTO_LABELLED_ATTRIBUTE = 'data-crud-auto-labelled'
+const NAME_FROM_CONTENT_ROLES = new Set(['switch', 'checkbox'])
+
+function hasOwnAccessibleName(control: HTMLElement): boolean {
+  if ((control.getAttribute('aria-label') ?? '').trim()) return true
+  if ((control.getAttribute('aria-labelledby') ?? '').trim()) return true
+  if ((control.getAttribute('title') ?? '').trim()) return true
+  if (control.closest('label')) return true
+  if (control.id && control.ownerDocument.querySelector(`label[for=${JSON.stringify(control.id)}]`)) return true
+  const role = control.getAttribute('role')
+  return Boolean(role && NAME_FROM_CONTENT_ROLES.has(role) && (control.textContent ?? '').trim())
+}
+
+function findUnnamedCustomFieldControls(root: HTMLElement, labelId: string): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(CUSTOM_FIELD_CONTROL_SELECTOR)).filter((control) => {
+    if (control.closest('[aria-hidden="true"], [inert]')) return false
+    if (control.hasAttribute(AUTO_LABELLED_ATTRIBUTE)) {
+      if (control.getAttribute('aria-labelledby') === labelId) return true
+      control.removeAttribute(AUTO_LABELLED_ATTRIBUTE)
+    }
+    return !hasOwnAccessibleName(control)
+  })
+}
+
+function releaseAutoLabel(control: HTMLElement, labelId: string) {
+  if (!control.hasAttribute(AUTO_LABELLED_ATTRIBUTE)) return
+  control.removeAttribute(AUTO_LABELLED_ATTRIBUTE)
+  if (control.getAttribute('aria-labelledby') === labelId) control.removeAttribute('aria-labelledby')
+}
+
 type ListboxMultiSelectProps = {
+  id?: string
   options: CrudFieldOption[]
   placeholder?: string
   value: string[]
@@ -4715,6 +4770,7 @@ type ListboxMultiSelectProps = {
 }
 
 const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
+  id,
   options,
   placeholder,
   value,
@@ -4742,6 +4798,7 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
   return (
     <div className="w-full">
       <Input
+        id={id}
         className="mb-2"
         size="sm"
         placeholder={searchPlaceholder}
@@ -4859,17 +4916,100 @@ const FieldControl = React.memo(function FieldControlImpl({
   // group wrapper, per #5360's accessible-name requirement.
   const controlId = `${formId}-field-${field.id}`
   const labelId = `${controlId}-label`
-  const hasSingleControl =
-    field.type === 'text' ||
-    field.type === 'password' ||
-    field.type === 'number' ||
-    field.type === 'decimal' ||
-    field.type === 'textarea' ||
-    field.type === 'combobox' ||
-    (field.type === 'select' && !builtin?.multiple)
+  const hasVisibleLabel = field.label.trim().length > 0
+  const usesContentEditableRichText = field.type === 'richtext' && builtin?.editor !== 'simple'
+  const usesGroupedCheckboxes =
+    field.type === 'select' && Boolean(builtin?.multiple) && builtin?.listbox !== true
+  // A custom field renders its own control, so it is named by the label id it is
+  // handed (or by the auto-labelling effect below), not by `for`. The grouped
+  // checkboxes and the contenteditable rich text are named on a wrapper / on the
+  // editable node instead.
+  const hasLabelableControl =
+    field.type !== 'custom' && !usesContentEditableRichText && !usesGroupedCheckboxes
+  const visibleLabelId = !hasLabelableControl && hasVisibleLabel ? labelId : undefined
+  const labelHtmlFor = hasLabelableControl ? controlId : undefined
+  const errorId = `${controlId}-error`
+  const ownsErrorPresentation = !(field.type === 'custom' && field.rendersOwnError)
+  const wrapperError = ownsErrorPresentation && error ? error : undefined
+  const fieldRootRef = React.useRef<HTMLDivElement | null>(null)
+  const isCustomField = field.type === 'custom'
+
+  // Mark the control invalid and tie it to its message. This is applied to the
+  // node that carries `controlId` rather than threaded through every renderer's
+  // props, so one path covers every field type that exposes a control with that
+  // id. Fields without one (custom, checkbox groups) are still announced below.
+  // A lazy editor can mount, or swap its editable node, after validation has
+  // already failed, so the field is watched and the current node re-marked.
+  React.useEffect(() => {
+    if (!wrapperError || typeof document === 'undefined') return
+    let marked: HTMLElement | null = null
+    const unmark = (control: HTMLElement) => {
+      control.removeAttribute('aria-invalid')
+      const remaining = (control.getAttribute('aria-describedby') ?? '')
+        .split(/\s+/)
+        .filter((entry) => entry && entry !== errorId)
+      if (remaining.length) control.setAttribute('aria-describedby', remaining.join(' '))
+      else control.removeAttribute('aria-describedby')
+    }
+    const mark = () => {
+      const control = document.getElementById(controlId)
+      if (marked && marked !== control) unmark(marked)
+      marked = control
+      if (!control) return
+      const describedBy = (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
+      if (!describedBy.includes(errorId)) {
+        control.setAttribute('aria-describedby', [...describedBy, errorId].join(' '))
+      }
+      if (control.getAttribute('aria-invalid') !== 'true') control.setAttribute('aria-invalid', 'true')
+    }
+    mark()
+    const root = fieldRootRef.current
+    const observer = root && typeof MutationObserver !== 'undefined' ? new MutationObserver(mark) : null
+    observer?.observe(root as HTMLElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['id', 'aria-describedby', 'aria-invalid'],
+    })
+    return () => {
+      observer?.disconnect()
+      if (marked) unmark(marked)
+    }
+  }, [wrapperError, controlId, errorId])
+
+  // A custom field renders its own control, so the label above cannot point at
+  // it with `for`. A component that forwards `labelId` names itself. For the
+  // rest: when the field holds exactly one control without a name of its own,
+  // name it by the label. Several unnamed controls are left alone, because the
+  // label cannot say which one it describes.
+  React.useEffect(() => {
+    const root = fieldRootRef.current
+    if (!isCustomField || !visibleLabelId || !root || typeof MutationObserver === 'undefined') return
+    const apply = () => {
+      const unnamed = findUnnamedCustomFieldControls(root, visibleLabelId)
+      const single = unnamed.length === 1 ? unnamed[0] : null
+      for (const control of Array.from(root.querySelectorAll<HTMLElement>(`[${AUTO_LABELLED_ATTRIBUTE}]`))) {
+        if (control !== single) releaseAutoLabel(control, visibleLabelId)
+      }
+      if (single && !single.hasAttribute(AUTO_LABELLED_ATTRIBUTE)) {
+        single.setAttribute('aria-labelledby', visibleLabelId)
+        single.setAttribute(AUTO_LABELLED_ATTRIBUTE, '')
+      }
+    }
+    apply()
+    const observer = new MutationObserver(apply)
+    observer.observe(root, { childList: true, subtree: true })
+    return () => {
+      observer.disconnect()
+      for (const control of Array.from(root.querySelectorAll<HTMLElement>(`[${AUTO_LABELLED_ATTRIBUTE}]`))) {
+        releaseAutoLabel(control, visibleLabelId)
+      }
+    }
+  }, [isCustomField, visibleLabelId])
 
   return (
     <div
+      ref={fieldRootRef}
       className={rootClassName}
       data-crud-field-id={field.id}
       onBlur={validateOnWrapperBlur
@@ -4880,11 +5020,16 @@ const FieldControl = React.memo(function FieldControlImpl({
           }
         : undefined}
     >
-      {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
+      {field.type !== 'checkbox' && hasVisibleLabel ? (
         <label
           id={labelId}
-          htmlFor={hasSingleControl ? controlId : undefined}
+          htmlFor={labelHtmlFor}
           className="block text-sm font-medium"
+          onClick={usesContentEditableRichText
+            ? () => {
+                document.getElementById(controlId)?.focus?.()
+              }
+            : undefined}
         >
           {field.label}
           {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
@@ -4930,80 +5075,75 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'date' && (
-        <div role="group" aria-labelledby={labelId}>
-          <DatePicker
-            value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
-            onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
-            disabled={disabled}
-            readOnly={readOnly}
-            placeholder={placeholder}
-            minDate={builtin?.minDate}
-            maxDate={builtin?.maxDate}
-            displayFormat={builtin?.displayFormat}
-            closeOnSelect={builtin?.closeOnSelect}
-            locale={builtin?.locale}
-          />
-        </div>
+        <DatePicker
+          id={controlId}
+          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
+          disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          closeOnSelect={builtin?.closeOnSelect}
+          locale={builtin?.locale}
+        />
       )}
       {field.type === 'datetime-local' && (
-        <div role="group" aria-labelledby={labelId}>
-          <DateTimePicker
-            value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
-            onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
-            disabled={disabled}
-            readOnly={readOnly}
-            placeholder={placeholder}
-            minuteStep={builtin?.minuteStep}
-            minDate={builtin?.minDate}
-            maxDate={builtin?.maxDate}
-            displayFormat={builtin?.displayFormat}
-            locale={builtin?.locale}
-          />
-        </div>
+        <DateTimePicker
+          id={controlId}
+          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
+          disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minuteStep={builtin?.minuteStep}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          locale={builtin?.locale}
+        />
       )}
       {field.type === 'datepicker' && (
-        <div role="group" aria-labelledby={labelId}>
-          <DatePicker
-            value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
-            onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
-            disabled={disabled}
-            readOnly={readOnly}
-            placeholder={placeholder}
-            minDate={builtin?.minDate}
-            maxDate={builtin?.maxDate}
-            displayFormat={builtin?.displayFormat}
-            closeOnSelect={builtin?.closeOnSelect}
-            locale={builtin?.locale}
-          />
-        </div>
+        <DatePicker
+          id={controlId}
+          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
+          disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          closeOnSelect={builtin?.closeOnSelect}
+          locale={builtin?.locale}
+        />
       )}
       {field.type === 'datetime' && (
-        <div role="group" aria-labelledby={labelId}>
-          <DateTimePicker
-            value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
-            onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
-            disabled={disabled}
-            readOnly={readOnly}
-            placeholder={placeholder}
-            minuteStep={builtin?.minuteStep}
-            minDate={builtin?.minDate}
-            maxDate={builtin?.maxDate}
-            displayFormat={builtin?.displayFormat}
-            locale={builtin?.locale}
-          />
-        </div>
+        <DateTimePicker
+          id={controlId}
+          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
+          disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minuteStep={builtin?.minuteStep}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          locale={builtin?.locale}
+        />
       )}
       {field.type === 'time' && (
-        <div role="group" aria-labelledby={labelId}>
-          <TimePicker
-            value={typeof value === 'string' ? value : null}
-            onChange={(time) => setValue(field.id, time ?? undefined)}
-            disabled={disabled}
-            readOnly={readOnly}
-            placeholder={placeholder}
-            minuteStep={builtin?.minuteStep}
-          />
-        </div>
+        <TimePicker
+          id={controlId}
+          value={typeof value === 'string' ? value : null}
+          onChange={(time) => setValue(field.id, time ?? undefined)}
+          disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minuteStep={builtin?.minuteStep}
+        />
       )}
       {field.type === 'textarea' && (
         <TextAreaInput
@@ -5020,33 +5160,36 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'richtext' && builtin?.editor === 'simple' && (
-        <div role="group" aria-labelledby={labelId}>
-          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
-        </div>
+        <SimpleMarkdownEditor id={controlId} value={String(value ?? '')} onChange={fieldSetValue} />
       )}
       {field.type === 'richtext' && builtin?.editor === 'html' && (
-        <div role="group" aria-labelledby={labelId}>
-          <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
-        </div>
+        <HtmlRichEditorField
+          id={controlId}
+          ariaLabelledBy={visibleLabelId}
+          value={String(value ?? '')}
+          onChange={fieldSetValue}
+        />
       )}
       {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
-        <div role="group" aria-labelledby={labelId}>
-          <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
-        </div>
+        <MarkdownEditor
+          id={controlId}
+          ariaLabelledBy={visibleLabelId}
+          value={String(value ?? '')}
+          onChange={fieldSetValue}
+        />
       )}
       {field.type === 'tags' && (
-        <div role="group" aria-labelledby={labelId}>
-          <TagsInput
-            value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
-            onChange={(next) => fieldSetValue(next)}
-            placeholder={placeholder}
-            autoFocus={autoFocusField}
-            suppressInitialSuggestionsOnFocus={autoFocusField}
-            suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
-            loadSuggestions={loadFieldSuggestions}
-            disabled={disabled}
-          />
-        </div>
+        <TagsInput
+          id={controlId}
+          value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
+          onChange={(next) => fieldSetValue(next)}
+          placeholder={placeholder}
+          autoFocus={autoFocusField}
+          suppressInitialSuggestionsOnFocus={autoFocusField}
+          suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
+          loadSuggestions={loadFieldSuggestions}
+          disabled={disabled}
+        />
       )}
       {field.type === 'combobox' && (
         <ComboboxInput
@@ -5128,18 +5271,22 @@ const FieldControl = React.memo(function FieldControlImpl({
         </Select>
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox === true && (
-        <div role="group" aria-labelledby={labelId}>
-          <ListboxMultiSelect
-            options={options}
-            placeholder={placeholder}
-            value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
-            onChange={(vals) => setValue(field.id, vals)}
-            autoFocus={autoFocusField}
-          />
-        </div>
+        <ListboxMultiSelect
+          id={controlId}
+          options={options}
+          placeholder={placeholder}
+          value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
+          onChange={(vals) => setValue(field.id, vals)}
+          autoFocus={autoFocusField}
+        />
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox !== true && (
-        <div className="flex flex-wrap gap-3" role="group" aria-labelledby={labelId}>
+        <div
+          className="flex flex-wrap gap-3"
+          role="group"
+          aria-labelledby={visibleLabelId}
+          aria-describedby={wrapperError ? errorId : undefined}
+        >
           {options.map((opt) => {
             const arr = Array.isArray(value)
               ? value.filter((item): item is string => typeof item === 'string')
@@ -5167,26 +5314,30 @@ const FieldControl = React.memo(function FieldControlImpl({
         </div>
       )}
       {field.type === 'relation' && (
-        <div role="group" aria-labelledby={labelId}>
-          <RelationSelect
-            options={options}
-            placeholder={placeholder}
-            value={
-              Array.isArray(value)
-                ? String(value[0] ?? '')
-                : value == null
-                  ? ''
-                  : String(value)
-            }
-            onChange={(selected) => setValue(field.id, selected)}
-            autoFocus={autoFocusField}
-          />
-        </div>
+        <RelationSelect
+          id={controlId}
+          options={options}
+          placeholder={placeholder}
+          value={
+            Array.isArray(value)
+              ? String(value[0] ?? '')
+              : value == null
+                ? ''
+                : String(value)
+          }
+          onChange={(selected) => setValue(field.id, selected)}
+          autoFocus={autoFocusField}
+        />
       )}
       {field.type === 'custom' && (
-        <div role="group" aria-labelledby={labelId}>
+        <div
+          role="group"
+          aria-labelledby={visibleLabelId}
+          aria-describedby={wrapperError ? errorId : undefined}
+        >
           {field.component({
             id: field.id,
+            labelId: visibleLabelId,
             value,
             error,
             setValue: fieldSetValue,
@@ -5205,8 +5356,22 @@ const FieldControl = React.memo(function FieldControlImpl({
           <div>{field.description}</div>
         </div>
       ) : null}
-      {error && !(field.type === 'custom' && field.rendersOwnError) ? (
-        <div className="text-xs text-status-error-text">{error}</div>
+      {/* The message is its own live region, so it is rendered once: a hidden
+          second copy made every text lookup of the message ambiguous. The node
+          is always mounted, because a live region inserted together with its
+          text is often not read, and it leaves the flow while empty so the
+          wrapper spacing does not reserve a line for it. It is polite so a
+          failed submit does not talk over the form-level alert. Fields that
+          render their own error own their announcement too. */}
+      {ownsErrorPresentation ? (
+        <div
+          id={errorId}
+          aria-live="polite"
+          aria-atomic="true"
+          className={wrapperError ? 'text-xs text-status-error-text' : 'sr-only'}
+        >
+          {wrapperError ?? ''}
+        </div>
       ) : null}
     </div>
   )

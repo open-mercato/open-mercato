@@ -31,7 +31,7 @@ export function SectionHeader({
 }: SectionHeaderProps) {
   const allowsTitleShrink = Boolean(titleClassName)
   return (
-    <div className={cn('flex items-center justify-between', className)}>
+    <div className={cn('flex flex-wrap items-center justify-between gap-x-3 gap-y-2', className)}>
       <div className={cn('flex items-center gap-2', allowsTitleShrink && 'min-w-0')}>
         <h3 className={cn('text-sm font-semibold', allowsTitleShrink && 'min-w-0', titleClassName)}>{title}</h3>
         {count != null && (
@@ -41,7 +41,7 @@ export function SectionHeader({
         )}
       </div>
       {action ? (
-        <div className="flex items-center gap-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
           {action}
         </div>
       ) : null}
@@ -103,7 +103,7 @@ export function CollapsibleSection({
 
   return (
     <div className={cn('space-y-3', className)}>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <button
           type="button"
           onClick={toggle}
@@ -126,7 +126,7 @@ export function CollapsibleSection({
           )}
         </button>
         {action ? (
-          <div className="flex items-center gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
             {action}
           </div>
         ) : null}
