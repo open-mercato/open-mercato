@@ -1,3 +1,7 @@
+jest.mock('@open-mercato/core/modules/auth/lib/grantChecks', () => ({
+  assertActorCanModifySuperAdminUserTarget: jest.fn().mockResolvedValue(undefined),
+}))
+
 import { NextResponse } from 'next/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { POST } from '../[id]/mfa/reset/route'
@@ -49,6 +53,7 @@ describe('security user mfa reset route', () => {
       container: {
         resolve: (name: string) => {
           if (name === 'commandBus') return { execute }
+          if (name === 'em' || name === 'rbacService') return {}
           throw new Error(`Unexpected dependency: ${name}`)
         },
       },
@@ -84,6 +89,7 @@ describe('security user mfa reset route', () => {
       container: {
         resolve: (name: string) => {
           if (name === 'commandBus') return { execute }
+          if (name === 'em' || name === 'rbacService') return {}
           throw new Error(`Unexpected dependency: ${name}`)
         },
       },
@@ -134,6 +140,7 @@ describe('security user mfa reset route', () => {
       container: {
         resolve: (name: string) => {
           if (name === 'commandBus') return { execute }
+          if (name === 'em' || name === 'rbacService') return {}
           throw new Error(`Unexpected dependency: ${name}`)
         },
       },
