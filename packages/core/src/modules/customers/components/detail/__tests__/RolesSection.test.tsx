@@ -116,22 +116,33 @@ describe('RolesSection', () => {
     })
   })
 
-  it('uses the exact roster user’s name for the saved role and its reassignment dialog', async () => {
+  it('resolves all assigned names in one roster request without holding the cards or dialog', async () => {
     mockGrantedFeatures.push('customers.roles.manage')
-    readApiResultOrThrowMock.mockResolvedValueOnce({ items: [{
-      id: 'role-1', roleType: 'decision_maker', userId: 'user-1', userName: 'Employee', userEmail: 'employee@example.com',
-    }] })
-    apiCallMock.mockResolvedValueOnce({ ok: true, result: { items: [
-      { userId: 'other-user', displayName: 'Other person' },
-      { userId: 'user-1', displayName: 'Priya Nair' },
-    ] } })
+    readApiResultOrThrowMock.mockResolvedValueOnce({ items: [
+      { id: 'role-1', roleType: 'decision_maker', userId: 'user-1', userName: 'Employee' },
+      { id: 'role-2', roleType: 'account_manager', userId: 'user-2', userName: 'Admin' },
+    ] })
+    let finishRoster = () => {}
+    apiCallMock.mockReturnValueOnce(new Promise((resolve) => {
+      finishRoster = () => resolve({ ok: true, result: { items: [
+        { userId: 'other-user', displayName: 'Other person' },
+        { userId: 'user-1', displayName: 'Priya Nair' },
+        { userId: 'user-2', displayName: 'Marta Lopez' },
+      ] } })
+    }))
 
     renderWithProviders(<RolesSection entityType="person" entityId="person-1" />)
 
-    expect(await screen.findByText('Priya Nair')).toBeInTheDocument()
-    expect(screen.queryByText('Employee')).not.toBeInTheDocument()
+    expect(await screen.findByText('Employee')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'change-role-1' }))
-    expect(screen.getByText('Currently: Priya Nair')).toBeInTheDocument()
+    expect(screen.getByText('Currently: Employee')).toBeInTheDocument()
+
+    finishRoster()
+    expect(await screen.findByText('Currently: Priya Nair')).toBeInTheDocument()
+    expect(screen.getByText('Priya Nair')).toBeInTheDocument()
+    expect(screen.getByText('Marta Lopez')).toBeInTheDocument()
+    expect(screen.queryByText('Employee')).not.toBeInTheDocument()
+    expect(apiCallMock).toHaveBeenCalledTimes(1)
   })
 
   it.each([404, 403])('keeps the account name when the roster returns %s', async (status) => {
@@ -144,7 +155,7 @@ describe('RolesSection', () => {
     renderWithProviders(<RolesSection entityType="person" entityId="person-1" />)
 
     expect(await screen.findByText('Employee')).toBeInTheDocument()
-    expect(apiCallMock).toHaveBeenCalledWith(expect.stringContaining('search=employee%40example.com'), expect.objectContaining({
+    expect(apiCallMock).toHaveBeenCalledWith('/api/staff/team-members/assignable?page=1&pageSize=100', expect.objectContaining({
       headers: { 'x-om-forbidden-redirect': '0' },
     }))
     expect(flash).not.toHaveBeenCalled()

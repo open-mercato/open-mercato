@@ -19,11 +19,11 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customers')
 
-function reportRoleMutationError(error: unknown, code: string) {
+function reportRoleError(error: unknown, code: string) {
   try {
     getTelemetryRuntime()?.reportError(error, { module: 'customers', code })
   } catch (reportingError) {
-    logger.warn('Failed to report role mutation error', { err: reportingError })
+    logger.warn('Failed to report role error', { err: reportingError })
   }
 }
 
@@ -38,44 +38,27 @@ type GuardedMutationRunner = <T,>(
   mutationPayload?: Record<string, unknown>,
 ) => Promise<T>
 
-async function resolveRosterName(userId: string, email: string, signal: AbortSignal) {
+async function resolveRosterNames(roles: RoleAssignment[], signal: AbortSignal) {
+  const remainingUserIds = new Set(roles.map((role) => role.userId))
+  const names = new Map<string, string>()
   const pageSize = 100
-  const params = new URLSearchParams({ search: email, pageSize: String(pageSize) })
-  for (let page = 1; !signal.aborted; page += 1) {
-    params.set('page', String(page))
+  for (let page = 1; remainingUserIds.size > 0 && !signal.aborted; page += 1) {
     const { ok, result } = await apiCall<{
       items?: Array<{ userId: string; displayName?: string | null }>
       total?: number
-    }>(`/api/staff/team-members/assignable?${params}`, {
+    }>(`/api/staff/team-members/assignable?page=${page}&pageSize=${pageSize}`, {
       headers: { 'x-om-forbidden-redirect': '0' },
       signal,
     })
-    if (!ok || !Array.isArray(result?.items)) return null
-
-    const member = result.items.find((item) => item.userId === userId)
-    if (member) return member.displayName?.trim() || null
-    if (result.items.length < pageSize || page * pageSize >= (result.total ?? 0)) return null
+    if (!ok || !Array.isArray(result?.items)) return new Map<string, string>()
+    for (const member of result.items) {
+      if (!remainingUserIds.delete(member.userId)) continue
+      const name = member.displayName?.trim()
+      if (name) names.set(member.userId, name)
+    }
+    if (result.items.length < pageSize || page * pageSize >= (result.total ?? 0)) break
   }
-  return null
-}
-
-async function applyRosterNames(roles: RoleAssignment[], signal: AbortSignal) {
-  const assignees = new Map<string, string>()
-  for (const role of roles) {
-    const email = role.userEmail?.trim()
-    if (email) assignees.set(role.userId, email)
-  }
-
-  const names = new Map<string, string>()
-  await Promise.allSettled(Array.from(assignees, async ([userId, email]) => {
-    const name = await resolveRosterName(userId, email, signal)
-    if (name) names.set(userId, name)
-  }))
-
-  return roles.map((role) => {
-    const name = names.get(role.userId)
-    return name ? { ...role, userName: name } : role
-  })
+  return names
 }
 
 export function RolesSection(props: RolesSectionProps) {
@@ -89,6 +72,7 @@ export function RolesSection(props: RolesSectionProps) {
       canReadRoleTypes={hasFeature(features, 'customers.people.view')}
       canManageRoleTypes={hasFeature(features, 'customers.settings.manage')}
       canReadRoster={hasFeature(features, 'customers.roles.manage') || hasFeature(features, 'customers.activities.manage')}
+      organizationId={payload?.currentOrganization?.id ?? null}
     />
   )
 }
@@ -100,9 +84,16 @@ function RolesSectionContent({
   canReadRoleTypes,
   canManageRoleTypes,
   canReadRoster,
-}: RolesSectionProps & { canReadRoleTypes: boolean; canManageRoleTypes: boolean; canReadRoster: boolean }) {
+  organizationId,
+}: RolesSectionProps & {
+  canReadRoleTypes: boolean
+  canManageRoleTypes: boolean
+  canReadRoster: boolean
+  organizationId: string | null
+}) {
   const t = useT()
   const [roles, setRoles] = React.useState<RoleAssignment[]>([])
+  const [roster, setRoster] = React.useState<{ scope: string; names: Map<string, string> } | null>(null)
   const [roleTypes, setRoleTypes] = React.useState<DictionaryEntryOption[]>([])
   const [loading, setLoading] = React.useState(true)
   const [dialogOpen, setDialogOpen] = React.useState(false)
@@ -113,6 +104,15 @@ function RolesSectionContent({
 
   const basePath = entityType === 'company' ? 'companies' : 'people'
   const resourceKind = entityType === 'company' ? 'customers.company' : 'customers.person'
+  const rosterScope = `${organizationId ?? ''}/${entityType}/${entityId}`
+  const rosterNames = canReadRoster && roster?.scope === rosterScope ? roster.names : null
+  const displayRoles = React.useMemo(() => {
+    if (!rosterNames?.size) return roles
+    return roles.map((role) => {
+      const name = rosterNames.get(role.userId)
+      return name ? { ...role, userName: name } : role
+    })
+  }, [roles, rosterNames])
   const mutationContextId = React.useMemo(
     () => `customer-roles:${entityType}:${entityId}`,
     [entityId, entityType],
@@ -158,8 +158,14 @@ function RolesSectionContent({
       )
       if (controller.signal.aborted) return
       const assignments = Array.isArray(data?.items) ? data.items : []
-      const resolved = canReadRoster ? await applyRosterNames(assignments, controller.signal) : assignments
-      if (!controller.signal.aborted) setRoles(resolved)
+      setRoles(assignments)
+      if (canReadRoster && assignments.length > 0) {
+        void resolveRosterNames(assignments, controller.signal).then((names) => {
+          if (!controller.signal.aborted) setRoster({ scope: rosterScope, names })
+        }).catch((error) => {
+          if (!controller.signal.aborted) reportRoleError(error, 'customers.role_roster_failed')
+        })
+      }
     } catch (error) {
       if (controller.signal.aborted) return
       logger.error('customers.roles.load failed', { err: error })
@@ -168,7 +174,7 @@ function RolesSectionContent({
     } finally {
       if (!controller.signal.aborted) setLoading(false)
     }
-  }, [basePath, canReadRoster, entityId, t])
+  }, [basePath, canReadRoster, entityId, rosterScope, t])
 
   React.useEffect(() => {
     void loadRoles()
@@ -242,7 +248,7 @@ function RolesSectionContent({
       )
     } catch (error) {
       logger.error('customers.roles.assign failed', { err: error })
-      reportRoleMutationError(error, 'customers.role_assign_failed')
+      reportRoleError(error, 'customers.role_assign_failed')
       flash(t('customers.roles.assignError', 'Failed to assign role'), 'error')
       throw error
     }
@@ -264,7 +270,7 @@ function RolesSectionContent({
       )
     } catch (error) {
       logger.error('customers.roles.update failed', { err: error })
-      reportRoleMutationError(error, 'customers.role_reassign_failed')
+      reportRoleError(error, 'customers.role_reassign_failed')
       flash(t('customers.roles.updateFailed', 'Failed to update role assignment.'), 'error')
       throw error
     }
@@ -278,14 +284,14 @@ function RolesSectionContent({
   )
 
   const cards = React.useMemo(() => {
-    const roleByType = new Map(roles.map((role) => [role.roleType, role]))
+    const roleByType = new Map(displayRoles.map((role) => [role.roleType, role]))
     const configuredCards = roleTypes.map((roleType) => ({
       roleType: roleType.value,
       roleTypeLabel: roleType.label,
       role: roleByType.get(roleType.value) ?? null,
     }))
     const configuredRoleTypes = new Set(roleTypes.map((roleType) => roleType.value))
-    const extraAssignedCards = roles
+    const extraAssignedCards = displayRoles
       .filter((role) => !configuredRoleTypes.has(role.roleType))
       .map((role) => ({
         roleType: role.roleType,
@@ -294,7 +300,12 @@ function RolesSectionContent({
       }))
 
     return [...configuredCards, ...extraAssignedCards]
-  }, [getRoleTypeLabel, roleTypes, roles])
+  }, [displayRoles, getRoleTypeLabel, roleTypes])
+
+  const displayEditingAssignment = editingAssignment && (
+    displayRoles.find((role) => role.id === editingAssignment.id && role.userId === editingAssignment.userId)
+    ?? editingAssignment
+  )
 
   const openDialog = React.useCallback((roleType?: string | null) => {
     if (!hasConfiguredRoleTypes) return
@@ -447,7 +458,7 @@ function RolesSectionContent({
         }}
         onAssign={handleDialogAssign}
         onReassign={handleDialogReassign}
-        editingAssignment={editingAssignment}
+        editingAssignment={displayEditingAssignment}
         roleTypes={roleTypes}
         entityName={
           entityName && entityName.trim().length
