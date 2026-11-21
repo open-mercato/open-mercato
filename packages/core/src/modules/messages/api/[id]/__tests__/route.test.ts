@@ -661,7 +661,7 @@ describe('messages /api/messages/[id] PATCH', () => {
       expect(await response.json()).toEqual({ ok: true, id: messageId })
       expect(commandBus.execute).toHaveBeenCalledWith(
         'messages.messages.update_draft',
-        expect.objectContaining({ input: expect.objectContaining({ isDraft: false, messageId, senderChannelId }) }),
+        expect.objectContaining({ input: expect.objectContaining({ isDraft: false, messageId, senderChannelId: channelId }) }),
       )
     } else {
       expect(response.status).toBe(403)

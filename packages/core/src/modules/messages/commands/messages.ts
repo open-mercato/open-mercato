@@ -545,6 +545,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     const senderChannelId = isSending ? input.senderChannelId : undefined
     let message!: Message
     let recipientUserIds: string[] = []
+    let sendViaEmail = false
     let deletedAttachments: DeletedMessageAttachmentRows | null = null
     // Phase 1 mutates the managed `message` scalars; the per-phase flush issues
     // those changes before phase 2's interleaved reads run (e.g.
@@ -579,7 +580,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
             em, MessageRecipient, { messageId: message.id, deletedAt: null }, undefined,
             { tenantId: input.tenantId, organizationId: input.organizationId },
           )).map((recipient) => recipient.recipientUserId)
-        const finalVisibility = input.visibility === undefined ? message.visibility : input.visibility
+        const finalVisibility = input.visibility ?? message.visibility
         const subject = input.subject ?? message.subject
         const body = input.body ?? message.body
         const externalEmail = input.externalEmail ?? message.externalEmail
@@ -597,7 +598,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
             auth: ctx.auth,
           }, {
             senderChannelId,
-            visibility: finalVisibility,
+            visibility: input.visibility === null ? null : finalVisibility,
             externalEmail: externalEmail ?? undefined,
             subject,
             body,
@@ -615,7 +616,9 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
           }
         }
 
-        if ((finalVisibility === 'public' || (input.sendViaEmail ?? message.sendViaEmail)) && externalEmail) {
+        const addressExternalRecipient = finalVisibility === 'public' || (input.sendViaEmail ?? message.sendViaEmail)
+        sendViaEmail = !senderChannelId && addressExternalRecipient
+        if (addressExternalRecipient && externalEmail) {
           await assertExternalEmailBudget(
             ctx.container,
             { tenantId: input.tenantId, userId: input.userId },
@@ -707,7 +710,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
         messageId: message.id,
         senderUserId: input.userId,
         recipientUserIds,
-        sendViaEmail: !senderChannelId && (message.visibility === 'public' || message.sendViaEmail),
+        sendViaEmail,
         externalEmail: message.externalEmail ?? null,
         tenantId: input.tenantId,
         organizationId: input.organizationId,

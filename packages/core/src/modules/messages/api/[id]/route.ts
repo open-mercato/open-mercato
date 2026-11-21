@@ -33,6 +33,9 @@ import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/com
 import { getExternalEmailBudgetErrorResponse } from '../../lib/externalEmailBudget'
 
 const logger = createLogger('messages').child({ component: 'api' })
+const draftErrorResponseSchema = errorResponseSchema.extend({
+  fieldErrors: z.record(z.string(), z.string()).optional(),
+})
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -651,10 +654,10 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Draft updated or accepted for sending', schema: okResponseSchema },
       ],
       errors: [
-        { status: 403, description: 'Access denied', schema: errorResponseSchema },
-        { status: 404, description: 'Message or sender mailbox not found', schema: errorResponseSchema },
-        { status: 409, description: 'Draft is already sent, changed concurrently, or the sender mailbox is disconnected', schema: errorResponseSchema },
-        { status: 422, description: 'Sender mailbox or message payload is unavailable for delivery', schema: errorResponseSchema.extend({ fieldErrors: z.record(z.string(), z.string()).optional() }) },
+        { status: 403, description: 'Access denied', schema: draftErrorResponseSchema },
+        { status: 404, description: 'Message or sender mailbox not found', schema: draftErrorResponseSchema },
+        { status: 409, description: 'Draft is already sent, changed concurrently, or the sender mailbox is unavailable', schema: draftErrorResponseSchema },
+        { status: 422, description: 'Sender mailbox or message payload is unavailable for delivery', schema: draftErrorResponseSchema },
         { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
         { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
       ],

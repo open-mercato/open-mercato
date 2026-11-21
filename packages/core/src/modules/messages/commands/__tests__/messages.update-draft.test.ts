@@ -15,6 +15,7 @@ const findWithDecryptionMock = jest.fn()
 const deleteMessageAttachmentRowsMock = jest.fn()
 const enqueueMessageAttachmentSectionCleanupMock = jest.fn()
 const assertExternalEmailBudgetMock = jest.fn(async () => {})
+const delegateComposeToSenderMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({
   registerCommand: (command: RegisteredCommand) => mockRegisterCommand(command),
@@ -33,6 +34,10 @@ jest.mock('@open-mercato/core/modules/messages/lib/externalEmailBudget', () => (
   assertExternalEmailBudget: (...args: unknown[]) => assertExternalEmailBudgetMock(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/messages/lib/composeSenderDelegation', () => ({
+  delegateComposeToSender: (...args: unknown[]) => delegateComposeToSenderMock(...args),
+}))
+
 jest.mock('@open-mercato/core/modules/messages/lib/attachments', () => ({
   linkAttachmentsToMessage: jest.fn(),
   linkLibraryAttachmentsToMessage: jest.fn(),
@@ -47,6 +52,7 @@ const organizationId = '33333333-3333-4333-8333-333333333333'
 const senderUserId = '44444444-4444-4444-8444-444444444444'
 const recipientUserId = '55555555-5555-4555-8555-555555555555'
 const keptAttachmentId = '66666666-6666-4666-8666-666666666666'
+const mailboxId = '77777777-7777-4777-8777-777777777777'
 
 function createDraftMessage(overrides: Partial<Message> = {}) {
   return {
@@ -135,6 +141,50 @@ describe('messages.messages.update_draft command send transition', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+  })
+
+  it('routes the saved content through the mailbox and marks the same draft sent', async () => {
+    const { command, draft, emFork, ctx } = createHarness({
+      visibility: 'public',
+      externalEmail: 'customer@example.com',
+      bodyFormat: 'markdown',
+      sendViaEmail: true,
+    })
+    delegateComposeToSenderMock.mockResolvedValueOnce({ ok: true, messageId, threadId: messageId })
+
+    await expect(command.execute(updateInput({ senderChannelId: mailboxId }), ctx))
+      .resolves.toEqual({ ok: true, id: messageId })
+
+    expect(delegateComposeToSenderMock).toHaveBeenCalledWith(
+      ctx.container,
+      expect.objectContaining({ userId: senderUserId, tenantId, organizationId }),
+      expect.objectContaining({
+        senderChannelId: mailboxId,
+        externalEmail: 'customer@example.com',
+        subject: 'Draft subject',
+        body: 'Draft body',
+        bodyFormat: 'markdown',
+      }),
+      { em: emFork, messageId, threadId: messageId },
+    )
+    expect(draft).toMatchObject({ isDraft: false, threadId: messageId, sourceEntityId: mailboxId, sendViaEmail: false })
+    expect(emitMessagesEventMock).toHaveBeenCalledWith(
+      'messages.message.sent',
+      expect.objectContaining({ messageId, sendViaEmail: false }),
+      { persistent: true },
+    )
+  })
+
+  it('leaves the saved draft editable when the selected mailbox is rejected', async () => {
+    const { command, draft, emFork, ctx } = createHarness({ visibility: 'public', externalEmail: 'customer@example.com' })
+    const fieldErrors = { senderChannelId: 'Mailbox disconnected' }
+    delegateComposeToSenderMock.mockResolvedValueOnce({ ok: false, status: 422, error: 'Mailbox disconnected', fieldErrors })
+
+    await expect(command.execute(updateInput({ senderChannelId: mailboxId, subject: 'Unsent edit' }), ctx))
+      .rejects.toMatchObject({ status: 422, body: { fieldErrors } })
+    expect(draft).toMatchObject({ isDraft: true, subject: 'Draft subject' })
+    expect(emFork.rollback).toHaveBeenCalledTimes(1)
+    expect(emitMessagesEventMock).not.toHaveBeenCalled()
   })
 
   it('rejects sending an internal draft without input or preloaded recipients', async () => {
