@@ -115,6 +115,7 @@ import {
   updateClaimCommand,
   createVendorRecoveryCommand,
   assignClaimCommand,
+  setReturnLabelCommand,
   commentClaimCommand,
 } from '../commands/claims'
 import {
@@ -2065,6 +2066,223 @@ const lineReplayScenarios = [
     assessmentPayload: { recommendation: 'repair', confidence: 0.9 },
   }, { assessmentPayload: { recommendation: 'repair', confidence: 0.9 } }),
 ]
+
+const atomicLineActions = [
+  {
+    name: 'receive',
+    execute: (ctx: CommandRuntimeContext, updatedAt: string) => receiveClaimLineCommand.execute({
+      ...replayInput,
+      updatedAt,
+      conditionGrade: 'B',
+      inspectionNotes: 'New inspection',
+    }, ctx),
+  },
+  {
+    name: 'release quarantine',
+    execute: (ctx: CommandRuntimeContext, updatedAt: string) => releaseClaimLineQuarantineCommand.execute({
+      ...replayInput,
+      updatedAt,
+    }, ctx),
+  },
+]
+
+const mutableLineActions = [
+  {
+    name: 'update', eventCount: 0,
+    execute: (ctx: CommandRuntimeContext) => updateClaimLineCommand.execute({ id: LINE_ID, tenantId: TENANT_ID, organizationId: ORG_ID, productName: 'Updated product' }, ctx),
+  },
+  {
+    name: 'delete', eventCount: 0,
+    execute: (ctx: CommandRuntimeContext) => deleteClaimLineCommand.execute({ id: LINE_ID, tenantId: TENANT_ID, organizationId: ORG_ID }, ctx),
+  },
+  {
+    name: 'assessment', eventCount: 1,
+    execute: (ctx: CommandRuntimeContext) => setClaimLineAssessmentCommand.execute({ id: LINE_ID, tenantId: TENANT_ID, organizationId: ORG_ID, assessmentPayload: { recommendation: 'repair' } }, ctx),
+  },
+]
+
+describe('action version arbitration at the write boundary', () => {
+  beforeEach(() => {
+    const actual = jest.requireActual<typeof import('@open-mercato/shared/lib/crud/optimistic-lock-command')>(
+      '@open-mercato/shared/lib/crud/optimistic-lock-command',
+    )
+    enforceWithGuardsMock.mockImplementation(async (_container, input) => {
+      actual.enforceCommandOptimisticLock({
+        ...input,
+        envValue: 'all',
+      } as Parameters<typeof actual.enforceCommandOptimisticLock>[0])
+    })
+  })
+
+  test.each(mutableLineActions)('$name rejects an intervening line version and accepts a refreshed retry', async (action) => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim, { creditAmount: '9' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const version = line.updatedAt!.toISOString()
+    const currentVersion = '2026-07-01T00:00:00.001Z'
+    const execute = (updatedAt: string) => {
+      ctx.request = new Request('http://localhost/api/warranty_claims/lines', {
+        headers: { 'x-om-ext-optimistic-lock-expected-updated-at': updatedAt },
+      })
+      return action.execute(ctx)
+    }
+    let peerState: WarrantyClaimLine | undefined
+    mockBeforeClaimLock = () => {
+      line.inspectionNotes = 'Peer inspection'
+      line.updatedAt = new Date(currentVersion)
+      peerState = { ...line }
+    }
+
+    await expect(execute(version)).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+    expect(peerState).toBeDefined()
+    expect(line).toEqual(peerState)
+    expect(mockEvents).toHaveLength(0)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+
+    await expect(execute(currentVersion)).resolves.toEqual({ lineId: LINE_ID, claimId: CLAIM_ID })
+    expect(line.creditAmount).toBe('9')
+    expect(line.inspectionNotes).toBe('Peer inspection')
+    expect(mockEvents).toHaveLength(action.eventCount)
+  })
+
+  test.each(mutableLineActions)('$name refuses a parent closed while waiting and locks refreshed scoped rows parent-first', async (action) => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim)
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const before = { ...line }
+    mockBeforeClaimLock = () => { claim.status = 'closed' }
+
+    await expect(action.execute(ctx))
+      .rejects.toMatchObject({ status: 400 })
+    expect(line).toEqual(before)
+    expect(mockEvents).toHaveLength(0)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+    const locks = mockFindOneCalls.filter((call) => call.options.lockMode === LockMode.PESSIMISTIC_WRITE)
+    expect(locks.slice(0, 2).map((call) => call.entity)).toEqual(['WarrantyClaim', 'WarrantyClaimLine'])
+    for (const call of locks.slice(0, 2)) {
+      expect(call.where).toMatchObject({ tenantId: TENANT_ID, organizationId: ORG_ID, deletedAt: null })
+      expect(call.options.refresh).toBe(true)
+    }
+  })
+
+  test('update checks disposition against the refreshed line grade', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim, { conditionGrade: 'A' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const refreshedLine = makeLine(claim, { conditionGrade: 'D' })
+    mockBeforeClaimLock = () => { mockLines[0] = refreshedLine }
+
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, disposition: 'restock' }, ctx))
+      .rejects.toMatchObject({ status: 400 })
+    expect(refreshedLine.disposition).toBeNull()
+    expect(line.disposition).toBeNull()
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  test('update validates the refreshed line reference before applying unrelated fields', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('received', { orderId: OTHER_ORDER_ID })
+    const line = makeLine(claim, { orderLineId: null })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const refreshedLine = makeLine(claim, { orderLineId: ORDER_LINE_ID })
+    mockBeforeClaimLock = () => { mockLines[0] = refreshedLine }
+
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, productName: 'Losing edit' }, ctx))
+      .rejects.toMatchObject({ status: 400 })
+    expect(refreshedLine.productName).toBe(line.productName)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  test.each(atomicLineActions)('$name refuses an intervening write without changing peer data, then accepts a refreshed retry', async (action) => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim, { quarantineStatus: 'held', creditAmount: '9' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const currentVersion = '2026-07-01T00:00:00.001Z'
+    let peerState: WarrantyClaimLine | undefined
+    mockBeforeClaimLock = () => {
+      line.conditionGrade = 'C'
+      line.inspectionNotes = 'Peer inspection'
+      line.updatedAt = new Date(currentVersion)
+      peerState = { ...line }
+    }
+
+    await expect(action.execute(ctx, replayInput.updatedAt)).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'optimistic_lock_conflict' },
+    })
+    expect(peerState).toBeDefined()
+    expect(line).toEqual(peerState)
+    expect(mockEvents).toHaveLength(0)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+
+    await expect(action.execute(ctx, currentVersion)).resolves.toEqual({ lineId: LINE_ID, claimId: CLAIM_ID })
+    expect(line.creditAmount).toBe('9')
+    expect(mockEvents).toHaveLength(1)
+  })
+
+  test.each(atomicLineActions)('$name rejects a parent that left receiving while waiting for the lock', async (action) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim, { quarantineStatus: 'held' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const before = { ...line }
+    mockBeforeClaimLock = () => { claim.status = 'resolved' }
+
+    await expect(action.execute(ctx, replayInput.updatedAt)).rejects.toMatchObject({ status: 400 })
+    expect(line).toEqual(before)
+    expect(mockEvents).toHaveLength(0)
+  })
+
+  test.each(atomicLineActions)('$name refreshes the scoped parent and target in parent-first lock order', async (action) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received')
+    mockClaims.push(claim)
+    mockLines.push(makeLine(claim, { quarantineStatus: 'held' }))
+
+    await action.execute(ctx, replayInput.updatedAt)
+
+    const locks = mockFindOneCalls.filter((call) => call.options.lockMode === LockMode.PESSIMISTIC_WRITE)
+    expect(locks.slice(0, 2).map((call) => call.entity)).toEqual(['WarrantyClaim', 'WarrantyClaimLine'])
+    for (const call of locks.slice(0, 2)) {
+      expect(call.where).toMatchObject({ tenantId: TENANT_ID, organizationId: ORG_ID, deletedAt: null })
+      expect(call.options.refresh).toBe(true)
+    }
+  })
+
+  test('manual label recording refuses an intervening claim write and preserves the peer label', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('approved')
+    mockClaims.push(claim)
+    const version = claim.updatedAt!.toISOString()
+    mockBeforeClaimLock = () => {
+      claim.returnLabelUrl = 'https://example.test/peer-label'
+      claim.returnTrackingNumber = 'peer-tracking'
+      claim.updatedAt = new Date(claim.updatedAt!.getTime() + 1)
+    }
+
+    await expect(setReturnLabelCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      updatedAt: version,
+      labelUrl: 'https://example.test/losing-label',
+    }, ctx)).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+    expect(claim.returnLabelUrl).toBe('https://example.test/peer-label')
+    expect(claim.returnTrackingNumber).toBe('peer-tracking')
+    expect(mockEvents).toHaveLength(0)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+})
 
 describe.each(lineReplayScenarios)('$name redo version handling', (scenario) => {
   beforeEach(() => {
