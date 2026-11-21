@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isUniqueViolation, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { invalidateDictionaryCache } from '../api/dictionaries/cache'
@@ -27,10 +27,17 @@ import {
 } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { normalizeIsoToken, parseOptimisticLockEnv } from '@open-mercato/shared/lib/crud/optimistic-lock'
+import {
+  buildOptimisticLockConflictBody,
+  enforceCommandOptimisticLockWithGuards,
+  readOptimisticLockExpected,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { calendarEventTypeBehaviorSchema, type CalendarEventTypeBehavior } from '../calendar-event-types'
 
 const logger = createLogger('customers')
+const dictionaryEntryResourceKind = 'customers.dictionary_entry'
 
 type CustomerDictionaryEntrySnapshot = {
   id: string
@@ -173,6 +180,11 @@ type CreateResult = {
   before?: CustomerDictionaryEntrySnapshot | null
 }
 
+function activityTypeCreateConflict(entry: CustomerDictionaryEntry, expectedVersion: string | null): CrudHttpError {
+  const currentVersion = entry.updatedAt.toISOString()
+  return new CrudHttpError(409, buildOptimisticLockConflictBody(currentVersion, expectedVersion ?? currentVersion))
+}
+
 const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreateInput, CreateResult> = {
   id: 'customers.dictionaryEntries.create',
   async execute(rawInput, ctx) {
@@ -186,26 +198,20 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     const color = sanitizeColor(parsed.color)
     const icon = sanitizeIcon(parsed.icon)
     const behavior = parsed.behavior
-
-    const existing = await findOneWithDecryption(
-      em,
-      CustomerDictionaryEntry,
-      {
-        tenantId: parsed.tenantId,
-        organizationId: parsed.organizationId,
-        kind: parsed.kind,
-        normalizedValue: value.normalized,
-      },
-      {},
-      {
-        tenantId: parsed.tenantId,
-        organizationId: parsed.organizationId,
-      },
+    const scope = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
+    const entryFilter = { ...scope, kind: parsed.kind, normalizedValue: value.normalized }
+    const lockConfig = parseOptimisticLockEnv(process.env[OPTIMISTIC_LOCK_ENV_VAR])
+    const requireVersion = parsed.kind === 'activity_type' && ctx.request?.method === 'POST' && (
+      lockConfig.mode === 'all' || (lockConfig.mode === 'allowlist' && lockConfig.entities.has(dictionaryEntryResourceKind))
     )
+    const expectedHeader = requireVersion ? readOptimisticLockExpected(ctx.request) : null
+    const expectedVersion = expectedHeader === null ? null : normalizeIsoToken(expectedHeader)
+    const existing = await findOneWithDecryption(em, CustomerDictionaryEntry, entryFilter, {}, scope)
 
     if (existing) {
+      if (requireVersion && expectedVersion === null) throw activityTypeCreateConflict(existing, null)
       await enforceCommandOptimisticLockWithGuards(ctx.container, {
-        resourceKind: 'customers.dictionary_entry',
+        resourceKind: dictionaryEntryResourceKind,
         resourceId: existing.id,
         current: existing.updatedAt,
         request: ctx.request ?? null,
@@ -264,7 +270,15 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
       activityTypeBehavior: behavior ?? null,
     })
     em.persist(entry)
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (error) {
+      if (requireVersion && isUniqueViolation(error, 'customer_dictionary_entries_unique')) {
+        const winner = await findOneWithDecryption(em.fork(), CustomerDictionaryEntry, entryFilter, {}, scope)
+        if (winner) throw activityTypeCreateConflict(winner, expectedVersion)
+      }
+      throw error
+    }
     await invalidateCache(ctx, toSnapshot(entry))
 
     return {
