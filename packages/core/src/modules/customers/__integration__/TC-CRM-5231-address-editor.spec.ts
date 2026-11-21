@@ -141,8 +141,7 @@ test.describe('CRM address custom fields', () => {
       await expect(page.getByRole('link', { name: 'Check address book (new tab)' })).toHaveAttribute(
         'href', `/backend/customers/companies/${companyId}?tab=addresses`,
       )
-      await retryButton.click()
-      await expect(page.getByText('Save unconfirmed', { exact: true })).toBeVisible()
+      await expect(retryButton).toHaveCount(0)
       await page.getByRole('button', { name: 'The address is there' }).click()
       await retryButton.click()
       await expect(page).toHaveURL(new RegExp(`/backend/customers/companies-v2/${companyId}$`))

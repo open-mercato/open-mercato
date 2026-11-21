@@ -51,6 +51,7 @@ export default function CreateCompanyPage() {
           fields={fields}
           groups={groups}
           hiddenGroupIds={recovery ? NON_ADDRESS_GROUPS : undefined}
+          readOnly={Boolean(recovery?.unconfirmedAddressId)}
           contentHeader={recovery ? (
             <CustomerAddressDraftRecovery
               kind="companies"

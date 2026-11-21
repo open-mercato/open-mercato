@@ -19,7 +19,7 @@ export function CustomerAddressDraftRecovery({
   const t = useT()
   return (
     <Alert status="warning" style="lighter" footer={unconfirmed ? (
-      <div className="flex flex-wrap items-center gap-2">
+      <>
         <LinkButton asChild size="sm">
           <a href={`/backend/customers/${kind}/${encodeURIComponent(customerId)}?tab=addresses`} target="_blank" rel="noreferrer">
             {t('customers.people.detail.addresses.checkAddressBook')}
@@ -31,7 +31,7 @@ export function CustomerAddressDraftRecovery({
         <Button type="button" variant="outline" size="sm" onClick={() => onConfirm('missing')}>
           {t('customers.people.detail.addresses.confirmAddressMissing')}
         </Button>
-      </div>
+      </>
     ) : undefined}>
       <AlertDescription>{t(unconfirmed ? 'customers.people.detail.addresses.saveUnconfirmed' : 'customers.people.detail.addresses.retryPending')}</AlertDescription>
     </Alert>
