@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v4.12 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, review fixes, the deleted default sales channel, the Release 5 `resolveForBuyer` contract, and its re-landing audit fixes) |
+| **Status** | Specification (v4.13 — one trusted-context import path, the proposal `buyerContext` callers 2026-11-21; v4.12 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, review fixes, the deleted default sales channel, the Release 5 `resolveForBuyer` contract, and its re-landing audit fixes) |
 | **Created** | 2026-02-17 |
 | **Rescoped** | 2026-08-14 |
 | **Pre-implementation fixes** | 2026-08-17 — see §21 |
@@ -433,9 +433,9 @@ The error carries the marker `Symbol.for('@open-mercato/ecommerce/StorefrontReso
 
 | Caller | `storeId` | Identity passed | Purpose |
 |---|---|---|---|
-| `assisted_selling` proposal authoring (assisted-selling §6.3 step 2) | The thread's store | The target basket's `customerUserId` alone when set, else its `customerId` (refresh rule) | Price and scope the proposal under the target buyer, never the author (roadmap ADR-10) |
+| `assisted_selling` proposal authoring (assisted-selling §6.3 step 2) | The thread's store | The target basket's `customerUserId` alone when set, else its `customerId` (refresh rule) | Price and scope the proposal under the target buyer, never the author (roadmap ADR-10). The resolved result is passed to `cart.proposal.create` as its server-owned `buyerContext`, the one input for both the visibility check and pricing (assisted-selling §6.3 step 3) |
 | `assisted_selling` re-author on merge (assisted-selling §8.1) | The thread's store | The new target basket's identity (refresh rule) | Re-author a live proposal for the merged basket (D-R5-14) |
-| Cart proposals route, `cart.proposal.create` against a storefront target (cart §7a) | The target cart's store | The target cart's identity (refresh rule) | Scope the proposal under the target buyer |
+| Cart proposals route, `cart.proposal.create` against a storefront target (cart §7a) | The target cart's store | The target cart's identity (refresh rule) | Scope and price the proposal under the resolved target buyer: the route passes the result as the command's `buyerContext`, never the target cart's stored customer fields, price kind or digest |
 | Cart admin re-price, `POST /api/cart/carts/:id/reprice` (cart §10.2) | `cart.storeId` when set | The cart's identity (refresh rule) | Refresh identity, and scope for a storefront cart, before the whole-cart re-price |
 | Whole-cart re-price at lock of a non-storefront cart with a buyer (cart §6a.4) | None | The cart's identity (refresh rule) | Refresh identity before the lock's re-price and approval gate. A storefront cart locks with the route context from the buyer's request instead (cart §9.1) |
 | `cart.create` trusted path, `api`/`agent` carts with a customer (cart §6a.4) | The cart's store, when it has one | Authenticated command input | Same identity as a storefront buyer, so the approval gate (D-R5-29) and credit see the company |
@@ -451,11 +451,11 @@ The error carries the marker `Symbol.for('@open-mercato/ecommerce/StorefrontReso
 | Cart admin re-price | The re-price runs without an identity refresh (cart §6a.4 fallback) | `503 buyer_resolution_unavailable` | `store_misconfigured` → `503 store_misconfigured`; any other code → `409 cart_buyer_unresolvable`; the cart is unchanged |
 | Lock of a non-storefront cart | The lock keeps the stored identity (cart §6a.4 fallback) | The lock is refused with `503 buyer_resolution_unavailable` | The lock is refused with `409 cart_buyer_unresolvable`; the cart stays `active` |
 | `cart.create` trusted path | Keeps the input identity (`customerIds = [customerId]`, no groups), as cart §6a.4 documents | `503 buyer_resolution_unavailable`, nothing persisted | The error's own `status` and `code` (`403 buyer_out_of_scope`, `403 store_out_of_scope`, `503 store_misconfigured`), nothing persisted |
-| Checkout pay-link seeding | Guest cart | Guest cart | Guest cart; the buyer can still pay the link at its template prices |
+| Checkout pay-link seeding | Guest cart | Guest cart | Guest cart; the buyer can still pay the link at its template prices. In all three cases the cart stores no buyer identifiers, groups or buyer price kind (checkout §4.3, CH3 gate) |
 
 A `409 cart_buyer_unresolvable` blocks checkout for that cart until staff relink the buyer or the cart is recreated. That is deliberate: a fallback would price a relinked buyer under the old company's terms.
 
-The command context those callers run under comes from the shared `buildTrustedCommandContext` helper (X10, `@open-mercato/shared/lib/commands/trustedContext`); `resolveForBuyer` supplies only the buyer identity.
+The command context those callers run under comes from the shared `buildTrustedCommandContext` helper (X10), imported from `@open-mercato/shared/lib/commands/trusted-context` (file `trusted-context.ts`) and re-exported by the barrel `@open-mercato/shared/lib/commands`, the one spelling the checkout (D-R5-CH7) and assisted-selling (D-R5-AS9) specs use; `resolveForBuyer` supplies only the buyer identity.
 
 ---
 
@@ -1009,6 +1009,12 @@ Open:
 ---
 
 ## 21) Changelog
+
+### 2026-11-21 — v4.13 (re-review of #10000, [review 6002336743](https://github.com/open-mercato/open-mercato/pull/10000#pullrequestreview-6002336743))
+
+- §6.3: the trusted-context helper is imported from `@open-mercato/shared/lib/commands/trusted-context`, re-exported by `@open-mercato/shared/lib/commands`, the spelling of checkout D-R5-CH7 and assisted-selling D-R5-AS9. The earlier `commands/trustedContext` spelling is withdrawn, so implementers add one stable export.
+- §6.3 callers table: the assisted-selling authoring caller and the cart proposals route pass the resolved identity to `cart.proposal.create` as one server-owned `buyerContext`, used for both visibility and pricing, so a CRM relink cannot keep the old buyer's contract price.
+- §6.3 absence table: the pay-link guest fallback stores no buyer identifiers, groups or buyer price kind in any of its three cases (checkout §4.3).
 
 ### 2026-11-19 — v4.12 (Re-landing audit — remediation of `.ai/analysis/pre-implement-SPEC-029-2026-02-17-ecommerce-storefront-module-release-5.md`)
 
