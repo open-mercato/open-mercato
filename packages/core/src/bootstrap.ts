@@ -135,7 +135,9 @@ export async function bootstrap(container: AwilixContainer) {
   const registerEventBus = (queueStrategy: 'local' | 'async'): EventBus => {
     const createScopedBus = createScopedEventBusFactory({ queueStrategy })
     container.register({
-      eventBus: asScopedService((caller) => createScopedBus(caller.resolve.bind(caller))),
+      eventBus: asScopedService((caller) => createScopedBus(
+        <Value = unknown>(name: string, options?: { allowUnregistered?: boolean }) => caller.resolve<Value>(name, options),
+      )),
     })
     return createScopedBus.definitions
   }
@@ -355,7 +357,9 @@ export async function bootstrapProcessRoot(root: AwilixContainer): Promise<() =>
       { cache: caller.resolve<CacheStrategy>('cache'), kms: caller.resolve<KmsService>('kmsService'), defaultEncryptionMaps },
     )),
     eventBus: asScopedService((caller): EventBus => {
-      const bus = createScopedBus(caller.resolve.bind(caller))
+      const bus = createScopedBus(
+        <Value = unknown>(name: string, options?: { allowUnregistered?: boolean }) => caller.resolve<Value>(name, options),
+      )
       const emit: EventBus['emit'] = (event, payload, options) =>
         runWithRequestScopeContainer(caller, () => bus.emit(event, payload, options))
       return {
