@@ -7,8 +7,8 @@ import { deleteGeneralEntityIfExists, expectId, readJsonSafe } from '@open-merca
  *
  * `GET /api/sales/channels` and `GET /api/sales/shipping-methods` return
  * `description: null` for a record with no description, but the write schemas
- * rejected that same value with a 400, so a description could not be cleared
- * once set. An explicit null now clears it.
+ * rejected that same value with a 400. An explicit null now clears the
+ * description.
  */
 async function createRecord(
   request: APIRequestContext,
