@@ -198,6 +198,8 @@ import {
   LINE_EXACT_AMOUNT_FIELDS,
 } from "../lib/exactAmountFields";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
+import { ensureDocumentNumberEditPermission } from "../lib/documentNumberPermissions";
+import type { SalesDocumentNumberKind } from "../lib/documentNumberTokens";
 import { loadSalesSettings } from "./settings";
 import { notificationTypes } from "../notifications";
 import {
@@ -3966,6 +3968,23 @@ function ensureOrderScope(
   ensureOrganizationScope(ctx, organizationId);
 }
 
+async function resolveDocumentCreateNumber(
+  ctx: CommandRuntimeContext,
+  { organizationId, tenantId }: { organizationId: string; tenantId: string },
+  kind: SalesDocumentNumberKind,
+  suppliedNumber: string | undefined,
+): Promise<string> {
+  const scope = { organizationId, tenantId };
+  ensureTenantScope(ctx, tenantId);
+  ensureOrganizationScope(ctx, organizationId);
+  if (suppliedNumber !== undefined) {
+    await ensureDocumentNumberEditPermission(ctx, scope);
+    return suppliedNumber;
+  }
+  const generator = ctx.container.resolve<SalesDocumentNumberGenerator>("salesDocumentNumberGenerator");
+  return (await generator.generate({ ...scope, kind })).number;
+}
+
 function normalizeTagIds(tags?: Array<string | null | undefined>): string[] {
   if (!Array.isArray(tags)) return [];
   const set = new Set<string>();
@@ -5253,27 +5272,13 @@ const createQuoteCommand: CommandHandler<
 > = {
   id: "sales.quotes.create",
   async execute(rawInput, ctx) {
-    const generator = ctx.container.resolve(
-      "salesDocumentNumberGenerator",
-    ) as SalesDocumentNumberGenerator;
     const initial = quoteCreateSchema.parse(rawInput ?? {});
-    const quoteNumber =
-      typeof initial.quoteNumber === "string" &&
-      initial.quoteNumber.trim().length
-        ? initial.quoteNumber.trim()
-        : (
-            await generator.generate({
-              kind: "quote",
-              organizationId: initial.organizationId,
-              tenantId: initial.tenantId,
-            })
-          ).number;
+    const quoteNumber = await resolveDocumentCreateNumber(ctx, initial, "quote", initial.quoteNumber);
     const parsed = quoteCreateSchema.parse({ ...initial, quoteNumber });
     const ensuredQuoteNumber = parsed.quoteNumber ?? quoteNumber;
     if (!ensuredQuoteNumber) {
       throw new CrudHttpError(400, { error: "Quote number is required." });
     }
-    ensureQuoteScope(ctx, parsed.organizationId, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const {
       customerSnapshot: resolvedCustomerSnapshot,
@@ -6084,6 +6089,9 @@ const updateQuoteCommand: CommandHandler<
       [
         async () => {
           quote = await lockQuoteForTotalsWrite(em, ctx, parsed.id, "Sales quote not found");
+          if (parsed.quoteNumber !== undefined && parsed.quoteNumber !== quote.quoteNumber) {
+            await ensureDocumentNumberEditPermission(ctx, quote);
+          }
           const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
           await applyDocumentUpdate({
             kind: "quote",
@@ -6368,6 +6376,9 @@ const updateOrderCommand: CommandHandler<
       [
         async () => {
           order = await lockOrderForTotalsWrite(em, ctx, parsed.id, "Sales order not found");
+          if (parsed.orderNumber !== undefined && parsed.orderNumber !== order.orderNumber) {
+            await ensureDocumentNumberEditPermission(ctx, order);
+          }
           const currentTotalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
           nextTotalsMode = parsed.totalsMode ?? currentTotalsMode;
           totalsModeChanged = nextTotalsMode !== currentTotalsMode;
@@ -6622,9 +6633,6 @@ const createOrderCommand: CommandHandler<
   id: "sales.orders.create",
   outputSchema: orderIdOutputSchema,
   async execute(rawInput, ctx) {
-    const generator = ctx.container.resolve(
-      "salesDocumentNumberGenerator",
-    ) as SalesDocumentNumberGenerator;
     const deprecatedPaymentLedgerFields = resolveSuppliedOrderPaymentLedgerFields(rawInput)
     const initial = orderCreateSchema.parse(rawInput ?? {});
     if (deprecatedPaymentLedgerFields.length && !warnedDeprecatedOrderPaymentLedgerInput) {
@@ -6634,17 +6642,7 @@ const createOrderCommand: CommandHandler<
         fields: deprecatedPaymentLedgerFields,
       })
     }
-    const orderNumber =
-      typeof initial.orderNumber === "string" &&
-      initial.orderNumber.trim().length
-        ? initial.orderNumber.trim()
-        : (
-            await generator.generate({
-              kind: "order",
-              organizationId: initial.organizationId,
-              tenantId: initial.tenantId,
-            })
-          ).number;
+    const orderNumber = await resolveDocumentCreateNumber(ctx, initial, "order", initial.orderNumber);
     const parsed = withExactAmounts(
       orderCreateSchema.parse({ ...initial, orderNumber }),
       rawInput,
@@ -6654,7 +6652,6 @@ const createOrderCommand: CommandHandler<
     if (!ensuredOrderNumber) {
       throw new CrudHttpError(400, { error: "Order number is required." });
     }
-    ensureOrderScope(ctx, parsed.organizationId, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     // Soft-resolve the cache so the per-order status/fulfillment/payment dictionary lookups are
     // memoized across a bulk import; degrades to a straight EM read when no cache is registered.
@@ -7346,6 +7343,9 @@ const convertQuoteToOrderCommand: CommandHandler<
             "Document not found or inaccessible.",
           ));
       ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
+      if (payload.orderNumber) {
+        await ensureDocumentNumberEditPermission(ctx, quote);
+      }
       await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
       const snapshot = await loadQuoteSnapshot(em, payload.quoteId);
       if (!snapshot)
@@ -7377,11 +7377,7 @@ const convertQuoteToOrderCommand: CommandHandler<
           tenantId: snapshot.quote.tenantId,
         })
       ).number;
-      const orderNumber =
-        typeof payload.orderNumber === "string" &&
-        payload.orderNumber.trim().length
-          ? payload.orderNumber.trim()
-          : generatedNumber;
+      const orderNumber = payload.orderNumber || generatedNumber;
 
       const [quoteCustomFields, quoteLineCustomFields] = await Promise.all([
         loadCustomFieldValues({
@@ -10297,21 +10293,8 @@ const createInvoiceCommand: CommandHandler<
 > = {
   id: "sales.invoices.create",
   async execute(rawInput, ctx) {
-    const generator = ctx.container.resolve(
-      "salesDocumentNumberGenerator",
-    ) as SalesDocumentNumberGenerator;
     const initial = invoiceCreateSchema.parse(rawInput ?? {});
-    const invoiceNumber =
-      typeof initial.invoiceNumber === "string" &&
-      initial.invoiceNumber.trim().length
-        ? initial.invoiceNumber.trim()
-        : (
-            await generator.generate({
-              kind: "invoice",
-              organizationId: initial.organizationId,
-              tenantId: initial.tenantId,
-            })
-          ).number;
+    const invoiceNumber = await resolveDocumentCreateNumber(ctx, initial, "invoice", initial.invoiceNumber);
     const parsed = withExactAmounts(
       invoiceCreateSchema.parse({ ...initial, invoiceNumber }),
       rawInput,
@@ -10321,8 +10304,6 @@ const createInvoiceCommand: CommandHandler<
     if (!ensuredInvoiceNumber) {
       throw new CrudHttpError(400, { error: "Invoice number is required." });
     }
-    ensureOrganizationScope(ctx, parsed.organizationId);
-    ensureTenantScope(ctx, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const status = await resolveDictionaryEntryValue(
       em,
@@ -10618,6 +10599,9 @@ const updateInvoiceCommand: CommandHandler<
       tenantId: parsed.tenantId,
       deletedAt: null,
     });
+    if (parsed.invoiceNumber !== undefined && parsed.invoiceNumber !== invoice.invoiceNumber) {
+      await ensureDocumentNumberEditPermission(ctx, invoice);
+    }
 
     let resolvedStatus: string | null | undefined;
     if (parsed.statusEntryId !== undefined) {
@@ -10893,21 +10877,8 @@ const createCreditMemoCommand: CommandHandler<
 > = {
   id: "sales.credit_memos.create",
   async execute(rawInput, ctx) {
-    const generator = ctx.container.resolve(
-      "salesDocumentNumberGenerator",
-    ) as SalesDocumentNumberGenerator;
     const initial = creditMemoCreateSchema.parse(rawInput ?? {});
-    const creditMemoNumber =
-      typeof initial.creditMemoNumber === "string" &&
-      initial.creditMemoNumber.trim().length
-        ? initial.creditMemoNumber.trim()
-        : (
-            await generator.generate({
-              kind: "credit_memo",
-              organizationId: initial.organizationId,
-              tenantId: initial.tenantId,
-            })
-          ).number;
+    const creditMemoNumber = await resolveDocumentCreateNumber(ctx, initial, "credit_memo", initial.creditMemoNumber);
     const parsed = withExactAmounts(
       creditMemoCreateSchema.parse({ ...initial, creditMemoNumber }),
       rawInput,
@@ -10917,8 +10888,6 @@ const createCreditMemoCommand: CommandHandler<
     if (!ensuredCreditMemoNumber) {
       throw new CrudHttpError(400, { error: "Credit memo number is required." });
     }
-    ensureOrganizationScope(ctx, parsed.organizationId);
-    ensureTenantScope(ctx, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const status = await resolveDictionaryEntryValue(
       em,
@@ -11186,6 +11155,9 @@ const updateCreditMemoCommand: CommandHandler<
       tenantId: parsed.tenantId,
       deletedAt: null,
     });
+    if (parsed.creditMemoNumber !== undefined && parsed.creditMemoNumber !== creditMemo.creditMemoNumber) {
+      await ensureDocumentNumberEditPermission(ctx, creditMemo);
+    }
 
     let resolvedStatus: string | null | undefined;
     if (parsed.statusEntryId !== undefined) {
