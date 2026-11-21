@@ -564,3 +564,22 @@ describe('TimePicker scrolls the selected slot into view', () => {
     expect(slotListIn(container).scrollTop).toBe(centredScrollTop(40))
   })
 })
+
+
+describe('TimePicker portaled scrolling', () => {
+  it.each(['wheel', 'touchmove'])('keeps %s events away from the document scroll lock without cancelling scrolling', (eventType) => {
+    renderWithI18n(<TimePicker defaultOpen trigger={<button type="button">Open times</button>} />)
+    const list = document.querySelector('[data-slot="time-picker-slots"]')
+    expect(list).not.toBeNull()
+    const documentScrollLock = jest.fn((event: Event) => event.preventDefault())
+    document.addEventListener(eventType, documentScrollLock)
+    try {
+      const event = new Event(eventType, { bubbles: true, cancelable: true })
+      fireEvent(list!, event)
+      expect(documentScrollLock).not.toHaveBeenCalled()
+      expect(event.defaultPrevented).toBe(false)
+    } finally {
+      document.removeEventListener(eventType, documentScrollLock)
+    }
+  })
+})

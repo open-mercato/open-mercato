@@ -31,6 +31,7 @@ const mockUpdateCrud = jest.fn()
 let capturedSubmit: SubmitHandler | null = null
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/utils/apiCall'),
   apiCall: (...args: unknown[]) => mockApiCall(...args),
   withScopedApiRequestHeaders: async (
     _headers: unknown,
