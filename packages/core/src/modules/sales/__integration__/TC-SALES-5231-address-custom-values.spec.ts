@@ -1,22 +1,28 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import {
+  createRoleFixture,
+  createUserFixture,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
-import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createShipmentFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { expectOperation, skipIfUndoTestsDisabled, undoByToken } from '@open-mercato/core/helpers/integration/undoHarness'
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
-import { deserializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
-export const integrationMeta = { dependsOnModules: ['sales', 'customers', 'entities'] }
+export const integrationMeta = { dependsOnModules: ['sales', 'customers', 'entities', 'auth', 'audit_logs'] }
 
 const salesHost = 'sales:sales_document_address'
 const customerHost = 'customers:customer_address'
 const definitions = '/api/entities/definitions'
 const addresses = '/api/sales/document-addresses'
 const customerAddresses = '/api/customers/addresses'
-const undoPath = '/api/audit_logs/audit-logs/actions/undo'
 const postalAddress = { addressLine1: '10 Address Lane', city: 'London', country: 'GB' }
 const seedLine = { currencyCode: 'USD', quantity: 1, name: 'QA address line', unitPriceNet: 10, unitPriceGross: 10 }
 
@@ -45,18 +51,43 @@ async function addField(request: APIRequestContext, token: string, entityId: str
 }
 
 async function deleteField(request: APIRequestContext, token: string, entityId: string, key: string) {
-  await apiRequest(request, 'DELETE', `${definitions}?${new URLSearchParams({ entityId, key })}`, { token }).catch(() => undefined)
+  await apiRequest(request, 'DELETE', definitions, { token, data: { entityId, key } })
 }
 
-async function undo(request: APIRequestContext, token: string, action: APIResponse) {
-  const undoToken = deserializeOperationMetadata(action.headers()['x-om-operation'])?.undoToken
-  expect(undoToken).toBeTruthy()
-  return apiRequest(request, 'POST', undoPath, { token, data: { undoToken } })
+async function expectUndoStatus(request: APIRequestContext, token: string, action: APIResponse, status: number) {
+  const response = await undoByToken(request, token, expectOperation(action, 'sales address edit').undoToken)
+  expect(response.status(), JSON.stringify(await readJsonSafe(response))).toBe(status)
 }
+
+const otherEditor = test.extend<{ otherToken: string }>({
+  otherToken: async ({ request }, use) => {
+    const [admin, root] = await Promise.all([getAuthToken(request, 'admin'), getAuthToken(request, 'superadmin')])
+    const scope = getTokenContext(admin)
+    const stamp = randomUUID()
+    const email = `sales-address-editor-${stamp}@example.test`
+    const password = `Aa1!${randomUUID()}`
+    let roleId: string | null = null
+    let userId: string | null = null
+    try {
+      roleId = await createRoleFixture(request, root, { name: `Sales address editor ${stamp}`, tenantId: scope.tenantId })
+      await setRoleAclFeatures(request, root, {
+        roleId,
+        features: ['sales.orders.manage', 'sales.quotes.manage'],
+        organizations: [scope.organizationId],
+      })
+      userId = await createUserFixture(request, root, { email, password, organizationId: scope.organizationId, roles: [roleId] })
+      await use(await getAuthToken(request, email, password))
+    } finally {
+      await deleteUserIfExists(request, root, userId)
+      await deleteRoleIfExists(request, root, roleId)
+    }
+  },
+})
 
 for (const kind of ['order', 'quote'] as const) {
-  test(`TC-SALES-5231: ${kind} has separate private primary address values`, async ({ request }) => {
+  otherEditor(`TC-SALES-5231: ${kind} has separate private primary address values`, async ({ request, otherToken }) => {
     test.slow()
+    skipIfUndoTestsDisabled()
     const token = await getAuthToken(request, 'admin')
     const key = `qa_address_${randomUUID().replaceAll('-', '')}`
     const marker = `private instructions ${randomUUID()}`
@@ -96,10 +127,10 @@ for (const kind of ['order', 'quote'] as const) {
       expect(after?.shippingAddressCustomValues).toEqual({ [key]: 'Updated shipping' })
       expect(after?.billingAddressSnapshot).toEqual(billingAddressSnapshot)
       const billingAgain = await apiRequest(request, 'PUT', path, {
-        token, data: { id, billingAddressCustomValues: { [key]: `${marker} edited` } },
+        token: otherToken, data: { id, billingAddressCustomValues: { [key]: `${marker} edited` } },
       })
       expect(billingAgain.status()).toBe(200)
-      expect((await undo(request, token, updated)).status()).toBe(200)
+      await expectUndoStatus(request, token, updated, 200)
       const afterUndo = await readItem(request, token, detail, id)
       expect(afterUndo?.billingAddressCustomValues).toEqual({ [key]: `${marker} edited` })
       expect(afterUndo?.shippingAddressCustomValues).toEqual({ [key]: 'Initial shipping' })
@@ -108,10 +139,10 @@ for (const kind of ['order', 'quote'] as const) {
       })
       expect(earlierShipping.status()).toBe(200)
       const latestShipping = await apiRequest(request, 'PUT', path, {
-        token, data: { id, shippingAddressCustomValues: { [key]: 'Latest shipping' } },
+        token: otherToken, data: { id, shippingAddressCustomValues: { [key]: 'Latest shipping' } },
       })
       expect(latestShipping.status()).toBe(200)
-      expect((await undo(request, token, earlierShipping)).status()).toBe(409)
+      await expectUndoStatus(request, token, earlierShipping, 409)
       expect((await readItem(request, token, detail, id))?.shippingAddressCustomValues).toEqual({ [key]: 'Latest shipping' })
       const grid = await apiRequest(request, 'GET', `${path}?pageSize=100`, { token })
       expect(grid.status()).toBe(200)
@@ -146,8 +177,9 @@ for (const kind of ['order', 'quote'] as const) {
   })
 }
 
-test('TC-SALES-5231: additional address locks independently, restores values on undo, and stays out of exports', async ({ request }) => {
+otherEditor('TC-SALES-5231: additional address locks independently, restores values on undo, and stays out of exports', async ({ request, otherToken }) => {
   test.slow()
+  skipIfUndoTestsDisabled()
   const token = await getAuthToken(request, 'admin')
   const key = `qa_additional_${randomUUID().replaceAll('-', '')}`
   const marker = `private extra ${randomUUID()}`
@@ -177,11 +209,11 @@ test('TC-SALES-5231: additional address locks independently, restores values on 
     })
     expect(postalUpdate.status()).toBe(200)
     const laterBag = await apiRequest(request, 'PUT', addresses, {
-      token, data: { id: addressId, ...parent, customValues: { [key]: 'Latest extra' } },
+      token: otherToken, data: { id: addressId, ...parent, customValues: { [key]: 'Latest extra' } },
     })
     expect(laterBag.status()).toBe(200)
-    expect((await undo(request, token, postalUpdate)).status()).toBe(200)
-    expect((await undo(request, token, updated)).status()).toBe(409)
+    await expectUndoStatus(request, token, postalUpdate, 200)
+    await expectUndoStatus(request, token, updated, 409)
     const updatedRow = await readItem(request, token, path, addressId)
     expect(updatedRow?.city).toBe(postalAddress.city)
     expect(updatedRow?.customValues).toEqual({ [key]: 'Latest extra' })
@@ -192,8 +224,7 @@ test('TC-SALES-5231: additional address locks independently, restores values on 
     })
     expect(deleted.status()).toBe(200)
     expect(await readItem(request, token, path, addressId)).toBeUndefined()
-    const undone = await undo(request, token, deleted)
-    expect(undone.status()).toBe(200)
+    await expectUndoStatus(request, token, deleted, 200)
     expect((await readItem(request, token, path, addressId))?.customValues).toEqual({ [key]: 'Latest extra' })
     const exported = await apiRequest(request, 'GET', `${path}&format=json`, { token })
     expect(exported.status()).toBe(200)

@@ -22,11 +22,11 @@ async function createDefinition(request: APIRequestContext, token: string, key: 
 }
 
 async function removeDefinition(request: APIRequestContext, token: string, key: string) {
-  await apiRequest(request, 'DELETE', `${definitionsPath}?${new URLSearchParams({ entityId: addressHost, key })}`, { token })
+  await apiRequest(request, 'DELETE', definitionsPath, { token, data: { entityId: addressHost, key } })
 }
 
 async function enterAddress(page: Page, label: string, line1: string, note: string) {
-  await page.getByRole('button', { name: /add address/i }).first().click()
+  await page.getByRole('button', { name: /^(add address|let's add the first address)$/i }).first().click()
   await page.getByPlaceholder(/^(address line 1|street)$/i).fill(line1)
   await page.getByRole('textbox', { name: label }).fill(note)
   await page.getByRole('button', { name: /^save address/i }).click()

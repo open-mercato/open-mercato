@@ -12,6 +12,7 @@ const SALES_HOST = 'sales:sales_document_address'
 const CUSTOMER_HOST = 'customers:customer_address'
 
 test('creates a quote with a copied and overridden shipping field and an independent billing field', async ({ page, request }) => {
+  test.slow()
   const token = await getAuthToken(request, 'admin')
   const stamp = randomUUID().replaceAll('-', '')
   const key = `delivery_ref_${stamp}`
@@ -61,6 +62,8 @@ test('creates a quote with a copied and overridden shipping field and an indepen
 
     const shipping = page.getByRole('group', { name: 'Shipping address' })
     const billing = page.getByRole('group', { name: 'Billing address' })
+    await shipping.getByRole('combobox').first().click()
+    await page.getByRole('option', { name: /Warehouse|17 Test Drive/ }).click()
     const shippingField = shipping.getByRole('textbox', { name: fieldLabel, exact: true })
     await expect(shippingField).toHaveValue(sourceValue)
     const requestsAfterShipping = definitionRequests.length
@@ -76,7 +79,7 @@ test('creates a quote with a copied and overridden shipping field and an indepen
     const createResponse = page.waitForResponse((entry) => (
       entry.request().method() === 'POST' && new URL(entry.url()).pathname === '/api/sales/quotes'
     ))
-    await page.getByRole('button', { name: 'Create', exact: true }).click()
+    await page.getByRole('button', { name: 'Create', exact: true }).last().click()
     const saved = await createResponse
     expect(saved.status()).toBe(201)
     expect(saved.request().postDataJSON()).toMatchObject({
