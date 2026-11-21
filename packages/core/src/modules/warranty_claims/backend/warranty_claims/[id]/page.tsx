@@ -1209,7 +1209,11 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         operation: async () => {
           const response = await withScopedApiRequestHeaders(
             buildOptimisticLockHeader(claim.updatedAt),
-            () => apiCall<{ replacementOrderId?: string; skippedLineIds?: string[] }>('/api/warranty_claims/replacement-order', {
+            () => apiCall<{
+              replacementOrderId?: string
+              skippedLineIds?: string[]
+              unavailableServiceLines?: Array<{ id: string; lineNo: number }>
+            }>('/api/warranty_claims/replacement-order', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(payload),
@@ -1222,10 +1226,18 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         mutationPayload: payload,
       })
       flash(t('warranty_claims.detail.createReplacementOrderSuccess'), 'success')
-      const skippedCount = call?.result?.skippedLineIds?.length ?? 0
-      if (skippedCount > 0) {
-        flash(t('warranty_claims.detail.createReplacementOrderSkipped', undefined, { count: skippedCount }), 'info')
+      const unavailableServiceLines = call?.result?.unavailableServiceLines ?? []
+      const otherSkippedCount = (call?.result?.skippedLineIds?.length ?? 0) - unavailableServiceLines.length
+      const skippedMessages: string[] = []
+      if (otherSkippedCount > 0) {
+        skippedMessages.push(t('warranty_claims.detail.createReplacementOrderSkipped', undefined, { count: otherSkippedCount }))
       }
+      if (unavailableServiceLines.length > 0) {
+        skippedMessages.push(t('warranty_claims.detail.createReplacementOrderServiceUnavailable', undefined, {
+          lines: unavailableServiceLines.map((line) => line.lineNo).join(', '),
+        }))
+      }
+      if (skippedMessages.length > 0) flash(skippedMessages.join(' '), 'info')
       await loadData()
     } catch (err) {
       if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return

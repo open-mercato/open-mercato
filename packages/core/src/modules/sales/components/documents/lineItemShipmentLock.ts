@@ -22,6 +22,7 @@ const SHIPPED_LINE_IMMUTABLE_PAYLOAD_FIELDS = [
   "kind",
   "productId",
   "productVariantId",
+  "serviceId",
   "quantityUnit",
   "unitPriceNet",
   "unitPriceGross",

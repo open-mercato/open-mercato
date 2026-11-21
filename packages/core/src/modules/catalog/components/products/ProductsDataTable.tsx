@@ -665,7 +665,7 @@ export default function ProductsDataTable({
   return (
     <>
       <DataTable<ProductRow>
-      title={t('catalog.products.page.title', 'Products & services')}
+      title={t('catalog.products.page.title', 'Products')}
       titleHeadingLevel={1}
         entityId={ENTITY_ID}
         customFieldFilterKeyExtras={[scopeVersion]}
@@ -688,7 +688,7 @@ export default function ProductsDataTable({
         data={rows}
         emptyState={(
           <ListEmptyState
-            entityName={t('catalog.products.page.title', 'Products & services')}
+            entityName={t('catalog.products.page.title', 'Products')}
             createHref="/backend/catalog/products/create"
             createLabel={t('catalog.products.actions.create', 'Create')}
           />

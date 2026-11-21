@@ -1,4 +1,5 @@
 import './products'
+import './services'
 import './variants'
 import './prices'
 import './optionSchemas'

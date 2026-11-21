@@ -176,6 +176,7 @@ export function SalesShipmentsSection({
       .map((item) => {
         const id = typeof item.id === 'string' ? item.id : null
         if (!id) return null
+        if (typeof item.service_id === 'string' && item.service_id.length) return null
         const name =
           typeof item.name === 'string'
             ? item.name
