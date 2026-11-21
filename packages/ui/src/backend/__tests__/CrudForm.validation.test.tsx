@@ -139,7 +139,7 @@ describe('CrudForm validation state', () => {
       ),
     })
 
-    const { container, getByText } = renderWithProviders(
+    const { container, getByTestId } = renderWithProviders(
       <CrudForm
         title="Form"
         schema={schema}
@@ -148,7 +148,7 @@ describe('CrudForm validation state', () => {
           {
             id: 'customer-fields',
             component: ({ errors }) => (
-              <div>{errors['customerFieldsSchema.0.key'] ?? 'missing'}</div>
+              <div data-testid="nested-schema-error">{errors['customerFieldsSchema.0.key'] ?? 'missing'}</div>
             ),
           },
         ]}
@@ -171,7 +171,7 @@ describe('CrudForm validation state', () => {
     })
 
     await waitFor(() => {
-      expect(getByText('Use camelCase starting with a letter.')).toBeInTheDocument()
+      expect(getByTestId('nested-schema-error')).toHaveTextContent('Use camelCase starting with a letter.')
     })
   })
 
