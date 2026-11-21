@@ -953,6 +953,7 @@
   "ui.filters.dateRange.to": "Do",
   "ui.filters.select.placeholder": "Wybierz opcję",
   "ui.filters.title": "Filtry",
+  "ui.flash.dismiss": "Zamknij powiadomienie",
   "ui.forms.actions.cancel": "Anuluj",
   "ui.forms.actions.clear": "Wyczyść",
   "ui.forms.actions.delete": "Usuń",
