@@ -42,8 +42,8 @@ Re-enable `messages:message`, `sales:sales_note`, and `sales:sales_document_addr
 
 ### Phase 3: Row-Aware Visibility Filters for `sales:sales_note` and `sales:sales_document_address`
 
-- [ ] 3.1 Implement and wire `filterVisibleSalesNotes` and `filterVisibleSalesDocumentAddresses` in `sales/search.ts`
-- [ ] 3.2 Add comprehensive `sales/search.ts` visibility unit tests
+- [x] 3.1 Implement and wire `filterVisibleSalesNotes` and `filterVisibleSalesDocumentAddresses` in `sales/search.ts` — ae74c24dcc
+- [x] 3.2 Add comprehensive `sales/search.ts` visibility unit tests — ae74c24dcc
 
 ### Phase 4: Re-Enable Entities, Update Drift Guards, and Ship Integration Coverage
 
