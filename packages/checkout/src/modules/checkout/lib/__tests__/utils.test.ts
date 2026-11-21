@@ -2,7 +2,7 @@ import { createHmac } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { clearPaymentGatewayDescriptors, registerPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CheckoutLink, CheckoutTransaction } from '../../data/entities'
+import { CheckoutLink, CheckoutLinkSlugOwner, CheckoutTransaction } from '../../data/entities'
 import { createLinkSchema } from '../../data/validators'
 import {
   applyTerminalTransactionState,
@@ -106,11 +106,44 @@ describe('checkout utils', () => {
     expect(findOne).toHaveBeenNthCalledWith(1, CheckoutLink, {
       slug: 'shared-slug',
       deletedAt: null,
-    })
+    }, { fields: ['id', 'tenantId'] })
     expect(findOne).toHaveBeenNthCalledWith(2, CheckoutLink, {
       slug: 'shared-slug-2',
       deletedAt: null,
-    })
+    }, { fields: ['id', 'tenantId'] })
+  })
+
+  it.each([
+    ['same tenant', 'tenant_2', 'retired-slug'],
+    ['another tenant', 'tenant_1', 'retired-slug-2'],
+    ['multiple historical tenants', null, 'retired-slug-2'],
+  ])('allocates a retired slug previously used by %s', async (_description, tenantId, expected) => {
+    const findOne = jest.fn(async (entity: unknown, where: { slug: string }) =>
+      entity === CheckoutLinkSlugOwner && where.slug === 'retired-slug' ? { tenantId } : null,
+    )
+
+    await expect(ensureUniqueSlug(
+      { findOne } as unknown as EntityManager,
+      { tenantId: 'tenant_2', organizationId: 'org_2' },
+      'retired-slug',
+      'Pay link',
+    )).resolves.toBe(expected)
+  })
+
+  it('keeps the slug of a live link when editing that link', async () => {
+    const findOne = jest.fn().mockResolvedValue({ id: 'editing-link', tenantId: 'tenant_2' })
+
+    await expect(ensureUniqueSlug(
+      { findOne } as unknown as EntityManager,
+      { tenantId: 'tenant_2', organizationId: 'org_2' },
+      'current-slug',
+      'Pay link',
+      'editing-link',
+    )).resolves.toBe('current-slug')
+    expect(findOne).toHaveBeenCalledTimes(1)
+    expect(findOne).toHaveBeenCalledWith(
+      CheckoutLink, { slug: 'current-slug', deletedAt: null }, { fields: ['id', 'tenantId'] },
+    )
   })
 
   it('rejects fixed pricing when the submitted amount does not match', () => {
