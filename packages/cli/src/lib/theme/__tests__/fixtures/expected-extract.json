@@ -1,0 +1,132 @@
+{
+  "schema": "om-figma-brand-extract@1",
+  "file": {
+    "key": "Ac9mEbR4nDb0oKf1LeKeY0",
+    "name": "Acme Brand Book",
+    "lastModified": "2026-07-01T09:30:00Z",
+    "extractedAt": "2026-07-21T10:00:00.000Z"
+  },
+  "source": {
+    "variables": "unavailable-plan-gated",
+    "styles": "ok",
+    "frames": {
+      "pagesScanned": 2,
+      "framesScanned": 3,
+      "nodesVisited": 25,
+      "nodeBudget": 20000,
+      "truncated": false
+    },
+    "excluded": {
+      "image": 2,
+      "gradient": 1,
+      "alpha": 1
+    },
+    "failedBatches": {
+      "styles": 0,
+      "frames": 0
+    }
+  },
+  "candidates": [
+    {
+      "hex": "#0c71c6",
+      "count": 6,
+      "tier": "style",
+      "sources": [
+        "fill:frame",
+        "style"
+      ],
+      "styleNames": [
+        "Brand/Primary"
+      ],
+      "variableName": null
+    },
+    {
+      "hex": "#f2653a",
+      "count": 3,
+      "tier": "style",
+      "sources": [
+        "fill:frame",
+        "style"
+      ],
+      "styleNames": [
+        "Brand/Coral"
+      ],
+      "variableName": null
+    },
+    {
+      "hex": "#ffffff",
+      "count": 7,
+      "tier": "fill",
+      "sources": [
+        "fill:frame",
+        "fill:text"
+      ],
+      "styleNames": [],
+      "variableName": null
+    },
+    {
+      "hex": "#e5e5e5",
+      "count": 4,
+      "tier": "fill",
+      "sources": [
+        "fill:frame",
+        "stroke:frame"
+      ],
+      "styleNames": [],
+      "variableName": null
+    },
+    {
+      "hex": "#1a1a2e",
+      "count": 3,
+      "tier": "fill",
+      "sources": [
+        "fill:frame",
+        "fill:text"
+      ],
+      "styleNames": [],
+      "variableName": null
+    }
+  ],
+  "styles": [
+    {
+      "type": "FILL",
+      "name": "Brand/Coral",
+      "hex": "#f2653a"
+    },
+    {
+      "type": "FILL",
+      "name": "Brand/Primary",
+      "hex": "#0c71c6"
+    },
+    {
+      "type": "TEXT",
+      "name": "Heading/H1",
+      "fontFamily": "Inter",
+      "fontWeight": 600,
+      "fontSize": 32
+    }
+  ],
+  "fonts": [
+    {
+      "family": "Inter",
+      "weights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "textStyles": 1,
+      "usageCount": 96
+    }
+  ],
+  "radii": [
+    {
+      "px": 8,
+      "count": 4
+    },
+    {
+      "px": 999,
+      "count": 1
+    }
+  ]
+}
