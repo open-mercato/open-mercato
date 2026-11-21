@@ -7,6 +7,18 @@ export interface GetRateParams {
   toCurrencyCode: string
   date: Date
   scope: { tenantId: string; organizationId: string }
+  /**
+   * Restrict the lookup to one rate source (e.g. 'NBP_A').
+   *
+   * Omitted: every stored rate of the day is returned and a fetch (when `autoFetch`) only
+   * happens if no source has a row for that day (previous behaviour, unchanged).
+   *
+   * Set: only rows of this source count. A day without such a row triggers a fetch limited to
+   * this one provider, and only when that fetch yields nothing does the lookup step back a day.
+   * Use it when a different source (e.g. NBP Table C) may already have stored a row for the day
+   * and must not hide the one the caller needs.
+   */
+  source?: string
   options?: {
     maxDaysBack?: number // Maximum days to look back (default: 30)
     autoFetch?: boolean // Fetch if not found (default: true)
@@ -17,6 +29,8 @@ export interface GetRatesParams {
   pairs: Array<{ fromCurrencyCode: string; toCurrencyCode: string }>
   date: Date
   scope: { tenantId: string; organizationId: string }
+  /** See `GetRateParams.source`; applies to every pair of the batch. */
+  source?: string
   options?: {
     maxDaysBack?: number
     autoFetch?: boolean
@@ -40,7 +54,8 @@ export class ExchangeRateService {
 
   /**
    * Get exchange rates for a currency pair on a specific date
-   * Returns all rates from different providers (exact matches only)
+   * Returns all rates from different providers (exact matches only), or only those of
+   * `params.source` when it is set
    * If not found, fetches from providers and tries previous days recursively
    * 
    * Note: maxDaysBack means the service will check the requested date plus up to
@@ -48,6 +63,7 @@ export class ExchangeRateService {
    */
   async getRate(params: GetRateParams): Promise<RateResult> {
     const { fromCurrencyCode, toCurrencyCode, date, scope, options } = params
+    const source = params.source?.trim() || undefined
     const maxDaysBack = options?.maxDaysBack ?? 30
     const autoFetch = options?.autoFetch ?? true
 
@@ -70,7 +86,8 @@ export class ExchangeRateService {
       date,
       scope,
       maxDaysBack,
-      autoFetch
+      autoFetch,
+      source
     )
 
     return result
@@ -81,7 +98,7 @@ export class ExchangeRateService {
    * Errors are captured in the result's error field rather than thrown
    */
   async getRates(params: GetRatesParams): Promise<Map<string, RateResult>> {
-    const { pairs, date, scope, options } = params
+    const { pairs, date, scope, source, options } = params
     const results = new Map<string, RateResult>()
 
     // Process each pair
@@ -93,6 +110,7 @@ export class ExchangeRateService {
           toCurrencyCode: pair.toCurrencyCode,
           date,
           scope,
+          source,
           options,
         })
         results.set(key, result)
@@ -124,6 +142,7 @@ export class ExchangeRateService {
     scope: { tenantId: string; organizationId: string },
     maxDaysBack: number,
     autoFetch: boolean,
+    source: string | undefined,
     daysBack: number = 0
   ): Promise<RateResult> {
     // Stop if we've gone back too far
@@ -146,7 +165,8 @@ export class ExchangeRateService {
       fromCode,
       toCode,
       normalizedDate,
-      scope
+      scope,
+      source
     )
 
     // If found, return them
@@ -162,10 +182,13 @@ export class ExchangeRateService {
 
     // If not found and autoFetch is enabled, try fetching
     if (autoFetch) {
-      const fetchResult = await this.rateFetchingService.fetchRatesForDate(
-        normalizedDate,
-        scope
-      )
+      // With a source, only that provider is asked: a row of another source on the same day
+      // must not stop the fetch (see GetRateParams.source).
+      const fetchResult = source
+        ? await this.rateFetchingService.fetchRatesForDate(normalizedDate, scope, {
+            providers: [source],
+          })
+        : await this.rateFetchingService.fetchRatesForDate(normalizedDate, scope)
 
       // If fetch was successful, try to find the rates again
       if (fetchResult.totalFetched > 0) {
@@ -173,7 +196,8 @@ export class ExchangeRateService {
           fromCode,
           toCode,
           normalizedDate,
-          scope
+          scope,
+          source
         )
 
         if (fetchedRates.length > 0) {
@@ -196,6 +220,7 @@ export class ExchangeRateService {
       scope,
       maxDaysBack,
       autoFetch,
+      source,
       daysBack + 1
     )
   }
@@ -208,7 +233,8 @@ export class ExchangeRateService {
     fromCode: string,
     toCode: string,
     date: Date,
-    scope: { tenantId: string; organizationId: string }
+    scope: { tenantId: string; organizationId: string },
+    source?: string
   ): Promise<ExchangeRate[]> {
     const normalizedDate = this.normalizeDate(date)
 
@@ -220,6 +246,7 @@ export class ExchangeRateService {
       date: normalizedDate,
       deletedAt: null,
       isActive: true,
+      ...(source ? { source } : {}),
     })
   }
 
