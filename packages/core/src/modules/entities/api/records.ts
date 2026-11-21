@@ -90,7 +90,7 @@ const listRecordsQuerySchema = z
     sortDir: z.enum(['asc', 'desc']).optional(),
     search: z.string().optional(),
     searchFields: z.string().optional(),
-    withDeleted: z.coerce.boolean().optional(),
+    withDeleted: z.coerce.boolean().optional().describe('Legacy parameter. Deleted records are excluded from lists and exports.'),
     format: z.enum(['csv', 'json', 'xml', 'markdown']).optional(),
     exportScope: z.enum(['full']).optional(),
     export_scope: z.enum(['full']).optional(),
@@ -128,7 +128,6 @@ export async function GET(req: Request) {
   const pageSize = noPagination ? Math.max(basePageSize, DEFAULT_EXPORT_PAGE_SIZE) : basePageSize
   const sortField = url.searchParams.get('sortField') || 'id'
   const sortDir = (url.searchParams.get('sortDir') || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc'
-  const withDeleted = parseBooleanWithDefault(url.searchParams.get('withDeleted'), false)
   const searchTerm = (url.searchParams.get('search') || '').trim()
   const searchFields = parseCommaSeparatedList(url.searchParams.get('searchFields'))
 
@@ -230,7 +229,7 @@ export async function GET(req: Request) {
       page: { page, pageSize },
       sort: [{ field: sortField as any, dir: sortDir as any }] as Sort[],
       filters: filtersObj as any,
-      withDeleted,
+      withDeleted: false,
     }
     if (organizationIds && organizationIds.length) {
       qopts.organizationIds = organizationIds
@@ -640,7 +639,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List records',
       description:
-        'Returns paginated records for the supplied entity. Supports custom field filters, exports, and soft-delete toggles.',
+        'Returns paginated, non-deleted records for the supplied entity. Supports custom field filters and exports.',
       query: listRecordsQuerySchema,
       responses: [
         {
