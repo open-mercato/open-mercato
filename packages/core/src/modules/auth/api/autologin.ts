@@ -66,20 +66,23 @@ export async function GET(req: Request) {
   })
   if (!createdSession) return buildSafeRedirectResponse(req, '/login')
   const { session } = createdSession
+  const loginScope = {
+    tenantId: resolvedTenantId,
+    organizationId: user.organizationId ? String(user.organizationId) : null,
+  }
   const token = signJwt({
     sub: String(user.id),
     sid: String(session.id),
     tenantId: resolvedTenantId,
-    orgId: user.organizationId ? String(user.organizationId) : null,
+    orgId: loginScope.organizationId,
     email: user.email,
     roles,
   })
   void emitAuthEvent('auth.login.success', {
     id: String(user.id),
     email: user.email,
-    tenantId: resolvedTenantId,
-    organizationId: user.organizationId ? String(user.organizationId) : null,
-  }).catch(() => undefined)
+    ...loginScope,
+  }, loginScope).catch(() => undefined)
 
   const res = buildSafeRedirectResponse(req, redirectTo)
   res.cookies.set('auth_token', token, {

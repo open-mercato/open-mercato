@@ -58,10 +58,11 @@ export async function POST(req: Request) {
   await customerUserService.resetFailedAttempts(user)
   await customerUserService.updateLastLoginAt(user)
 
-  const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
+  const loginScope = {
     tenantId: user.tenantId,
     organizationId: user.organizationId,
-  })
+  }
+  const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, loginScope)
 
   const ip = getClientIp(req, 0)
   const userAgent = req.headers.get('user-agent') || null
@@ -70,9 +71,8 @@ export async function POST(req: Request) {
   void emitCustomerAccountsEvent('customer_accounts.login.success', {
     id: user.id,
     email: user.email,
-    tenantId: user.tenantId,
-    organizationId: user.organizationId,
-  }).catch(() => undefined)
+    ...loginScope,
+  }, loginScope).catch(() => undefined)
 
   const res = NextResponse.json({
     ok: true,
