@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { PortalLayoutShell } from '@open-mercato/ui/portal/PortalLayoutShell'
 import { getCustomerAuthFromCookies } from '@open-mercato/core/modules/customer_accounts/lib/customerAuthServer'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { resolvePortalOrganization } from '@open-mercato/core/modules/directory/lib/resolvePortalOrganization'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
@@ -63,7 +64,7 @@ export default async function FrontendLayout({ children }: LayoutProps) {
   const isPublic = isPublicPortalRoute(pathname)
   const isPortalRoot = isPortalRootRoute(pathname)
 
-  const customerAuth = await getCustomerAuthFromCookies()
+  const customerAuth = await runInOwnedRequestScope(() => getCustomerAuthFromCookies())
 
   let orgName: string | null = null
   let tenantId: string | null = null
@@ -75,42 +76,44 @@ export default async function FrontendLayout({ children }: LayoutProps) {
   let customerAuthMatchesUrlOrg = false
 
   try {
-    const container = await createRequestContainer()
-    const org = await resolvePortalOrganization(container, orgSlug, headerStore.get('host'))
-    customerAuthMatchesUrlOrg = !!customerAuth
-      && org?.id === customerAuth.orgId
-      && org.tenantId === customerAuth.tenantId
+    await runInOwnedRequestScope(async () => {
+      const container = await createRequestContainer()
+      const org = await resolvePortalOrganization(container, orgSlug, headerStore.get('host'))
+      customerAuthMatchesUrlOrg = !!customerAuth
+        && org?.id === customerAuth.orgId
+        && org.tenantId === customerAuth.tenantId
 
-    if (org) {
-      orgName = org.name
-      organizationId = org.id
-      tenantId = org.tenantId
-    }
-
-    if (customerAuth && !isPublic && !customerAuthMatchesUrlOrg) {
-      portalAccessDenied = true
-    }
-
-    if (!portalAccessDenied && tenantId) {
-      const featureTogglesService = container.resolve('featureTogglesService') as FeatureTogglesService
-      const result = await featureTogglesService.getBoolConfig('portal_enabled', tenantId)
-      if (result.ok && result.value === false) {
-        portalEnabled = false
+      if (org) {
+        orgName = org.name
+        organizationId = org.id
+        tenantId = org.tenantId
       }
-    }
 
-    if (!portalAccessDenied && customerAuthMatchesUrlOrg && customerAuth) {
-      const em = container.resolve<EntityManager>('em')
-      const scope = { tenantId: customerAuth.tenantId, organizationId: customerAuth.orgId }
-      const user = await findOneWithDecryption(em, CustomerUser, { id: customerAuth.sub, ...scope, deletedAt: null }, {}, scope)
-      if (user) {
-        userName = user.displayName || customerAuth.email
-        userEmail = user.email || customerAuth.email
-      } else {
-        userName = customerAuth.displayName || customerAuth.email
-        userEmail = customerAuth.email
+      if (customerAuth && !isPublic && !customerAuthMatchesUrlOrg) {
+        portalAccessDenied = true
       }
-    }
+
+      if (!portalAccessDenied && tenantId) {
+        const featureTogglesService = container.resolve('featureTogglesService') as FeatureTogglesService
+        const result = await featureTogglesService.getBoolConfig('portal_enabled', tenantId)
+        if (result.ok && result.value === false) {
+          portalEnabled = false
+        }
+      }
+
+      if (!portalAccessDenied && customerAuthMatchesUrlOrg && customerAuth) {
+        const em = container.resolve<EntityManager>('em')
+        const scope = { tenantId: customerAuth.tenantId, organizationId: customerAuth.orgId }
+        const user = await findOneWithDecryption(em, CustomerUser, { id: customerAuth.sub, ...scope, deletedAt: null }, {}, scope)
+        if (user) {
+          userName = user.displayName || customerAuth.email
+          userEmail = user.email || customerAuth.email
+        } else {
+          userName = customerAuth.displayName || customerAuth.email
+          userEmail = customerAuth.email
+        }
+      }
+    })
   } catch {
     if (customerAuth && !isPublic && !organizationId) {
       portalAccessDenied = true
