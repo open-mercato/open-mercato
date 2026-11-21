@@ -464,6 +464,15 @@
           "nullable": true,
           "length": 6,
           "mappedType": "datetime"
+        },
+        "authorization_user_id": {
+          "name": "authorization_user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
         }
       },
       "name": "sso_configs",
