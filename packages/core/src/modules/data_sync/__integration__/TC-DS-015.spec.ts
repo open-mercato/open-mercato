@@ -95,7 +95,7 @@ test.describe('TC-DS-015: Data sync adapter default batch size', () => {
     const integration = startCard.getByText('Integration', { exact: true }).locator('../..').getByRole('combobox')
     await integration.click()
     await page.getByRole('option', { name: BATCH_SIZE_FIXTURE_TITLE, exact: true }).click()
-    const batchSize = startCard.getByText('Batch size', { exact: true }).locator('../..').getByRole('textbox')
+    const batchSize = startCard.getByText('Batch Size', { exact: true }).locator('../..').getByRole('textbox')
     await expect(batchSize).toHaveValue('500')
 
     const [response] = await Promise.all([
