@@ -56,7 +56,7 @@ import {
 } from './convert-outbound'
 import { GMAIL_THREAD_REF_PREFIX, normalizeInboundGmailMessage } from './normalize-inbound'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
-import { decodeCursor, encodeCursor, stripBrackets } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { decodeCursor, encodeCursor, stringOrUndefined, stripBrackets } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
 import {
   IMPORT_HISTORY_DEFAULT_SINCE_DAYS,
   IMPORT_HISTORY_DEFAULT_MAX_MESSAGES,
@@ -165,26 +165,28 @@ class GmailChannelAdapter implements ChannelAdapter {
 
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
     const userCredentials = parseUserCredentialsOrThrow(input.credentials)
-    let native: ChannelNativeContent
     try {
-      native = await convertOutboundForGmail({
+      const api = getGmailApiClient()
+      const auth = { accessToken: userCredentials.accessToken }
+      let fromAddress = userCredentials.email
+      if (!fromAddress && stringOrUndefined(input.metadata?.fromName)) {
+        const profile = await api.getProfile(auth)
+        const address = gmailUserCredentialsSchema.shape.email.safeParse(profile.emailAddress)
+        if (!address.success || !address.data) {
+          return { externalMessageId: '', status: 'failed', error: '[internal] Gmail mailbox address unavailable' }
+        }
+        fromAddress = address.data
+      }
+
+      const native = await convertOutboundForGmail({
         body: input.content.html ?? input.content.text ?? '',
         bodyFormat: input.content.bodyFormat ?? (input.content.html ? 'html' : 'text'),
         attachments: input.content.attachments,
         channelMetadata: input.metadata,
-        fromAddress: userCredentials.email ?? 'me',
+        fromAddress: fromAddress ?? 'me',
       })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Outbound conversion failed'
-      return { externalMessageId: '', status: 'failed', error: message }
-    }
-
-    const nativeMeta = native.metadata as unknown as GmailEmailNativeMetadata
-    const rawBase64Url = encodeBase64Url(nativeMeta.rawMessage)
-
-    try {
-      const api = getGmailApiClient()
-      const auth = { accessToken: userCredentials.accessToken }
+      const nativeMeta = native.metadata as unknown as GmailEmailNativeMetadata
+      const rawBase64Url = encodeBase64Url(nativeMeta.rawMessage)
       const response = await api.sendRawMessage(auth, {
         rawBase64Url,
         rawMessage: nativeMeta.rawMessage,

@@ -309,6 +309,42 @@ describe('GmailChannelAdapter.sendMessage', () => {
     metadata: { to: ['bob@example.com'], subject: 'Hi' },
   }
 
+  it('gets the authenticated address for a named send with older credentials', async () => {
+    const getProfile = jest.fn(async () => ({ emailAddress: 'orders@example.com', historyId: '1' }))
+    const sendRawMessage = jest.fn(async (_auth: unknown, _input: { rawBase64Url: string }) => ({
+      id: 'sent', threadId: 'thread',
+    }))
+    setGmailApiClient(buildSendApi({ getProfile, sendRawMessage }))
+
+    const result = await getGmailChannelAdapter().sendMessage({
+      ...sendInput,
+      credentials: { ...userCredentials, email: undefined },
+      metadata: { ...sendInput.metadata, fromName: 'Chris at Orders' },
+    })
+
+    expect(result.status).toBe('sent')
+    expect(getProfile).toHaveBeenCalledWith({ accessToken: 'access' })
+    const mime = Buffer.from(sendRawMessage.mock.calls[0][1].rawBase64Url, 'base64url').toString('utf-8')
+    expect(mime).toContain('From: Chris at Orders <orders@example.com>')
+  })
+
+  it('refuses a named send when the authenticated mailbox has no valid address', async () => {
+    const sendRawMessage = jest.fn()
+    setGmailApiClient(buildSendApi({
+      getProfile: async () => ({ emailAddress: '', historyId: '1' }),
+      sendRawMessage,
+    }))
+
+    const result = await getGmailChannelAdapter().sendMessage({
+      ...sendInput,
+      credentials: { ...userCredentials, email: undefined },
+      metadata: { ...sendInput.metadata, fromName: 'Chris at Orders' },
+    })
+
+    expect(result).toMatchObject({ status: 'failed', error: '[internal] Gmail mailbox address unavailable' })
+    expect(sendRawMessage).not.toHaveBeenCalled()
+  })
+
   it('reports the Message-ID Gmail actually sent, which replaces the client-built one', async () => {
     const headerCalls: Array<{ messageId: string; headerNames: string[] }> = []
     setGmailApiClient(

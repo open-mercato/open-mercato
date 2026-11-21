@@ -24,4 +24,6 @@ Add an optional send policy, preserve actor attribution and mailbox credentials,
 - [x] Step 1 — Add the optional authorization policy and authorize only in process.
 - [x] Step 2 — Verify attachment and credential scopes.
 - [x] Step 3 — Support Gmail display names and verify the transmitted MIME header.
-- [ ] Step 4 — Archive the capability and complete validation.
+- [x] Step 4 — Archive the capability and add PostgreSQL regression coverage for scope denial.
+
+The targeted unit tests and Playwright discovery run locally. The hosted CI gate runs the build, PostgreSQL scope tests and HTTP integration suite. The Windows package build hit its memory limit and Docker is unavailable locally.
