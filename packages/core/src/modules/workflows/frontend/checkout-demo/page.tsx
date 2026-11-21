@@ -20,6 +20,7 @@ import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { deriveCurrentStep } from './deriveCurrentStep'
+import { computeCheckoutTotals } from './checkoutTotals'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -255,17 +256,15 @@ export default function CheckoutDemoPage() {
 
   // Convert prices to selected currency (cart items are in USD by default)
   const exchangeRate = exchangeRates[selectedCurrency] || 1
-  const demoCart = cart.map(item => ({
-    ...item,
-    price: item.price * exchangeRate,
-  }))
+  const {
+    items: demoCart,
+    subtotal,
+    tax,
+    shipping,
+    total,
+  } = computeCheckoutTotals(cart, exchangeRate, selectedCurrency)
 
   const currencySymbol = currencySymbols[selectedCurrency] || selectedCurrency
-
-  const subtotal = demoCart.reduce((sum, item) => sum + item.price * item.quantity, 0)
-  const tax = subtotal * 0.08 // 8% tax
-  const shipping = 9.99 * exchangeRate
-  const total = subtotal + tax + shipping
 
   // Workflow steps for UI - use dynamic definition or fallback
   const workflowSteps: StepInfo[] = workflowDefinition?.definition?.steps || [
