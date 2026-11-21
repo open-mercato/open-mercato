@@ -221,6 +221,44 @@ describe('CompletePutawayTaskDialog', () => {
     expect(mockApiCall.mock.calls[1][1].headers[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(freshUpdatedAt)
   })
 
+  it('translates a server error code and marks the confirmed quantity field instead of flashing the raw code', async () => {
+    const { flash } = jest.requireMock('@open-mercato/ui/backend/FlashMessages') as { flash: jest.Mock }
+    const { raiseCrudError } = jest.requireMock('@open-mercato/ui/backend/utils/serverErrors') as {
+      raiseCrudError: jest.Mock
+    }
+    raiseCrudError.mockRejectedValueOnce(
+      Object.assign(new Error('putaway_quantity_exceeds_task'), {
+        status: 422,
+        error: 'putaway_quantity_exceeds_task',
+      }),
+    )
+    mockApiCall.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      result: { error: 'putaway_quantity_exceeds_task' },
+      response: new Response(null, { status: 422 }),
+    })
+    const expectedMessage = 'The confirmed quantity exceeds the open quantity of this putaway task.'
+
+    render(
+      <CompletePutawayTaskDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        task={task}
+      />,
+    )
+
+    const quantityInput = screen.getByTestId('complete-putaway-qty')
+    fireEvent.change(quantityInput, { target: { value: '8' } })
+    fireEvent.click(screen.getByTestId('complete-putaway-submit'))
+
+    await waitFor(() => expect(flash).toHaveBeenCalledWith(expectedMessage, 'error'))
+    expect(flash).not.toHaveBeenCalledWith('putaway_quantity_exceeds_task', 'error')
+    expect(await screen.findByText(expectedMessage)).toBeTruthy()
+    expect(quantityInput).toHaveAttribute('aria-invalid', 'true')
+  })
+
   it('completes only when the scanned serial matches the selected task', async () => {
     mockApiCall.mockResolvedValue({
       ok: true,

@@ -4,7 +4,11 @@ import * as React from 'react'
 import { z } from 'zod'
 import { useQueryClient } from '@tanstack/react-query'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { flashMutationError } from '../../lib/flashMutationError'
+import {
+  flashMutationError,
+  readWmsErrorCode,
+  resolveWmsErrorCodeMessage,
+} from '../../lib/flashMutationError'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -56,6 +60,13 @@ const formSchema = z.object({
   confirmedQuantity: z.number().positive('wms.backend.putaway.complete.errors.quantityPositive'),
   targetLocationId: z.string().uuid('wms.backend.putaway.complete.errors.targetRequired'),
 })
+
+const COMPLETE_ERROR_CODE_FIELDS: Record<string, 'confirmedQuantity' | 'targetLocationId'> = {
+  invalid_putaway_quantity: 'confirmedQuantity',
+  putaway_quantity_exceeds_task: 'confirmedQuantity',
+  putaway_complete_quantity_conflict: 'confirmedQuantity',
+  invalid_putaway_target_location: 'targetLocationId',
+}
 
 export function CompletePutawayTaskDialog({
   open,
@@ -220,6 +231,10 @@ export function CompletePutawayTaskDialog({
         closeDialog()
         onSuccess?.()
       } catch (error) {
+        const errorCode = readWmsErrorCode(error)
+        const fieldKey = errorCode ? COMPLETE_ERROR_CODE_FIELDS[errorCode] : undefined
+        const fieldMessage = fieldKey ? resolveWmsErrorCodeMessage(error, t) : null
+        if (fieldKey && fieldMessage) setFieldErrors({ [fieldKey]: fieldMessage })
         flashMutationError(
           error,
           t('wms.backend.putaway.complete.errors.submit', 'Failed to complete putaway task.'),
