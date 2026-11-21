@@ -45,7 +45,7 @@ Core does not perform provider preconfiguration. The S3 package owns its schema/
 
 ### Caller integration boundary
 
-Factory validation remains process-wide, including calls made by other modules. This implementation's localized HTTP 503 mapping, validation-before-metadata-removal guarantee and typed worker/CLI propagation cover the `attachments` module's own routes, quota recovery worker and CLI. They do not yet cover independent callers in `warranty_claims/api/portal/attachments/route.ts`, `documents/api/[id]/attachments/[attachmentId]/route.ts` or enterprise `agent_orchestrator`'s `attachmentStager`; follow-up [#7941](https://github.com/open-mercato/open-mercato/issues/7941) tracks their integration. Those callers still encounter factory rejection, but may expose a generic error or swallow it. In particular, warranty portal deletion currently removes metadata before resolving storage, so strict rejection there can leave orphaned bytes. Operators must audit these paths before enabling strict mode for deployments using them. This boundary does not bypass strict validation or change provider policy.
+Factory validation remains process-wide, including calls made by other modules. Follow-up [#7941](https://github.com/open-mercato/open-mercato/issues/7941) extends localized HTTP 503 mapping to warranty portal download/delete/replacement and document attachment reads. Warranty deletion resolves storage before metadata removal and deletes provider bytes only after commit when the removed row was the final reference. Replacement validates the old attachment before uploading new bytes. `attachmentService.readScoped` preserves typed configuration failures, including missing partitions, while retaining existing authorization and legacy error behavior. Other independent callers must integrate the typed error at their own boundary; this does not change provider policy. Enterprise staging integration is documented in the enterprise companion spec.
 
 Scope remains the existing tenant/organization pair. Validators receive that pair unchanged when supplied; partial scope is rejected in strict mode. Global operations remain supported with both scope values absent/empty. Errors include no scope values, partition names, bucket names, endpoints, credentials or raw validator exception messages.
 
@@ -87,7 +87,7 @@ This is additive and opt-in. Legacy mode preserves unknown/null/missing-partitio
 
 Applications should use `attachmentService` for business operations. The factory/validator entry points support storage-provider authors and platform integration. Explicit direct driver construction, S3 standalone APIs and deprecated explicit-filesystem helpers are outside partition resolution; migrate callers that require this policy to the supported service/factory rather than treating strict mode as a filesystem sandbox.
 
-The caller integration boundary above also applies during rollout: do not assume another module maps a factory rejection to HTTP 503 or validates before its own metadata side effects. Track the independent callers in #7941 before relying on those guarantees outside `attachments`.
+The caller integration boundary above also applies during rollout: independent callers beyond the documented attachments, warranty and documents paths must map typed failures and validate storage before their own metadata side effects.
 
 ## 📝 Risks & Impact Review
 
@@ -104,6 +104,8 @@ The caller integration boundary above also applies during rollout: do not assume
 Ship tests through real factory calls and actual route/worker/CLI handlers using a registered fake driver: upload, file retrieval, image retrieval, both deletion routes, quota recovery, CLI deletion and direct late construction. Cover missing partition, null/unknown driver, malformed config, validator exception and enhancer rejection; assert zero constructor, local-write, provider-call and destructive metadata effects after rejection. Valid fake-driver cases must prove scoped input and actual store/read/delete invocation. Existing compatibility tests continue to prove legacy defaults.
 
 Add a self-contained native API integration case for valid explicit-local upload/download/delete and strict malformed partition rejection. Fixtures are API-created and cleaned in finally; strict mode is selected on the disposable server, never the developer database. Where test setup uses handler-level fixtures, report that boundary explicitly rather than claiming a running database test. No UI path changes beyond existing error rendering.
+
+For #7941, self-contained handler regressions use the real storage factory and reference-removal helper for warranty download/delete/replacement, and the actual document handler plus `attachmentService.readScoped`. Cover missing partitions, unknown drivers, malformed/rejected configuration, localization/redaction, zero metadata/provider effects on rejection, shared-object retention, concurrent removal, and legacy/auth/scope behavior. These are handler-level integration fixtures, not running-database tests.
 
 ## 📋 Phasing
 
@@ -125,4 +127,5 @@ Design preserves existing public contracts in legacy mode, introduces no schema 
 - 2026-11-02: Integrate current main; preserve the strict library preflight no-reference-lock guarantee and locked owner/storage recheck, document both inherited trade-offs, and normalize validator import order.
 
 - 2026-10-25: Compose strict deletion ordering with reference-counted removal from #7292; explicitly scope caller-level guarantees and track independent callers in #7941.
+- 2026-10-25: Integrate warranty and documents callers for #7941, preserving typed failures, preflight ordering and reference-counted deletion; add real-handler regressions. Enterprise integration is recorded separately.
 - 2026-10-01: Initial autonomous design for #6690. Defaults preserve legacy behavior, require strict external-driver validation and keep authorization separate.

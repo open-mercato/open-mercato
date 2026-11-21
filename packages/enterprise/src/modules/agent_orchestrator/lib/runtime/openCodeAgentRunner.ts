@@ -46,6 +46,7 @@ import type { AgentWorkspaceLease, AgentWorkspaceManager } from './agentWorkspac
 import { collectArtifacts } from './artifactCollector'
 import { extractFileInput } from './fileInput'
 import { stageAttachments, type StagedInput } from './attachmentStager'
+import { isAttachmentStorageConfigurationError } from '@open-mercato/core/modules/attachments'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { withAuditedCommand } from '../identity/agentWriteScope'
 import type { IngestTraceCommandInput } from '../../commands/trace'
@@ -357,10 +358,24 @@ export class OpenCodeAgentRunner {
             inDir: workspace.inDir,
             tenantId: ctx.tenantId,
             organizationId: ctx.organizationId,
+            userId: ctx.userId,
           })
         } catch (err) {
-          const detail = err instanceof Error ? err.message : String(err)
+          if (isAttachmentStorageConfigurationError(err)) {
+            await failRun(this.commandBus, commandCtx, { runId, errorMessage: `${err.code}: ${err.reason}` })
+            throw err
+          }
+          logger.warn('attachment staging failed', { agentId, runId, error: err instanceof Error ? err.message : String(err) })
+          const detail = 'attachment input unavailable'
           await failRun(this.commandBus, commandCtx, { runId, errorMessage: `attachment staging failed: ${detail}` })
+          try {
+            getTelemetryRuntime()?.reportError(err, {
+              module: 'agent_orchestrator', code: 'agent_orchestrator.attachment_staging_failed',
+              attributes: { agentId, runId },
+            })
+          } catch {
+            logger.warn('attachment staging error reporting failed', { agentId, runId })
+          }
           throw new OpenCodeRunFailedError(agentId, `attachment staging failed: ${detail}`)
         }
       }

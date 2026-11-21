@@ -9,6 +9,7 @@
 
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import { AttachmentStorageConfigurationError } from '@open-mercato/core/modules/attachments'
 
 const sendSignalMock = jest.fn<Promise<void>, [unknown, unknown, unknown]>()
 const completeWorkflowMock = jest.fn<Promise<void>, [unknown, unknown, string, string, unknown?]>()
@@ -77,6 +78,17 @@ beforeEach(() => {
 })
 
 describe('handleInvokeAgentJob retryable-error classification', () => {
+  it.each(['partition_missing', 'invalid_config'] as const)('records typed storage %s at the owning job boundary', async (reason) => {
+    const { em, container } = makeDeps(new AttachmentStorageConfigurationError(reason))
+    await expect(handleInvokeAgentJob(em, container, makeJob())).resolves.toBeUndefined()
+    expect(sendSignalMock).not.toHaveBeenCalled()
+    expect(completeWorkflowMock).toHaveBeenCalledWith(
+      em, container, 'instance-1', 'FAILED', expect.objectContaining({
+        error: `INVOKE_AGENT step ${stepId} failed: ATTACHMENT_STORAGE_CONFIGURATION_INVALID: ${reason}`,
+      }),
+    )
+  })
+
   it('rethrows a structurally retryable error (retryable: true) for queue-level retry', async () => {
     const capacityError = Object.assign(new Error('[internal] agent run admission rejected: queue full'), {
       name: 'AgentCapacityError',

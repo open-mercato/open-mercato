@@ -8,7 +8,9 @@ import { DOCUMENTS_ENTITY_IDS } from '../../../../lib/constants'
 import { resolveAttachmentServicePort } from '../../../../lib/attachmentServicePort'
 import { assertTier } from '../../../../lib/permissions'
 import {
+  ATTACHMENT_SERVICE_UNAVAILABLE_DESCRIPTION,
   assertDocumentNotArchived,
+  attachmentServiceUnavailableErrorSchema,
   handleDocumentsRouteError,
   resolveDocumentsContext,
   routeErrorSchema,
@@ -146,7 +148,7 @@ export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
         { status: 403, description: 'Forbidden', schema: routeErrorSchema },
         { status: 404, description: 'Attachment not found', schema: routeErrorSchema },
         { status: 500, description: 'Partition misconfigured', schema: routeErrorSchema },
-        { status: 503, description: 'Attachment service unavailable', schema: routeErrorSchema },
+        { status: 503, description: ATTACHMENT_SERVICE_UNAVAILABLE_DESCRIPTION, schema: attachmentServiceUnavailableErrorSchema },
       ],
     },
     DELETE: {

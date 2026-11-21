@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { attachmentStorageErrorResponse, attachmentStorageErrorSchema } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -91,6 +92,8 @@ export async function POST(req: Request, ctx: RouteContext) {
     const agentRuntime = container.resolve('agentRuntime') as AgentRuntimeService
     result = await agentRuntime.run(id, parsed.input, runCtx)
   } catch (err) {
+    const storageResponse = await attachmentStorageErrorResponse(err)
+    if (storageResponse) return storageResponse
     return agentRunErrorResponse(err, id, runIdObserver.runId())
   }
 
@@ -167,8 +170,8 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 503,
           description:
-            'The deployment has no usable LLM provider; the body carries `code` (`no_provider_configured`, `api_key_missing`, or `provider_rejected` when a configured provider refuses the call)',
-          schema: modelUnavailableErrorSchema,
+            'The deployment has no usable LLM provider, or attachment storage configuration is rejected with code ATTACHMENT_STORAGE_CONFIGURATION_INVALID and a redacted reason',
+          schema: z.union([modelUnavailableErrorSchema, attachmentStorageErrorSchema]),
         },
       ],
     },
