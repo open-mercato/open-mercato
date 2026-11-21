@@ -79,6 +79,7 @@ const mockServices: Record<string, unknown> = {
   em: { find: mockFind },
   queryEngine: { query: mockQuery },
   cache: mockCache,
+  tenantEncryptionService: { getEncryptedFieldNames: jest.fn(async () => []) },
   accessLogService: mockAccessLog,
   rbacService: mockRbac,
 }

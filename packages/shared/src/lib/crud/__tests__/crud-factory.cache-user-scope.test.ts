@@ -26,7 +26,18 @@ let mockOrganizationScope = {
   tenantId: defaultTenantId,
 }
 
+const mockTelemetryReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual<typeof import('@open-mercato/shared/lib/telemetry/runtime')>('@open-mercato/shared/lib/telemetry/runtime'),
+  getTelemetryRuntime: () => ({ reportError: mockTelemetryReportError }),
+}))
+
+beforeEach(() => mockTelemetryReportError.mockReset())
+
 const em = {}
+const encryptedFieldNames = jest.fn<Promise<string[]>, [string, string | null | undefined, string | null, object]>(async () => [])
+let mockEncryptionServiceAvailable = true
 
 // Returns rows derived from the per-caller filter buildFilters produced, so a
 // cross-user cache hit is observable as one user's rows in another's response.
@@ -34,7 +45,7 @@ const queryEngine = {
   query: jest.fn(async (_entity: string, opts: Record<string, any>) => {
     const owner = opts?.filters?.owner_user_id?.$eq ?? 'unfiltered'
     return {
-      items: [{ id: `todo-of-${owner}`, title: `Owned by ${owner}`, organization_id: defaultOrganizationId, tenant_id: defaultTenantId }],
+      items: [{ id: `todo-of-${owner}`, title: `Owned by ${owner}`, display_name: 'Ada Example', primary_email: 'ada@example.test', organization_id: defaultOrganizationId, tenant_id: defaultTenantId }],
       total: 1,
     }
   }),
@@ -56,6 +67,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       em,
       queryEngine,
       cache,
+    tenantEncryptionService: mockEncryptionServiceAvailable ? { getEncryptedFieldNames: encryptedFieldNames } : undefined,
       accessLogService,
     } as any)[name],
   }),
@@ -102,7 +114,7 @@ const route = makeCrudRoute({
     fields: ['id', 'title'],
     sortFieldMap: { id: 'id', title: 'title' },
     buildFilters: (_query: any, ctx: any) => ({ owner_user_id: { $eq: ctx.auth?.sub ?? null } } as any),
-    transformItem: (i: any) => ({ id: i.id, title: i.title }),
+    transformItem: (i: any) => ({ id: i.id, title: i.title, display_name: i.display_name, primary_email: i.primary_email }),
   },
 })
 
@@ -122,21 +134,23 @@ const scopeIdentityRoute = makeCrudRoute({
 
 const url = 'http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'
 
+const previousCacheFlag = process.env.ENABLE_CRUD_API_CACHE
+
+beforeAll(() => {
+  process.env.ENABLE_CRUD_API_CACHE = 'true'
+})
+
+afterAll(() => {
+  if (previousCacheFlag === undefined) delete process.env.ENABLE_CRUD_API_CACHE
+  else process.env.ENABLE_CRUD_API_CACHE = previousCacheFlag
+})
+
 describe('CRUD Factory — list cache is partitioned per caller identity', () => {
-  const previousCacheFlag = process.env.ENABLE_CRUD_API_CACHE
-
-  beforeAll(() => {
-    process.env.ENABLE_CRUD_API_CACHE = 'true'
-  })
-
-  afterAll(() => {
-    if (previousCacheFlag === undefined) delete process.env.ENABLE_CRUD_API_CACHE
-    else process.env.ENABLE_CRUD_API_CACHE = previousCacheFlag
-  })
-
   beforeEach(() => {
     jest.clearAllMocks()
     store.clear()
+    encryptedFieldNames.mockReset().mockResolvedValue([])
+    mockEncryptionServiceAvailable = true
     mockAuthSub = 'user-a'
     mockAuthKeyId = null
     mockOrganizationScope = {
@@ -240,5 +254,119 @@ describe('CRUD Factory — list cache is partitioned per caller identity', () =>
     expect(keys[1]).toContain('scope:empty')
     expect(keys[1]).not.toBe(finiteKey)
     expect(queryEngine.query).toHaveBeenCalledTimes(2)
+  })
+})
+
+
+describe('CRUD Factory — encrypted lists bypass the response cache', () => {
+  beforeEach(() => {
+    mockOrganizationScope = {
+      selectedId: defaultOrganizationId,
+      filterIds: [defaultOrganizationId],
+      allowedIds: [defaultOrganizationId],
+      tenantId: defaultTenantId,
+    }
+    jest.clearAllMocks()
+    store.clear()
+    encryptedFieldNames.mockReset().mockResolvedValue([])
+    mockEncryptionServiceAvailable = true
+    registerApiInterceptors([])
+  })
+
+  it('never reads or writes plaintext personal data for an encrypted entity', async () => {
+    encryptedFieldNames.mockResolvedValue(['display_name', 'primary_email'])
+
+    const first = await route.GET(new Request(url))
+    const second = await route.GET(new Request(url))
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(await second.json()).toEqual(await first.json())
+    expect(queryEngine.query).toHaveBeenCalledTimes(2)
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+    expect(store.size).toBe(0)
+    expect(encryptedFieldNames).toHaveBeenCalledWith('example.todo', defaultTenantId, null, {
+      ignoreRuntimeHealth: true,
+      em,
+    })
+  })
+
+  it('ignores an old cache entry after encryption policy is activated', async () => {
+    const uncached = await route.GET(new Request(url))
+    expect(store.size).toBe(1)
+    const key = Array.from(store.keys())[0]
+    store.set(key, { payload: { items: [{ id: 'stale-person' }], total: 1 }, generatedAt: Date.now() })
+    encryptedFieldNames.mockResolvedValue(['primary_email'])
+    cache.get.mockClear()
+    cache.set.mockClear()
+
+    const current = await route.GET(new Request(url))
+
+    expect(await current.json()).toEqual(await uncached.json())
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+    expect(queryEngine.query).toHaveBeenCalledTimes(2)
+  })
+
+  it('queries the database when encryption policy lookup fails', async () => {
+    const error = new Error('[internal] Policy unavailable')
+    encryptedFieldNames.mockRejectedValue(error)
+
+    const response = await route.GET(new Request(url))
+
+    expect(response.status).toBe(200)
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+    expect(mockTelemetryReportError).toHaveBeenCalledWith(error, {
+      module: 'crud',
+      code: 'crud.list_cache_policy_failed',
+    })
+  })
+
+  it('preserves the uncached response when policy failure reporting throws', async () => {
+    encryptedFieldNames.mockRejectedValue(new Error('[internal] Policy unavailable'))
+    mockTelemetryReportError.mockImplementation(() => { throw new Error('[internal] Telemetry unavailable') })
+
+    const response = await route.GET(new Request(url))
+
+    expect(response.status).toBe(200)
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+    expect(mockTelemetryReportError).toHaveBeenCalledTimes(1)
+  })
+
+  it('queries the database when the encryption service is unavailable', async () => {
+    mockEncryptionServiceAvailable = false
+
+    const response = await route.GET(new Request(url))
+
+    expect(response.status).toBe(200)
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+  })
+
+  it.each(['join', 'custom-field-source'])('bypasses caching for an encrypted %s entity', async (source) => {
+    encryptedFieldNames.mockImplementation(async (entityId) => entityId === 'example:profile' ? ['name'] : [])
+    const relatedRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      indexer: { entityType: 'example:todo' },
+      orm: { entity: Todo },
+      list: {
+        schema: querySchema,
+        entityId: 'example:todo',
+        fields: ['id'],
+        ...(source === 'join'
+          ? { joins: [{ alias: 'profile', entityId: 'example:profile', from: { field: 'id' }, to: { field: 'todo_id' } }] }
+          : { customFieldSources: [{ entityId: 'example:profile', alias: 'profile', table: 'profiles', recordIdColumn: 'id', join: { fromField: 'id', toField: 'todo_id' } }] }),
+      },
+    })
+
+    expect((await relatedRoute.GET(new Request(url))).status).toBe(200)
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
   })
 })
