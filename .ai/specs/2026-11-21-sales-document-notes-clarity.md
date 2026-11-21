@@ -50,7 +50,14 @@ The system SHALL offer a formatted Markdown toolbar at creation, then retain sou
 - WHEN staff create either a quote or an order with a formatted Document note
 - THEN the existing comments payload persists its Markdown and the Details document note displays that content after reopening.
 
-Frozen by: `packages/core/src/modules/sales/components/__tests__/salesDocumentFormChannelToggle.test.tsx`
+Planned coverage: the integration test below exercises the Markdown round trip. The existing `packages/core/src/modules/sales/components/__tests__/salesDocumentFormChannelToggle.test.tsx` protects placement of `comments` in the form group with and without channels.
+
+##### Scenario: Create a document from an inbox prefill
+
+- WHEN staff open the create form from inbox intake with prefilled notes
+- THEN those notes are editable, an untouched prefill is passed through unchanged in the create request, and the existing API normalization applies.
+- WHEN the formatted editor cannot import the prefill
+- THEN staff can see and edit the original text in a localized sales-form textarea, without a shared editor change or a blank note replacing the input.
 
 ##### Scenario: Edit, clear and cancel Document note in Details
 
@@ -105,7 +112,7 @@ Mockups: standard existing CrudForm and notes UI with terminology changes; no ne
 
 ## Edge Cases and Failure Scenarios
 
-- Existing plain notes render unchanged; do not transform or migrate old strings.
+- Existing plain notes render unchanged. Preserve inbox-prefilled text as the form value until the user edits it. Open a nonempty inbox prefill in source mode before mounting the formatted editor. Keep the source option accessible outside the formatted editor and retain the original form value if importing it fails.
 - Empty note remains optional and clears under the current API semantics.
 - API validation/conflict errors remain handled by the existing form and inline/editor paths; never issue a second write to the other note store.
 - Adding/cancelling a team note does not update the document field. Changing Document note does not create a history note.
@@ -127,7 +134,7 @@ No public contract changes. Keep `comments`, `comment`, `channels-comments`, the
 
 ## Integration Coverage
 
-Add self-contained `TC-SALES-923-document-notes.spec.ts` in the sales module. Cover both order and quote: create via the real UI using a formatting control on Document note, reopen detail, and create a formatted Team note. Edit the Document note through Details, reload and verify its GET value; assert the Team note IDs, bodies and count are unchanged. Clear the Document note with the existing null/empty semantics, then cancel another Details draft without a PUT. Cancel a team-note draft without a POST. Verify both stores through their APIs after each action and clean up all created records in finally. Cover 390px layout and keyboard submission/cancel using the shared editor. Use API fixtures for customer/channel setup rather than demo records.
+Add self-contained `TC-SALES-923-document-notes.spec.ts` in the sales module. Cover both order and quote: create via the real UI using a formatting control on Document note, reopen detail, and create a formatted Team note. Edit the Document note through Details, reload and verify its GET value; assert the Team note IDs, bodies and count are unchanged. Clear the Document note with the existing null/empty semantics, then cancel another Details draft without a PUT. Cancel a team-note draft without a POST. Verify both stores through their APIs after each action and clean up all created records in finally. Cover 390px layout and keyboard submission/cancel using the shared editor. Use API fixtures for customer/channel setup. Add a create-form regression case for an untouched inbox prefill and an unsupported Markdown prefill, verifying that staff can edit the original text in source mode and that the submitted `comments` value is preserved when they make no edit.
 
 ## Phasing
 
@@ -147,3 +154,4 @@ One module, existing primitives, scoped existing writes, stable contracts and ex
 ## Changelog
 
 - 2026-11-21: Proposed consistent note terminology and Markdown persistence for #923. Independent review amendments explicitly retain the Details source editor, identify MDXEditor correctly, and add Details edit/clear/cancel persistence and separation oracles.
+- 2026-11-21: Added inbox prefill and source fallback acceptance criteria and corrected the characterization test's coverage description.
