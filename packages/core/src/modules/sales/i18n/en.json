@@ -1453,6 +1453,7 @@
   "sales.returns.returnedAt": "Returned at",
   "sales.returns.total": "Total",
   "sales.returns.updated": "Return updated.",
+  "sales.schedule.linkType.offer": "Offer",
   "sales.search.badge.address": "Address",
   "sales.search.badge.channel": "Channel",
   "sales.search.badge.creditMemo": "Credit memo",

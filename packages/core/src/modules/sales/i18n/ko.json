@@ -1453,6 +1453,7 @@
   "sales.returns.returnedAt": "반품일",
   "sales.returns.total": "합계",
   "sales.returns.updated": "반품이 업데이트되었습니다.",
+  "sales.schedule.linkType.offer": "제안",
   "sales.search.badge.address": "주소",
   "sales.search.badge.channel": "채널",
   "sales.search.badge.creditMemo": "크레딧 메모",

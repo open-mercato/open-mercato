@@ -1453,6 +1453,7 @@
   "sales.returns.returnedAt": "Rückgabedatum",
   "sales.returns.total": "Summe",
   "sales.returns.updated": "Rückgabe aktualisiert.",
+  "sales.schedule.linkType.offer": "Angebot",
   "sales.search.badge.address": "Adresse",
   "sales.search.badge.channel": "Kanal",
   "sales.search.badge.creditMemo": "Gutschrift",
