@@ -6,6 +6,19 @@
 
 `backfillDealLossReasonDictionary` and `BackfillDealLossReasonDictionaryResult` exported from `sales/lib/dictionaries` are deprecated (removal no earlier than 0.12.0); import them from `@open-mercato/core/modules/customers/lib/dealLossReasons`.
 
+## Notification mark-all-read follows the bell scope (#9244)
+
+`PUT /api/notifications/mark-all-read` now marks exactly the unread in-app
+notifications visible to the authenticated recipient in the selected tenant.
+With an organization selected, this includes its visible child organizations and
+tenant-wide notifications. With no organization selected and restricted organization
+access, notifications outside the visible organizations stay unread. The returned
+`count` and `notifications.read` events follow that same set. Direct
+`NotificationService.markAllAsRead` callers supplying only `organizationId` retain
+their existing behavior. No request or response fields change; no data migration
+is required. Integrations that expected a different bulk scope should use explicit
+per-notification actions for their intended set.
+
 ## Entity translation authorization and field registration (#9139)
 
 `GET /api/translations/:entityType/:entityId` now requires the target record's view
