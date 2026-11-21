@@ -3,6 +3,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { deriveCustomEntityRecordFeature } from './recordFeatures'
+import { CUSTOMER_ADDRESS_FIELD_HOST, SALES_ADDRESS_FIELD_HOST } from './addressCustomFieldPolicy'
 
 export type EntityAclRequirement = {
   view: string[]
@@ -33,6 +34,10 @@ const ENTITY_ACL_REQUIREMENTS: Record<string, EntityAclRequirement> = {
     manage: ['customers.deals.manage'],
   },
   'customers:customer_activity': {
+    view: ['customers.activities.view'],
+    manage: ['customers.activities.manage'],
+  },
+  [CUSTOMER_ADDRESS_FIELD_HOST]: {
     view: ['customers.activities.view'],
     manage: ['customers.activities.manage'],
   },
@@ -122,6 +127,12 @@ export function canReadEntityMetadata(args: {
     })
   }
   if (canReadAllEntityMetadata(args.acl)) return true
+  if (args.entityId === SALES_ADDRESS_FIELD_HOST) {
+    return ['sales.orders.view', 'sales.quotes.view'].some((feature) => authorizeFeatures([feature], {
+      grantedFeatures: args.acl.features ?? [],
+      unrestricted: Boolean(args.acl.isSuperAdmin),
+    }))
+  }
   if (args.isCustomEntity) {
     const requiredFeatures = ['entities.records.view']
     if (args.isRestricted) {

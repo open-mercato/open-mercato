@@ -7,6 +7,11 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import {
+  AddressCustomFieldEditor,
+  useAddressCustomValueDraft,
+  type AddressTileCustomFields,
+} from '@open-mercato/ui/backend/detail/AddressCustomFields'
 import { AddressView, formatAddressJson, formatAddressString, type AddressFormatStrategy } from '../utils/addressFormat'
 import { normalizeCoordinateInput, validateCoordinateInput } from '@open-mercato/shared/lib/location/coordinates'
 import AddressEditor from './AddressEditor'
@@ -44,6 +49,7 @@ export type CustomerAddressInput = {
   latitude?: number | null
   longitude?: number | null
   isPrimary?: boolean
+  customValues?: Record<string, unknown>
 }
 
 export type CustomerAddressValue = CustomerAddressInput & {
@@ -68,6 +74,9 @@ type CustomerAddressTilesProps = {
   emptyStateTitle?: string
   emptyStateActionLabel?: string
   showCoordinateFields?: boolean
+  customFields?: AddressTileCustomFields
+  onEditingChange?: (editing: boolean) => void
+  unconfirmedAddressId?: string
 }
 
 type DraftAddressState = {
@@ -186,6 +195,9 @@ export function CustomerAddressTiles({
   emptyStateTitle,
   emptyStateActionLabel,
   showCoordinateFields = false,
+  customFields,
+  onEditingChange,
+  unconfirmedAddressId,
 }: CustomerAddressTilesProps) {
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
@@ -199,6 +211,8 @@ export function CustomerAddressTiles({
   const [format, setFormat] = React.useState<AddressFormatStrategy>('line_first')
   const [formatLoading, setFormatLoading] = React.useState(false)
   const { map: addressTypeMap } = useAddressTypes(t)
+  const { blocked: customFieldsBlocked, values: customValues, errors: customErrors, reset: resetCustomValues,
+    onChange: changeCustomValue, prepare: prepareCustomValues } = useAddressCustomValueDraft(customFields)
 
   const fieldLabels = React.useMemo(
     () => ({
@@ -229,10 +243,11 @@ export function CustomerAddressTiles({
 
   const resetForm = React.useCallback(() => {
     setDraft(defaultDraft)
+    resetCustomValues()
     setFieldErrors({})
     setGeneralError(null)
     setEditingId(null)
-  }, [])
+  }, [resetCustomValues])
 
   React.useEffect(() => {
     let cancelled = false
@@ -284,6 +299,7 @@ export function CustomerAddressTiles({
 
   const openEditForm = React.useCallback(
     (address: CustomerAddressValue) => {
+      resetCustomValues(address.customValues ?? {})
       setDraft({
         name: address.name ?? '',
         purpose: address.purpose ?? '',
@@ -305,7 +321,7 @@ export function CustomerAddressTiles({
       setEditingId(address.id)
       setIsFormOpen(true)
     },
-    []
+    [resetCustomValues]
   )
 
   const handleCancel = React.useCallback(() => {
@@ -348,10 +364,13 @@ export function CustomerAddressTiles({
       setGeneralError(Object.values(coordinateErrors)[0] ?? null)
       return
     }
+    const prepared = prepareCustomValues()
+    if (!prepared.valid) return
 
     const payload: CustomerAddressInput = {
       addressLine1: trimmedLine1,
       isPrimary: draft.isPrimary,
+      ...(prepared.customValues ? { customValues: prepared.customValues } : {}),
     }
 
     const purpose = normalizeOptional(draft.purpose)
@@ -422,7 +441,7 @@ export function CustomerAddressTiles({
     } finally {
       setSaving(false)
     }
-  }, [draft, editingId, fieldLabels, line1FieldLabel, onCreate, onUpdate, resetForm, t])
+  }, [draft, editingId, fieldLabels, line1FieldLabel, onCreate, onUpdate, prepareCustomValues, resetForm, t])
 
   const handleDelete = React.useCallback(
     async (id: string) => {
@@ -455,6 +474,12 @@ export function CustomerAddressTiles({
   const emptyActionLabel = emptyStateActionLabel ?? t('customers.people.detail.addresses.add')
 
   React.useEffect(() => {
+    onEditingChange?.(isFormOpen)
+  }, [isFormOpen, onEditingChange])
+
+  React.useEffect(() => () => onEditingChange?.(false), [onEditingChange])
+
+  React.useEffect(() => {
     if (!onAddActionChange) return
     onAddActionChange({ openCreateForm, addDisabled })
   }, [onAddActionChange, openCreateForm, addDisabled])
@@ -472,10 +497,16 @@ export function CustomerAddressTiles({
         key={key}
         className="rounded-lg border-2 border-dashed border-muted-foreground/50 bg-muted/30 p-4 text-sm"
         onKeyDown={(event) => {
+          if (event.defaultPrevented) return
+          if (event.key === 'Escape' && !disableActions) {
+            event.preventDefault()
+            handleCancel()
+            return
+          }
           if (!(event.metaKey || event.ctrlKey)) return
           if (event.key !== 'Enter') return
           event.preventDefault()
-          if (disableActions) return
+          if (disableActions || customFieldsBlocked) return
           void handleSave()
         }}
       >
@@ -485,7 +516,7 @@ export function CustomerAddressTiles({
               ? t('customers.people.detail.addresses.editTitle')
               : t('customers.people.detail.addresses.addTitle')}
           </span>
-          <Button type="button" variant="ghost" size="icon" onClick={handleCancel} disabled={disableActions}>
+          <Button type="button" variant="ghost" size="icon" onClick={handleCancel} disabled={disableActions} aria-label={t('ui.dialog.close.ariaLabel', 'Close')}>
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -516,13 +547,24 @@ export function CustomerAddressTiles({
             errors={fieldErrors}
             showFormatHint={!formatLoading}
             showCoordinateFields={showCoordinateFields}
-          />
+          >
+            {customFields ? (
+              <AddressCustomFieldEditor
+                structure={customFields.structure}
+                labels={customFields.labels}
+                values={customValues}
+                errors={customErrors}
+                onChange={changeCustomValue}
+                disabled={disableActions}
+              />
+            ) : null}
+          </AddressEditor>
           {generalError ? <p className="text-xs text-status-error-text">{generalError}</p> : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="outline" onClick={handleCancel} disabled={disableActions}>
               {t('customers.people.detail.addresses.cancel')}
             </Button>
-            <Button type="button" onClick={handleSave} disabled={disableActions}>
+            <Button type="button" onClick={handleSave} disabled={disableActions || customFieldsBlocked}>
               {saving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -541,6 +583,11 @@ export function CustomerAddressTiles({
       </div>
     ),
     [
+      changeCustomValue,
+      customErrors,
+      customFields,
+      customFieldsBlocked,
+      customValues,
       disableActions,
       draft,
       editingId,
@@ -601,6 +648,11 @@ export function CustomerAddressTiles({
                         {t('customers.people.detail.primary')}
                       </span>
                     ) : null}
+                    {address.id === unconfirmedAddressId ? (
+                      <span className="mt-1 inline-flex w-fit rounded bg-status-warning-bg px-2 py-0.5 text-xs text-status-warning-text">
+                        {t('customers.people.detail.addresses.unconfirmedBadge')}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-1">
                     <Button
@@ -638,6 +690,7 @@ export function CustomerAddressTiles({
                     </p>
                   ) : null}
                   <AddressView address={address} format={format} className="space-y-1" lineClassName="text-sm" />
+                  {address.customValues && customFields?.renderValues(address.customValues)}
                 </div>
               </div>
             )

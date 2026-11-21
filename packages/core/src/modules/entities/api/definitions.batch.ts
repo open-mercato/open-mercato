@@ -7,10 +7,12 @@ import { customFieldEntityConfigSchema, upsertCustomFieldDefSchema } from '@open
 import { z } from 'zod'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { invalidateDefinitionsCache } from './definitions.cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { mergeEntityFieldsetConfig, normalizeEntityFieldsetConfig } from '../lib/fieldsets'
 import { resolveEntityDefinitionsVersion } from '../lib/definitions-version'
+import { isAddressCustomFieldHost, isSupportedAddressCustomField } from '../lib/addressCustomFieldPolicy'
 import {
   beginEntitiesMutationGuard,
   FIELD_DEFINITION_RESOURCE_KIND,
@@ -73,6 +75,12 @@ export async function POST(req: Request) {
   const parsed = batchSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   const { entityId, definitions, fieldsets, singleFieldsetPerRecord } = parsed.data
+  if (isAddressCustomFieldHost(entityId) && definitions.some(
+    (definition) => definition.isActive !== false && !isSupportedAddressCustomField(definition.key, definition.kind),
+  )) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('entities.customFields.address.unsupportedDefinition', 'This field name or type is unavailable for addresses.') }, { status: 400 })
+  }
 
   const container = await createRequestContainer()
   const scope = await resolveDefinitionMutationScope({ auth, container, request: req })

@@ -4292,6 +4292,7 @@ function TextInput({
   readOnly,
   suggestions,
   inputType = 'text',
+  bubbleModifiedEnter,
 }: {
   id?: string
   value: string
@@ -4303,6 +4304,7 @@ function TextInput({
   readOnly?: boolean
   suggestions?: string[]
   inputType?: 'text' | 'password'
+  bubbleModifiedEnter?: boolean
 }) {
   const [local, setLocal] = React.useState<string>(value)
   const isFocusedRef = React.useRef(false)
@@ -4330,12 +4332,13 @@ function TextInput({
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (disabled) return
+    if (bubbleModifiedEnter && (e.metaKey || e.ctrlKey) && e.key === 'Enter') return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       commitIfChanged()
       onSubmit?.()
     }
-  }, [commitIfChanged, disabled, onSubmit])
+  }, [bubbleModifiedEnter, commitIfChanged, disabled, onSubmit])
 
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
@@ -4405,6 +4408,7 @@ function NumberInput({
   exact = false,
   disabled,
   readOnly,
+  bubbleModifiedEnter,
 }: {
   id?: string
   value: number | string | null | undefined
@@ -4415,6 +4419,7 @@ function NumberInput({
   exact?: boolean
   disabled?: boolean
   readOnly?: boolean
+  bubbleModifiedEnter?: boolean
 }) {
   const locale = useOptionalLocale()
   const serializedValue = React.useMemo(() => {
@@ -4452,6 +4457,7 @@ function NumberInput({
   }, [onChange, parse])
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (bubbleModifiedEnter && (e.metaKey || e.ctrlKey) && e.key === 'Enter') return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       commitIfChanged()
@@ -4475,7 +4481,7 @@ function NumberInput({
       setLocal(decimal === '.' ? String(stepped) : String(stepped).replace('.', decimal))
       onChange(stepped)
     }
-  }, [commitIfChanged, exact, local, locale, onChange, onSubmit, parse])
+  }, [bubbleModifiedEnter, commitIfChanged, exact, local, locale, onChange, onSubmit, parse])
   
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
@@ -4615,8 +4621,8 @@ const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = ''
 }, (prev, next) => prev.value === next.value)
 
 // Very simple markdown editor with Bold/Italic/Underline + shortcuts.
-type SimpleMDProps = { value?: string; onChange: (md: string) => void }
-const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange }: SimpleMDProps) {
+type SimpleMDProps = { value?: string; onChange: (md: string) => void; commitOnChange?: boolean }
+const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange, commitOnChange }: SimpleMDProps) {
   const t = useT()
   const boldLabel = t('ui.forms.richtext.bold')
   const italicLabel = t('ui.forms.richtext.italic')
@@ -4667,14 +4673,19 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         className="w-full min-h-[100px] sm:min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
         spellCheck={false}
         value={local}
-        onChange={(e) => { typingRef.current = true; setLocal(e.target.value) }}
+        onChange={(event) => {
+          const next = event.target.value
+          typingRef.current = !commitOnChange
+          setLocal(next)
+          if (commitOnChange) onChange(next)
+        }}
         onBlur={() => { if (typingRef.current) { typingRef.current = false; onChange(local) } }}
         onKeyDown={onKeyDown}
         placeholder={markdownPlaceholder}
       />
     </div>
   )
-}, (prev, next) => prev.value === next.value)
+}, (prev, next) => prev.value === next.value && prev.commitOnChange === next.commitOnChange)
 
 type FieldControlProps = {
   field: CrudField
@@ -4692,6 +4703,61 @@ type FieldControlProps = {
   recordId?: string
   markRequired?: boolean
   formId: string
+  embeddedField?: boolean
+}
+
+const ignoreEmbeddedFieldEvent = () => {}
+
+export function EmbeddedCrudField({
+  field,
+  values,
+  onChange,
+  entityId,
+  recordId,
+  error,
+  disabled = false,
+}: {
+  field: CrudField
+  values: Record<string, unknown>
+  onChange: FieldControlProps['setValue']
+  entityId?: string
+  recordId?: string
+  error?: string
+  disabled?: boolean
+}) {
+  const formId = React.useId()
+  const [loadedOptions, setLoadedOptions] = React.useState<CrudFieldOption[]>([])
+  const loadOptions = React.useCallback(async (target: CrudField, query?: string) => {
+    if (target.type === 'custom' || !target.loadOptions) return []
+    const results = await target.loadOptions(query)
+    if (query === undefined) setLoadedOptions(results)
+    return results
+  }, [])
+  const effectiveField = React.useMemo(
+    () => disabled ? { ...field, disabled: true } : field,
+    [disabled, field],
+  )
+
+  return (
+    <div inert={disabled || undefined}>
+      <FieldControl
+        field={effectiveField}
+        value={values[field.id]}
+        values={values}
+        setValue={onChange}
+        error={error}
+        options={field.type === 'custom' ? [] : loadedOptions.length ? loadedOptions : field.options ?? []}
+        loadFieldOptions={loadOptions}
+        entityIdForField={entityId}
+        recordId={recordId}
+        onBlurRequest={ignoreEmbeddedFieldEvent}
+        onSubmitRequest={ignoreEmbeddedFieldEvent}
+        autoFocus={false}
+        formId={formId}
+        embeddedField
+      />
+    </div>
+  )
 }
 
 function supportsWrapperBlurValidation(field: CrudField): boolean {
@@ -4808,6 +4874,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   recordId,
   markRequired,
   formId,
+  embeddedField,
 }: FieldControlProps) {
   const t = useT()
   const fieldSetValue = React.useCallback(
@@ -4901,6 +4968,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           disabled={disabled}
           readOnly={readOnly}
           suggestions={field.type === 'text' ? field.suggestions : undefined}
+          bubbleModifiedEnter={embeddedField}
         />
       )}
       {field.type === 'password' && (
@@ -4914,6 +4982,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           disabled={disabled}
           readOnly={readOnly}
           inputType="password"
+          bubbleModifiedEnter={embeddedField}
         />
       )}
       {(field.type === 'number' || field.type === 'decimal') && (
@@ -4927,6 +4996,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           exact={field.type === 'decimal'}
           disabled={disabled}
           readOnly={readOnly}
+          bubbleModifiedEnter={embeddedField}
         />
       )}
       {field.type === 'date' && (
@@ -5021,7 +5091,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'richtext' && builtin?.editor === 'simple' && (
         <div role="group" aria-labelledby={labelId}>
-          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} commitOnChange={embeddedField} />
         </div>
       )}
       {field.type === 'richtext' && builtin?.editor === 'html' && (
@@ -5224,6 +5294,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.loadFieldOptions === next.loadFieldOptions &&
   prev.autoFocus === next.autoFocus &&
   prev.onSubmitRequest === next.onSubmitRequest &&
+  prev.embeddedField === next.embeddedField &&
   prev.setValue === next.setValue &&
   prev.onBlurRequest === next.onBlurRequest &&
   prev.wrapperClassName === next.wrapperClassName &&

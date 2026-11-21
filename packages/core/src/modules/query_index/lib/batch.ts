@@ -8,6 +8,7 @@ import { passesSearchTokenIndexGates, resolveSearchTokenIndexGates } from './sea
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
+import { isAddressCustomFieldHost } from '@open-mercato/core/modules/entities/lib/addressCustomFieldPolicy'
 
 const logger = createLogger('query_index').child({ component: 'reindex-batch' })
 
@@ -206,7 +207,7 @@ export async function upsertIndexBatch(
     }
   }
 
-  const customFieldRows = await db
+  const customFieldRows = isAddressCustomFieldHost(entityType) ? [] : await db
     .selectFrom('custom_field_values' as any)
     .select([
       'record_id' as any,

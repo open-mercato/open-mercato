@@ -15,6 +15,8 @@ import {
 } from '@open-mercato/core/helpers/integration/undoHarness'
 
 const ADDRESSES_PATH = '/api/customers/addresses'
+const DEFINITIONS_PATH = '/api/entities/definitions'
+const ADDRESS_HOST = 'customers:customer_address'
 
 async function listFreshAddresses(request: APIRequestContext, token: string, entityId: string) {
   const response = await apiRequest(request, 'GET', `${ADDRESSES_PATH}?entityId=${encodeURIComponent(entityId)}&_testRead=${randomUUID()}`, {
@@ -39,8 +41,15 @@ test.describe('TC-UNDO-001 customer deletion preserves address fields (#7854)', 
       const parentPath = `/api/customers/${kind}`
       let parentId: string | null = null
       let addressId: string | null = null
+      const fieldKey = `undo_address_note_${randomUUID().replaceAll('-', '')}`
+      const customValues = { [fieldKey]: 'Delivery appointment required' }
 
       try {
+        const definition = await apiRequest(request, 'POST', DEFINITIONS_PATH, {
+          token,
+          data: { entityId: ADDRESS_HOST, key: fieldKey, kind: 'text', configJson: { label: 'Undo address note' } },
+        })
+        expect(definition.status()).toBe(200)
         const displayName = `Address Undo ${kind} ${Date.now()}`
         parentId = kind === 'people'
           ? await createPersonFixture(request, token, { firstName: 'Address', lastName: 'Undo', displayName })
@@ -64,6 +73,7 @@ test.describe('TC-UNDO-001 customer deletion preserves address fields (#7854)', 
             latitude: 52.1875,
             longitude: 21.0625,
             isPrimary: true,
+            customValues,
           },
         })
         expect(addressResponse.status(), 'address creation should succeed').toBe(201)
@@ -89,6 +99,7 @@ test.describe('TC-UNDO-001 customer deletion preserves address fields (#7854)', 
           latitude: 52.1875,
           longitude: 21.0625,
           is_primary: true,
+          customValues,
         }
         expect(await listFreshAddresses(request, token, parentId)).toEqual([expect.objectContaining(expectedAddress)])
 
@@ -111,6 +122,7 @@ test.describe('TC-UNDO-001 customer deletion preserves address fields (#7854)', 
       } finally {
         await deleteEntityIfExists(request, token, ADDRESSES_PATH, addressId)
         await deleteEntityIfExists(request, token, parentPath, parentId)
+        await apiRequest(request, 'DELETE', DEFINITIONS_PATH, { token, data: { entityId: ADDRESS_HOST, key: fieldKey } })
       }
     })
   }

@@ -17,6 +17,7 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
+import { isAddressCustomFieldHost, isAddressValuesIndexField } from '@open-mercato/core/modules/entities/lib/addressCustomFieldPolicy'
 import { applyIndexDocEnrichers } from './doc-enrichers'
 import {
   createSearchTokenGateQueryEngine,
@@ -85,7 +86,9 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   let doc: Record<string, any> = {}
   docSources.push(baseRow)
   for (const source of docSources) {
-    for (const [k, v] of Object.entries(source)) doc[k] = v
+    for (const [k, v] of Object.entries(source)) {
+      if (!isAddressValuesIndexField(params.entityType, k)) doc[k] = v
+    }
   }
 
   // Attach custom fields under flat keys 'cf:<key>'
@@ -120,7 +123,9 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     cfQuery = cfQuery.where('tenant_id' as any, 'is', null)
   }
 
-  const cfRows = await cfQuery.execute() as Array<Record<string, any>>
+  const cfRows = isAddressCustomFieldHost(params.entityType)
+    ? []
+    : await cfQuery.execute() as Array<Record<string, any>>
 
   const cfMap: Record<string, any[]> = {}
   for (const r of cfRows) {

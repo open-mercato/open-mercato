@@ -444,6 +444,23 @@
           "enumItems": [],
           "mappedType": "datetime"
         },
+        "custom_values": {
+          "name": "custom_values",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "entity_id": {
           "name": "entity_id",
           "type": "uuid",

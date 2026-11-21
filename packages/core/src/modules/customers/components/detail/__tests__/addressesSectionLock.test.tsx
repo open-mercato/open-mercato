@@ -39,6 +39,10 @@ jest.mock('@open-mercato/ui/backend/conflicts', () => ({
   surfaceRecordConflict: (...args: unknown[]) => surfaceRecordConflictMock(...(args as [])),
 }))
 
+jest.mock('../hooks/useCustomerAddressCustomFields', () => ({
+  useCustomerAddressCustomFields: () => ({ structure: { status: 'ready', definitions: [], fields: [] } }),
+}))
+
 // Capture the data adapter the customers section hands to the shared section.
 let capturedAdapter: AddressDataAdapter | null = null
 jest.mock('@open-mercato/ui/backend/detail', () => ({
