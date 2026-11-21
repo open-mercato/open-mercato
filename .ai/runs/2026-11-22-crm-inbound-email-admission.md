@@ -30,6 +30,8 @@ An incorrect skip can discard valid CRM email when the cursor advances. The comm
 
 ## Progress
 
+PR: #10292
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Shared admission
@@ -39,5 +41,5 @@ An incorrect skip can discard valid CRM email when the cursor advances. The comm
 
 ### Phase 2: Entry-point verification
 
-- [ ] 2.1 Verify IMAP and Gmail cursor progression and preserve operator history import.
-- [ ] 2.2 Add API-backed regression coverage and the upgrade note.
+- [x] 2.1 Verify IMAP and Gmail cursor progression and preserve operator history import. — 223120dca9
+- [x] 2.2 Add API-backed regression coverage and the upgrade note. — 223120dca9
