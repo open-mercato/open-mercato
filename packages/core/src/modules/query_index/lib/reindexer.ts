@@ -20,6 +20,7 @@ import {
 } from './coverage'
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
 import { purgeOrphans, retireScopedCatalogueRows } from './stale'
+import { customerProfileParentActive, isCustomerProfileEntityType } from './customer-profile-parent'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { isSearchDebugEnabled } from './search-tokens'
 import { isTenantGlobalEntityType } from './tenant-global'
@@ -434,6 +435,7 @@ export async function reindexEntity(
   const applyBaseWhere = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
     let chain = q
     if (hasDeletedCol) chain = chain.where('b.deleted_at' as any, 'is', null as any)
+    if (isCustomerProfileEntityType(entityType)) chain = chain.where(customerProfileParentActive('b'))
     if (tenantId !== undefined && hasTenantCol) {
       chain = tenantId === null
         ? chain.where('b.tenant_id' as any, 'is', null as any)

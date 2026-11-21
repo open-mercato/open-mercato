@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, type Transaction, sql } from 'kysely'
 import { resolveEntityTableName as resolveFallbackEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { customerProfileParentActive, isCustomerProfileEntityType } from './customer-profile-parent'
 
 function resolveEntityTableName(em: EntityManager, entity: string): string {
   return resolveQueryIndexSourceTableMetadata(em, entity)?.table ?? resolveFallbackEntityTableName(em, entity)
@@ -625,6 +626,7 @@ export async function refreshCoverageSnapshot(
   if (scopeOrg) baseQuery = baseQuery.where('b.organization_id' as any, '=', organizationId)
   if (scopeTenant) baseQuery = baseQuery.where('b.tenant_id' as any, '=', tenantId)
   if (!withDeleted && hasDeleted) baseQuery = baseQuery.where('b.deleted_at' as any, 'is', null as any)
+  if (!withDeleted && isCustomerProfileEntityType(entityType)) baseQuery = baseQuery.where(customerProfileParentActive('b'))
 
   let indexQuery = db
     .selectFrom('entity_indexes as ei' as any)

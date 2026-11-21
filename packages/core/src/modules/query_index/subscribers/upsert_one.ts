@@ -76,6 +76,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
 
           if (indexDelta === undefined) {
             if (isActive && (result.created || result.revived)) indexDelta = 1
+            else if (!doc && result.existed && !result.wasDeleted) indexDelta = -1
             else indexDelta = 0
           }
 
@@ -103,8 +104,13 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
 
       const bus = ctx.resolve<any>('eventBus')
       const eventScope = { entityType, recordId, organizationId, tenantId }
-      await bus.emitEvent('query_index.vectorize_one', eventScope, { rethrowHandlerErrors: true })
-      await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId }, { rethrowHandlerErrors: true })
+      const indexedDoc = (result as UpsertIndexResult | null)?.doc ?? null
+      if (indexedDoc) {
+        await bus.emitEvent('query_index.vectorize_one', eventScope, { rethrowHandlerErrors: true })
+        await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId }, { rethrowHandlerErrors: true })
+      } else {
+        await bus.emitEvent('search.delete_record', { entityId: entityType, recordId, organizationId, tenantId }, { rethrowHandlerErrors: true })
+      }
       if (!suppressCoverage && coverageDelayMs !== undefined && coverageDelayMs >= 0) {
         await bus.emitEvent('query_index.coverage.refresh', {
           entityType,
@@ -142,6 +148,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
 
       if (indexDelta === undefined) {
         if (isActive && (result.created || result.revived)) indexDelta = 1
+        else if (!doc && result.existed && !result.wasDeleted) indexDelta = -1
         else indexDelta = 0
       }
 
@@ -181,8 +188,12 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       try {
         await reindexSearchTokensForRecord(em, { ...deferredScope, doc: resolvedDoc, searchTokenDoc })
         const bus = ctx.resolve<any>('eventBus')
-        await bus.emitEvent('query_index.vectorize_one', deferredScope)
-        await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId })
+        if (resolvedDoc) {
+          await bus.emitEvent('query_index.vectorize_one', deferredScope)
+          await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId })
+        } else {
+          await bus.emitEvent('search.delete_record', { entityId: entityType, recordId, organizationId, tenantId })
+        }
       } catch (error) {
         await recordIndexerError(
           { em },
