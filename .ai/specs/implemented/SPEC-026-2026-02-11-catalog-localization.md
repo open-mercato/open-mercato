@@ -687,21 +687,18 @@ One generic table, one row per entity, JSONB stores all locale translations. Thi
 
 | Surface | Change | Classification |
 |---|---|---|
-| `GET /api/translations/:entityType/:entityId` (API route, STABLE) | Answers `404` while the owning record exists with `deleted_at` set. Before, it answered `200` for soft-deleted owners whose delete did not remove the translation row (for example catalog categories) | ✗ BREAKING for a client that read translations of a deleted record (deliberate, see below) |
 | Translations cleanup subscriber | Keeps `entity_translations` rows while the owner is soft-deleted; a later hard delete still removes them | ✓ Data-preserving |
+| `GET /api/translations/:entityType/:entityId` (API route, STABLE) | Also checks the owning record before answering, so a soft-deleted owner answers `404`. The entity translation authorization change (#9139) already answers `404` for soft-deleted owners, so the response contract does not change | ✓ No contract change |
 | `PUT` / `DELETE` on the same route, response schemas, database schema, event IDs, ACL features | No change | ✓ n/a |
 
-**Why there is no bridge.** The `200` response for a soft-deleted owner is the disclosure: anyone with `translations.view` keeps reading the content of a record that was deleted, and keeping translations for undo makes that true for every soft-deletable translated entity. A release that still answers `200` would keep deleted content readable, so the change follows the Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`. It is limited to `GET` and to owners that still exist with `deleted_at` set; there is no flag or opt-in.
-
-**Client migration.** Treat `404` from this route as "no visible translations", the same as for a record that has none. After an undo restores the record, the same request returns the kept translations again.
-
 **Operator migration.** No data migration. Rows stay in `entity_translations` while their owner is soft-deleted, so direct database readers should filter by the owner's `deleted_at` where needed. Translations already lost to an earlier delete and undo are not restored.
-
-The `UPGRADE_NOTES.md` text for this change is in the pull request description (#8329).
 
 ---
 
 ## Changelog
+
+### 2026-11-21
+- The soft-deleted owner `404` is no longer a breaking change of its own: #9139 already answers `404` for soft-deleted owners
 
 ### 2026-11-01
 - Added the Migration & Backward Compatibility section for the soft-deleted owner `404`
