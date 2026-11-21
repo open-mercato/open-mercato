@@ -6,6 +6,7 @@
     "packages/ai-assistant": 103618,
     "packages/core": 41559,
     "packages/core/src/modules/sales": 45890,
+    "packages/marketing-automation/src/modules/marketing_automation": 26274,
     "packages/ui": 35358
   }
 }

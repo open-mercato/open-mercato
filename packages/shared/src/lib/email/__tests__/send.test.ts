@@ -88,6 +88,39 @@ describe('sendEmail', () => {
     }))
   })
 
+  it('passes extra MIME headers through to the transport untouched', async () => {
+    registerEmailTransport({ id: 'test', send: sendMock })
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+      headers: {
+        'List-Unsubscribe': '<https://example.com/unsubscribe>',
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      headers: {
+        'List-Unsubscribe': '<https://example.com/unsubscribe>',
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    }))
+  })
+
+  it('omits headers from the resolved payload when the caller did not pass any', async () => {
+    registerEmailTransport({ id: 'test', send: sendMock })
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ headers: undefined }))
+  })
+
   it('marks an inherited sender so transports can prefer a tenant-configured one', async () => {
     registerEmailTransport({ id: 'test', send: sendMock })
 

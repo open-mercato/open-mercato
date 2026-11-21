@@ -241,6 +241,16 @@ if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {
   enabledModules.push({ id: 'storage_s3', from: '@open-mercato/storage-s3' })
 }
 
+/**
+ * Marketing automation Phase 1a: the opt-in schema and module vocabulary.
+ *
+ * Registers 23 tables, metadata, ACL, events, notifications and translations.
+ * Campaign execution, public routes and token configuration arrive in later phases.
+ */
+if (parseBooleanWithDefault(process.env.OM_ENABLE_MARKETING_AUTOMATION, false)) {
+  enabledModules.push({ id: 'marketing_automation', from: '@open-mercato/marketing-automation' })
+}
+
 const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
 const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)
 const enterpriseSecurityEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY, false)
