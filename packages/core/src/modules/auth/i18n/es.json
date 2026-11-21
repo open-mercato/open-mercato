@@ -440,6 +440,8 @@
   "auth.acl.inherited.assignedRoles": "Roles asignados:",
   "auth.acl.inherited.description": "Actualmente, este usuario hereda los permisos de sus roles asignados.",
   "auth.acl.inherited.override": "Sobrescribir permisos solo para este usuario",
+  "auth.acl.inherited.rolesLoadFailed": "No se pudieron cargar los roles asignados.",
+  "auth.acl.inherited.rolesRetry": "Reintentar",
   "auth.acl.inherited.title": "Permisos heredados de los roles",
   "auth.acl.loading": "Cargando control de acceso…",
   "auth.acl.manageViaSuperAdmin": "(lo administra un superadministrador)",

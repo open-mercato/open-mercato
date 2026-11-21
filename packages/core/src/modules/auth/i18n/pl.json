@@ -440,6 +440,8 @@
   "auth.acl.inherited.assignedRoles": "Przypisane role:",
   "auth.acl.inherited.description": "Ten użytkownik dziedziczy obecnie uprawnienia z przypisanych ról.",
   "auth.acl.inherited.override": "Nadpisz uprawnienia tylko dla tego użytkownika",
+  "auth.acl.inherited.rolesLoadFailed": "Nie udało się wczytać przypisanych ról.",
+  "auth.acl.inherited.rolesRetry": "Spróbuj ponownie",
   "auth.acl.inherited.title": "Uprawnienia odziedziczone z ról",
   "auth.acl.loading": "Ładowanie kontroli dostępu…",
   "auth.acl.manageViaSuperAdmin": "(zarządzaj przez superadministratora)",

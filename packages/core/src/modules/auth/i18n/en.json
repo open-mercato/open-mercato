@@ -440,6 +440,8 @@
   "auth.acl.inherited.assignedRoles": "Assigned roles:",
   "auth.acl.inherited.description": "This user currently inherits permissions from their assigned roles.",
   "auth.acl.inherited.override": "Override permissions for this user only",
+  "auth.acl.inherited.rolesLoadFailed": "Assigned roles could not be loaded.",
+  "auth.acl.inherited.rolesRetry": "Try again",
   "auth.acl.inherited.title": "Permissions inherited from roles",
   "auth.acl.loading": "Loading access control…",
   "auth.acl.manageViaSuperAdmin": "(manage via super admin)",
