@@ -1,5 +1,6 @@
 import { reportError } from '../index'
 import {
+  createLogger,
   resetLoggerExtension,
   resetLoggerRegistry,
 } from '@open-mercato/shared/lib/logger'
@@ -239,4 +240,52 @@ describe('reportError policy', () => {
     expect(() => reportError(new Error('boom'), { module: 'queue', code: 'queue.job_failed' })).not.toThrow()
     expect(errorLogs(logs)).toHaveLength(1)
   })
+})
+
+
+describe('reportError scoped local presentation', () => {
+  beforeEach(() => {
+    resetActiveProvider()
+    resetTelemetryInit()
+    resetTelemetryEnvCache()
+    resetLoggerExtension()
+    resetLoggerRegistry()
+    resetTelemetryRuntime()
+  })
+  afterEach(() => { delete process.env.TELEMETRY_BACKEND })
+
+  it('preserves every telemetry sink while presenting local errors and provider warnings as NDJSON', async () => {
+    const { provider, span, logs, metrics, reported } = recordingProvider({
+      withErrorSink: true, onReportError: () => { throw new Error('provider unavailable') },
+    })
+    await activate(provider)
+    const lines: string[] = []
+    const scoped = createLogger('telemetry', { write: record => {
+      lines.push(JSON.stringify({ level: record.level, message: record.message }))
+    } })
+    reportError(new Error('fixture rejected'), { module: 'backups', code: 'backups.command_failed', logger: scoped })
+    expect(lines.map(line => JSON.parse(line))).toEqual([
+      { level: 'error', message: 'Application error reported' },
+      { level: 'warn', message: 'Telemetry provider error sink failed' },
+    ])
+    expect(span.exceptions).toHaveLength(1)
+    expect(span.status).toBe('error')
+    expect(errorLogs(logs)).toHaveLength(1)
+    expect(metrics.some(point => point.name === 'om.errors')).toBe(true)
+    expect(reported).toHaveLength(1)
+  })
+
+  it('falls back to canonical logging without losing signals when an injected logger throws', async () => {
+    const { provider, span, logs, metrics, reported } = recordingProvider({ withErrorSink: true })
+    await activate(provider)
+    const throwing = () => { throw new Error('injected logger failed') }
+    expect(() => reportError(new Error('original failure'), {
+      module: 'backups', code: 'backups.command_failed', logger: { error: throwing, warn: throwing },
+    })).not.toThrow()
+    expect(span.exceptions).toHaveLength(1)
+    expect(errorLogs(logs)).toHaveLength(1)
+    expect(metrics.some(point => point.name === 'om.errors')).toBe(true)
+    expect(reported).toHaveLength(1)
+  })
+
 })
