@@ -219,7 +219,11 @@ class GmailChannelAdapter implements ChannelAdapter {
     try {
       const api = getGmailApiClient()
       const auth = { accessToken: userCredentials.accessToken }
-      const response = await api.sendRawMessage(auth, { rawBase64Url, threadId: nativeMeta.threadId })
+      const response = await api.sendRawMessage(auth, {
+        rawBase64Url,
+        rawMessage: nativeMeta.rawMessage,
+        threadId: nativeMeta.threadId,
+      })
       const sentMessageId = await readSentMessageId(api, auth, response.id)
       return {
         externalMessageId: nativeMeta.messageId ?? response.id,

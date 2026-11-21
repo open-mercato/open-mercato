@@ -66,8 +66,7 @@ test.describe('TC-SSO-002: Domain Management & HRD', () => {
         data: { domain: 'not a valid domain!' },
       })
       expect(response.ok()).toBeFalsy()
-      // Service throws SsoConfigError(400) for invalid domains
-      expect([400, 500]).toContain(response.status())
+      expect(response.status()).toBe(400)
     } finally {
       await cleanup()
     }

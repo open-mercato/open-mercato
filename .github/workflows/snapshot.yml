@@ -23,6 +23,9 @@ concurrency:
 jobs:
   snapshot:
     name: Publish Snapshot
+    # Forks have no NPM_TOKEN nor rights on the @open-mercato scope, so this
+    # job could only fail there; standalone-integration needs it and skips too.
+    if: ${{ !github.event.repository.fork }}
     permissions:
       contents: read
       id-token: write  # required for npm provenance attestation
@@ -147,6 +150,8 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: snapshot
     if: needs.snapshot.outputs.snapshot_version != ''
+    env:
+      NPM_PROPAGATION_VERSION: ${{ needs.snapshot.outputs.snapshot_version }}
     services:
       postgres:
         # MUST match the pgvector-enabled image used by local dev / prod

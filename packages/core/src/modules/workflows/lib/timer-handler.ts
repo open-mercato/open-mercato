@@ -239,11 +239,21 @@ export async function fireTimer(
   )
 
   if (!transitionResult.success) {
-    throw new TimerError(
-      'Transition failed after timer fired',
-      'TRANSITION_FAILED',
-      { error: transitionResult.error }
-    )
+    const { handleTransitionFailure } = await import('./workflow-executor')
+    const failure = await handleTransitionFailure(em, container, instance, transitionResult, {
+      evalContext: transitionContext,
+      fromStepId: firstValidTransition.transition.fromStepId,
+      toStepId: firstValidTransition.transition.toStepId,
+      source: 'timer',
+    })
+    if (failure.kind === 'parked') return
+    if (failure.kind === 'failed') {
+      throw new TimerError(
+        'Transition failed after timer fired',
+        'TRANSITION_FAILED',
+        { error: transitionResult.error }
+      )
+    }
   }
 
   await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
