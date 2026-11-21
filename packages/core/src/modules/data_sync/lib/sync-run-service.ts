@@ -136,7 +136,7 @@ export function createSyncRunService(em: EntityManager) {
       return row
     },
 
-    async getRun(runId: string, scope: SyncScope): Promise<SyncRun | null> {
+    async getRun(runId: string, scope: SyncScope, options?: { disableIdentityMap: boolean }): Promise<SyncRun | null> {
       return findOneWithDecryption(
         em,
         SyncRun,
@@ -146,7 +146,7 @@ export function createSyncRunService(em: EntityManager) {
           tenantId: scope.tenantId,
           deletedAt: null,
         },
-        undefined,
+        options,
         scope,
       )
     },
