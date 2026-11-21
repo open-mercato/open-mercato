@@ -1,4 +1,5 @@
 import {
+  categoryBulkCreateRowSchema,
   categoryCreateSchema,
   categoryUpdateSchema,
   offerCreateSchema,
@@ -103,6 +104,7 @@ describe('offer description nested in a product update', () => {
 describe.each([
   ['category create', categoryCreateSchema, { ...scope, name: 'Synthetic category' }, 2000],
   ['category update', categoryUpdateSchema, { id: categoryId, name: 'Renamed category' }, 2000],
+  ['category bulk-create row', categoryBulkCreateRowSchema, { name: 'Synthetic category' }, 2000],
   [
     'option schema template create',
     optionSchemaTemplateCreateSchema,
