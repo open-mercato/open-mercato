@@ -280,7 +280,7 @@ export async function createCustomerFreeProject(
   request: APIRequestContext,
   admin: string,
   cleanup: Cleanup,
-  label: string,
+  label = 'no-customer',
 ): Promise<TestTimeProjectFixture> {
   const project = await createProject(request, admin, cleanup, label)
   const detached = await setProjectFields(request, admin, project.id, {

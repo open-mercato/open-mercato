@@ -517,6 +517,14 @@ Enrichers declared in `data/enrichers.ts` of any module can add data to the comp
 
 ---
 
+## Responsive activity calendars
+
+The shared activity layout (#7494) mounts the composer week preview and interaction history on company and person pages. The preview fits phone and desktop viewports, keeps all seven dates and both week controls inside the card, and exposes the selected date to assistive technology. The previous and next week controls remain reachable across month boundaries. Completed activity edits and cancellation in interaction history preserve the local date, stored timestamp, and status.
+
+The exported legacy `ActivitiesCard` and `ActivitiesDayStrip` retain the five-date row, its internal phone scrolling, and its date and month controls. Their navigation remains covered by the component tests.
+
+> Regression coverage for `TC-CRM-8603` uses a CRM-scoped account and owned person, company, and interaction fixtures. It checks empty and populated week previews at 390×844 and 1440×900, day and week navigation by touch, pointer, and keyboard, and completed-activity persistence through interaction history. `TC-CRM-8730` preserves the untouched fields and stale-edit rejection assertions through the same history flow.
+
 ## Integration Tests
 
 ### TC-CRM-V2-001: Company v2 — CRUD Fields
@@ -643,6 +651,8 @@ Same pattern as TC-CRM-V2-003 but for person:
 
 | Date | Change |
 |------|--------|
+| 2026-11-20 | Reconciled calendar and activity edit coverage with the shared activity layout from #7494. |
+| 2026-11-04 | Contain company/person activity date rows inside phone cards with accessible internal scrolling; add TC-CRM-8603 coverage (#8603). |
 | 2026-03-19 | Clarified the implemented contract: v2 pages use `detail:customers.*:tabs` injection slots and keep address editing section-only in Zone 2 |
 | 2026-03-02 | Formally linked child workstreams `SPEC-046b` and `SPEC-046c` to this spec and marked implementation dependency alignment |
 | 2026-02-25 | Initial draft |

@@ -174,8 +174,12 @@ jest.mock('../schedule', () => ({
     ? React.createElement(jest.requireActual('../schedule/DateTimeFields').DateTimeFields, props)
     : null,
   ParticipantsField: () => null,
-  LocationField: () => null,
-  FooterFields: () => null,
+  LocationField: (props: unknown) => mockUseRealScheduleState
+    ? React.createElement(jest.requireActual('../schedule/LocationField').LocationField, props)
+    : null,
+  FooterFields: (props: unknown) => mockUseRealScheduleState
+    ? React.createElement(jest.requireActual('../schedule/FooterFields').FooterFields, props)
+    : null,
   LinkedEntitiesField: () => null,
 }))
 
@@ -208,6 +212,46 @@ describe('ScheduleActivityDialog', () => {
   afterEach(() => {
     jest.useRealTimers()
     jest.restoreAllMocks()
+  })
+
+  it.each(['person', 'company'] as const)('preserves untouched nullable fields on a %s location edit (#8730)', async (entityType) => {
+    mockUseRealScheduleState = true
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="owned-customer"
+        entityType={entityType}
+        editData={{
+          id: 'owned-activity', interactionType: 'meeting', title: 'Existing meeting',
+          scheduledAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+          allDay: null, reminderMinutes: null, visibility: null, location: 'Original room',
+        }}
+      />,
+    )
+    fireEvent.change(screen.getByDisplayValue('Original room'), { target: { value: 'Another room' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
+
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+    const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0][1].body) as Record<string, unknown>
+    expect(payload.location).toBe('Another room')
+    expect(payload).not.toHaveProperty('allDay')
+    expect(payload).not.toHaveProperty('reminderMinutes')
+    expect(payload).not.toHaveProperty('visibility')
+  })
+
+  it('submits deliberately changed nullable controls on edit', async () => {
+    mockUseRealScheduleState = true
+    renderWithProviders(
+      <ScheduleActivityDialog open onClose={() => undefined} entityId="owned-customer" entityType="person"
+        editData={{ id: 'owned-activity', title: 'Existing meeting', interactionType: 'meeting', allDay: null, reminderMinutes: null, visibility: null }} />,
+    )
+    fireEvent.click(screen.getByRole('checkbox', { name: 'All day' }))
+    fireEvent.change(screen.getByDisplayValue('15 min before'), { target: { value: '60' } })
+    fireEvent.change(screen.getByDisplayValue('Team only'), { target: { value: 'public' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
+    const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0][1].body) as Record<string, unknown>
+    expect(payload).toMatchObject({ allDay: true, reminderMinutes: 60, visibility: 'public' })
   })
 
   describe('custom activity edits (#8026)', () => {
