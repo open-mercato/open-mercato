@@ -5,11 +5,12 @@ import type {
   SearchStrategyId,
   SearchViewer,
 } from '@open-mercato/shared/modules/search'
-import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import {
+  canReadSearchEntity,
   filterSearchResultsByEntityAccess,
   resolveReadableEntityTypes,
   type SearchEntityConfigLookup,
+  type SearchEntityDenyReason,
 } from './lib/entity-access'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
@@ -102,23 +103,35 @@ function authorizeEntityAccess(entityType: string, ctx: ToolContext): SearchEnti
 
   if (ctx.isSuperAdmin) return config
 
-  const required = config.aclFeatures
-  if (!required || required.length === 0) {
+  let denial: SearchEntityDenyReason | undefined
+  const allowed = canReadSearchEntity(
+    entityType,
+    searchIndexer,
+    { grantedFeatures: ctx.userFeatures, isSuperAdmin: false },
+    {
+      onDeny: (_entityId, reason) => {
+        denial = reason
+      },
+    },
+  )
+  if (allowed) return config
+
+  if (denial === 'no-acl-features') {
     throw new SearchToolAuthorizationError(
       `[internal] Entity type "${entityType}" does not declare aclFeatures; access denied`
     )
   }
 
-  if (!authorizeFeatures(required, {
-    grantedFeatures: ctx.userFeatures,
-    unrestricted: ctx.isSuperAdmin,
-  })) {
+  if (denial === 'missing-result-filter') {
     throw new SearchToolAuthorizationError(
-      `[internal] Insufficient permissions for entity "${entityType}". Required: ${required.join(', ')}`
+      `[internal] Entity type "${entityType}" declares aclFeaturesMode "any" without filterResults; access denied`
     )
   }
 
-  return config
+  const required = config.aclFeatures ?? []
+  throw new SearchToolAuthorizationError(
+    `[internal] Insufficient permissions for entity "${entityType}". Required: ${required.join(', ')}`
+  )
 }
 
 /**

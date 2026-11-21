@@ -67,6 +67,11 @@ function authorizeEntityAccess(
       `[internal] Entity type "${entityType}" does not declare aclFeatures; access denied`,
     )
   }
+  if (denial === 'missing-result-filter') {
+    throw new SearchToolAuthorizationError(
+      `[internal] Entity type "${entityType}" declares aclFeaturesMode "any" without filterResults; access denied`,
+    )
+  }
   const config = lookup.getEntityConfig(entityType)
   const required = config?.aclFeatures ?? []
   throw new SearchToolAuthorizationError(
