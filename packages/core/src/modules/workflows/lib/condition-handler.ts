@@ -20,6 +20,8 @@ import { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import * as ruleEvaluator from '../../business_rules/lib/rule-evaluator'
 import {
   WorkflowInstance,
@@ -36,6 +38,10 @@ import type * as transitionHandlerModule from './transition-handler'
 import type * as workflowExecutorModule from './workflow-executor'
 
 export const CONDITION_STEP_TYPE = 'WAIT_FOR_CONDITION'
+
+const CLAIMED_BY_CONCURRENT_DELIVERY = 'CLAIMED_BY_CONCURRENT_DELIVERY'
+
+const logger = createLogger('workflows')
 
 export const DEFAULT_CONDITION_POLL_INTERVAL_MS = 30_000
 export const MIN_CONDITION_POLL_INTERVAL_MS = 5_000
@@ -262,9 +268,191 @@ async function loadBranch(
   })
 }
 
+const ACTIVE_WAIT_OCCURRENCE_SQL = `exists (
+  select 1 from step_instances
+  where id = ? and workflow_instance_id = ? and tenant_id = ? and organization_id = ?
+    and step_type = '${CONDITION_STEP_TYPE}' and status = 'ACTIVE'
+)`
+
+function waitOccurrenceParams(instance: WorkflowInstance, stepInstance: StepInstance): unknown[] {
+  return [stepInstance.id, instance.id, instance.tenantId, instance.organizationId]
+}
+
+async function executeConditionalUpdate(em: EntityManager, sql: string, params: unknown[]): Promise<number> {
+  const result = (await (em as unknown as PostgreSqlEntityManager).execute(sql, params, 'run')) as
+    | { affectedRows?: number; rowCount?: number }
+    | undefined
+  return result?.affectedRows ?? result?.rowCount ?? 0
+}
+
+/**
+ * Claim ONE occurrence of a condition wait before any side effect of resuming
+ * it. The poll backstop and the event-driven wake can both reach the same
+ * waiter, and a run can be cancelled between the load and the resume, so the
+ * claim is a single conditional UPDATE: the parked row (the instance for a root
+ * waiter, the branch for a branch waiter) leaves PAUSED only while the very
+ * step instance this delivery resolved is still the ACTIVE wait. A stale
+ * delivery addressed to an earlier occurrence of the same step therefore
+ * cannot consume a later one, and a cancelled run is never resurrected.
+ */
+async function claimConditionWait(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  stepInstance: StepInstance,
+  branch: WorkflowBranchInstance | null
+): Promise<boolean> {
+  const claimedAt = new Date()
+  if (branch) {
+    const claimed = await executeConditionalUpdate(
+      em,
+      `update workflow_branch_instances
+         set status = 'ACTIVE', pending_transition = null, updated_at = ?
+       where id = ? and workflow_instance_id = ? and tenant_id = ? and organization_id = ?
+         and status = 'PAUSED'
+         and exists (
+           select 1 from workflow_instances
+           where id = ? and tenant_id = ? and organization_id = ?
+             and status in ('RUNNING', 'PAUSED', 'FORKED')
+         )
+         and ${ACTIVE_WAIT_OCCURRENCE_SQL}`,
+      [
+        claimedAt,
+        branch.id,
+        instance.id,
+        instance.tenantId,
+        instance.organizationId,
+        instance.id,
+        instance.tenantId,
+        instance.organizationId,
+        ...waitOccurrenceParams(instance, stepInstance),
+      ]
+    )
+    if (claimed === 0) return false
+    branch.status = 'ACTIVE'
+    branch.pendingTransition = null
+    branch.updatedAt = claimedAt
+    return true
+  }
+
+  const claimed = await executeConditionalUpdate(
+    em,
+    `update workflow_instances
+       set status = 'RUNNING', updated_at = ?, wait_version = wait_version + 1
+     where id = ? and tenant_id = ? and organization_id = ?
+       and status = 'PAUSED' and current_step_id = ?
+       and ${ACTIVE_WAIT_OCCURRENCE_SQL}`,
+    [
+      claimedAt,
+      instance.id,
+      instance.tenantId,
+      instance.organizationId,
+      stepInstance.stepId,
+      ...waitOccurrenceParams(instance, stepInstance),
+    ]
+  )
+  if (claimed === 0) return false
+  // Mirror the claimed row onto the identity-mapped entity so later flushes
+  // cannot write the pre-claim status back.
+  instance.status = 'RUNNING'
+  instance.updatedAt = claimedAt
+  return true
+}
+
+/**
+ * Hand a claimed wait back when resuming it failed before the step left
+ * ACTIVE, so the queue retry of the poll job (or the next context write) can
+ * claim it again instead of finding a RUNNING run with nothing driving it.
+ * Once the step has been exited or failed the wait is consumed and this is a
+ * no-op.
+ */
+async function releaseConditionWait(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  stepInstance: StepInstance,
+  branch: WorkflowBranchInstance | null
+): Promise<void> {
+  try {
+    if (branch) {
+      const released = await executeConditionalUpdate(
+        em,
+        `update workflow_branch_instances
+           set status = 'PAUSED', updated_at = ?
+         where id = ? and workflow_instance_id = ? and tenant_id = ? and organization_id = ?
+           and status = 'ACTIVE'
+           and ${ACTIVE_WAIT_OCCURRENCE_SQL}`,
+        [
+          new Date(),
+          branch.id,
+          instance.id,
+          instance.tenantId,
+          instance.organizationId,
+          ...waitOccurrenceParams(instance, stepInstance),
+        ]
+      )
+      if (released > 0) branch.status = 'PAUSED'
+      return
+    }
+    const released = await executeConditionalUpdate(
+      em,
+      `update workflow_instances
+         set status = 'PAUSED', updated_at = ?, wait_version = wait_version + 1
+       where id = ? and tenant_id = ? and organization_id = ?
+         and status = 'RUNNING' and current_step_id = ?
+         and ${ACTIVE_WAIT_OCCURRENCE_SQL}`,
+      [
+        new Date(),
+        instance.id,
+        instance.tenantId,
+        instance.organizationId,
+        stepInstance.stepId,
+        ...waitOccurrenceParams(instance, stepInstance),
+      ]
+    )
+    if (released > 0) instance.status = 'PAUSED'
+  } catch (releaseError) {
+    logger.error('Failed to release condition wait claim', { instanceId: instance.id, err: releaseError })
+    try {
+      getTelemetryRuntime()?.reportError(releaseError, {
+        module: 'workflows',
+        code: 'workflows.condition_claim_release_failed',
+        attributes: { instanceId: instance.id, stepInstanceId: stepInstance.id },
+      })
+    } catch (reportingError) {
+      logger.warn('Failed to report condition claim release error', { err: reportingError })
+    }
+  }
+}
+
+/**
+ * Claim the wait, then run `resume` — every side effect of ending the wait
+ * (events, step exit or failure, milestones, transitions) lives inside it, so a
+ * delivery that loses the claim does nothing at all and reports `false`.
+ * `resume` reports through `onWaitEnded` once the step has left ACTIVE; a
+ * failure before that point hands the wait back, a failure after it does not.
+ */
+async function resumeClaimedConditionWait(
+  em: EntityManager,
+  waiter: { instance: WorkflowInstance; stepInstance: StepInstance; branch: WorkflowBranchInstance | null },
+  resume: (onWaitEnded: () => void) => Promise<void>
+): Promise<boolean> {
+  const { instance, stepInstance, branch } = waiter
+  if (!(await claimConditionWait(em, instance, stepInstance, branch))) return false
+  let waitEnded = false
+  try {
+    await resume(() => {
+      waitEnded = true
+    })
+  } catch (error) {
+    if (!waitEnded) await releaseConditionWait(em, instance, stepInstance, branch)
+    throw error
+  }
+  return true
+}
+
 /**
  * Exit a satisfied (or CONTINUE-on-timeout) waiter and drive the workflow on.
- * Branch waiters take the `resumeBranch` path so sibling branches are untouched.
+ * The caller MUST hold the claim (`resumeClaimedConditionWait`). Branch
+ * waiters resume only their own branch, so sibling branches are untouched.
  */
 async function completeConditionWait(
   em: EntityManager,
@@ -279,6 +467,7 @@ async function completeConditionWait(
     wokenBy: ConditionWokenBy
     timedOut: boolean
     userId?: string
+    onWaitEnded: () => void
   }
 ): Promise<void> {
   const { instance, definition, stepInstance, branch, attempts, waitedMs, wokenBy, timedOut, userId } = params
@@ -310,31 +499,19 @@ async function completeConditionWait(
     })
   }
 
+  await stepHandler.exitStep(em, stepInstance, outputData)
+  params.onWaitEnded()
+
   if (branch) {
-    const { resumeBranch } = await import('./parallel-handler')
-    const resumed = await resumeBranch(em, {
-      instanceId: instance.id,
-      branchInstanceId: branch.id,
-      tenantId: instance.tenantId,
-      organizationId: instance.organizationId,
-      exitStepInstanceId: stepInstance.id,
-      exitOutput: outputData,
-    })
-    if (resumed) {
-      await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
-    }
+    await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
     return
   }
-
-  await stepHandler.exitStep(em, stepInstance, outputData)
 
   const autoTransitions = ((definition.definition?.transitions ?? []) as Array<Record<string, unknown>>).filter(
     (transition) => transition.fromStepId === stepInstance.stepId && transition.trigger === 'auto'
   )
 
   if (autoTransitions.length === 0) {
-    instance.status = 'RUNNING'
-    instance.updatedAt = new Date()
     await em.flush()
     return
   }
@@ -350,12 +527,13 @@ async function completeConditionWait(
   const firstValidTransition = validTransitions.find((candidate) => candidate.isValid)
 
   if (!firstValidTransition || !firstValidTransition.transition) {
-    instance.status = 'RUNNING'
-    instance.updatedAt = new Date()
     await em.flush()
     return
   }
 
+  // The claim already flipped the instance PAUSED -> RUNNING (#9296): the
+  // executor treats a PAUSED instance as parked and would stop the run right
+  // after the traversed step.
   const transitionResult = await transitionHandler.executeTransition(
     em,
     container,
@@ -386,7 +564,10 @@ async function completeConditionWait(
   await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
 }
 
-/** Timeout with `onTimeout: 'FAIL'` — fail the step and take the normal compensation path. */
+/**
+ * Timeout with `onTimeout: 'FAIL'` — fail the step and take the normal
+ * compensation path. The caller MUST hold the claim.
+ */
 async function failConditionWait(
   em: EntityManager,
   container: AwilixContainer,
@@ -397,6 +578,7 @@ async function failConditionWait(
     attempts: number
     waitedMs: number
     userId?: string
+    onWaitEnded: () => void
   }
 ): Promise<void> {
   const { instance, stepInstance, branch, attempts, waitedMs, userId } = params
@@ -416,6 +598,7 @@ async function failConditionWait(
     branch.updatedAt = now
   }
   await em.flush()
+  params.onWaitEnded()
 
   await eventLogger.logWorkflowEvent(em, {
     workflowInstanceId: instance.id,
@@ -507,46 +690,11 @@ export async function evaluateWaitCondition(
     userId,
   })
 
+  const claimTarget = { instance, stepInstance, branch: waiter.branch }
+
   if (met) {
-    await completeConditionWait(em, container, {
-      instance,
-      definition,
-      stepInstance,
-      branch: waiter.branch,
-      attempts,
-      waitedMs,
-      wokenBy: 'poll',
-      timedOut: false,
-      userId,
-    })
-    return { outcome: 'met' }
-  }
-
-  const deadlineMs = Date.parse(options.deadlineAt)
-  const deadlinePassed = Number.isFinite(deadlineMs) ? nowMs >= deadlineMs : true
-  const attemptCapReached = attempts >= resolveConditionAttemptCap(waiter.config)
-
-  if (deadlinePassed || attemptCapReached) {
-    const eventLogger = container.resolve<typeof eventLoggerModule>('eventLogger')
-    await eventLogger.logWorkflowEvent(em, {
-      workflowInstanceId: instance.id,
-      stepInstanceId: stepInstance.id,
-      ...(waiter.branch ? { branchInstanceId: waiter.branch.id } : {}),
-      eventType: 'CONDITION_TIMED_OUT',
-      eventData: {
-        stepId: stepInstance.stepId,
-        attempts,
-        waitedMs,
-        onTimeout: waiter.config.onTimeout,
-        attemptCapReached,
-      },
-      userId,
-      tenantId: instance.tenantId,
-      organizationId: instance.organizationId,
-    })
-
-    if (waiter.config.onTimeout === 'CONTINUE') {
-      await completeConditionWait(em, container, {
+    const claimed = await resumeClaimedConditionWait(em, claimTarget, (onWaitEnded) =>
+      completeConditionWait(em, container, {
         instance,
         definition,
         stepInstance,
@@ -554,20 +702,64 @@ export async function evaluateWaitCondition(
         attempts,
         waitedMs,
         wokenBy: 'poll',
-        timedOut: true,
+        timedOut: false,
         userId,
+        onWaitEnded,
       })
-    } else {
-      await failConditionWait(em, container, {
-        instance,
-        stepInstance,
-        branch: waiter.branch,
-        attempts,
-        waitedMs,
+    )
+    return claimed ? { outcome: 'met' } : { outcome: 'noop', reason: CLAIMED_BY_CONCURRENT_DELIVERY }
+  }
+
+  const deadlineMs = Date.parse(options.deadlineAt)
+  const deadlinePassed = Number.isFinite(deadlineMs) ? nowMs >= deadlineMs : true
+  const attemptCapReached = attempts >= resolveConditionAttemptCap(waiter.config)
+
+  if (deadlinePassed || attemptCapReached) {
+    const claimed = await resumeClaimedConditionWait(em, claimTarget, async (onWaitEnded) => {
+      const eventLogger = container.resolve<typeof eventLoggerModule>('eventLogger')
+      await eventLogger.logWorkflowEvent(em, {
+        workflowInstanceId: instance.id,
+        stepInstanceId: stepInstance.id,
+        ...(waiter.branch ? { branchInstanceId: waiter.branch.id } : {}),
+        eventType: 'CONDITION_TIMED_OUT',
+        eventData: {
+          stepId: stepInstance.stepId,
+          attempts,
+          waitedMs,
+          onTimeout: waiter.config.onTimeout,
+          attemptCapReached,
+        },
         userId,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
       })
-    }
-    return { outcome: 'timed_out' }
+
+      if (waiter.config.onTimeout === 'CONTINUE') {
+        await completeConditionWait(em, container, {
+          instance,
+          definition,
+          stepInstance,
+          branch: waiter.branch,
+          attempts,
+          waitedMs,
+          wokenBy: 'poll',
+          timedOut: true,
+          userId,
+          onWaitEnded,
+        })
+      } else {
+        await failConditionWait(em, container, {
+          instance,
+          stepInstance,
+          branch: waiter.branch,
+          attempts,
+          waitedMs,
+          userId,
+          onWaitEnded,
+        })
+      }
+    })
+    return claimed ? { outcome: 'timed_out' } : { outcome: 'noop', reason: CLAIMED_BY_CONCURRENT_DELIVERY }
   }
 
   // Re-enqueue at min(pollInterval, remaining). `deadlineAt` is forwarded
@@ -665,18 +857,24 @@ export async function wakeConditionWaiters(
     if (!met) continue
 
     const nowMs = Date.now()
-    await completeConditionWait(em, container, {
-      instance,
-      definition,
-      stepInstance,
-      branch: waiter.branch,
-      attempts: 1,
-      waitedMs: waitedMsSince(stepInstance, nowMs),
-      wokenBy: 'context-write',
-      timedOut: false,
-      userId,
-    })
-    woken.push(stepInstance.stepId)
+    const claimed = await resumeClaimedConditionWait(
+      em,
+      { instance, stepInstance, branch: waiter.branch },
+      (onWaitEnded) =>
+        completeConditionWait(em, container, {
+          instance,
+          definition,
+          stepInstance,
+          branch: waiter.branch,
+          attempts: 1,
+          waitedMs: waitedMsSince(stepInstance, nowMs),
+          wokenBy: 'context-write',
+          timedOut: false,
+          userId,
+          onWaitEnded,
+        })
+    )
+    if (claimed) woken.push(stepInstance.stepId)
   }
 
   return { woken }
