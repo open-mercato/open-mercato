@@ -31,6 +31,7 @@ import {
   resolveLocationLabel,
   resolveWarehouseLabel,
 } from './inventoryMutationLoaders'
+import { StagingLocationMissingHint, useStagingLocationsMissing } from './StagingLocationMissingHint'
 import type { WmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
 type CreateAsnDialogProps = {
@@ -90,6 +91,7 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
   const [labelCache, setLabelCache] = React.useState<Record<string, string>>({})
+  const stagingLocationsMissing = useStagingLocationsMissing(warehouseId, open)
 
   const closeDialog = React.useCallback(() => {
     if (submitting) return
@@ -400,6 +402,7 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
                   </FormField>
                 </div>
               ))}
+              {stagingLocationsMissing ? <StagingLocationMissingHint /> : null}
               {fieldErrors.lines ? (
                 <p className="text-sm text-status-error-text">{fieldErrors.lines}</p>
               ) : null}

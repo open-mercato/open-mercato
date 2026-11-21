@@ -7,6 +7,7 @@ import {
   BalanceLookupError,
   fetchBalanceAvailable,
   fetchBalanceOnHand,
+  hasStagingLocations,
   loadLotOptionsForBalanceLocation,
 } from '../inventoryMutationLoaders'
 
@@ -247,5 +248,42 @@ describe('loadLotOptionsForBalanceLocation', () => {
 
     expect(options).toEqual([])
     expect(mockApiCall).not.toHaveBeenCalled()
+  })
+})
+
+describe('hasStagingLocations', () => {
+  beforeEach(() => {
+    mockApiCall.mockReset()
+  })
+
+  function respondWithLocations(byType: Record<string, unknown[]>) {
+    mockApiCall.mockImplementation(async (url: string) => {
+      const type = new URLSearchParams(String(url).split('?')[1]).get('type') ?? ''
+      return { ok: true, result: { items: byType[type] ?? [], total: 0, totalPages: 0 } } as any
+    })
+  }
+
+  it('returns false when the warehouse has neither Staging nor Dock locations', async () => {
+    respondWithLocations({})
+
+    await expect(hasStagingLocations('wh-1')).resolves.toBe(false)
+
+    const requestedTypes = mockApiCall.mock.calls
+      .map(([url]) => new URLSearchParams(String(url).split('?')[1]))
+      .map((params) => `${params.get('type')}:${params.get('warehouseId')}:${params.get('pageSize')}`)
+      .sort()
+    expect(requestedTypes).toEqual(['dock:wh-1:1', 'staging:wh-1:1'])
+  })
+
+  it('returns true when only a Dock location exists', async () => {
+    respondWithLocations({ dock: [{ id: 'loc-dock', code: 'DOCK-01' }] })
+
+    await expect(hasStagingLocations('wh-1')).resolves.toBe(true)
+  })
+
+  it('rejects instead of reporting no locations when the lookup fails', async () => {
+    mockApiCall.mockResolvedValue({ ok: false, result: null } as any)
+
+    await expect(hasStagingLocations('wh-1')).rejects.toBeInstanceOf(BalanceLookupError)
   })
 })

@@ -56,9 +56,21 @@ jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({
   ),
 }))
 
+const mockHasStagingLocations = jest.fn()
+
 jest.mock('../inventoryMutationLoaders', () => ({
+  hasStagingLocations: (...args: unknown[]) => mockHasStagingLocations(...args),
   loadStagingLocationOptions: jest.fn(async () => [{ value: 'loc-1', label: 'STG-1' }]),
   resolveLocationLabel: jest.fn(async () => 'STG-1'),
+}))
+
+jest.mock('next/link', () => ({
+  __esModule: true,
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
 }))
 
 const access = {
@@ -83,9 +95,72 @@ const line = {
 describe('ReceiveAsnLineDialog', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockHasStagingLocations.mockResolvedValue(true)
     mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) =>
       operation(),
     )
+  })
+
+  it('explains how to fix an empty staging list when the warehouse has no Dock or Staging location', async () => {
+    mockHasStagingLocations.mockResolvedValue(false)
+
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={{ ...line, targetStagingLocationId: null }}
+      />,
+    )
+
+    const hint = await screen.findByTestId('wms-staging-location-missing-hint')
+    expect(hint.textContent).toContain('This warehouse has no Dock or Staging location.')
+    expect(hint.querySelector('a')?.getAttribute('href')).toBe('/backend/wms/locations')
+    expect(mockHasStagingLocations).toHaveBeenCalledWith('22222222-2222-2222-2222-222222222222')
+
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+
+    expect(await screen.findByText('wms.backend.asns.receive.errors.stagingRequired')).toBeTruthy()
+    expect(screen.getByTestId('wms-staging-location-missing-hint')).toBeTruthy()
+    expect(mockApiCall).not.toHaveBeenCalled()
+  })
+
+  it('does not show the missing-location hint when the warehouse has a Dock or Staging location', async () => {
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={line}
+      />,
+    )
+
+    await waitFor(() => expect(mockHasStagingLocations).toHaveBeenCalled())
+    await Promise.resolve()
+    expect(screen.queryByTestId('wms-staging-location-missing-hint')).toBeNull()
+  })
+
+  it('does not show the missing-location hint when the availability check fails', async () => {
+    mockHasStagingLocations.mockRejectedValue(new Error('[internal] network'))
+
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={line}
+      />,
+    )
+
+    await waitFor(() => expect(mockHasStagingLocations).toHaveBeenCalled())
+    await Promise.resolve()
+    expect(screen.queryByTestId('wms-staging-location-missing-hint')).toBeNull()
   })
 
   it('renders the ASN receive dialog distinctly from ad-hoc receive', () => {
