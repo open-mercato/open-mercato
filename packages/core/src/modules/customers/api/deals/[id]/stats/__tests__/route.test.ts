@@ -26,6 +26,8 @@ const mockResolveOrganizationScopeForRequest = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
 const mockCache = { get: jest.fn(), set: jest.fn() }
+const mockReportError = jest.fn()
+const mockGetTelemetryRuntime = jest.fn()
 
 const mockEm = {
   count: jest.fn(),
@@ -63,6 +65,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => mockGetTelemetryRuntime(),
+}))
+
 async function readStats(id = dealId) {
   const { GET } = await import('../route')
   return GET(new Request(`http://localhost/api/customers/deals/${id}/stats`), { params: { id } })
@@ -81,6 +87,8 @@ describe('GET /api/customers/deals/[id]/stats', () => {
     mockContainer.resolve.mockClear()
     mockCache.get.mockReset()
     mockCache.set.mockReset()
+    mockReportError.mockReset()
+    mockGetTelemetryRuntime.mockReset().mockReturnValue({ reportError: mockReportError })
 
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
@@ -199,8 +207,10 @@ describe('GET /api/customers/deals/[id]/stats', () => {
     })
 
     it('uses the database after a cache read or write failure or an invalid cached payload', async () => {
-      mockCache.get.mockRejectedValueOnce(new Error('cache read failed')).mockResolvedValueOnce({ invalid: true })
-      mockCache.set.mockRejectedValueOnce(new Error('cache write failed'))
+      const readError = new Error('cache read failed')
+      const writeError = new Error('cache write failed')
+      mockCache.get.mockRejectedValueOnce(readError).mockResolvedValueOnce({ invalid: true })
+      mockCache.set.mockRejectedValueOnce(writeError)
 
       for (const expected of [1, 2]) {
         mockEm.count.mockResolvedValue(expected)
@@ -209,6 +219,23 @@ describe('GET /api/customers/deals/[id]/stats', () => {
         expect(await response.json()).toMatchObject({ dealsClosedThisPeriod: expected })
       }
       expect(mockEm.count).toHaveBeenCalledTimes(4)
+      expect(mockReportError.mock.calls).toEqual([
+        [readError, { module: 'customers', code: 'customers.deal_stats_cache_read_failed' }],
+        [writeError, { module: 'customers', code: 'customers.deal_stats_cache_write_failed' }],
+      ])
+    })
+
+    it('preserves the cache failure fallback when telemetry is disabled', async () => {
+      mockGetTelemetryRuntime.mockReturnValue(null)
+      mockCache.get.mockRejectedValueOnce(new Error('cache read failed'))
+      mockCache.set.mockRejectedValueOnce(new Error('cache write failed'))
+
+      const response = await readStats()
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ dealsClosedThisPeriod: 1 })
+      expect(mockEm.count).toHaveBeenCalledTimes(2)
+      expect(mockReportError).not.toHaveBeenCalled()
     })
   })
 

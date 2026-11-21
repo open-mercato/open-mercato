@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerPipeline } from '../../../../data/entities'
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
@@ -130,7 +131,8 @@ export async function GET(request: Request, context: { params?: Record<string, u
       const cached = await runWithCacheTenant(deal.tenantId, () => cache.get(cacheKey))
       const parsed = dealStatsResponseSchema.safeParse(cached)
       if (parsed.success) return NextResponse.json(parsed.data)
-    } catch {
+    } catch (error) {
+      getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.deal_stats_cache_read_failed' })
       debugCrudCache('get-failed', { resource: DEAL_STATS_CACHE_NAMESPACE })
     }
   }
@@ -212,7 +214,8 @@ export async function GET(request: Request, context: { params?: Record<string, u
       await runWithCacheTenant(deal.tenantId, () =>
         cache.set(cacheKey, payload, { tags, ttl: DEAL_STATS_CACHE_TTL_MS }),
       )
-    } catch {
+    } catch (error) {
+      getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.deal_stats_cache_write_failed' })
       debugCrudCache('set-failed', { resource: DEAL_STATS_CACHE_NAMESPACE })
     }
   }
