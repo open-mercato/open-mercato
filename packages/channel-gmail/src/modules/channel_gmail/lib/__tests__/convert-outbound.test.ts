@@ -5,12 +5,13 @@ describe('convertOutboundForGmail', () => {
     const result = await convertOutboundForGmail({
       body: '<p>Hello <b>world</b></p>',
       bodyFormat: 'html',
-      channelMetadata: { subject: 'Hi', to: ['bob@example.com'] },
+      channelMetadata: { subject: 'Hi', to: ['bob@example.com'], fromName: 'Ignored name' },
       fromAddress: 'alice@gmail.com',
       fromName: 'Alice',
     })
     const meta = result.metadata as Record<string, unknown>
     const raw = (meta.rawMessage as Buffer).toString('utf-8')
+    expect(meta.fromName).toBe('Alice')
     expect(raw).toContain('From: Alice <alice@gmail.com>')
     expect(raw).toContain('To: bob@example.com')
     expect(raw).toContain('Subject: Hi')
@@ -34,6 +35,7 @@ describe('convertOutboundForGmail', () => {
     })
     const meta = result.metadata as Record<string, unknown>
     const raw = (meta.rawMessage as Buffer).toString('utf-8')
+    expect(raw).toContain('From: alice@gmail.com')
     expect(raw).toContain('In-Reply-To: <root@example.com>')
     expect(raw).toContain('References: <root@example.com> <parent@example.com>')
   })

@@ -36,6 +36,14 @@ export type SendAsUserActor = {
   auth?: unknown
 }
 
+export type SendAsUserOptions = {
+  /** Trusted in-process policy for sending through another user's channel. */
+  authorizeNonOwner?: (
+    channel: Readonly<Pick<CommunicationChannel, 'id' | 'providerKey' | 'channelType'> & { userId: string }>,
+    actor: Readonly<SendAsUserActor>,
+  ) => boolean | Promise<boolean>
+}
+
 export type SendAsUserInput = {
   userChannelId: string
   to: string[]
@@ -96,7 +104,7 @@ export type SendAsUserResult =
 /**
  * In-process send-as-user facade.
  *
- * Validates the actor owns `userChannelId`, composes the Message via the
+ * Validates ownership or explicit in-process authorization, composes the Message via the
  * messages module command, persists the outbound MessageChannelLink + thread
  * mapping, and enqueues delivery. Returns a discriminated result instead of an
  * HTTP Response so it can be invoked both by the `/send-as-user` route and by
@@ -107,6 +115,7 @@ export async function sendAsUser(
   container: AppContainer,
   actor: SendAsUserActor,
   input: SendAsUserInput,
+  options?: SendAsUserOptions,
 ): Promise<SendAsUserResult> {
   if (!input.body.plain && !input.body.html) {
     return { ok: false, status: 422, error: 'Either body.plain or body.html is required' }
@@ -131,7 +140,12 @@ export async function sendAsUser(
     dscope,
   )
   if (!channel) return { ok: false, status: 404, error: 'Channel not found' }
-  if (channel.userId !== actor.userId) {
+  const { id, userId, providerKey, channelType } = channel
+  if (
+    !userId ||
+    (userId !== actor.userId &&
+      (await options?.authorizeNonOwner?.({ id, userId, providerKey, channelType }, actor)) !== true)
+  ) {
     return { ok: false, status: 403, error: 'You can only send through channels you own' }
   }
 

@@ -402,9 +402,7 @@ const deliverOutboundMessageCommand: CommandHandler<
           mergedReferences = [...mergedReferences, refId]
         }
       }
-      // Attachment bytes are read here, on every attempt, for the channel owner
-      // the send-as-user facade authorized; a file that is gone or no longer
-      // fits fails the delivery permanently rather than sending without it.
+      // Recheck attachment access as the employee who composed the message.
       const storedAttachments = readStoredOutboundAttachments(baseMetadata)
       if (storedAttachments.length && !channel.userId) {
         throw new OutboundAttachmentDeliveryError('attachment_unavailable')
@@ -413,7 +411,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         ? await loadOutboundAttachments({
             container: ctx.container,
             scope: {
-              userId: channel.userId as string,
+              userId: message.senderUserId,
               tenantId: input.scope.tenantId,
               organizationId: input.scope.organizationId ?? null,
             },

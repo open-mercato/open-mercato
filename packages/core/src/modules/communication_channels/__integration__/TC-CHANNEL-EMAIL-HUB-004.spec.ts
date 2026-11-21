@@ -189,6 +189,8 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
           body: 'Should not be sent.',
           bodyFormat: 'text',
           senderChannelId: channelId,
+          allowNonOwner: true,
+          authorizeNonOwner: true,
         },
       })
 
@@ -198,6 +200,22 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
         body?.fieldErrors?.senderChannelId,
         'the failure should land on the composer sender field',
       ).toBeTruthy()
+      const directResponse = await apiRequest(request, 'POST', '/api/communication_channels/send-as-user', {
+        token: adminToken,
+        data: {
+          userChannelId: channelId,
+          to: [`client-${stamp}@example.com`],
+          subject: `Borrowed mailbox ${stamp}`,
+          body: { plain: 'Should not be sent.' },
+          allowNonOwner: true,
+          authorizeNonOwner: true,
+          channelMetadata: { allowNonOwner: true, fromName: 'Orders' },
+        },
+      })
+      expect(directResponse.status(), 'HTTP must require channel ownership').toBe(403)
+      expect(await readJsonSafe<{ error?: string }>(directResponse)).toMatchObject({
+        error: 'You can only send through channels you own',
+      })
     } finally {
       await deleteChannelIfExists(request, ownerToken, channelId)
       await deleteUserIfExists(request, adminToken, ownerUserId)

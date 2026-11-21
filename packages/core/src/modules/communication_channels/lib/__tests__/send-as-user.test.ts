@@ -36,6 +36,7 @@ const TENANT = '550e8400-e29b-41d4-a716-446655440020'
 const ORG = '550e8400-e29b-41d4-a716-446655440030'
 const CHANNEL = '550e8400-e29b-41d4-a716-446655440060'
 const USER = '550e8400-e29b-41d4-a716-446655440070'
+const COLLEAGUE = '550e8400-e29b-41d4-a716-446655440071'
 const THREAD = '550e8400-e29b-41d4-a716-446655440080'
 const PARENT = '550e8400-e29b-41d4-a716-446655440090'
 const OTHER_THREAD = '550e8400-e29b-41d4-a716-446655440081'
@@ -144,6 +145,66 @@ const actor = { userId: USER, tenantId: TENANT, organizationId: ORG }
 function createdLink(created: Created[]): Row | undefined {
   return created.find((row) => row.entity === MessageChannelLink)?.data
 }
+
+describe('sendAsUser: authorizing a different mailbox owner', () => {
+  const colleague = { ...actor, userId: COLLEAGUE }
+
+  beforeEach(() => {
+    mockFindOne.mockReset()
+    enqueue.mockClear()
+  })
+
+  it('requires a policy and records the authorized employee as the message author', async () => {
+    const { container, commandBus, created } = makeContainer()
+    primeStore({ channels: [channel], conversations: [], mappings: [], links: [] })
+    const sendInput = { ...input, channelMetadata: { fromName: 'Chris at Orders' } }
+    const deniedPolicy = jest.fn(async () => false)
+
+    await expect(sendAsUser(container, colleague, sendInput)).resolves.toMatchObject({ ok: false, status: 403 })
+    await expect(sendAsUser(container, colleague, sendInput, { authorizeNonOwner: deniedPolicy }))
+      .resolves.toMatchObject({ ok: false, status: 403 })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+
+    const authorizeNonOwner = jest.fn(async () => true)
+    const result = await sendAsUser(container, colleague, sendInput, { authorizeNonOwner })
+
+    expect(result).toMatchObject({ ok: true, channelId: CHANNEL })
+    expect(authorizeNonOwner).toHaveBeenCalledWith({ id: CHANNEL, userId: USER, providerKey: 'gmail', channelType: 'email' }, colleague)
+    expect(commandBus.execute).toHaveBeenCalledWith('messages.messages.compose', expect.objectContaining({
+      input: expect.objectContaining({ userId: COLLEAGUE, sourceEntityId: CHANNEL }),
+    }))
+    expect(channel.userId).toBe(USER)
+    expect(createdLink(created)?.channelMetadata).toMatchObject({ fromName: 'Chris at Orders' })
+    expect(enqueue).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { channelFields: { userId: null }, status: 403 },
+    { channelFields: { tenantId: 'other-tenant' }, status: 404 },
+    { channelFields: { organizationId: 'other-organization' }, status: 404 },
+  ])('refuses an ineligible mailbox with $status before calling the policy', async ({ channelFields, status }) => {
+    const { container, commandBus } = makeContainer()
+    primeStore({ channels: [{ ...channel, ...channelFields }], conversations: [], mappings: [], links: [] })
+    const authorizeNonOwner = jest.fn(async () => true)
+
+    await expect(sendAsUser(container, colleague, input, { authorizeNonOwner }))
+      .resolves.toMatchObject({ ok: false, status })
+    expect(authorizeNonOwner).not.toHaveBeenCalled()
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('keeps the active and connected checks for an authorized non-owner', async () => {
+    const { container, commandBus } = makeContainer()
+    primeStore({ channels: [{ ...channel, isActive: false }], conversations: [], mappings: [], links: [] })
+
+    await expect(sendAsUser(container, colleague, input, { authorizeNonOwner: () => true }))
+      .resolves.toMatchObject({ ok: false, status: 409 })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+})
 
 describe('sendAsUser: conversation of a follow-up send', () => {
   beforeEach(() => {

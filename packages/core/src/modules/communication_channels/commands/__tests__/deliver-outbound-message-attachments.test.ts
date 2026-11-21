@@ -28,6 +28,7 @@ import { Message } from '../../../messages/data/entities'
 import { ChannelThreadMapping, CommunicationChannel, ExternalConversation, MessageChannelLink } from '../../data/entities'
 import { baseEmailCapabilities } from '../../lib/email-capabilities'
 import { OUTBOUND_ATTACHMENTS_METADATA_KEY } from '../../lib/outbound-attachments'
+import { refreshCredentialsIfNeeded } from '../../lib/credential-refresh'
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 
@@ -76,11 +77,11 @@ function makeCtx(options: { fileSharing?: boolean; readScoped?: jest.Mock; descr
   return { ctx, adapter, readScoped }
 }
 
-function primeFinds(link: Record<string, unknown>, channelUserId: string | null = 'u-1') {
+function primeFinds(link: Record<string, unknown>, channelUserId: string | null = 'u-1', senderUserId = 'u-1') {
   mockFindOne.mockReset()
   const scope = { tenantId: TENANT, organizationId: ORG }
   const records = new Map<unknown, Record<string, unknown>>([
-    [Message, { id: MSG, threadId: 'thread-1', body: 'hello', bodyFormat: 'text', deletedAt: null, ...scope }],
+    [Message, { id: MSG, threadId: 'thread-1', senderUserId, body: 'hello', bodyFormat: 'text', deletedAt: null, ...scope }],
     [MessageChannelLink, link],
     [ChannelThreadMapping, {
       messageThreadId: 'thread-1',
@@ -135,10 +136,10 @@ function pendingLink(): Record<string, unknown> {
 }
 
 describe('deliverOutboundMessageCommand — outbound attachments', () => {
-  it('reads the stored attachments as the channel owner and hands the bytes to convertOutbound', async () => {
+  it('uses the mailbox owner for credential refresh and the sender for attachments', async () => {
     const link = pendingLink()
     const { ctx, adapter, readScoped } = makeCtx({})
-    primeFinds(link)
+    primeFinds(link, 'u-1', 'u-2')
 
     const result = await deliverOutboundMessageCommand.execute(
       { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
@@ -146,6 +147,10 @@ describe('deliverOutboundMessageCommand — outbound attachments', () => {
     )
 
     expect((result as { status: string }).status).toBe('delivered')
+    expect(refreshCredentialsIfNeeded).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: { userId: 'u-1', tenantId: TENANT, organizationId: ORG } }),
+      expect.anything(),
+    )
     expect(mockFindOne).toHaveBeenCalledWith(
       expect.anything(), ExternalConversation,
       { id: 'conv-1', channelId: 'ch-1', tenantId: TENANT, organizationId: ORG },
@@ -155,7 +160,7 @@ describe('deliverOutboundMessageCommand — outbound attachments', () => {
       expect.objectContaining({
         attachmentId: ATTACHMENT_ID,
         expectedOwner: OWNER,
-        auth: expect.objectContaining({ sub: 'u-1', tenantId: TENANT, orgId: ORG }),
+        auth: expect.objectContaining({ sub: 'u-2', tenantId: TENANT, orgId: ORG }),
       }),
     )
     const convertInput = adapter.convertOutbound.mock.calls[0][0] as unknown as {

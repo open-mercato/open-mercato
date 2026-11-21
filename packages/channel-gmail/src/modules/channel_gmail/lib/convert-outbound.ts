@@ -8,6 +8,7 @@ import {
   generateMessageId,
   htmlToText,
   referencesFromMeta,
+  sanitizeHeaderValue,
   stringOrUndefined,
   toAddressList,
 } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
@@ -86,12 +87,14 @@ export async function convertOutboundForGmail(
   const references = referencesFromMeta(meta.references)
   const messageId = stringOrUndefined(meta.messageId) ?? generateMessageId(input.fromAddress, 'gmail.com')
   const threadId = deriveGmailThreadId(meta)
+  const requestedFromName = stringOrUndefined(input.fromName) ?? stringOrUndefined(meta.fromName)
+  const fromName = requestedFromName ? sanitizeHeaderValue(requestedFromName) : undefined
 
   const html = input.bodyFormat === 'html' ? input.body : undefined
   const text = input.bodyFormat === 'html' ? htmlToText(input.body) : input.body
 
   const rawMessage = await composeEmailMessage({
-    from: input.fromName ? `"${escapeQuotes(input.fromName)}" <${input.fromAddress}>` : input.fromAddress,
+    from: fromName ? `"${escapeQuotes(fromName)}" <${input.fromAddress}>` : input.fromAddress,
     to,
     cc,
     bcc,
@@ -119,7 +122,7 @@ export async function convertOutboundForGmail(
     messageId,
     threadId,
     fromAddress: input.fromAddress,
-    fromName: input.fromName,
+    fromName,
     rawMessage,
   }
 

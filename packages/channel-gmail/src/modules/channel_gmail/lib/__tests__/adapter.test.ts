@@ -254,11 +254,22 @@ describe('GmailChannelAdapter.sendMessage', () => {
     }
     setGmailApiClient(api)
     const adapter = getGmailChannelAdapter()
+    const converted = await adapter.convertOutbound({
+      body: '<p>hi</p>',
+      bodyFormat: 'html',
+      channelMetadata: {
+        to: ['bob@example.com'],
+        subject: 'Hi',
+        gmailThreadId: 'gm-thread-1',
+        fromName: 'Chris "Orders"\r\nX-Injected: 1',
+        fromAddress: 'other@example.com',
+      },
+    })
     const result = await adapter.sendMessage({
-      content: { html: '<p>hi</p>', bodyFormat: 'html' },
+      content: converted.content,
       credentials: userCredentials,
       scope: { tenantId: 't', organizationId: 'o' },
-      metadata: { to: ['bob@example.com'], subject: 'Hi', gmailThreadId: 'gm-thread-1' },
+      metadata: converted.metadata,
     })
     expect(result.status).toBe('sent')
     expect(result.externalMessageId).toMatch(/^<[^@]+@gmail\.com>$/)
@@ -271,6 +282,9 @@ describe('GmailChannelAdapter.sendMessage', () => {
         '='.repeat((4 - (sent[0].rawBase64Url.length % 4)) % 4),
       'base64',
     ).toString('utf-8')
+    expect(decoded).toContain(String.raw`From: "Chris \"Orders\" X-Injected: 1" <alice@gmail.com>`)
+    expect(decoded).not.toMatch(/^X-Injected:/m)
+    expect(decoded).not.toContain('other@example.com')
     expect(decoded).toContain('To: bob@example.com')
     expect(decoded).toContain('<p>hi</p>')
     expect(Buffer.from(sent[0].rawMessage!).toString('utf-8')).toBe(decoded)
