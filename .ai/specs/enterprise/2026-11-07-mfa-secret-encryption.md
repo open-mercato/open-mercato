@@ -16,7 +16,7 @@ Encrypt the entire provider metadata JSON column so legacy TOTP seeds receive th
 
 ## Data models
 
-`UserMfaMethod.secretHash` maps to nullable text `user_mfa_methods.secret_hash`. The forward-only migration adds the column before idempotently inserting/appending the two rules for existing encryption-enabled scopes. It preserves custom rules and administrator policy choices. Fresh installations without `encryption_maps` remain supported; normal tenant initialization discovers the new module map.
+`UserMfaMethod.secretHash` maps to nullable text `user_mfa_methods.secret_hash`. The forward-only migration adds the column before idempotently inserting/appending the two rules for existing encryption-enabled scopes. It fills a missing `hashField` on an existing active `secret` rule so backfill preserves pending enrollment lookup. It preserves custom rules and administrator policy choices. Fresh installations without `encryption_maps` remain supported; normal tenant initialization discovers the new module map.
 
 ## API contracts and migration & backward compatibility
 
