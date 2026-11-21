@@ -130,6 +130,14 @@ stage, so narrow screens keep the quick stage change the header dropdown used to
 All of these stay for at least one minor release after 0.10.0 and are tracked in
 `.ai/specs/2026-04-06-crm-detail-pages-ux-enhancements.md`. No database migration is required.
 
+<a id="issue-9106"></a>
+
+## Relation options and explicit global query scope (#9106)
+
+Relation-option lookups now require the target entity's existing read authority, refuse platform-only and undeclared system targets, and accept only server-declared or fixed safe label fields. Clients should omit `labelField` or choose a declared label rather than request arbitrary columns. Lookup batches are capped at 100; split larger ID lists. Authorized scoped custom labels and declared module labels remain available; metadata permission alone no longer grants system-record access.
+
+Module authors querying a table with neither `tenant_id` nor `organization_id` must explicitly use the existing trusted `omitAutomaticTenantOrgScope: true` option and enforce their own visibility filters. Never bind that option to a request parameter. Operators should review metadata-only roles that relied on excessive access and audit unintended secret or cross-tenant reads. No persisted data, migrations, startup options or configuration formats change. The security exception needs named human-maintainer acknowledgment before merge; automation does not supply it. [Specification](.ai/specs/2026-11-16-relation-options-query-scope.md).
+
 ## CRM preset enables the scheduler (#8804)
 
 New apps scaffolded with `create-mercato-app --preset crm` now enable the
