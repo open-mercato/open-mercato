@@ -74,6 +74,8 @@ import { resolveListCountCap } from '@open-mercato/shared/lib/query/count-cap'
 import { resolveCfDefIndexOrgCandidates } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { CacheStrategy } from '@open-mercato/cache'
+import { createDefinitionsCacheTags } from '@open-mercato/core/modules/entities/api/definitions.cache'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { createBoundedTtlMemo, type BoundedTtlMemo } from '@open-mercato/shared/lib/query/bounded-ttl-memo'
 
@@ -188,6 +190,19 @@ type CustomFieldDefRow = {
   updatedAt: unknown
 }
 
+function isCustomFieldDefRows(value: unknown): value is CustomFieldDefRow[] {
+  return Array.isArray(value) && value.every((row) =>
+    row !== null
+    && typeof row === 'object'
+    && typeof (row as { entityId?: unknown }).entityId === 'string'
+    && typeof (row as { key?: unknown }).key === 'string')
+}
+
+function isStringPairs(value: unknown): value is Array<[string, string]> {
+  return Array.isArray(value) && value.every((pair) =>
+    Array.isArray(pair) && pair.length === 2 && typeof pair[0] === 'string' && typeof pair[1] === 'string')
+}
+
 /** Operators `buildCfFilterExpression` compiles; anything else yields no predicate. */
 const CF_FILTER_SUPPORTED_OPS = new Set<FilterOp>([
   'eq', 'ne', 'in', 'nin', 'like', 'ilike', 'not_ilike', 'exists', 'gt', 'gte', 'lt', 'lte', 'overlap', 'noverlap',
@@ -251,6 +266,22 @@ export function clearBaseTableExistsCache(): void {
 /** Test-only: entry count of the table-existence memo, for the cap regression test. */
 export function baseTableExistsCacheSize(): number {
   return baseTableExistsCache.size()
+}
+
+/**
+ * Process-wide `information_schema.columns` map per table. Present columns are served from it
+ * for the TTL; an absent answer is always re-checked against the database (see `columnExists`).
+ */
+const baseColumnsCache = createBoundedTtlMemo<ReadonlyMap<string, string>>({
+  ttlEnv: 'OM_QUERY_INDEX_COLUMN_CACHE_MS',
+  maxEntriesEnv: 'OM_QUERY_INDEX_COLUMN_CACHE_MAX_ENTRIES',
+  defaultTtlMs: 300_000,
+  defaultMaxEntries: 1_000,
+})
+
+/** Test-only: the module-scoped column memo would otherwise leak state across specs. */
+export function clearBaseColumnsCache(): void {
+  baseColumnsCache.clear()
 }
 
 function buildFilterableCustomFieldJoins(
@@ -373,7 +404,6 @@ export class HybridQueryEngine implements QueryEngine {
   private customFieldDefsCache = new Map<string, { expiresAt: number; value: CustomFieldDefRow[] }>()
   private customFieldKeysTtlMs: number
   private customFieldKindCache = new Map<string, { expiresAt: number; value: Map<string, string> }>()
-  private columnCache = new Map<string, boolean>()
   private customEntityCache = new Map<string, boolean>()
   private debugVerbosity: boolean | null = null
   private sqlDebugEnabled: boolean | null = null
@@ -390,6 +420,7 @@ export class HybridQueryEngine implements QueryEngine {
     private eventBusResolver?: () => Pick<EventBus, 'emitEvent'> | null | undefined,
     private vectorServiceResolver?: () => VectorIndexService | null | undefined,
     private encryptionResolver?: EncryptionResolver,
+    private cacheResolver?: () => CacheStrategy | null | undefined,
   ) {
     const coverageTtl = Number.parseInt(process.env.QUERY_INDEX_COVERAGE_CACHE_MS ?? '', 10)
     this.coverageStatsTtlMs = Number.isFinite(coverageTtl) && coverageTtl >= 0 ? coverageTtl : 5 * 60 * 1000
@@ -1956,7 +1987,7 @@ export class HybridQueryEngine implements QueryEngine {
       case 'ne':
         return value === null
           ? sql<boolean>`${textExpr} is not null`
-          : sql<boolean>`${textExpr} <> ${value}`
+          : sql<boolean>`not (${textExpr} = ${value} or ${arrContains(value)})`
       case 'in': {
         const values = this.toArray(value)
         return eb.or(
@@ -1980,7 +2011,9 @@ export class HybridQueryEngine implements QueryEngine {
       }
       case 'nin': {
         const values = this.toArray(value)
-        return sql<boolean>`${textExpr} not in (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`
+        if (!values.length) return sql<boolean>`${textExpr} is not null`
+        const matches = values.map((val) => sql<boolean>`${textExpr} = ${val} or ${arrContains(val)}`)
+        return sql<boolean>`not (${sql.join(matches, sql` or `)})`
       }
       case 'like':
         return sql<boolean>`${textExpr} like ${value}`
@@ -2754,6 +2787,14 @@ export class HybridQueryEngine implements QueryEngine {
     const now = Date.now()
     const cached = this.customFieldDefsCache.get(cacheKey)
     if (!fresh && cached && cached.expiresAt > now) return cached.value.slice()
+    const sharedKey = `query_index:cf-defs:${cacheKey}`
+    if (!fresh) {
+      const shared = await this.readSharedDefinitions(sharedKey, isCustomFieldDefRows)
+      if (shared) {
+        this.customFieldDefsCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: shared })
+        return shared.slice()
+      }
+    }
 
     const db = this.getDb() as any
     const rows = await db
@@ -2784,6 +2825,7 @@ export class HybridQueryEngine implements QueryEngine {
     }
     if (this.customFieldKeysTtlMs > 0) {
       this.customFieldDefsCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: result })
+      await this.writeSharedDefinitions(sharedKey, result, entityIds, tenantId)
     }
     return result.slice()
   }
@@ -2807,6 +2849,13 @@ export class HybridQueryEngine implements QueryEngine {
     const now = Date.now()
     const cached = this.customFieldKindCache.get(cacheKey)
     if (cached && cached.expiresAt > now) return new Map(cached.value)
+    const sharedKey = `query_index:cf-kinds:${cacheKey}`
+    const shared = await this.readSharedDefinitions(sharedKey, isStringPairs)
+    if (shared) {
+      const sharedKinds = new Map(shared)
+      this.customFieldKindCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: new Map(sharedKinds) })
+      return sharedKinds
+    }
 
     const db = this.getDb() as any
     const rows = await db
@@ -2842,8 +2891,54 @@ export class HybridQueryEngine implements QueryEngine {
     for (const [key, entry] of winners) result.set(key, entry.kind)
     if (this.customFieldKeysTtlMs > 0) {
       this.customFieldKindCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: new Map(result) })
+      await this.writeSharedDefinitions(sharedKey, Array.from(result.entries()), entityIds, tenantId)
     }
     return result
+  }
+
+  /**
+   * Custom-field definitions are tenant data, so cross-request reuse goes through the DI
+   * `cache` service. Entries carry the `entities` definitions-cache tags, so every write path
+   * that already calls `invalidateDefinitionsCache()` clears them too. Absent cache or TTL 0
+   * keeps the per-instance maps only, as before.
+   */
+  private sharedDefinitionsCache(): CacheStrategy | null {
+    if (this.customFieldKeysTtlMs <= 0 || !this.cacheResolver) return null
+    try {
+      return this.cacheResolver() ?? null
+    } catch {
+      return null
+    }
+  }
+
+  private async readSharedDefinitions<T>(key: string, isValid: (value: unknown) => value is T): Promise<T | null> {
+    const cache = this.sharedDefinitionsCache()
+    if (!cache) return null
+    try {
+      const value = await cache.get(key)
+      return isValid(value) ? value : null
+    } catch {
+      return null
+    }
+  }
+
+  private async writeSharedDefinitions(
+    key: string,
+    value: unknown,
+    entityIds: string[],
+    tenantId: string | null,
+  ): Promise<void> {
+    const cache = this.sharedDefinitionsCache()
+    if (!cache) return
+    const tags = new Set([
+      ...createDefinitionsCacheTags({ tenantId, organizationId: null, entityIds }),
+      ...createDefinitionsCacheTags({ tenantId: null, organizationId: null, entityIds }),
+    ])
+    try {
+      await cache.set(key, value, { ttl: this.customFieldKeysTtlMs, tags: Array.from(tags) })
+    } catch (err) {
+      logger.debug('Failed to store custom field definitions in the shared cache', { key, err })
+    }
   }
 
   private async resolveAvailableCustomFieldKeys(entityIds: string[], tenantId: string | null): Promise<string[]> {
@@ -3123,30 +3218,15 @@ export class HybridQueryEngine implements QueryEngine {
     return dataType
   }
 
-  private async columnExists(table: string, column: string): Promise<boolean> {
-    const key = `${table}.${column}`
-    if (this.columnCache.has(key)) {
-      const cached = this.columnCache.get(key)
-      if (cached === true) return true
-      this.columnCache.delete(key)
+  private async readTableColumns(
+    table: string,
+    fresh = false,
+  ): Promise<{ columns: ReadonlyMap<string, string>; loaded: boolean }> {
+    if (!fresh) {
+      const cached = baseColumnsCache.get(table)
+      if (cached) return { columns: cached, loaded: false }
     }
     const db = this.getDb() as any
-    const exists = await db
-      .selectFrom('information_schema.columns')
-      .select(sql<number>`1`.as('one'))
-      .where(table.includes('.') ? sql<boolean>`table_schema = ${table.split('.')[0]}` : sql<boolean>`table_schema = current_schema()`)
-      .where('table_name', '=', table.split('.').pop())
-      .where('column_name', '=', column)
-      .executeTakeFirst()
-    const present = !!exists
-    if (present) this.columnCache.set(key, true)
-    else this.columnCache.delete(key)
-    return present
-  }
-
-  private async getBaseColumnsForEntity(entity: string): Promise<Map<string, string>> {
-    const db = this.getDb() as any
-    const table = resolveEntityTableName(this.em, entity)
     const rows = await db
       .selectFrom('information_schema.columns')
       .select(['column_name', 'data_type'])
@@ -3155,9 +3235,29 @@ export class HybridQueryEngine implements QueryEngine {
         select relnamespace from pg_class where oid = to_regclass(${table})
       ))`)
       .execute() as Array<{ column_name: string; data_type: string }>
-    const map = new Map<string, string>()
-    for (const r of rows) map.set(r.column_name, r.data_type)
-    return map
+    const columns = new Map<string, string>()
+    for (const row of rows) columns.set(row.column_name, row.data_type)
+    if (columns.size > 0) baseColumnsCache.set(table, columns)
+    return { columns, loaded: true }
+  }
+
+  /**
+   * Answers from the process-wide column map, but never reports a column as absent from a
+   * cached map: tenant/organization/soft-delete scoping depends on these answers, so a
+   * column added since the map was cached must take effect on the very next query.
+   */
+  private async columnExists(table: string, column: string): Promise<boolean> {
+    const { columns, loaded } = await this.readTableColumns(table)
+    if (columns.has(column)) return true
+    if (loaded) return false
+    const refreshed = await this.readTableColumns(table, true)
+    return refreshed.columns.has(column)
+  }
+
+  private async getBaseColumnsForEntity(entity: string): Promise<ReadonlyMap<string, string>> {
+    const table = resolveEntityTableName(this.em, entity)
+    const { columns } = await this.readTableColumns(table)
+    return columns
   }
 
   private resolveOrganizationScope(opts: QueryOptions): { ids: string[]; includeNull: boolean } | null {

@@ -53,6 +53,7 @@ import {
 } from '../encryption/decryptScope'
 import { parseNumberWithDefault } from '../number'
 import { createLogger } from '../logger'
+import { listEntityMetadataFromRegistry } from '../db/entityMetadata'
 import {
   prepareOverlapFilters,
   buildArrayColumnNoOverlapPredicate,
@@ -262,8 +263,7 @@ export function resolveRegisteredEntityTableName(
     `${modulePrefix}_${pluralizeBaseName(rawName)}`,
   ]
   try {
-    const allMeta: any[] = metadata.getAll?.() ?? []
-    for (const meta of allMeta) {
+    for (const meta of listEntityMetadataFromRegistry(metadata)) {
       if (meta?.tableName && candidateTables.includes(String(meta.tableName))) {
         return String(meta.tableName)
       }

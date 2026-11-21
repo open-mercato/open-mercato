@@ -205,7 +205,7 @@ test('resolveSpawnCommand rejects cmd metacharacters instead of degrading into i
 })
 
 function quietCtx(overrides = {}) {
-  return { assertDatabaseWriteAllowedImpl: async () => ({ remote: false }), log: () => {}, flags: {}, company: { steps: { disable: [], extra: [] } }, ...overrides }
+  return { assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }), assertDatabaseWriteAllowedImpl: async () => ({ remote: false }), log: () => {}, flags: {}, company: { steps: { disable: [], extra: [] } }, ...overrides }
 }
 
 test('runSteps skips satisfied steps, applies unsatisfied ones, and stops on StepBlocked with guidance', async () => {
@@ -490,6 +490,15 @@ test('ensureEnvFiles writes the documented dev credentials and threads them into
     readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL'),
     'postgres://postgres:postgres@127.0.0.1:5432/open-mercato',
   )
+})
+
+test('ensureEnvFiles gives the app .env the same generated tenant encryption key as the compose .env', () => {
+  const repo = makeFakeAppRepo()
+  fs.appendFileSync(path.join(repo, 'apps', 'mercato', '.env.example'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=\n')
+  ensureEnvFiles(repo, { log: () => {}, warn: () => {} })
+  const rootKey = readEnvValue(path.join(repo, '.env'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
+  assert.ok(rootKey && Buffer.byteLength(rootKey) >= 32)
+  assert.equal(readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY'), rootKey)
 })
 
 test('ensureEnvFiles never overwrites credentials already present in .env', () => {

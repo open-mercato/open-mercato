@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import { asClass } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
@@ -12,3 +13,5 @@ export function register(container: AppContainer) {
     accessLogService: asClass(AccessLogService).scoped(),
   })
 }
+
+defineProcessDiRegistrar(register)
