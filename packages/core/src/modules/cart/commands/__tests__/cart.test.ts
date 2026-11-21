@@ -414,6 +414,30 @@ describe('cart.get', () => {
     seededCartLines = []
   })
 
+  it.each(['id', 'token'] as const)('refuses a different resolved store before repricing a lookup by %s', async (lookup) => {
+    const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')
+    const token = 'cross-store-cart-token'
+    const cart = makeCartFixture({ tokenHash: hashCartToken(token), storeId: 'store-1' })
+    seededCarts = [cart]
+    const before = structuredClone(cart)
+    const { em } = makeEm()
+    const execute = jest.fn(async () => ({ result: { cart, priceChanges: [] } }))
+    const ctx = makeCtx({ em, dataEngine: makeDataEngine(), commandBus: { execute } })
+    const address = lookup === 'id' ? { cartId: cart.id as string } : { token }
+
+    const result = await handler!.execute({
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      ...address,
+      freshContext: makeRouteContext({ storeId: 'store-2', buyerDigest: 'different-store-digest' }),
+    }, ctx)
+
+    expect(result).toEqual({ found: false })
+    expect(execute).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(cart).toEqual(before)
+  })
+
   it('resolves a cart by id and by a re-hashed token identically', async () => {
     const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')
     const plaintextToken = 'plaintext-token-value'

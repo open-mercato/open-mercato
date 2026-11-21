@@ -24,8 +24,8 @@ describe('schedule offer link contribution', () => {
   })
 
   it.each([
-    [{ id: 'quote', quoteNumber: ' SQ-1 ', customerName: ' Acme ' }, 'SQ-1 · Acme'],
-    [{ id: 'quote', quote_number: 'SQ-2', customer_name: 'Acme' }, 'SQ-2 · Acme'],
+    [{ id: 'quote', quoteNumber: ' SQ-1 ', customerName: ' Acme ' }, 'SQ-1, Acme'],
+    [{ id: 'quote', quote_number: 'SQ-2', customer_name: 'Acme' }, 'SQ-2, Acme'],
     [{ id: 'quote', documentNumber: 'SQ-3' }, 'SQ-3'],
     [{ id: 'quote', document_number: 'SQ-4' }, 'SQ-4'],
     [{ id: 'quote', externalReference: 'EXT-1' }, 'EXT-1'],

@@ -27,7 +27,7 @@ const widget: ScheduleLinkTypeWidget = {
     resolveLabel: (item) => {
       const quoteNumber = readLabel(item, ['quoteNumber', 'quote_number', 'documentNumber', 'document_number', 'externalReference', 'external_reference'])
       const customerName = readLabel(item, ['customerName', 'customer_name', 'display_name', 'displayName', 'name', 'title'])
-      if (quoteNumber && customerName) return `${quoteNumber} · ${customerName}`
+      if (quoteNumber && customerName) return `${quoteNumber}, ${customerName}`
       return quoteNumber ?? customerName ?? String(item.id ?? '')
     },
   }],
