@@ -2256,7 +2256,7 @@ async function loadInvoiceSnapshot(
       organizationId: invoice.organizationId,
       tenantId: invoice.tenantId,
       invoiceNumber: invoice.invoiceNumber,
-      orderId: invoice.orderId ?? null,
+      orderId: invoice.order?.id ?? null,
       statusEntryId: invoice.statusEntryId ?? null,
       status: invoice.status ?? null,
       issueDate: invoice.issueDate ?? null,
@@ -10358,7 +10358,7 @@ const createInvoiceCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       invoiceNumber: ensuredInvoiceNumber,
-      orderId: parsed.orderId ?? null,
+      order: parsed.orderId ? em.getReference(SalesOrder, parsed.orderId) : null,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       issueDate: parsed.issueDate ?? new Date(),
@@ -10696,7 +10696,9 @@ const updateInvoiceCommand: CommandHandler<
     ensureOrganizationScope(ctx, invoice.organizationId);
     ensureTenantScope(ctx, invoice.tenantId);
     invoice.invoiceNumber = before.invoice.invoiceNumber;
-    invoice.orderId = before.invoice.orderId;
+    invoice.order = before.invoice.orderId
+      ? em.getReference(SalesOrder, before.invoice.orderId)
+      : null;
     invoice.statusEntryId = before.invoice.statusEntryId;
     invoice.status = before.invoice.status;
     invoice.issueDate = before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : null;
@@ -10818,7 +10820,9 @@ const deleteInvoiceCommand: CommandHandler<
       organizationId: before.invoice.organizationId,
       tenantId: before.invoice.tenantId,
       invoiceNumber: before.invoice.invoiceNumber,
-      orderId: before.invoice.orderId,
+      order: before.invoice.orderId
+        ? em.getReference(SalesOrder, before.invoice.orderId)
+        : null,
       statusEntryId: before.invoice.statusEntryId,
       status: before.invoice.status,
       issueDate: before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : new Date(),
