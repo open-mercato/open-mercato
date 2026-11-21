@@ -1,3 +1,4 @@
+import { normalizeEnvString, resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import { Resend } from 'resend'
 import type {
   ChannelAdapter,
@@ -77,11 +78,22 @@ class ResendChannelAdapter implements ChannelAdapter {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires a subject' }
     }
 
+    const operatorApiKey = normalizeEnvString(process.env.RESEND_API_KEY)
+    const usesOperatorCredentials = Boolean(operatorApiKey && normalizeEnvString(credentials.apiKey) === operatorApiKey)
+    let from = headerOrUndefined(meta.from) ?? credentials.fromAddress
+    if (usesOperatorCredentials) {
+      const operatorFrom = resendCredentialsSchema.shape.fromAddress.safeParse(resolveDefaultEmailFromAddress())
+      if (!operatorFrom.success) {
+        return { externalMessageId: '', status: 'failed', error: '[internal] Operator email sender is not configured or invalid' }
+      }
+      from = operatorFrom.data
+    }
+
     const client = new Resend(credentials.apiKey)
     const resendAttachments = attachmentsFromMeta(meta.attachments)
     const replyTo = headerOrUndefined(meta.replyTo)
     const basePayload = {
-      from: headerOrUndefined(meta.from) ?? credentials.fromAddress,
+      from,
       to,
       subject,
       ...(replyTo ? { replyTo } : {}),

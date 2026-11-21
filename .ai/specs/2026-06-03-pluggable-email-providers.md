@@ -103,6 +103,28 @@ Environment variables:
 - `@open-mercato/channel-imap`'s `isInternalHost` and `resolveSafeHostAddress` keep their existing import paths and behaviour; both now delegate to `@open-mercato/shared/lib/host-pinning`.
 - Inbox Ops inbound/reply Resend webhook behavior is unchanged.
 
+### Operator-backed sender restriction (#9111)
+
+The adapter pins the final outgoing From to `resolveDefaultEmailFromAddress()`
+for all SES sends (the implementation always uses the server AWS identity),
+Resend credentials matching the normalized `RESEND_API_KEY`, and SMTP credentials
+matching the normalized `SMTP_PASSWORD`. Mutable sender, channel labels, host and
+username cannot bypass that restriction. Independent tenant Resend/SMTP credentials
+retain configurable senders. Missing or invalid operator sender fails before the
+provider send. No schema, public signature, startup command or new setting changes.
+
+This narrows STABLE adapter send behavior: an operator-backed send could previously
+use a tenant-selected sender. Retaining that branch as a bridge retains sender
+impersonation. The Emergency Security Exception is proposed for steps 1–3;
+**named human maintainer acknowledgement is pending, so merge is blocked**.
+Clients using the operator transport must accept the operator sender or supply
+independent tenant credentials on Resend/SMTP. Operators must verify the existing
+`NOTIFICATIONS_EMAIL_FROM` / `EMAIL_FROM` / `ADMIN_EMAIL` fallback resolves to one
+valid address before rollout, especially on manually configured SES channels.
+Revoke retired operator keys/passwords during rotation: old copied secrets cannot
+be identified by comparing them with the current environment. Rolling back restores
+the vulnerable behavior. See UPGRADE_NOTES.md and BACKWARD_COMPATIBILITY.md.
+
 ## Test Plan
 
 - Shared tests cover transport delegation, disabled delivery, sender fallback, missing transport, configuration checks, attachments, `replyTo`, and scope propagation.
@@ -113,7 +135,7 @@ Environment variables:
 - SMTP `validateCredentials` tests cover the per-field shape errors, the loopback-host and cleartext refusals firing at save time without dialling the relay, and the auth/unreachable classification that never echoes the relay banner back to the client.
 - SMTP integration coverage (`TC-CHANNEL-SMTP-001`) drives the real connect routes: the per-user route refuses the tenant-scoped provider with 403 `provider_is_tenant_scoped`, and the tenant route returns 422 field errors for empty credentials, a loopback relay host and cleartext transport. Every case fails validation, so the spec creates no channel and needs no teardown.
 - Shared host-pinning tests cover the SSRF classifier (including obfuscated IPv4 encodings) and connect-time pinning against DNS rebinding.
-- Communication hub tests cover system email dispatch through the adapter registry and pre-tenant env fallback.
+- Communication hub tests cover system email dispatch through the adapter registry and pre-tenant env fallback. The SMTP operator-sender integration test resolves real environment credentials through the hub and real adapter, asserting an explicit hostile caller From is replaced before the fake transport sends. Provider tests cover forged stored senders, per-message display/list/CRLF overrides, missing operator sender and independently owned credentials.
 - Browser integration coverage visits `/start` at desktop and mobile widths and verifies the onboarding CTA, disabled superadmin control, connected database state, responsive layout, and absence of browser errors.
 - Run focused package tests/typechecks, `yarn check:dep-versions`, generated registry refresh, and the full contrib gate before moving the draft PR toward review.
 
@@ -132,7 +154,7 @@ Environment variables:
 - Public import paths are preserved.
 - `sendEmail()` is backward-compatible with additive optional fields.
 - No database schema, API route, event, ACL, CLI, or generated contract is removed.
-- Provider behavior is additive and isolated to provider packages.
+- Provider behavior is isolated to provider packages; #9111 intentionally narrows operator-backed sender selection and requires the documented human security exception.
 - Fork-specific deployment details are excluded.
 
 ## Changelog
@@ -140,3 +162,7 @@ Environment variables:
 - 2026-06-03: Updated spec to use Communications Hub system email transport with Resend default and SES as an external provider package.
 - 2026-09-17: Added `@open-mercato/channel-smtp` (provider key `smtp`) as a third outbound provider for generic SMTP relays, and hoisted the host:port SSRF guard into `@open-mercato/shared/lib/host-pinning` so it is shared with `@open-mercato/channel-imap` rather than duplicated.
 - 2026-09-22: Review follow-up on the SMTP provider. The adapter now normalizes the recipient at the send boundary, so the hub test-send route's raw string and the comma-separated system-email form both reach the relay; a partial recipient rejection is reported as `failed` carrying the message id and the accepted/rejected split instead of an unqualified `sent`; and the provider gained `validateCredentials`, so the loopback-host and cleartext refusals surface as connect-form field errors at save time rather than only at send time — matching `@open-mercato/channel-imap`, the sibling with the same operator-supplied-host surface. Added `TC-CHANNEL-SMTP-001` integration coverage and the new workspace manifest to every Dockerfile install stage.
+
+- 2026-11-18: #9111 binds operator-backed senders at the provider boundary, covering saved and per-message overrides. Independent tenant secrets retain sender selection; human security exception and current-head integration/QA remain release gates.
+
+- 2026-11-21: #9111 integrated current main and retained both compatibility notice sets. Reproduced required-context budget overflow and condensed disclosure/policy wording without changing waiver conditions or harness ceilings; five measured case budgets pass. All123 provider tests pass; named human exception, protected personal QA and fresh hosted CI remain pending.
