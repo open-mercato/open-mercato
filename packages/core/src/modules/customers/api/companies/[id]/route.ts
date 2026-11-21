@@ -55,6 +55,7 @@ import {
 } from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { denyCustomerDetailReadAsNotFound } from '../../../lib/detailReadAccess'
+import { resolveOptionalBaseCurrencyCode } from '../../../lib/optionalBaseCurrency'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import {
   buildCollectionTags,
@@ -954,13 +955,14 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     if (earliest === null) return time
     return Math.min(earliest, time)
   }, null)
+  const dealCurrency =
+    activeDeals[0]?.valueCurrency ??
+    dealLinksForMetrics[0]?.valueCurrency ??
+    (await resolveOptionalBaseCurrencyCode(container, company.tenantId, company.organizationId))
   const companyKpis: CompanyDetailKpiSummary = {
     activeDealsCount: activeDeals.length,
     activeDealsValue: activeDeals.length ? activeDealsValue : null,
-    dealCurrency:
-      activeDeals[0]?.valueCurrency ??
-      dealLinksForMetrics[0]?.valueCurrency ??
-      null,
+    dealCurrency,
     activityCount,
     activityTrend,
     ltvValue,
