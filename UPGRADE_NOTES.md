@@ -1,5 +1,92 @@
 # Upgrade Notes
 
+## Backend API documentation permission (#3810)
+
+`/backend/docs` now requires `api_docs.view`. Staff without that feature lose the
+backend resource page and its navigation entry; public `/docs/api` and JSON/Markdown
+exports keep their current policy. Existing tenants: run
+`yarn mercato auth sync-role-acls` for default admins, or explicitly grant the
+feature to intended custom roles. Superadministrator access is preserved. Clients
+that link to the backend page must allow for permission denial. No database
+migration, environment change, or startup-command change is required.
+
+## Deal loss reasons seeded by customers (#8801)
+
+`customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.
+
+`backfillDealLossReasonDictionary` and `BackfillDealLossReasonDictionaryResult` exported from `sales/lib/dictionaries` are deprecated (removal no earlier than 0.12.0); import them from `@open-mercato/core/modules/customers/lib/dealLossReasons`.
+
+## Notification mark-all-read follows the bell scope (#9244)
+
+`PUT /api/notifications/mark-all-read` now marks exactly the unread in-app
+notifications visible to the authenticated recipient in the selected tenant.
+With an organization selected, this includes its visible child organizations and
+tenant-wide notifications. With no organization selected and restricted organization
+access, notifications outside the visible organizations stay unread. The returned
+`count` and `notifications.read` events follow that same set. Direct
+`NotificationService.markAllAsRead` callers supplying only `organizationId` retain
+their existing behavior. No request or response fields change; no data migration
+is required. Integrations that expected a different bulk scope should use explicit
+per-notification actions for their intended set.
+
+## Entity translation authorization and field registration (#9139)
+
+`GET /api/translations/:entityType/:entityId` now requires the target record's view
+permission. PUT and DELETE require its manage permission. All three operations
+also require their existing translation feature and a live target in the
+effective tenant and organization. Unregistered entity types and unregistered
+PUT field keys return 400. Missing permissions return 403. Missing targets
+return 404. Stored keys outside the registration are omitted from reads, lists,
+and view exports.
+
+**Clients** should register each translated text field in the module's `translations.ts`
+and regenerate the application. Request translation operations for existing
+records using a caller with the corresponding target permission. Pass the
+registered entity type as the fourth argument to `applyLocalizedContent`.
+
+**Operators** should review legitimate translation roles and grant the matching target
+view or manage permissions where appropriate. Review existing translation rows
+for values entered before the permission checks, including values on fields
+that are still valid. Remove or replace suspect content through authorized
+translation operations. Rows for unregistered or missing targets require
+operator cleanup. No schema migration is required.
+
+## SSO configuration and SCIM authority (#9014)
+
+**Operators:** deploy the additive `sso_configs.authorization_user_id` migration
+and `sessions.sso_provenance` migrations before application code. Existing SSO configurations have no trusted author and
+must be reviewed and saved by an authorized human administrator before SSO
+authentication or provisioning resumes. Review the issuer, credentials, domains,
+and complete role mappings. Each mapped role name must match exactly one live
+role in the tenant (case-insensitive): a mapping to a missing or ambiguous role
+now blocks saving the configuration and denies every SSO sign-in and SCIM
+operation through it, instead of being skipped. Revoke and replace old SCIM
+tokens: their creator must now be known and retain `sso.scim.manage`. Keep password break-glass access
+available while performing this rollout. Disabling/deleting an unsafe config
+remains available without reauthorization.
+
+SSO role grants and existing-account links now require the config author's current
+grant authority; SCIM mutations also require the token creator's authority. Author
+deletion/demotion or a target's later elevation can therefore block sign-in and
+provisioning. Audit historical SSO grants, identities, direct ACLs, and sessions
+and revoke unauthorized access; the fix does not automatically repair past
+compromise. New SSO sessions stop authorizing access and refresh when their
+configuration changes or loses authority. Users should sign in again after an
+authorized administrator resolves the issue. Revoke suspect pre-upgrade sessions
+explicitly because they lack configuration provenance. Rolling back application
+code reintroduces the vulnerability.
+
+**Clients and module authors:** HTTP payloads, URLs, and response schemas are
+unchanged. Pass the authenticated `actorUserId` to direct config/token service
+calls, retain the injected authorization service, and handle 403 authorization
+errors through existing error handling. Provenance is server-managed; do not
+accept it from request bodies. Legacy acceptance cannot be bridged safely because
+it retains the escalation path. A named human maintainer must approve the
+emergency compatibility waiver before merge; automated review cannot grant it.
+
+[Specification](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
+
+
 ## `sync_akeneo` no longer requires `sales` (#9211)
 
 `sync_akeneo` now declares `requires: ['integrations', 'data_sync', 'catalog', 'progress']`.
@@ -70,6 +157,7 @@ now warns when a connected channel relies on polling but no scheduler is enabled
 or the organization's poll schedule is missing or disabled, and
 `GET /api/communication_channels/me/channels` returns an additive
 `automaticSyncEnabled` boolean that drives that warning.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.
