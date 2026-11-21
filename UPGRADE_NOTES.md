@@ -105,6 +105,40 @@ relied on `sync_akeneo` to force `sales` (and its `customers` chain) on. No API,
 or configuration change. See
 [module dependencies](apps/docs/docs/architecture/module-dependencies.mdx).
 
+## MFA removal audit history (#9144)
+
+**Users and clients:** removing an MFA method can no longer be undone through
+audit history, including entries created before this upgrade. Enroll a new factor
+to replace a removed one. Audit snapshots no longer expose `secret` or
+`providerMetadata`; consumers must not depend on these fields or undo payloads.
+The removal endpoint and its success response are unchanged.
+
+**Operators:** stop old application and worker writers and deploy the fixed code
+to every replica. Apply `Migration20261115120000_mfa_removal_audit_redaction`
+through the normal upgrade process before restoring audit access. It scrubs
+credential snapshots, nested undo payloads and recorded credential changes from
+`security.mfa.method.remove` history, drops stored replay input, and clears undo
+tokens across all tenants, including deleted logs and undo traces. No schema
+change is required. Encrypted command IDs are located using the dedicated
+unencrypted MFA resource kind. Encrypted snapshot, payload and change columns
+are erased completely, including their non-sensitive contents; audit resource
+identifiers remain available. Redaction is irreversible; rollback cannot recover secrets.
+Secure or expire historical exports, replicas and backups separately, and rerun
+redaction before exposing a restored backup. Treat any previously exposed MFA
+credentials as compromised and have affected users remove/re-enroll factors;
+log cleanup does not revoke factors already restored through the old undo path.
+
+The security exception to the compatibility bridge requires named human
+maintainer approval acknowledging the waiver before merge.
+
+The encrypted-history selector assumes the default audit map leaves
+`resource_kind` plaintext and that only MFA removal uses
+`security.mfa_method`. Before upgrading a customized installation, review its
+maps and audit producers: encrypting that resource kind prevents selection,
+while another encrypted command sharing it has its JSONB/undo data scrubbed.
+Such deployments need an adapted, key-aware cleanup before audit access resumes.
+See the [migration specification](.ai/specs/enterprise/implemented/SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md#mfa-removal-audit-hardening-9144).
+
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
 
 The deal detail page moved stage changes from a header dropdown to the clickable stage strip in

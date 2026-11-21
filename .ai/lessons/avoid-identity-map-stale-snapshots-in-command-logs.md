@@ -1,8 +1,8 @@
 ---
 title: "Avoid identity-map stale snapshots in command logs"
-modules: ["audit_logs","cache","customers","auth","customer_accounts"]
+modules: ["audit_logs","cache","customers","auth","customer_accounts","security"]
 areas: ["module-data","debugging","testing"]
-topics: ["command-pattern","data-integrity","generated-files","encryption","authorization-locks"]
+topics: ["command-pattern","data-integrity","generated-files","encryption","authorization-locks","database-migrations"]
 ---
 
 # Avoid identity-map stale snapshots in command logs
@@ -16,6 +16,8 @@ topics: ["command-pattern","data-integrity","generated-files","encryption","auth
 **Integration readback**: Audit `snapshot_before`, `snapshot_after`, and command payload columns are encrypted JSON, so a raw PostgreSQL row is not a plaintext snapshot contract. Read snapshots through the authenticated audit actions API, which uses `ActionLogService.decryptEntryPayload`, and select the exact operation log ID. Keep raw SQL for unencrypted membership IDs/timestamps and lock observations. A missing snapshot must fail the same exact-value assertion; never disable encryption to make a test pass.
 
 **Encrypted audit selectors**: `command_id` and `action_label` are encrypted too. Internal command tests should select by plaintext record and tenant/organization IDs through `findWithDecryption`, then match `commandId` after decryption. Use the same plaintext IDs for fixture cleanup. Verify with encryption enabled: a plaintext `command_id` predicate can return zero while a valid durable row exists, and ciphertext-only privacy checks miss leaked decrypted payloads.
+
+**Historical data repair (#9144 / PR #9578)**: SQL matching a plaintext command ID skipped encrypted MFA audit rows, even though plaintext fixtures passed. Before writing a repair, inspect the owning encryption map and actual persisted selector/JSONB shapes. Without tenant keys, use a proven plaintext discriminator and erase affected encrypted JSONB columns rather than attempting JSON-key deletion inside ciphertext. Cover plaintext, encrypted and mixed states with real authenticated ciphertext, and assert that unrelated encrypted history is byte-identical. The MFA regression failed two encrypted-command cases before the discriminator fix.
 
 **Applies to**: Any command that captures `snapshotBefore` in `prepare()` and later loads `snapshotAfter` in `buildLog()`.
 
