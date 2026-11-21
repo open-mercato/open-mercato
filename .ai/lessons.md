@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 196 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 197 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -19,6 +19,7 @@ This catalog indexes 196 focused lessons. Route the task first, then read only r
 ## Catalog
 
 - [Semantic validators must not coerce structured JSON](lessons/semantic-validators-must-not-coerce-structured-json.md) — area:module-data,testing; module:checkout; topic:validation-errors,api-contracts,untrusted-input
+- [Queue triage stops do not complete a fix quota](lessons/queue-triage-stops-do-not-complete-a-fix-quota.md) — area:ai-workflow; module:platform; topic:autofix,triage,completion
 - [Redact URL authority credentials before telemetry export](lessons/redact-url-authority-credentials-before-telemetry-export.md) — area:architecture,testing; module:telemetry; topic:network-security,telemetry,testing
 - [Replay covers SDK preprocessing and trial state](lessons/replay-covers-sdk-preprocessing-and-trial-state.md) — area:ai-workflow,testing; module:agent_orchestrator,ai_assistant; topic:offline-replay,fixtures,sdk-preprocessing,file-io
 
