@@ -78,6 +78,7 @@ async function rehashEntity(
   const { tenantId, dryRun } = scope
   const tenant = findColumn(meta, 'tenant_id')
   const organization = findColumn(meta, 'organization_id')
+  const updatedAt = findColumn(meta, 'updated_at')
   if (!tenant && defaults?.keyScope === 'system' && tenantId !== null) return { scanned: 0, changed: 0 }
   const primaryKey = meta.primaryKeys.length === 1 ? findColumn(meta, String(meta.primaryKeys[0])) : undefined
   if (!primaryKey || !meta.tableName || (!tenant && defaults?.keyScope !== 'system')) {
@@ -137,7 +138,10 @@ async function rehashEntity(
 
       if (!dryRun) {
         let update = database.updateTable(table)
-          .set(Object.fromEntries(updates.map(({ hash, value }) => [hash, value])))
+          .set({
+            ...Object.fromEntries(updates.map(({ hash, value }) => [hash, value])),
+            ...(updatedAt ? { [updatedAt]: new Date() } : {}),
+          })
           .where(primaryKey, '=', row[primaryKey])
         if (tenant) {
           update = tenantId === null ? update.where(tenant, 'is', null) : update.where(tenant, '=', tenantId)

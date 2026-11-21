@@ -127,10 +127,39 @@ describePostgres('lookup pepper rotation in PostgreSQL', () => {
     return row
   }
 
+  async function readUserVersion(id: string) {
+    const [row] = await mockEm.execute<Array<{ updated_at: string | null }>>('SELECT updated_at FROM users WHERE id = ?', [id])
+    return row!.updated_at === null ? null : new Date(row!.updated_at)
+  }
+
   function switchPeppers() {
     process.env.LOOKUP_HASH_OLD_PEPPER = process.env.LOOKUP_HASH_PEPPER
     process.env.LOOKUP_HASH_PEPPER = 'replacement-test-pepper'
   }
+
+  it('advances record versions only when a lookup hash changes', async () => {
+    const versioned = await insertUser('versioned@example.test', tenantId)
+    const unversioned = await insertUser('unversioned@example.test', tenantId)
+    const originalVersion = new Date(0)
+    await mockEm.execute('UPDATE users SET updated_at = ? WHERE id = ?', [originalVersion, versioned.id])
+    expect(await readUserVersion(unversioned.id)).toBeNull()
+    switchPeppers()
+
+    await command.run(['--tenant', tenantId, '--dry-run'])
+    expect(await readUserVersion(versioned.id)).toEqual(originalVersion)
+    expect(await readUserVersion(unversioned.id)).toBeNull()
+
+    await command.run(['--tenant', tenantId])
+    const updatedVersion = await readUserVersion(versioned.id)
+    const initializedVersion = await readUserVersion(unversioned.id)
+    expect(updatedVersion).toBeInstanceOf(Date)
+    expect(updatedVersion!.getTime()).toBeGreaterThan(originalVersion.getTime())
+    expect(initializedVersion).toBeInstanceOf(Date)
+
+    await command.run(['--tenant', tenantId])
+    expect(await readUserVersion(versioned.id)).toEqual(updatedVersion)
+    expect(await readUserVersion(unversioned.id)).toEqual(initializedVersion)
+  })
 
   it('keeps the staff login lookup working and rehashes only the selected tenant across keyset batches', async () => {
     const email = 'operator@example.test'
@@ -215,14 +244,16 @@ describePostgres('lookup pepper rotation in PostgreSQL', () => {
     switchPeppers()
     const editedEmail = 'edited@example.test'
     const editedHash = hashForLookup(editedEmail)
+    const editedVersion = new Date(1)
     const resolveRules = mockEncryption.getLookupHashRules.bind(mockEncryption)
     const concurrentEdit = jest.spyOn(mockEncryption, 'getLookupHashRules').mockImplementationOnce(async (...args) => {
-      await orm.em.fork().execute('UPDATE users SET email = ?, email_hash = ? WHERE id = ?', [editedEmail, editedHash, original.id])
+      await orm.em.fork().execute('UPDATE users SET email = ?, email_hash = ?, updated_at = ? WHERE id = ?', [editedEmail, editedHash, editedVersion, original.id])
       return resolveRules(...args)
     })
 
     await expect(command.run(['--tenant', tenantId])).rejects.toThrow('changed concurrently')
     expect(await readUser(original.id)).toEqual({ email: editedEmail, email_hash: editedHash })
+    expect(await readUserVersion(original.id)).toEqual(editedVersion)
     concurrentEdit.mockRestore()
 
     const unreadable = await insertUser('unreadable@example.test', tenantId, { encrypted: true, key: randomBytes(32).toString('base64') })
