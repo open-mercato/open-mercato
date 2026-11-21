@@ -14,7 +14,13 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 const mockFindWithDecryption = jest.fn(async () => [])
-const mockFindOneWithDecryption = jest.fn(async () => null)
+const mockFindOneWithDecryption = jest.fn(async (...args: unknown[]): Promise<unknown> => {
+  const [manager, entity, where, options] = args as [
+    { findOne: (entity: unknown, where: unknown, options?: unknown) => Promise<unknown> },
+    unknown, unknown, unknown,
+  ]
+  return manager.findOne(entity, where, options)
+})
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args as []),
@@ -170,8 +176,6 @@ describe('customers.companies.delete — dependent guard', () => {
     const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
     expect(handler).toBeDefined()
 
-    mockFindOneWithDecryption.mockResolvedValueOnce(entity as unknown as null)
-
     await handler.execute({ body: { id: COMPANY_ID } }, ctx)
 
     expect(em.transactional).toHaveBeenCalledTimes(1)
@@ -184,9 +188,16 @@ describe('customers.companies.delete — dependent guard', () => {
     const ctx = makeCtx(em)
     const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
 
+<<<<<<< HEAD
     mockFindOneWithDecryption.mockResolvedValueOnce(entity as unknown as null)
 
     await expect(handler.execute({ body: { id: COMPANY_ID } }, ctx)).resolves.toEqual({ entityId: COMPANY_ID })
+=======
+    await expect(handler.execute({ body: { id: COMPANY_ID } }, ctx)).resolves.toEqual({
+      entityId: COMPANY_ID,
+      labelAssignments: [],
+    })
+>>>>>>> 36c73b01e6 (fix(customers): decrypt command reads before snapshots and undo (#2115) (#8744))
 
     expect(em.nativeDelete).toHaveBeenCalledWith(CustomerPersonCompanyLink, {
       company: entity,
@@ -272,3 +283,59 @@ describe('customers.companies.delete — dependent guard', () => {
     expect(body.error).toContain('3')
   })
 })
+<<<<<<< HEAD
+=======
+
+describe('customers.companies.delete — row lock (issue #7613)', () => {
+  afterEach(() => jest.clearAllMocks())
+
+  function findLockIndex(opLog: OperationLog): number {
+    return opLog.findIndex((entry) =>
+      entry.op === 'findOne' && entry.entity === CustomerEntity
+      && (entry.options as { lockMode?: LockMode } | undefined)?.lockMode === LockMode.PESSIMISTIC_WRITE)
+  }
+
+  it('locks the entity row with PESSIMISTIC_WRITE before any dependent check or child cleanup', async () => {
+    const entity = makeCompanyEntity()
+    const opLog: OperationLog = []
+    const em = makeEm(entity, { personLinks: 0, dealLinks: 0, directPeople: 0 }, opLog)
+    const ctx = makeCtx(em)
+    const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
+
+    await handler.execute({ body: { id: COMPANY_ID } }, ctx)
+
+    // The row lock must be acquired before any dependent count or child
+    // cleanup, so a concurrent insert of a child row (label assignment,
+    // person link, deal link, direct person, etc.) serializes behind this
+    // transaction instead of racing the final delete with a 409
+    // FOREIGN_KEY_VIOLATION.
+    const lockIndex = findLockIndex(opLog)
+    expect(lockIndex).toBeGreaterThanOrEqual(0)
+    const personLinksIndex = opLog.findIndex((entry) => entry.op === 'count' && entry.entity === CustomerPersonCompanyLink)
+    const dealLinksIndex = opLog.findIndex((entry) => entry.op === 'count' && entry.entity === CustomerDealCompanyLink)
+    const directPeopleIndex = opLog.findIndex((entry) => entry.op === 'count' && entry.entity === CustomerPersonProfile)
+    expect(personLinksIndex).toBeGreaterThan(lockIndex)
+    expect(dealLinksIndex).toBeGreaterThan(lockIndex)
+    expect(directPeopleIndex).toBeGreaterThan(lockIndex)
+    expect(em.remove).toHaveBeenCalledWith(entity)
+  })
+
+  it('aborts without mutating anything when a concurrent person link already exists under the lock', async () => {
+    const entity = makeCompanyEntity()
+    const opLog: OperationLog = []
+    const em = makeEm(entity, { personLinks: 1 }, opLog)
+    const ctx = makeCtx(em)
+    const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
+
+    await expect(handler.execute({ body: { id: COMPANY_ID } }, ctx)).rejects.toBeInstanceOf(CrudHttpError)
+
+    const lockIndex = findLockIndex(opLog)
+    expect(lockIndex).toBeGreaterThanOrEqual(0)
+    const personLinksIndex = opLog.findIndex((entry) => entry.op === 'count' && entry.entity === CustomerPersonCompanyLink)
+    expect(personLinksIndex).toBeGreaterThan(lockIndex)
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(em.nativeDelete).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+  })
+})
+>>>>>>> 36c73b01e6 (fix(customers): decrypt command reads before snapshots and undo (#2115) (#8744))

@@ -3,7 +3,12 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+<<<<<<< HEAD
 import { CustomerTag, CustomerTagAssignment } from '../data/entities'
+=======
+import { LockMode } from '@mikro-orm/core'
+import { CustomerEntity, CustomerTag, CustomerTagAssignment } from '../data/entities'
+>>>>>>> 36c73b01e6 (fix(customers): decrypt command reads before snapshots and undo (#2115) (#8744))
 import {
   tagCreateSchema,
   tagUpdateSchema,
@@ -13,6 +18,7 @@ import {
   type TagAssignmentInput,
 } from '../data/validators'
 import {
+  buildCustomerCommandLookup,
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
@@ -74,8 +80,23 @@ type TagAssignmentUndoPayload = {
   before?: TagAssignmentSnapshot | null
 }
 
+<<<<<<< HEAD
 async function loadTagSnapshot(em: EntityManager, id: string): Promise<TagSnapshot | null> {
   const tag = await em.findOne(CustomerTag, { id })
+=======
+function tagDeleteLookup(id: string, ctx: CommandRuntimeContext) {
+  return buildCustomerCommandLookup({ id }, ctx)
+}
+
+async function loadTagSnapshot(
+  em: EntityManager,
+  id: string,
+  lookup?: ReturnType<typeof tagDeleteLookup>,
+): Promise<TagSnapshot | null> {
+  const tag = lookup
+    ? await findOneWithDecryption(em, CustomerTag, lookup.where, {}, lookup.scope)
+    : await em.findOne(CustomerTag, { id })
+>>>>>>> 36c73b01e6 (fix(customers): decrypt command reads before snapshots and undo (#2115) (#8744))
   if (!tag) return null
   return {
     id: tag.id,
