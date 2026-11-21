@@ -111,7 +111,7 @@ function buildPriceRecord(overrides: Row = {}): Row {
   }
 }
 
-function buildContext() {
+function buildContext({ withSales = true }: { withSales?: boolean } = {}) {
   const historyEm = {
     create: jest.fn((_entity: unknown, data: Row) => ({ ...data })),
     persist: jest.fn(),
@@ -120,7 +120,7 @@ function buildContext() {
   const commandEm = {
     fork: jest.fn(() => historyEm),
     findOne: jest.fn(),
-    create: jest.fn(),
+    create: jest.fn((_entity: unknown, data: Row) => ({ id: PRICE_ID, ...data })),
     persist: jest.fn(),
     remove: jest.fn(),
     flush: jest.fn().mockResolvedValue(undefined),
@@ -140,7 +140,10 @@ function buildContext() {
       resolve: jest.fn((token: string) => {
         if (token === 'em') return rootEm
         if (token === 'dataEngine') return { markOrmEntityChange: jest.fn() }
-        if (token === 'taxCalculationService') return { calculateUnitAmounts }
+        if (token === 'taxCalculationService') {
+          if (!withSales) throw new Error("[internal] Could not resolve 'taxCalculationService'")
+          return { calculateUnitAmounts }
+        }
         if (token === 'cache') return { deleteByTags: jest.fn().mockResolvedValue(0) }
         return undefined
       }),
@@ -150,7 +153,7 @@ function buildContext() {
     selectedOrganizationId: ORG_ID,
     organizationIds: [ORG_ID],
   }
-  return { ctx, calculateUnitAmounts }
+  return { ctx, calculateUnitAmounts, commandEm }
 }
 
 function updateCommand(): CommandHandlerLike {
@@ -159,10 +162,10 @@ function updateCommand(): CommandHandlerLike {
   return handler as CommandHandlerLike
 }
 
-async function runUpdate(input: Row, recordOverrides: Row = {}) {
+async function runUpdate(input: Row, recordOverrides: Row = {}, options: { withSales?: boolean } = {}) {
   const record = buildPriceRecord(recordOverrides)
   findOneWithDecryption.mockResolvedValue(record)
-  const { ctx, calculateUnitAmounts } = buildContext()
+  const { ctx, calculateUnitAmounts } = buildContext(options)
   await updateCommand().execute({ id: PRICE_ID, ...input }, ctx)
   return { record, calculateUnitAmounts }
 }
@@ -324,5 +327,124 @@ describe('catalog price update resolves the scope when relations load lazily', (
     await expect(runLazyUpdate({ offerId: OFFER_ID }, { product: lazy(FAKE_PRODUCT) })).rejects.toMatchObject({
       status: 403,
     })
+  })
+})
+
+describe('catalog price commands when the sales module is disabled', () => {
+  const TAX_RATE_ID = '88888888-8888-4888-8888-888888888888'
+
+  function createCommand(): CommandHandlerLike {
+    const handler = registerCommand.mock.calls.map(([cmd]) => cmd).find((cmd) => cmd.id === 'catalog.prices.create')
+    if (!handler) throw new Error('[internal] catalog.prices.create not registered')
+    return handler as CommandHandlerLike
+  }
+
+  const createInput = {
+    productId: FAKE_PRODUCT.id,
+    priceKindId: FAKE_PRICE_KIND.id,
+    currencyCode: 'EUR',
+    unitPriceNet: 100,
+    taxRate: 23,
+  }
+
+  it('creates a price with gross derived from the numeric tax rate', async () => {
+    const { ctx, commandEm } = buildContext({ withSales: false })
+    await createCommand().execute(createInput, ctx)
+    expect(commandEm.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ unitPriceNet: '100', unitPriceGross: '123', taxAmount: '23', taxRate: '23' }),
+    )
+  })
+
+  it('rejects a tax class on create with a translated 400', async () => {
+    const { ctx, commandEm } = buildContext({ withSales: false })
+    await expect(createCommand().execute({ ...createInput, taxRateId: TAX_RATE_ID }, ctx)).rejects.toMatchObject({
+      status: 400,
+      body: { error: 'Tax classes are not available.' },
+    })
+    expect(commandEm.create).not.toHaveBeenCalled()
+  })
+
+  it('updates a gross amount with net derived from the stored tax rate', async () => {
+    const { record } = await runUpdate({ unitPriceNet: 100, unitPriceGross: 150 }, {}, { withSales: false })
+    expect(record.unitPriceGross).toBe('150')
+    expect(record.unitPriceNet).toBe('121.9512')
+    expect(record.taxAmount).toBe('28.0488')
+  })
+
+  it('updates a price without an amount change', async () => {
+    const endsAt = new Date('2031-01-01T00:00:00.000Z')
+    const { record } = await runUpdate({ endsAt }, {}, { withSales: false })
+    expect(record.endsAt).toEqual(endsAt)
+    expect(record.unitPriceGross).toBe('123.0000')
+  })
+
+  it('rejects a tax class on update with a translated 400', async () => {
+    await expect(runUpdate({ taxRateId: TAX_RATE_ID }, {}, { withSales: false })).rejects.toMatchObject({
+      status: 400,
+      body: { error: 'Tax classes are not available.' },
+    })
+  })
+})
+
+describe('catalog price update checks the validity window against the stored dates', () => {
+  const JUNE = new Date('2031-06-01T00:00:00.000Z')
+  const JANUARY = new Date('2031-01-01T00:00:00.000Z')
+  const DECEMBER = new Date('2031-12-01T00:00:00.000Z')
+
+  async function expectWindowRejected(input: Row, recordOverrides: Row) {
+    const record = buildPriceRecord(recordOverrides)
+    findOneWithDecryption.mockResolvedValue(record)
+    const { ctx, commandEm } = buildContext()
+    await expect(updateCommand().execute({ id: PRICE_ID, ...input }, ctx)).rejects.toMatchObject({
+      status: 400,
+      body: { fieldErrors: { endsAt: 'End date must be after the start date.' } },
+    })
+    expect(commandEm.flush).not.toHaveBeenCalled()
+    return record
+  }
+
+  it('rejects an endsAt-only edit that ends before the stored startsAt', async () => {
+    const record = await expectWindowRejected({ endsAt: JANUARY }, { startsAt: JUNE })
+    expect(record.startsAt).toEqual(JUNE)
+    expect(record.endsAt).toBeNull()
+  })
+
+  it('rejects a startsAt-only edit that starts after the stored endsAt', async () => {
+    const record = await expectWindowRejected({ startsAt: JUNE }, { endsAt: JANUARY })
+    expect(record.startsAt).toBeNull()
+    expect(record.endsAt).toEqual(JANUARY)
+  })
+
+  it('accepts an endsAt-only edit that still ends after the stored startsAt', async () => {
+    const { record } = await runUpdate({ endsAt: DECEMBER }, { startsAt: JUNE })
+    expect(record.startsAt).toEqual(JUNE)
+    expect(record.endsAt).toEqual(DECEMBER)
+  })
+
+  it('accepts an edit that moves both dates together past the stored window', async () => {
+    const nextJanuary = new Date('2032-01-01T00:00:00.000Z')
+    const { record } = await runUpdate({ startsAt: DECEMBER, endsAt: nextJanuary }, { startsAt: JANUARY, endsAt: JUNE })
+    expect(record.startsAt).toEqual(DECEMBER)
+    expect(record.endsAt).toEqual(nextJanuary)
+  })
+
+  it('accepts a startsAt-only edit when the stored price has no end date', async () => {
+    const { record } = await runUpdate({ startsAt: DECEMBER }, { startsAt: JANUARY })
+    expect(record.startsAt).toEqual(DECEMBER)
+    expect(record.endsAt).toBeNull()
+  })
+
+  it('accepts an endsAt-only edit that ends on the stored startsAt', async () => {
+    const { record } = await runUpdate({ endsAt: new Date(JUNE) }, { startsAt: JUNE })
+    expect(record.startsAt).toEqual(JUNE)
+    expect(record.endsAt).toEqual(JUNE)
+  })
+
+  it('still reprices a stored price whose dates are already reversed', async () => {
+    const { record } = await runUpdate({ unitPriceGross: 31 }, { startsAt: JUNE, endsAt: JANUARY })
+    expect(record.unitPriceGross).toBe('31')
+    expect(record.startsAt).toEqual(JUNE)
+    expect(record.endsAt).toEqual(JANUARY)
   })
 })
