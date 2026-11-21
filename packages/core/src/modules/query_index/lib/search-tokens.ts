@@ -467,6 +467,27 @@ export async function deleteSearchTokensForRecord(
     .execute()
 }
 
+/**
+ * Deletes one record's token rows for the given fields only. The per-record rewrite scopes its
+ * delete to the document's own fields, so a column the document no longer carries needs this.
+ */
+export async function deleteSearchTokensForFields(
+  db: Kysely<any>,
+  params: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; fields: readonly string[] },
+  options?: { trx?: SearchTokenExecutor },
+): Promise<void> {
+  if (!params.fields.length) return
+  const executor = options?.trx ?? db
+  await executor
+    .deleteFrom('search_tokens' as any)
+    .where('entity_type' as any, '=', params.entityType)
+    .where('entity_id' as any, '=', String(params.recordId))
+    .where(sql<boolean>`organization_id is not distinct from ${params.organizationId ?? null}`)
+    .where(sql<boolean>`tenant_id is not distinct from ${params.tenantId ?? null}`)
+    .where('field' as any, 'in', [...params.fields])
+    .execute()
+}
+
 export async function replaceSearchTokensForBatch(
   db: Kysely<any>,
   allPayloads: Array<BuildTokenOptions & { doc: Record<string, unknown> }>
