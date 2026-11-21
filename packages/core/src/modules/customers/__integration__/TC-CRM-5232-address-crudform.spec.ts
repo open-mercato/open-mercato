@@ -1,7 +1,8 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { login } from '@open-mercato/core/helpers/integration/auth'
+import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { expectId } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 /**
  * TC-CRM-5232 (CRUDFORM path): the real person/company create forms and the detail Addresses tab
@@ -24,6 +25,7 @@ async function listAddresses(
 test.describe('TC-CRM-5232 address contact fields through the real forms', () => {
   let token: string | null = null
   let companyId: string | null = null
+  let personId: string | null = null
 
   test.beforeEach(async ({ request }) => {
     token = await getAuthToken(request)
@@ -32,6 +34,8 @@ test.describe('TC-CRM-5232 address contact fields through the real forms', () =>
   test.afterEach(async ({ request }) => {
     await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     companyId = null
+    await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    personId = null
   })
 
   test('company create form saves recipient name and phone, and the detail editor clears them', async ({ page, request }) => {
@@ -95,5 +99,45 @@ test.describe('TC-CRM-5232 address contact fields through the real forms', () =>
       .toEqual({ recipient: null, phone: null })
     const afterClear = await listAddresses(request, token as string, companyId as string)
     expect(afterClear[0].address_line1).toBe(line1)
+  })
+
+  test('person create form saves address recipient name and phone', async ({ page, request }) => {
+    const stamp = Date.now()
+    const firstName = `TC5232 ${stamp}`
+    const lastName = 'Person'
+    const addressLine1 = `11 Form Street ${stamp}`
+    const recipientName = `Person Recipient ${stamp}`
+    const phone = '+48 600 123 457'
+    await login(page, 'admin')
+
+    await page.goto('/backend/customers/people/create', { waitUntil: 'load' })
+    await page.getByRole('textbox', { name: /^First name/ }).fill(firstName)
+    await page.getByRole('textbox', { name: /^Last name/ }).fill(lastName)
+    await expect(page.getByText(`${firstName} ${lastName}`, { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Add address', exact: true }).click()
+    await page.getByPlaceholder('Address line 1', { exact: true }).fill(addressLine1)
+    await page.getByRole('textbox', { name: 'Recipient name', exact: true }).fill(recipientName)
+    await page.getByRole('textbox', { name: 'Phone', exact: true }).fill(phone)
+    await page.getByRole('button', { name: 'Save address', exact: true }).click()
+
+    const addressCreated = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/customers/addresses' && response.request().method() === 'POST',
+    ).catch(() => null)
+    const [personResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) => new URL(response.url()).pathname === '/api/customers/people' && response.request().method() === 'POST',
+      ),
+      page.getByRole('button', { name: 'Create Person', exact: true }).first().click(),
+    ])
+    expect(personResponse.ok(), `person create status ${personResponse.status()}`).toBe(true)
+    const personBody = (await personResponse.json()) as { id?: string; entityId?: string }
+    personId = expectId(personBody.id ?? personBody.entityId, 'person create response exposes the id')
+
+    const addressResponse = await addressCreated
+    expect(addressResponse?.ok(), `address create status ${addressResponse?.status() ?? 'missing response'}`).toBe(true)
+
+    const persisted = await listAddresses(request, token as string, personId)
+    expect(persisted).toHaveLength(1)
+    expect(persisted[0]).toMatchObject({ address_line1: addressLine1, recipient_name: recipientName, phone })
   })
 })

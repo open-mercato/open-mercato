@@ -192,7 +192,9 @@ Unit (`packages/core`): postal lines unchanged when contacts present (**the safe
 
 Route/UI level (Phase 1): `packages/core/src/modules/sales/__integration__/TC-SALES-ADDR-CONTACT-001.spec.ts` covers the API/detail edit-and-reload round-trip; `TC-SALES-ADDR-CONTACT-002.spec.ts` creates a document through the form and verifies both persisted snapshots; `TC-SALES-ADDR-CONTACT-003.spec.ts` verifies the disabled contact controls under an address-editing guard. Self-contained fixtures, no seeded data.
 
-Phase 3: `TC-CRM-CRUDFORM-*` proves `recipient_name`/`phone` save-and-reload on customer address create + update.
+Phase 3: `TC-CRM-5232-address-crudform.spec.ts` proves that the person and company create forms save
+`recipient_name` and `phone` and that a fresh API read returns both values. The company detail case also
+verifies that clearing both fields persists without changing the postal address.
 
 ## Risks & Impact Review
 
