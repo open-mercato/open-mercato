@@ -1071,7 +1071,7 @@ function buildCrudCacheKey(
   ctx: CrudCtx,
   enricherSignature = '',
   localizesEntities = false,
-  allowWithDeleted = false,
+  withDeleted = false,
 ): string {
   const url = new URL(request.url)
   const scopeIds = collectScopeOrganizationIds(ctx)
@@ -1093,7 +1093,7 @@ function buildCrudCacheKey(
     // per actor (API key or user), never shared across identities.
     `user:${normalizeTagSegment((ctx.auth?.keyId ?? ctx.auth?.sub) ?? null)}`,
     `query:${serializeSearchParams(url.searchParams)}`,
-    `deletedPolicy:${allowWithDeleted ? 'allowed' : 'hidden'}`,
+    `deletedPolicy:${withDeleted ? 'allowed' : 'hidden'}`,
   ]
   if (Array.from(url.searchParams.keys()).some((key) => key.startsWith('filter['))) {
     segments.push('advancedFilters:intersection-v1')
@@ -1754,7 +1754,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             ctx,
             enricherCachePlan.signature,
             Boolean(opts.list?.entityId),
-            opts.list.allowWithDeleted === true,
+            withDeleted,
           )
         : null
       let cacheStatus: 'hit' | 'miss' = 'miss'

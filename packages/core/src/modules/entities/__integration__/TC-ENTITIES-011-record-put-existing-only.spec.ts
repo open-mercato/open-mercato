@@ -28,7 +28,7 @@ import {
  *   - POST   /api/entities/entities, /api/entities/definitions.batch (fixtures)
  *   - POST   /api/entities/records                                    (fixture record)
  *   - PUT    /api/entities/records                                    (update / 404 / 409)
- *   - GET    /api/entities/records[?withDeleted=true]                 (read-back)
+ *   - GET    /api/entities/records[?withDeleted=true]                 (read-back and full export)
  *   - DELETE /api/entities/records, /api/entities/entities            (soft delete + cleanup)
  * UI covered:
  *   - /backend/entities/user/:entityId/records/:recordId — saving a deleted record shows the error
@@ -162,6 +162,14 @@ test.describe('TC-ENTITIES-011: record PUT updates existing, non-deleted records
       const all = await readRecords(request, token, entityId, true);
       expect(all.some((row) => row.id === unknownId), 'no record created under the unknown id').toBe(false);
       expect(all.some((row) => row.id === deletedId), 'withDeleted cannot bypass the list policy').toBe(false);
+
+      const exported = await listRecords(request, token, entityId, '&withDeleted=true&format=json&exportScope=full');
+      expect(exported.status(), 'full export 200').toBe(200);
+      expect(exported.headers()['content-disposition']).toMatch(/^attachment;/);
+      expect(await readJsonSafe<Array<{ Id: string; Title: string }>>(exported)).toEqual([
+        expect.objectContaining({ Id: liveId, Title: 'live edited' }),
+      ]);
+
       const stored = await readStoredRecords(token, entityId);
       expect(stored.some((row) => row.recordId === unknownId), 'no unknown UUID persisted').toBe(false);
       expect(stored.find((row) => row.recordId === deletedId), 'deleted content, version and marker are untouched').toEqual(deletedSnapshot);

@@ -10,7 +10,7 @@ The CRUD factory previously forwarded a raw query parameter even when the route 
 
 ## Proposed solution and architecture
 
-Keep the existing factory, query engines, and organization/tenant scope. Add optional `ListConfig.allowWithDeleted?: boolean`, defaulting to false. Only an enabled route interprets a true boolean token as permission to include deleted rows. Apply the same policy to list exports and the ORM fallback. Include the policy in the cache key so permissive or pre-fix entries cannot populate default-hidden responses. The generic records endpoint always passes `withDeleted: false`.
+Keep the existing factory, query engines, and organization/tenant scope. Add optional `ListConfig.allowWithDeleted?: boolean`, defaulting to false. Only an enabled route interprets a true boolean token as permission to include deleted rows. Apply the same policy to list exports and the ORM fallback. Include the effective deletion visibility after interception in the cache key so permissive or pre-fix entries cannot populate default-hidden responses. The generic records endpoint always passes `withDeleted: false`.
 
 ## Data models and API contracts
 
