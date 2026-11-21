@@ -114,6 +114,7 @@ class ImapChannelAdapter implements ChannelAdapter {
         inReplyTo: typeof meta.inReplyTo === 'string' ? (meta.inReplyTo as string) : undefined,
         references: Array.isArray(meta.references) ? (meta.references as string[]) : undefined,
         messageId: typeof meta.messageId === 'string' ? (meta.messageId as string) : undefined,
+        headers: meta.headers && typeof meta.headers === 'object' ? (meta.headers as Record<string, string>) : undefined,
         attachments,
       })
     } catch (error) {

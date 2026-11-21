@@ -6,6 +6,7 @@ import {
   composeEmailMessage,
   escapeQuotes,
   generateMessageId,
+  headersFromMeta,
   htmlToText,
   referencesFromMeta,
   stringOrUndefined,
@@ -101,6 +102,7 @@ export async function convertOutboundForGmail(
     inReplyTo,
     references,
     messageId,
+    extraHeaders: headersFromMeta(meta.headers),
     attachments: (input.attachments ?? []).map((attachment) => ({
       fileName: attachment.fileName,
       mimeType: attachment.mimeType,

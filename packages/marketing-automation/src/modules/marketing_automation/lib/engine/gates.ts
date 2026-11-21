@@ -1,0 +1,255 @@
+/**
+ * Send gates: the checks that stand between "the campaign says to message this person" and
+ * actually messaging them.
+ *
+ * Both are pure. Quiet hours needs a timezone and a clock, nothing else; the frequency cap
+ * needs a count somebody else queried. Keeping them free of I/O is what makes the awkward
+ * cases — a window that crosses midnight, a daylight-saving jump — testable at all.
+ */
+
+export type FrequencyCap = {
+  maxMessages: number
+  windowHours: number
+}
+
+/** Hours are 0..23 in the subject's own local time. */
+export type QuietHoursWindow = {
+  startHour: number
+  endHour: number
+}
+
+export const FALLBACK_TIME_ZONE = 'UTC'
+
+export function isFrequencyCapped(sentInWindow: number, cap: FrequencyCap | null | undefined): boolean {
+  if (!cap || cap.maxMessages <= 0 || cap.windowHours <= 0) return false
+  return sentInWindow >= cap.maxMessages
+}
+
+export function frequencyWindowStart(at: Date, cap: FrequencyCap): Date {
+  return new Date(at.getTime() - cap.windowHours * 3_600_000)
+}
+
+/**
+ * A timezone Intl accepts, or UTC.
+ *
+ * The same tolerance `localHourIn` applies, exported because SQL needs it too: `at time zone ?` is a bound
+ * parameter, so a typo in a customer's profile cannot inject anything — but Postgres does raise on a name it
+ * does not know, which turned one bad profile row into a failed step. Falling back to UTC is what the rest of
+ * the timing code already does.
+ */
+export function usableTimeZone(timeZone: string | null | undefined): string {
+  if (!timeZone) return 'UTC'
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', hour12: false }).format(new Date(0))
+    return timeZone
+  } catch {
+    return 'UTC'
+  }
+}
+
+/**
+ * The subject's local hour, falling back to UTC for a timezone Intl rejects.
+ *
+ * A bad timezone string must not stop a send — it comes from customer data, and refusing to
+ * message somebody because their profile has a typo is worse than messaging them in UTC.
+ */
+export function localHourIn(timeZone: string, at: Date): number {
+  try {
+    const formatted = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      hour12: false,
+    }).format(at)
+    const hour = Number.parseInt(formatted, 10)
+    return Number.isFinite(hour) ? hour % 24 : at.getUTCHours()
+  } catch {
+    return at.getUTCHours()
+  }
+}
+
+/**
+ * The subject's local minute-within-the-hour, with the same UTC fallback as `localHourIn`.
+ *
+ * Needed because not every zone is a whole number of hours from UTC. India is +05:30, South Australia +09:30,
+ * Nepal +05:45 — so the top of the UTC hour is :30 or :45 on their clocks.
+ */
+function localMinuteIn(timeZone: string, at: Date): number {
+  try {
+    const formatted = new Intl.DateTimeFormat('en-GB', { timeZone, minute: '2-digit', hour12: false }).format(at)
+    const minute = Number.parseInt(formatted, 10)
+    return Number.isFinite(minute) ? minute % 60 : at.getUTCMinutes()
+  } catch {
+    return at.getUTCMinutes()
+  }
+}
+
+/**
+ * The top of the subject's LOCAL hour, not of ours.
+ *
+ * Both deferrals snap so a message lands at 08:00 rather than at 08:37 because that is when the campaign
+ * happened to fire. Snapping the UTC minutes to zero does that only for whole-hour offsets: in Asia/Kolkata a
+ * "deferred to 08:00" send arrived at 08:30, every time, and the two screens that print the local hour agreed
+ * with each other while both disagreed with the clock the recipient was reading.
+ *
+ * Seconds and milliseconds come from the UTC instant deliberately: every real zone offset is a whole number of
+ * minutes, so they are the same on both clocks.
+ */
+function snapToLocalHour(timeZone: string, at: Date): Date {
+  const minute = localMinuteIn(timeZone, at)
+  return new Date(at.getTime() - (minute * 60_000 + at.getUTCSeconds() * 1_000 + at.getUTCMilliseconds()))
+}
+
+function isQuietHour(hour: number, { startHour, endHour }: QuietHoursWindow): boolean {
+  if (startHour === endHour) return false
+  // A window like 21 → 08 wraps past midnight, so the test has to be a union, not a range.
+  return startHour < endHour
+    ? hour >= startHour && hour < endHour
+    : hour >= startHour || hour < endHour
+}
+
+export function isWithinQuietHours(
+  window: QuietHoursWindow | null | undefined,
+  timeZone: string,
+  at: Date,
+): boolean {
+  if (!window) return false
+  return isQuietHour(localHourIn(timeZone, at), window)
+}
+
+const MINUTES_STEP = 15
+const MAX_LOOKAHEAD_MINUTES = 48 * 60
+
+/**
+ * The first moment at or after `at` that is outside the quiet window.
+ *
+ * Deliberately found by stepping forward in quarter hours rather than by constructing a local
+ * wall-clock time and converting back: that conversion needs the zone's offset at the target
+ * instant, which is exactly what breaks across a daylight-saving boundary. Stepping asks the
+ * same question the gate asks, so the two can never disagree.
+ */
+export function nextAllowedSendTime(
+  window: QuietHoursWindow | null | undefined,
+  timeZone: string,
+  at: Date,
+): Date {
+  if (!isWithinQuietHours(window, timeZone, at)) return at
+
+  for (let minutes = MINUTES_STEP; minutes <= MAX_LOOKAHEAD_MINUTES; minutes += MINUTES_STEP) {
+    const candidate = new Date(at.getTime() + minutes * 60_000)
+    if (isWithinQuietHours(window, timeZone, candidate)) continue
+
+    // Snap to the top of the SUBJECT's hour so deferred sends land at 08:00 on their clock rather than at
+    // whatever minute the campaign happened to be triggered on. Only if the snapped instant is still
+    // allowed — flooring moves backwards, which could re-enter the window we just left.
+    const snapped = snapToLocalHour(timeZone, candidate)
+    return snapped >= at && !isWithinQuietHours(window, timeZone, snapped) ? snapped : candidate
+  }
+
+  // Unreachable for any window narrower than 24h, which `isQuietHour` guarantees by treating
+  // startHour === endHour as "never quiet". Returning `at` keeps the send rather than losing it.
+  return at
+}
+
+/**
+ * How long after the authored hour a LATE resume still counts as that hour.
+ *
+ * A run parked for an authored 09:00 and resumed at 10:05 — the queue was behind, or a wait ended a few
+ * minutes late — found the local hour was 10, not 9, and waited for the next 9 o'clock: twenty-three hours
+ * for one minute of lateness. Nobody authoring "send at nine" means "or tomorrow if you are five minutes
+ * late", and a campaign that drifts a day per hiccup is one an operator stops trusting.
+ *
+ * Two hours, not the rest of the day. The authored hour exists so a message lands at a civilised time, and
+ * 09:00 slipping to 11:00 keeps that promise while 09:00 slipping to 23:00 does not — quiet hours would catch
+ * the worst of it, but only where an operator configured them, and this must be right without that.
+ */
+export const SEND_HOUR_GRACE_HOURS = 2
+
+/**
+ * The next instant at which the subject's local clock reads `hour`.
+ *
+ * Returns `at` unchanged when it is already that hour, so a send whose optimal moment has arrived goes
+ * out now rather than being deferred a full day by its own optimisation — and also when `at` is within
+ * `SEND_HOUR_GRACE_HOURS` after it, which is the late-resume case.
+ *
+ * Steps in whole hours and snaps to the top of the hour for the same reason `nextAllowedSendTime` does:
+ * a message deferred to "the customer's 9am" should land at 09:00, not at 09:37 because that is when the
+ * campaign happened to fire.
+ */
+export function nextOccurrenceOfHour(hour: number, timeZone: string, at: Date): Date {
+  const target = Math.min(Math.max(Math.trunc(hour), 0), 23)
+  if (localHourIn(timeZone, at) === target) return at
+
+  /**
+   * Late, but not late enough to be worth a day.
+   *
+   * Looks BACK in whole hours rather than comparing hour numbers, so it does not have to reason about
+   * midnight, about a day boundary between `at` and the target, or about a DST shift that makes an hour
+   * number appear twice.
+   */
+  for (let hours = 1; hours <= SEND_HOUR_GRACE_HOURS; hours += 1) {
+    if (localHourIn(timeZone, new Date(at.getTime() - hours * 3_600_000)) === target) return at
+  }
+
+  for (let hours = 1; hours <= 48; hours += 1) {
+    const candidate = new Date(at.getTime() + hours * 3_600_000)
+    if (localHourIn(timeZone, candidate) !== target) continue
+    const snapped = snapToLocalHour(timeZone, candidate)
+    // Snapping backwards must not land before the caller's instant, nor drop out of the target hour.
+    if (snapped.getTime() >= at.getTime() && localHourIn(timeZone, snapped) === target) return snapped
+    return candidate
+  }
+  // A timezone we cannot reason about should not park a send forever.
+  return at
+}
+
+/**
+ * What the recipient themselves asked for.
+ *
+ * Distinct from the tenant's frequency cap on purpose: one is the shop being careful, the other is a person
+ * being explicit, and the two are not the same promise. Both apply, and the customer's can only ever make
+ * things quieter — a preference centre that let somebody opt INTO more mail than the shop's own cap allows
+ * would be a way to bypass the cap.
+ */
+export type ContactPreference = {
+  /** The customer's own ceiling, messages per week. Null when they have expressed none. */
+  maxPerWeek: number | null
+  /** "Not until then", chosen by the customer. Null when they are not paused. */
+  pausedUntil: Date | null
+  /**
+   * The language they asked to be emailed in. Null when they have not said.
+   *
+   * No gate reads it — it is here because it is one of the three things the preference centre stores, and the
+   * send needs it for the unsubscribe footer. Which language to EMAIL somebody in is their decision, and it is
+   * a different one from the language the public pages render in (that follows the browser).
+   */
+  locale: string | null
+}
+
+/** A week, as the window the customer's own cap is expressed in. */
+export const PREFERENCE_WINDOW_HOURS = 168
+
+/**
+ * The customer's cap as a window, or null.
+ *
+ * Evaluated as a SECOND cap rather than merged with the tenant's: merging would mean normalising two windows
+ * into one, and "three a week" plus "two a day" have an exact answer only if both are checked as written.
+ */
+export function preferenceCap(preference: ContactPreference | null | undefined): FrequencyCap | null {
+  if (!preference || preference.maxPerWeek === null) return null
+  if (!Number.isFinite(preference.maxPerWeek) || preference.maxPerWeek <= 0) return null
+  return { maxMessages: preference.maxPerWeek, windowHours: PREFERENCE_WINDOW_HOURS }
+}
+
+/**
+ * Whether the recipient has asked not to be messaged yet.
+ *
+ * A pause DEFERS rather than drops: unlike an unsubscribe, which is "no", this is "not now" — and the engine
+ * already parks a run for as long as an author's wait says, so honouring it needs no new machinery.
+ */
+export function isPaused(preference: ContactPreference | null | undefined, at: Date): boolean {
+  if (!preference?.pausedUntil) return false
+  return preference.pausedUntil.getTime() > at.getTime()
+}
+
+/** The largest pause a customer may choose. Beyond a year, "pause" is an unsubscribe with extra steps. */
+export const MAX_PAUSE_DAYS = 365

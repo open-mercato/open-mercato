@@ -12,6 +12,7 @@ import type {
   VerifyWebhookInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import {
+  headersFromMeta,
   htmlToText,
   sanitizeHeaderValue,
   stringOrUndefined,
@@ -60,6 +61,7 @@ function attachmentsFromMeta(value: unknown): ResendAttachment[] | undefined {
   return attachments.length ? attachments : undefined
 }
 
+
 class ResendChannelAdapter implements ChannelAdapter {
   readonly providerKey = 'resend'
   readonly channelType = 'email'
@@ -79,6 +81,7 @@ class ResendChannelAdapter implements ChannelAdapter {
 
     const client = new Resend(credentials.apiKey)
     const resendAttachments = attachmentsFromMeta(meta.attachments)
+    const resendHeaders = headersFromMeta(meta.headers)
     const replyTo = headerOrUndefined(meta.replyTo)
     const basePayload = {
       from: headerOrUndefined(meta.from) ?? credentials.fromAddress,
@@ -86,6 +89,7 @@ class ResendChannelAdapter implements ChannelAdapter {
       subject,
       ...(replyTo ? { replyTo } : {}),
       ...(resendAttachments?.length ? { attachments: resendAttachments } : {}),
+      ...(resendHeaders ? { headers: resendHeaders } : {}),
     }
     const payload: Parameters<typeof client.emails.send>[0] = input.content.html
       ? { ...basePayload, html: input.content.html, ...(input.content.text ? { text: input.content.text } : {}) }
@@ -133,6 +137,7 @@ class ResendChannelAdapter implements ChannelAdapter {
         from: headerOrUndefined(meta.from),
         replyTo: headerOrUndefined(meta.replyTo),
         attachments: attachmentsFromMeta(meta.attachments),
+        headers: headersFromMeta(meta.headers),
       },
     }
   }

@@ -7,6 +7,7 @@ import {
   escapeQuotes,
   extractHeaders,
   generateMessageId,
+  headersFromMeta,
   htmlToText,
   normalizeMimeInbound,
   parseReferences,
@@ -148,6 +149,31 @@ describe('escapeQuotes', () => {
   })
 })
 
+describe('headersFromMeta', () => {
+  it('keeps a token-named header with a sanitised value', () => {
+    expect(headersFromMeta({ 'List-Unsubscribe': '<mailto:x@y.test>' }))
+      .toEqual({ 'List-Unsubscribe': '<mailto:x@y.test>' })
+  })
+
+  it('drops a header name that is not a bare token, rather than send it', () => {
+    expect(headersFromMeta({ 'X-Evil: injected': 'v', 'List-Unsubscribe': '<mailto:x@y.test>' }))
+      .toEqual({ 'List-Unsubscribe': '<mailto:x@y.test>' })
+  })
+
+  it('strips a CR/LF smuggled into the value, the header-injection this guards against', () => {
+    expect(headersFromMeta({ 'X-Test': 'a\r\nBcc: attacker@evil.test' }))
+      .toEqual({ 'X-Test': 'a Bcc: attacker@evil.test' })
+  })
+
+  it('returns undefined for anything that is not a plain object of strings', () => {
+    expect(headersFromMeta(undefined)).toBeUndefined()
+    expect(headersFromMeta(null)).toBeUndefined()
+    expect(headersFromMeta([])).toBeUndefined()
+    expect(headersFromMeta({ 'X-Test': 123 })).toBeUndefined()
+    expect(headersFromMeta({})).toBeUndefined()
+  })
+})
+
 describe('assembleRfc2822', () => {
   it('builds a multipart/alternative message with threading headers', () => {
     const raw = assembleRfc2822({
@@ -167,6 +193,28 @@ describe('assembleRfc2822', () => {
     expect(raw).toContain('multipart/alternative')
     expect(raw).toContain('In-Reply-To: <root@x.com>')
     expect(raw).toContain('<p>rich</p>')
+  })
+
+  // The Gmail adapter builds its own RFC2822 bytes rather than handing `headers` to a transport —
+  // without this, a campaign's List-Unsubscribe pair silently never reached a Gmail-sent message.
+  it('carries extra headers like List-Unsubscribe into the message', () => {
+    const raw = assembleRfc2822({
+      from: 'alice@x.com',
+      to: ['bob@x.com'],
+      cc: [],
+      bcc: [],
+      subject: 'Hi',
+      text: 'plain',
+      html: undefined,
+      inReplyTo: undefined,
+      references: undefined,
+      messageId: '<m@x.com>',
+      extraHeaders: { 'List-Unsubscribe': '<mailto:x@y.test>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+    }).toString('utf-8')
+    expect(raw).toContain('List-Unsubscribe: <mailto:x@y.test>')
+    expect(raw).toContain('List-Unsubscribe-Post: List-Unsubscribe=One-Click')
+    // Before the body, not after: a header appearing in the body would do nothing for a mail client.
+    expect(raw.indexOf('List-Unsubscribe:')).toBeLessThan(raw.indexOf('\r\n\r\n'))
   })
 
   it('separates the header block from a multipart/alternative body with an empty line (#7097)', () => {

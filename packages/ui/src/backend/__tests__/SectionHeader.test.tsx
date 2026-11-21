@@ -103,3 +103,34 @@ describe('SectionHeader', () => {
     expect(screen.getByRole('heading', { level: 3 }).className).not.toContain('min-w-0')
   })
 })
+
+describe('section help', () => {
+  it('offers the help affordance beside a plain section title', () => {
+    renderWithProviders(<SectionHeader title="Referrals" help={{ title: 'Referrals', body: 'One code per customer.' }} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'What is this?' }))
+
+    expect(screen.getByText('One code per customer.')).toBeTruthy()
+  })
+
+  it('keeps the help button out of the collapse toggle', () => {
+    renderWithProviders(
+      <CollapsibleSection title="Referrals" help={{ title: 'Referrals', body: 'One code per customer.' }}>
+        <p>Body</p>
+      </CollapsibleSection>,
+    )
+
+    // A button may not nest inside a button, and asking for help is not asking to collapse:
+    // opening the card must leave the section expanded.
+    fireEvent.click(screen.getByRole('button', { name: 'What is this?' }))
+
+    expect(screen.getByText('One code per customer.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Collapse Referrals section' })).toBeTruthy()
+  })
+
+  it('renders no affordance when a section declares no help', () => {
+    renderWithProviders(<SectionHeader title="Referrals" />)
+
+    expect(screen.queryByRole('button', { name: 'What is this?' })).toBeNull()
+  })
+})

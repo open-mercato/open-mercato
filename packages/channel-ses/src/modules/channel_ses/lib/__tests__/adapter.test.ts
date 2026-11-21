@@ -75,6 +75,28 @@ describe('SesChannelAdapter', () => {
     }))
   })
 
+  it('carries List-Unsubscribe through to nodemailer, which SES had been silently dropping', async () => {
+    const adapter = getSesChannelAdapter()
+    const converted = await adapter.convertOutbound({
+      body: 'Hello',
+      bodyFormat: 'text',
+      channelMetadata: {
+        to: 'user@example.com',
+        subject: 'Hello',
+        headers: { 'List-Unsubscribe': '<mailto:x@y.test>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+      },
+    })
+    await adapter.sendMessage({
+      content: converted.content,
+      credentials: { region: 'eu-west-2', fromAddress: 'fallback@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: converted.metadata,
+    })
+    expect(sendMailMock).toHaveBeenCalledWith(expect.objectContaining({
+      headers: { 'List-Unsubscribe': '<mailto:x@y.test>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+    }))
+  })
+
   it('accepts the raw recipient string a direct sendMessage caller passes', async () => {
     const adapter = getSesChannelAdapter()
 
