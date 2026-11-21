@@ -69,9 +69,17 @@ function makeHarness(instances: FakeInstance[]) {
 describe('canApplyBulkReplay', () => {
   test('retry targets the failed and the parked, mirroring the single-instance route', () => {
     expect(canApplyBulkReplay('retry', 'FAILED')).toBe(true)
-    expect(canApplyBulkReplay('retry', 'PAUSED')).toBe(true)
+    expect(canApplyBulkReplay('retry', 'PAUSED', null, { attention: { reason: 'ERROR_DIRECTIVE', at: 'x' } })).toBe(true)
+    expect(canApplyBulkReplay('retry', 'PAUSED', null, { attention: { reason: 'DISPOSITION_SLA_BREACH', at: 'x' } })).toBe(true)
     expect(canApplyBulkReplay('retry', 'COMPLETED')).toBe(false)
     expect(canApplyBulkReplay('retry', 'CANCELLED')).toBe(false)
+  })
+
+  test('retry refuses a PAUSED run without an attention marker — it is waiting, not parked', () => {
+    expect(canApplyBulkReplay('retry', 'PAUSED')).toBe(false)
+    expect(canApplyBulkReplay('retry', 'PAUSED', null, null)).toBe(false)
+    expect(canApplyBulkReplay('retry', 'PAUSED', null, {})).toBe(false)
+    expect(canApplyBulkReplay('retry', 'PAUSED', null, { attention: null })).toBe(false)
   })
 
   test('cancel targets only what is still in flight', () => {
@@ -127,6 +135,33 @@ describe('runBulkReplay', () => {
     expect(parked.status).toBe('RUNNING')
     expect(parked.retryCount).toBe(1)
     expect(parked.errorMessage).toBeNull()
+  })
+
+  test('leaves a run waiting on a signal untouched while replaying the parked one beside it', async () => {
+    const parked = makeInstance('a', 'PAUSED', { attention: { reason: 'ERROR_DIRECTIVE', at: 'x' } })
+    const waiting = makeInstance('b', 'PAUSED', { labels: { k: 'v' } })
+    const harness = makeHarness([parked, waiting])
+
+    const summary = await runBulkReplay({
+      container: harness.container as never,
+      progressJobId: 'job-1',
+      action: 'retry',
+      ids: ['a', 'b'],
+      scope: SCOPE,
+    })
+
+    expect(summary).toEqual({
+      action: 'retry',
+      requestedCount: 2,
+      affectedCount: 1,
+      skippedCount: 1,
+      failedCount: 0,
+    })
+    expect(waiting.status).toBe('PAUSED')
+    expect(waiting.retryCount).toBe(0)
+    expect(waiting.metadata).toEqual({ labels: { k: 'v' } })
+    expect(executeWorkflow).toHaveBeenCalledTimes(1)
+    expect(executeWorkflow).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'a')
   })
 
   test('skips an instance whose status the action cannot act on', async () => {
