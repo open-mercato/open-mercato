@@ -16,6 +16,7 @@ import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
 import {
   canPostToChannelThread,
+  canUseMessageEmailFeature,
   hasOrganizationAccess,
   resolveMessageContext,
   resolveMessageReadAccess,
@@ -417,6 +418,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // A draft is filed on its parent's thread and skips the compose route's
   // channel gate, so sending it publicly must pass the same gate (#6432).
   const finalVisibility = input.visibility !== undefined ? input.visibility : message.visibility
+  if (input.isDraft === false && (finalVisibility === 'public' || (input.sendViaEmail ?? message.sendViaEmail))
+    && !(await canUseMessageEmailFeature(ctx, scope))) {
+    const { translate } = await resolveTranslations()
+    return Response.json({ error: translate('messages.errors.emailFeatureRequired') }, { status: 403 })
+  }
   if (
     input.isDraft === false &&
     finalVisibility === 'public' &&

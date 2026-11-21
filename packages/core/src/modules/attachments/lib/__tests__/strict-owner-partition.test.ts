@@ -1,12 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { assertAttachmentOwnerAccess } from '../access-query'
+import { assertAttachmentOwnerAccess, assertAttachmentOwnersAccess } from '../access-query'
 import { createAttachmentAccessContext } from '../access-runner'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ t: (key: string) => key }),
 }))
 
-const em = { findOne: jest.fn(async () => null) } as unknown as EntityManager
+const em = { findOne: jest.fn(async () => null), find: jest.fn(async () => []) } as unknown as EntityManager
 const auth = { sub: 'user', tenantId: 'tenant', orgId: 'org' }
 const attachment = { id: 'attachment', partitionCode: 'missing', tenantId: 'tenant', organizationId: 'org', entityId: 'example:todo', recordId: 'record', fileName: 'file', mimeType: 'text/plain' }
 const context = createAttachmentAccessContext({ resolve: jest.fn() } as never)
@@ -29,4 +29,13 @@ it('preserves the legacy deletion not-found response', async () => {
   delete process.env.OM_ATTACHMENT_STORAGE_POLICY
   await expect(assertAttachmentOwnerAccess({ em, context, auth, attachment, action: 'delete' }))
     .rejects.toMatchObject({ status: 404, body: { error: 'attachments.access.notFound' } })
+})
+
+
+it.each(['read', 'delete'] as const)('keeps batched missing-partition %s errors identical to single-record checks', async (action) => {
+  process.env.OM_ATTACHMENT_STORAGE_POLICY = 'strict'
+  await expect(assertAttachmentOwnersAccess({ em, context, auth, requests: [{ attachment, action }] }))
+    .rejects.toMatchObject(action === 'delete'
+      ? { status: 503, reason: 'partition_missing' }
+      : { status: 404, body: { error: 'attachments.access.notFound' } })
 })

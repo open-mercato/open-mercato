@@ -672,7 +672,7 @@ describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', (
   const messageId = '22222222-2222-4222-8222-222222222222'
   const channelThreadId = '33333333-3333-4333-8333-333333333333'
 
-  function setup(options: { hasView: boolean; channelThread: boolean; visibility?: 'public' | 'internal' | null }) {
+  function setup(options: { hasView: boolean; channelThread: boolean; visibility?: 'public' | 'internal' | null; hasEmail?: boolean; sendViaEmail?: boolean }) {
     const draftMessage = {
       id: messageId,
       threadId: channelThreadId,
@@ -681,6 +681,7 @@ describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', (
       senderUserId: userId,
       isDraft: true,
       visibility: options.visibility === undefined ? 'internal' : options.visibility,
+      sendViaEmail: options.sendViaEmail ?? false,
       deletedAt: null,
     }
     const em = {
@@ -690,7 +691,7 @@ describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', (
     const commandBus = {
       execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
     }
-    const rbacService = { userHasAllFeatures: jest.fn(async () => options.hasView) }
+    const rbacService = { userHasAllFeatures: jest.fn(async (_userId: string, features: string[]) => features.includes('messages.email') ? options.hasEmail !== false : options.hasView) }
     const resolveChannelThreadAccess = jest.fn(async () => (options.channelThread
       ? {
         messageThreadId: channelThreadId,
@@ -725,6 +726,17 @@ describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', (
 
   beforeEach(() => {
     jest.clearAllMocks()
+  })
+
+  it.each([
+    { visibility: 'public' },
+    { sendViaEmail: true },
+    {},
+  ])('requires messages.email for draft email delivery including persisted settings: %o', async (payload) => {
+    const { commandBus } = setup({ hasView: true, channelThread: false, hasEmail: false, sendViaEmail: true })
+    const response = await PATCH(sendRequest(payload), { params: { id: messageId } })
+    expect(response.status).toBe(403)
+    expect(commandBus.execute).not.toHaveBeenCalled()
   })
 
   it('refuses a public send onto a shared channel thread without messages.view', async () => {

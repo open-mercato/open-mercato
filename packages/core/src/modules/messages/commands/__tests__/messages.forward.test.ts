@@ -340,6 +340,7 @@ describe('messages.messages.forward command', () => {
       [rootMessageId, sourceMessageId],
       forwardedMessageId,
       tenantId,
+      expect.objectContaining({ auth: expect.any(Object), container: expect.any(Object) }),
     )
   })
 })

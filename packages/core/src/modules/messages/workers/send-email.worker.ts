@@ -4,6 +4,11 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../data/entities'
 import { emitMessagesEvent } from '../events'
+import type { AttachmentService } from '@open-mercato/core/modules/attachments'
+import { canUseMessageEmailFeature } from '../lib/routeHelpers'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { getMessageEmailAttachments } from '../lib/attachments'
 import {
   sendMessageEmailToExternal,
@@ -76,6 +81,7 @@ async function resolveSender(em: EntityManager, message: Message) {
     { tenantId: message.tenantId, organizationId: message.organizationId ?? null }
   )
   return {
+    exists: Boolean(sender),
     name: sender?.name ?? null,
     email: sender?.email ?? null,
   }
@@ -193,7 +199,7 @@ export default async function handle(
   const em = (ctx.resolve('em') as EntityManager).fork()
 
   const message = await resolveMessageScope(em, payload)
-  if (!message) {
+  if (!message || message.isDraft) {
     logger.error('Message not found', { messageId: payload.messageId })
     return
   }
@@ -214,12 +220,22 @@ export default async function handle(
     }
 
     try {
+      if (!sender.exists || !(await canUseMessageEmailFeature({ container: ctx }, {
+        userId: message.senderUserId, tenantId: message.tenantId, organizationId: message.organizationId ?? null,
+      }))) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(403, { error: translate('messages.errors.emailFeatureRequired') })
+      }
       await sendMessageEmailToExternal({
         message,
         email: payload.email,
         sender,
         objects,
         attachments,
+        attachmentAccess: {
+          auth: { sub: message.senderUserId, tenantId: message.tenantId, orgId: message.organizationId ?? null },
+          service: ctx.resolve<AttachmentService>('attachmentService'),
+        },
       })
       await emitEmailDeliveryEvent(ctx, 'messages.message.email_sent', {
         messageId: message.id,
@@ -247,6 +263,7 @@ export default async function handle(
         organizationId: message.organizationId ?? null,
       })
       logger.error('External email send failed', { err: error })
+      getTelemetryRuntime()?.reportError(error, { module: 'messages', code: 'messages.external_email_failed' })
     }
     return
   }
@@ -293,6 +310,12 @@ export default async function handle(
   }
 
   try {
+    if (!sender.exists || !(await canUseMessageEmailFeature({ container: ctx }, {
+      userId: message.senderUserId, tenantId: message.tenantId, organizationId: message.organizationId ?? null,
+    }))) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(403, { error: translate('messages.errors.emailFeatureRequired') })
+    }
     await sendMessageEmailToRecipient({
       em,
       message,
@@ -301,6 +324,10 @@ export default async function handle(
       sender,
       objects,
       attachments,
+      attachmentAccess: {
+        auth: { sub: message.senderUserId, tenantId: message.tenantId, orgId: message.organizationId ?? null },
+        service: ctx.resolve<AttachmentService>('attachmentService'),
+      },
     })
     await emitEmailDeliveryEvent(ctx, 'messages.message.email_sent', {
       messageId: message.id,
@@ -328,5 +355,6 @@ export default async function handle(
       organizationId: message.organizationId ?? null,
     })
     logger.error('Recipient email send failed', { err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'messages', code: 'messages.recipient_email_failed' })
   }
 }

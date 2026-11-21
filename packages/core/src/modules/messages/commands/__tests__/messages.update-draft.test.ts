@@ -1,4 +1,5 @@
 import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
+import { MESSAGE_ATTACHMENT_ENTITY_ID } from '@open-mercato/core/modules/messages/lib/constants'
 
 type RegisteredCommand = {
   id: string
@@ -35,6 +36,7 @@ jest.mock('@open-mercato/core/modules/messages/lib/externalEmailBudget', () => (
 
 jest.mock('@open-mercato/core/modules/messages/lib/attachments', () => ({
   linkAttachmentsToMessage: jest.fn(),
+  detachMessageAttachments: jest.fn(),
   linkLibraryAttachmentsToMessage: jest.fn(),
   copyAttachmentsForForwardMessages: jest.fn(),
   deleteMessageAttachmentRows: (...args: unknown[]) => deleteMessageAttachmentRowsMock(...args),
@@ -47,6 +49,7 @@ const organizationId = '33333333-3333-4333-8333-333333333333'
 const senderUserId = '44444444-4444-4444-8444-444444444444'
 const recipientUserId = '55555555-5555-4555-8555-555555555555'
 const keptAttachmentId = '66666666-6666-4666-8666-666666666666'
+const removedAttachmentId = '77777777-7777-4777-8777-777777777777'
 
 function createDraftMessage(overrides: Partial<Message> = {}) {
   return {
@@ -91,6 +94,7 @@ function createHarness(messageOverrides: Partial<Message> = {}, recipients: Arra
     resolve: jest.fn((name: string) => {
       if (name === 'em') return { fork: () => emFork }
       if (name === 'eventBus') return eventBus
+      if (name === 'rbacService') return { userHasAllFeatures: async () => true }
       throw new Error(`Unknown dependency: ${name}`)
     }),
   }
@@ -256,41 +260,42 @@ describe('messages.messages.update_draft command send transition', () => {
     expect(emitMessagesEventMock).not.toHaveBeenCalled()
   })
 
-  it('purges removed draft attachments inside the transaction and queues search cleanup after commit', async () => {
+  it('detaches removed draft attachments inside the transaction without deleting or purging them', async () => {
     const { command, emFork, ctx } = createHarness()
-    const deleted = {
-      deletedCount: 1,
-      purgedSections: [{ scope: { tenantId, organizationId }, sectionIds: ['section-1'] }],
-    }
-    deleteMessageAttachmentRowsMock.mockResolvedValue(deleted)
+    const detachMock = jest.requireMock('@open-mercato/core/modules/messages/lib/attachments').detachMessageAttachments as jest.Mock
+    emFork.find.mockImplementation(async (_entity: unknown, filter: { entityId?: string }) =>
+      filter?.entityId === MESSAGE_ATTACHMENT_ENTITY_ID ? [{ id: keptAttachmentId }, { id: removedAttachmentId }] : [])
 
     await command.execute(updateInput({ isDraft: undefined, attachmentIds: [keptAttachmentId] }), ctx)
 
-    expect(emFork.nativeDelete).not.toHaveBeenCalled()
-    expect(deleteMessageAttachmentRowsMock).toHaveBeenCalledWith(emFork, {
+    expect(detachMock).toHaveBeenCalledWith(
+      emFork,
       messageId,
-      tenantId,
+      [removedAttachmentId],
       organizationId,
-      excludeIds: [keptAttachmentId],
-    })
-    expect(enqueueMessageAttachmentSectionCleanupMock).toHaveBeenCalledWith(deleted)
-    expect(emFork.begin.mock.invocationCallOrder[0]).toBeLessThan(
-      deleteMessageAttachmentRowsMock.mock.invocationCallOrder[0],
+      tenantId,
+      expect.objectContaining({ auth: ctx.auth }),
     )
-    expect(emFork.commit.mock.invocationCallOrder[0]).toBeLessThan(
-      enqueueMessageAttachmentSectionCleanupMock.mock.invocationCallOrder[0],
-    )
+    expect(emFork.nativeDelete).not.toHaveBeenCalled()
+    expect(deleteMessageAttachmentRowsMock).not.toHaveBeenCalled()
+    expect(enqueueMessageAttachmentSectionCleanupMock).not.toHaveBeenCalled()
+    expect(emFork.begin.mock.invocationCallOrder[0]).toBeLessThan(detachMock.mock.invocationCallOrder[0])
+    expect(detachMock.mock.invocationCallOrder[0]).toBeLessThan(emFork.commit.mock.invocationCallOrder[0])
   })
 
-  it('queues no search cleanup when the draft transaction rolls back', async () => {
+  it('rolls back a draft attachment detach without deleting rows or queueing search cleanup', async () => {
     const { command, emFork, ctx } = createHarness()
-    deleteMessageAttachmentRowsMock.mockResolvedValue({ deletedCount: 1, purgedSections: [] })
+    const detachMock = jest.requireMock('@open-mercato/core/modules/messages/lib/attachments').detachMessageAttachments as jest.Mock
+    emFork.find.mockImplementation(async (_entity: unknown, filter: { entityId?: string }) =>
+      filter?.entityId === MESSAGE_ATTACHMENT_ENTITY_ID ? [{ id: removedAttachmentId }] : [])
     emFork.flush.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('[internal] flush failed'))
 
     await expect(command.execute(updateInput({ isDraft: undefined, attachmentIds: [] }), ctx)).rejects.toThrow('flush failed')
 
-    expect(deleteMessageAttachmentRowsMock).toHaveBeenCalledWith(emFork, expect.objectContaining({ excludeIds: [] }))
+    expect(detachMock).toHaveBeenCalledWith(emFork, messageId, [removedAttachmentId], organizationId, tenantId, expect.anything())
     expect(emFork.rollback).toHaveBeenCalledTimes(1)
+    expect(emFork.nativeDelete).not.toHaveBeenCalled()
+    expect(deleteMessageAttachmentRowsMock).not.toHaveBeenCalled()
     expect(enqueueMessageAttachmentSectionCleanupMock).not.toHaveBeenCalled()
   })
 })

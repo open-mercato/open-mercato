@@ -1,19 +1,20 @@
+import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/core'
-import type { EntityManager as SqlEntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveAttachmentScopePair } from '@open-mercato/core/modules/attachments/lib/scope'
+import { assertAttachmentScopeInvariant } from '@open-mercato/core/modules/attachments/lib/access'
+import { withUploadProvenance } from '@open-mercato/core/modules/attachments/lib/uploadProvenance'
+import { mergeAttachmentMetadata, readAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { buildAttachmentFileUrl } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import { assertMessageAttachmentSources, denyMessageAttachmentAccess, type MessageAttachmentAccess } from './attachmentAccess'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from './constants'
 const LIBRARY_ATTACHMENT_ENTITY_ID = 'attachments:library'
 
 function buildOrganizationScopeFilter(organizationId: string | null) {
-  if (!organizationId) {
-    return { organizationId: null }
-  }
-  return {
-    $or: [
-      { organizationId },
-      { organizationId: null },
-    ],
-  }
+  return { organizationId }
 }
 
 export async function linkAttachmentsToMessage(
@@ -22,23 +23,49 @@ export async function linkAttachmentsToMessage(
   attachmentIds: string[],
   organizationId: string | null,
   tenantId: string,
+  access?: MessageAttachmentAccess,
 ): Promise<void> {
   if (attachmentIds.length === 0) return
 
-  const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
+  await withAtomicFlush(em as PostgreSqlEntityManager, [async () => {
+    const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
 
-  const attachments = await em.find(Attachment, {
-    id: { $in: attachmentIds },
-    tenantId,
-    ...buildOrganizationScopeFilter(organizationId),
-  })
+    const attachments = await findWithDecryption(em as PostgreSqlEntityManager, Attachment, {
+      id: { $in: attachmentIds },
+      tenantId,
+      ...buildOrganizationScopeFilter(organizationId),
+    }, { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } }, { tenantId, organizationId })
 
-  for (const attachment of attachments) {
-    attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
-    attachment.recordId = messageId
-  }
+    if (attachments.length !== new Set(attachmentIds).size) return denyMessageAttachmentAccess()
+    await assertMessageAttachmentSources(em, attachments, organizationId, tenantId, access)
 
-  await em.flush()
+    for (const attachment of attachments) {
+      if (attachment.entityId === MESSAGE_ATTACHMENT_ENTITY_ID && attachment.recordId === messageId) continue
+      if (attachment.entityId === LIBRARY_ATTACHMENT_ENTITY_ID) {
+        attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
+        attachment.recordId = messageId
+      } else {
+        assertAttachmentScopeInvariant({ tenantId: attachment.tenantId, organizationId: attachment.organizationId })
+        const { id: _id, createdAt: _createdAt, ...values } = attachment
+        const attachmentId = randomUUID()
+        em.persist(em.create(Attachment, {
+          ...values,
+          id: attachmentId,
+          url: buildAttachmentFileUrl(attachmentId),
+          entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
+          recordId: messageId,
+          storageMetadata: withUploadProvenance(attachment.entityId === MESSAGE_ATTACHMENT_ENTITY_ID
+            ? attachment.storageMetadata
+            : mergeAttachmentMetadata(attachment.storageMetadata, {
+              assignments: [
+                ...(readAttachmentMetadata(attachment.storageMetadata).assignments ?? []),
+                { type: attachment.entityId, id: attachment.recordId },
+              ],
+            }), access!.auth!),
+        }))
+      }
+    }
+  }], { transaction: true })
 }
 
 type MessageAttachmentRowsDatabase = {
@@ -67,7 +94,7 @@ export type DeletedMessageAttachmentRows = {
 }
 
 async function selectMessageAttachmentRows(
-  em: SqlEntityManager,
+  em: PostgreSqlEntityManager,
   filter: MessageAttachmentRowsFilter,
 ): Promise<Array<{ id: string } & AttachmentRowScope>> {
   if (filter.includeIds && filter.includeIds.length === 0) return []
@@ -101,8 +128,8 @@ export async function deleteMessageAttachmentRows(
   em: EntityManager,
   filter: MessageAttachmentRowsFilter,
 ): Promise<DeletedMessageAttachmentRows> {
-  const sqlEm = em as unknown as SqlEntityManager
-  const run = async (target: SqlEntityManager): Promise<DeletedMessageAttachmentRows> => {
+  const sqlEm = em as unknown as PostgreSqlEntityManager
+  const run = async (target: PostgreSqlEntityManager): Promise<DeletedMessageAttachmentRows> => {
     const rows = await selectMessageAttachmentRows(target, filter)
     if (rows.length === 0) return { deletedCount: 0, purgedSections: [] }
     const [{ Attachment }, { purgeDocumentStructure }] = await Promise.all([
@@ -167,6 +194,7 @@ export async function getMessageAttachments(
 }
 
 export type MessageEmailAttachment = {
+  attachmentId?: string
   fileName: string
   fileSize: number
   mimeType: string
@@ -191,6 +219,7 @@ export async function getMessageEmailAttachments(
   })
 
   return attachments.map((attachment) => ({
+    attachmentId: attachment.id,
     fileName: attachment.fileName,
     fileSize: attachment.fileSize,
     mimeType: attachment.mimeType,
@@ -206,26 +235,29 @@ export async function linkLibraryAttachmentsToMessage(
   sourceRecordId: string,
   organizationId: string | null,
   tenantId: string,
+  access?: MessageAttachmentAccess,
 ): Promise<void> {
   if (!sourceRecordId.trim()) return
 
-  const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
+  await withAtomicFlush(em as PostgreSqlEntityManager, [async () => {
+    const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
 
-  const attachments = await em.find(Attachment, {
-    entityId: LIBRARY_ATTACHMENT_ENTITY_ID,
-    recordId: sourceRecordId,
-    tenantId,
-    ...buildOrganizationScopeFilter(organizationId),
-  })
+    const attachments = await findWithDecryption(em as PostgreSqlEntityManager, Attachment, {
+      entityId: LIBRARY_ATTACHMENT_ENTITY_ID,
+      recordId: sourceRecordId,
+      tenantId,
+      ...buildOrganizationScopeFilter(organizationId),
+    }, { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } }, { tenantId, organizationId })
 
-  if (!attachments.length) return
+    if (!attachments.length) return
 
-  for (const attachment of attachments) {
-    attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
-    attachment.recordId = messageId
-  }
+    await assertMessageAttachmentSources(em, attachments, organizationId, tenantId, access)
 
-  await em.flush()
+    for (const attachment of attachments) {
+      attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
+      attachment.recordId = messageId
+    }
+  }], { transaction: true })
 }
 
 export async function copyAttachmentsForForward(
@@ -233,12 +265,14 @@ export async function copyAttachmentsForForward(
   sourceMessageId: string,
   targetMessageId: string,
   tenantId: string,
+  access?: MessageAttachmentAccess,
 ): Promise<number> {
   return copyAttachmentsForForwardMessages(
     em,
     [sourceMessageId],
     targetMessageId,
     tenantId,
+    access,
   )
 }
 
@@ -247,18 +281,21 @@ export async function copyAttachmentsForForwardMessages(
   sourceMessageIds: string[],
   targetMessageId: string,
   tenantId: string,
+  access?: MessageAttachmentAccess,
 ): Promise<number> {
   if (sourceMessageIds.length === 0) return 0
 
   const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-  const sourceAttachments = await em.find(Attachment, {
+  const sourceAttachments = await findWithDecryption(em as PostgreSqlEntityManager, Attachment, {
     entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
     recordId: { $in: sourceMessageIds },
     tenantId,
+    organizationId: access?.auth?.orgId ?? null,
   })
   if (sourceAttachments.length === 0) {
     return 0
   }
+  await assertMessageAttachmentSources(em, sourceAttachments, access?.auth?.orgId ?? null, tenantId, access, 'read')
 
   const dedupedById = new Map<string, typeof sourceAttachments[number]>()
   for (const sourceAttachment of sourceAttachments) {
@@ -275,7 +312,9 @@ export async function copyAttachmentsForForwardMessages(
     const scope = resolveAttachmentScopePair(sourceAttachment)
     if (!scope) continue
 
+    const attachmentId = randomUUID()
     const copy = em.create(Attachment, {
+      id: attachmentId,
       entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
       recordId: targetMessageId,
       organizationId: scope.organizationId,
@@ -285,8 +324,8 @@ export async function copyAttachmentsForForwardMessages(
       fileSize: sourceAttachment.fileSize,
       storageDriver: sourceAttachment.storageDriver,
       storagePath: sourceAttachment.storagePath,
-      storageMetadata: sourceAttachment.storageMetadata,
-      url: sourceAttachment.url,
+      storageMetadata: withUploadProvenance(sourceAttachment.storageMetadata, access!.auth!),
+      url: buildAttachmentFileUrl(attachmentId),
       partitionCode: sourceAttachment.partitionCode,
     })
 
@@ -298,4 +337,26 @@ export async function copyAttachmentsForForwardMessages(
     await em.flush()
   }
   return copied
+}
+
+export async function detachMessageAttachments(
+  em: EntityManager,
+  messageId: string,
+  attachmentIds: string[] | undefined,
+  organizationId: string | null,
+  tenantId: string,
+  access?: MessageAttachmentAccess,
+): Promise<void> {
+  await withAtomicFlush(em as PostgreSqlEntityManager, [async () => {
+    const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
+    const attachments = await findWithDecryption(em as PostgreSqlEntityManager, Attachment, {
+      entityId: MESSAGE_ATTACHMENT_ENTITY_ID, recordId: messageId, tenantId, organizationId,
+      ...(attachmentIds ? { id: { $in: attachmentIds } } : {}),
+    }, { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } }, { tenantId, organizationId })
+    await assertMessageAttachmentSources(em, attachments, organizationId, tenantId, access, 'read')
+    for (const attachment of attachments) {
+      attachment.entityId = LIBRARY_ATTACHMENT_ENTITY_ID
+      attachment.recordId = `messages-detached:${messageId}`
+    }
+  }], { transaction: true })
 }
