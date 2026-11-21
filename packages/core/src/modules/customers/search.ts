@@ -664,6 +664,7 @@ export const searchConfig: SearchModuleConfig = {
     {
       entityId: 'customers:customer_person_profile',
       enabled: true,
+      strategies: ['fulltext', 'tokens'],
       priority: 10,
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
@@ -764,6 +765,7 @@ export const searchConfig: SearchModuleConfig = {
     {
       entityId: 'customers:customer_company_profile',
       enabled: true,
+      strategies: ['fulltext', 'tokens'],
       priority: 10,
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {

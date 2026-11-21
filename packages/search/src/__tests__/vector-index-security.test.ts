@@ -2,13 +2,14 @@ import { VectorIndexService, type VectorIndexServiceOptions } from '../vector/se
 import type { EmbeddingService } from '../vector/services/embedding'
 import type { VectorDriver, VectorDriverDocument } from '../vector/types'
 import type { VectorModuleConfig } from '@open-mercato/shared/modules/vector'
-import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { QueryEngine, QueryOptions } from '@open-mercato/shared/lib/query/types'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { searchConfig as customersSearchConfig } from '@open-mercato/core/modules/customers/search'
 import { searchConfig as accountsSearchConfig } from '@open-mercato/core/modules/customer_accounts/search'
 import { SearchIndexer } from '../indexer/search-indexer'
 import { SearchService } from '../service'
+import { FullTextSearchStrategy } from '../strategies/fulltext.strategy'
 import { VectorSearchStrategy } from '../strategies/vector.strategy'
 import type { SearchStrategy } from '../types'
 import { asValue, createContainer } from 'awilix'
@@ -26,6 +27,12 @@ const mockReportError = jest.fn((..._args: unknown[]) => {})
 type EncryptedCustomFieldKeysResolver = NonNullable<VectorIndexServiceOptions['encryptedCustomFieldKeysResolver']>
 
 type CapturedEmbeddingInput = { value: string | string[] | null }
+
+const customerVectorEntityIds = [
+  'customers:customer_person_profile',
+  'customers:customer_company_profile',
+  'customer_accounts:customer_user',
+]
 
 function createEmbeddingService(captured: CapturedEmbeddingInput): EmbeddingService {
   return {
@@ -67,6 +74,7 @@ function createCustomerIndexer(args: {
   queryEngine: QueryEngine
   encryptionService?: Pick<TenantDataEncryptionService, 'getEncryptedFieldNames'>
   otherStrategy?: SearchStrategy
+  overrideCustomerVectorEligibility?: boolean
 }): SearchIndexer {
   const container = createContainer()
   container.register({
@@ -75,7 +83,16 @@ function createCustomerIndexer(args: {
     queryEngine: asValue(args.queryEngine),
     tenantEncryptionService: asValue(args.encryptionService ?? { getEncryptedFieldNames: async () => [] }),
   })
-  registerSearchModule(container, { skipTokens: true, skipFulltext: true, moduleConfigs: [customersSearchConfig, accountsSearchConfig] })
+  const builtInConfigs = [customersSearchConfig, accountsSearchConfig]
+  const moduleConfigs = args.overrideCustomerVectorEligibility
+    ? builtInConfigs.map((config) => ({
+      ...config,
+      entities: config.entities.map((entity) => customerVectorEntityIds.includes(entity.entityId)
+        ? { ...entity, strategies: ['fulltext', 'tokens', 'vector'] }
+        : entity),
+    }))
+    : builtInConfigs
+  registerSearchModule(container, { skipTokens: true, skipFulltext: true, moduleConfigs })
   if (args.otherStrategy) container.resolve<SearchService>('searchService').registerStrategy(args.otherStrategy)
   return container.resolve<SearchIndexer>('searchIndexer')
 }
@@ -415,6 +432,83 @@ describe('VectorIndexService encrypted custom-field callback boundaries (PR #841
   })
 })
 
+describe('Built-in customer search eligibility (issue #8135)', () => {
+  const tenantId = 'tenant-8135'
+  const organizationId = 'org-8135'
+
+  it.each(['single', 'by-id', 'batch', 'bulk'] as const)('skips customer record embeddings through %s indexing and preserves fulltext writes', async (mode) => {
+    const driver = createDriver()
+    const embeddingService = createEmbeddingService({ value: null })
+    const embed = jest.spyOn(embeddingService, 'createEmbedding')
+    const fulltextIndex = jest.fn(async () => undefined)
+    const fulltext = new FullTextSearchStrategy({
+      id: 'meilisearch',
+      ensureReady: async () => undefined,
+      isHealthy: async () => true,
+      search: async () => [],
+      index: fulltextIndex,
+      delete: async () => undefined,
+    })
+    const records = [
+      { entityId: 'customers:customer_person_profile', record: { id: 'person', entity_id: 'related-customer', first_name: 'Alice' } },
+      { entityId: 'customers:customer_person_profile', record: { id: 'sparse-person' } },
+      { entityId: 'customers:customer_company_profile', record: { id: 'company', entity_id: 'related-customer', size_bucket: 'large' } },
+      { entityId: 'customers:customer_company_profile', record: { id: 'sparse-company' } },
+      { entityId: 'customer_accounts:customer_user', record: { id: 'account-with-id-only' } },
+      { entityId: 'customer_accounts:customer_role', record: { id: 'role', name: 'Warehouse access' } },
+    ].map(({ entityId, record }) => ({ entityId, record, recordId: record.id, tenantId, organizationId }))
+    const query: QueryEngine['query'] = async <RecordType>(entityId: string, options?: QueryOptions) => {
+      const record = entityId === 'customers:customer_entity'
+        ? { id: 'related-customer', status: 'active', display_name: 'Existing customer' }
+        : records.find((entry) => entry.entityId === entityId && entry.recordId === options?.filters?.id)?.record
+      return { items: record ? [record as RecordType] : [], total: record ? 1 : 0 }
+    }
+    const indexer = createCustomerIndexer({
+      driver, embeddingService, queryEngine: { query }, otherStrategy: fulltext,
+    })
+
+    switch (mode) {
+      case 'single':
+        for (const record of records) await indexer.indexRecord(record)
+        break
+      case 'by-id':
+        for (const record of records) await indexer.indexRecordById(record)
+        break
+      case 'batch':
+        await indexer.indexRecordsById({ items: records, tenantId, organizationId })
+        break
+      case 'bulk':
+        await indexer.bulkIndexRecords(records)
+        break
+    }
+
+    expect(embed).toHaveBeenCalledTimes(1)
+    expect(embed).toHaveBeenCalledWith(expect.stringContaining('Warehouse access'))
+    expect(driver.upsertCalls.map(({ recordId }) => recordId)).toEqual(['role'])
+    expect(fulltextIndex).toHaveBeenCalledTimes(records.length)
+    for (const { entityId, recordId } of records) {
+      expect(fulltextIndex).toHaveBeenCalledWith(expect.objectContaining({ entityId, recordId, tenantId, organizationId }))
+    }
+  })
+
+  it.each([true, false])('skips the three customer types during vector reindex (queued: %s)', async (useQueue) => {
+    const driver = createDriver({ purge: jest.fn() })
+    const captured: CapturedEmbeddingInput = { value: null }
+    const query = jest.fn()
+    const indexer = createCustomerIndexer({ driver, embeddingService: createEmbeddingService(captured), queryEngine: { query } })
+
+    for (const entityId of customerVectorEntityIds) {
+      await expect(indexer.reindexEntityToVector({ entityId, tenantId, organizationId, useQueue, purgeFirst: true }))
+        .resolves.toMatchObject({ success: true, jobsEnqueued: 0, recordsIndexed: 0 })
+    }
+
+    expect(query).not.toHaveBeenCalled()
+    expect(driver.purge).not.toHaveBeenCalled()
+    expect(captured.value).toBeNull()
+    expect(driver.upsertCalls).toHaveLength(0)
+  })
+})
+
 describe('Customer vector privacy at provider and storage boundaries (issue #7826)', () => {
   it.each(['true', 'false'].flatMap((toggle) => ['single', 'by-id', 'batch', 'bulk'].map((mode) => ({ toggle, mode }))))(
     'protects real-service live declarations with encryption $toggle through $mode indexing', async ({ toggle, mode }) => {
@@ -437,6 +531,7 @@ describe('Customer vector privacy at provider and storage boundaries (issue #782
         const record = { id: 'real-policy-company', entity_id: 'real-policy-entity', size_bucket: 'private-size' }
         const indexer = createCustomerIndexer({
           driver, embeddingService: createEmbeddingService(captured), encryptionService,
+          overrideCustomerVectorEligibility: true,
           queryEngine: { query: async (entityId: string) => ({ items: [entityId === 'customers:customer_entity' ? { id: 'real-policy-entity', status: 'private-status' } : record], total: 1 }) } as QueryEngine,
           otherStrategy: { id: 'fulltext', name: 'Fake fulltext', priority: 1, ensureReady: async () => {}, isAvailable: async () => true, search: async () => [], index: otherIndex, delete: async () => {} },
         })
@@ -478,7 +573,7 @@ describe('Customer vector privacy at provider and storage boundaries (issue #782
         ? { id: 'live-entity', organization_id: scope === 'related-scope' ? 'protected-scope' : undefined, status: 'private-status', lifecycleStage: 'private-stage' }
         : record,
     ], total: 1 }) } as QueryEngine
-    const indexer = createCustomerIndexer({ driver, embeddingService: createEmbeddingService(captured), queryEngine, encryptionService: { getEncryptedFieldNames } })
+    const indexer = createCustomerIndexer({ driver, embeddingService: createEmbeddingService(captured), queryEngine, encryptionService: { getEncryptedFieldNames }, overrideCustomerVectorEligibility: true })
     await indexer.indexRecordById({ entityId: 'customers:customer_company_profile', recordId: record.id, tenantId: 'tenant-privacy', organizationId })
     expect(driver.upsertCalls).toHaveLength(1)
     if (scope === 'other-scope') {
@@ -497,6 +592,7 @@ describe('Customer vector privacy at provider and storage boundaries (issue #782
     const captured: CapturedEmbeddingInput = { value: null }
     const indexer = createCustomerIndexer({
       driver, embeddingService: createEmbeddingService(captured),
+      overrideCustomerVectorEligibility: true,
       queryEngine: createQueryEngine({ id: 'policy-failure', size_bucket: 'private-size' }),
       encryptionService: { getEncryptedFieldNames: async () => { throw new Error('[internal] Policy unavailable') } },
     })
@@ -610,7 +706,7 @@ describe('Customer vector privacy at provider and storage boundaries (issue #782
       items: [queriedEntity === 'customers:customer_entity' ? related : record],
       total: 1,
     }))
-    const indexer = createCustomerIndexer({ driver, embeddingService: createEmbeddingService(captured), queryEngine: { query } as unknown as QueryEngine })
+    const indexer = createCustomerIndexer({ driver, embeddingService: createEmbeddingService(captured), queryEngine: { query } as unknown as QueryEngine, overrideCustomerVectorEligibility: true })
 
     const params = {
       entityId,
