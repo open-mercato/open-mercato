@@ -60,12 +60,14 @@ export async function POST(req: Request) {
   if (!resReq) return NextResponse.json({ ok: true })
   const { user, token } = resReq
   const resetUrl = withTenantHintUrl(resetUrlTemplate.replace('__token__', token), user.tenantId)
+  const tenantId = user.tenantId ? String(user.tenantId) : null
+  const organizationId = user.organizationId ? String(user.organizationId) : null
   void emitAuthEvent('auth.password.reset.requested', {
     id: String(user.id),
-    tenantId: user.tenantId ? String(user.tenantId) : null,
-    organizationId: user.organizationId ? String(user.organizationId) : null,
+    tenantId,
+    organizationId,
     at: new Date().toISOString(),
-  }, { persistent: true }).catch(() => undefined)
+  }, { persistent: true, tenantId, organizationId }).catch(() => undefined)
 
   const { translate } = await resolveTranslations()
   const subject = translate('auth.email.resetPassword.subject', 'Reset your password')
@@ -82,14 +84,13 @@ export async function POST(req: Request) {
       to: user.email,
       subject,
       react: ResetPasswordEmail({ resetUrl, copy }),
-      tenantId: user.tenantId ? String(user.tenantId) : undefined,
-      organizationId: user.organizationId ? String(user.organizationId) : null,
+      tenantId: tenantId ?? undefined,
+      organizationId,
     })
   } catch (err) {
     logger.error('Failed to send reset email', { err })
   }
   try {
-    const tenantId = user.tenantId ? String(user.tenantId) : null
     if (tenantId) {
       const notificationService = resolveNotificationService(c)
       const typeDef = notificationTypes.find((type) => type.type === 'auth.password_reset.requested')
@@ -101,7 +102,7 @@ export async function POST(req: Request) {
         })
         await notificationService.create(notificationInput, {
           tenantId,
-          organizationId: user.organizationId ? String(user.organizationId) : null,
+          organizationId,
         })
       }
     }

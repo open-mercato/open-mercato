@@ -915,7 +915,11 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         changedBy,
         changedById: actorId,
         at: new Date().toISOString(),
-      }, { persistent: true }).catch(() => undefined)
+      }, {
+        persistent: true,
+        tenantId: identifiers.tenantId,
+        organizationId: identifiers.organizationId,
+      }).catch(() => undefined)
     }
 
     if (Array.isArray(parsed.roles) && rolesBefore) {

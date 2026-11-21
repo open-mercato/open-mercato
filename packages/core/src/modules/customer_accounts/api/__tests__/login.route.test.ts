@@ -225,7 +225,16 @@ describe('POST /api/customer_accounts/login — lockout under concurrent attempt
   })
 
   test('resets the counter through the lock-aware reset and signs in when no lock engaged', async () => {
-    mockFindByEmail.mockResolvedValueOnce({ id: 'u1', isActive: true, passwordHash: 'hash', emailVerifiedAt: new Date() })
+    const organizationId = '22222222-2222-4222-8222-222222222222'
+    const email = 'probe@example.com'
+    mockFindByEmail.mockResolvedValueOnce({
+      id: 'u1',
+      email,
+      organizationId,
+      isActive: true,
+      passwordHash: 'hash',
+      emailVerifiedAt: new Date(),
+    })
     mockVerifyPassword.mockResolvedValueOnce(true)
     mockResetFailedAttemptsUnlessLocked.mockResolvedValueOnce(true)
     mockCreateSession.mockResolvedValueOnce({ rawToken: 'raw-session-token', jwt: 'customer-jwt', session: { id: 's1' } })
@@ -236,6 +245,11 @@ describe('POST /api/customer_accounts/login — lockout under concurrent attempt
     expect(mockResetFailedAttemptsUnlessLocked).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }))
     expect(mockCreateSession).toHaveBeenCalledTimes(1)
     expect(mockIncrementFailedAttempts).not.toHaveBeenCalled()
+    expect(mockEmitCustomerAccountsEvent).toHaveBeenCalledWith(
+      'customer_accounts.login.success',
+      { id: 'u1', email, tenantId, organizationId },
+      { tenantId, organizationId },
+    )
   })
 })
 

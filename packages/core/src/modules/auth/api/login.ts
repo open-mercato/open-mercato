@@ -200,15 +200,23 @@ async function handleLoginRequest(req: Request) {
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
   const { session: loginSession, token: sessionRefreshToken } = createdSession
+  const loginScope = {
+    tenantId: resolvedTenantId,
+    organizationId: user.organizationId ? String(user.organizationId) : null,
+  }
   const token = signJwt({
     sub: String(user.id),
     sid: String(loginSession.id),
     tenantId: resolvedTenantId,
-    orgId: user.organizationId ? String(user.organizationId) : null,
+    orgId: loginScope.organizationId,
     email: user.email,
     roles: userRoleNames
   })
-  void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
+  void emitAuthEvent('auth.login.success', {
+    id: String(user.id),
+    email: user.email,
+    ...loginScope,
+  }, loginScope).catch(() => undefined)
   const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
     ok: true,
     token,

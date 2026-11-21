@@ -150,6 +150,8 @@ beforeEach(() => {
     if (name === 'em') return em
     if (name === 'customerUserService') return {
       findByEmail: async () => user,
+      findById: async () => user,
+      resetFailedAttempts: async () => undefined,
       checkLockout: () => false,
       verifyPassword: async () => true,
       resetFailedAttemptsUnlessLocked: async () => true,
@@ -243,6 +245,25 @@ describe('portal tenant suspension authentication (#7813)', () => {
 
     await expect(service.verifyEmailToken('raw-magic-link', 'magic_link')).resolves.toEqual({ userId, tenantId })
     expect(tokenUpdate.set).toHaveBeenCalledWith({ used_at: expect.any(Date) })
+  })
+
+  it('consumes the magic-link token and emits scoped login success for an active tenant', async () => {
+    const request = new Request('http://localhost/api/customer_accounts/magic-link/verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: 'raw-magic-link' }),
+    })
+
+    const response = await verifyMagicLink(request)
+
+    expect(response.status).toBe(200)
+    expect(tokenUpdate.set).toHaveBeenCalledWith({ used_at: expect.any(Date) })
+    expect(mockCreateSession).toHaveBeenCalledTimes(1)
+    expect(mockEmit).toHaveBeenCalledWith(
+      'customer_accounts.login.success',
+      { id: userId, email: user.email, tenantId, organizationId },
+      { tenantId, organizationId },
+    )
   })
 
   it.each(unavailableTenants)('leaves an invitation unaccepted for a %s tenant', async (_state, tenant) => {

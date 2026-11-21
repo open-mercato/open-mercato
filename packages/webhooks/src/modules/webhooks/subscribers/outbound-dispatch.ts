@@ -42,6 +42,21 @@ function integrationScopeKey(tenantId: string, organizationId: string): string {
   return `${tenantId}:${organizationId}`
 }
 
+/**
+ * Reads a trusted scope field (`tenantId`/`organizationId`) off the subscriber context.
+ * Only the `SubscriberContext` arm of `handler`'s `ctx` union carries these fields — the
+ * minimal container-only arm does not — so this narrows with an `in` check rather than
+ * trusting a cast, and never looks at `payload` (#2440).
+ */
+function resolveTrustedScopeField(
+  ctx: { tenantId?: string | null; organizationId?: string | null } | Record<string, unknown>,
+  field: 'tenantId' | 'organizationId',
+): string | null {
+  if (!(field in ctx)) return null
+  const value = (ctx as Record<string, unknown>)[field]
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
 export default async function handler(
   payload: Record<string, unknown>,
   ctx: (SubscriberContext & { eventId?: string }) | { container?: { resolve: <T = unknown>(name: string) => T }; eventId?: string; eventName?: string; resolve?: <T = unknown>(name: string) => T },
@@ -65,9 +80,25 @@ export default async function handler(
 
   if (shouldSkipOutboundDispatch(eventId)) return
 
-  const tenantId = payload.tenantId as string | undefined
-  const organizationId = payload.organizationId as string | undefined
-  if (!tenantId) return
+  // Trusted scope only (#2440). ctx.tenantId/organizationId come from the emitter's own
+  // `options` (packages/events/AGENTS.md: "Never rely on payload-provided tenant or
+  // organization scope when trusted scope is available") — the dominant emission path,
+  // DataEngine.emitOrmEntityEvent, always sets them from the entity's own persisted
+  // identifiers, not from caller-suppliable payload fields. A command that emitted an
+  // event carrying a wrong or crafted payload.tenantId must not redirect webhook delivery
+  // to that tenant's endpoints: this decides WHICH TENANT'S webhooks fire, so it never
+  // falls back to the payload. An event with no trusted scope is skipped outright.
+  const trustedTenantId = resolveTrustedScopeField(ctx, 'tenantId')
+  if (!trustedTenantId) {
+    if (payload.tenantId) {
+      logger.warn('Skipping outbound webhook dispatch: event carries a payload tenantId but no trusted scope', {
+        eventId,
+      })
+    }
+    return
+  }
+  const tenantId = trustedTenantId
+  const organizationId = resolveTrustedScopeField(ctx, 'organizationId') ?? undefined
 
   if (eventId.startsWith('webhooks.')) return
   if (eventId.startsWith('query_index.')) return
