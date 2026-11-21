@@ -29,6 +29,7 @@ const DOCUMENT_FIELDS = [
   'customer_snapshot',
   'metadata',
   'adjustments',
+  'recurrence',
   'grand_total_gross_amount',
   'grand_total_net_amount',
   'outstanding_amount',

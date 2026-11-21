@@ -48,6 +48,7 @@ import { resolveCurrencyAmountDecimalPlaces } from '@open-mercato/shared/lib/cur
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { SHIPMENT_EXACT_AMOUNT_FIELDS } from '../lib/exactAmountFields'
 import { assertOrderCanBeCancelled, isCancelledOrderStatus } from '../lib/orderCancellationGuard'
+import { assertRecurringOrderStatusAllowed } from '../lib/recurringOrderGuard'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -355,6 +356,21 @@ async function lockOrderBeforeLines(em: EntityManager, order: SalesOrder): Promi
   })
 }
 
+async function assertShipmentOrderStatusAllowed(
+  em: EntityManager,
+  order: SalesOrder,
+  documentStatusEntryId: string | null | undefined,
+): Promise<void> {
+  if (!documentStatusEntryId) return
+  const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
+  await lockOrderBeforeLines(em, order)
+  await findOneWithDecryption(em, SalesOrder, { id: order.id, ...scope }, { refresh: true }, scope)
+  const requestedStatus = await resolveDictionaryEntryValue(em, documentStatusEntryId, { tenantId: order.tenantId })
+  if (requestedStatus !== (order.status ?? null)) {
+    await assertRecurringOrderStatusAllowed(em, order, requestedStatus)
+  }
+}
+
 async function recomputeFulfilledQuantities(em: EntityManager, order: SalesOrder): Promise<void> {
   const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
   await lockOrderBeforeLines(em, order)
@@ -510,6 +526,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
       // recalculates the order's fulfilled quantities, so a stale parent must 409
       // before we touch it.
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
+      await assertShipmentOrderStatusAllowed(tx, order, input.documentStatusEntryId)
       if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
         const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: input.tenantId })
         if (isCancelledOrderStatus(requestedOrderStatus)) {
@@ -805,6 +822,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       if (input.statusEntryId && !resolvedShipmentStatus) {
         throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
       }
+      await assertShipmentOrderStatusAllowed(tx, order, input.documentStatusEntryId)
       if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
         const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: shipmentEntity.tenantId })
         if (isCancelledOrderStatus(requestedOrderStatus)) {

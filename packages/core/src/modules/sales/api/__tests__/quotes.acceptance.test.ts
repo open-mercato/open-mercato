@@ -3,7 +3,7 @@ import { POST as sendQuote } from '@open-mercato/core/modules/sales/api/quotes/s
 import { GET as getPublicQuote } from '@open-mercato/core/modules/sales/api/quotes/public/[token]/route'
 import { POST as acceptQuote } from '@open-mercato/core/modules/sales/api/quotes/accept/route'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
-import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
+import { SalesOrder, SalesQuote, SalesQuoteRecurrence } from '@open-mercato/core/modules/sales/data/entities'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { LockMode } from '@mikro-orm/core'
@@ -156,6 +156,68 @@ describe('quote send + accept flow', () => {
     // Send-state is now persisted inside em.transactional (committed before the email), not via a bare em.flush.
     expect(mockEm.transactional).toHaveBeenCalled()
     expect(mockEm.persist).toHaveBeenCalledWith(quote)
+  })
+
+  test('delivers the committed quote to the customer selected while send waits for the row lock', async () => {
+    const staleQuote = {
+      id: '22222222-2222-4222-8222-222222222222',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-1',
+      currencyCode: 'USD',
+      grandTotalGrossAmount: '10',
+      status: 'draft',
+      metadata: { customerEmail: 'previous@example.com' },
+    }
+    const updatedQuote = {
+      ...staleQuote,
+      grandTotalGrossAmount: '25',
+      metadata: { customerEmail: 'current@example.com' },
+    }
+    mockEm.findOne.mockImplementation(async (entity: unknown, _where: unknown, options?: { refresh?: boolean }) => {
+      if (entity === SalesQuote) return options?.refresh ? updatedQuote : staleQuote
+      if (entity === SalesQuoteRecurrence) {
+        return { frequency: 'quarterly', startsOn: '2099-10-01', anchorDay: null, periodCount: 4 }
+      }
+      if (entity === Dictionary) return { id: 'dict-1' }
+      if (entity === DictionaryEntry) return { id: 'entry-sent' }
+      return null
+    })
+
+    mockEm.count = jest.fn().mockResolvedValue(1)
+    const { resolveTranslations } = await import('@open-mercato/shared/lib/i18n/server')
+    const translations = await resolveTranslations()
+    const interpolatedTranslations: typeof translations = {
+      ...translations,
+      translate: (key, fallback, params) => (fallback ?? key).replace(/\{(\w+)\}/g, (match, name: string) => (
+        String(params?.[name] ?? match)
+      )),
+    }
+    jest.mocked(resolveTranslations)
+      .mockResolvedValueOnce(interpolatedTranslations)
+      .mockResolvedValueOnce(interpolatedTranslations)
+
+    const response = await sendQuote(makeRequest({
+      quoteId: staleQuote.id,
+      validForDays: 14,
+      cc: ['current@example.com', 'cc@example.com'],
+    }))
+
+    expect(response.status).toBe(200)
+    expect(staleQuote.status).toBe('draft')
+    expect(mockEm.persist).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'sent',
+      metadata: { customerEmail: 'current@example.com', recipients: { cc: ['cc@example.com'] } },
+    }))
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    expect(sendEmail).toHaveBeenCalledTimes(2)
+    expect(sendEmail).toHaveBeenNthCalledWith(1, expect.objectContaining({ to: 'current@example.com' }))
+    expect(sendEmail).toHaveBeenNthCalledWith(2, expect.objectContaining({ to: 'cc@example.com' }))
+    const primaryMessage = jest.mocked(sendEmail).mock.calls[0][0]
+    const markup = renderToStaticMarkup(primaryMessage.react as ReactElement)
+    expect(markup).toContain('/quote/')
+    expect(markup).toContain('Total: 25 USD')
+    expect(markup).toContain('Quarterly from Oct 1, 2099, 4 payments')
   })
 
   test('sends to the document\'s "Send to" address ahead of the snapshot contact (#8459)', async () => {

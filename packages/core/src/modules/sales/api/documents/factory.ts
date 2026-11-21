@@ -7,7 +7,20 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { E } from '#generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SalesOrder, SalesQuote } from '../../data/entities'
-import { SalesChannel, SalesDocumentTagAssignment } from '../../data/entities'
+import {
+  SalesChannel,
+  SalesDocumentTagAssignment,
+  SalesOrderRecurrence,
+  SalesQuoteRecurrence,
+} from '../../data/entities'
+import {
+  snapshotOrderRecurrence,
+  snapshotQuoteRecurrence,
+  toRecurrenceResponse,
+  type OrderRecurrenceSnapshot,
+  type QuoteRecurrenceSnapshot,
+} from '../../lib/recurrenceStore'
+import { SALES_ORDER_RECURRENCE_STATUSES, SALES_RECURRENCE_FREQUENCIES } from '../../lib/recurrence'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   ORDER_PAYMENT_LEDGER_FIELDS,
@@ -45,11 +58,21 @@ type DocumentBinding = {
   viewFeature: string
 }
 
-type DocumentCreateResult = {
+type DocumentRecurrenceResult = {
+  recurrence?: OrderRecurrenceSnapshot | QuoteRecurrenceSnapshot | null
+  recurrenceLocked?: boolean
+}
+
+type DocumentCreateResult = DocumentRecurrenceResult & {
   orderId?: string
   quoteId?: string
   id?: string
   warnings?: OrderPaymentLedgerWarning[]
+}
+
+function mapWriteRecurrence(result?: DocumentRecurrenceResult | null) {
+  const recurrence = toRecurrenceResponse(result?.recurrence ?? null)
+  return recurrence ? { ...recurrence, locked: result?.recurrenceLocked ?? false } : null
 }
 
 const rawBodySchema = z.object({}).passthrough()
@@ -253,6 +276,13 @@ const mapUpdateResponse = (entity: any) => {
   }
 }
 
+function listOrganizationIds(ctx: Pick<CrudCtx, 'organizationIds' | 'selectedOrganizationId'> | null | undefined): string[] {
+  if (Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length) {
+    return ctx.organizationIds.filter((value): value is string => !!value)
+  }
+  return ctx?.selectedOrganizationId ? [ctx.selectedOrganizationId] : []
+}
+
 const attachTags = async (payload: any, ctx: any) => {
   const items = Array.isArray(payload?.items) ? (payload.items as Array<Record<string, any>>) : []
   if (!items.length) return
@@ -267,12 +297,7 @@ const attachTags = async (payload: any, ctx: any) => {
     documentKind: ctx?.bindingKind ?? null,
   }
   if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
-  const orgIds =
-    Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
-      ? ctx.organizationIds.filter((val: string | null) => !!val)
-      : ctx?.selectedOrganizationId
-        ? [ctx.selectedOrganizationId]
-        : []
+  const orgIds = listOrganizationIds(ctx)
   if (orgIds.length) where.organizationId = { $in: orgIds }
   const assignments = await em.find(
     SalesDocumentTagAssignment,
@@ -298,6 +323,68 @@ const attachTags = async (payload: any, ctx: any) => {
     if (!id) return
     const list = grouped.get(id)
     if (list) item.tags = list
+  })
+}
+
+// Runs on the cache-hit path too (like `attachChannelNames`), so a schedule change or a newly
+// issued period is never served stale from the list cache.
+export const attachRecurrences = async (
+  payload: { items?: Array<Record<string, unknown>> },
+  ctx: CrudCtx,
+  kind: DocumentKind,
+) => {
+  const items = Array.isArray(payload?.items) ? payload.items : []
+  const ids = items
+    .map((item) => (item && typeof item.id === 'string' ? item.id : null))
+    .filter((id): id is string => !!id)
+  if (!ids.length) return
+  const em = ctx?.container?.resolve ? (ctx.container.resolve('em') as EntityManager) : null
+  if (!em) return
+  const tenantId = ctx?.auth?.tenantId ?? null
+  if (!tenantId) return
+  const scope = { tenantId, organizationId: ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null }
+  const orgIds = listOrganizationIds(ctx)
+  const scoped = orgIds.length ? { tenantId, organizationId: { $in: orgIds } } : { tenantId }
+  const byDocument = new Map<string, Record<string, unknown>>()
+  if (kind === 'order') {
+    const periodOrders = em.getKysely<{
+      sales_recurring_periods: { order_id: string; tenant_id: string; organization_id: string }
+    }>()
+      .selectFrom('sales_recurring_periods')
+      .select('order_id')
+      .distinct()
+      .where('order_id', 'in', ids)
+      .where('tenant_id', '=', tenantId)
+    const [recurrences, periods] = await Promise.all([
+      findWithDecryption(em, SalesOrderRecurrence, { orderId: { $in: ids }, ...scoped, deletedAt: null }, undefined, scope),
+      (orgIds.length ? periodOrders.where('organization_id', 'in', orgIds) : periodOrders).execute(),
+    ])
+    const invoiced = new Set(periods.map((period) => period.order_id))
+    recurrences.forEach((recurrence) => {
+      const orderId = recurrence.orderId
+      byDocument.set(orderId, {
+        ...toRecurrenceResponse(snapshotOrderRecurrence(recurrence)),
+        locked: invoiced.has(orderId),
+      })
+    })
+  } else {
+    const recurrences = await findWithDecryption(
+      em,
+      SalesQuoteRecurrence,
+      { quote: { $in: ids }, ...scoped },
+      undefined,
+      scope,
+    )
+    recurrences.forEach((recurrence) => {
+      byDocument.set(recurrence.quote.id, {
+        ...toRecurrenceResponse(snapshotQuoteRecurrence(recurrence)),
+        locked: false,
+      })
+    })
+  }
+  items.forEach((item) => {
+    if (!item || typeof item.id !== 'string') return
+    item.recurrence = byDocument.get(item.id) ?? null
   })
 }
 
@@ -372,12 +459,7 @@ export const attachChannelNames = async (
 
   const where: Record<string, unknown> = { id: { $in: channelIds } }
   if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
-  const orgIds =
-    Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
-      ? ctx.organizationIds.filter((val: string | null) => !!val)
-      : ctx?.selectedOrganizationId
-        ? [ctx.selectedOrganizationId]
-        : []
+  const orgIds = listOrganizationIds(ctx)
   if (orgIds.length) where.organizationId = { $in: orgIds }
 
   // Only `name` and `code` are read. Without this projection the query loads the whole channel row,
@@ -629,12 +711,16 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           const payload = Object.keys(custom).length ? { ...base, customFields: custom } : base
           return withExactDocumentInput(parseScopedCommandInput(createSchema, payload, ctx, translate), payload)
         },
-        response: ({ result }: { result?: DocumentCreateResult | null }) => ({
-          id: result?.orderId ?? result?.quoteId ?? result?.id ?? null,
-          ...(binding.kind === 'order' && Array.isArray(result?.warnings)
-            ? { warnings: result.warnings }
-            : {}),
-        }),
+        response: ({ result }: { result?: DocumentCreateResult | null }) => {
+          const recurrence = mapWriteRecurrence(result)
+          return {
+            id: result?.orderId ?? result?.quoteId ?? result?.id ?? null,
+            ...(recurrence ? { recurrence } : {}),
+            ...(binding.kind === 'order' && Array.isArray(result?.warnings)
+              ? { warnings: result.warnings }
+              : {}),
+          }
+        },
         status: 201,
       },
       update: {
@@ -653,8 +739,10 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           const payload = Object.keys(custom).length ? { ...base, customFields: custom } : base
           return withExactDocumentInput(parseScopedCommandInput(documentUpdateSchema, payload, ctx, translate), payload)
         },
-        response: ({ result }: { result: any }) =>
-          mapUpdateResponse((result as any)?.order ?? (result as any)?.quote ?? result),
+        response: ({ result }: { result: (DocumentRecurrenceResult & { order?: SalesOrder; quote?: SalesQuote }) | null }) => ({
+          ...mapUpdateResponse(result?.order ?? result?.quote ?? result),
+          recurrence: mapWriteRecurrence(result),
+        }),
       },
       delete: {
         commandId: binding.deleteCommandId,
@@ -668,14 +756,41 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
       },
     },
     hooks: {
-      afterList: async (payload: any, ctx: CrudCtx) => {
+      afterList: async (
+        payload: { items?: Array<Record<string, unknown>> },
+        ctx: CrudCtx & { query?: Pick<ListQuery, 'id'> },
+      ) => {
         await attachTags(payload, { ...ctx, bindingKind: binding.kind })
         await attachChannelNames(payload, ctx)
+        await attachRecurrences(payload, ctx, binding.kind)
         await attachContactEmails(binding.entity, payload, ctx)
+        const documentId = ctx.query?.id
+        const item = documentId ? payload.items?.find((candidate) => candidate.id === documentId) : undefined
+        if (!item) return
+        item.canManageRecurrence = Boolean(
+          ctx.auth?.sub && typeof item.tenantId === 'string' && typeof item.organizationId === 'string'
+            && await ctx.container.resolve<RbacService>('rbacService').userHasAllFeatures(
+              ctx.auth.sub,
+              [binding.manageFeature],
+              { tenantId: item.tenantId, organizationId: item.organizationId },
+            ),
+        )
       },
     },
   }
 }
+
+const recurrenceResponseSchema = z.object({
+  frequency: z.enum(SALES_RECURRENCE_FREQUENCIES),
+  startsOn: z.string(),
+  anchorDay: z.number().int().nullable(),
+  periodCount: z.number().int().nullable(),
+  endsOn: z.string().nullable(),
+  nextInvoiceOn: z.string().nullable(),
+  status: z.enum(SALES_ORDER_RECURRENCE_STATUSES).nullable(),
+  scheduleVersion: z.number().int().nullable(),
+  locked: z.boolean(),
+})
 
 export function buildDocumentOpenApi(binding: DocumentBinding) {
   const createSchema = binding.kind === 'order' ? orderCreateSchema : quoteCreateSchema
@@ -741,6 +856,8 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     updatedAt: z.string(),
     customFields: z.record(z.string(), z.unknown()).optional(),
     customValues: z.record(z.string(), z.unknown()).optional(),
+    recurrence: recurrenceResponseSchema.nullable().optional(),
+    canManageRecurrence: z.boolean().optional().describe('Whether the current user may manage this document in its organization. Returned on reads filtered by document ID.'),
   })
 
   const listResponseSchema = createPagedListResponseSchema(itemSchema)
@@ -754,15 +871,24 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
       responseSchema: binding.kind === 'order'
         ? z.object({
             id: z.string().uuid().nullable(),
+            recurrence: recurrenceResponseSchema.optional(),
             warnings: z.array(z.object({
               code: z.literal(ORDER_PAYMENT_LEDGER_WARNING_CODE),
               fields: z.array(z.enum(ORDER_PAYMENT_LEDGER_FIELDS)),
             })).optional(),
           })
-        : z.object({ id: z.string().uuid().nullable() }),
+        : z.object({ id: z.string().uuid().nullable(), recurrence: recurrenceResponseSchema.optional() }),
       description: binding.kind === 'order'
         ? 'Creates a new sales order. paidTotalAmount, refundedTotalAmount, and outstandingAmount are deprecated compatibility inputs: supplied values are ignored and reported in warnings. Record payments through sales.payments.create or POST /api/sales/payments.'
         : 'Creates a new sales quote.',
+    },
+    update: {
+      schema: documentUpdateSchema,
+      responseSchema: z.object({
+        id: z.string().uuid().nullable(),
+        recurrence: recurrenceResponseSchema.nullable(),
+      }).passthrough(),
+      description: 'Updates the document and returns its persisted recurrence, or null if none is configured.',
     },
     del: {
       schema: defaultDeleteRequestSchema,

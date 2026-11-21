@@ -12,11 +12,16 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
+import { recurringQuoteConversionErrorSchema } from '../../openapi'
 import { withScopedPayload } from '../../utils'
 import { hashAuthToken } from '../../../../auth/lib/tokenHash'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
-import { SalesQuote } from '../../../data/entities'
+import { SalesQuote, SalesQuoteLine } from '../../../data/entities'
+import { loadQuoteRecurrenceSnapshot } from '../../../lib/recurrenceStore'
+import { lockSalesDocumentRow } from '../../../commands/shared'
+import { assertRecurringQuoteConvertible } from '../../../lib/recurringOrderGuard'
+import { formatRecurrenceSchedule } from '../../../lib/recurrenceLabel'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
@@ -239,34 +244,44 @@ export async function POST(req: Request) {
     const tenantScope = ctx.auth?.tenantId
       ? { tenantId: ctx.auth.tenantId, organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null }
       : undefined
-    const quote = await findOneWithDecryption(em, SalesQuote, { id: input.quoteId, deletedAt: null }, {}, tenantScope)
-    if (!quote) {
+    const initialQuote = await findOneWithDecryption(em, SalesQuote, { id: input.quoteId, deletedAt: null }, {}, tenantScope)
+    if (!initialQuote) {
       throw notFound(translate('sales.documents.detail.error', 'Document not found or inaccessible.'))
     }
-    if (quote.tenantId !== ctx.auth?.tenantId || quote.organizationId !== ctx.selectedOrganizationId) {
+    if (initialQuote.tenantId !== ctx.auth?.tenantId || initialQuote.organizationId !== ctx.selectedOrganizationId) {
       throw new CrudHttpError(403, { error: translate('sales.documents.errors.forbidden', 'Forbidden') })
     }
 
-    if ((quote.status ?? null) === 'canceled') {
-      throw new CrudHttpError(400, { error: translate('sales.quotes.send.canceled', 'Canceled quotes cannot be sent.') })
-    }
-
-    const email = resolveQuoteEmail(quote)
-    if (!email) {
-      throw new CrudHttpError(400, { error: translate('sales.quotes.send.missingEmail', 'Customer email is required to send a quote.') })
-    }
-    const cc = resolveCcRecipients(input.cc, email)
-
-    const now = new Date()
-    const validUntil = new Date(now)
-    validUntil.setUTCDate(validUntil.getUTCDate() + input.validForDays)
-
     const rawAcceptanceToken = crypto.randomUUID()
 
-    // Persist the send state (status/token/sentAt) atomically and commit it
-    // BEFORE the email goes out, so a customer never receives a link whose
-    // acceptance token was not durably stored.
-    await em.transactional(async (tx) => {
+    // Persist send state before delivering a link to the recipients of the committed quote.
+    const { quote, email, cc, recurrence, validUntil } = await em.transactional(async (tx) => {
+      const scope = { tenantId: initialQuote.tenantId, organizationId: initialQuote.organizationId }
+      if (!(await lockSalesDocumentRow(tx, 'sales_quotes', initialQuote.id, scope))) {
+        throw notFound(translate('sales.documents.detail.error', 'Document not found or inaccessible.'))
+      }
+      const quote = await findOneWithDecryption(tx, SalesQuote, {
+        id: initialQuote.id, ...scope, deletedAt: null,
+      }, { refresh: true }, scope)
+      if (!quote) {
+        throw notFound(translate('sales.documents.detail.error', 'Document not found or inaccessible.'))
+      }
+      if ((quote.status ?? null) === 'canceled') {
+        throw new CrudHttpError(400, { error: translate('sales.quotes.send.canceled', 'Canceled quotes cannot be sent.') })
+      }
+      const email = resolveQuoteEmail(quote)
+      if (!email) {
+        throw new CrudHttpError(400, { error: translate('sales.quotes.send.missingEmail', 'Customer email is required to send a quote.') })
+      }
+      const cc = resolveCcRecipients(input.cc, email)
+      const now = new Date()
+      const validUntil = new Date(now)
+      validUntil.setUTCDate(validUntil.getUTCDate() + input.validForDays)
+      const recurrence = await loadQuoteRecurrenceSnapshot(tx, quote)
+      if (recurrence) {
+        const lineCount = await tx.count(SalesQuoteLine, { quote: quote.id, ...scope })
+        await assertRecurringQuoteConvertible(recurrence, lineCount)
+      }
       quote.validUntil = validUntil
       quote.acceptanceToken = hashAuthToken(rawAcceptanceToken)
       quote.sentAt = now
@@ -279,6 +294,7 @@ export async function POST(req: Request) {
       quote.metadata = { ...(normalizeRecord(quote.metadata) ?? {}), recipients: { cc } }
       quote.updatedAt = now
       tx.persist(quote)
+      return { quote, email, cc, recurrence, validUntil }
     })
 
     // Started alongside delivery instead of ahead of it: the primary e-mail never waits on
@@ -303,6 +319,11 @@ export async function POST(req: Request) {
         currency: quote.currencyCode,
       }),
       validUntil: translate('sales.quotes.email.validUntil', 'Valid until: {date}', { date: validUntilFormatted }),
+      schedule: recurrence
+        ? translate('sales.quotes.email.schedule', 'Billing: {schedule}', {
+            schedule: formatRecurrenceSchedule(recurrence, translate, locale),
+          })
+        : null,
       cta: translate('sales.quotes.email.cta', 'View quote'),
       footer: translate('sales.quotes.email.footer', 'Open Mercato'),
     }
@@ -361,6 +382,11 @@ export const openApi: OpenApiRouteDoc = {
         { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'Not found', schema: z.object({ error: z.string() }) },
         { status: 409, description: 'Conflict detected', schema: z.object({ error: z.string(), code: z.string().optional() }) },
+        {
+          status: 422,
+          description: 'Recurring quote has no lines or its start date has passed',
+          schema: recurringQuoteConversionErrorSchema,
+        },
         { status: 423, description: 'Record locked', schema: z.object({ error: z.string(), code: z.string().optional() }) },
       ],
     },
