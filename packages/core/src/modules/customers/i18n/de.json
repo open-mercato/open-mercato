@@ -3047,6 +3047,8 @@
   "customers.timeline.filter.task": "Aufgabe",
   "customers.timeline.filter.to": "To date",
   "customers.timeline.history.filtered": "filtered: {{types}}, {{count}} results",
+  "customers.timeline.history.filtered.few": "",
+  "customers.timeline.history.filtered.one": "",
   "customers.timeline.history.searchAriaLabel": "",
   "customers.timeline.history.searchPlaceholder": "",
   "customers.timeline.history.seeAll": "See all {{count}} activities",

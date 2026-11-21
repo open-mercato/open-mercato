@@ -4,6 +4,8 @@
 import * as React from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import english from '../../../i18n/en.json'
+import polish from '../../../i18n/pl.json'
 import { ActivityHistorySection } from '../ActivityHistorySection'
 
 const readApiResultOrThrowMock = jest.fn()
@@ -77,6 +79,52 @@ describe('ActivityHistorySection', () => {
 
     expect(diffDays).toBeGreaterThanOrEqual(89)
     expect(diffDays).toBeLessThanOrEqual(91)
+  })
+
+  it.each([
+    [1, '1 wynik'],
+    [2, '2 wyniki'],
+    [5, '5 wyników'],
+    [12, '12 wyników'],
+    [22, '22 wyniki'],
+  ])('shows the Polish activity history summary for %i activities', async (count, label) => {
+    const items = Array.from({ length: count }, (_, index) => ({
+      id: `activity-${index}`,
+      title: `Call ${index}`,
+      interactionType: 'call',
+      status: 'done',
+      occurredAt: '2026-04-10T09:00:00.000Z',
+      scheduledAt: null,
+    }))
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => (
+      url.startsWith('/api/customers/interactions?') ? { items } : { result: {} }
+    ))
+
+    renderWithProviders(<ActivityHistorySection entityId="company-123" useCanonicalInteractions />, {
+      locale: 'pl',
+      dict: polish,
+    })
+
+    expect(await screen.findByText(`Filtr: Wszystkie aktywności · ${label}`)).toBeInTheDocument()
+  })
+
+  it('uses the localized base key for an app locale without plural variants', async () => {
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => (
+      url.startsWith('/api/customers/interactions?')
+        ? { items: [{ id: 'activity-1', title: 'Call', interactionType: 'call', status: 'done' }] }
+        : { result: {} }
+    ))
+
+    renderWithProviders(<ActivityHistorySection entityId="company-123" useCanonicalInteractions />, {
+      locale: 'cs',
+      dict: {
+        ...english,
+        'customers.timeline.filter.all': 'Všechny aktivity',
+        'customers.timeline.history.filtered': '{{types}} · Počet výsledků: {{count}}',
+      },
+    })
+
+    expect(await screen.findByText('Všechny aktivity · Počet výsledků: 1')).toBeInTheDocument()
   })
 
   it('fetches legacy fallback pages in parallel rather than one at a time', async () => {

@@ -3047,6 +3047,8 @@
   "customers.timeline.filter.task": "작업",
   "customers.timeline.filter.to": "종료일",
   "customers.timeline.history.filtered": "필터 적용됨: {{types}}, {{count}}건",
+  "customers.timeline.history.filtered.few": "",
+  "customers.timeline.history.filtered.one": "",
   "customers.timeline.history.searchAriaLabel": "상호작용 이력 검색",
   "customers.timeline.history.searchPlaceholder": "검색...",
   "customers.timeline.history.seeAll": "전체 활동 {{count}}건 보기",
