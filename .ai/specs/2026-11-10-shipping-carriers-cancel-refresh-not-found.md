@@ -21,7 +21,8 @@ therefore reported as a carrier outage:
 
 - clients and gateways that retry on `5xx` kept retrying a request that can never succeed;
 - upstream-error logs and alerts fired with no carrier involved;
-- the behavior differed from `GET /api/shipping-carriers/tracking`, which already answers `404` for the same case.
+- the behavior differed from `GET /api/shipping-carriers/tracking`, whose documented answer for the same case is `404`
+  (on production builds it also fell through to `502`; see below).
 
 ## Proposed Solution
 
@@ -67,7 +68,7 @@ STABLE): no route, request schema or success response changes, and no field is r
 
 - **Status change:** the not-found case moves from `502` to `404`. A `404` here is final: the shipment is not visible to
   the caller and repeating the request returns the same answer. Clients that retried these routes on `502` (or on any
-  `5xx`) should stop retrying on `404` and treat it like the existing `404` from `GET /api/shipping-carriers/tracking`.
+  `5xx`) should stop retrying on `404` and treat it like the documented `404` from `GET /api/shipping-carriers/tracking`.
 - **Body change:** the `error` string changes from the generic upstream message to the localized shipment-not-found
   message (`shipping_carriers.errors.shipmentNotFound`). It follows the request locale, so clients must branch on the
   status code, not the text.
@@ -94,3 +95,4 @@ Client guidance is in `UPGRADE_NOTES.md` under 0.9.0 → 0.9.1.
 
 - 2026-11-10: Spec added for PR #9232.
 - 2026-11-11: Marker guard instead of `instanceof`, also applied to `GET /api/shipping-carriers/tracking`.
+- 2026-11-21: Wording: the GET route's `404` was the documented answer, restored on production builds by this change.
