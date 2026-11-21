@@ -22,6 +22,7 @@ import { buildInboundIdempotencyKey } from '../lib/inbound-message-origin'
 import { resolveCommunicationChannelsSystemUserId } from '../lib/system-user'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('communication_channels').child({ component: 'ingest-inbound-message' })
 
@@ -288,9 +289,15 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
 
     let contactHint: ContactHint | null = null
     if (requiresAdmission) {
+      const hasThread = Boolean(threadMatch || mapping?.messageThreadId)
       const email = m.senderIdentifier.trim()
+      const from = m.channelPayload.from
+      const fromAddress = typeof from === 'object' && from !== null
+        ? extractStringFromMeta(from as Record<string, unknown>, 'address')
+        : from
+      const hasSenderAddress = fromAddress === undefined || (typeof fromAddress === 'string' && fromAddress.trim().length > 0)
       let matchedPersonId: string | undefined
-      if (dscope.organizationId && m.channelPayload?.from !== null) {
+      if (dscope.organizationId && hasSenderAddress) {
         try {
           const lookup = ctx.container.resolve<InboundEmailContactLookup | undefined>(
             'inboundEmailContactLookup',
@@ -298,10 +305,16 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
           )
           matchedPersonId = await lookup?.(email, dscope)
         } catch {
-          throw Object.assign(new Error('[internal] Inbound email contact lookup failed'), { transient: true })
+          const error = new Error('[internal] Inbound email contact lookup failed')
+          if (!hasThread) throw Object.assign(error, { transient: true })
+          reportTelemetryError(error, {
+            module: 'communication_channels',
+            code: 'communication_channels.inbound_reply_contact_lookup_failed',
+            attributes: { channelId: input.channelId },
+          })
         }
       }
-      if (!threadMatch && !mapping?.messageThreadId && !matchedPersonId) {
+      if (!hasThread && !matchedPersonId) {
         return { status: 'skipped' }
       }
       contactHint = { email, displayName: m.senderDisplayName, matchedPersonId }
@@ -345,7 +358,14 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     if (matchedPersonId && conversation.contactPersonId !== matchedPersonId) {
       conversation.contactPersonId = matchedPersonId
     }
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (error) {
+      if (conversationCreated && isUniqueViolation(error)) {
+        throw Object.assign(new Error('[internal] Inbound conversation was created concurrently'), { transient: true })
+      }
+      throw error
+    }
 
     // (5) Compose the platform Message via the messages module command.
     //

@@ -18,6 +18,10 @@ import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/he
 import { composeMessageWithToken, deleteMessageIfExists } from './helpers'
 import { createEmailBudgetFixture } from './emailBudgetFixture'
 
+export const integrationMeta = {
+  dependsOnModules: ['communication_channels', 'customers', 'messages'],
+}
+
 const DAILY_LIMIT_CONFIG = 'externalEmailDailyRecipientLimit'
 
 test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery', () => {

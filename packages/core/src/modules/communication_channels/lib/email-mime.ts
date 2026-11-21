@@ -615,7 +615,7 @@ export function normalizeMimeInbound(options: NormalizeMimeInboundOptions): Norm
   return {
     externalMessageId: messageId,
     externalConversationId: conversationId,
-    senderIdentifier: from?.address ?? options.accountIdentifier,
+    senderIdentifier: from?.address?.trim() || options.accountIdentifier,
     senderDisplayName: from?.name?.trim() || undefined,
     subject,
     body,

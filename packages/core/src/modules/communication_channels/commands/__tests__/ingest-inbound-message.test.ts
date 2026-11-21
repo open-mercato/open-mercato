@@ -143,7 +143,8 @@ describe('ingestInboundMessageCommand email admission', () => {
   })
 
   it('admits an unknown sender when the scoped reply matcher finds a thread', async () => {
-    const { execute, context } = setup()
+    const { execute, lookup, context } = setup()
+    lookup.mockRejectedValue(new Error('contact lookup is unavailable'))
     mockMatchThread.mockResolvedValue({ messageThreadId: 'matched-thread', matchedBy: 'jwz-headers', confidence: 'medium' })
     const reply = { ...input, message: { ...input.message, replyToExternalId: 'parent@example.com' } }
 
@@ -152,25 +153,29 @@ describe('ingestInboundMessageCommand email admission', () => {
     expect(mockMatchThread).toHaveBeenCalledWith(expect.objectContaining({
       ...input.scope, channelId: input.channelId, inReplyTo: 'parent@example.com',
     }), expect.anything())
+    expect(lookup).toHaveBeenCalledWith('sender@example.com', input.scope)
     expect(execute).toHaveBeenCalledWith('messages.messages.compose', expect.objectContaining({
       input: expect.objectContaining({ parentMessageId: 'matched-thread' }),
     }))
   })
 
-  it('admits a provider-thread reply with no matching RFC headers', async () => {
-    const { execute, context } = setup(true, true)
+  it('admits and attributes a provider-thread reply with no matching RFC headers', async () => {
+    const { execute, lookup, context } = setup(true, true)
+    lookup.mockResolvedValue('crm-person')
 
-    await expect(ingestInboundMessageCommand.execute(input, context)).resolves.toMatchObject({ status: 'created' })
+    await expect(ingestInboundMessageCommand.execute(input, context)).resolves.toMatchObject({
+      status: 'created', contactPersonId: 'crm-person',
+    })
 
     expect(execute).toHaveBeenCalledWith('messages.messages.compose', expect.objectContaining({
       input: expect.objectContaining({ parentMessageId: 'provider-mapped-thread' }),
     }))
   })
 
-  it('does not use the mailbox fallback as CRM evidence when MIME From is missing', async () => {
+  it.each([null, { name: 'Display name only' }])('does not use the mailbox fallback for From %j', async (from) => {
     const { lookup, context } = setup()
     lookup.mockResolvedValue('mailbox-is-a-crm-person')
-    const withoutFrom = { ...input, message: { ...input.message, channelPayload: { from: null } } }
+    const withoutFrom = { ...input, message: { ...input.message, channelPayload: { from } } }
 
     await expect(ingestInboundMessageCommand.execute(withoutFrom, context)).resolves.toEqual({ status: 'skipped' })
     expect(lookup).not.toHaveBeenCalled()
@@ -198,6 +203,16 @@ describe('ingestInboundMessageCommand email admission', () => {
 
     await expect(ingestInboundMessageCommand.execute(input, context)).rejects.toMatchObject({ transient: true })
     expect(entityManager.flush).not.toHaveBeenCalled()
+  })
+
+  it('retries a concurrent conversation insert before composing the message', async () => {
+    const { entityManager, execute, lookup, context } = setup()
+    lookup.mockResolvedValue('crm-person')
+    entityManager.flush.mockRejectedValueOnce(Object.assign(new Error('conversation already exists'), { code: '23505' }))
+
+    await expect(ingestInboundMessageCommand.execute(input, context)).rejects.toMatchObject({ transient: true })
+    expect(execute).not.toHaveBeenCalled()
+    expect(mockIngestEmit).not.toHaveBeenCalled()
   })
 
   it('admits operator-requested history without requiring a CRM match', async () => {
