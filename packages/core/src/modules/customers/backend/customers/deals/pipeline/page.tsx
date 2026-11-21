@@ -2630,8 +2630,8 @@ export default function DealsKanbanPage(): React.ReactElement {
                  * surfaces the full breakdown and missing-rate disclosure. Clicking the
                  * popover trigger here gives the operator the same board-level detail view.
                  */
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                  <span className="whitespace-nowrap">
                     {translateWithFallback(
                       t,
                       'customers.deals.kanban.boardSummary.count',

@@ -404,6 +404,7 @@ export function HorizontalScrollRow({
   arrowSize = 'default',
   scrollLeftAriaLabel = 'Scroll left',
   scrollRightAriaLabel = 'Scroll right',
+  edgeFade = true,
 }: {
   className?: string
   /** Override classes for the inner scroll container (e.g. tighter padding when inlined into a form row). */
@@ -416,6 +417,8 @@ export function HorizontalScrollRow({
   scrollLeftAriaLabel?: string
   /** Override the right arrow's aria-label. Default is English 'Scroll right'. */
   scrollRightAriaLabel?: string
+  /** Edge gradients painted in `--background`. Pass `false` when the row sits on any other surface. */
+  edgeFade?: boolean
 }) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = React.useState(false)
@@ -436,11 +439,12 @@ export function HorizontalScrollRow({
     el.addEventListener('scroll', refreshScrollState, { passive: true })
     const ro = new ResizeObserver(refreshScrollState)
     ro.observe(el)
+    for (const child of Array.from(el.children)) ro.observe(child)
     return () => {
       el.removeEventListener('scroll', refreshScrollState)
       ro.disconnect()
     }
-  }, [refreshScrollState])
+  }, [refreshScrollState, children])
 
   const scrollBy = React.useCallback((direction: 'left' | 'right') => {
     const el = scrollRef.current
@@ -453,7 +457,7 @@ export function HorizontalScrollRow({
     arrowSize === 'sm' ? 'size-6 [&_svg]:size-3.5' : 'size-7 [&_svg]:size-4'
 
   return (
-    <div className={cn('relative', className)} data-slot="time-picker-scroll-row">
+    <div className={cn('relative isolate', className)} data-slot="time-picker-scroll-row">
       {/* Outer gutter — reserves room for the absolute-positioned chevron buttons.
           The scroll viewport lives INSIDE this gutter so chips can never slide
           underneath the arrows — moving scroll offsets only shift content inside
@@ -480,13 +484,13 @@ export function HorizontalScrollRow({
       {/* Edge fades — soft gradient at the boundary between the gutter and the
           scroll viewport, so chips sliding into the viewport dissolve cleanly
           before reaching the arrow's edge. */}
-      {canScrollLeft ? (
+      {edgeFade && canScrollLeft ? (
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-y-0 left-9 w-6 bg-gradient-to-r from-background to-transparent"
         />
       ) : null}
-      {canScrollRight ? (
+      {edgeFade && canScrollRight ? (
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-y-0 right-9 w-6 bg-gradient-to-l from-background to-transparent"

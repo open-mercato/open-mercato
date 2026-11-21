@@ -96,7 +96,7 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
   }, [open, value])
 
   const isActive = !!(value.from || value.to)
-  const chipLabel = translateWithFallback(t, 'customers.deals.kanban.filter.close', 'Close')
+  const chipLabel = translateWithFallback(t, 'customers.deals.kanban.filter.closeDate', 'Close')
   const chipValue = React.useMemo(() => {
     // Show "Any" (not "Next 90 days") when no filter is applied — the previous label was a
     // preset name, which read like the filter was already active and confused operators.
@@ -212,7 +212,7 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
               />
             </label>
             <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {translateWithFallback(t, 'customers.deals.kanban.filter.toLabel', 'To')}
+              {translateWithFallback(t, 'customers.deals.kanban.filter.to', 'To')}
               <input
                 type="date"
                 value={draft.to ?? ''}
