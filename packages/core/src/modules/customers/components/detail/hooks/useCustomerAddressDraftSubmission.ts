@@ -77,8 +77,15 @@ export function useCustomerAddressDraftSubmission(
     let current = progress.current
     const requestScope = readRequestOrganizationScope() ?? (scope.organizationId || scope.tenantId ? scope : null)
     const fail = (message: string, details?: string) => createCrudFormError(message, { addresses: details ?? message })
-    if (current?.scope && (current.scope.organizationId !== requestScope?.organizationId || current.scope.tenantId !== requestScope?.tenantId)) {
-      throw fail(t('customers.people.detail.addresses.createScopeChanged'))
+    if (current?.scope) {
+      const previousScope = current.scope
+      const canResolveTenant = previousScope.tenantId === null && previousScope.organizationId !== null
+        && scope.organizationId === requestScope?.organizationId && scope.tenantId === requestScope?.tenantId
+      if (!requestScope || previousScope.organizationId !== requestScope.organizationId ||
+        (!canResolveTenant && previousScope.tenantId !== requestScope.tenantId)) {
+        throw fail(t('customers.people.detail.addresses.createScopeChanged'))
+      }
+      current.scope = requestScope
     }
     if (current?.unconfirmedAddressId) throw fail(t('customers.people.detail.addresses.saveUnconfirmed'))
     if (editingAddress.current) throw fail(t('customers.people.detail.addresses.finishDraft'))
