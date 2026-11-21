@@ -1,5 +1,29 @@
 # Upgrade Notes
 
+## Customer profiles and accounts use fulltext and token search (#8135)
+
+The built-in `customers:customer_person_profile`,
+`customers:customer_company_profile`, and `customer_accounts:customer_user`
+registrations now use fulltext and tokens. Hashed lookup and search permissions
+continue to apply. Deployments that only enable vector search need to enable a
+lexical strategy to find these records after cleanup. Downstream registrations
+can retain their custom strategies through the existing per-entity override.
+
+**Operators:** pause indexing, drain or discard pending vector jobs, and deploy to
+all apps and indexing workers. For each affected tenant and entity ID, use the
+configured vector driver's scoped purge operation. With pgvector,
+`purge(entityId, tenantId)` covers all organizations in that tenant, including
+old rows without an organization and vectors for soft-deleted records. Verify
+that targeted vectors are gone and unrelated tenants and entities are intact
+before restarting indexing. The driver-level operation preserves the fulltext
+and token stores.
+
+The embeddings reindex endpoint skips these entities before `purgeFirst`, so
+use the driver operation for cleanup. The query-index status page can still
+display vector coverage based on the presence of a source builder. Verify
+cleanup in the vector store. A rollback that restores vector indexing also
+requires a scoped vector rebuild to repopulate purged records.
+
 ## Backend API documentation permission (#3810)
 
 `/backend/docs` now requires `api_docs.view`. Staff without that feature lose the
@@ -892,6 +916,10 @@ with an extension-load error. Reloading the page retries bootstrap. No API or da
 migration is required.
 
 ### Rebuild customer search vectors after the privacy fix (#7826)
+
+On releases with #8135, follow the [customer vector purge above](#customer-profiles-and-accounts-use-fulltext-and-token-search-8135)
+for the three built-in registrations. Rebuild vectors only where a deployment
+explicitly retains vector eligibility.
 
 The person, company, and customer-account vector builders now use explicit safe
 fields. Contact email/phone, `hashOnly` and `excluded` custom fields, unapproved
