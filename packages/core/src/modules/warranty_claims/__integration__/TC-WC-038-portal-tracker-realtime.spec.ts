@@ -56,7 +56,7 @@ test.describe('TC-WC-038: portal claim tracker receives staff updates', () => {
     expect(orgSlug, 'the scoped organization should have a portal slug').toBeTruthy()
 
     companyId = await createCustomerCompanyFixture(staff, adminToken, `QA WC Realtime ${stamp}`)
-    roleId = (await createCustomerRoleFixture(staff, adminToken, { features: ['portal.account.manage'] })).id
+    roleId = (await createCustomerRoleFixture(staff, adminToken, { features: ['portal.account.manage', 'portal.warranty_claims.view', 'portal.warranty_claims.manage', 'portal.orders.view'] })).id
     const customer = await createCustomerUserFixture(staff, adminToken, {
       customerEntityId: companyId,
       roleIds: [roleId],

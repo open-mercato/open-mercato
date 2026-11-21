@@ -113,7 +113,7 @@ test.describe('TC-WC-012: warranty claims portal order picker APIs', () => {
 
     try {
       roleId = (await createCustomerRoleFixture(request, adminToken, {
-        features: ['portal.account.manage'],
+        features: ['portal.account.manage', 'portal.warranty_claims.view', 'portal.warranty_claims.manage', 'portal.orders.view'],
       })).id
       companyAId = await createCustomerCompanyFixture(request, adminToken, `QA WC Portal Orders A ${stamp}`)
       companyBId = await createCustomerCompanyFixture(request, adminToken, `QA WC Portal Orders B ${stamp}`)

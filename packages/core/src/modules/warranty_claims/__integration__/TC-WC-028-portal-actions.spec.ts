@@ -86,7 +86,7 @@ test.describe('TC-WC-028: warranty claims portal submit and withdraw actions', (
       expect(anonymousWithdraw.status(), 'portal withdraw should require customer auth').toBe(401)
 
       roleId = (await createCustomerRoleFixture(request, adminToken, {
-        features: ['portal.account.manage'],
+        features: ['portal.account.manage', 'portal.warranty_claims.view', 'portal.warranty_claims.manage', 'portal.orders.view'],
       })).id
       companyAId = await createCustomerCompanyFixture(request, adminToken, `QA WC Actions A ${stamp}`)
       companyBId = await createCustomerCompanyFixture(request, adminToken, `QA WC Actions B ${stamp}`)
@@ -304,7 +304,7 @@ test.describe('TC-WC-028: warranty claims portal submit and withdraw actions', (
 
     try {
       roleId = (await createCustomerRoleFixture(request, adminToken, {
-        features: ['portal.account.manage'],
+        features: ['portal.account.manage', 'portal.warranty_claims.view', 'portal.warranty_claims.manage', 'portal.orders.view'],
       })).id
       companyId = await createCustomerCompanyFixture(request, adminToken, `QA WC Reject Uploads ${stamp}`)
       const user = await createCustomerUserFixture(request, adminToken, {
@@ -401,7 +401,7 @@ test.describe('TC-WC-028: warranty claims portal submit and withdraw actions', (
 
     try {
       roleId = (await createCustomerRoleFixture(request, adminToken, {
-        features: ['portal.account.manage'],
+        features: ['portal.account.manage', 'portal.warranty_claims.view', 'portal.warranty_claims.manage', 'portal.orders.view'],
       })).id
       companyId = await createCustomerCompanyFixture(request, adminToken, `QA WC Visibility ${stamp}`)
       const user = await createCustomerUserFixture(request, adminToken, {

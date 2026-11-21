@@ -283,6 +283,8 @@
   "auth.acl.features.phone_calls.view": "전화 통화 보기",
   "auth.acl.features.planner.manage_availability": "Manage availability",
   "auth.acl.features.planner.view": "View schedules",
+  "auth.acl.features.portal.warranty_claims.manage": "포털에서 보증 청구 관리",
+  "auth.acl.features.portal.warranty_claims.view": "포털에서 보증 청구 보기",
   "auth.acl.features.progress.cancel": "Cancel progress jobs",
   "auth.acl.features.progress.create": "Create progress jobs",
   "auth.acl.features.progress.manage": "Manage all progress jobs",

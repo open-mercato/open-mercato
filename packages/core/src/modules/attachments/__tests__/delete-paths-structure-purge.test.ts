@@ -159,7 +159,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 jest.mock('../../warranty_claims/lib/portalAuthGuard', () => ({
-  resolveLinkedCustomerAuth: jest.fn(async () => ({
+  resolveAuthorizedLinkedCustomerAuth: jest.fn(async () => ({
     sub: 'customer-user-1',
     email: 'customer@example.com',
     tenantId: TENANT_ID,
@@ -169,7 +169,7 @@ jest.mock('../../warranty_claims/lib/portalAuthGuard', () => ({
 }))
 
 jest.mock('../../warranty_claims/lib/portalClaimAccess', () => ({
-  loadPortalOwnedClaim: jest.fn(async () => ({ id: CLAIM_ID })),
+  loadPortalOwnedClaim: jest.fn(async () => ({ id: CLAIM_ID, status: 'draft' })),
 }))
 
 const expectedPurgeInput = { attachmentId: ATTACHMENT_ID, tenantId: TENANT_ID, organizationId: ORG_ID }
@@ -214,6 +214,7 @@ describe('attachment delete paths purge document structure', () => {
   })
 
   it('purges through the warranty claims portal DELETE', async () => {
+    const { resolveAuthorizedLinkedCustomerAuth } = await import('../../warranty_claims/lib/portalAuthGuard')
     const { DELETE } = await import('../../warranty_claims/api/portal/attachments/route')
     const request = new Request(
       `http://localhost/api/warranty_claims/portal/attachments?attachmentId=${ATTACHMENT_ID}`,
@@ -222,6 +223,11 @@ describe('attachment delete paths purge document structure', () => {
 
     const response = await DELETE(request)
 
+    expect(resolveAuthorizedLinkedCustomerAuth).toHaveBeenCalledWith(
+      request,
+      'portal.warranty_claims.manage',
+      expect.objectContaining({ resolve: expect.any(Function) }),
+    )
     expect(response.status).toBe(200)
     expectStructurePurgedInsideDeleteTransaction()
   })

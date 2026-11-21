@@ -44,6 +44,7 @@ jest.mock('../lib/assigneeNames', () => ({
 
 const getCustomerAuthMock = jest.fn()
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerAuth', () => ({
+  requireCustomerFeature: jest.fn(async () => undefined),
   getCustomerAuthFromRequest: (...args: unknown[]) => getCustomerAuthMock(...args),
 }))
 

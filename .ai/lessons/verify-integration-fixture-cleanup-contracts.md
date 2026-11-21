@@ -1,7 +1,7 @@
 ---
 title: "Verify integration fixture cleanup against the actual endpoint"
 modules: ["resources","entities","customers","sales","warranty_claims","channel_discord","catalog","workflows"]
-areas: ["testing","integration"]
+areas: ["testing","integration","debugging"]
 topics: ["testing","fixture-cleanup","fixture-setup","api-contracts","proposal-origin","error-handling"]
 ---
 
@@ -26,3 +26,5 @@ Review of #9156 found that the generic sales cleanup helper sends only an ID, wh
 Review of #9657 found that an order's updated status does not prove its approval workflow is ready for cancellation: the stock async event activity can leave the instance in `WAITING_FOR_ACTIVITIES`, while the cancel endpoint accepts only `RUNNING` or `PAUSED`. Drain the integration queues with the shared bounded helpers, refresh owned instances before cancellation, and retry transient non-cancellable states within the shared polling budget. Cancel workflows before deleting their target records, and attempt versioned definition deletion in `finally` even when cancellation fails. Evidence: `TC-WC-040-replacement-order-undo.spec.ts`, `sales/workflows.ts`, and `workflows/api/instances/[id]/cancel/route.ts`.
 
 The subsequent hosted trace showed that empty queues still did not prove the fixture's notification transition had advanced. For undo coverage that asserts the status command and its audit history, configure notification dispatch inline in the isolated copied definition; retain the real domain event trigger, scoped grant, status mutation and undo assertions. Do not make fixture teardown depend on unrelated asynchronous notification scheduling. Queue-specific workflow tests retain their async execution configuration. Evidence: PR #9657 run 43825646616 shard 13, retry trace for `TC-WC-040`.
+
+Before interpreting a native suite as coverage, verify it collects with its real runner. In #9600, `TC-WC-9110-portal-role-features.spec.ts` imported a locale JSON dictionary without `with { type: 'json' }`; Node 24 rejected the import before any fixture or assertion ran. A scoped Playwright `--list` reproduced zero collected cases, then collected all five after the import attribute was added. Collection is a prerequisite, not evidence that the five scenarios passed.

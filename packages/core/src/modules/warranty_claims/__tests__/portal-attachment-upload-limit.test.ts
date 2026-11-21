@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { getEntityIds, registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
-import { resolveLinkedCustomerAuth } from '../lib/portalAuthGuard'
+import { resolveAuthorizedLinkedCustomerAuth } from '../lib/portalAuthGuard'
 
 const MAX_UPLOAD_MB = 1
 const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
@@ -15,7 +15,7 @@ const mockEm = {}
 const mockConsume = jest.fn()
 
 jest.mock('../lib/portalAuthGuard', () => ({
-  resolveLinkedCustomerAuth: jest.fn(async () => ({
+  resolveAuthorizedLinkedCustomerAuth: jest.fn(async () => ({
     sub: 'customer-user-1',
     email: 'customer@example.com',
     tenantId: 'tenant-1',
@@ -72,6 +72,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 type RouteModule = typeof import('../api/portal/attachments/route')
 let POST: RouteModule['POST']
 let PUT: RouteModule['PUT']
+let DELETE: RouteModule['DELETE']
 
 const BOUNDARY = '----om-warranty-upload-limit'
 const encoder = new TextEncoder()
@@ -124,6 +125,7 @@ describe('warranty portal attachment upload size limit', () => {
     const routeModule = await import('../api/portal/attachments/route')
     POST = routeModule.POST
     PUT = routeModule.PUT
+    DELETE = routeModule.DELETE
   })
 
   afterAll(() => {
@@ -139,7 +141,7 @@ describe('warranty portal attachment upload size limit', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockConsume.mockResolvedValue({ allowed: true, remainingPoints: 99, msBeforeNext: 0 })
-    mockLoadPortalOwnedClaim.mockResolvedValue({ id: CLAIM_ID })
+    mockLoadPortalOwnedClaim.mockResolvedValue({ id: CLAIM_ID, status: 'submitted' })
     mockRemoveAttachmentRecord.mockResolvedValue({ removed: true, releaseStorage: false })
     mockUpload.mockResolvedValue({
       id: 'attachment-1',
@@ -177,7 +179,7 @@ describe('warranty portal attachment upload size limit', () => {
     ['tenant-2', 'customer-user-1'],
     ['tenant-1', 'customer-user-2'],
   ])('isolates the throttle for %s and %s', async (tenantId, principal) => {
-    jest.mocked(resolveLinkedCustomerAuth).mockResolvedValueOnce({
+    jest.mocked(resolveAuthorizedLinkedCustomerAuth).mockResolvedValueOnce({
       sub: principal,
       email: 'customer@example.com',
       tenantId,
@@ -235,4 +237,24 @@ describe('warranty portal attachment upload size limit', () => {
     expect(uploaded.buffer.length).toBe(fileBytes)
     expect(uploaded.buffer.every((byte) => byte === 0x41)).toBe(true)
   })
+  it.each(['in_review', 'approved', 'awaiting_return', 'received', 'inspecting', 'resolved', 'closed', 'rejected', 'cancelled'])(
+    'preserves evidence on a %s claim',
+    async (status) => {
+      mockLoadPortalOwnedClaim.mockResolvedValue({ id: CLAIM_ID, status })
+      const replacement = await PUT(uploadRequest('PUT', 32))
+      expect(replacement.status).toBe(400)
+      const deletion = await DELETE(new Request(`http://localhost/api/warranty_claims/portal/attachments?attachmentId=${ATTACHMENT_ID}`, { method: 'DELETE' }))
+      expect(deletion.status).toBe(400)
+      expect(mockUpload).not.toHaveBeenCalled()
+      expect(mockRemoveAttachmentRecord).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['draft', 'submitted', 'info_requested'])('allows evidence replacement and deletion on a %s claim', async (status) => {
+    mockLoadPortalOwnedClaim.mockResolvedValue({ id: CLAIM_ID, status })
+    mockRemoveAttachmentRecord.mockResolvedValue({ removed: true, releaseStorage: false })
+    expect((await PUT(uploadRequest('PUT', 32))).status).toBe(200)
+    expect((await DELETE(new Request(`http://localhost/api/warranty_claims/portal/attachments?attachmentId=${ATTACHMENT_ID}`, { method: 'DELETE' }))).status).toBe(200)
+  })
+
 })

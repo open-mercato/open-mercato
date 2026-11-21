@@ -59,7 +59,7 @@ test.describe('TC-WC-041: portal order picker pages orders sharing a placed_at e
     const orderIds: string[] = []
 
     try {
-      roleId = (await createCustomerRoleFixture(request, adminToken, { features: ['portal.account.manage'] })).id
+      roleId = (await createCustomerRoleFixture(request, adminToken, { features: ['portal.account.manage', 'portal.warranty_claims.view', 'portal.warranty_claims.manage', 'portal.orders.view'] })).id
       companyId = await createCustomerCompanyFixture(request, adminToken, `QA WC Same Timestamp ${stamp}`)
       const user = await createCustomerUserFixture(request, adminToken, {
         roleIds: [roleId],

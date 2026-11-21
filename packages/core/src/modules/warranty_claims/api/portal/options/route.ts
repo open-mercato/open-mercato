@@ -3,11 +3,12 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { loadWarrantyClaimDictionaryOptions } from '../../../lib/dictionaries'
 import type { WarrantyClaimDictionaryKind } from '../../../data/constants'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveAuthorizedLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
 
 const logger = createLogger('warranty_claims')
 
@@ -43,12 +44,9 @@ export const metadata = {
 }
 
 async function resolvePortalOptionsContext(req: Request): Promise<PortalOptionsContext | Response> {
-  const auth = await getCustomerAuthFromRequest(req)
-  const { translate } = await resolveTranslations()
-  if (!auth) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') }, { status: 401 })
-  }
   const container = await createRequestContainer()
+  const auth = await resolveAuthorizedLinkedCustomerAuth(req, 'portal.warranty_claims.view', container)
+  if (auth instanceof Response) return auth
   return {
     auth,
     tenantId: auth.tenantId,

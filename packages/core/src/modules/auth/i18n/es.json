@@ -283,6 +283,8 @@
   "auth.acl.features.phone_calls.view": "Ver llamadas telefónicas",
   "auth.acl.features.planner.manage_availability": "Administrar disponibilidad",
   "auth.acl.features.planner.view": "Ver horarios",
+  "auth.acl.features.portal.warranty_claims.manage": "Gestionar reclamaciones de garantía en el portal",
+  "auth.acl.features.portal.warranty_claims.view": "Ver reclamaciones de garantía en el portal",
   "auth.acl.features.progress.cancel": "Cancelar operaciones en segundo plano",
   "auth.acl.features.progress.create": "Crear operaciones en segundo plano",
   "auth.acl.features.progress.manage": "Administrar todas las operaciones en segundo plano",

@@ -11,6 +11,7 @@ const getTelemetryRuntimeMock = jest.fn()
 const reportErrorMock = jest.fn()
 const routerReplaceMock = jest.fn()
 const mockConfirm = jest.fn()
+const optimisticLockHeadersMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => getTelemetryRuntimeMock(),
@@ -22,10 +23,13 @@ jest.mock('next/navigation', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
-  withScopedApiRequestHeaders: async <T,>(_headers: Record<string, string>, operation: () => Promise<T>) => operation(),
+  withScopedApiRequestHeaders: async <T,>(headers: Record<string, string>, operation: () => Promise<T>) => {
+    optimisticLockHeadersMock(headers)
+    return operation()
+  },
 }))
 
-const portalAuthState = { auth: { user: { id: 'customer-user-1' }, loading: false } }
+const portalAuthState = { auth: { user: { id: 'customer-user-1' }, loading: false, resolvedFeatures: ['portal.warranty_claims.manage'] } }
 
 jest.mock('@open-mercato/ui/portal/PortalContext', () => ({
   usePortalContext: () => portalAuthState,
@@ -163,6 +167,7 @@ function deferResponse<Response>() {
 describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    portalAuthState.auth.resolvedFeatures = ['portal.warranty_claims.manage']
     apiCallMock.mockReset()
     getTelemetryRuntimeMock.mockReturnValue(undefined)
     mockConfirm.mockResolvedValue(true)
@@ -526,6 +531,92 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
     expect(view.getByText('Submit claim')).toBeTruthy()
     expect(view.getByText('Withdraw claim')).toBeTruthy()
     expect(view.getByText('This claim is a draft. Submit it when you are ready so our team can review it.')).toBeTruthy()
+  })
+
+  it.each([{ features: [] }, { features: ['portal.warranty_claims.view'] }])('keeps viewer claim reads without offering mutations for $features', async ({ features }) => {
+    portalAuthState.auth.resolvedFeatures = features
+    mockClaimResponses(buildClaim({ status: 'draft' }))
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+    await view.findByText('receipt.pdf')
+    expect(view.getByText('TrailMaster 45L Backpack')).toBeTruthy()
+    expect(view.queryByRole('button', { name: 'Submit claim' })).toBeNull()
+    expect(view.queryByRole('button', { name: 'Withdraw claim' })).toBeNull()
+    expect(view.queryByRole('button', { name: 'Replace receipt.pdf' })).toBeNull()
+    expect(view.queryByRole('button', { name: 'Delete receipt.pdf' })).toBeNull()
+    expect(view.queryByRole('textbox')).toBeNull()
+    expect(view.container.querySelector('input[type="file"]')).toBeNull()
+    expect(apiCallMock.mock.calls.every(([, options]) => !options?.method)).toBe(true)
+  })
+
+  it.each(['*', 'portal.*', 'portal.warranty_claims.*'])('respects wildcard manage grants: %s', async (feature) => {
+    portalAuthState.auth.resolvedFeatures = [feature]
+    mockClaimResponses(buildClaim({ status: 'draft' }))
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+    expect(await view.findByRole('button', { name: 'Submit claim' })).toBeTruthy()
+    expect(view.getByRole('textbox')).toBeTruthy()
+  })
+
+  it('restores focus to the action trigger after a refused submit and Escape', async () => {
+    mockClaimResponses(buildClaim({ status: 'draft' }))
+    const implementation = apiCallMock.getMockImplementation()!
+    apiCallMock.mockImplementation((url: string, options?: { method?: string }) => {
+      if (url.endsWith('/submit')) return Promise.resolve({ ok: false, status: 403, result: { ok: false } })
+      return implementation(url, options)
+    })
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+    const trigger = await view.findByRole('button', { name: 'Submit claim' })
+    trigger.focus()
+    fireEvent.click(trigger)
+    const dialog = await view.findByRole('dialog')
+    fireEvent.keyDown(dialog, { key: 'Enter', ctrlKey: true })
+    await view.findByText('The claim could not be submitted.')
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await waitFor(() => expect(view.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+  })
+
+  it('refreshes its own comment version before allowing the next claim action', async () => {
+    const original = buildClaim({ status: 'draft' })
+    const updated = { ...original, updatedAt: '2026-06-16T11:00:00.000Z' }
+    mockClaimResponses(original)
+    const implementation = apiCallMock.getMockImplementation()!
+    let commentSaved = false
+    const refresh = deferResponse<{ ok: boolean; status: number; result: { item: typeof updated } }>()
+    apiCallMock.mockImplementation((url: string, options?: { method?: string }) => {
+      if (url === '/api/warranty_claims/portal/events' && options?.method === 'POST') {
+        commentSaved = true
+        return Promise.resolve({ ok: true, status: 200, result: { ok: true } })
+      }
+      if (url === '/api/warranty_claims/portal/claims/claim-1' && commentSaved) return refresh.promise
+      if (url.endsWith('/submit')) return Promise.resolve({ ok: true, status: 200, result: { ok: true } })
+      return implementation(url, options)
+    })
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+    const textarea = await view.findByRole('textbox')
+    fireEvent.change(textarea, { target: { value: 'Here is the requested detail' } })
+    fireEvent.submit(textarea.closest('form')!)
+    await waitFor(() => expect(commentSaved).toBe(true))
+    const trigger = view.getByRole('button', { name: 'Submit claim' }) as HTMLButtonElement
+    expect(trigger.disabled).toBe(true)
+    await act(async () => { refresh.resolve({ ok: true, status: 200, result: { item: updated } }) })
+    await waitFor(() => expect(trigger.disabled).toBe(false))
+    fireEvent.click(trigger)
+    fireEvent.keyDown(await view.findByRole('dialog'), { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(optimisticLockHeadersMock).toHaveBeenCalledWith({
+      'x-om-ext-optimistic-lock-expected-updated-at': updated.updatedAt,
+    }))
   })
 
   it.each([

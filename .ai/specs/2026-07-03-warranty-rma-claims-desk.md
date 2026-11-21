@@ -493,11 +493,30 @@ Fully compliant — implemented and verified against the full validation gate.
 
 ## Migration & Backward Compatibility
 
+Portal detail controls reflect the effective wildcard-aware `portal.warranty_claims.manage` grant; viewers retain claim, attachment and timeline reads without unavailable write controls. Draft actions wrap at narrow widths in English and Polish. Action dialogs restore focus to the invoking button after cancellation or refused submission, and successful own comments refresh the claim version before the next lifecycle action. `portal-claim-tracker-page.test.tsx` and `TC-WC-9110-portal-role-features.spec.ts` cover these UI regressions, real viewer write refusals and no-conflict comment-to-submit recovery. These UI repairs preserve existing server authorization and API contracts.
+
+### Portal customer-role enforcement (#9110)
+
+Portal claim reads now require `portal.warranty_claims.view`; create, submit, withdraw, comment and attachment writes require `portal.warranty_claims.manage`. The order picker and line lookup require `portal.orders.view`. All checks use live customer RBAC before data access and keep the existing tenant/org/company predicates. Buyer defaults grant claim view/manage and viewer defaults grant view. Existing deployments must run `yarn mercato customer_accounts sync-customer-role-acls` and explicitly grant the new features to custom roles as appropriate; otherwise those users receive 403. This is an operator permission migration, with no schema, startup, environment variable or architecture change.
+
+The existing one-argument `resolveLinkedCustomerAuth(req)` export retains its identity-checking signature and behavior. New `resolveAuthorizedLinkedCustomerAuth(req, requiredFeature, container)` composes that check with live feature enforcement; every core warranty portal route uses it. Existing HTTP URLs and success response schemas stay unchanged. Evidence replacement and deletion now refuse claims outside draft, submitted and info_requested; clients must request staff assistance for evidence changes after review begins. New uploads retain their existing behavior.
+
+The removed unauthorized write behavior is the vulnerability: a compatibility switch allowing viewer writes would preserve the bypass. The narrowed authorization/lifecycle behavior is recorded as a proposed emergency security exception in `BACKWARD_COMPATIBILITY.md`; named human maintainer acknowledgment remains required before merge. `UPGRADE_NOTES.md` covers both operator and client migration. Tests include every affected endpoint's pre-access denial, default-role and wildcard behavior, RBAC lookup failure, evidence state restrictions, and the self-contained `TC-WC-9110-portal-role-features` integration scenario. Integration/browser execution evidence is recorded on the PR, separately from unit coverage.
+
 Live line numbers must be unique within a claim. Initial claim creation, explicit line creation/renumbering, and undo restoration reject collisions with HTTP 409, a localized `error`, and `code: warranty_claims.errors.duplicateLineNo`. Existing request/response fields, routes, database schema, events, and ACL identifiers remain unchanged. Automatic creation still uses the highest live number plus one; a delete undo refuses if that number was reused. Remove the occupying line or move it to a free number through the API, then retry the undo. Historical duplicate numbers are not repaired automatically; unrelated edits to those records remain possible.
 
 Number allocation, explicit renumbering, and line undo validation serialize on the tenant/org-scoped claim lock before checking live siblings or changing lines. Aggregate undo validates its projected live numbers before restoring any fields. The TC-WC-040 integration scenario covers delete/add/undo refusal and retry, explicit/batch duplicate input, and concurrent creates. Command tests also cover snapshot restoration, nonconflicting operations, and scope isolation.
 
 ## Changelog
+
+### 2026-11-16 — Portal detail permission and recovery fixes
+- Hide unavailable viewer mutations; preserve wildcard-aware management controls.
+- Wrap narrow actions, restore refused-dialog focus, and refresh the version after own comments, with unit and native browser regressions.
+
+### 2026-11-15 — Portal customer-role enforcement (#9110)
+- Add portal claim view/manage features with buyer/viewer defaults, localized central permission labels, and live feature checks on all 15 portal endpoint methods plus page metadata.
+- Require order-view permission for order/line lookups and refuse evidence replacement/deletion after review begins.
+- Preserve the linked-auth helper contract, add endpoint/role regression coverage, and document the existing-deployment permission sync and pending human compatibility acknowledgment.
 
 ### 2026-10-13 — Claim line number uniqueness (#7306)
 - Refuse colliding line creates, renumbering, and undo restoration under the claim lock, preserving automatic allocation and atomic rollups.

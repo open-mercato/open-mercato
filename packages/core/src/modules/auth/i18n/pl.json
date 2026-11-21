@@ -283,6 +283,8 @@
   "auth.acl.features.phone_calls.view": "Wyświetl połączenia telefoniczne",
   "auth.acl.features.planner.manage_availability": "Zarządzaj dostępnością",
   "auth.acl.features.planner.view": "Wyświetl harmonogramy",
+  "auth.acl.features.portal.warranty_claims.manage": "Zarządzanie zgłoszeniami gwarancyjnymi w portalu",
+  "auth.acl.features.portal.warranty_claims.view": "Wyświetlanie zgłoszeń gwarancyjnych w portalu",
   "auth.acl.features.progress.cancel": "Anuluj zadania postępu",
   "auth.acl.features.progress.create": "Twórz zadania postępu",
   "auth.acl.features.progress.manage": "Zarządzaj wszystkimi zadaniami postępu",

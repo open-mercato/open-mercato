@@ -1,4 +1,11 @@
 export const features = [
+  { id: 'portal.warranty_claims.view', title: 'View warranty claims in the portal', module: 'warranty_claims' },
+  {
+    id: 'portal.warranty_claims.manage',
+    title: 'Manage warranty claims in the portal',
+    module: 'warranty_claims',
+    dependsOn: ['portal.warranty_claims.view'],
+  },
   { id: 'warranty_claims.claim.view', title: 'View warranty claims', module: 'warranty_claims' },
   {
     id: 'warranty_claims.claim.create',

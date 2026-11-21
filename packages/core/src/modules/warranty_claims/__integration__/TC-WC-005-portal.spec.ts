@@ -93,7 +93,7 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
       expect(anonymousOptions.status(), 'portal options should require customer auth').toBe(401)
 
       roleId = (await createCustomerRoleFixture(request, adminToken, {
-        features: ['portal.account.manage'],
+        features: ['portal.account.manage', 'portal.warranty_claims.view', 'portal.warranty_claims.manage', 'portal.orders.view'],
       })).id
       companyAId = await createCustomerCompanyFixture(request, adminToken, `QA WC Portal A ${stamp}`)
       companyBId = await createCustomerCompanyFixture(request, adminToken, `QA WC Portal B ${stamp}`)

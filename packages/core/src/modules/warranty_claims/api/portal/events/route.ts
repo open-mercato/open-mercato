@@ -15,7 +15,7 @@ import { WarrantyClaim, WarrantyClaimEvent } from '../../../data/entities'
 import type { CommentClaimInput } from '../../../data/validators'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 import { loadPortalOwnedClaim } from '../../../lib/portalClaimAccess'
-import { resolveLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
+import { resolveAuthorizedLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -72,11 +72,11 @@ function serializeEvent(event: WarrantyClaimEvent) {
   }
 }
 
-async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
-  const authOrResponse = await resolveLinkedCustomerAuth(req)
+async function resolvePortalContext(req: Request, requiredFeature: string): Promise<PortalContext | Response> {
+  const container = await createRequestContainer()
+  const authOrResponse = await resolveAuthorizedLinkedCustomerAuth(req, requiredFeature, container)
   if (authOrResponse instanceof Response) return authOrResponse
   const auth = authOrResponse
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const commandAuth: NonNullable<AuthContext> = {
     sub: auth.sub,
@@ -141,7 +141,7 @@ async function runPortalCommentGuard(
 }
 
 export async function GET(req: Request) {
-  const contextOrResponse = await resolvePortalContext(req)
+  const contextOrResponse = await resolvePortalContext(req, 'portal.warranty_claims.view')
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
   const { translate } = await resolveTranslations()
@@ -165,7 +165,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const contextOrResponse = await resolvePortalContext(req)
+  const contextOrResponse = await resolvePortalContext(req, 'portal.warranty_claims.manage')
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
   const { translate } = await resolveTranslations()

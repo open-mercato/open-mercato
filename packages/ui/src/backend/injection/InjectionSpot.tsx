@@ -18,6 +18,7 @@ import {
   type LoadedInjectionWidget,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { usePortalContext } from '../../portal/PortalContext'
 import { useBackendChrome } from '../BackendChromeProvider'
 import { getWidgetSharedState } from './WidgetSharedState'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -297,6 +298,14 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
   )
 }
 
+function useOptionalPortalAuth() {
+  try {
+    return usePortalContext().auth
+  } catch {
+    return null
+  }
+}
+
 /**
  * Hook to trigger injection widget events imperatively
  */
@@ -314,12 +323,14 @@ export function useInjectionSpotEvents<
   const loadContextRef = React.useRef(options?.context)
   const loadQueueRef = React.useRef<Promise<void>>(Promise.resolve())
   const [registryVersion, setRegistryVersion] = React.useState(() => getInjectionRegistryVersion())
-  const { payload, isReady: backendChromeReady } = useBackendChrome()
+  const portalAuth = useOptionalPortalAuth()
+  const { payload, isReady: staffChromeReady } = useBackendChrome()
+  const backendChromeReady = staffChromeReady && portalAuth?.loading !== true
   const grantedFeatureList = React.useMemo(
-    () => payload?.grantedFeatures ?? [],
-    [payload?.grantedFeatures],
+    () => portalAuth ? portalAuth.resolvedFeatures : payload?.grantedFeatures ?? [],
+    [portalAuth, payload?.grantedFeatures],
   )
-  const hasBackendChromePayload = payload !== null
+  const hasBackendChromePayload = portalAuth !== null || payload !== null
   const prefetchedEventWidgets = React.useMemo(() => {
     if (prefetchedWidgets === undefined || !backendChromeReady) return []
     return filterWidgetsByGrantedFeatures(
