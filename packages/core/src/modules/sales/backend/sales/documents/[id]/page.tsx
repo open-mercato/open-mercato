@@ -2868,6 +2868,8 @@ export default function SalesDocumentDetailPage({
   const metadataEmail = readDocumentEmail(record?.metadata as Record<string, unknown> | null | undefined)
   const contactEmail = metadataEmail ?? resolveCustomerEmail(customerSnapshot) ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
+  const normalizedStatus = record?.status?.trim() ?? null
+  const quoteCanceled = normalizedStatus === 'canceled' || normalizedStatus === 'cancelled'
   const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null, locale)
   const messagePreviewMetadata: Record<string, string> = {}
   if (includeAmountInMessageMetadata && previewAmount) {
@@ -4832,7 +4834,7 @@ export default function SalesDocumentDetailPage({
             </Badge>
           ) : undefined}
           menuActions={kind === 'quote' ? ([
-            { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
+            { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting || quoteCanceled, loading: converting },
             { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => { setValidForDays(resolveDefaultValidForDays(record.validUntil)); setSendCc(resolveStoredCc(record.metadata)); setSendCcDraft(''); setSendCcError(null); setSendOpen(true) }, disabled: !contactEmail || sending, loading: sending },
           ] satisfies ActionItem[]) : undefined}
           onDelete={() => void handleDelete()}
