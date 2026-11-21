@@ -34,6 +34,8 @@ import aiAgents, { promptTemplate, merchandisingPromptTemplate } from '../ai-age
 import features from '../acl'
 import catalogAiTools from '../ai-tools'
 
+const DOCUMENT_SECTIONS_TOOL = 'attachments.get_document_sections'
+
 const GENERAL_PURPOSE_TOOLS = new Set([
   'search.hybrid_search',
   'search.get_record_context',
@@ -154,9 +156,17 @@ describe('catalog.catalog_assistant agent definition', () => {
     const catalogToolNames = new Set(catalogAiTools.map((tool) => tool.name))
     for (const toolName of agent.allowedTools) {
       const isBaseCatalog = BASE_CATALOG_READ_TOOLS.has(toolName) && catalogToolNames.has(toolName)
-      const isGeneral = GENERAL_PURPOSE_TOOLS.has(toolName)
+      const isGeneral = GENERAL_PURPOSE_TOOLS.has(toolName) || toolName === DOCUMENT_SECTIONS_TOOL
       expect(isBaseCatalog || isGeneral).toBe(true)
     }
+  })
+
+  it('reads long documents section by section so answers can cite the exact section', () => {
+    expect(agent.allowedTools).toContain(DOCUMENT_SECTIONS_TOOL)
+    const attachments = promptTemplate.sections.find((section) => section.name === 'attachments')
+    expect(attachments?.content).toContain(DOCUMENT_SECTIONS_TOOL)
+    expect(attachments?.content).toContain('includeText: false')
+    expect(attachments?.content).toContain('catalog:catalog_product')
   })
 
   it('never whitelists a mutation tool from the catalog pack', () => {

@@ -21,6 +21,7 @@ describe('llm-bootstrap — built-in provider registration', () => {
     // OpenAI-compatible presets.
     expect(ids).toContain('openai')
     expect(ids).toContain('deepinfra')
+    expect(ids).toContain('atlas-cloud')
     expect(ids).toContain('groq')
     expect(ids).toContain('together')
     expect(ids).toContain('fireworks')
@@ -89,6 +90,14 @@ describe('llm-bootstrap — built-in provider registration', () => {
       env: { CHEAPER_INFERENCE_API_KEY: 'cheaper-key' },
     })
     expect(picked?.id).toBe('cheaperinference')
+  })
+
+  it('atlas-cloud provider comes from the OpenAI-compatible preset', () => {
+    registerBuiltInLlmProviders()
+    const atlasCloud = llmProviderRegistry.get('atlas-cloud')
+    expect(atlasCloud).not.toBeNull()
+    expect(atlasCloud?.envKeys).toEqual(['ATLASCLOUD_API_KEY'])
+    expect(atlasCloud?.defaultModel).toBe('qwen/qwen3.7-plus')
   })
 
   it('resolveFirstConfigured picks a configured provider from the registry', () => {
