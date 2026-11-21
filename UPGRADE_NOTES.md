@@ -2736,10 +2736,13 @@ carrier-reported status that skips intermediate steps: from `label_created` and 
 shipment can move straight to `out_for_delivery`, `delivered`, `failed_delivery` or `returned`
 (previously only `picked_up` / `in_transit` / `cancelled`, and such reports were silently dropped).
 Backwards moves and moves out of `delivered` / `returned` / `cancelled` are still refused, and the
-user cancel gate is unchanged. Webhook and tracking-refresh updates now decide and write under a
-row lock, so concurrent carrier updates for one shipment cannot regress it. A user cancel
-(`POST /api/shipping-carriers/cancel`) still writes `cancelled` without that lock after the carrier call
-returns, so a `delivered` webhook committed while the cancel call is in flight can still be overwritten.
+user cancel gate is unchanged. Webhook, tracking-refresh and user-cancellation updates decide and
+write under the same row lock, so concurrent updates for one shipment cannot regress it. A user
+cancel (`POST /api/shipping-carriers/cancel`) rechecks the current status after the carrier call
+returns. If a delivery or another non-cancellable status committed meanwhile, cancellation returns
+the existing `422` refusal, preserves that status and emits no cancelled event. The carrier call
+runs outside the transaction; an external cancellation already accepted by the carrier cannot be
+rolled back when a newer local status wins. No schema or configuration changes are required.
 
 `shipping_carriers.shipment.status_changed`, `.delivered` and `.returned` emitted by the webhook
 worker used to carry the raw carrier string of the **new** status in `previousStatus`. They now
