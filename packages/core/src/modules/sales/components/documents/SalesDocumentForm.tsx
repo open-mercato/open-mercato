@@ -29,7 +29,14 @@ import {
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createCrudFormError, normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
+import {
+  AddressCustomFieldEditor,
+  getAddressCustomFieldErrors,
+  useAddressCustomFields,
+  validateAddressCustomFields,
+  type AddressCustomFieldStructure,
+} from '@open-mercato/ui/backend/detail/AddressCustomFields'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
@@ -66,6 +73,7 @@ import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { SalesOrderDraftLines, createSalesOrderLineDraft, type SalesOrderLineDraft } from './SalesOrderDraftLines'
 import { normalizeAddressDraft } from './normalizeAddressDraft'
+import { asAddressValues, selectAddressValuesForCopy } from './addressCustomValueClient'
 
 const logger = createLogger('sales')
 
@@ -79,6 +87,7 @@ const CUSTOMER_QUICK_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('
 type DocumentKind = 'quote' | 'order'
 
 type AddressDraft = AddressEditorDraft
+type AddressValues = Record<string, unknown>
 
 type CustomerOption = {
   id: string
@@ -97,6 +106,7 @@ type AddressOption = {
   name?: string | null
   isPrimary: boolean
   value: AddressValue
+  customValues?: AddressValues | null
 }
 
 export type SalesDocumentFormValues = {
@@ -115,6 +125,8 @@ export type SalesDocumentFormValues = {
   saveBillingAddress?: boolean
   shippingAddressDraft?: AddressDraft
   billingAddressDraft?: AddressDraft
+  shippingAddressCustomValues?: AddressValues
+  billingAddressCustomValues?: AddressValues
   comments?: string | null
   lines?: SalesOrderLineDraft[]
 } & Record<string, unknown>
@@ -458,6 +470,66 @@ type BillingAddressSectionFieldProps = CrudCustomFieldRenderProps & {
   addressesLoading: boolean
   addressOptions: AddressOption[]
   addressFormat: AddressFormatStrategy
+  addressCustomFields: AddressFieldStructures
+  customFieldErrors?: Record<string, string>
+  clearCustomFieldErrors: (side: 'shipping' | 'billing') => void
+}
+
+type AddressFieldStructures = {
+  source: AddressCustomFieldStructure
+  target: AddressCustomFieldStructure
+}
+
+function getAddressCustomDraft(
+  structures: AddressFieldStructures,
+  address: AddressOption | undefined,
+  patch: AddressValues | undefined,
+) {
+  const sourceValues = selectAddressValuesForCopy(address?.customValues, structures.source, structures.target)
+  const defaults = Object.fromEntries(structures.target.fields.flatMap((field) =>
+    field.defaultValue !== undefined && sourceValues?.[field.id] === undefined ? [[field.id, field.defaultValue]] : [],
+  ))
+  const overrides = { ...defaults, ...patch }
+  return {
+    structure: address?.customValues && structures.source.status !== 'ready' ? structures.source : structures.target,
+    values: { ...sourceValues, ...overrides },
+    overrides,
+    copy: sourceValues != null,
+  }
+}
+
+function PrimaryAddressCustomFieldEditor({
+  structures,
+  address,
+  patch,
+  onChange,
+  errors,
+  disabled,
+  t,
+}: {
+  structures: AddressFieldStructures
+  address?: AddressOption
+  patch?: AddressValues
+  onChange: (values: AddressValues) => void
+  errors?: Record<string, string>
+  disabled?: boolean
+  t: Translator
+}) {
+  const draft = getAddressCustomDraft(structures, address, patch)
+  return (
+    <AddressCustomFieldEditor
+      structure={draft.structure}
+      values={draft.values}
+      onChange={(key, value) => onChange({ ...patch, [key]: value })}
+      errors={errors}
+      disabled={disabled}
+      labels={{
+        loading: t('common.loading', 'Loading…'),
+        error: t('entities.customFields.errors.loadFailed', 'Failed to load field definitions'),
+        retry: t('sales.documents.detail.retry', 'Try again'),
+      }}
+    />
+  )
 }
 
 type CustomerGroupComponentProps = CrudFormGroupComponentProps & {
@@ -539,7 +611,7 @@ function DocumentNumberField({ value, setValue, values, t }: DocumentNumberField
   )
 }
 
-function BillingAddressSectionField({ values, setFormValue, t, addressesLoading, addressOptions, addressFormat }: BillingAddressSectionFieldProps) {
+function BillingAddressSectionField({ values, setFormValue, t, addressesLoading, addressOptions, addressFormat, addressCustomFields, customFieldErrors, clearCustomFieldErrors, disabled }: BillingAddressSectionFieldProps) {
   const formValues = (values ?? {}) as Partial<SalesDocumentFormValues>
   const updateValue = setFormValue ?? (() => {})
   const useCustom = formValues.useCustomBilling === true
@@ -552,6 +624,23 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
   const shippingDraftKey = JSON.stringify(shippingDraft)
   const billingDraftKey = JSON.stringify(draft)
   const useCustomShipping = formValues.useCustomShipping === true
+  const selectedAddress = useCustom ? undefined : addressOptions.find((address) => address.id === selectedId)
+  const title = t('sales.documents.form.billing.title', 'Billing address')
+  const customEditor = useCustom || selectedAddress ? (
+    <PrimaryAddressCustomFieldEditor
+      key={useCustom ? 'manual' : selectedAddress?.id}
+      structures={addressCustomFields}
+      address={selectedAddress}
+      patch={formValues.billingAddressCustomValues}
+      onChange={(next) => {
+        updateValue('billingAddressCustomValues', next)
+        clearCustomFieldErrors('billing')
+      }}
+      errors={customFieldErrors}
+      disabled={disabled}
+      t={t}
+    />
+  ) : null
 
   React.useEffect(() => {
     if (!sameAsShipping) return
@@ -577,11 +666,11 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
   ])
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" role="group" aria-label={title}>
       <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-base font-semibold">
-            {t('sales.documents.form.billing.title', 'Billing address')}
+            {title}
           </p>
           <p className="text-xs text-muted-foreground">
             {sameAsShipping
@@ -595,6 +684,8 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
           checked={sameAsShipping}
           onCheckedChange={(checked) => {
             updateValue('sameAsShipping', checked)
+            updateValue('billingAddressCustomValues', formValues.shippingAddressCustomValues)
+            clearCustomFieldErrors('billing')
             if (checked) {
               updateValue('useCustomBilling', useCustomShipping)
               updateValue('billingAddressId', shippingId)
@@ -609,7 +700,11 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
           {!useCustom ? (
             <Select
               value={selectedId || undefined}
-              onValueChange={(value) => updateValue('billingAddressId', value || null)}
+              onValueChange={(value) => {
+                updateValue('billingAddressId', value || null)
+                updateValue('billingAddressCustomValues', undefined)
+                clearCustomFieldErrors('billing')
+              }}
               disabled={addressesLoading || customerRequired}
             >
               <SelectTrigger>
@@ -636,7 +731,11 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
             label={t('sales.documents.form.shipping.custom', 'Define new address')}
             flip
             checked={useCustom}
-            onCheckedChange={(checked) => updateValue('useCustomBilling', checked)}
+            onCheckedChange={(checked) => {
+              updateValue('useCustomBilling', checked)
+              updateValue('billingAddressCustomValues', undefined)
+              clearCustomFieldErrors('billing')
+            }}
             disabled={false}
           />
 
@@ -650,7 +749,9 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
                 hidePrimaryToggle
                 showPhoneField
                 showTaxIdField
-              />
+              >
+                {customEditor}
+              </AddressEditor>
               <SwitchField
                 containerClassName="col-span-2"
                 label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
@@ -659,7 +760,7 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
                 onCheckedChange={(checked) => updateValue('saveBillingAddress', checked)}
               />
             </div>
-          ) : null}
+          ) : customEditor}
         </>
       ) : null}
     </div>
@@ -823,6 +924,16 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   const [channels, setChannels] = React.useState<ChannelOption[]>([])
   const [channelLoading, setChannelLoading] = React.useState(false)
   const [addressOptions, setAddressOptions] = React.useState<AddressOption[]>([])
+  const targetAddressFields = useAddressCustomFields(E.sales.sales_document_address)
+  const sourceAddressFields = useAddressCustomFields(E.customers.customer_address, addressOptions.some((address) => address.customValues != null))
+  const addressCustomFields = React.useMemo(
+    () => ({ source: sourceAddressFields, target: targetAddressFields }),
+    [sourceAddressFields, targetAddressFields],
+  )
+  const [addressFieldErrors, setAddressFieldErrors] = React.useState<Partial<Record<'shipping' | 'billing', Record<string, string>>>>({})
+  const clearAddressFieldErrors = React.useCallback((side: 'shipping' | 'billing') => {
+    setAddressFieldErrors((previous) => previous[side] ? { ...previous, [side]: undefined } : previous)
+  }, [])
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressesError, setAddressesError] = React.useState<string | null>(null)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
@@ -993,7 +1104,8 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     setAddressOptions([])
     const controller = new AbortController()
     addressAbortRef.current = controller
-    addressTimeoutRef.current = setTimeout(() => controller.abort(), 12_000)
+    const timeout = setTimeout(() => controller.abort(), 12_000)
+    addressTimeoutRef.current = timeout
     try {
       const params = new URLSearchParams({ page: '1', pageSize: '50', entityId: customerId })
       const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
@@ -1020,12 +1132,11 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
           const summary = formatAddressString(value, addressFormat)
           const label = name || summary || id
           const isPrimary = item.is_primary === true
-          acc.push({ id, label, summary, value, name: name || null, isPrimary })
+          acc.push({ id, label, summary, value, name: name || null, isPrimary, customValues: asAddressValues(item.customValues) })
           return acc
         }, [])
-        if (addressRequestRef.current === requestId) {
-          setAddressOptions(options)
-        }
+        if (addressRequestRef.current !== requestId) return []
+        setAddressOptions(options)
         return options
       } else {
         if (addressRequestRef.current === requestId) {
@@ -1048,8 +1159,8 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         }
       }
     } finally {
-      if (addressTimeoutRef.current) {
-        clearTimeout(addressTimeoutRef.current)
+      clearTimeout(timeout)
+      if (addressTimeoutRef.current === timeout) {
         addressTimeoutRef.current = null
       }
       if (addressAbortRef.current === controller) {
@@ -1118,6 +1229,9 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       updateValue('billingAddressId', null)
       updateValue('shippingAddressDraft', undefined)
       updateValue('billingAddressDraft', undefined)
+      updateValue('shippingAddressCustomValues', undefined)
+      updateValue('billingAddressCustomValues', undefined)
+      setAddressFieldErrors({})
       updateValue('useCustomShipping', false)
       updateValue('useCustomBilling', false)
       updateValue('saveShippingAddress', false)
@@ -1222,7 +1336,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       id: 'shippingAddressSection',
       label: '',
       type: 'custom',
-      component: ({ values, setFormValue }) => {
+      component: ({ values, setFormValue, disabled }) => {
         const formValues = (values ?? {}) as Partial<SalesDocumentFormValues>
         const updateValue = setFormValue ?? (() => {})
         const useCustom = formValues.useCustomShipping === true
@@ -1230,12 +1344,29 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         const draft = (formValues.shippingAddressDraft ?? {}) as AddressDraft
         const customerRequired = !formValues.customerEntityId
         const customerId = typeof formValues.customerEntityId === 'string' ? formValues.customerEntityId : null
+        const selectedAddress = useCustom ? undefined : addressOptions.find((address) => address.id === selectedId)
+        const title = t('sales.documents.form.shipping.title', 'Shipping address')
+        const customEditor = useCustom || selectedAddress ? (
+          <PrimaryAddressCustomFieldEditor
+            key={useCustom ? 'manual' : selectedAddress?.id}
+            structures={addressCustomFields}
+            address={selectedAddress}
+            patch={formValues.shippingAddressCustomValues}
+            onChange={(next) => {
+              updateValue('shippingAddressCustomValues', next)
+              clearAddressFieldErrors('shipping')
+            }}
+            errors={addressFieldErrors.shipping}
+            disabled={disabled}
+            t={t}
+          />
+        ) : null
         return (
-          <div className="space-y-3">
+          <div className="space-y-3" role="group" aria-label={title}>
             <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-base font-semibold">
-                  {t('sales.documents.form.shipping.title', 'Shipping address')}
+                  {title}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {customerRequired
@@ -1247,13 +1378,21 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                 label={t('sales.documents.form.shipping.custom', 'Define new address')}
                 flip
                 checked={useCustom}
-                onCheckedChange={(checked) => updateValue('useCustomShipping', checked)}
+                onCheckedChange={(checked) => {
+                  updateValue('useCustomShipping', checked)
+                  updateValue('shippingAddressCustomValues', undefined)
+                  clearAddressFieldErrors('shipping')
+                }}
               />
             </div>
             {!useCustom ? (
               <Select
                 value={selectedId || undefined}
-                onValueChange={(value) => updateValue('shippingAddressId', value || null)}
+                onValueChange={(value) => {
+                  updateValue('shippingAddressId', value || null)
+                  updateValue('shippingAddressCustomValues', undefined)
+                  clearAddressFieldErrors('shipping')
+                }}
                 disabled={addressesLoading || customerRequired}
               >
                 <SelectTrigger>
@@ -1285,7 +1424,9 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                   hidePrimaryToggle
                   showPhoneField
                   showTaxIdField
-                />
+                >
+                  {customEditor}
+                </AddressEditor>
                 <SwitchField
                   containerClassName="col-span-2"
                   label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
@@ -1294,7 +1435,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                   onCheckedChange={(checked) => updateValue('saveShippingAddress', checked)}
                 />
               </div>
-            ) : null}
+            ) : customEditor}
             {addressesError && customerId ? (
               <div className="flex items-start justify-between gap-3 rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
                 <span className="flex-1">{addressesError}</span>
@@ -1318,7 +1459,18 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       id: 'billingAddressSection',
       label: '',
       type: 'custom',
-      component: (props) => <BillingAddressSectionField {...props} t={t} addressesLoading={addressesLoading} addressOptions={addressOptions} addressFormat={addressFormat} />,
+      component: (props) => (
+        <BillingAddressSectionField
+          {...props}
+          t={t}
+          addressesLoading={addressesLoading}
+          addressOptions={addressOptions}
+          addressFormat={addressFormat}
+          addressCustomFields={addressCustomFields}
+          customFieldErrors={addressFieldErrors.billing}
+          clearCustomFieldErrors={clearAddressFieldErrors}
+        />
+      ),
     },
     {
       id: 'comments',
@@ -1342,10 +1494,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       ) : null,
     },
   ], [
+    addressCustomFields,
+    addressFieldErrors,
     addressFormat,
     addressOptions,
     addressesError,
     addressesLoading,
+    clearAddressFieldErrors,
     channelsEnabled,
     currencyLabels,
     defaultCurrency,
@@ -1483,6 +1638,41 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       if (!base.useCustomShipping) payload.shippingAddressId = base.shippingAddressId || undefined
       if (!base.useCustomBilling && !sameAsShipping) payload.billingAddressId = base.billingAddressId || undefined
 
+      const shippingSource = !base.useCustomShipping ? addressOptions.find((address) => address.id === payload.shippingAddressId) : undefined
+      const billingSource = sameAsShipping ? shippingSource : !base.useCustomBilling
+        ? addressOptions.find((address) => address.id === payload.billingAddressId)
+        : undefined
+      const shippingCustom = getAddressCustomDraft(addressCustomFields, shippingSource, base.shippingAddressCustomValues)
+      const billingPatch = sameAsShipping ? base.shippingAddressCustomValues : base.billingAddressCustomValues
+      const billingCustom = sameAsShipping ? shippingCustom : getAddressCustomDraft(addressCustomFields, billingSource, billingPatch)
+      const customErrors: typeof addressFieldErrors = {}
+      const invalidAddressInputs: Record<string, string> = {}
+      for (const side of ['shipping', 'billing'] as const) {
+        const isShipping = side === 'shipping'
+        const draft = isShipping ? shippingCustom : billingCustom
+        const patch = isShipping ? base.shippingAddressCustomValues : billingPatch
+        const hasAddress = isShipping ? shippingSnapshot || payload.shippingAddressId : billingSnapshot || payload.billingAddressId
+        if (!hasAddress) {
+          if (patch && Object.keys(patch).length) {
+            invalidAddressInputs[`${side}AddressSection`] = t('sales.documents.detail.addresses.select', 'Select an address to add.')
+          }
+          continue
+        }
+        if (draft.structure.status !== 'ready') {
+          invalidAddressInputs[`${side}AddressSection`] = t('entities.customFields.errors.loadFailed', 'Failed to load field definitions')
+          continue
+        }
+        if (!addressCustomFields.target.fields.length) continue
+        const errors = validateAddressCustomFields(addressCustomFields.target, draft.values)
+        if (Object.keys(errors).length) customErrors[side] = errors
+        payload[`${side}AddressCustomValues`] = draft.overrides
+        if (draft.copy) payload[isShipping ? 'copyShippingAddressCustomValues' : 'copyBillingAddressCustomValues'] = true
+      }
+      setAddressFieldErrors(customErrors)
+      if (Object.keys(invalidAddressInputs).length || Object.keys(customErrors).length) {
+        throw createCrudFormError(t('entities.customFields.errors.validation', 'Please fix validation errors'), invalidAddressInputs)
+      }
+
       try {
         let shippingId = payload.shippingAddressId as string | undefined
         let billingId = payload.billingAddressId as string | undefined
@@ -1539,11 +1729,27 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         flash(t('sales.documents.form.success', 'Sales document created.'), 'success')
         onCreated({ id: newId, kind: documentKind })
       } catch (err) {
+        const { fieldErrors } = normalizeCrudServerError(err)
+        if (fieldErrors) {
+          const generic = getAddressCustomFieldErrors(addressCustomFields.target, err)
+          const bySide = (side: 'shipping' | 'billing') => {
+            const prefix = `${side}AddressCustomValues.`
+            const entries = Object.entries(fieldErrors).filter(([key]) => key.startsWith(prefix))
+            return Object.fromEntries(entries.map(([key, message]) => [key.slice(prefix.length), message]))
+          }
+          const shippingErrors = bySide('shipping')
+          const billingErrors = bySide('billing')
+          const addressed = Object.keys(shippingErrors).length || Object.keys(billingErrors).length
+          setAddressFieldErrors({
+            shipping: addressed ? (sameAsShipping ? { ...billingErrors, ...shippingErrors } : shippingErrors) : generic,
+            billing: addressed ? billingErrors : generic,
+          })
+        }
         if (err instanceof Error) throw err
         throw createCrudFormError(t('sales.documents.form.errors.submit', 'Failed to create document.'))
       }
     },
-    [onCreated, t],
+    [addressCustomFields, addressOptions, onCreated, t],
   )
 
   const cancelHref = initialKind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'

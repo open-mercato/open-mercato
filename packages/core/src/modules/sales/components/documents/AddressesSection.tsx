@@ -6,7 +6,13 @@ import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-merc
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
+import {
+  AddressCustomFieldEditor,
+  useAddressCustomFields,
+  useAddressCustomValueDraft,
+} from '@open-mercato/ui/backend/detail/AddressCustomFields'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Select,
@@ -18,8 +24,10 @@ import {
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
+import { CustomFieldValuesList } from '@open-mercato/core/modules/customers/components/detail/CustomFieldValuesList'
 import {
   AddressView,
   formatAddressString,
@@ -28,6 +36,7 @@ import {
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { Pencil, Plus, Save, Trash2 } from 'lucide-react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { asAddressValues, selectAddressValuesForCopy } from './addressCustomValueClient'
 
 const logger = createLogger('sales')
 
@@ -40,6 +49,7 @@ type AddressOption = {
   value: AddressValue
   name?: string | null
   purpose?: string | null
+  customValues?: Record<string, unknown> | null
 }
 
 export type SalesDocumentAddressesSectionProps = {
@@ -50,7 +60,11 @@ export type SalesDocumentAddressesSectionProps = {
   billingAddressId?: string | null
   shippingAddressSnapshot?: Record<string, unknown> | null
   billingAddressSnapshot?: Record<string, unknown> | null
+  shippingAddressCustomValues?: Record<string, unknown> | null
+  billingAddressCustomValues?: Record<string, unknown> | null
+  updatedAt?: string | null
   lockedReason?: string | null
+  onReload?: () => Promise<void>
   onUpdated?: (patch: {
     shippingAddressId?: string | null
     billingAddressId?: string | null
@@ -180,6 +194,8 @@ type DocumentAddressAssignment = {
   name?: string | null
   purpose?: string | null
   companyName?: string | null
+  updatedAt?: string | null
+  customValues?: Record<string, unknown> | null
 }
 
 function readStringField(item: Record<string, unknown>, keys: string[]): string | null {
@@ -209,7 +225,7 @@ function mapApiAddress(item: Record<string, unknown>, format: AddressFormatStrat
   const purpose = (read(['purpose']) ?? '').trim()
   const summary = formatAddressString(value, format)
   const label = name || summary || id
-  return { id, label, summary, value, name: name || null, purpose: purpose || null }
+  return { id, label, summary, value, name: name || null, purpose: purpose || null, customValues: asAddressValues(item.customValues) }
 }
 
 function mergeAddressOption(options: AddressOption[], selected: AddressOption | null): AddressOption[] {
@@ -243,14 +259,42 @@ export function SalesDocumentAddressesSection({
   billingAddressId,
   shippingAddressSnapshot,
   billingAddressSnapshot,
+  shippingAddressCustomValues,
+  billingAddressCustomValues,
+  updatedAt,
   lockedReason,
+  onReload,
   onUpdated,
 }: SalesDocumentAddressesSectionProps) {
   const t = useT()
+  const organizationScopeVersion = useOrganizationScopeVersion()
+  const fieldStructure = useAddressCustomFields('sales:sales_document_address')
+  const customerFieldStructure = useAddressCustomFields('customers:customer_address', Boolean(customerId))
+  const fieldLabels = {
+    loading: t('sales.documents.form.address.loading', 'Loading addresses…'),
+    error: t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.'),
+    retry: t('sales.documents.detail.retry', 'Try again'),
+  }
+  const customFields = {
+    structure: fieldStructure,
+    labels: fieldLabels,
+    renderValues: (values: Record<string, unknown>) => (
+      <CustomFieldValuesList values={values} definitions={fieldStructure.definitions} />
+    ),
+  }
+  const shippingFields = useAddressCustomValueDraft(customFields)
+  const billingFields = useAddressCustomValueDraft(customFields)
+  const additionalFields = useAddressCustomValueDraft(customFields)
+  const editingFields = useAddressCustomValueDraft(customFields)
+  const [shippingCopySource, setShippingCopySource] = React.useState<string | null>(null)
+  const [billingCopySource, setBillingCopySource] = React.useState<string | null>(null)
+  const [additionalCopySource, setAdditionalCopySource] = React.useState<string | null>(null)
+  const [mirrorBillingFields, setMirrorBillingFields] = React.useState(false)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [addressOptions, setAddressOptions] = React.useState<AddressOption[]>([])
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressesError, setAddressesError] = React.useState<string | null>(null)
+  const addressRequestVersion = React.useRef(0)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
   const [useCustomShipping, setUseCustomShipping] = React.useState<boolean>(
     !!shippingAddressSnapshot && !shippingAddressId
@@ -262,7 +306,7 @@ export function SalesDocumentAddressesSection({
   )
   const [sameAsShipping, setSameAsShipping] = React.useState<boolean>(() => {
     if (shippingAddressSnapshot || billingAddressSnapshot) {
-      return deepEqual(shippingAddressSnapshot, billingAddressSnapshot)
+      return deepEqual(shippingAddressSnapshot, billingAddressSnapshot) && deepEqual(shippingAddressCustomValues, billingAddressCustomValues)
     }
     if (!billingAddressId) return true
     return shippingAddressId === billingAddressId
@@ -338,8 +382,10 @@ export function SalesDocumentAddressesSection({
     additionalModeTouchedRef.current = false
     setAdditionalUseCustom(!hasSavedAddresses)
     setAdditionalSelectedId('')
+    additionalFields.reset()
+    setAdditionalCopySource(null)
     setAdditionalFormOpen(true)
-  }, [hasSavedAddresses])
+  }, [additionalFields.reset, hasSavedAddresses])
   React.useEffect(() => {
     if (!additionalFormOpen || addressesLoading) return
     if (!hasSavedAddresses) setAdditionalUseCustom(true)
@@ -350,6 +396,25 @@ export function SalesDocumentAddressesSection({
     addressOptions.forEach((entry) => map.set(entry.id, entry))
     return map
   }, [addressOptions])
+
+  const copyPreview = React.useCallback((id: string | null) => (
+    selectAddressValuesForCopy(id ? addressOptionsMap.get(id)?.customValues : null, customerFieldStructure, fieldStructure)
+  ), [addressOptionsMap, customerFieldStructure, fieldStructure])
+  const shippingPreview = React.useMemo(() => copyPreview(shippingCopySource), [copyPreview, shippingCopySource])
+  const billingPreview = React.useMemo(() => copyPreview(billingCopySource), [billingCopySource, copyPreview])
+  const additionalPreview = React.useMemo(() => copyPreview(additionalCopySource), [additionalCopySource, copyPreview])
+  React.useEffect(() => {
+    if (shippingCopySource) shippingFields.setInitialValues(shippingPreview ?? {})
+  }, [shippingCopySource, shippingFields.setInitialValues, shippingPreview])
+  React.useEffect(() => {
+    if (billingCopySource) billingFields.setInitialValues(billingPreview ?? {})
+  }, [billingCopySource, billingFields.setInitialValues, billingPreview])
+  React.useEffect(() => {
+    if (additionalCopySource) additionalFields.setInitialValues(additionalPreview ?? {})
+  }, [additionalCopySource, additionalFields.setInitialValues, additionalPreview])
+  const copyShippingFields = shippingPreview !== null
+  const copyBillingFields = billingPreview !== null
+  const copyAdditionalFields = additionalPreview !== null
 
   const resolveAddressSummary = React.useCallback(
     (value: AddressValue) => {
@@ -419,6 +484,8 @@ export function SalesDocumentAddressesSection({
               name: read(['name']),
               purpose: read(['purpose']),
               companyName: value.companyName ?? null,
+              customValues: asAddressValues(item.customValues),
+              updatedAt: read(['updated_at', 'updatedAt']),
             }
           })
           // Narrow to non-null only. Asserting `DocumentAddressAssignment` here was wrong: its
@@ -444,7 +511,7 @@ export function SalesDocumentAddressesSection({
     const shippingCustom = !!shippingAddressSnapshot && !shippingAddressId
     const billingCustom = !!billingAddressSnapshot && !billingAddressId
     const nextSame = shippingAddressSnapshot || billingAddressSnapshot
-      ? deepEqual(shippingAddressSnapshot, billingAddressSnapshot)
+      ? deepEqual(shippingAddressSnapshot, billingAddressSnapshot) && deepEqual(shippingAddressCustomValues, billingAddressCustomValues)
       : !billingAddressId || billingAddressId === shippingAddressId
     setUseCustomShipping(shippingCustom)
     setUseCustomBilling(nextSame ? shippingCustom : billingCustom)
@@ -461,7 +528,12 @@ export function SalesDocumentAddressesSection({
     setBillingAddressId(nextSame ? shippingAddressId ?? billingAddressId ?? null : billingAddressId ?? null)
     setSaveShippingAddress(false)
     setSaveBillingAddress(false)
-  }, [billingAddressId, billingAddressSnapshot, documentId, shippingAddressId, shippingAddressSnapshot])
+    shippingFields.reset(shippingAddressCustomValues ?? {})
+    billingFields.reset(billingAddressCustomValues ?? {})
+    setShippingCopySource(null)
+    setBillingCopySource(null)
+    setMirrorBillingFields(false)
+  }, [billingAddressId, billingAddressCustomValues, billingAddressSnapshot, billingFields.reset, documentId, shippingAddressId, shippingAddressCustomValues, shippingAddressSnapshot, shippingFields.reset])
 
   React.useEffect(() => {
     loadDocumentAddresses().catch(() => {})
@@ -500,8 +572,10 @@ export function SalesDocumentAddressesSection({
 
   const loadAddresses = React.useCallback(
     async (id?: string | null) => {
+      const version = ++addressRequestVersion.current
       if (!id) {
         setAddressOptions([])
+        setAddressesLoading(false)
         return
       }
       setAddressesLoading(true)
@@ -511,6 +585,7 @@ export function SalesDocumentAddressesSection({
         const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
           `/api/customers/addresses?${params.toString()}`
         )
+        if (version !== addressRequestVersion.current) return
         if (call.ok && Array.isArray(call.result?.items)) {
           const options = call.result.items
             .map((item) => mapApiAddress(item, addressFormat))
@@ -520,13 +595,14 @@ export function SalesDocumentAddressesSection({
           setAddressOptions([])
         }
       } catch (err) {
+        if (version !== addressRequestVersion.current) return
         logger.error('sales.documents.addresses.load', { err })
         const message = t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.')
         setAddressesError(message)
         flash(message, 'error')
         setAddressOptions([])
       } finally {
-        setAddressesLoading(false)
+        if (version === addressRequestVersion.current) setAddressesLoading(false)
       }
     },
     [addressFormat, t]
@@ -534,8 +610,10 @@ export function SalesDocumentAddressesSection({
 
   const loadAddressOptionById = React.useCallback(
     async (addressId: string): Promise<AddressOption | null> => {
+      if (!customerId) return null
+      const params = new URLSearchParams({ id: addressId, entityId: customerId, pageSize: '1' })
       const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-        `/api/customers/addresses?id=${encodeURIComponent(addressId)}&pageSize=1`
+        `/api/customers/addresses?${params.toString()}`
       )
       const items = Array.isArray(call.result?.items) ? call.result.items : []
       return (
@@ -544,12 +622,14 @@ export function SalesDocumentAddressesSection({
           .find((entry): entry is AddressOption => entry?.id === addressId) ?? null
       )
     },
-    [addressFormat]
+    [addressFormat, customerId]
   )
 
   React.useEffect(() => {
+    setAddressOptions([])
     loadAddresses(customerId).catch(() => {})
-  }, [customerId, loadAddresses])
+    return () => { addressRequestVersion.current += 1 }
+  }, [customerId, loadAddresses, organizationScopeVersion])
 
   React.useEffect(() => {
     const selectedIds = [shippingAddressIdState, billingAddressIdState].filter(
@@ -557,8 +637,10 @@ export function SalesDocumentAddressesSection({
     )
     const missingIds = selectedIds.filter((id) => !addressOptions.some((option) => option.id === id))
     if (!missingIds.length) return
+    let active = true
     Promise.all(missingIds.map((id) => loadAddressOptionById(id).catch(() => null)))
       .then((selectedOptions) => {
+        if (!active) return
         setAddressOptions((current) =>
           selectedOptions.reduce(
             (next, selected) => mergeAddressOption(next, selected),
@@ -567,7 +649,8 @@ export function SalesDocumentAddressesSection({
         )
       })
       .catch(() => {})
-  }, [addressOptions, billingAddressIdState, loadAddressOptionById, shippingAddressIdState])
+    return () => { active = false }
+  }, [addressOptions, billingAddressIdState, loadAddressOptionById, organizationScopeVersion, shippingAddressIdState])
 
   const guardLocked = React.useCallback(() => {
     if (!locked) return false
@@ -642,6 +725,8 @@ export function SalesDocumentAddressesSection({
       flash(t('sales.documents.detail.addresses.select', 'Select an address to add.'), 'error')
       return
     }
+    const fields = additionalFields.prepare()
+    if (!fields.valid) return
     setAdditionalSaving(true)
     try {
       let resolvedValue: AddressValue | null = null
@@ -678,29 +763,31 @@ export function SalesDocumentAddressesSection({
         throw new Error(t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.'))
       }
 
-      const call = await apiCallOrThrow<Record<string, unknown>>(
-        '/api/sales/document-addresses',
-        {
+      const payload = {
+        documentId,
+        documentKind: kind,
+        customerAddressId: customerAddressId ?? undefined,
+        copyCustomerAddressCustomValues: copyAdditionalFields && !additionalUseCustom ? true : undefined,
+        customValues: fields.customValues,
+        name,
+        purpose,
+        addressLine1: resolvedValue.addressLine1,
+        addressLine2: resolvedValue.addressLine2 ?? undefined,
+        buildingNumber: resolvedValue.buildingNumber ?? undefined,
+        flatNumber: resolvedValue.flatNumber ?? undefined,
+        city: resolvedValue.city ?? undefined,
+        region: resolvedValue.region ?? undefined,
+        postalCode: resolvedValue.postalCode ?? undefined,
+        country: resolvedValue.country ?? undefined,
+        companyName: resolvedValue.companyName ?? undefined,
+      }
+      const call = await runGuardedMutation(
+        () => apiCallOrThrow<Record<string, unknown>>('/api/sales/document-addresses', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            documentId,
-            documentKind: kind,
-            customerAddressId: customerAddressId ?? undefined,
-            name,
-            purpose,
-            addressLine1: resolvedValue.addressLine1,
-            addressLine2: resolvedValue.addressLine2 ?? undefined,
-            buildingNumber: resolvedValue.buildingNumber ?? undefined,
-            flatNumber: resolvedValue.flatNumber ?? undefined,
-            city: resolvedValue.city ?? undefined,
-            region: resolvedValue.region ?? undefined,
-            postalCode: resolvedValue.postalCode ?? undefined,
-            country: resolvedValue.country ?? undefined,
-            companyName: resolvedValue.companyName ?? undefined,
-          }),
-        },
-        { errorMessage: t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.') }
+          body: JSON.stringify(payload),
+        }, { errorMessage: t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.') }),
+        payload,
       )
 
       const savedId = typeof call.result?.id === 'string' ? call.result.id : null
@@ -725,8 +812,10 @@ export function SalesDocumentAddressesSection({
       setAdditionalUseCustom(false)
       setAdditionalSelectedId('')
       setAdditionalDraft(emptyDraft)
+      await loadDocumentAddresses()
       flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
     } catch (err) {
+      if (additionalFields.showErrors(err)) return
       const message =
         err instanceof Error && err.message
           ? err.message
@@ -739,12 +828,17 @@ export function SalesDocumentAddressesSection({
     additionalDraft,
     additionalSelectedId,
     additionalUseCustom,
+    additionalFields,
     addressOptionsMap,
+    copyAdditionalFields,
     customerId,
     documentId,
+    guardLocked,
     kind,
     loadAddresses,
+    loadDocumentAddresses,
     resolveAddressSummary,
+    runGuardedMutation,
     t,
   ])
 
@@ -762,6 +856,8 @@ export function SalesDocumentAddressesSection({
       return
     }
     if (guardLocked()) return
+    const fields = editingFields.prepare()
+    if (!fields.valid) return
     const normalizedRecord = (normalizeAddressDraft(editingDraft) ?? {}) as Record<string, unknown>
     const read = (key: string) => {
       const value = normalizedRecord[key]
@@ -795,6 +891,7 @@ export function SalesDocumentAddressesSection({
         documentId,
         documentKind: kind,
         customerAddressId: current.customerAddressId ?? undefined,
+        customValues: fields.customValues,
         name: nameValue,
         purpose: purposeValue,
         companyName: updatedValue.companyName,
@@ -809,8 +906,7 @@ export function SalesDocumentAddressesSection({
       }
       await runGuardedMutation(
         () =>
-          // TODO(#2373-C): thread document updatedAt
-          withScopedApiRequestHeaders(buildOptimisticLockHeader(undefined), () =>
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(current.updatedAt), () =>
             apiCallOrThrow(
               '/api/sales/document-addresses',
               {
@@ -837,9 +933,11 @@ export function SalesDocumentAddressesSection({
             : entry
         )
       )
+      await loadDocumentAddresses()
       flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       handleCancelEdit()
     } catch (err) {
+      if (surfaceRecordConflict(err, t, { onRefresh: loadDocumentAddresses }) || editingFields.showErrors(err)) return
       const message =
         err instanceof Error && err.message
           ? err.message
@@ -848,11 +946,12 @@ export function SalesDocumentAddressesSection({
     } finally {
       setEditingSaving(false)
     }
-  }, [documentAddresses, documentId, editingAddressId, editingDraft, handleCancelEdit, kind, resolveAddressSummary, runGuardedMutation, t])
+  }, [documentAddresses, documentId, editingAddressId, editingDraft, editingFields, guardLocked, handleCancelEdit, kind, loadDocumentAddresses, resolveAddressSummary, runGuardedMutation, t])
 
   const handleDeleteDocumentAddress = React.useCallback(
     async (id: string) => {
       if (guardLocked()) return
+      const entry = documentAddresses.find((address) => address.id === id)
       const confirmMessage = t(
         'sales.documents.detail.addresses.deleteConfirm',
         'This will permanently remove this address from the document. Continue?'
@@ -871,8 +970,7 @@ export function SalesDocumentAddressesSection({
         const payload = { id, documentId, documentKind: kind }
         await runGuardedMutation(
           () =>
-            // TODO(#2373-C): thread document updatedAt
-            withScopedApiRequestHeaders(buildOptimisticLockHeader(undefined), () =>
+            withScopedApiRequestHeaders(buildOptimisticLockHeader(entry?.updatedAt), () =>
               apiCallOrThrow(
                 '/api/sales/document-addresses',
                 {
@@ -891,6 +989,7 @@ export function SalesDocumentAddressesSection({
         }
         flash(t('sales.documents.detail.addresses.removed', 'Address unassigned.'), 'success')
       } catch (err) {
+        if (surfaceRecordConflict(err, t, { onRefresh: loadDocumentAddresses })) return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -904,24 +1003,40 @@ export function SalesDocumentAddressesSection({
         })
       }
     },
-    [confirm, documentId, editingAddressId, handleCancelEdit, kind, runGuardedMutation, t]
+    [confirm, documentAddresses, documentId, editingAddressId, guardLocked, handleCancelEdit, kind, loadDocumentAddresses, runGuardedMutation, t]
   )
 
   const handleSave = React.useCallback(async () => {
     if (guardLocked()) return
+    const shippingSnapshot = useCustomShipping
+      ? normalizeAddressDraft(shippingDraft, shippingAddressSnapshot)
+      : null
+    const billingSnapshot = sameAsShipping
+      ? shippingSnapshot
+      : useCustomBilling ? normalizeAddressDraft(billingDraft, billingAddressSnapshot) : null
+    const shippingInput: ReturnType<typeof shippingFields.prepare> = shippingSnapshot || (!useCustomShipping && shippingAddressIdState)
+      ? shippingFields.prepare()
+      : { valid: true }
+    const billingInput: ReturnType<typeof billingFields.prepare> = sameAsShipping
+      ? shippingInput
+      : billingSnapshot || (!useCustomBilling && billingAddressIdState) ? billingFields.prepare() : { valid: true }
+    if (!shippingInput.valid || !billingInput.valid) return
+    if (mirrorBillingFields && fieldStructure.status !== 'ready') return
     setSaving(true)
     try {
-      const shippingSnapshot = useCustomShipping
-        ? normalizeAddressDraft(shippingDraft, shippingAddressSnapshot)
-        : null
-      let billingSnapshot = useCustomBilling
-        ? normalizeAddressDraft(billingDraft, billingAddressSnapshot)
-        : null
       const same = sameAsShipping
       const payload: Record<string, unknown> = { id: documentId }
-
-      if (same && useCustomShipping) {
-        billingSnapshot = shippingSnapshot
+      if (shippingInput.customValues) payload.shippingAddressCustomValues = shippingInput.customValues
+      if (mirrorBillingFields && (shippingSnapshot || (!useCustomShipping && shippingAddressIdState))) {
+        payload.billingAddressCustomValues = Object.fromEntries(fieldStructure.fields
+          .filter(({ id }) => id in shippingFields.values || id in (billingAddressCustomValues ?? {}))
+          .map(({ id }) => [id, shippingFields.values[id] ?? null]))
+      } else if (billingInput.customValues) {
+        payload.billingAddressCustomValues = billingInput.customValues
+      }
+      if (!useCustomShipping && copyShippingFields) payload.copyShippingAddressCustomValues = true
+      if (same ? !useCustomShipping && copyShippingFields : !useCustomBilling && copyBillingFields) {
+        payload.copyBillingAddressCustomValues = true
       }
 
       let shippingId = useCustomShipping ? null : shippingAddressIdState
@@ -934,7 +1049,7 @@ export function SalesDocumentAddressesSection({
           : billingAddressIdState
 
       if (customerId && shippingSnapshot && useCustomShipping && saveShippingAddress) {
-        const res = await createCrud<{ id?: string }>('customers/addresses', {
+        const customerAddress = {
           entityId: customerId,
           addressLine1: shippingSnapshot.addressLine1 ?? shippingSnapshot.name ?? 'Address',
           name: shippingSnapshot.name ?? undefined,
@@ -947,12 +1062,16 @@ export function SalesDocumentAddressesSection({
           country: shippingSnapshot.country ?? undefined,
           purpose: shippingSnapshot.purpose ?? undefined,
           isPrimary: shippingSnapshot.isPrimary ?? undefined,
-        })
+        }
+        const res = await runGuardedMutation(
+          () => createCrud<{ id?: string }>('customers/addresses', customerAddress),
+          customerAddress,
+        )
         if (res?.result?.id) shippingId = res.result.id
       }
 
       if (customerId && billingSnapshot && useCustomBilling && saveBillingAddress) {
-        const res = await createCrud<{ id?: string }>('customers/addresses', {
+        const customerAddress = {
           entityId: customerId,
           addressLine1: billingSnapshot.addressLine1 ?? billingSnapshot.name ?? 'Address',
           name: billingSnapshot.name ?? undefined,
@@ -965,7 +1084,11 @@ export function SalesDocumentAddressesSection({
           country: billingSnapshot.country ?? undefined,
           purpose: billingSnapshot.purpose ?? undefined,
           isPrimary: billingSnapshot.isPrimary ?? undefined,
-        })
+        }
+        const res = await runGuardedMutation(
+          () => createCrud<{ id?: string }>('customers/addresses', customerAddress),
+          customerAddress,
+        )
         if (res?.result?.id) billingId = res.result.id
       }
 
@@ -981,8 +1104,7 @@ export function SalesDocumentAddressesSection({
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       const call = await runGuardedMutation(
         () =>
-          // TODO(#2373-C): thread document updatedAt
-          withScopedApiRequestHeaders(buildOptimisticLockHeader(undefined), () =>
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(updatedAt), () =>
             apiCallOrThrow<Record<string, unknown>>(
               endpoint,
               {
@@ -996,7 +1118,8 @@ export function SalesDocumentAddressesSection({
         payload,
       )
       const result = call.result ?? {}
-      onUpdated?.({
+      if (onReload) await onReload()
+      else onUpdated?.({
         shippingAddressId: (result.shippingAddressId as string | null | undefined) ?? (payload.shippingAddressId as string | null | undefined) ?? null,
         billingAddressId: (result.billingAddressId as string | null | undefined) ?? (payload.billingAddressId as string | null | undefined) ?? null,
         shippingAddressSnapshot:
@@ -1013,6 +1136,12 @@ export function SalesDocumentAddressesSection({
       }
       flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
     } catch (err) {
+      if (surfaceRecordConflict(err, t, { onRefresh: onReload })) return
+      const shippingError = shippingFields.showErrors(err, 'shippingAddressCustomValues')
+      const billingError = sameAsShipping
+        ? shippingFields.showErrors(err, 'billingAddressCustomValues')
+        : billingFields.showErrors(err, 'billingAddressCustomValues')
+      if (shippingError || billingError) return
       const message =
         err instanceof Error && err.message
           ? err.message
@@ -1023,23 +1152,51 @@ export function SalesDocumentAddressesSection({
     }
   }, [
     billingAddressIdState,
+    billingAddressCustomValues,
     billingAddressSnapshot,
     billingDraft,
+    billingFields,
+    copyBillingFields,
+    copyShippingFields,
     customerId,
     documentId,
+    fieldStructure,
+    guardLocked,
     kind,
+    mirrorBillingFields,
+    onReload,
+    onUpdated,
     sameAsShipping,
     saveBillingAddress,
     saveShippingAddress,
     shippingAddressIdState,
     shippingAddressSnapshot,
     shippingDraft,
+    shippingFields,
     t,
     loadAddresses,
     runGuardedMutation,
     useCustomBilling,
     useCustomShipping,
+    updatedAt,
   ])
+
+  const previewSelectedAddress = (id: string | null, fields: typeof shippingFields, setSource: (source: string | null) => void) => {
+    fields.reset(copyPreview(id) ?? {})
+    setSource(id)
+  }
+
+  const renderCustomFields = (fields: typeof shippingFields, busy: boolean, recordId?: string) => (
+    <AddressCustomFieldEditor
+      structure={fieldStructure}
+      labels={fieldLabels}
+      values={fields.values}
+      onChange={fields.onChange}
+      errors={fields.errors}
+      disabled={locked || busy}
+      recordId={recordId}
+    />
+  )
 
   const renderAddressSelect = (
     value: string,
@@ -1130,7 +1287,11 @@ export function SalesDocumentAddressesSection({
               label={t('sales.documents.form.shipping.custom', 'Define new address')}
               flip
               checked={useCustomShipping}
-              onCheckedChange={(checked) => setUseCustomShipping(checked)}
+              onCheckedChange={(checked) => {
+                setUseCustomShipping(checked)
+                setShippingCopySource(null)
+                shippingFields.reset(checked ? null : {})
+              }}
               disabled={customerRequired || locked}
             />
           </div>
@@ -1138,8 +1299,11 @@ export function SalesDocumentAddressesSection({
             ? renderAddressSelect(
                 shippingAddressIdState ?? '',
                 shippingOptions,
-                setShippingAddressId,
-                addressesLoading || customerRequired || locked
+                (id) => {
+                  setShippingAddressId(id)
+                  previewSelectedAddress(id, shippingFields, setShippingCopySource)
+                },
+                addressesLoading || customerRequired || locked || customerFieldStructure.status === 'loading'
               )
             : null}
           {useCustomShipping ? (
@@ -1163,6 +1327,7 @@ export function SalesDocumentAddressesSection({
               />
             </div>
           ) : null}
+          {useCustomShipping || shippingAddressIdState ? renderCustomFields(shippingFields, saving) : null}
         </div>
 
         <div className="space-y-3 rounded border bg-card p-4">
@@ -1184,6 +1349,7 @@ export function SalesDocumentAddressesSection({
               checked={sameAsShipping}
               onCheckedChange={(checked) => {
                 setSameAsShipping(checked)
+                setMirrorBillingFields(checked)
                 if (checked) {
                   setUseCustomBilling(useCustomShipping)
                   setBillingAddressId(useCustomShipping ? null : shippingAddressIdState)
@@ -1200,15 +1366,22 @@ export function SalesDocumentAddressesSection({
                 ? renderAddressSelect(
                     billingAddressIdState ?? '',
                     billingOptions,
-                    setBillingAddressId,
-                    addressesLoading || customerRequired || locked
+                    (id) => {
+                      setBillingAddressId(id)
+                      previewSelectedAddress(id, billingFields, setBillingCopySource)
+                    },
+                    addressesLoading || customerRequired || locked || customerFieldStructure.status === 'loading'
                   )
                 : null}
               <SwitchField
                 label={t('sales.documents.form.shipping.custom', 'Define new address')}
                 flip
                 checked={useCustomBilling}
-                onCheckedChange={(checked) => setUseCustomBilling(checked)}
+                onCheckedChange={(checked) => {
+                  setUseCustomBilling(checked)
+                  setBillingCopySource(null)
+                  billingFields.reset(checked ? null : {})
+                }}
                 disabled={customerRequired || locked}
               />
 
@@ -1233,6 +1406,7 @@ export function SalesDocumentAddressesSection({
                   />
                 </div>
               ) : null}
+              {useCustomBilling || billingAddressIdState ? renderCustomFields(billingFields, saving) : null}
             </>
           ) : null}
         </div>
@@ -1327,7 +1501,9 @@ export function SalesDocumentAddressesSection({
                       t={t as Translator}
                       onChange={(next) => setEditingDraft(next)}
                       hidePrimaryToggle
+                      disabled={locked || editingSaving}
                     />
+                    {renderCustomFields(editingFields, editingSaving, entry.id)}
                     <div className="flex justify-end gap-2">
                       <Button
                         type="button"
@@ -1342,7 +1518,7 @@ export function SalesDocumentAddressesSection({
                         type="button"
                         size="sm"
                         onClick={() => void handleUpdateDocumentAddress()}
-                        disabled={editingSaving}
+                        disabled={editingSaving || locked || editingFields.blocked}
                       >
                         {editingSaving
                           ? t('sales.documents.form.address.saving', 'Saving…')
@@ -1367,6 +1543,7 @@ export function SalesDocumentAddressesSection({
                           onClick={() => {
                             setEditingAddressId(entry.id)
                             setEditingDraft(draftFromDocumentAddress(entry))
+                            editingFields.reset(entry.customValues ?? {})
                           }}
                           disabled={locked}
                           aria-label={t('sales.documents.detail.addresses.edit', 'Edit address')}
@@ -1391,6 +1568,7 @@ export function SalesDocumentAddressesSection({
                       className="space-y-1 text-sm"
                       lineClassName="text-sm text-foreground"
                     />
+                    {entry.customValues && fieldStructure.status === 'ready' ? customFields.renderValues(entry.customValues) : null}
                   </>
                 )}
               </div>
@@ -1425,6 +1603,11 @@ export function SalesDocumentAddressesSection({
                 onValueChange={(next) => {
                   additionalModeTouchedRef.current = true
                   setAdditionalUseCustom(next === 'new')
+                  if (next === 'saved') previewSelectedAddress(additionalSelectedId, additionalFields, setAdditionalCopySource)
+                  else {
+                    additionalFields.reset()
+                    setAdditionalCopySource(null)
+                  }
                 }}
                 size="sm"
                 disabled={customerRequired || locked}
@@ -1443,8 +1626,11 @@ export function SalesDocumentAddressesSection({
               ? renderAddressSelect(
                   additionalSelectedId,
                   addressOptions,
-                  (next) => setAdditionalSelectedId(next ?? ''),
-                  addressesLoading || customerRequired
+                  (next) => {
+                    setAdditionalSelectedId(next ?? '')
+                    previewSelectedAddress(next, additionalFields, setAdditionalCopySource)
+                  },
+                  addressesLoading || customerRequired || locked || customerFieldStructure.status === 'loading'
                 )
               : null}
 
@@ -1455,14 +1641,16 @@ export function SalesDocumentAddressesSection({
                 t={t as Translator}
                 onChange={(next) => setAdditionalDraft(next)}
                 hidePrimaryToggle
+                disabled={locked || additionalSaving}
               />
             ) : null}
+            {additionalUseCustom || additionalSelectedId ? renderCustomFields(additionalFields, additionalSaving) : null}
 
             <div className="flex justify-end gap-2">
               <Button
                 type="button"
                 onClick={handleAddAdditionalAddress}
-                disabled={additionalSaving || customerRequired || locked}
+                disabled={additionalSaving || customerRequired || locked || additionalFields.blocked}
               >
                 {additionalSaving
                   ? t('sales.documents.form.address.saving', 'Saving…')

@@ -15,6 +15,10 @@ const mockApiCall = jest.fn()
 const mockApiCallOrThrow = jest.fn()
 const mockTranslate = (_key: string, fallback?: string) => fallback ?? _key
 
+jest.mock('@open-mercato/ui/backend/utils/customFieldForms', () => ({
+  fetchCustomFieldFormStructure: async () => ({ fields: [], definitions: [] }),
+}))
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: any[]) => mockApiCall(...args),
   apiCallOrThrow: (...args: any[]) => mockApiCallOrThrow(...args),

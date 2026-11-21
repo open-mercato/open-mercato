@@ -30,6 +30,8 @@ import { isUuidListParam, parseIdsParam, splitIdListParam } from '@open-mercato/
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { readDocumentEmail } from '../../lib/documentEmail'
+import { addressCustomValuesSchema, loadAddressCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/addressCustomFields'
+import { serializePrimaryAddressValues } from '../../lib/addressCustomValues'
 
 type DocumentKind = 'order' | 'quote'
 
@@ -353,6 +355,35 @@ export const attachContactEmails = async (
   })
 }
 
+async function attachPrimaryAddressCustomValues(
+  entity: DocumentBinding['entity'],
+  payload: { items?: Array<Record<string, unknown>> },
+  ctx: CrudCtx & { query: ListQuery },
+) {
+  for (const item of payload.items ?? []) {
+    delete item.addressCustomValues
+    delete item.address_custom_values
+  }
+  if (!ctx.query.id || ctx.query.format) return
+  const id = ctx.query.id.toLowerCase()
+  const item = payload.items?.find((entry) => entry.id === id)
+  const tenantId = ctx.auth?.tenantId
+  const organizationId = item?.organizationId
+  if (!item || !tenantId || typeof organizationId !== 'string') return
+  const scope = { tenantId, organizationId }
+  const em = ctx.container.resolve<EntityManager>('em')
+  const records = await findWithDecryption(
+    em, entity as typeof SalesQuote,
+    { id, ...scope },
+    { fields: ['id', 'tenantId', 'organizationId', 'addressCustomValues'] },
+    scope,
+  )
+  const values = records[0]?.addressCustomValues
+  if (values == null) return
+  const definitions = await loadAddressCustomFieldDefinitions(em, { ...scope, entityId: E.sales.sales_document_address })
+  Object.assign(item, serializePrimaryAddressValues(values, definitions))
+}
+
 export const attachChannelNames = async (
   payload: { items?: Array<Record<string, unknown>> },
   ctx: CrudCtx,
@@ -525,6 +556,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
     enrichers: { entityId: binding.entityId },
     list: {
       schema: listSchema,
+      disableListCacheForQuery: (query: ListQuery) => Boolean(query.id),
       entityId: binding.entityId,
       fields: (query: ListQuery) => resolveListFields(query),
       sortFieldMap: buildSortMap(numberColumn),
@@ -668,10 +700,11 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
       },
     },
     hooks: {
-      afterList: async (payload: any, ctx: CrudCtx) => {
+      afterList: async (payload: any, ctx: CrudCtx & { query: ListQuery }) => {
         await attachTags(payload, { ...ctx, bindingKind: binding.kind })
         await attachChannelNames(payload, ctx)
         await attachContactEmails(binding.entity, payload, ctx)
+        await attachPrimaryAddressCustomValues(binding.entity, payload, ctx)
       },
     },
   }
@@ -696,6 +729,8 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     customerSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     billingAddressSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     shippingAddressSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+    billingAddressCustomValues: addressCustomValuesSchema.optional(),
+    shippingAddressCustomValues: addressCustomValuesSchema.optional(),
     shippingMethodId: z.string().uuid().nullable().optional(),
     shippingMethodCode: z.string().nullable().optional(),
     shippingMethodSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
@@ -763,6 +798,11 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
       description: binding.kind === 'order'
         ? 'Creates a new sales order. paidTotalAmount, refundedTotalAmount, and outstandingAmount are deprecated compatibility inputs: supplied values are ignored and reported in warnings. Record payments through sales.payments.create or POST /api/sales/payments.'
         : 'Creates a new sales quote.',
+    },
+    update: {
+      schema: documentUpdateSchema,
+      responseSchema: itemSchema.partial(),
+      description: `Updates an existing sales ${binding.kind}.`,
     },
     del: {
       schema: defaultDeleteRequestSchema,
