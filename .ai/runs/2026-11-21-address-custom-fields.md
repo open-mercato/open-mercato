@@ -36,12 +36,12 @@ Additional values can contain personal information. Tests must check application
 
 ### Phase 1: Customer address book
 
-- [ ] 1.1 Register the CRM definition host and enforce reserved address keys.
-- [ ] 1.2 Add encrypted storage and scoped customer address reads, writes and undo.
+- [x] 1.1 Register the CRM definition host and enforce reserved address keys. — 5867a3d7bb
+- [x] 1.2 Add encrypted storage and scoped customer address reads, writes and undo. — 47a7ab89a9
 - [ ] 1.3 Wire the CRM address editors and validate address-book and create flows.
 
 ### Phase 2: Sales address snapshots
 
-- [ ] 2.1 Register Sales address definitions and save additional address values.
-- [ ] 2.2 Save and freeze primary address values through document commands and conversion.
+- [x] 2.1 Register Sales address definitions and save additional address values. — badf712c97
+- [x] 2.2 Save and freeze primary address values through document commands and conversion. — badf712c97
 - [ ] 2.3 Wire the Sales address editors and run feature and repository validation.
