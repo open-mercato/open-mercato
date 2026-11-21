@@ -91,8 +91,9 @@ describe('customer /api/customer_accounts/password/reset-confirm — atomicity a
     const emitOrder = mockEmit.mock.invocationCallOrder[0]
     expect(txOrder).toBeLessThan(emitOrder)
 
-    const [eventId, payload] = mockEmit.mock.calls[0]
+    const [eventId, payload, options] = mockEmit.mock.calls[0]
     expect(eventId).toBe('customer_accounts.password.changed')
+    expect(options).toEqual({ tenantId, organizationId: orgId })
     expect(payload).toMatchObject({
       userId,
       tenantId,

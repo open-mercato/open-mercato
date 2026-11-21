@@ -51,14 +51,14 @@ export async function POST(req: Request) {
     )
   })
 
+  const eventScope = { tenantId: user.tenantId, organizationId: user.organizationId ?? null }
   void emitCustomerAccountsEvent('customer_accounts.password.changed', {
     userId: user.id,
-    tenantId: user.tenantId,
-    organizationId: user.organizationId ?? null,
+    ...eventScope,
     changedBy: 'reset',
     changedById: null,
     at: new Date().toISOString(),
-  }).catch(() => undefined)
+  }, eventScope).catch(() => undefined)
 
   return NextResponse.json({ ok: true })
 }
