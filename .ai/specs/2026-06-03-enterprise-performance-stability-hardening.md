@@ -245,7 +245,7 @@ The audit's candidate numbering had gaps (2–5, 7–9, 12–13, 18–19); those
 | P0.5 statement/lock timeouts | Partial | `DB_STATEMENT_TIMEOUT_MS` / `DB_LOCK_TIMEOUT_MS` wired (#2964/#3033) but unset by default |
 | P1.2 staff-auth cache | Open | `sessionIntegrity.ts` still uncached; the proposed `OM_STAFF_AUTH_TTL_MS` flag does not exist (#2978) |
 | P1.3 rate-limit breadth | Open | opt-in per route via `metadata.rateLimit`, IP-keyed at the dispatcher; only ~27 of ~685 module `api/**/route.ts` files reference rate limiting |
-| P1.4 request-container memo | Open | `createRequestContainer()` still unmemoized, no AsyncLocalStorage; the proposed `OM_REQUEST_CONTAINER_MEMO` flag does not exist (#2977) |
+| P1.4 request-container memo | Partial | Opt-in `OM_REQUEST_CONTAINER_MEMO` (default off) aliases the audited process DI root when `OM_PROCESS_CONTAINER_ROOT` is unset. Registration/bootstrap reuse spans HTTP, workers, CLI and pages; every caller retains its own EntityManager and services (#2977, #8989). Default-on remains pending workload qualification |
 | P1.5 super-admin probe | Open | instance-scoped `globalSuperAdminCache` on a `.scoped()` service (#2978) |
 | P2.1 indexing off the write thread | Partial | the heavy tail (search tokens, vectorize, fulltext) has run as a fire-and-forget deferral by default since #2549 (2026-06-05); projection write still inline, subscriber still ephemeral (`persistent: false`). #3236 added the opt-in `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` mode, which runs the whole chain inline instead |
 | P2.2 fire-and-forget | Partial | access-log writes async (#2044 Phase 1); `emit()` still awaits the global SSE taps + `pg_notify`. A focused spec for opt-in coalescing of that browser-facing half landed as [`2026-09-04-client-broadcast-sse-coalescing.md`](2026-09-04-client-broadcast-sse-coalescing.md) (#5895, merged 2026-09-24); its implementation PR #5896 is still open |
@@ -274,6 +274,12 @@ The 2026-08 evidence also revises two of the original assessments upward. Theme 
 
 Priority implication: the benchmarked build already contained the shipped P0 fixes (the cache singleton and the two-phase encrypted sort are ancestors of the benchmarked commit), so the measured knee characterizes what is **still open** — the request-container/auth duplication cluster (#2958/#2977/#2978), the query_index metadata caches (#2967), and enricher execution — not the items the June–July wave already fixed. The measurements therefore strengthen the remaining-P1 ordering rather than re-litigating P0.
 
+## Migration & Backward Compatibility
+
+The #2977 review repair uses the existing #8989 process-root lifecycle rather than sharing an initialized request container. `OM_REQUEST_CONTAINER_MEMO` remains supported as an alias only when `OM_PROCESS_CONTAINER_ROOT` is unset; an explicit process-root value wins. Both flags default to off. `createRequestContainer({ fresh: true })` remains accepted, and every caller has isolated services regardless of that option. The old request-only reuse guarantee is replaced by process-wide registration reuse, including workers, CLI and pages. Unsafe custom registrars and overrides fall back to the complete legacy builder. No schema, API route, event or DI-key migration is required.
+
+Regression coverage includes caller-local auth and EntityManager isolation, eager legacy registrar fallback, flag precedence, the cart/promotion concurrency cases, valid `/api/promotions/evaluate` requests, and CRM partial updates and multi-caller units of work with the alias enabled and disabled. Runtime validation results are recorded with the PR, not inferred from flag parsing tests.
+
 ## Changelog
 - **2026-06-03** — initial research + roadmap from 8 parallel domain audits; no code change.
 - **2026-08-29** — recovered from the local `refs/codex/snapshots/*` history (identical blob in all seven `startup-cleanup` snapshots) and submitted to `develop` for the first time via PR #5777, resolving #4635. Added the Recovery & status addendum: provenance, roadmap→tracker mapping for #2958–#2983 (#2972 implemented), a develop-verified roadmap status table (P0 largely shipped since June — P0.1–P0.3 and P1.1 done, P0.4 done for the shared engines (#3278, #3395) with the custom-handler rollout still open (#3386), P0.5 partial; P1.2–P1.5, P2.2's SSE/NOTIFY half, P2.3, P2.4's webhooks negative cache, and P3.1–P3.3 still open), pointers to the 2026-08 follow-up issues, and empirical validation from the 2026-08 production-topology benchmarks.
@@ -291,3 +297,6 @@ Priority implication: the benchmarked build already contained the shipped P0 fix
   - Re-pinned the mechanism line references and noted the WMS enricher cache adoption (#5894).
   - Added a `[2026-08 correction]` pointer under the Risks table for the superseded 2.1 row.
   - Spelled out the sub-item ids that were undefined before (`P2.2b`, `P2.4d`).
+- **2026-11-16** — P1.4 marked Partial: opt-in `OM_REQUEST_CONTAINER_MEMO` shares one request container across the dispatcher's auth, authorization and handler phases through the request scope added for #2963 (#2977). Default-on and the portal remain open.
+
+- **2026-11-21** — Replaced unsafe request-container sharing with the approved compatibility alias to #8989’s audited process root; preserved caller isolation, legacy fallback and the fresh option, and documented flag precedence and runtime regression coverage.

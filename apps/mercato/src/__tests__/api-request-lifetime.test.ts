@@ -268,3 +268,21 @@ it.each(['on', 'off'].flatMap((mode) => ['close', 'cancel', 'reject'].map((endin
     else expect(mockReportError).not.toHaveBeenCalled()
   },
 )
+
+it('retains request ownership when the memo alias enables the safe process root', async () => {
+  const memo = process.env.OM_REQUEST_CONTAINER_MEMO
+  delete process.env.OM_PROCESS_CONTAINER_ROOT
+  process.env.OM_REQUEST_CONTAINER_MEMO = 'on'
+  try {
+    const response = await request()
+    invalidateProcessContainer()
+    expect(mockCreateRootResource).toHaveBeenCalledTimes(1)
+    expect(mockRootDispose).not.toHaveBeenCalled()
+    expect(response.status).toBe(201)
+    expect(await response.text()).toBe('ok')
+    expect(mockRootDispose).toHaveBeenCalledTimes(1)
+  } finally {
+    if (memo === undefined) delete process.env.OM_REQUEST_CONTAINER_MEMO
+    else process.env.OM_REQUEST_CONTAINER_MEMO = memo
+  }
+})

@@ -12,6 +12,7 @@ import { WORKFLOW_LIST_MAX_OFFSET } from '../../data/pagination'
 import { raw } from '@mikro-orm/core'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter, resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
@@ -347,11 +348,12 @@ export async function POST(request: NextRequest) {
     // async-activity worker / retry endpoint resume any instance left mid-flight.
     setImmediate(async () => {
       try {
-        // Create new container and EM for background execution
-        const bgContainer = await createRequestContainer()
-        const bgEm = bgContainer.resolve('em')
-        await workflowExecutor.executeWorkflow(bgEm, bgContainer, instance.id, {
-          userId: auth.sub,
+        await runInOwnedRequestScope(async () => {
+          const bgContainer = await createRequestContainer({ fresh: true })
+          const bgEm = bgContainer.resolve('em')
+          await workflowExecutor.executeWorkflow(bgEm, bgContainer, instance.id, {
+            userId: auth.sub,
+          })
         })
       } catch (error) {
         logger.error('Background workflow execution error', { err: error })

@@ -58,6 +58,7 @@ import { runInRequestScope, runWithRequestScopeContainer, getRequestScopeContain
 
 const originalEnvironment = {
   OM_PROCESS_CONTAINER_ROOT: process.env.OM_PROCESS_CONTAINER_ROOT,
+  OM_REQUEST_CONTAINER_MEMO: process.env.OM_REQUEST_CONTAINER_MEMO,
   OM_BOOTSTRAP_CACHE: process.env.OM_BOOTSTRAP_CACHE,
   OM_CACHE_SINGLETON: process.env.OM_CACHE_SINGLETON,
   SEARCH_DISABLE_SINGLETON_CACHE: process.env.SEARCH_DISABLE_SINGLETON_CACHE,
@@ -65,6 +66,7 @@ const originalEnvironment = {
 
 beforeEach(() => {
   process.env.OM_PROCESS_CONTAINER_ROOT = 'on'
+  delete process.env.OM_REQUEST_CONTAINER_MEMO
   process.env.OM_BOOTSTRAP_CACHE = 'off'
   process.env.OM_CACHE_SINGLETON = 'on'
   process.env.SEARCH_DISABLE_SINGLETON_CACHE = 'off'
@@ -109,6 +111,44 @@ it('initializes one root for concurrent callers while preserving isolated servic
     rootInitializations: baseline.rootInitializations + 1,
     registrarExecutions: baseline.registrarExecutions + 2,
     callerScopes: baseline.callerScopes + 20,
+  })
+})
+
+it('keeps unaudited closure services and eager app values bound to each caller', async () => {
+  registerDiRegistrars([(container) => {
+    container.register({
+      closureService: asFunction(() => ({
+        auth: () => container.resolve('auth'),
+        em: () => container.resolve('em'),
+      })).scoped(),
+    })
+  }])
+  registerAppDiRegistrar((container) => {
+    container.register({ appEm: asValue(container.resolve('em')) })
+  })
+  mockBootstrap.mockImplementationOnce(async (container) => {
+    container.register({ bootstrapEm: asValue(container.resolve('em')) })
+  }).mockImplementationOnce(async (container) => {
+    container.register({ bootstrapEm: asValue(container.resolve('em')) })
+  })
+  await runInRequestScope(async () => {
+    const callers = await Promise.all([createRequestContainer(), createRequestContainer()])
+    try {
+      expect(callers[0].resolve('em')).not.toBe(callers[1].resolve('em'))
+      for (const [index, caller] of callers.entries()) {
+        const auth = { tenantId: 'tenant', orgId: `org-${index}` }
+        caller.register({ auth: asValue(auth) })
+        const service = caller.resolve<{ auth: () => unknown; em: () => unknown }>('closureService')
+        expect(service.auth()).toBe(auth)
+        expect(service.em()).toBe(caller.resolve('em'))
+        expect(caller.resolve('appEm')).toBe(caller.resolve('em'))
+        expect(caller.resolve('bootstrapEm')).toBe(caller.resolve('em'))
+      }
+      expect(mockProcessBootstrap).not.toHaveBeenCalled()
+      expect(getProcessContainerStats().compatibilityReason).toContain('not process-safe')
+    } finally {
+      await Promise.all(callers.map((caller) => caller.dispose()))
+    }
   })
 })
 
@@ -685,4 +725,33 @@ it('rebuilds if the final bootstrap activation disposes its unpublished root', a
   expect(mockProcessBootstrap).toHaveBeenCalledTimes(2)
   expect(dispose).toHaveBeenCalledTimes(1)
   await caller.dispose()
+})
+
+it.each([
+  [undefined, undefined, false],
+  [undefined, 'on', true],
+  [undefined, 'off', false],
+  ['off', 'on', false],
+  ['on', 'off', true],
+  ['', 'on', false],
+] as const)('selects safe root optimization with process=%s and memo=%s', async (processFlag, memoFlag, enabled) => {
+  if (processFlag === undefined) delete process.env.OM_PROCESS_CONTAINER_ROOT
+  else process.env.OM_PROCESS_CONTAINER_ROOT = processFlag
+  if (memoFlag === undefined) delete process.env.OM_REQUEST_CONTAINER_MEMO
+  else process.env.OM_REQUEST_CONTAINER_MEMO = memoFlag
+  registerDiRegistrars([defineProcessDiRegistrar((root) => {
+    root.register({ callerService: asScopedService((caller) => ({ em: caller.resolve('em') })) })
+  })])
+  const before = getProcessContainerStats()
+  const callers = await Promise.all([createRequestContainer(), createRequestContainer({ fresh: true })])
+  try {
+    expect(callers[0].resolve('em')).not.toBe(callers[1].resolve('em'))
+    for (const caller of callers) expect(caller.resolve('callerService').em).toBe(caller.resolve('em'))
+    const after = getProcessContainerStats()
+    expect(after.rootInitializations - before.rootInitializations).toBe(enabled ? 1 : 0)
+    expect(after.callerScopes - before.callerScopes).toBe(enabled ? 2 : 0)
+    expect(after.legacyContainers - before.legacyContainers).toBe(enabled ? 0 : 2)
+  } finally {
+    await Promise.all(callers.map((caller) => caller.dispose()))
+  }
 })
