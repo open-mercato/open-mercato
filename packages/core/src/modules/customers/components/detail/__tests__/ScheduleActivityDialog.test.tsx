@@ -202,7 +202,7 @@ describe('ScheduleActivityDialog', () => {
     mockCatalogItems = []
     mockRetryCatalog.mockReset()
     mockConfirmDialog.mockClear()
-    readApiResultOrThrowMock.mockResolvedValue({ hasConflicts: false, conflicts: [] })
+    readApiResultOrThrowMock.mockResolvedValue({ ok: true, result: { hasConflicts: false, conflicts: [] } })
   })
 
   afterEach(() => {
@@ -419,6 +419,52 @@ describe('ScheduleActivityDialog', () => {
 
     const requestUrl = new URL(String(readApiResultOrThrowMock.mock.calls.at(-1)?.[0] ?? ''), 'http://localhost')
     expect(requestUrl.searchParams.get('timezoneOffsetMinutes')).toBe('120')
+  })
+
+  describe('conflict warning envelope unwrap (#8047)', () => {
+    it('shows no conflict when the API returns no conflicts in the standard envelope', async () => {
+      readApiResultOrThrowMock.mockResolvedValue({ ok: true, result: { hasConflicts: false, conflicts: [] } })
+
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+
+      await flushConflictCheck()
+
+      expect(setConflictMock).toHaveBeenLastCalledWith(null)
+    })
+
+    it('calls setConflict with the conflict description when the API returns conflicts in the standard {ok,result} envelope (#8047)', async () => {
+      readApiResultOrThrowMock.mockResolvedValue({
+        ok: true,
+        result: {
+          hasConflicts: true,
+          conflicts: [
+            { id: 'aaaa-1111', title: 'Meeting A', startTime: '10:00', endTime: '11:00', type: 'meeting' },
+          ],
+        },
+      })
+
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+
+      await flushConflictCheck()
+
+      expect(setConflictMock).toHaveBeenLastCalledWith(
+        expect.stringContaining('Meeting A'),
+      )
+    })
   })
 
   it('shows an inline phone error without submitting an invalid call phone', async () => {
