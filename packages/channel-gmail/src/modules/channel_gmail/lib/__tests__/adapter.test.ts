@@ -240,13 +240,13 @@ describe('GmailChannelAdapter.deleteMessage', () => {
 
 describe('GmailChannelAdapter.sendMessage', () => {
   it('encodes RFC2822 + threadId and posts to gmail.users.messages.send', async () => {
-    const sent: Array<{ rawBase64Url: string; threadId?: string }> = []
+    const sent: Array<{ rawBase64Url: string; rawMessage?: Uint8Array; threadId?: string }> = []
     const api: GmailApiClient = {
       listHistory: async () => ({ historyId: '0' }),
       listMessages: async () => ({}),
       getMessageRaw: async () => ({ id: '', threadId: '', raw: '' }),
       sendRawMessage: async (_auth, input) => {
-        sent.push({ rawBase64Url: input.rawBase64Url, threadId: input.threadId })
+        sent.push({ rawBase64Url: input.rawBase64Url, rawMessage: input.rawMessage, threadId: input.threadId })
         return { id: 'gm-out-1', threadId: 'gm-thread-out', labelIds: ['SENT'] }
       },
       getProfile: async () => ({ emailAddress: 'alice@gmail.com', historyId: '1' }),
@@ -273,6 +273,7 @@ describe('GmailChannelAdapter.sendMessage', () => {
     ).toString('utf-8')
     expect(decoded).toContain('To: bob@example.com')
     expect(decoded).toContain('<p>hi</p>')
+    expect(Buffer.from(sent[0].rawMessage!).toString('utf-8')).toBe(decoded)
   })
 
   function buildSendApi(overrides: Partial<GmailApiClient> = {}): GmailApiClient {
@@ -359,13 +360,30 @@ describe('GmailChannelAdapter.sendMessage', () => {
       expect(optionsSeen).toEqual([{ maxRetries: 0, timeoutMs: SENT_MESSAGE_ID_READBACK_DEADLINE_MS }])
     })
 
+    function fakeTimersFromReadBack() {
+      let markStarted: () => void = () => undefined
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve
+      })
+      return {
+        started,
+        begin: () => {
+          jest.useFakeTimers()
+          markStarted()
+        },
+      }
+    }
+
     it('returns the accepted send as sent once the deadline passes, even when the headers never arrive', async () => {
-      jest.useFakeTimers()
+      const readBack = fakeTimersFromReadBack()
       const reportError = jest.fn()
       registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
       setGmailApiClient(
         buildSendApi({
-          getMessageHeaders: () => new Promise(() => undefined),
+          getMessageHeaders: () => {
+            readBack.begin()
+            return new Promise(() => undefined)
+          },
         }),
       )
 
@@ -377,6 +395,7 @@ describe('GmailChannelAdapter.sendMessage', () => {
           return result
         })
 
+      await readBack.started
       await jest.advanceTimersByTimeAsync(SENT_MESSAGE_ID_READBACK_DEADLINE_MS - 1)
       expect(settled).toBe(false)
 
@@ -394,11 +413,12 @@ describe('GmailChannelAdapter.sendMessage', () => {
     })
 
     it('uses headers that arrive late but within the deadline', async () => {
-      jest.useFakeTimers()
+      const readBack = fakeTimersFromReadBack()
       setGmailApiClient(
         buildSendApi({
-          getMessageHeaders: (_auth, messageId) =>
-            new Promise((resolve) => {
+          getMessageHeaders: (_auth, messageId) => {
+            readBack.begin()
+            return new Promise((resolve) => {
               setTimeout(
                 () =>
                   resolve({
@@ -408,11 +428,13 @@ describe('GmailChannelAdapter.sendMessage', () => {
                   }),
                 SENT_MESSAGE_ID_READBACK_DEADLINE_MS - 100,
               )
-            }),
+            })
+          },
         }),
       )
 
       const pending = getGmailChannelAdapter().sendMessage(sendInput)
+      await readBack.started
       await jest.advanceTimersByTimeAsync(SENT_MESSAGE_ID_READBACK_DEADLINE_MS)
       const result = await pending
 

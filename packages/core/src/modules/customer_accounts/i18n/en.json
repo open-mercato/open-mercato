@@ -209,6 +209,7 @@
   "customer_accounts.admin.roles.confirm.delete": "Delete role \"{{name}}\"?",
   "customer_accounts.admin.roles.default": "Default",
   "customer_accounts.admin.roles.error.delete": "Failed to delete role",
+  "customer_accounts.admin.roles.error.deleteAssigned": "Cannot delete role with {count} assigned user(s). Reassign users first.",
   "customer_accounts.admin.roles.error.deleteDefault": "The default role cannot be deleted. Set another role as default first.",
   "customer_accounts.admin.roles.error.load": "Failed to load roles",
   "customer_accounts.admin.roles.flash.deleted": "Role deleted",
@@ -372,6 +373,7 @@
   "customer_accounts.widgets.accountStatus": "Account status",
   "customer_accounts.widgets.accountStatus.description": "Shows customer portal account status on CRM person detail",
   "customer_accounts.widgets.emailVerified": "Email verified",
+  "customer_accounts.widgets.errorLoading": "Failed to load portal account status.",
   "customer_accounts.widgets.invitationExpires": "Invitation expires",
   "customer_accounts.widgets.invitationPending": "Invitation pending",
   "customer_accounts.widgets.invite.button": "Invite to Portal",
@@ -393,7 +395,9 @@
   "customer_accounts.widgets.lastLogin": "Last login",
   "customer_accounts.widgets.noAccount": "No account linked",
   "customer_accounts.widgets.noUsers": "No users linked",
+  "customer_accounts.widgets.portalAccountTab": "Portal account",
   "customer_accounts.widgets.portalUsers": "Portal users",
+  "customer_accounts.widgets.retryLoading": "Retry",
   "customer_accounts.widgets.viewAccount": "View account",
   "notifications.categories.customer_accounts": "Customer accounts"
 }

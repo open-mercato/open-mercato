@@ -1,3 +1,4 @@
+import { compareDecimals, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { evaluateGroup } from './rule-evaluators'
 import { resolveEffects } from './effect-resolvers'
 import type {
@@ -77,7 +78,8 @@ export function isPromotionEligible(
   if (promotion.endsAt !== null && evaluatedAtMs > new Date(promotion.endsAt).getTime()) return false
   if (promotion.excludedTags.some((tag) => appliedTagsSoFar.includes(tag))) return false
   if (promotion.eligibleCurrencies.length > 0 && !promotion.eligibleCurrencies.includes(input.currency)) return false
-  if (promotion.maxBudget !== null && Number(promotion.totalDiscountGranted) >= Number(promotion.maxBudget)) {
+  const maxBudget = promotion.maxBudget === null ? null : parseDecimal(promotion.maxBudget)
+  if (maxBudget !== null && compareDecimals(parseDecimal(promotion.totalDiscountGranted) ?? 0, maxBudget) >= 0) {
     return false
   }
 
