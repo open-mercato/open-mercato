@@ -8,12 +8,17 @@ on:
         required: true
         type: string
         default: main
+      delete_after_idle_hours:
+        description: "Delete preview after this many hours of inactivity (whole hours, 1–8760)"
+        required: true
+        type: number
+        default: 24
 
 permissions:
   contents: read
 
 env:
-  MERCATO_CLI_VERSION: "0.1.3"
+  MERCATO_CLI_VERSION: "0.1.4"
 
 jobs:
   deploy:
@@ -27,6 +32,7 @@ jobs:
     env:
       MERCATO_API_TOKEN: ${{ secrets.MERCATO_API_TOKEN }}
       BRANCH: ${{ inputs.branch }}
+      DELETE_AFTER_IDLE_HOURS: ${{ inputs.delete_after_idle_hours }}
     defaults:
       run:
         shell: bash
@@ -42,6 +48,11 @@ jobs:
           set -euo pipefail
           : "${MERCATO_API_TOKEN:?Set the MERCATO_API_TOKEN repository secret with sandbox:read and sandbox:write scopes}"
           git check-ref-format "refs/heads/$BRANCH"
+          if [[ ! "$DELETE_AFTER_IDLE_HOURS" =~ ^[1-9][0-9]{0,3}$ ]] || (( DELETE_AFTER_IDLE_HOURS > 8760 )); then
+            echo "::error::delete_after_idle_hours must be a whole number from 1 to 8760"
+            exit 1
+          fi
+          printf 'DELETE_AFTER_IDLE=%sm\n' "$((DELETE_AFTER_IDLE_HOURS * 60))" >> "$GITHUB_ENV"
 
           cat > "$RUNNER_TEMP/mercato-preview.bash" <<'BASH'
           mercato() {
@@ -66,6 +77,7 @@ jobs:
           sandbox=$(mercato sandbox create \
             --name "$sandbox_name" \
             --template custom-workspace-template-default \
+            --delete-after-idle "$DELETE_AFTER_IDLE" \
             --json)
           sandbox_id=$(jq -er '.id | select(type == "string" and length > 0)' <<< "$sandbox")
 
@@ -198,7 +210,7 @@ jobs:
             printf -- '- Shared preview: %s\n' "$PREVIEW_URL"
             printf -- '- Superadmin email: `%s`\n' "$PREVIEW_ADMIN_EMAIL"
             printf -- '- Superadmin password: `%s`\n' "$PREVIEW_ADMIN_PASSWORD"
-            echo "- Preview remains running after a successful deployment; delete the sandbox when no longer needed."
+            printf -- '- Preview will be deleted after %s hours of inactivity.\n' "$DELETE_AFTER_IDLE_HOURS"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup failed preview
