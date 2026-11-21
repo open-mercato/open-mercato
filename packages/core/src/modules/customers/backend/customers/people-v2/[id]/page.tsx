@@ -76,6 +76,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const fields = React.useMemo(() => createPersonEditFields(t), [t])
 
   const [data, setData] = React.useState<PersonOverview | null>(null)
+  const canViewCompanies = data?.canViewCompanies === true
   // Mirror the latest `data` into a ref so save handlers always read the current
   // optimistic-lock token (`person.updatedAt`) instead of the value captured in
   // their `useCallback` closure. Without this, a header-field save issued after a
@@ -307,10 +308,11 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     () => resolveLegacyTab(searchParams?.get('tab'), injectedTabIds),
     [injectedTabIds, searchParams],
   )
-  const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
+  const [selectedTab, setSelectedTab] = React.useState<PersonTabId>(initialTab)
+  const activeTab = selectedTab === 'companies' && data && !canViewCompanies ? 'activities' : selectedTab
 
   React.useEffect(() => {
-    setActiveTab(initialTab)
+    setSelectedTab(initialTab)
   }, [initialTab])
 
   const isActivityTabActive = activeTab === 'activities'
@@ -321,7 +323,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const handleTabChange = React.useCallback(
     (tab: PersonTabId) => {
-      setActiveTab(tab)
+      setSelectedTab(tab)
       if (!pathname) return
       const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
       nextParams.set('tab', tab)
@@ -517,7 +519,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             onDelete={handleFormDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            onOpenCompaniesTab={() => handleTabChange('companies')}
+            onOpenCompaniesTab={canViewCompanies ? () => handleTabChange('companies') : undefined}
             onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'people-v2', err })) }}
             onFocusField={(fieldName) => {
               const selectorMap: Record<string, string> = {
@@ -566,6 +568,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 activeTab={activeTab}
                 onTabChange={handleTabChange}
                 isLoadingInjectedTabs={injectedTabsLoading}
+                hiddenTabIds={canViewCompanies ? undefined : ['companies']}
                 injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, priority: tab.priority }))}
                 activitiesCount={interactionCount}
                 dealsCount={dealCount}

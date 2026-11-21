@@ -15,6 +15,8 @@ const mockMergePersonCustomFieldValues = jest.fn()
 const mockFindWithDecryption = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
 const mockLoadPersonCompanyLinks = jest.fn()
+const mockSummarizePersonCompanies = jest.fn()
+const mockUserHasAllFeatures = jest.fn()
 
 const mockEm = {
   findOne: jest.fn(),
@@ -35,6 +37,7 @@ const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
     if (token === 'cache') return cache
+    if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
     if (token === 'queryEngine') return { query: jest.fn(async () => ({ items: [] })) }
     return null
   }),
@@ -80,7 +83,7 @@ jest.mock('../../../../lib/interactionReadModel', () => ({
 
 jest.mock('../../../../lib/personCompanies', () => ({
   loadPersonCompanyLinks: jest.fn((...args: unknown[]) => mockLoadPersonCompanyLinks(...args)),
-  summarizePersonCompanies: jest.fn(() => []),
+  summarizePersonCompanies: (...args: unknown[]) => mockSummarizePersonCompanies(...args),
 }))
 
 jest.mock('#generated/entities.ids.generated', () => ({
@@ -149,6 +152,8 @@ describe('GET /api/customers/people/[id] — caching (issue #3663)', () => {
     mockResolvePersonCustomFieldRouting.mockResolvedValue(new Map())
     mockMergePersonCustomFieldValues.mockReturnValue({})
     mockLoadPersonCompanyLinks.mockResolvedValue([])
+    mockSummarizePersonCompanies.mockReturnValue([])
+    mockUserHasAllFeatures.mockResolvedValue(true)
     mockFindOneWithDecryption.mockResolvedValueOnce(buildPerson()).mockResolvedValue(null)
     mockFindWithDecryption.mockResolvedValue([])
   })
@@ -185,7 +190,7 @@ describe('GET /api/customers/people/[id] — caching (issue #3663)', () => {
 
     const [getKey] = cache.get.mock.calls[0]
     expect(getKey).toBe(
-      `customers:person-detail:${PERSON_ID}:tenant=${TENANT_ID}:org=${ORG_ID}:caller=${USER_ID}:selOrg=${ORG_ID}:scope=${ORG_ID}:mode=legacy:include=comments`,
+      `customers:person-detail:v2:${PERSON_ID}:tenant=${TENANT_ID}:org=${ORG_ID}:caller=${USER_ID}:selOrg=${ORG_ID}:scope=${ORG_ID}:mode=legacy:include=comments:companies=true`,
     )
 
     const [setKey, setValue, setOpts] = cache.set.mock.calls[0]
@@ -235,5 +240,52 @@ describe('GET /api/customers/people/[id] — caching (issue #3663)', () => {
     expect(mockFindWithDecryption).not.toHaveBeenCalled()
     expect(mockLoadCustomFieldValues).not.toHaveBeenCalled()
     expect(mockEm.count).not.toHaveBeenCalled()
+  })
+
+  it('does not serve cached company data after company view access is revoked', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const stored = new Map<string, unknown>()
+    cache.get.mockImplementation(async (key: string) => stored.get(key))
+    cache.set.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value) })
+    const companyId = '2408107d-0000-4000-8000-000000000011'
+    const profile = { id: 'profile-1', company: { id: companyId }, updatedAt: new Date() }
+    const person = buildPerson()
+    mockFindOneWithDecryption.mockReset()
+    mockFindOneWithDecryption.mockImplementation(async (_em, entity: { name: string }) => {
+      if (entity.name === 'CustomerEntity') return person
+      if (entity.name === 'CustomerPersonProfile') return profile
+      return null
+    })
+    mockSummarizePersonCompanies.mockReturnValue([{ companyId, displayName: 'Linked company', isPrimary: true }])
+    const { GET } = await loadRoute()
+
+    const allowed = await GET(makeRequest(), { params: { id: PERSON_ID } })
+    expect(allowed.status).toBe(200)
+    expect(await allowed.json()).toMatchObject({
+      canViewCompanies: true,
+      company: { id: companyId },
+      companies: [{ id: companyId }],
+      profile: { companyEntityId: companyId },
+      counts: { companies: 1 },
+      isPrimary: true,
+    })
+    expect(mockUserHasAllFeatures).toHaveBeenCalledWith(USER_ID, ['customers.companies.view'], {
+      tenantId: TENANT_ID, organizationId: ORG_ID,
+    })
+
+    mockLoadPersonCompanyLinks.mockClear()
+    mockUserHasAllFeatures.mockResolvedValue(false)
+    const denied = await GET(makeRequest(), { params: { id: PERSON_ID } })
+    expect(denied.status).toBe(200)
+    expect(await denied.json()).toMatchObject({
+      canViewCompanies: false,
+      company: null,
+      companies: [],
+      profile: { companyEntityId: null },
+      counts: { companies: 0 },
+      isPrimary: false,
+    })
+    expect(mockLoadPersonCompanyLinks).not.toHaveBeenCalled()
+    expect(cache.get.mock.calls[0][0]).not.toBe(cache.get.mock.calls[1][0])
   })
 })

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -9,6 +10,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import {
   CustomerEntity,
   CustomerCompanyProfile,
@@ -50,6 +52,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get enriched company data for a person\'s linked companies',
+      description: 'Requires company view access. Active deals and customer lifetime value require deal view access.',
       query: querySchema,
       responses: [
         {
@@ -115,6 +118,9 @@ export const openApi: OpenApiRouteDoc = {
             totalPages: z.number().int().min(1),
           }),
         },
+      ],
+      errors: [
+        { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
       ],
     },
   },
@@ -186,11 +192,17 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     }
 
     const entityScope = { tenantId: auth.tenantId, organizationId: person.organizationId }
+    const rbac = container.resolve<RbacService>('rbacService')
+    const subject = { grantedFeatures: await rbac.getGrantedFeatures(auth.sub, entityScope) }
+    if (!authorizeFeatures(['customers.companies.view'], subject)) {
+      throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
+    }
+    const canViewDeals = authorizeFeatures(['customers.deals.view'], subject)
     const linkWhere = await withActiveCustomerPersonCompanyLinkFilter(
       em,
       {
         person,
-        tenantId: auth.tenantId,
+        ...entityScope,
       },
       'customers.people.companiesEnriched.GET',
     )
@@ -226,7 +238,9 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
         findWithDecryption(em, CustomerPersonCompanyRole, { personEntity: person, companyEntity: { $in: companyIds }, ...tenantScope }, {}, entityScope),
         // CustomerDealCompanyLink is a pure junction table without tenantId/organizationId columns;
         // scoping flows transitively through the already-tenant-scoped `company` filter.
-        findWithDecryption(em, CustomerDealCompanyLink, { company: { $in: companyIds } }, { populate: ['deal'] }, entityScope),
+        canViewDeals
+          ? findWithDecryption(em, CustomerDealCompanyLink, { company: { $in: companyIds } }, { populate: ['deal'] }, entityScope)
+          : [],
         findWithDecryption(em, CustomerInteraction, {
           entity: { $in: companyIds },
           occurredAt: { $ne: null },

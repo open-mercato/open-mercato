@@ -22,6 +22,7 @@ import {
   CustomerInteraction,
 } from '../../../data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '#generated/entities.ids.generated'
 import { mergePersonCustomFieldValues, resolvePersonCustomFieldRouting } from '../../../lib/customFieldRouting'
@@ -85,11 +86,12 @@ function buildPersonDetailCacheKey(params: {
   scopedOrganizationIds: string[]
   interactionMode: 'canonical' | 'legacy'
   includeTokens: string[]
+  canViewCompanies: boolean
 }): string {
   const include = [...params.includeTokens].sort((a, b) => a.localeCompare(b)).join('|') || 'none'
   const scoped = [...params.scopedOrganizationIds].sort((a, b) => a.localeCompare(b)).join('|') || 'null'
   return [
-    'customers:person-detail',
+    'customers:person-detail:v2',
     params.personId,
     `tenant=${params.tenantId ?? 'null'}`,
     `org=${params.organizationId ?? 'null'}`,
@@ -98,6 +100,7 @@ function buildPersonDetailCacheKey(params: {
     `scope=${scoped}`,
     `mode=${params.interactionMode}`,
     `include=${include}`,
+    `companies=${params.canViewCompanies}`,
   ].join(':')
 }
 
@@ -558,6 +561,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     // expensive sweeps below so a hit returns without touching the DB.
     const personDetailTenantId = person.tenantId ?? auth.tenantId ?? null
     const personDetailOrganizationId = person.organizationId ?? null
+    const canViewCompanies = await container.resolve<RbacService>('rbacService').userHasAllFeatures(
+      auth.sub,
+      ['customers.companies.view'],
+      { tenantId: personDetailTenantId, organizationId: personDetailOrganizationId },
+    )
     const personDetailCache = isCrudCacheEnabled() ? resolveCrudCache(container) : null
     const personDetailCacheKey = personDetailCache
       ? buildPersonDetailCacheKey({
@@ -569,6 +577,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           scopedOrganizationIds: Array.isArray(scope?.filterIds) ? scope.filterIds : [],
           interactionMode,
           includeTokens: Array.from(includeTokens),
+          canViewCompanies,
         })
       : null
     const personDetailCacheTags = personDetailCache
@@ -586,12 +595,18 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     }
 
     const [profileResult, personCompanyLinks] = await Promise.all([
-      findOneWithDecryption(em, CustomerPersonProfile, { entity: person }, { populate: ['company'] }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null }),
-      loadPersonCompanyLinks(em, person),
+      findOneWithDecryption(
+        em,
+        CustomerPersonProfile,
+        { entity: person },
+        canViewCompanies ? { populate: ['company'] } : {},
+        { tenantId: personDetailTenantId, organizationId: person.organizationId ?? auth.orgId ?? null },
+      ),
+      canViewCompanies ? loadPersonCompanyLinks(em, person) : [],
     ])
     profile = profileResult
     profiler.mark('profile_loaded', { found: !!profile })
-    companies = summarizePersonCompanies(profile, personCompanyLinks)
+    companies = canViewCompanies ? summarizePersonCompanies(profile, personCompanyLinks) : []
 
     // Per-user email privacy (CRM email integration spec, "Layer 1 — DB filter"):
     // exclude private email interactions owned by other users from every read
@@ -910,6 +925,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
     const payload = {
       interactionMode,
+      canViewCompanies,
       person: {
         id: person.id,
         displayName: person.displayName,
@@ -945,7 +961,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             timezone: profile.timezone,
             linkedInUrl: profile.linkedInUrl,
             twitterUrl: profile.twitterUrl,
-            companyEntityId: profile.company ? (typeof profile.company === 'string' ? profile.company : profile.company.id) : null,
+            companyEntityId: canViewCompanies && profile.company
+              ? (typeof profile.company === 'string' ? profile.company : profile.company.id)
+              : null,
             updatedAt: profile.updatedAt.toISOString(),
           }
         : null,
@@ -1316,6 +1334,7 @@ const personDetailResponseSchema = z.object({
     }),
   ),
   isPrimary: z.boolean(),
+  canViewCompanies: z.boolean().optional(),
   companies: z.array(
     z.object({
       id: z.string().uuid(),
@@ -1340,7 +1359,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Fetch person with related data',
-      description: 'Returns a person customer record with optional related resources such as addresses, comments, activities, interactions, deals, and todos.',
+      description: 'Returns a person customer record with optional related resources. Linked company fields are redacted without company view access in the person’s organization.',
       query: personDetailQuerySchema,
       responses: [
         { status: 200, description: 'Person detail payload', schema: personDetailResponseSchema },
