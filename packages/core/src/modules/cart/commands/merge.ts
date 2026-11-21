@@ -2,7 +2,6 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError, badRequest, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
@@ -26,6 +25,7 @@ import { cartVisibilityKey, evaluateCartVisibility, isVisible } from '../lib/vis
 import type { CartVisibilityResult } from '../lib/visibility'
 import { assertCartNotLocked } from '../lib/lockGuard'
 import { recordBasketMutationActivity } from '../lib/cartActivity'
+import { withCartLineMutationLock } from '../lib/lineMutationLock'
 import { emitCartEvent } from '../events'
 import { repriceCartCommand } from './cart'
 import type { CartRepriceInput, CartRepriceResult } from './cart'
@@ -473,99 +473,7 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
       throw notFound('[internal] cart not found')
     }
 
-    const sessionLinesAll = (await findWithDecryption(
-      em,
-      CartLine,
-      { cartId: sessionCart.id, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
-      {},
-      scope,
-    )) as CartLine[]
-    const guestLinesAll = (await findWithDecryption(
-      em,
-      CartLine,
-      { cartId: guestCart.id, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
-      {},
-      scope,
-    )) as CartLine[]
-
-    const sessionCustomerLines = filterCustomerLines(sessionLinesAll)
-    const guestCustomerLines = filterCustomerLines(guestLinesAll)
-
     const now = new Date()
-    let strategy: CartMergeStrategy
-    let survivorCart: Cart
-    let absorbedCart: Cart
-    let absorbedLinesForSnapshot: CartLine[]
-    let survivorBuyerContextBefore: SurvivorBuyerContextSnapshot | null = null
-    let outcome: StoredMergeOutcomeEntry[] = []
-    let newLines: CartLine[] = []
-
-    // §7.1's policy table, rows 1-5 (the sixth, "Proposal accepted -> manual", is §7a's
-    // seam and out of scope). Precedence: "guest cart empty" (row 2) is checked FIRST so a
-    // cart that is empty on BOTH sides also resolves to `keep_target` (nothing to adopt
-    // either) rather than falling through to row 1's condition.
-    if (guestCustomerLines.length === 0) {
-      // Row 2: keep_target — nothing moves.
-      strategy = 'keep_target'
-      survivorCart = sessionCart
-      absorbedCart = guestCart
-      absorbedLinesForSnapshot = guestLinesAll
-      outcome = []
-    } else if (sessionCustomerLines.length === 0) {
-      // Row 1: adopt — the guest cart's ownership is reassigned; it becomes the live cart.
-      strategy = 'replace'
-      survivorCart = guestCart
-      absorbedCart = sessionCart
-      absorbedLinesForSnapshot = sessionLinesAll
-      survivorBuyerContextBefore = {
-        customerId: survivorCart.customerId ?? null,
-        customerIds: survivorCart.customerIds ?? null,
-        customerUserId: survivorCart.customerUserId ?? null,
-        customerGroupIds: survivorCart.customerGroupIds,
-        priceKindId: survivorCart.priceKindId ?? null,
-        buyerDigest: survivorCart.buyerDigest,
-      }
-      survivorCart.customerId = input.routeContext.customerId
-      survivorCart.customerIds = input.routeContext.customerIds
-      survivorCart.customerUserId = input.routeContext.customerUserId
-      survivorCart.customerGroupIds = input.routeContext.customerGroupIds
-      survivorCart.priceKindId = input.routeContext.priceKindId
-      survivorCart.buyerDigest = input.routeContext.buyerDigest
-      outcome = []
-    } else {
-      // Rows 3-5 combined: union (disjoint), sum (matching, default strategy per §7.1),
-      // conflict (matching product+variant, differing configuration -> kept separate).
-      strategy = 'sum'
-      survivorCart = sessionCart
-      absorbedCart = guestCart
-      absorbedLinesForSnapshot = guestLinesAll
-
-      const maxQuantities = await resolveMaxOrderQuantities(em, ctx.container, scope, survivorCart.storeId ?? null, guestCustomerLines)
-      const startingLineNumber = sessionLinesAll.reduce((max, line) => Math.max(max, line.lineNumber), 0) + 1
-
-      // Step 7.4 — §6a.5: the SAME enforcement key §6a.1b/§6a.4 already use elsewhere in
-      // this module — enforce iff the SURVIVOR's channel is storefront or a scope was
-      // resolved for this call. `routeContext.assortmentScope` is the buyer's own, freshly
-      // resolved (`{ fresh: true }`, D-R4-22) scope for THIS request — never the source
-      // cart's, and never anything the request body could supply.
-      const mergeAssortmentScope = shouldEnforceAssortmentScope(survivorCart.channel, input.routeContext.assortmentScope)
-        ? input.routeContext.assortmentScope
-        : undefined
-      const mergeVisibility: CartVisibilityResult = await evaluateCartVisibility({
-        lines: guestCustomerLines.map((line) => ({ productId: line.productId, variantId: line.variantId ?? null })),
-        scope: mergeAssortmentScope,
-        tenantScope: scope,
-        em,
-        container: ctx.container,
-      })
-
-      const built = buildMergeOutcome(em, guestCustomerLines, sessionCustomerLines, maxQuantities, survivorCart, startingLineNumber, mergeVisibility)
-      outcome = built.outcome
-      newLines = built.newLines
-      // `built.updatedLineIds` (the SUMMED/CAPPED target lines) is not separately emitted —
-      // see the "Summed/capped lines are not NEW" comment further down this function.
-    }
-
     // §8.3: "rotated on merge and on adoption" — read as: the cart that ends up being the
     // LIVE one after ANY `cart.merge` call gets its token rotated, always, not only in the
     // adoption sub-case. Documented judgment call: rotating unconditionally is the simplest
@@ -573,40 +481,157 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     // exactly the kind of trust-boundary crossing session-fixation hygiene already rotates
     // tokens for elsewhere in this module (`cart.create`'s own token-per-cart convention).
     const { token: newToken, tokenHash: newTokenHash } = generateCartToken()
-    survivorCart.tokenHash = newTokenHash
 
-    absorbedCart.status = 'merged'
-    absorbedCart.mergedIntoCartId = survivorCart.id
-    absorbedCart.resolvedAt = now
+    // §8.1 (rev 10.1 — I1): both carts' lines are read, and the outcome, the new lines and
+    // the merge log are built, only under both carts' `cart:lines` locks — a line write that
+    // committed after the pre-checks above is merged from its committed state, never lost.
+    const decideMerge = async () => {
+      const sessionLinesAll = (await findWithDecryption(
+        em,
+        CartLine,
+        { cartId: sessionCart.id, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+        {},
+        scope,
+      )) as CartLine[]
+      const guestLinesAll = (await findWithDecryption(
+        em,
+        CartLine,
+        { cartId: guestCart.id, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+        {},
+        scope,
+      )) as CartLine[]
 
-    const sourceSnapshot: StoredSourceSnapshot = {
-      lines: absorbedLinesForSnapshot.map(toCartLineSnapshot),
-      ...(survivorBuyerContextBefore ? { survivorBuyerContextBefore } : {}),
+      const sessionCustomerLines = filterCustomerLines(sessionLinesAll)
+      const guestCustomerLines = filterCustomerLines(guestLinesAll)
+
+      let strategy: CartMergeStrategy
+      let survivorCart: Cart
+      let absorbedCart: Cart
+      let absorbedLinesForSnapshot: CartLine[]
+      let survivorBuyerContextBefore: SurvivorBuyerContextSnapshot | null = null
+      let outcome: StoredMergeOutcomeEntry[] = []
+      let newLines: CartLine[] = []
+
+      // §7.1's policy table, rows 1-5 (the sixth, "Proposal accepted -> manual", is §7a's
+      // seam and out of scope). Precedence: "guest cart empty" (row 2) is checked FIRST so a
+      // cart that is empty on BOTH sides also resolves to `keep_target` (nothing to adopt
+      // either) rather than falling through to row 1's condition.
+      if (guestCustomerLines.length === 0) {
+        // Row 2: keep_target — nothing moves.
+        strategy = 'keep_target'
+        survivorCart = sessionCart
+        absorbedCart = guestCart
+        absorbedLinesForSnapshot = guestLinesAll
+        outcome = []
+      } else if (sessionCustomerLines.length === 0) {
+        // Row 1: adopt — the guest cart's ownership is reassigned; it becomes the live cart.
+        strategy = 'replace'
+        survivorCart = guestCart
+        absorbedCart = sessionCart
+        absorbedLinesForSnapshot = sessionLinesAll
+        survivorBuyerContextBefore = {
+          customerId: survivorCart.customerId ?? null,
+          customerIds: survivorCart.customerIds ?? null,
+          customerUserId: survivorCart.customerUserId ?? null,
+          customerGroupIds: survivorCart.customerGroupIds,
+          priceKindId: survivorCart.priceKindId ?? null,
+          buyerDigest: survivorCart.buyerDigest,
+        }
+        outcome = []
+      } else {
+        // Rows 3-5 combined: union (disjoint), sum (matching, default strategy per §7.1),
+        // conflict (matching product+variant, differing configuration -> kept separate).
+        strategy = 'sum'
+        survivorCart = sessionCart
+        absorbedCart = guestCart
+        absorbedLinesForSnapshot = guestLinesAll
+
+        const maxQuantities = await resolveMaxOrderQuantities(em, ctx.container, scope, survivorCart.storeId ?? null, guestCustomerLines)
+        const startingLineNumber = sessionLinesAll.reduce((max, line) => Math.max(max, line.lineNumber), 0) + 1
+
+        // Step 7.4 — §6a.5: the SAME enforcement key §6a.1b/§6a.4 already use elsewhere in
+        // this module — enforce iff the SURVIVOR's channel is storefront or a scope was
+        // resolved for this call. `routeContext.assortmentScope` is the buyer's own, freshly
+        // resolved (`{ fresh: true }`, D-R4-22) scope for THIS request — never the source
+        // cart's, and never anything the request body could supply.
+        const mergeAssortmentScope = shouldEnforceAssortmentScope(survivorCart.channel, input.routeContext.assortmentScope)
+          ? input.routeContext.assortmentScope
+          : undefined
+        const mergeVisibility: CartVisibilityResult = await evaluateCartVisibility({
+          lines: guestCustomerLines.map((line) => ({ productId: line.productId, variantId: line.variantId ?? null })),
+          scope: mergeAssortmentScope,
+          tenantScope: scope,
+          em,
+          container: ctx.container,
+        })
+
+        const built = buildMergeOutcome(em, guestCustomerLines, sessionCustomerLines, maxQuantities, survivorCart, startingLineNumber, mergeVisibility)
+        outcome = built.outcome
+        newLines = built.newLines
+        // `built.updatedLineIds` (the SUMMED/CAPPED target lines) is not separately emitted —
+        // see the "Summed/capped lines are not NEW" comment further down this function.
+      }
+
+      const sourceSnapshot: StoredSourceSnapshot = {
+        lines: absorbedLinesForSnapshot.map(toCartLineSnapshot),
+        ...(survivorBuyerContextBefore ? { survivorBuyerContextBefore } : {}),
+      }
+
+      const mergeLog = em.create(CartMergeLog, {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        sourceCartId: absorbedCart.id,
+        targetCartId: survivorCart.id,
+        strategy,
+        sourceSnapshot: sourceSnapshot as unknown,
+        outcome,
+        mergedByActorType: 'buyer' as CartMergeActorType,
+        mergedByActorId: input.routeContext.customerUserId ?? null,
+        proposalCartId: null,
+      })
+      return { strategy, survivorCart, absorbedCart, outcome, newLines, mergeLog }
     }
 
-    const mergeLog = em.create(CartMergeLog, {
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      sourceCartId: absorbedCart.id,
-      targetCartId: survivorCart.id,
-      strategy,
-      sourceSnapshot: sourceSnapshot as unknown,
-      outcome,
-      mergedByActorType: 'buyer' as CartMergeActorType,
-      mergedByActorId: input.routeContext.customerUserId ?? null,
-      proposalCartId: null,
-    })
-
-    await withAtomicFlush(
+    const locked: { decision?: Awaited<ReturnType<typeof decideMerge>> } = {}
+    await withCartLineMutationLock(
       em,
+      [sessionCart.id, guestCart.id],
       [
-        () => {
-          em.persist(mergeLog)
-          for (const line of newLines) em.persist(line)
+        async () => {
+          await em.refresh(sessionCart)
+          await em.refresh(guestCart)
+          assertCartNotLocked(sessionCart)
+          if (sessionCart.status !== 'active' || guestCart.status !== 'active') {
+            throw notFound('[internal] cart not found')
+          }
+          // §8.3: a concurrent merge or adoption of this guest cart rotated its token, so the
+          // token this request presented no longer proves possession of the cart.
+          if (guestCart.tokenHash !== hashCartToken(input.sourceToken)) {
+            throw notFound('[internal] source cart not found')
+          }
+          const decided = await decideMerge()
+          const { survivorCart, absorbedCart } = decided
+          if (decided.strategy === 'replace') {
+            survivorCart.customerId = input.routeContext.customerId
+            survivorCart.customerIds = input.routeContext.customerIds
+            survivorCart.customerUserId = input.routeContext.customerUserId
+            survivorCart.customerGroupIds = input.routeContext.customerGroupIds
+            survivorCart.priceKindId = input.routeContext.priceKindId
+            survivorCart.buyerDigest = input.routeContext.buyerDigest
+          }
+          survivorCart.tokenHash = newTokenHash
+          absorbedCart.status = 'merged'
+          absorbedCart.mergedIntoCartId = survivorCart.id
+          absorbedCart.resolvedAt = now
+          em.persist(decided.mergeLog)
+          for (const line of decided.newLines) em.persist(line)
+          locked.decision = decided
         },
       ],
-      { transaction: true, label: 'cart.merge' },
+      'cart.merge',
     )
+    if (!locked.decision) throw new Error('[internal] cart.merge finished without a merge decision')
+    const { strategy, survivorCart, absorbedCart, outcome, newLines, mergeLog } = locked.decision
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     // The SURVIVOR cart's own `cart.cart.updated` + indexing fires from the mandatory
@@ -723,7 +748,10 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
       // Same no-HTTP-consumer convention as the window check above: an already-undone
       // log or a survivor cart that is locked/no-longer-active is a no-op here, not an
       // error to surface — `cart.mergeUndo` (buyer-facing) is the path that throws these.
-      if (isCrudHttpError(err) && (err.body?.code === 'merge_already_undone' || err.body?.code === 'cart_not_active')) {
+      if (
+        isCrudHttpError(err) &&
+        (err.body?.code === 'merge_already_undone' || err.body?.code === 'cart_not_active' || err.body?.code === 'cart_locked')
+      ) {
         return
       }
       throw err
@@ -827,10 +855,26 @@ async function restoreCartMerge(em: EntityManager, scope: CartMergeScope, mergeL
   const restoredLines: CartLine[] = []
   const now = new Date()
 
-  await withAtomicFlush(
+  await withCartLineMutationLock(
     em,
+    [survivorCart.id, absorbedCart.id],
     [
-      () => {
+      async () => {
+        // §8.1 (rev 10.1 — I1): the pre-checks above ran before the locks; a `cart.lock` or a
+        // second undo that committed meanwhile is refused here, before anything is restored.
+        await em.refresh(survivorCart)
+        assertCartNotLocked(survivorCart)
+        if (survivorCart.status !== 'active') {
+          throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: survivorCart.status })
+        }
+        await em.refresh(mergeLog)
+        if (mergeLog.undoneAt) {
+          throw new CrudHttpError(409, { error: '[internal] merge_already_undone', code: 'merge_already_undone' })
+        }
+        await em.refresh(absorbedCart)
+        if (absorbedCart.status !== 'merged') {
+          throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: absorbedCart.status })
+        }
         for (const entry of outcome) {
           if (!entry.targetLineId) continue
           const line = targetLineById.get(entry.targetLineId)
@@ -862,7 +906,7 @@ async function restoreCartMerge(em: EntityManager, scope: CartMergeScope, mergeL
         mergeLog.undoneAt = now
       },
     ],
-    { transaction: true, label: 'cart.mergeUndo' },
+    'cart.mergeUndo',
   )
 
   return { survivorCart, absorbedCart, deletedLineIds, restoredLines }

@@ -117,3 +117,57 @@ test('a failed rollback does not retry while its connection remains in a transac
   expect(manager.isInTransaction()).toBe(true)
   expect(mutate).not.toHaveBeenCalled()
 })
+
+test('several carts are locked in sorted, deduplicated key order before any mutation runs', async () => {
+  const { manager, em } = createManager()
+  const mutate = jest.fn(async () => undefined)
+  await withCartLineMutationLock(em, ['cart-b', 'cart-a', 'cart-b'], [mutate], 'cart.merge')
+  expect(manager.execute.mock.calls).toEqual([
+    ['select pg_try_advisory_xact_lock(hashtextextended(?::text, 0)) as locked', ['cart:lines:cart-a']],
+    ['select pg_try_advisory_xact_lock(hashtextextended(?::text, 0)) as locked', ['cart:lines:cart-b']],
+  ])
+  expect(mutate).toHaveBeenCalledTimes(1)
+  expect(manager.commit).toHaveBeenCalledTimes(1)
+})
+
+test('one busy key among several rolls the whole attempt back, releasing the keys already taken, before retrying', async () => {
+  jest.useFakeTimers()
+  const { manager, em } = createManager()
+  manager.execute
+    .mockResolvedValueOnce([{ locked: true }])
+    .mockResolvedValueOnce([{ locked: false }])
+  const mutate = jest.fn(async () => undefined)
+  const pending = withCartLineMutationLock(em, ['cart-b', 'cart-a'], [mutate], 'cart.mergeUndo')
+  await jest.advanceTimersByTimeAsync(0)
+  expect(manager.rollback).toHaveBeenCalledTimes(1)
+  expect(manager.isInTransaction()).toBe(false)
+  expect(manager.flush).not.toHaveBeenCalled()
+  expect(mutate).not.toHaveBeenCalled()
+  await jest.advanceTimersByTimeAsync(100)
+  await pending
+  expect(manager.execute.mock.calls.map((call) => (call as unknown[])[1])).toEqual([
+    ['cart:lines:cart-a'],
+    ['cart:lines:cart-b'],
+    ['cart:lines:cart-a'],
+    ['cart:lines:cart-b'],
+  ])
+  expect(mutate).toHaveBeenCalledTimes(1)
+  expect(manager.commit).toHaveBeenCalledTimes(1)
+})
+
+test('several keys under an ambient transaction use the blocking statement in sorted order', async () => {
+  const { manager, em } = createManager(true)
+  const mutate = jest.fn(async () => undefined)
+  await withCartLineMutationLock(em, ['cart-b', 'cart-a'], [mutate], 'cart.merge')
+  expect(manager.execute.mock.calls).toEqual([
+    ['select pg_advisory_xact_lock(hashtextextended(?::text, 0))', ['cart:lines:cart-a']],
+    ['select pg_advisory_xact_lock(hashtextextended(?::text, 0))', ['cart:lines:cart-b']],
+  ])
+  expect(manager.begin).not.toHaveBeenCalled()
+})
+
+test('an empty cart id list is refused before any transaction opens', async () => {
+  const { manager, em } = createManager()
+  await expect(withCartLineMutationLock(em, [], [jest.fn()], 'cart.merge')).rejects.toThrow('[internal]')
+  expect(manager.begin).not.toHaveBeenCalled()
+})
