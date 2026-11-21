@@ -6,6 +6,7 @@ import {
   CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
 } from '../../../../lib/interactionCompatibility'
+import { createRecordingKysely, isCountQuery } from '../../../../lib/__tests__/recordingKysely'
 import { GET } from '../route'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -158,7 +159,36 @@ function createFakeEntityManager(store: FakeStore) {
     },
   )
 
-  return { find, findAndCount }
+  const kysely = createRecordingKysely((query) => {
+    const heads = mergedTodoHeads(store)
+    if (isCountQuery(query)) return [{ total: String(heads.length) }]
+    const [limit, offset] = query.parameters.slice(-2) as number[]
+    const fractional = [limit, offset].find((value) => !Number.isInteger(value))
+    if (fractional !== undefined) {
+      throw new Error(`[internal] invalid input syntax for type bigint: "${fractional}"`)
+    }
+    return heads.slice(offset, offset + limit)
+  })
+
+  return { find, findAndCount, getKysely: () => kysely.db }
+}
+
+function mergedTodoHeads(store: FakeStore) {
+  const inScope = (row: { tenantId: string; organizationId: string }) =>
+    row.tenantId === TENANT && row.organizationId === ORG
+  const tasks = store.interactions.filter((task) => inScope(task) && task.interactionType === 'task')
+  const taskIds = new Set(tasks.map((task) => task.id))
+  return [
+    ...store.links
+      .filter((link) => inScope(link) && !taskIds.has(link.todoId))
+      .map((link) => ({ id: link.id, created_at: link.createdAt, legacy: true })),
+    ...tasks
+      .filter((task) => !task.deletedAt)
+      .map((task) => ({ id: task.id, created_at: task.createdAt, legacy: false })),
+  ].sort((left, right) => {
+    const delta = right.created_at.getTime() - left.created_at.getTime()
+    return delta !== 0 ? delta : right.id.localeCompare(left.id)
+  })
 }
 
 function createQueryEngine(store: FakeStore) {
@@ -536,5 +566,87 @@ describe('GET /api/customers/interactions/tasks', () => {
     expect(status).toBe(200)
     expect(body).toMatchObject({ total: 3, page: 1, pageSize: 3, totalPages: 1 })
     expect(body.items).toHaveLength(3)
+  })
+
+  describe('compatibility mode beyond the merge fetch window', () => {
+    const minute = 60_000
+    const newest = new Date('2026-11-01T00:00:00.000Z').getTime()
+    const uuid = (prefix: string, index: number) => `${prefix}-0000-0000-0000-${String(index).padStart(12, '0')}`
+
+    it('reports the real total and returns the requested page for 2,500 legacy links', async () => {
+      const links = Array.from({ length: 2500 }, (_, index) =>
+        makeTodoLink({
+          id: uuid('cccccccc', index),
+          todoId: uuid('dddddddd', index),
+          createdAt: new Date(newest - index * minute),
+        }),
+      )
+      primeRequestContext({ interactions: [], links })
+      setUnified(false)
+
+      const middle = await callRoute('?page=19&pageSize=100')
+      expect(middle.status).toBe(200)
+      expect(middle.body).toMatchObject({ total: 2500, page: 19, pageSize: 100, totalPages: 25 })
+      expect(middle.body.items.map((item) => item.id)).toEqual(links.slice(1800, 1900).map((link) => link.id))
+
+      const last = await callRoute('?page=25&pageSize=100')
+      expect(last.body.items.map((item) => item.id)).toEqual(links.slice(2400).map((link) => link.id))
+    })
+
+    it('truncates fractional page and pageSize the same way the in-memory slice did', async () => {
+      const links = Array.from({ length: 12 }, (_, index) =>
+        makeTodoLink({
+          id: uuid('cccccccc', index),
+          todoId: uuid('dddddddd', index),
+          createdAt: new Date(newest - index * minute),
+        }),
+      )
+      primeRequestContext({ interactions: [], links })
+      setUnified(false)
+
+      for (const [page, pageSize] of [[1, 2.5], [2, 2.5], [1.5, 3], [2.5, 3.5]]) {
+        const start = (page - 1) * pageSize
+        const response = await callRoute(`?page=${page}&pageSize=${pageSize}`)
+        expect(response.status).toBe(200)
+        expect(response.body).toMatchObject({ total: 12, page, pageSize })
+        expect(response.body.items.map((item) => item.id)).toEqual(
+          links.slice(start, start + pageSize).map((link) => link.id),
+        )
+      }
+    })
+
+    it('lists a bridged legacy link once when the link is newer than its task', async () => {
+      const bridgedTodoId = uuid('bbbbbbbb', 1)
+      const interactions = [
+        ...Array.from({ length: 120 }, (_, index) =>
+          makeInteraction({
+            id: uuid('aaaaaaaa', index),
+            createdAt: new Date(newest - index * minute),
+          }),
+        ),
+        makeInteraction({
+          id: bridgedTodoId,
+          title: 'Bridged legacy task',
+          source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+          createdAt: new Date(newest - 500 * minute),
+        }),
+      ]
+      const links = [
+        makeTodoLink({
+          id: uuid('cccccccc', 1),
+          todoId: bridgedTodoId,
+          createdAt: new Date(newest + minute),
+        }),
+      ]
+      primeRequestContext({ interactions, links })
+      setUnified(false)
+
+      const pages = await Promise.all([1, 2, 3].map((page) => callRoute(`?page=${page}&pageSize=50`)))
+      const bridged = pages.flatMap(({ body }) => body.items.filter((item) => item.todoId === bridgedTodoId))
+
+      expect(bridged).toHaveLength(1)
+      expect(bridged[0]?.todoSource).toBe(CUSTOMER_INTERACTION_TASK_SOURCE)
+      expect(pages.map(({ body }) => body.total)).toEqual([121, 121, 121])
+    })
   })
 })

@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql, type Kysely } from 'kysely'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { isValidEntityIdShape } from '@open-mercato/shared/lib/query/engine'
@@ -431,7 +432,7 @@ export async function listLegacyTodoRows(
   tenantId: string,
   organizationIds: string[] | null,
   entityId: string | undefined,
-  options?: { limit?: number | null; isUnrestricted?: boolean },
+  options?: { limit?: number | null; isUnrestricted?: boolean; ids?: string[] },
 ): Promise<CustomerTodoRow[]> {
   if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
     return []
@@ -442,6 +443,9 @@ export async function listLegacyTodoRows(
   }
   if (entityId) {
     where.entity = entityId
+  }
+  if (options?.ids) {
+    where.id = { $in: options.ids }
   }
 
   const findOptions: Record<string, unknown> = {
@@ -483,6 +487,7 @@ export async function listCanonicalTodoRows(
     searchText?: string | null
     limit?: number | null
     isUnrestricted?: boolean
+    ids?: string[]
   },
 ): Promise<CanonicalTodoListResult> {
   if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
@@ -503,6 +508,9 @@ export async function listCanonicalTodoRows(
   }
   if (options?.source) {
     where.source = Array.isArray(options.source) ? { $in: options.source } : options.source
+  }
+  if (options?.ids) {
+    where.id = { $in: options.ids }
   }
   const trimmedSearch =
     typeof options?.searchText === 'string' ? options.searchText.trim() : ''
@@ -599,6 +607,121 @@ export async function listCanonicalTodoRows(
       .map((interaction) => rowByInteractionId.get(interaction.id) ?? null)
       .filter((row): row is CustomerTodoRow => !!row),
     bridgeIds: new Set(interactions.map((interaction) => interaction.id)),
+    total,
+  }
+}
+
+type MergedTodoPageDb = {
+  customer_todo_links: {
+    id: string
+    tenant_id: string
+    organization_id: string
+    entity_id: string
+    todo_id: string
+    created_at: Date
+  }
+  customer_interactions: {
+    id: string
+    tenant_id: string
+    organization_id: string
+    entity_id: string | null
+    interaction_type: string
+    created_at: Date
+    deleted_at: Date | null
+  }
+}
+
+function buildMergedTodoHeadsQuery(
+  db: Kysely<MergedTodoPageDb>,
+  tenantId: string,
+  organizationIds: string[],
+  entityId: string | undefined,
+) {
+  const legacy = db
+    .selectFrom('customer_todo_links as link')
+    .select(['link.id as id', 'link.created_at as created_at', sql<boolean>`true`.as('legacy')])
+    .where('link.tenant_id', '=', tenantId)
+    .$if(organizationIds.length > 0, (query) => query.where('link.organization_id', 'in', organizationIds))
+    .$if(Boolean(entityId), (query) => query.where('link.entity_id', '=', entityId as string))
+    .where(({ not, exists, selectFrom }) =>
+      not(
+        exists(
+          selectFrom('customer_interactions as bridged')
+            .select('bridged.id')
+            .whereRef('bridged.id', '=', 'link.todo_id')
+            .where('bridged.tenant_id', '=', tenantId)
+            .where('bridged.interaction_type', '=', 'task')
+            .$if(organizationIds.length > 0, (query) => query.where('bridged.organization_id', 'in', organizationIds))
+            .$if(Boolean(entityId), (query) => query.where('bridged.entity_id', '=', entityId as string)),
+        ),
+      ),
+    )
+  const canonical = db
+    .selectFrom('customer_interactions as task')
+    .select(['task.id as id', 'task.created_at as created_at', sql<boolean>`false`.as('legacy')])
+    .where('task.tenant_id', '=', tenantId)
+    .where('task.interaction_type', '=', 'task')
+    .where('task.deleted_at', 'is', null)
+    .$if(organizationIds.length > 0, (query) => query.where('task.organization_id', 'in', organizationIds))
+    .$if(Boolean(entityId), (query) => query.where('task.entity_id', '=', entityId as string))
+  return legacy.unionAll(canonical)
+}
+
+export async function listMergedTodoPage(
+  em: EntityManager,
+  queryEngine: QueryEngine,
+  container: CustomersContainerLike,
+  auth: CustomersAuthLike & { tenantId: string },
+  selectedOrganizationId: string | null,
+  organizationIds: string[] | null,
+  options: { entityId?: string; page: number; pageSize: number; isUnrestricted?: boolean },
+): Promise<{ items: CustomerTodoRow[]; total: number }> {
+  if (isCollapsedRestrictedOrganizationScope(organizationIds, options.isUnrestricted)) {
+    return { items: [], total: 0 }
+  }
+  const db = em.getKysely<MergedTodoPageDb>()
+  const heads = buildMergedTodoHeadsQuery(db, auth.tenantId, organizationIds ?? [], options.entityId)
+  const counted = await db
+    .selectFrom(heads.as('heads'))
+    .select((builder) => builder.fn.countAll<string | number>().as('total'))
+    .executeTakeFirst()
+  const total = Number(counted?.total ?? 0)
+  const rawStart = (options.page - 1) * options.pageSize
+  const start = Math.trunc(rawStart)
+  const limit = Math.trunc(rawStart + options.pageSize) - start
+  if (start >= total || limit <= 0) {
+    return { items: [], total }
+  }
+  const pageHeads = await db
+    .selectFrom(heads.as('heads'))
+    .select(['heads.id', 'heads.legacy'])
+    .orderBy('heads.created_at', 'desc')
+    .orderBy('heads.id', 'desc')
+    .limit(limit)
+    .offset(start)
+    .execute()
+  const pageLegacyIds = pageHeads.filter((head) => head.legacy).map((head) => head.id)
+  const pageCanonicalIds = pageHeads.filter((head) => !head.legacy).map((head) => head.id)
+  const [legacyRows, canonicalRows] = await Promise.all([
+    pageLegacyIds.length > 0
+      ? listLegacyTodoRows(em, queryEngine, auth.tenantId, organizationIds, options.entityId, {
+          ids: pageLegacyIds,
+          isUnrestricted: options.isUnrestricted,
+        })
+      : Promise.resolve([]),
+    pageCanonicalIds.length > 0
+      ? listCanonicalTodoRows(em, container, auth, selectedOrganizationId, organizationIds, {
+          entityId: options.entityId,
+          ids: pageCanonicalIds,
+          isUnrestricted: options.isUnrestricted,
+        })
+      : Promise.resolve(emptyCanonicalTodoList()),
+  ])
+  const rowsById = new Map([...legacyRows, ...canonicalRows.items].map((row) => [row.id, row]))
+  return {
+    items: pageHeads
+      .map((head) => rowsById.get(head.id) ?? null)
+      .filter((row): row is CustomerTodoRow => !!row),
     total,
   }
 }
