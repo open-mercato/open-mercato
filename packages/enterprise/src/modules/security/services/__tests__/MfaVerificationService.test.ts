@@ -9,6 +9,10 @@ import {
 import { MfaVerificationService } from '../MfaVerificationService'
 import type { MfaEnforcementService } from '../MfaEnforcementService'
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn((em, entity, query) => em.findOne(entity, query)),
+}))
+
 jest.mock('../../events', () => ({
   emitSecurityEvent: jest.fn().mockResolvedValue(undefined),
 }))
