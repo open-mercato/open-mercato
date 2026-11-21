@@ -113,7 +113,7 @@ function assertDocumentAddressParent(entity: SalesDocumentAddress, input: { docu
 async function emitDocumentAddressIndexSideEffects(
   ctx: { container: { resolve: (name: string) => unknown } },
   action: 'created' | 'updated' | 'deleted',
-  snapshot: DocumentAddressSnapshot
+  address: Pick<SalesDocumentAddress, 'id' | 'organizationId' | 'tenantId'>
 ): Promise<void> {
   let dataEngine: DataEngine | null = null
   try {
@@ -125,11 +125,11 @@ async function emitDocumentAddressIndexSideEffects(
   await emitCrudSideEffects({
     dataEngine,
     action,
-    entity: snapshot,
+    entity: address,
     identifiers: {
-      id: snapshot.id,
-      organizationId: snapshot.organizationId,
-      tenantId: snapshot.tenantId,
+      id: address.id,
+      organizationId: address.organizationId,
+      tenantId: address.tenantId,
     },
     indexer: { entityType: DOCUMENT_ADDRESS_ENTITY_TYPE },
   })
@@ -208,6 +208,7 @@ const createDocumentAddress: CommandHandler<DocumentAddressCreateInput, { id: st
       quote: input.documentKind === 'quote' ? (document as SalesQuote) : null,
     })
     await em.persist(entity).flush()
+    await emitDocumentAddressIndexSideEffects(ctx, 'created', entity)
     return { id: entity.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -290,6 +291,7 @@ const updateDocumentAddress: CommandHandler<DocumentAddressUpdateInput, { id: st
     entity.longitude = input.longitude ?? null
 
     await em.flush()
+    await emitDocumentAddressIndexSideEffects(ctx, 'updated', entity)
     return { id: entity.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -361,6 +363,7 @@ const deleteDocumentAddress: CommandHandler<
       })
     }
     await em.remove(entity).flush()
+    await emitDocumentAddressIndexSideEffects(ctx, 'deleted', entity)
     return { ok: true, id: input.id }
   },
   buildLog: async ({ result, snapshots }) => {
