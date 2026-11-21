@@ -1956,7 +1956,7 @@ Generate a typed manifest of all extension points during `yarn generate` for IDE
 | Refund (partial) | POST | `/api/payment-gateways/refund` | refundedAmount updated, status → partially_refunded |
 | Refund (full) | POST | `/api/payment-gateways/refund` | status → refunded |
 | Cancel | POST | `/api/payment-gateways/cancel` | status → cancelled |
-| Cancel with captured funds (TC-PGWY-026) | POST | `/api/payment_gateways/cancel` on a partially captured payment | 409 `payment_cancel_captured_funds`, status unchanged, refund still succeeds |
+| Cancel with captured funds (TC-PGWY-027) | POST | `/api/payment_gateways/cancel` on a partially captured payment | 409 `payment_cancel_captured_funds`, status unchanged, refund still succeeds |
 | Scoped missing transaction (TC-PGWY-016) | POST | `/api/payment_gateways/capture`, `/refund`, `/cancel` with another organization's or an unknown transaction ID | 404 with the same not-found body, no provider call, owner-visible transaction unchanged |
 | Invalid transition | POST | `/api/payment-gateways/capture` on captured payment | 422 |
 | Webhook — valid signature | POST | `/api/payment-gateways/webhook/mock` | Status synced |

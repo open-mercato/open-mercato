@@ -5,7 +5,7 @@ import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { capturePayment, createPaymentSession, getTransactionDetails } from './helpers/fixtures'
 
 /**
- * TC-PGWY-026: A manual cancel is refused once part of the payment was captured
+ * TC-PGWY-027: A manual cancel is refused once part of the payment was captured
  *
  * Cancelling a partially captured payment used to move it to the terminal `cancelled` status
  * while the captured amount stayed on the ledger, so the money could never be refunded through
@@ -16,7 +16,7 @@ import { capturePayment, createPaymentSession, getTransactionDetails } from './h
  * the database, the state a multi-capture provider would report. It MUST run under a coherent
  * app+DB stack (the `yarn test:integration` harness).
  */
-test.describe('TC-PGWY-026: Cancel with captured funds', () => {
+test.describe('TC-PGWY-027: Cancel with captured funds', () => {
   test('refuses to cancel a partially captured payment and keeps it refundable', async ({ request }) => {
     const token = await getAuthToken(request)
     let transactionId: string | null = null
