@@ -30,10 +30,10 @@ Re-enable `messages:message`, `sales:sales_note`, and `sales:sales_document_addr
 
 ### Phase 1: Shared Polymorphic Entity-ACL Contract & Documentation
 
-- [ ] 1.1 Add `SearchAclFeaturesMode` / `aclFeaturesMode` and update `canReadSearchEntity()`
-- [ ] 1.2 Unify `authorizeEntityAccess()` in `search/ai-tools.ts` and audit `viewer` propagation
-- [ ] 1.3 Add entity-access and AI tool visibility-filter unit tests
-- [ ] 1.4 Document additive search contracts in `BACKWARD_COMPATIBILITY.md` and `packages/search/AGENTS.md`
+- [x] 1.1 Add `SearchAclFeaturesMode` / `aclFeaturesMode` and update `canReadSearchEntity()` — 4e330bea93
+- [x] 1.2 Unify `authorizeEntityAccess()` in `search/ai-tools.ts` and audit `viewer` propagation — 4e330bea93
+- [x] 1.3 Add entity-access and AI tool visibility-filter unit tests — 4e330bea93
+- [x] 1.4 Document additive search contracts in `BACKWARD_COMPATIBILITY.md` and `packages/search/AGENTS.md` — 4e330bea93
 
 ### Phase 2: Row-Aware Visibility Filter for `messages:message`
 
