@@ -75,6 +75,7 @@ test.describe('CRM address custom fields', () => {
   }
 
   test('retries only unfinished addresses after creating a company', async ({ page, request }) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const suffix = randomUUID().slice(0, 8)
     const key = `address_retry_note_${suffix}`

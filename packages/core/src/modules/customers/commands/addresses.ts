@@ -18,7 +18,7 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
@@ -443,7 +443,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
         if (!record) throw notFound('Address not found')
         ensureTenantScope(ctx, record.tenantId)
         ensureOrganizationScope(ctx, record.organizationId)
-        enforceCommandOptimisticLock({
+        await enforceCommandOptimisticLockWithGuards(ctx.container, {
           resourceKind: 'customers.address',
           resourceId: record.id,
           current: record.updatedAt,

@@ -31,7 +31,6 @@ export default function CreateCompanyPage() {
   const locale = useLocale()
   const searchParams = useSearchParams()
   const scope = useOrganizationScopeDetail()
-  const { organizationId } = scope
   const customFields = useCustomerAddressCustomFields(t)
   const { addressDrafts, recovery, confirmAddressOutcome, submit } = useCustomerAddressDraftSubmission(t, customFields, scope)
 
@@ -70,7 +69,7 @@ export default function CreateCompanyPage() {
           cancelHref={returnTo ?? '/backend/customers/companies'}
           schema={formSchema}
           onSubmit={async (values) => {
-            const newId = await submit(values.addresses, async () => {
+            const newId = await submit(values.addresses, async (organizationId) => {
               let payload: Record<string, unknown>
               try {
                 payload = buildCompanyPayload(values, organizationId, locale)

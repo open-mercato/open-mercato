@@ -28,7 +28,6 @@ export default function CreatePersonPage() {
   const t = useT()
   const searchParams = useSearchParams()
   const scope = useOrganizationScopeDetail()
-  const { organizationId } = scope
   const customFields = useCustomerAddressCustomFields(t)
   const { addressDrafts, recovery, confirmAddressOutcome, submit } = useCustomerAddressDraftSubmission(t, customFields, scope)
 
@@ -79,7 +78,7 @@ export default function CreatePersonPage() {
           cancelHref={returnTo ?? '/backend/customers/people'}
           schema={formSchema}
           onSubmit={async (values) => {
-            const newId = await submit(values.addresses, async () => {
+            const newId = await submit(values.addresses, async (organizationId) => {
               let payload: Record<string, unknown>
               try {
                 payload = buildPersonPayload(values, organizationId)

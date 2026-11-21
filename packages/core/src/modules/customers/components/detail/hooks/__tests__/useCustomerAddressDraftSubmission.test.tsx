@@ -21,6 +21,11 @@ const drafts = [
 
 beforeEach(() => createAddress.mockReset())
 
+afterEach(() => {
+  document.cookie = 'om_selected_org=; max-age=0; path=/'
+  document.cookie = 'om_selected_tenant=; max-age=0; path=/'
+})
+
 test('retries rejected children against the created parent without resending a successful request', async () => {
   const createParent = jest.fn(async () => ({ id: 'customer-1' }))
   createAddress.mockImplementationOnce(async () => ({ ok: true } as Awaited<ReturnType<typeof createCrud>>))
@@ -37,6 +42,36 @@ test('retries rejected children against the created parent without resending a s
   })
   expect(createParent).toHaveBeenCalledTimes(1)
   expect(createAddress.mock.calls.map(([, body]) => body.addressLine1)).toEqual(['1 Main Street', '2 Main Street', '2 Main Street'])
+})
+
+test('uses the request selection while the organization switcher is loading and rejects a changed selection', async () => {
+  document.cookie = `om_selected_org=${scope.organizationId}; path=/`
+  document.cookie = `om_selected_tenant=${scope.tenantId}; path=/`
+  const unresolvedScope: Parameters<typeof useCustomerAddressDraftSubmission>[2] = { organizationId: null, tenantId: null }
+  const createParent = jest.fn(async () => ({ id: 'customer-1' }))
+  createAddress.mockRejectedValueOnce(Object.assign(new Error('Invalid address'), { status: 422 }))
+  createAddress.mockImplementation(async () => ({ ok: true } as Awaited<ReturnType<typeof createCrud>>))
+  const { result, rerender } = renderHook(
+    (selection) => useCustomerAddressDraftSubmission((key) => key, fields, selection),
+    { initialProps: unresolvedScope },
+  )
+
+  await act(async () => {
+    await expect(result.current.submit(drafts, createParent)).rejects.toThrow('customers.people.detail.addresses.retryPending')
+  })
+  document.cookie = 'om_selected_org=organization-2; path=/'
+  rerender({ ...scope, organizationId: 'organization-2' })
+  await expect(result.current.submit(drafts, createParent)).rejects.toThrow('customers.people.detail.addresses.createScopeChanged')
+  expect(createAddress).toHaveBeenCalledTimes(1)
+
+  document.cookie = `om_selected_org=${scope.organizationId}; path=/`
+  rerender(scope)
+  await expect(result.current.submit(drafts, createParent)).resolves.toBe('customer-1')
+  expect(createParent).toHaveBeenCalledTimes(1)
+  expect(createParent).toHaveBeenCalledWith(scope.organizationId)
+  expect(createAddress.mock.calls.map(([, body]) => [body.entityId, body.organizationId])).toEqual([
+    ['customer-1', scope.organizationId], ['customer-1', scope.organizationId], ['customer-1', scope.organizationId],
+  ])
 })
 
 test.each([

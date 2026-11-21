@@ -364,7 +364,7 @@ async function attachPrimaryAddressCustomValues(
     delete item.addressCustomValues
     delete item.address_custom_values
   }
-  if (!ctx.query.id || ctx.query.format) return
+  if (!ctx.query?.id || ctx.query.format) return
   const id = ctx.query.id.toLowerCase()
   const item = payload.items?.find((entry) => entry.id === id)
   const tenantId = ctx.auth?.tenantId

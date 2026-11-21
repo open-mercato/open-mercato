@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import type { OrganizationScopeChangedDetail } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { readRequestOrganizationScope, type OrganizationScopeChangedDetail } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { validateAddressCustomFields } from '@open-mercato/ui/backend/detail/AddressCustomFields'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError, normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -30,7 +30,7 @@ function buildAddressBody(entry: CustomerAddressValue) {
 
 type CreateProgress = {
   id: string
-  scope: OrganizationScopeChangedDetail
+  scope: OrganizationScopeChangedDetail | null
   savedAddressIds: Set<string>
   unconfirmedAddressId?: string
 }
@@ -72,11 +72,12 @@ export function useCustomerAddressDraftSubmission(
 
   async function submit(
     drafts: CustomerAddressValue[] | undefined,
-    createParent: () => Promise<{ id?: string; entityId?: string } | null | undefined>,
+    createParent: (organizationId: string | null) => Promise<{ id?: string; entityId?: string } | null | undefined>,
   ) {
     let current = progress.current
+    const requestScope = readRequestOrganizationScope() ?? (scope.organizationId || scope.tenantId ? scope : null)
     const fail = (message: string, details?: string) => createCrudFormError(message, { addresses: details ?? message })
-    if (current && (current.scope.organizationId !== scope.organizationId || current.scope.tenantId !== scope.tenantId)) {
+    if (current?.scope && (current.scope.organizationId !== requestScope?.organizationId || current.scope.tenantId !== requestScope?.tenantId)) {
       throw fail(t('customers.people.detail.addresses.createScopeChanged'))
     }
     if (current?.unconfirmedAddressId) throw fail(t('customers.people.detail.addresses.saveUnconfirmed'))
@@ -97,10 +98,10 @@ export function useCustomerAddressDraftSubmission(
     const addressBodies = remaining.map((entry) => ({ id: entry.id, body: buildAddressBody(entry) }))
 
     if (!current) {
-      const created = await createParent()
+      const created = await createParent(requestScope?.organizationId ?? null)
       const id = created?.id ?? created?.entityId
       if (typeof id !== 'string') return undefined
-      current = { id, scope, savedAddressIds: new Set<string>() }
+      current = { id, scope: requestScope, savedAddressIds: new Set<string>() }
       progress.current = current
     }
 
@@ -109,7 +110,7 @@ export function useCustomerAddressDraftSubmission(
         await createCrud('customers/addresses', {
           ...body,
           entityId: current.id,
-          ...(current.scope.organizationId ? { organizationId: current.scope.organizationId } : {}),
+          ...(current.scope?.organizationId ? { organizationId: current.scope.organizationId } : {}),
         }, { errorMessage: t('customers.people.detail.addresses.error') })
         current.savedAddressIds.add(id)
       } catch (error) {
