@@ -151,6 +151,8 @@
   "documents.editor.realtime.presenceLabel": "편집 중",
   "documents.editor.realtime.readOnlyFallback": "실시간 연결을 사용할 수 없어 마지막으로 저장된 버전을 표시합니다(읽기 전용).",
   "documents.editor.realtime.reconnecting": "다시 연결하는 중…",
+  "documents.editor.realtime.setupGuide": "실시간 공동 작업 설정 가이드",
+  "documents.editor.realtime.setupHint": "실시간 공동 작업을 사용하려면 공동 작업 서비스가 실행 중이고 연결이 정상적으로 작동해야 합니다. 관리자에게 설정을 확인해 달라고 요청하세요.",
   "documents.editor.realtime.singleUserFallback": "실시간 연결을 사용할 수 없어 단독 편집 모드로 변경 사항을 저장합니다.",
   "documents.editor.status.error": "저장 실패",
   "documents.editor.status.saved": "저장됨",

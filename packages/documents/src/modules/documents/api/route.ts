@@ -15,6 +15,7 @@ import { loadDocumentFavoriteIds } from '../lib/favorites'
 import { getEntityRegistryEntry } from '../lib/entityRegistry'
 import { verifyEntityRegistryTargetAccess } from '../lib/entityRegistry.server'
 import { isDocumentEntityRegistryModuleEnabled } from '../lib/entityRegistryAvailability.server'
+import { assertTier } from '../lib/permissions'
 import {
   handleDocumentsRouteError,
   hasDocumentsFeature,
@@ -166,13 +167,19 @@ export async function GET(request: Request): Promise<Response> {
       ) {
         throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
       }
-      const verifiedTarget = await verifyEntityRegistryTargetAccess(request, {
-        entityType: query.entityType,
-        entityId: query.entityId,
-      })
+      let entityId = query.entityId
+      if (query.entityType === 'document') {
+        await assertTier(ctx.em, entityId, ctx.auth, 'viewer')
+      } else {
+        const verifiedTarget = await verifyEntityRegistryTargetAccess(request, {
+          entityType: query.entityType,
+          entityId,
+        })
+        entityId = verifiedTarget.id
+      }
       relationFilter = {
         entityType: query.entityType,
-        entityId: verifiedTarget.id,
+        entityId,
       }
     }
 

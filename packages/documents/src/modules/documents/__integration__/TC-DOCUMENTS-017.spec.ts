@@ -20,6 +20,7 @@ import {
 } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { expectId, getTokenContext, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { DOCUMENTS_REALTIME_SETUP_GUIDE_URL } from '../lib/constants'
 import {
   COLLAB_INTEGRATION_ENABLED,
   COLLAB_INTEGRATION_SKIP_REASON,
@@ -194,6 +195,15 @@ test.describe('TC-DOCUMENTS-017: realtime rollover, pages, PDF, and record snaps
 
       await expect(page.getByText('Realtime unavailable', { exact: true })).toBeVisible()
       await expect(page.getByText('Realtime is unavailable — changes are saved in single-user mode.')).toBeVisible()
+      await expect(page.getByRole('link', { name: 'Realtime setup guide', exact: true })).toHaveAttribute(
+        'href',
+        DOCUMENTS_REALTIME_SETUP_GUIDE_URL,
+      )
+      const backlinks = await apiRequest(request, 'GET', `/api/documents?entityType=document&entityId=${document.id}`, { token })
+      expect(backlinks.status()).toBe(200)
+      expect(await readJsonSafe<{ items: unknown[] }>(backlinks)).toMatchObject({ items: [] })
+      await expect(page.getByText('No documents reference this one yet.', { exact: true })).toBeVisible()
+      await expect(page.getByText('Failed to load related records.', { exact: true })).toHaveCount(0)
       const editor = page.locator('.ProseMirror:visible').first()
       await expect(editor).toBeVisible()
 

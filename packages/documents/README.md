@@ -54,6 +54,15 @@ The create-app Docker Compose templates include a `documents-collab` service on 
 
 If the sidecar is unreachable (or `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` is unset), a user who still has edit capability gets an **editable single-user fallback**. It persists through the bounded content `PUT` path with the content row's optimistic-lock token, exposes explicit save status/control, and guards navigation while a save is pending. A definitive collaboration authorization rejection, revoked capability, viewer, or commenter remains read-only and fail-closed. PostgreSQL remains authoritative in both modes.
 
+The editor's **Realtime unavailable** notice links to this setup guide. To enable collaboration, an administrator should:
+
+1. Start the sidecar using the command above (or enable the `documents-collab` Compose profile).
+2. Set `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` to the browser-reachable WebSocket endpoint before building the app. HTTPS deployments require `wss://`.
+3. Configure the same `DOCUMENTS_COLLAB_JWT_SECRET_V2` (at least 32 UTF-8 bytes) on the app and sidecar, and allow the app's browser origin with `DOCUMENTS_COLLAB_ALLOWED_ORIGINS` or `APP_URL`.
+4. Check the browser can reach the sidecar through the reverse proxy and that WebSocket upgrades are enabled. Review the sidecar logs for rejected origins or authentication failures.
+
+After setup, save pending single-user edits before reopening the document to connect. An already connected session retries transient outages automatically; keep it open while queued changes reconnect.
+
 Redis replication is transport-only: the authenticated source replica owns
 persistence and publishes its exact Yjs state only after that store succeeds.
 A dedicated command-bounded publisher releases the store lock before fanout;
