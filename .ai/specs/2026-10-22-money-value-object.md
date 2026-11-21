@@ -6,7 +6,7 @@ Add two immutable value objects to `@open-mercato/shared`. `Currency` holds an I
 
 These are for **new code only**. Migrating existing modules, entities, commands or API payloads is out of scope. Once these objects ship, the project harness (agent instructions, review checklist, standalone-app harness and an advisory diff check) is updated so that every **new** monetary value must use them.
 
-**Depends on** [Arbitrary-Precision Money and FX Rates](2026-10-08-arbitrary-precision-money-and-fx.md) (PR #7324, not yet merged). That PR supplies the decimal toolkit, `ExactDecimalType`, the ISO 4217 minor-unit table and `currencyPrecisionService`. This spec cannot be implemented before #7324 merges.
+**Depends on** [Arbitrary-Precision Money and FX Rates](2026-10-08-arbitrary-precision-money-and-fx.md) (PR #7324, merged 2026-11-19). That PR supplies the decimal toolkit, `ExactDecimalType`, the ISO 4217 minor-unit table and `currencyPrecisionService`.
 
 ## 📝 Overview
 
@@ -108,26 +108,27 @@ assertSameCurrency(left: Currency, right: Currency): void
 
 | Function | Rule |
 |----------|------|
-| `createMoney(amount: DecimalInput, currency)` | `toDecimal` validation and the parent spec's size caps apply. The amount is exact, with no rounding |
+| `createMoney(amount: DecimalInput, currency)` | `toDecimal` validation and the parent spec's size caps apply. The amount is exact, with no rounding: a `Big` is copied exactly and one beyond the caps throws `Decimal value out of range` (the legacy `toDecimal` would round it half-up). The same exact conversion applies to the `multiplyMoney` factor, the `divideMoney` divisor, the `convertMoney` rate and `allocateMoney` ratios |
 | `zeroMoney(currency)` | Starting value for a `reduce` |
-| `addMoney(a, b)`, `subtractMoney(a, b)` | `assertSameCurrency`, then exact |
+| `addMoney(a, b)`, `subtractMoney(a, b)` | `assertSameCurrency`, then exact. A result that would need rounding to fit the stored-amount range (300 integer digits, 1000 significant digits, nothing below `1e-1000`) throws `Decimal result out of range`; nothing is rounded silently |
 | `sumMoney(currency, values)` | `values.reduce(addMoney, zeroMoney(currency))`. The currency is required so an empty list is well defined |
-| `multiplyMoney(m, factor: DecimalInput)` | Exact |
+| `multiplyMoney(m, factor: DecimalInput)` | Exact, with the same range rule as `addMoney` |
 | `divideMoney(m, divisor, rounding)` | One `big.js` division on a module-private constructor (`const RoundedDivision = BigConstructor()`). The function sets `RoundedDivision.DP` and `RoundedDivision.RM` from `rounding` inside `try`/`finally`, then runs `new RoundedDivision(m.amount.toFixed()).div(divisor)`; `div` reads `DP`/`RM` from the dividend's constructor. The quotient is rounded **once**, with no cut at 50 places followed by a second rounding. The result is re-wrapped with `toDecimal(quotient.toFixed())`, so every `Money.amount` comes from the shared constructor. Division by zero throws |
-| `roundMoney(m, rounding)` | `amount.round(dp, mode)` |
+| `roundMoney(m, rounding)` | `amount.round(dp, mode)`. A carry past 300 integer digits throws, like every operation whose result leaves the stored-amount range (the range is checked when each `Money` is created, so `snapshotMoney`/`restoreMoney` always round-trip) |
 | `negateMoney`, `absMoney` | Exact |
 | `allocateMoney(m, ratios, { decimalPlaces })` | Largest-remainder method; see below |
-| `convertMoney(m, rate, target, rounding)` | `rate` must be positive and means target units per one source unit. The amount is `round(m.amount × rate)`, an exact multiplication followed by one rounding. A target with the same code throws `CurrencyMismatchError` |
+| `convertMoney(m, rate, target, rounding)` | `rate` must be positive and means target units per one source unit. The amount is `round(m.amount × rate)`, an exact, uncapped multiplication followed by one rounding. A target with the same code throws `CurrencyMismatchError` |
 | `rescaleMoney(m, target, rounding)` | The only way to move an amount between two currencies with the same code and different `decimalPlaces` (a tenant precision change). It throws when the codes differ |
 | `compareMoney(a, b)` | Asserts the same currency, returns `-1 \| 0 \| 1`. Usable as an `Array.sort` comparator |
 | `moneyEquals(a, b)` | `false` for different currencies (not arithmetic, so it does not throw) |
 | `isZeroMoney`, `isNegativeMoney`, `isPositiveMoney` | |
+| `fitsCurrencyPrecision(m)` | `true` when the amount has at most `m.currency.decimalPlaces` decimals. `resolveMoney` keeps client amounts exact, so a field that must be in minor units checks this and rejects the request |
 | `minMoney(...values)`, `maxMoney(...values)` | Assert the same currency. Throw on an empty list |
 
 **`allocateMoney` algorithm.**
-1. Throw `InvalidAllocationError` when `m.amount` has more than `decimalPlaces` decimals (round it first, since rounding is explicit), when `ratios` is empty, when any ratio is negative, or when all ratios are zero.
+1. Throw `InvalidAllocationError` when `m.amount` has more than `decimalPlaces` decimals (round it first, since rounding is explicit), when `ratios` is empty or has more than 1000 entries, when any ratio is negative, has more than 50 integer digits or more than 50 decimals, or when all ratios are zero. The ratio bounds keep the exact integer work small (1000 ratios at the bounds take about a second).
 2. Make the ratios integers by scaling them all by `10^k`, where `k` is the largest number of decimals among them. Let `U = |amount| × 10^decimalPlaces` (an integer number of units) and `S = Σratios`.
-3. Share `i` gets `floor(U × ratio_i / S)` units, computed with exact integer math (`big.js` `div` at `DP = 0`, `RM = down`, on integers).
+3. Share `i` gets `floor(U × ratio_i / S)` units, computed with exact, uncapped integer math (`big.js` `div` at `DP = 0`, `RM = down`, on integers). Only the returned parts must fit the stored-amount range.
 4. The leftover `U − Σshares` units (an integer smaller than the number of ratios) go one each to the shares with the largest **exact** remainder `(U × ratio_i) mod S`, computed on the fresh product, never on a stored amount. Ties go to the lower index. A zero ratio has remainder 0 and never receives a unit.
 5. Convert the units back (`× 10^-decimalPlaces`) and restore the sign.
 
@@ -135,7 +136,7 @@ The result always sums exactly to `m`, and the order is decided only by exact in
 
 ### Errors (`errors.ts`)
 
-`CurrencyMismatchError` (carries `left` and `right` currencies), `CurrencyNotResolvedError` (carries `code` and `cause`), `InvalidAllocationError`, and `InvalidMoneyRoundingError`. All extend `Error`. Messages start with `[internal]` because they signal programmer errors and are not shown to users. A route that wants a 400 maps them explicitly.
+`CurrencyMismatchError` (carries `left` and `right` currencies), `CurrencyNotResolvedError` (carries `code` and `cause`), `InvalidAllocationError`, `InvalidMoneyRoundingError`, `InvalidMoneyInputError` (`resolveMoney` input rejected by `moneyInputSchema`; `cause` is the `ZodError`) and `InvalidMoneySnapshotError` (`restoreMoney`/`moneyFromColumns` snapshot rejected by `moneySnapshotSchema`; `cause` is the `ZodError`). All extend `Error`. Messages start with `[internal]` because they signal programmer errors and are not shown to users. A route that wants a 400 maps them explicitly.
 
 ### Serialization (`serialization.ts`)
 
@@ -168,6 +169,7 @@ export function moneyFromColumns(columns: MoneyColumns): Money
 - `MoneyColumns` has the `MoneySnapshot` shape. `moneyToColumns` is `snapshotMoney`, and `moneyFromColumns` delegates to `restoreMoney`, so the database and the transport paths share one validation. For a nullable embedded field, MikroORM leaves the property `null`, so adopters call `columns ? moneyFromColumns(columns) : null`. A partially null snapshot throws.
 - `restoreMoney` (and through it `moneyFromColumns`) is the **only** synchronous path that creates a `Currency`. It restores a snapshot taken from a resolved currency. The symbol is not part of a snapshot, so the restored value has `symbol: null`. That is harmless because `symbol` does not affect equality (D3).
 - Entities hold `MoneyColumns`, not `Money`. MikroORM hydrates mutable embeddable instances, so conversion happens at the command or service boundary.
+- An entity that also references `currencies.Currency` by `currency_id` keeps that FK-id as the relational link and `MoneyColumns` per amount as the snapshot (the platform's FK-id + snapshot pattern). On write, the currency row for the id is loaded with the same tenant/organization scope (`findOneWithDecryption`, `deletedAt: null`), its code is resolved with `resolveCurrency`, and the id is stored next to `moneyToColumns(money)`. A stored `Money` is always restored from its snapshot, never rebuilt from the id, because the referenced currency may since have been disabled, soft-deleted, renamed (code changed) or re-scaled.
 
 ### Resolver contract extension (`packages/shared/src/lib/currencyPrecision.ts`)
 
@@ -179,7 +181,7 @@ export type CurrencyPrecisionResolver = {
 }
 ```
 
-`CurrencyPrecisionService` (currencies module) implements `getCurrency`. The per-request lookup cache changes from a decimal-places promise to a `CurrencyDetails` promise, and `getDecimalPlaces` reads from it. The query is unchanged: `findOneWithDecryption`, scoped to the tenant and organization, `deletedAt: null`, and `null` without an organization.
+`CurrencyPrecisionService` (currencies module) implements `getCurrency`. The per-request lookup cache holds the currency record, and `getDecimalPlaces` reads from it. The query is unchanged: `findOneWithDecryption`, scoped to the tenant and organization, `deletedAt: null`, and `null` without an organization. `getCurrency` returns `null` for an inactive currency (`is_active = false`), so no new money is created in it; `getDecimalPlaces` keeps reporting its precision for existing amounts, and stored snapshots still restore. The resolver type documents the same expectation for third-party `getCurrency` implementations. A third-party resolver that implements only `getDecimalPlaces` cannot report activity, so `resolveCurrency` does not reject inactive currencies on that fallback path. `resolveCurrency` itself rejects a lookup without a tenant or an organization before it calls any resolver.
 
 ### Harness enforcement (D9)
 
@@ -213,7 +215,7 @@ No HTTP endpoints are added or changed, so this spec needs no integration (Playw
 
 | Surface | Change | BC class |
 |---------|--------|----------|
-| Import paths `@open-mercato/shared/lib/money/*`, `@open-mercato/shared/lib/db/moneyColumns` | New | Additive |
+| Import paths `@open-mercato/shared/lib/money` (entry point), `@open-mercato/shared/lib/money/*` (except `internal`), `@open-mercato/shared/lib/db/moneyColumns` | New | Additive |
 | `CurrencyPrecisionResolver` type | New optional `getCurrency` method, new `CurrencyDetails` type | Additive. Existing implementers and test doubles still compile |
 | DI key `currencyPrecisionService` | Unchanged key; the service gains a method | Additive |
 
@@ -224,7 +226,7 @@ No HTTP endpoints are added or changed, so this spec needs no integration (Playw
 | No organization in the lookup (CLI, system jobs) | The service returns `null`, so `CurrencyNotResolvedError`. Callers must pass the organization |
 | Currencies module disabled | `currencyPrecisionService` is not registered, so `CurrencyNotResolvedError` |
 | Currency soft-deleted after a `Money` was persisted | `moneyFromColumns` still restores it from the snapshot. A new `resolveCurrency` throws |
-| Tenant changes `decimal_places` (2 → 4) | Restored values carry dp 2 and freshly resolved ones carry dp 4. Mixing them throws `CurrencyMismatchError`. This is a known cost of D3, which the user accepted: a config change surfaces as an error, not as silent mixing. An adopter that reads stored money next to freshly resolved money calls `rescaleMoney(old, fresh, rounding)` at its read boundary. Going from fewer to more decimals is lossless; going from more to fewer follows the caller's rounding |
+| Tenant changes `decimal_places` (2 → 4) | Restored values carry dp 2 and freshly resolved ones carry dp 4. Mixing them throws `CurrencyMismatchError`. This is a known cost of D3, which the user accepted: a config change surfaces as an error, not as silent mixing. An adopter that reads stored money next to freshly resolved money calls `rescaleMoney(old, freshCurrency, rounding)` at its read boundary. Going from fewer to more decimals is lossless; going from more to fewer follows the caller's rounding |
 | `Money` passed through a queue, cache or `structuredClone` | The brand and the `Big` prototype are lost. Senders send `snapshotMoney(m)`, and receivers call `restoreMoney`. The receiver gets the precision the sender used, not the current tenant setting |
 | Precision changes (dp 2 → 4) while a snapshot is in a queue | Received with dp 2. Mixing it with freshly resolved money throws `CurrencyMismatchError` until the receiver calls `rescaleMoney`, the same as a stored `MoneyColumns` |
 | Currency soft-deleted or disabled while a snapshot is in a queue | `restoreMoney` still succeeds, since it runs no lookup. A new `resolveCurrency` for that code throws |
@@ -260,8 +262,9 @@ Rollback: see Migration & Backward Compatibility below.
 
 | Surface | BC category | Class once released |
 |---------|-------------|---------------------|
-| `@open-mercato/shared/lib/money/*`, `@open-mercato/shared/lib/db/moneyColumns` | 4. Import Paths | STABLE |
-| `Money`, `Currency`, `MoneyRounding`, `MoneyRoundingMode`, `MoneyInput`, `MoneySnapshot`, `CurrencyDetails`, the error classes | 2. Type Definitions | STABLE |
+| `@open-mercato/shared/lib/money` (`index.ts`, registered in the package `exports`), `@open-mercato/shared/lib/money/*`, `@open-mercato/shared/lib/db/moneyColumns`. `lib/money/internal` is an implementation detail and is excluded | 4. Import Paths | STABLE |
+| `Money`, `Currency`, `MoneyRounding`, `MoneyRoundingMode`, `MoneyInput`, `MoneySnapshot`, `MoneyScope`, `CurrencyLookup`, `CurrencyDetails`, the error classes | 2. Type Definitions | STABLE |
+| `MAX_MONEY_DECIMAL_PLACES` (50), `moneyInputSchema`, `moneySnapshotSchema` | 3. Function Signatures / constants | STABLE |
 | The Money functions, `resolveCurrency`, `snapshotMoney`/`restoreMoney`, `moneyToColumns`/`moneyFromColumns` | 3. Function Signatures | STABLE |
 | `CurrencyPrecisionResolver.getCurrency?` | 2. Type Definitions | STABLE, and it **MUST stay optional**, the same rule as `TelemetryProvider.reportError?`. Third-party resolvers implement this type |
 | `MoneyColumns` column suffixes (`_amount`, `_currency_code`, `_currency_decimal_places`) | 8. Database Schema | ADDITIVE-ONLY. Adopter tables depend on them |
@@ -342,3 +345,75 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
   - `Money.amount` is now deep-frozen, and `Money` owns a copy of its amount. The shallow freeze left big.js's coefficient array writable.
   - Added a trusted `MoneySnapshot` transport (`snapshotMoney`/`restoreMoney`), separate from the untrusted `MoneyInput`, so values in queues and caches keep their precision.
   - Replaced the rollback rule with a Migration & Backward Compatibility section that follows `BACKWARD_COMPATIBILITY.md`.
+- 2026-11-19 — Implemented Phases 1–3 (see Implementation Status). Added the `@open-mercato/shared/lib/money` entry point, listed the extra exported types (`MoneyScope`, `CurrencyLookup`) and constants in the BC tables, and excluded `lib/money/internal` from the contract.
+- 2026-11-19 — Code-review follow-ups: added `fitsCurrencyPrecision` (over-precise client amounts stay exact in `resolveMoney`; handlers that need minor units check it), `allocateMoney` reports out-of-range ratios as `InvalidAllocationError`, documented the decimal size caps, and narrowed `money:check-new-code`'s `<field>Exact` rule to declarations (object-literal writes are no longer flagged) with pinned `a/`/`b/` diff prefixes.
+- 2026-11-19 — Re-review follow-ups: blocked the `@open-mercato/shared/lib/money/internal` subpath in the package `exports` (`null` target), added the `fitsCurrencyPrecision` rule to the standalone harness Money Contract, and ran the create-app suite in a Linux container with bubblewrap (HEAD and base `b0f3d1c64`: 1243 pass, 0 fail, 15 skipped each).
+- 2026-11-19 — Second-review follow-ups: `CurrencyPrecisionService.getCurrency` returns frozen details, so a caller cannot change the cached precision; `divideMoney` reports an oversized quotient as `Decimal result out of range`; `money:check-new-code` reads a property declared on the same line as its decorator; the OMH-244 focused test became `agent-money-harness.test.ts` so the create-app suite runs it in CI.
+- 2026-11-19 — PR #9978 review (`haxiorz`) follow-ups:
+  - `convertMoney` rounds the exact, uncapped product once (`1e-1000 × 0.1` with mode `up` gives `0.01`).
+  - Every `Money` is checked against the decimal toolkit's caps when it is created, so a rounding carry past 300 integer digits (`roundMoney`, `rescaleMoney`, `convertMoney`) throws `Decimal result out of range` instead of producing a value `restoreMoney` rejects.
+  - `allocateMoney` computes scaled units, products and remainders with exact, uncapped integer arithmetic; only the returned parts must fit the stored-amount range, so a `1e299` total splits correctly.
+  - `resolveCurrency` rejects a lookup without a tenant or an organization before calling any resolver override.
+  - `CurrencyPrecisionService.getCurrency` returns `null` for an inactive currency (so `resolveCurrency`/`resolveMoney` refuse new money in it); `getDecimalPlaces` keeps reporting its precision, and stored snapshots still restore.
+  - `moneyInputSchema` accepts the amount only as a decimal string; JSON numbers are rejected because they may have lost digits during parsing.
+  - The `lib/money/internal.ts` spelling is blocked in `exports` as well; a resolution test covers both spellings and the public paths.
+  - A PostgreSQL-backed test (`moneyColumns.integration.test.ts`, run by `test:pg-integration`) flushes, clears and reloads `MoneyColumns` values beyond JS number precision, a nullable embedding, and a last-digit-only update.
+  - `money:check-new-code` resolves the repository's default branch (`upstream/HEAD`, `origin/HEAD`, then `main`/`develop`/`master`) before falling back to `HEAD~1`.
+  - Guidance names the shape per layer: `Money` in domain code, `MoneyInput` in request/response payloads, `MoneySnapshot` in trusted messages, `MoneyColumns` in entities.
+- 2026-11-19 — Pre-push review follow-ups:
+  - `allocateMoney` bounds its exact integer work: at most 1000 ratios, each with at most 50 integer digits and 50 decimals (`InvalidAllocationError` otherwise).
+  - `addMoney`, `subtractMoney`, `sumMoney` and `multiplyMoney` are exact and throw `Decimal result out of range` instead of rounding a result that does not fit the stored-amount range.
+  - `exports` also blocks `lib/money/internal.tsx` and `.js`.
+  - The `CurrencyPrecisionResolver` type documents that `getCurrency` should return `null` for inactive currencies.
+  - Status, Verification and Phase 3 Step 4 record the PostgreSQL test, the Linux create-app run and the fresh packed-preset evidence, and the live/certified routing lane waiver request.
+- 2026-11-19 — PR #9978 re-review follow-ups:
+  - Money inputs given as `Big` (amounts, factors, divisors, rates, ratios) are copied exactly and rejected when they exceed the decimal caps (`Decimal value out of range`; `InvalidAllocationError` for ratios), instead of being rounded half-up by the legacy `toDecimal` normalisation.
+  - Phase 3 is marked In Review: Step 4 stays open until the certified routing lane passes or a maintainer waiver is recorded.
+- 2026-11-20 — Merged upstream `main`, which added its own OMH-243 (Markdown language customization, #8622). The Money routing case is renumbered to OMH-244 and the catalog counts move to 244; the knowledge-change manifest is re-pinned to the merge.
+- 2026-11-20 — PR #9978 review (`mikoajp`) follow-ups:
+  - `MoneyScope.organizationId` and the `CurrencyLookup` organization are required (`string`), matching the runtime rule in `resolveCurrency`; a call without an organization is now a type error instead of an unconditional runtime failure. The legacy `CurrencyPrecisionLookup` keeps its optional organization.
+  - `resolveMoney` throws `InvalidMoneyInputError` and `restoreMoney`/`moneyFromColumns` throw `InvalidMoneySnapshotError`, each with the `ZodError` as `cause`, instead of a plain `Error`.
+  - The `resolveCurrency` docs no longer claim an inactive code always throws: only a resolver that implements `getCurrency` (as `CurrencyPrecisionService` does) can reject inactive currencies; the `getDecimalPlaces`-only fallback cannot report activity.
+  - The adopter recipe (shared `AGENTS.md`, docs, this spec, the standalone harness Money Contract) covers entities that also reference a currency by `currency_id`: keep the FK-id and the `MoneyColumns` snapshot side by side.
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Value objects | Done | 2026-11-19 | `lib/money/*` + `CurrencyPrecisionResolver.getCurrency?`; unit tests passing |
+| Phase 2 — Persistence | Done | 2026-11-19 | `lib/db/moneyColumns.ts`, metadata test (`connect: false`) plus a PostgreSQL-backed round-trip test (`moneyColumns.integration.test.ts`, `test:pg-integration`), adopter recipe in `packages/shared/AGENTS.md` and `apps/docs` |
+| Phase 3 — Harness enforcement | In Review | 2026-11-19 | Root `AGENTS.md`, `packages/shared/AGENTS.md`, review/spec checklists, `yarn money:check-new-code`, standalone harness case OMH-244 and fresh packed-preset deterministic proof are done. **Incomplete until** the affected certified routing lane has a passing result or an explicit maintainer waiver is recorded on PR #9978 (knowledge-change step 8; see Step 4) |
+
+### Phase 1 — Detailed Progress
+- [x] Step 1: `CurrencyDetails` + optional `getCurrency` on the resolver contract; `CurrencyPrecisionService.getCurrency` shares the per-request lookup with `getDecimalPlaces`
+- [x] Step 2: `types.ts`, `errors.ts`, `currency.ts` (`resolveCurrency`, `currenciesEqual`, `assertSameCurrency`)
+- [x] Step 3: `money.ts` core arithmetic, comparison and sign checks, immutability regressions
+- [x] Step 4: `divideMoney`, `roundMoney`, `convertMoney`, `rescaleMoney`
+- [x] Step 5: `allocateMoney`
+- [x] Step 6: `serialization.ts` + `packages/shared/AGENTS.md` row
+
+### Phase 2 — Detailed Progress
+- [x] Step 1: `MoneyColumns`, `moneyToColumns`, `moneyFromColumns` + metadata and round-trip tests. Discovery through the referencing entity works; no re-export fallback is needed. `moneyColumns.integration.test.ts` (PostgreSQL via testcontainers, in `test:pg-integration`) flushes, clears and reloads values beyond JS number precision, a nullable embedding set and cleared, last-digit-only updates, and scale-only changes that issue no UPDATE
+- [x] Step 2: Adopter recipe in `packages/shared/AGENTS.md` and `apps/docs/docs/framework/data-integrity/money-value-objects.mdx`
+
+### Phase 3 — Detailed Progress
+- [x] Step 1: Root `AGENTS.md` `Always`/`Never` lines + Task Router row (existing wording tightened to stay inside the 31,232-byte root limit; `yarn agents:check-budget` passes) and `packages/shared/AGENTS.md` (`money/` row, `decimal.ts` row scoped to existing contracts, Money Value Objects recipe)
+- [x] Step 2: `.ai/review-checklist.md` (§3 items + anti-pattern row), `.ai/specs/AGENTS.md`, and the repo-local `om-spec-writing` spec checklist (§3)
+- [x] Step 3: `scripts/money-check-new-code.mjs`, `yarn money:check-new-code`, `.ai/money-allowlist.json`; fixture tests in `scripts/__tests__/money-check-new-code.test.mjs` (run by `yarn test:scripts`)
+- [ ] Step 4 (pending the certified routing-lane disposition): Standalone harness: Money Contract in `om-data-model-design/references/schema-design.md` (kept in a reference so no initial-context budget grows), pointers in `agentic/guides/contracts.md`, `om-data-model-design/SKILL.md` and `agentic/shared/ai/review-checklist.md`; routing case `OMH-244` with counts synced to 243, regenerated source-link inventory, and knowledge-change manifest `harness-evidence/D9-money-value-object.knowledge-change.json` (validator: PASS).
+  - Fresh packed-preset proof (2026-11-19, Linux container `node:24-bookworm`): the branch's packages were published to a private Verdaccio and `create-mercato-app` scaffolded the `classic`, `crm`, `empty` and `wms` presets (`yarn install`, `yarn generate`, `yarn install-skills` all pass). Deterministic `harness:validate --case OMH-244` passes on `classic`, `crm` and `wms`, and `harness:validate --all` passes 243/243 on `classic`. On `empty` 150 of 243 cases fail, OMH-244 among them, because `empty` installs no customers/sales/currencies module guides; existing cases (for example OMH-075 and OMH-114, which reference the same currencies guide) fail identically, so this is the catalog's established behaviour, not a regression.
+  - Not run: the live routing lane (`harness:validate --runner claude|codex`) and the certified `harness:release` suite. No runner credentials are available in this environment, and `harness:release` requires Linux bubblewrap with loopback isolation. A maintainer waiver for these lanes is requested on PR #9978, following the precedent in `.ai/specs/2026-08-14-standalone-harness-optimizations.md` (PR #5295); this entry does not claim they ran
+
+### Verification (2026-11-19, after the PR #9978 review fixes)
+- `yarn build:packages`, `yarn generate`, `yarn typecheck`, `yarn lint`, `yarn template:sync`, `yarn agents:check-budget` — pass
+- `@open-mercato/shared` jest — all suites pass (money, rounding, allocation, serialization, package-exports and `MoneyColumns` metadata tests included); `OM_PG_INTEGRATION=1 yarn test:pg-integration` — 3 suites pass, including `moneyColumns.integration.test.ts`
+- `packages/core` currencies tests — pass (inactive currency, shared cache, frozen details)
+- `node --test scripts/__tests__/money-check-new-code.test.mjs` — pass (incl. multi-commit default-base regressions)
+- create-app suite in a Linux container with bubblewrap — 1259 tests, 1244 pass, 0 fail, 15 skipped (incl. `agent-money-harness.test.ts`); on macOS its sandbox tests abort under nested `sandbox-exec` (environmental)
+- Fresh packed-preset scaffolds — see Phase 3 Step 4
+
+### Implementation notes
+- The public entry point is `@open-mercato/shared/lib/money` (`index.ts`, added to the package `exports`). `lib/money/internal.ts` holds the brand/freeze helpers shared by the money files and is **not** part of the contract; `exports` maps `./lib/money/internal`, `.ts`, `.tsx` and `.js` to `null`, and other spellings resolve to no file on case-sensitive filesystems (on macOS a case variant such as `Internal` can still load it through the generic wildcards). This is a guardrail against accidental imports, not a security boundary.
+- `allocateMoney` computes each share as `floor(U × ratio_i / S)` with a single private-constructor division (`DP = 0`, `RM = down`) and the remainder as `U × ratio_i − share × S`. This is the same exact integer remainder as `mod`, without calling `mod` at all.
+- `resolveMoney` throws `InvalidMoneyInputError` and `restoreMoney` (and through it `moneyFromColumns`) throws `InvalidMoneySnapshotError` for an invalid input or snapshot, each with the `ZodError` as `cause`, so callers can tell a validation failure from an internal error without matching messages.
+- A zero result is normalised to a positive sign, so `negateMoney(zero)` is never `-0`.

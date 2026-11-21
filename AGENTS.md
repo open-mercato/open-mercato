@@ -10,7 +10,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 
 ## Always
 
-- Check the Task Router below before research or coding; a single task may match multiple rows, and all relevant guides apply.
+- Check the Task Router below before research or coding; every matching row applies.
 - Check `.ai/specs/` and `.ai/specs/enterprise/` for existing specs before modifying a module.
 - Enter plan mode for non-trivial tasks with 3+ steps or architectural decisions.
 - Identify the reference module (`customers`) when building CRUD features.
@@ -19,7 +19,8 @@ Leverage the module system and follow strict naming and coding conventions to ke
 - Use the closest package/module `AGENTS.md` for local architecture, imports, and validation commands.
 - Follow `BACKWARD_COMPATIBILITY.md` before touching any contract surface.
 - Run `yarn generate` after adding or modifying module files that rely on auto-discovery.
-- Support optimistic locking on every NEW user-editable entity and edit/delete form (it is **default ON**): give the entity an `updated_at` column, return `updatedAt` in its list/detail API responses, and let `CrudForm` auto-derive the header from `initialValues.updatedAt` (covers update **and** delete) — or, for custom non-`CrudForm` handlers, wrap the mutating call with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and surface conflicts via `surfaceRecordConflict(err, t)`. When a form's `onSubmit` mutates OTHER entities, override the parent header per child with that child's own version (avoid false 409s). Details: the Task Router row.
+- Support optimistic locking (**default ON**) on every NEW user-editable entity and edit/delete form: an `updated_at` column, `updatedAt` in list/detail responses, and `CrudForm` auto-derives the header from `initialValues.updatedAt` (update **and** delete). Custom non-`CrudForm` handlers wrap the mutating call with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and surface conflicts via `surfaceRecordConflict(err, t)`; when `onSubmit` mutates OTHER entities, override the header per child with that child's own version (avoids false 409s); see the Task Router.
+- Use `Money`/`Currency` (`@open-mercato/shared/lib/money`) for every NEW monetary value; persist it with `MoneyColumns`.
 
 ## Ask First
 
@@ -38,6 +39,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 - Never bypass mutation guards, command side effects, encryption helpers, RBAC wildcard matching, or shared UI data-call helpers.
 - Never hard-code user-facing strings or design-system status colors.
 - Never commit credentials, raw tokens, private keys, local-only ops files, or fork-only infrastructure notes into upstream-friendly branches.
+- Never add new `number`/bare decimal-string money fields or new `<field>Exact` pairs (existing ones are exempt).
 
 ## Validation Commands
 
@@ -83,6 +85,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | RBAC features in `acl.ts`, declarative guards, permission checks | `core` → Access Control |
 | Wildcard ACL handling in feature-gated runtime helpers (menus, notification handlers, mutation guards, command interceptors, AI tools) | `core` → Access Control + `shared` + `ui` + `core:auth` (portal: `core:customer_accounts`) |
 | Encrypted queries (`findWithDecryption`), encryption defaults, GDPR fields | `core` → Encryption |
+| New monetary values (`Money`, `resolveCurrency`, `MoneyColumns`, `money:check-new-code`) | `shared` → Money Value Objects |
 | Response enrichers for other modules' API responses | `core` → Response Enrichers |
 | Filtering CRUD list APIs by multiple IDs (`?ids=uuid1,uuid2`), interceptor-driven ID narrowing | `core` → API Interceptors + `shared` |
 | Optimistic locking / concurrent-edit conflicts: `updated_at` versioning (**default ON** for every `makeCrudRoute` entity, opt out with `OM_OPTIMISTIC_LOCK=off`), the 409 body, client helpers (`buildOptimisticLockHeader`, `extractOptimisticLockConflict`), command-pattern writes (`enforceCommandOptimisticLock`, the DI-overridable `createCommandOptimisticLockGuardService`), the unified conflict bar (`surfaceRecordConflict`) | `apps/docs/docs/framework/data-integrity/concurrency-locking.mdx` (§ Protecting command/action endpoints) + `.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md` + `.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md` + `packages/shared/src/lib/crud/optimistic-lock{,-command}.ts` + `packages/ui/src/backend/conflicts/` |
@@ -148,7 +151,7 @@ Most `om-*` skills come from the shared [open-mercato/skills](https://github.com
 
 ## PR Workflow
 
-Full policy — label taxonomy, priority/risk inference tables, pipeline transitions, the automated-verification exemption, the self-QA exception and the auto-skill claim protocol: [`.ai/docs/pr-workflow.md`](.ai/docs/pr-workflow.md). The boundaries:
+Full policy (labels, priority/risk inference, transitions, exemptions, self-QA, claim protocol): [`.ai/docs/pr-workflow.md`](.ai/docs/pr-workflow.md). The boundaries:
 
 - Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`. A ready non-draft PR carries `review` unless it is already in another pipeline state.
 - Category (`bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`) and meta (`needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`) labels are additive.
@@ -162,7 +165,7 @@ Full policy — label taxonomy, priority/risk inference tables, pipeline transit
 
 ### Documentation and Specifications
 
-- OSS specs live in `.ai/specs/`; commercial/enterprise specs live in `.ai/specs/enterprise/` — see `.ai/specs/AGENTS.md` for naming, structure, and changelog conventions. Always check for existing specs before modifying a module, and update them when implementing significant changes.
+- OSS specs live in `.ai/specs/`, enterprise ones in `.ai/specs/enterprise/` (naming, structure, changelog: `.ai/specs/AGENTS.md`). Update them when implementing significant changes.
 - For every new feature, the spec MUST list integration coverage for all affected API paths and key UI paths, and those integration tests MUST ship in the same change — see `.ai/qa/AGENTS.md`.
 - Integration tests MUST be self-contained: create required fixtures in test setup (prefer API fixtures), clean up created records in teardown/finally, and remain stable without relying on seeded/demo data.
 
@@ -184,7 +187,7 @@ All packages use the `@open-mercato/<package>` naming convention: **shared** (cr
 - Put shared utilities and types in `packages/shared/src/lib/` or `packages/shared/src/modules/`
 - Put UI components in `packages/ui/src/`
 - Put user/app-specific modules in `apps/mercato/src/modules/<module>/`
-- MUST NOT add code directly in `apps/mercato/src/` — it's a boilerplate for user apps. Narrow exception: committed, typed *generated registries* (`*.generated.ts`) that must survive `yarn clean-generated` and travel with the repo — see [Generated Files: versioned vs ephemeral](.ai/docs/module-development.md#generated-files-versioned-vs-ephemeral).
+- MUST NOT add code directly in `apps/mercato/src/` (boilerplate for user apps). Only exception: committed, typed `*.generated.ts` registries that must survive `yarn clean-generated` — see [Generated Files: versioned vs ephemeral](.ai/docs/module-development.md#generated-files-versioned-vs-ephemeral).
 
 ### `external/official-modules/` (git submodule)
 
@@ -194,7 +197,7 @@ An optional, uncommitted git submodule. When present it is **real working code**
 
 Each package's AGENTS.md is the authoritative cheat sheet for its own imports: UI primitives, backend utilities (`apiCall`, `CrudForm`) and portal hooks → `ui` + `ui:backend`; AI helpers (`defineAiAgent`, `defineAiTool`, `prepareMutation`, `<AiChat>`) → `ai-assistant`; cross-cutting helpers (i18n, commands, encryption, scoped payloads, boolean parsing, data/query engine types, overrides) → `shared`; customer/portal auth helpers, custom-field helpers, CRUD/Indexer types → `shared` + `core`; everything else → the matching package.
 
-Examples worth memorising (used everywhere): `apiCall` from `@open-mercato/ui/backend/utils/apiCall`, `useT` from `@open-mercato/shared/lib/i18n/context`, `resolveTranslations` from `@open-mercato/shared/lib/i18n/server`, `Spinner` from `@open-mercato/ui/primitives/spinner`.
+Common imports: `apiCall` from `@open-mercato/ui/backend/utils/apiCall`, `useT` from `@open-mercato/shared/lib/i18n/context`, `resolveTranslations` from `@open-mercato/shared/lib/i18n/server`, `Spinner` from `@open-mercato/ui/primitives/spinner`.
 
 Import strategy:
 - Prefer package-level imports (`@open-mercato/<package>/...`) over deep relative imports (`../../../...`) when crossing module boundaries, referencing shared module internals, or importing from deeply nested files.
