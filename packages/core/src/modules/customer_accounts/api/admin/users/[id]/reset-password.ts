@@ -9,6 +9,7 @@ import { CustomerUserService } from '@open-mercato/core/modules/customer_account
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { adminResetPasswordSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { findAdminScopedCustomerUser } from '@open-mercato/core/modules/customer_accounts/lib/adminCustomerUserLookup'
 
 export const metadata = {}
 
@@ -40,10 +41,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
   const em = container.resolve('em') as EntityManager
-  const user = await customerUserService.findById(params.id, auth.tenantId!, auth.orgId)
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
-  }
+  const lookup = await findAdminScopedCustomerUser({
+    container,
+    auth,
+    request: req,
+    em,
+    userId: params.id,
+    requiredFeatures: ['customer_accounts.manage'],
+  })
+  if (!lookup.ok) return lookup.response
+  const user = lookup.user
 
   await em.transactional(async (trx) => {
     await customerUserService.updatePassword(user, parsed.data.newPassword, trx)

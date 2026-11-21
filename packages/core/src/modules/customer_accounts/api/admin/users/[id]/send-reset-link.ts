@@ -4,9 +4,10 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { findAdminScopedCustomerUser } from '@open-mercato/core/modules/customer_accounts/lib/adminCustomerUserLookup'
 
 export const metadata = {}
 
@@ -23,11 +24,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
   }
 
-  const customerUserService = container.resolve('customerUserService') as CustomerUserService
-  const user = await customerUserService.findById(params.id, auth.tenantId!, auth.orgId)
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
-  }
+  const em = container.resolve('em') as EntityManager
+  const lookup = await findAdminScopedCustomerUser({
+    container,
+    auth,
+    request: req,
+    em,
+    userId: params.id,
+    requiredFeatures: ['customer_accounts.manage'],
+  })
+  if (!lookup.ok) return lookup.response
+  const user = lookup.user
 
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
   const rawToken = await customerTokenService.createPasswordReset(user.id, user.tenantId)
