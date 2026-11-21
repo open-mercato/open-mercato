@@ -3471,6 +3471,33 @@ resolution, pass `currencyCode` in your `PricingContext` and audit any `CatalogP
 that only differ by currency for the product/variant you resolve most often — those are the rows
 whose resolution outcome can change.
 
+### `runSyncSchema` is deprecated in favour of `runSyncRequestSchema` (no action required yet)
+
+`runSyncSchema` in `@open-mercato/core/modules/data_sync/data/validators` declares
+`batchSize: z.number().int().min(1).max(1000).default(100)`, which makes "the operator asked for 100"
+indistinguishable from "nobody named a page size" — and only the second may be answered by an
+adapter's own `defaultBatchSize(entityType)`. `runSyncRequestSchema` is the same schema with
+`batchSize` `.optional()` instead, and is what the run route now parses.
+
+**Nothing changed for existing callers.** `runSyncSchema` and `RunSyncInput` are untouched: same
+accepted bodies, same `1..1000` bound, same inferred `batchSize: number`. They are marked
+`@deprecated` and will be removed no earlier than one minor version after 0.9.0.
+
+**To migrate**, swap the import and let the start helper resolve the absent value:
+
+```ts
+// before — an omitted batchSize became 100 here, shadowing the adapter's declaration
+const { batchSize } = runSyncSchema.parse(body)                 // number
+
+// after
+const { batchSize } = runSyncRequestSchema.parse(body)          // number | undefined
+await startDataSyncRun({ ..., input: { ..., batchSize } })
+```
+
+If you start runs from a route of your own, **leave `batchSize` undefined** rather than substituting a
+number: a value you pass shadows the adapter's declared default. See
+[`packages/core/src/modules/data_sync/AGENTS.md`](packages/core/src/modules/data_sync/AGENTS.md)
+§ Default batch size.
 ### `SEND_EMAIL` activity forwards an optional `signal` to `emailService.send` (no action required)
 
 The `SEND_EMAIL` activity handler now passes a `signal?: AbortSignal` field inside the object it sends to `emailService.send()`. Implementations that ignore unknown fields are unaffected. Implementations that wish to cancel an in-flight send on activity timeout may read the field:

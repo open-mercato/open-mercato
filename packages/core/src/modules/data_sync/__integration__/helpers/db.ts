@@ -198,6 +198,35 @@ export async function deleteSyncRunsByIds(runIds: string[]): Promise<void> {
   })
 }
 
+export async function deleteSyncAdapterFixture(integrationId: string, scope: SyncRunScope): Promise<void> {
+  await withClient(async (client) => {
+    const params = [integrationId, scope.organizationId, scope.tenantId]
+    await client.query('begin')
+    try {
+      await client.query(
+        'delete from sync_runs where integration_id = $1 and organization_id = $2 and tenant_id = $3',
+        params,
+      )
+      await client.query(
+        "delete from progress_jobs where meta->>'integrationId' = $1 and organization_id = $2 and tenant_id = $3",
+        params,
+      )
+      await client.query(
+        'delete from integration_credentials where integration_id = $1 and organization_id = $2 and tenant_id = $3',
+        params,
+      )
+      await client.query(
+        'delete from integration_logs where integration_id = $1 and organization_id = $2 and tenant_id = $3',
+        params,
+      )
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    }
+  })
+}
+
 /** Hard-deletes every `sync_schedules` row for an integration (best-effort cleanup). */
 export async function deleteSyncSchedulesByIntegration(integrationId: string): Promise<void> {
   if (!integrationId) return

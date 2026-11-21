@@ -121,6 +121,18 @@ describe('data_sync retry route — run parameters', () => {
     }))
   })
 
+  // A retry used to pin core's default, which the run row never recorded — so a
+  // run started at 500 came back at 100. Naming none lets the adapter's declared
+  // default apply, the same as a fresh start.
+  it('forwards no page size of its own', async () => {
+    const response = await callRetry()
+
+    expect(response.status).toBe(201)
+    expect(mockStartDataSyncRun).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.not.objectContaining({ batchSize: expect.anything() }),
+    }))
+  })
+
   it('drops a parameter the adapter no longer declares', async () => {
     mockGetDataSyncAdapter.mockReturnValue({
       providerKey: 'excel',

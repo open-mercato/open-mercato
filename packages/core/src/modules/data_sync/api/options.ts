@@ -7,6 +7,7 @@ import type { CredentialsService } from '../../integrations/lib/credentials-serv
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import { getDataSyncAdapter } from '../lib/adapter-registry'
 import { resolveStartControlMap } from '../lib/start-controls'
+import { resolveDefaultBatchSizeMap } from '../lib/default-batch-size'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['data_sync.view'] },
@@ -58,6 +59,7 @@ export async function GET(req: Request) {
           supportedEntities: adapter.supportedEntities,
           runParameters: adapter.runParameters ?? [],
           startControls: resolveStartControlMap(adapter),
+          defaultBatchSizes: resolveDefaultBatchSizeMap(adapter),
           hasCredentials: Boolean(credentials),
           isEnabled,
           settingsPath: `/backend/integrations/${encodeURIComponent(integration.id)}`,

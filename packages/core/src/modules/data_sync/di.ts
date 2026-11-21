@@ -1,6 +1,7 @@
 import { resolveProgressService } from './lib/resolve-progress-service'
 import { asFunction, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CredentialsService } from '../integrations/lib/credentials-service'
 import type { IntegrationLogService } from '../integrations/lib/log-service'
@@ -11,6 +12,7 @@ import { createExternalIdMappingService } from './lib/id-mapping'
 import { createSyncRunService } from './lib/sync-run-service'
 import { createSyncScheduleService } from './lib/sync-schedule-service'
 import { createSyncEngine } from './lib/sync-engine'
+import { registerBatchSizeFixture } from './__integration__/fixtures/batch-size-adapter'
 
 type Cradle = {
   em: EntityManager
@@ -26,6 +28,8 @@ type Cradle = {
 }
 
 export function register(container: AppContainer) {
+  if (parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)) registerBatchSizeFixture()
+
   container.register({
     externalIdMappingService: asFunction(({ em }: Cradle) => createExternalIdMappingService(em)).scoped().proxy(),
     dataSyncRunService: asFunction(({ em }: Cradle) => createSyncRunService(em)).scoped().proxy(),

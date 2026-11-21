@@ -12,12 +12,12 @@ Every listed surface is a **public contract**. Changes MUST follow the deprecati
 
 ### Emergency Security Exception
 
-Steps 1-3 — stage the removal, deprecate first, ship a bridge — are waived, and **only** those three, when the contract surface being removed *is itself* the vulnerability: keeping it alongside the replacement would leave the flaw exploitable for the whole deprecation window. A surface that merely makes an insecure usage possible does not qualify; the exception applies only where continued acceptance of the old shape **is** the exploit.
+Waive only steps 1–3 (stage removal, deprecate, ship a bridge) when the old contract itself is vulnerable and keeping it would leave the flaw exploitable throughout deprecation. A contract that merely permits insecure use does not qualify.
 
 This is not author or reviewer discretion. Every one of the following MUST hold, and a change that cannot satisfy all of them follows the ordinary protocol instead:
 
 1. **The qualifying condition is argued, not asserted.** The PR names the surface, the vulnerability, and why a bridge release would keep it reachable.
-2. **The removal is the narrowest one that closes the hole.** No unrelated tightening rides along, and **no partial bridge retains the vulnerable branch** behind a flag, a config toggle, or an opt-in — a retained branch is the bridge the exception exists to refuse.
+2. **Limit removal to the vulnerability.** Exclude unrelated tightening. No flag, toggle, opt-in or partial bridge may retain the vulnerable path.
 3. **Steps 4 and 5 still apply in full.** An `UPGRADE_NOTES.md` entry with both client *and* operator migration instructions, and a spec under `.ai/specs/` or `.ai/specs/enterprise/` with a "Migration & Backward Compatibility" section.
 4. **A dated entry is added at the end of this document**, recording the surface, its classification, the qualifying argument, and the migration path.
 5. **A maintainer signs off on the exception by name.** The PR carries the `security` label and a human maintainer approval that acknowledges the waiver; an automated review cannot clear it.
@@ -497,6 +497,10 @@ Spec: [Error-reporting spec](.ai/specs/2026-09-08-error-reporting-policy.md). Ev
 **Operator note — terminal queue failures.** Not a contract break, but visible in an alert rule: on the **local** strategy a job's final attempt previously emitted both `queue.job_failed` and `queue.job_exhausted`; it now emits only `queue.job_exhausted`, matching the `async` strategy. An alert thresholding on `queue.job_failed` alone stops seeing terminal failures — page on `queue.job_exhausted`.
 
 **Volume note for operators.** Reported error *volume* rises where errors were previously only recorded: an integration that writes 115 error rows now also reports 115 errors, grouped by `error.code` at the backend. This is deliberate — see the spec's §S3 — and the controls are the collector's filtering/sampling and the backend's own quotas, not a framework switch.
+
+## Data Sync Adapter Default Batch Size (2026-09-16)
+
+Additive: optional adapter default, helpers, sparse `defaultBatchSizes` and `runSyncRequestSchema`. Explicit batch sizes win. Missing or invalid defaults fall back to 100. `runSyncSchema` keeps its type and 100 default through at least one post-0.9.0 minor. [Contracts and migration](.ai/specs/2026-09-16-data-sync-adapter-default-batch-size.md).
 
 ## Data Sync Retry, Resume and Run Again (2026-09-16)
 

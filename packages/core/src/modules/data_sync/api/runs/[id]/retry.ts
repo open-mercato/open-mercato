@@ -142,7 +142,9 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
       direction: previous.direction,
       cursor,
       triggeredBy: auth.sub,
-      batchSize: 100,
+      // No page size: the run row does not record the one the original run used,
+      // so a hardcoded value here was only ever core's default wearing a retry's
+      // clothes. Left out, the adapter's declared default applies.
       parameters: retryParameters,
       progressJob: {
         name: `Retry data sync ${previous.integrationId} — ${previous.entityType}`,

@@ -251,3 +251,59 @@ describe('startDataSyncRun — adapter-described progress job', () => {
     expect(createRun).toHaveBeenCalledWith(expect.objectContaining({ progressJobId: null }), expect.anything())
   })
 })
+
+describe('startDataSyncRun — adapter-declared default page size', () => {
+  beforeEach(() => {
+    clearGlobalRegistry()
+    jest.clearAllMocks()
+    mockGetIntegration.mockReturnValue({ providerKey: 'feed-provider' })
+  })
+
+  afterEach(clearGlobalRegistry)
+
+  function queuedBatchSize(): unknown {
+    expect(mockEnqueue).toHaveBeenCalledTimes(1)
+    return (mockEnqueue.mock.calls[0][0] as { batchSize: unknown }).batchSize
+  }
+
+  it('enqueues core’s default when neither the caller nor an adapter names one', async () => {
+    registerDataSyncAdapter(buildAdapter())
+
+    await start()
+
+    expect(queuedBatchSize()).toBe(100)
+  })
+
+  it('enqueues the adapter’s declared default for the entity type', async () => {
+    registerDataSyncAdapter(buildAdapter({
+      defaultBatchSize: (entityType) => (entityType === 'sales.order' ? 500 : undefined),
+    }))
+
+    await start()
+    expect(queuedBatchSize()).toBe(500)
+
+    mockEnqueue.mockClear()
+    await start({ entityType: 'catalog.product' })
+    expect(queuedBatchSize()).toBe(100)
+  })
+
+  it('prefers an explicit page size over the declaration', async () => {
+    registerDataSyncAdapter(buildAdapter({ defaultBatchSize: () => 500 }))
+
+    await start({ batchSize: 25 })
+
+    expect(queuedBatchSize()).toBe(25)
+  })
+
+  it('falls back to core’s default when the declaration is unusable', async () => {
+    registerDataSyncAdapter(buildAdapter({
+      defaultBatchSize: () => {
+        throw new Error('[internal] adapter hook blew up')
+      },
+    }))
+
+    await start()
+
+    expect(queuedBatchSize()).toBe(100)
+  })
+})
