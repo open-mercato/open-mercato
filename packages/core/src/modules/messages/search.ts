@@ -238,7 +238,7 @@ export const searchConfig: SearchModuleConfig = {
     {
       entityId: 'messages:message',
       aclFeatures: ['messages.view'],
-      enabled: false,
+      enabled: true,
       priority: 5,
       filterResults: filterVisibleMessages,
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {

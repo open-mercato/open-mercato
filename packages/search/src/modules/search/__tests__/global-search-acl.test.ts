@@ -129,17 +129,40 @@ describe('searchable entity ACL coverage', () => {
     }
   })
 
-  it('keeps record-scoped and polymorphic entities disabled until search can enforce their row access', () => {
+  it.each(files)('%s pairs every aclFeaturesMode: "any" entity with a filterResults hook', (file) => {
+    const source = readFileSync(file, 'utf8')
+    const entitiesArrayStart = source.search(/^ {2}entities: \[$/m)
+    expect(entitiesArrayStart).toBeGreaterThan(-1)
+    const entitiesArray = source.slice(entitiesArrayStart)
+    const entityMatches = [...entitiesArray.matchAll(/^ {6}entityId: (.+),$/gm)]
+
+    for (let i = 0; i < entityMatches.length; i++) {
+      const start = entityMatches[i].index!
+      const end = i + 1 < entityMatches.length ? entityMatches[i + 1].index! : entitiesArray.length
+      const block = entitiesArray.slice(start, end)
+      if (block.includes("aclFeaturesMode: 'any'") || block.includes('aclFeaturesMode: "any"')) {
+        expect(block).toMatch(/^ {6}filterResults:/m)
+      }
+    }
+  })
+
+  it('protects record-scoped and polymorphic entities with row-level filterResults hooks', () => {
     const messages = join(repoRoot, 'packages', 'core', 'src', 'modules', 'messages', 'search.ts')
     const sales = join(repoRoot, 'packages', 'core', 'src', 'modules', 'sales', 'search.ts')
-    const unsafeEntities = [
-      readEntityBlock(messages, 'messages:message'),
-      readEntityBlock(sales, 'sales:sales_note'),
-      readEntityBlock(sales, 'sales:sales_document_address'),
-    ]
+    const messageEntity = readEntityBlock(messages, 'messages:message')
+    const salesNoteEntity = readEntityBlock(sales, 'sales:sales_note')
+    const salesAddressEntity = readEntityBlock(sales, 'sales:sales_document_address')
 
-    for (const entity of unsafeEntities) {
-      expect(entity).toContain('enabled: false')
+    expect(messageEntity).toContain('enabled: true')
+    expect(messageEntity).toContain('filterResults: filterVisibleMessages')
+
+    for (const polymorphicEntity of [salesNoteEntity, salesAddressEntity]) {
+      expect(polymorphicEntity).toContain('enabled: true')
+      expect(polymorphicEntity).toContain("aclFeaturesMode: 'any'")
+      expect(polymorphicEntity).toContain(
+        "aclFeatures: ['sales.orders.view', 'sales.quotes.view', 'sales.invoices.manage', 'sales.credit_memos.manage']",
+      )
+      expect(polymorphicEntity).toMatch(/^ {6}filterResults: filterVisibleSales/m)
     }
   })
 })

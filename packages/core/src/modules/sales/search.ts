@@ -931,7 +931,7 @@ export const searchConfig: SearchModuleConfig = {
       entityId: 'sales:sales_note',
       aclFeatures: ['sales.orders.view', 'sales.quotes.view', 'sales.invoices.manage', 'sales.credit_memos.manage'],
       aclFeaturesMode: 'any',
-      enabled: false,
+      enabled: true,
       priority: 7,
       filterResults: filterVisibleSalesNotes,
       buildSource: async (ctx) => {
@@ -957,7 +957,7 @@ export const searchConfig: SearchModuleConfig = {
       entityId: 'sales:sales_document_address',
       aclFeatures: ['sales.orders.view', 'sales.quotes.view', 'sales.invoices.manage', 'sales.credit_memos.manage'],
       aclFeaturesMode: 'any',
-      enabled: false,
+      enabled: true,
       priority: 7,
       filterResults: filterVisibleSalesDocumentAddresses,
       buildSource: async (ctx) => {
