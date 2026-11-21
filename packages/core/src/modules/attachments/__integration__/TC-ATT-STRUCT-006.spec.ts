@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import {
   deleteAttachmentIfExists,
   uploadAttachmentFixture,
@@ -85,6 +86,7 @@ async function expectHitState(
   expected: 'present' | 'absent',
   message: string,
 ): Promise<SearchResultItem | null> {
+  await drainIntegrationQueue('attachments-document-structure')
   let lastHit: SearchResultItem | null = null
   await expect
     .poll(

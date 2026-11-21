@@ -37,6 +37,7 @@
   "scheduler.error.fetch_job_failed": "Nie udało się pobrać szczegółów zadania",
   "scheduler.error.forbidden": "Zabronione",
   "scheduler.error.invalidPayload": "Nieprawidłowy ładunek JSON",
+  "scheduler.error.invalid_id": "Nieprawidłowy identyfikator harmonogramu",
   "scheduler.error.invalid_queue_name": "Nieprawidłowa nazwa kolejki",
   "scheduler.error.invalid_schedule_value": "Nieprawidłowa wartość harmonogramu.",
   "scheduler.error.job_not_found": "Zadanie nie zostało znalezione w BullMQ (mogło zostać usunięte)",
