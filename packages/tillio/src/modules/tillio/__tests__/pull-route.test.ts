@@ -1,14 +1,19 @@
-import { POST } from '../api/pull/route'
+import { GET, POST } from '../api/pull/route'
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    t: (key: string) => jest.requireActual('../i18n/pl.json')[key],
+  }),
+}))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({ runRouteMutationGuards: jest.fn() }))
 jest.mock('../lib/pull-job', () => ({
-  ...jest.requireActual('../lib/pull-job'),
+  TILLIO_PULL_JOB_TYPE: 'tillio.calls.pull',
   resolvePullContext: jest.fn(),
 }))
 jest.mock('../lib/queue', () => ({
-  ...jest.requireActual('../lib/queue'),
+  TILLIO_PULL_QUEUE: 'tillio-pull',
   getTillioQueue: jest.fn(),
 }))
 
@@ -42,9 +47,10 @@ function createProgressService(overrides: Record<string, jest.Mock> = {}) {
   }
 }
 
-function wire(progressService: ReturnType<typeof createProgressService>) {
+function wire(progressService?: ReturnType<typeof createProgressService>) {
   createRequestContainer.mockResolvedValue({
-    resolve: (name: string) => {
+    resolve: (name: string, options?: { allowUnregistered?: boolean }) => {
+      if (name === 'progressService' && !progressService && !options?.allowUnregistered) throw new Error('Unregistered service')
       if (name === 'progressService') return progressService
       if (name === 'em') return createEm()
       return {}
@@ -144,5 +150,25 @@ describe('POST /api/tillio/pull', () => {
     expect(response.status).toBe(409)
     await expect(response.json()).resolves.toMatchObject({ code: 'integration_disabled', section: 'environment' })
     expect(progressService.createJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('pull without the progress module', () => {
+  it('reports the readiness blocker on GET', async () => {
+    wire()
+    const response = await GET(new Request('http://localhost/api/tillio/pull'))
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ blocker: 'progress_unavailable' })
+  })
+
+  it('rejects POST before guarding or queueing a pull', async () => {
+    wire()
+    const response = await POST(request({ from: '2026-08-01', to: '2026-08-02' }))
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({
+      ok: false, code: 'progress_unavailable', section: 'environment', message: 'Pobieranie połączeń wymaga modułu progress. Włącz go, aby kontynuować.',
+    })
+    expect(runRouteMutationGuards).not.toHaveBeenCalled()
+    expect(getTillioQueue).not.toHaveBeenCalled()
   })
 })

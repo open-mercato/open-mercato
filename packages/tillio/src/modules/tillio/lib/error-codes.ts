@@ -12,6 +12,7 @@ export const TILLIO_ERROR_CODES = [
   'environment_drift',
   'pull_already_running',
   'pull_failed',
+  'progress_unavailable',
   'app_url_missing',
   'operator_limit',
   'provider_error',
@@ -25,6 +26,7 @@ export type TillioErrorCode = typeof TILLIO_ERROR_CODES[number]
 type TillioErrorCopy = { key: string; fallback: string }
 
 const COPY: Record<TillioErrorCode, TillioErrorCopy> = {
+  progress_unavailable: { key: 'tillio.pull.progressUnavailable', fallback: 'Pulling calls requires the progress module. Enable it to continue.' },
   unauthorized: { key: 'tillio.errors.unauthorized', fallback: 'Your session expired. Sign in again.' },
   invalid_payload: { key: 'tillio.errors.invalidPayload', fallback: 'The request was rejected as invalid.' },
   invalid_operator_id: { key: 'tillio.errors.invalidOperatorId', fallback: 'That operator id is not valid.' },
@@ -51,6 +53,7 @@ export function tillioErrorCopy(code: string | null | undefined, fallbackCode: T
 // unworded: adding one to `PullBlocker` fails this record until it gets copy of its own. The pull
 // entries are worded for the action in progress, which the generic `COPY` above cannot be.
 export const PULL_BLOCKER_COPY: Record<PullBlocker, TillioErrorCopy> = {
+  progress_unavailable: COPY.progress_unavailable,
   integration_disabled: COPY.integration_disabled,
   environment_not_ready: {
     key: 'tillio.pull.envNotReady',

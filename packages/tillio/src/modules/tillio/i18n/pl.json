@@ -63,6 +63,7 @@
   "tillio.pull.failed": "Nie udało się pobrać połączeń z Tillio.",
   "tillio.pull.notReadyTitle": "Tillio niegotowe",
   "tillio.pull.operatorMissing": "Podepnij operatora Tillio na stronie integracji, zanim pobierzesz połączenia.",
+  "tillio.pull.progressUnavailable": "Pobieranie połączeń wymaga modułu progress. Włącz go, aby kontynuować.",
   "tillio.pull.pulling": "Pobieranie...",
   "tillio.pull.queued": "Pobieranie połączeń z Tillio. Postęp śledzisz na pasku postępu.",
   "tillio.pull.rangeRequired": "Najpierw wybierz zakres dat.",

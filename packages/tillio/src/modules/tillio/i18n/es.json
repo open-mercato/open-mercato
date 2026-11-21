@@ -63,6 +63,7 @@
   "tillio.pull.failed": "No se pudieron obtener las llamadas de Tillio.",
   "tillio.pull.notReadyTitle": "Tillio no está listo",
   "tillio.pull.operatorMissing": "Conecte un operador de Tillio en la página de integración antes de obtener llamadas.",
+  "tillio.pull.progressUnavailable": "Para obtener las llamadas se necesita el módulo progress. Actívelo para continuar.",
   "tillio.pull.pulling": "Obteniendo...",
   "tillio.pull.queued": "Obteniendo llamadas de Tillio. Sigue el avance en la barra de progreso.",
   "tillio.pull.rangeRequired": "Elija primero un rango de fechas.",

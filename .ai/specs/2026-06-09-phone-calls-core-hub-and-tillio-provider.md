@@ -241,9 +241,11 @@ section that can resolve it:
 
 | Blocker | Section | Meaning |
 |---------|---------|---------|
+| `integration_disabled` | environment | The configured integration is disabled |
 | `environment_not_ready` | environment | No credentials, or the health check has not passed |
 | `operator_missing` | operator | Environment is healthy, no operator attached |
 | `environment_drift` | operator | Environment changed after the operator was attached |
+| `progress_unavailable` | environment | All preceding checks passed, but the progress service is unavailable |
 
 ---
 
@@ -331,7 +333,7 @@ Reads configuration from the database only; never calls Tillio.
 
 ```ts
 { ok: true, environmentReady: boolean, operatorAttached: boolean, envDrift: boolean,
-  blocker: 'environment_not_ready' | 'operator_missing' | 'environment_drift' | null,
+  blocker: 'integration_disabled' | 'environment_not_ready' | 'operator_missing' | 'environment_drift' | 'progress_unavailable' | null,
   operatorId: string | null, plugin: string | null }
 ```
 
