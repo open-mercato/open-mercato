@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 191 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 195 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -18,6 +18,7 @@ This catalog indexes 191 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+- [Queue triage stops do not complete a fix quota](lessons/queue-triage-stops-do-not-complete-a-fix-quota.md) — area:ai-workflow; module:platform; topic:autofix,triage,completion
 - [Redact URL authority credentials before telemetry export](lessons/redact-url-authority-credentials-before-telemetry-export.md) — area:architecture,testing; module:telemetry; topic:network-security,telemetry,testing
 - [Replay covers SDK preprocessing and trial state](lessons/replay-covers-sdk-preprocessing-and-trial-state.md) — area:ai-workflow,testing; module:agent_orchestrator,ai_assistant; topic:offline-replay,fixtures,sdk-preprocessing,file-io
 
@@ -35,6 +36,7 @@ This catalog indexes 191 focused lessons. Route the task first, then read only r
 
 - [Content Security Policy must cover srcDoc previews](lessons/content-security-policy-must-cover-srcdoc-previews.md) — area:backend-ui,testing,integration; module:ecommerce,ui,shared,documents; topic:content-security-policy,srcdoc,nonces,security-regression,configured-origins
 
+- [Carry authorized SSO role IDs through synchronization](lessons/carry-authorized-sso-role-ids-through-synchronization.md) — area:module-data,testing; module:sso,auth; topic:access-control,concurrency,role-mappings
 - [Serialize deprovisioning with final session issuance](lessons/serialize-deprovisioning-with-session-issuance.md) — area:module-data,testing; module:auth,sso; topic:security,concurrency,session-revocation,tenant-isolation
 - [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso; topic:testing,api-contracts,redirects,session-revocation
 - [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims,channel_discord,catalog,workflows; topic:testing,fixture-cleanup,fixture-setup,api-contracts,proposal-origin,error-handling
@@ -42,6 +44,7 @@ This catalog indexes 191 focused lessons. Route the task first, then read only r
 
 ### architecture
 
+- [Bounded merged pagination needs a shared ordering](lessons/bounded-merged-pagination-needs-shared-ordering.md) — area:architecture,module-data,testing; module:workflows; topic:pagination,database-queries,sorting,pagination-boundaries
 - [Browser error reporting requires client registration](lessons/browser-error-reporting-requires-client-registration.md) — area:architecture,backend-ui,testing; module:telemetry,ui; topic:error-reporting,runtime-startup,browser,testing
 - [Shutdown failure reporting must not block cleanup](lessons/shutdown-failure-reporting-must-not-block-cleanup.md) — area:architecture,testing; module:telemetry,webhooks; topic:error-reporting,runtime-startup,shutdown,subscribers
 
@@ -155,6 +158,7 @@ This catalog indexes 191 focused lessons. Route the task first, then read only r
 - [Blur suppression must guard the whole validation pipeline](lessons/blur-suppression-must-guard-the-whole-validation-pipeline.md) — area:backend-ui,testing; module:ui; topic:schema-composition,testing,validation-errors
 - [Auto-discovered DataTable fields must only advertise controls the table can actually honor](lessons/auto-discovered-datatable-fields-must-only-advertise.md) — area:backend-ui,umes,module-data; module:ui,customers,entities; topic:custom-fields,filters,ui-components
 - [Browser SSE bridges must work across worker and web processes](lessons/browser-sse-bridges-must-work-across-worker-and-web.md) — area:backend-ui,module-data,integration; module:events,queue,catalog; topic:data-import,events,realtime
+- [Canonical read migrations must preserve legacy role access](lessons/canonical-read-migrations-must-preserve-legacy-role-access.md) — area:backend-ui,debugging,testing; module:customers; topic:access-control,backward-compatibility,testing
 - [Component-scoped notification effects must not depend on header chrome](lessons/component-scoped-notification-effects-must-not-depend.md) — area:backend-ui,integration,testing; module:notifications,events,ui; topic:access-control,data-scoping,events
 - [Detail sections must route writes through page-level guarded mutations](lessons/detail-sections-must-route-writes-through-page-level.md) — area:backend-ui,umes,module-data; module:customers,events,ui; topic:events,network-security,testing
 - [dnd-kit contexts rendered in SSR need stable ids](lessons/dnd-kit-contexts-rendered-in-ssr-need-stable-ids.md) — area:backend-ui; module:customers,ui,cli; topic:generated-files,ui-components

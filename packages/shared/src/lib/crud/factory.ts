@@ -133,12 +133,20 @@ function translateFiltersForOrm(
       }
     }
     if (columnToProperty.size === 0) return filters
-    const translated: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(filters)) {
-      const mappedKey = columnToProperty.get(key) ?? key
-      translated[mappedKey] = value
+    const translateNode = (node: unknown): unknown => {
+      if (node === null || typeof node !== 'object' || Array.isArray(node)) return node
+      return translateWhere(node as Record<string, unknown>)
     }
-    return translated
+    const translateWhere = (where: Record<string, unknown>): Record<string, unknown> =>
+      Object.fromEntries(Object.entries(where).map(([key, value]) => {
+        if ((key === '$and' || key === '$or') && Array.isArray(value)) {
+          return [key, value.map(translateNode)]
+        }
+        if (key === '$not') return [key, translateNode(value)]
+        return [columnToProperty.get(key) ?? key, value]
+      }))
+
+    return translateWhere(filters)
   } catch {
     return filters
   }
@@ -1060,6 +1068,7 @@ function buildCrudCacheKey(
   request: Request,
   ctx: CrudCtx,
   enricherSignature = '',
+  localizesEntities = false,
 ): string {
   const url = new URL(request.url)
   const scopeIds = collectScopeOrganizationIds(ctx)
@@ -1082,6 +1091,9 @@ function buildCrudCacheKey(
     `user:${normalizeTagSegment((ctx.auth?.keyId ?? ctx.auth?.sub) ?? null)}`,
     `query:${serializeSearchParams(url.searchParams)}`,
   ]
+  if (Array.from(url.searchParams.keys()).some((key) => key.startsWith('filter['))) {
+    segments.push('advancedFilters:intersection-v1')
+  }
   // The cached list payload already embeds enricher output (enrichment runs before
   // the cache store), so the cache key MUST partition by the set of enrichers a
   // request's entitlements actually select. Two callers in the same tenant/org
@@ -1092,6 +1104,7 @@ function buildCrudCacheKey(
   if (enricherSignature) {
     segments.push(`enrichers:${normalizeTagSegment(enricherSignature)}`)
   }
+  if (localizesEntities) segments.push('localization:registered-fields-v1')
   return segments.join('|')
 }
 
@@ -1727,7 +1740,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         : null
       const cache = cacheEnabled ? resolveCrudCache(ctx.container) : null
       const enricherCachePlan = cacheEnabled ? await resolveListCachePlan(ctx) : NO_ENRICHER_CACHE_PLAN
-      const cacheKey = cacheEnabled ? buildCrudCacheKey(resourceKind, request, ctx, enricherCachePlan.signature) : null
+      const cacheKey = cacheEnabled
+        ? buildCrudCacheKey(resourceKind, request, ctx, enricherCachePlan.signature, Boolean(opts.list?.entityId))
+        : null
       let cacheStatus: 'hit' | 'miss' = 'miss'
       let cachedValue: CrudCacheStoredValue | null = null
 
