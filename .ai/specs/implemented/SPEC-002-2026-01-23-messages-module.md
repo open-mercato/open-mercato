@@ -3299,8 +3299,21 @@ export function register(container: AwilixContainer): void {
 
 ---
 
+## Migration & Backward Compatibility — message send hardening (#6703)
+
+Sending a draft publicly through `PATCH /api/messages/{id}` requires `messages.email`, including when public visibility is inherited from the saved draft. Draft edits and internal sends keep their existing permissions. This aligns draft sending with public compose and uses scoped, wildcard-aware RBAC in the send command. The write transaction locks the draft and checks that the authorized delivery details still match before saving.
+
+The optional channel-thread lookup accepts a trailing `{ throwOnError?: boolean }` argument. Existing four-argument calls retain their nullable result and DI service name. A strict caller distinguishes a lookup failure from a successful lookup with no mapping: public compose/draft gates deny failures, and forwarding conservatively stores internal visibility and removes the external correspondent address. An uninstalled hub or a successful no-mapping lookup keeps the existing internal-thread behavior. Custom DI implementations should propagate errors when `throwOnError` is set.
+
+No schema, route URL, response shape, event ID, or ACL ID changes. Operators should grant `messages.email` to roles permitted to send public drafts, as already required for public compose. Ordinary callers need no migration; custom resolver overrides can adopt the optional strict argument without changing existing calls.
+
+Coverage: route tests exercise scoped RBAC, explicit/inherited visibility and real hub lookup failures; command-to-bridge tests prove a source-less public forward and replies remain internal after failure. `TC-MSG-DRAFT-EMAIL-001` covers authorized public draft sends with temporary users and roles.
+
 ## Changelog
 
+- 2026-11-21: Required the email feature for public draft sends and made channel lookup failures deny public sends and keep forwards internal (#6703).
+
 - 2026-10-13: Message action execution preserves nested `CrudHttpError` and status-bearing command-interceptor refusals after releasing terminal claims (#7310). Unexpected sub-command failures retain the generic 500 response. Regression coverage exercises the command and HTTP route together, including 403/404/422 refusals, private-error masking, and retry/concurrency behavior.
+
 - 2026-04-15: Updated code snippets for MikroORM v7 (persist().flush(), getKysely(), class-based entity refs).
 - 2026-02-16: Refactored message write operations to command-bus handlers with undo support for message mutations, recipient state changes, draft attachment linking/unlinking, terminal action recording, and message confirmation state updates.

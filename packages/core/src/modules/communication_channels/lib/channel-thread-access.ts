@@ -110,20 +110,23 @@ export async function resolveChannelThreadAccess(
 }
 
 /**
- * Same contract, but never throws: a lookup failure degrades to "not
+ * By default, never throws: a lookup failure degrades to "not
  * channel-linked", which leaves the caller on its pre-existing rule. For the
  * reply guard that is the fail-closed answer — the participant test still
- * applies and a transient database error cannot widen access.
+ * applies and a transient database error cannot widen access. Callers that
+ * allow an internal thread must opt into `throwOnError` and deny the error.
  */
 export async function resolveChannelThreadAccessSafely(
   container: AppContainer,
   scope: ChannelThreadScope,
   reference: ChannelThreadReference,
   actor: ChannelThreadActor,
+  options?: { throwOnError?: boolean },
 ): Promise<ChannelThreadAccess | null> {
   try {
     return await resolveChannelThreadAccess(container, scope, reference, actor)
   } catch (err) {
+    if (options?.throwOnError) throw err
     logger.warn('channel thread access resolution failed, treating the thread as internal', { err })
     return null
   }

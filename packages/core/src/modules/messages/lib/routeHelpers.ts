@@ -208,9 +208,10 @@ export async function resolveReplyParentMessage(
  * needs both the hub's access rule and `messages.view`, because the hub grants
  * every shared channel regardless of features. Shared by the compose route and
  * the draft send transition so a draft cannot be used to skip the gate.
+ * A failed lookup denies the send rather than classifying the thread as internal.
  */
 export async function canPostToChannelThread(
-  ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
+  ctx: ChannelThreadCallerContext,
   scope: MessageScope,
   messageThreadId: string,
 ): Promise<boolean> {
@@ -219,13 +220,15 @@ export async function canPostToChannelThread(
     { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
     { messageThreadId },
     { userId: scope.userId, features: resolveActorFeatures(ctx.auth) },
-  )
-  if (!channelThread) return true
+    { throwOnError: true },
+  ).catch(() => undefined)
+  if (channelThread === undefined) return false
+  if (channelThread === null) return true
   return channelThread.canAccess && (await canUseChannelThreadFallback(ctx, scope))
 }
 
 export async function canUseMessageEmailFeature(
-  ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
+  ctx: ChannelThreadCallerContext,
   scope: MessageScope,
 ): Promise<boolean> {
   if (!scope.userId || !scope.tenantId) return false

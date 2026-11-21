@@ -1,8 +1,11 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { buildOptimisticLockConflictBody, enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageObject, MessageRecipient, type MessageActionData } from '../data/entities'
 import { emitMessagesEvent } from '../events'
@@ -25,8 +28,8 @@ import {
   resolveActorFeatures,
   resolveMessageChannelThreadAccess,
 } from '../lib/channelThreadAccess'
-import { MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID } from '../lib/constants'
-import { canUseChannelThreadFallback } from '../lib/routeHelpers'
+import { MESSAGE_ENTITY_ID, MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND, SYSTEM_SENDER_USER_ID } from '../lib/constants'
+import { canPostToChannelThread, canUseChannelThreadFallback, canUseMessageEmailFeature } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { assertExternalEmailBudget } from '../lib/externalEmailBudget'
@@ -520,6 +523,20 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
   },
 }
 
+function draftDelivery(input: UpdateDraftCommandInput, message: Message) {
+  return {
+    visibility: input.visibility ?? message.visibility,
+    threadId: message.threadId ?? message.id,
+    sendViaEmail: input.sendViaEmail ?? message.sendViaEmail,
+    externalEmail: input.externalEmail ?? message.externalEmail,
+  }
+}
+
+function assertDraftOwner(message: Message, userId: string): void {
+  if (message.senderUserId !== userId) throw new Error('Access denied')
+  if (!message.isDraft) throw new Error('Only draft messages can be edited')
+}
+
 const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
   id: 'messages.messages.update_draft',
   async prepare(rawInput, ctx) {
@@ -534,24 +551,22 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
   async execute(rawInput, ctx) {
     const input = updateDraftCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const message = await requireMessageById(em, input, input.messageId)
-
-    if (message.senderUserId !== input.userId) throw new Error('Access denied')
-    if (!message.isDraft) throw new Error('Only draft messages can be edited')
-
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId, userId: input.userId }
+    let message = await requireMessageById(em, scope, input.messageId)
+    assertDraftOwner(message, input.userId)
+    const checkedVersion = message.updatedAt
+    const checkedVersionTime = checkedVersion.getTime()
     const isSending = input.isDraft === false
-    const preloadedRecipients = isSending && !input.recipients
-      ? await findWithDecryption(
-        em,
-        MessageRecipient,
-        { messageId: message.id, deletedAt: null },
-        undefined,
-        {
-          tenantId: input.tenantId,
-          organizationId: input.organizationId,
-        },
+    const delivery = isSending ? draftDelivery(input, message) : undefined
+    if (
+      delivery?.visibility === 'public' &&
+      (
+        !(await canUseMessageEmailFeature(ctx, scope)) ||
+        !(await canPostToChannelThread(ctx, scope, delivery.threadId))
       )
-      : null
+    ) {
+      throw new Error('Access denied')
+    }
 
     const nextMessageType = input.type ?? message.type
     if (input.objects) {
@@ -572,33 +587,25 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
     }
 
-    const finalVisibility = input.visibility ?? message.visibility
-    // Validate the send transition BEFORE the atomic-flush block so a rejected
-    // send never mutates or flushes anything (everything checked here is known
-    // from the parsed input + the loaded message).
-    if (isSending) {
-      const finalSubject = input.subject ?? message.subject
-      const finalBody = input.body ?? message.body
-      const finalRecipientCount = input.recipients
+    const recipientScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
+    const recipientFilter = { messageId: message.id, deletedAt: null }
+    if (delivery) {
+      const recipientCount = input.recipients
         ? input.recipients.length
-        : (preloadedRecipients?.length ?? 0)
-      if (finalVisibility !== 'public' && finalRecipientCount === 0) {
+        : delivery.visibility === 'public'
+          ? 0
+          : (await findWithDecryption(em, MessageRecipient, recipientFilter, undefined, recipientScope)).length
+      if (delivery.visibility !== 'public' && recipientCount === 0) {
         throw new Error('at least one recipient is required')
       }
-      if (!finalSubject?.trim()) throw new Error('subject is required')
-      if (!finalBody?.trim()) throw new Error('body is required')
+      if (!(input.subject ?? message.subject)?.trim()) throw new Error('subject is required')
+      if (!(input.body ?? message.body)?.trim()) throw new Error('body is required')
+      if ((delivery.visibility === 'public' || delivery.sendViaEmail) && delivery.externalEmail) {
+        await assertExternalEmailBudget(ctx.container, { tenantId: scope.tenantId, userId: scope.userId }, delivery.externalEmail)
+      }
     }
 
-    const finalSendViaEmail = input.sendViaEmail ?? message.sendViaEmail
-    const finalExternalEmail = input.externalEmail ?? message.externalEmail
-    if (isSending && (finalVisibility === 'public' || finalSendViaEmail) && finalExternalEmail) {
-      await assertExternalEmailBudget(
-        ctx.container,
-        { tenantId: input.tenantId, userId: input.userId },
-        finalExternalEmail,
-      )
-    }
-
+    let sentEvent: MessageSentEventPayload | undefined
     let deletedAttachments: DeletedMessageAttachmentRows | null = null
     // Phase 1 mutates the managed `message` scalars; the per-phase flush issues
     // those changes before phase 2's interleaved reads run (e.g.
@@ -606,7 +613,50 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     // between a scalar mutation and the terminal flush on the same EntityManager
     // silently drops the pending changeset, so keeping the scalar edits in their
     // own phase guarantees subject/body/etc. are persisted (SPEC-018 Problem 1).
-    await withAtomicFlush(em, [() => {
+    await withAtomicFlush(em, [async () => {
+      const lockedMessage = await findOneWithDecryption(
+        em,
+        Message,
+        { id: input.messageId, ...recipientScope, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        recipientScope,
+      )
+      if (!lockedMessage) throw notFound()
+      message = lockedMessage
+      assertDraftOwner(message, input.userId)
+
+      if (ctx.request) {
+        enforceCommandOptimisticLock({
+          resourceKind: MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND,
+          resourceId: message.id,
+          current: message.updatedAt,
+          request: ctx.request,
+        })
+      }
+
+      const lockedDelivery = delivery ? draftDelivery(input, message) : undefined
+      if (
+        message.updatedAt.getTime() !== checkedVersionTime ||
+        (delivery && lockedDelivery && (
+          delivery.visibility !== lockedDelivery.visibility ||
+          delivery.threadId !== lockedDelivery.threadId ||
+          delivery.sendViaEmail !== lockedDelivery.sendViaEmail ||
+          delivery.externalEmail !== lockedDelivery.externalEmail
+        ))
+      ) {
+        throw new CrudHttpError(409, buildOptimisticLockConflictBody(
+          message.updatedAt.toISOString(),
+          checkedVersion.toISOString(),
+        ))
+      }
+
+      const preloadedRecipients = delivery && !input.recipients
+        ? await findWithDecryption(em, MessageRecipient, recipientFilter, undefined, recipientScope)
+        : null
+      if (delivery && delivery.visibility !== 'public' && (input.recipients ?? preloadedRecipients ?? []).length === 0) {
+        throw new Error('at least one recipient is required')
+      }
+
       if (input.type !== undefined) message.type = input.type
       if (input.visibility !== undefined) message.visibility = input.visibility
       if (input.sourceEntityType !== undefined) message.sourceEntityType = input.sourceEntityType
@@ -619,6 +669,21 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       if (input.priority !== undefined) message.priority = input.priority
       if (input.actionData !== undefined) message.actionData = input.actionData
       if (input.sendViaEmail !== undefined) message.sendViaEmail = input.sendViaEmail
+
+      if (delivery) {
+        const recipientUserIds = input.recipients
+          ? input.recipients.map((recipient) => recipient.userId)
+          : (preloadedRecipients ?? []).map((recipient) => recipient.recipientUserId)
+        sentEvent = {
+          messageId: message.id,
+          senderUserId: input.userId,
+          recipientUserIds,
+          sendViaEmail: delivery.visibility === 'public' || delivery.sendViaEmail,
+          externalEmail: message.externalEmail ?? null,
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+        }
+      }
     }, async () => {
       if (input.recipients) {
         await em.nativeDelete(MessageRecipient, { messageId: message.id })
@@ -664,8 +729,6 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
 
       if (isSending) {
-        // Send transition was validated before the block; just apply the
-        // status mutations here (persisted by this phase's boundary flush).
         message.isDraft = false
         message.status = 'sent'
         message.sentAt = new Date()
@@ -680,20 +743,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       organizationId: input.organizationId,
     })
 
-    if (isSending) {
-      const recipientUserIds = input.recipients
-        ? input.recipients.map((r) => r.userId)
-        : (preloadedRecipients ?? []).map((r) => r.recipientUserId)
-      await emitMessageSentEvent(ctx.container, {
-        messageId: message.id,
-        senderUserId: input.userId,
-        recipientUserIds,
-        sendViaEmail: finalVisibility === 'public' ? true : finalSendViaEmail,
-        externalEmail: message.externalEmail ?? null,
-        tenantId: input.tenantId,
-        organizationId: input.organizationId,
-      })
-    }
+    if (sentEvent) await emitMessageSentEvent(ctx.container, sentEvent)
 
     return { ok: true, id: message.id }
   },
@@ -761,19 +811,20 @@ async function canActOnChannelThreadMessage(
   return channelThread?.canAccess === true
 }
 
-async function isOnChannelThread(
+async function canKeepExternalCorrespondent(
   ctx: CommandRuntimeContext,
   input: { tenantId: string; organizationId?: string | null; userId: string },
   original: Message,
 ): Promise<boolean> {
-  if (original.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE) return true
+  if (original.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE) return false
   const channelThread = await resolveMessageChannelThreadAccess(
     ctx.container,
     { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
     { messageThreadId: original.threadId ?? original.id },
     { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
-  )
-  return channelThread !== null
+    { throwOnError: true },
+  ).catch(() => undefined)
+  return channelThread === null
 }
 
 const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: string | null; recipientUserIds: string[] }> = {
@@ -1014,7 +1065,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     // deliverable to the correspondent (#6431, #6428). The bridge routes on the
     // thread, not the source, and some public messages on a channel thread
     // carry no source type (an AI or parented compose), so the thread decides.
-    const keepsExternalCorrespondent = !(await isOnChannelThread(ctx, input, original))
+    const keepsExternalCorrespondent = await canKeepExternalCorrespondent(ctx, input, original)
     if (input.sendViaEmail && keepsExternalCorrespondent && original.externalEmail) {
       await assertExternalEmailBudget(
         ctx.container,

@@ -63,6 +63,7 @@ function createDraftMessage(overrides: Partial<Message> = {}) {
     status: 'draft',
     isDraft: true,
     sentAt: null,
+    updatedAt: new Date('2026-11-21T10:00:00Z'),
     sendViaEmail: false,
     tenantId,
     organizationId,
@@ -91,6 +92,8 @@ function createHarness(messageOverrides: Partial<Message> = {}, recipients: Arra
     resolve: jest.fn((name: string) => {
       if (name === 'em') return { fork: () => emFork }
       if (name === 'eventBus') return eventBus
+      if (name === 'rbacService') return { userHasAllFeatures: async () => true }
+      if (name === 'communicationChannelsResolveChannelThreadAccess') return undefined
       throw new Error(`Unknown dependency: ${name}`)
     }),
   }

@@ -1,8 +1,12 @@
 import { GET, PATCH, DELETE } from '@open-mercato/core/modules/messages/api/[id]/route'
 import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { LockMode } from '@mikro-orm/core'
+import { commandRegistry, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import '@open-mercato/core/modules/messages/commands/messages'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import { resolveChannelThreadAccessSafely } from '@open-mercato/core/modules/communication_channels/lib/channel-thread-access'
 
 const resolveMessageContextMock = jest.fn()
 const hasOrganizationAccessMock = jest.fn(() => true)
@@ -672,7 +676,15 @@ describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', (
   const messageId = '22222222-2222-4222-8222-222222222222'
   const channelThreadId = '33333333-3333-4333-8333-333333333333'
 
-  function setup(options: { hasView: boolean; channelThread: boolean; visibility?: 'public' | 'internal' | null }) {
+  function setup(options: {
+    hasView: boolean
+    channelThread: boolean
+    visibility?: 'public' | 'internal' | null
+    commandVisibility?: 'public' | 'internal'
+    lockedVisibility?: 'public' | 'internal'
+    emailGrant?: string | null
+    lookupFails?: boolean
+  }) {
     const draftMessage = {
       id: messageId,
       threadId: channelThreadId,
@@ -681,16 +693,44 @@ describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', (
       senderUserId: userId,
       isDraft: true,
       visibility: options.visibility === undefined ? 'internal' : options.visibility,
+      subject: 'Draft',
+      body: 'Draft content',
+      updatedAt: new Date('2026-11-21T10:00:00Z'),
       deletedAt: null,
     }
+    const commandDraft = { ...draftMessage, visibility: options.commandVisibility ?? draftMessage.visibility }
+    const lockedDraft = { ...commandDraft, visibility: options.lockedVisibility ?? commandDraft.visibility }
     const em = {
       fork: jest.fn().mockReturnThis(),
       findOne: jest.fn().mockResolvedValue(draftMessage),
+      begin: jest.fn(async () => undefined),
+      flush: jest.fn(async () => undefined),
+      commit: jest.fn(async () => undefined),
+      rollback: jest.fn(async () => undefined),
+      nativeDelete: jest.fn(async () => undefined),
+      create: jest.fn((_entity: unknown, row: unknown) => row),
+      persist: jest.fn(),
     }
+    findOneWithDecryptionMock.mockImplementation(async (
+      _manager: unknown, entity: unknown, _filter: unknown, queryOptions?: { lockMode?: LockMode },
+    ) => {
+      if (entity === Message) return queryOptions?.lockMode === LockMode.PESSIMISTIC_WRITE ? lockedDraft : commandDraft
+      if (options.lookupFails) throw new Error('connection terminated')
+      return null
+    })
+    findWithDecryptionMock.mockResolvedValue([])
     const commandBus = {
-      execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
+      execute: jest.fn(async (id: string, args: { input: unknown; ctx: CommandRuntimeContext }) => {
+        const command = commandRegistry.get(id)
+        if (!command) throw new Error('[internal] Draft command was not registered')
+        return { result: await command.execute(args.input, args.ctx), logEntry: null }
+      }),
     }
-    const rbacService = { userHasAllFeatures: jest.fn(async () => options.hasView) }
+    const emailGrant = options.emailGrant === undefined ? 'messages.email' : options.emailGrant
+    const grantedFeatures = ['messages.compose', ...(emailGrant ? [emailGrant] : []), ...(options.hasView ? ['messages.view'] : [])]
+    const rbacService = {
+      userHasAllFeatures: jest.fn(async (_userId: string, required: string[]) => authorizeFeatures(required, { grantedFeatures })),
+    }
     const resolveChannelThreadAccess = jest.fn(async () => (options.channelThread
       ? {
         messageThreadId: channelThreadId,
@@ -705,7 +745,9 @@ describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', (
         if (name === 'em') return em
         if (name === 'commandBus') return commandBus
         if (name === 'rbacService') return rbacService
-        if (name === 'communicationChannelsResolveChannelThreadAccess') return resolveChannelThreadAccess
+        if (name === 'communicationChannelsResolveChannelThreadAccess') {
+          return options.lookupFails ? resolveChannelThreadAccessSafely : resolveChannelThreadAccess
+        }
         return null
       },
     }
@@ -713,7 +755,7 @@ describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', (
       ctx: { container, auth: null },
       scope: { tenantId, organizationId, userId },
     })
-    return { commandBus, rbacService, resolveChannelThreadAccess }
+    return { commandBus, em, lockedDraft, rbacService, resolveChannelThreadAccess }
   }
 
   function sendRequest(body: Record<string, unknown>) {
@@ -727,13 +769,18 @@ describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', (
     jest.clearAllMocks()
   })
 
+  afterEach(() => {
+    findOneWithDecryptionMock.mockReset()
+    findWithDecryptionMock.mockReset()
+  })
+
   it('refuses a public send onto a shared channel thread without messages.view', async () => {
-    const { commandBus, rbacService } = setup({ hasView: false, channelThread: true })
+    const { em, rbacService } = setup({ hasView: false, channelThread: true })
 
     const response = await PATCH(sendRequest({ visibility: 'public' }), { params: { id: messageId } })
 
     expect(response.status).toBe(403)
-    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
     expect(rbacService.userHasAllFeatures).toHaveBeenCalledWith(userId, ['messages.view'], {
       tenantId,
       organizationId,
@@ -741,12 +788,12 @@ describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', (
   })
 
   it('refuses a draft stored public when it is sent without messages.view', async () => {
-    const { commandBus } = setup({ hasView: false, channelThread: true, visibility: 'public' })
+    const { em } = setup({ hasView: false, channelThread: true, visibility: 'public' })
 
     const response = await PATCH(sendRequest({}), { params: { id: messageId } })
 
     expect(response.status).toBe(403)
-    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('sends publicly for a caller who may read the channel thread', async () => {
@@ -770,6 +817,81 @@ describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', (
     setup({ hasView: false, channelThread: false })
     const publicResponse = await PATCH(sendRequest({ visibility: 'public' }), { params: { id: messageId } })
     expect(publicResponse.status).toBe(200)
+  })
+
+  it.each([
+    ['internal', { visibility: 'public' }],
+    ['public', {}],
+    ['public', { visibility: null }],
+  ] as const)('requires messages.email for a public send from a %s draft', async (visibility, body) => {
+    const { em, lockedDraft, rbacService } = setup({ hasView: true, channelThread: false, visibility, emailGrant: null })
+
+    const response = await PATCH(sendRequest(body), { params: { id: messageId } })
+
+    expect(response.status).toBe(403)
+    expect(lockedDraft.isDraft).toBe(true)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(rbacService.userHasAllFeatures).toHaveBeenCalledWith(userId, ['messages.email'], { tenantId, organizationId })
+  })
+
+  it('authorizes the draft state read by the command after the route read', async () => {
+    const { em, lockedDraft } = setup({
+      hasView: true,
+      channelThread: false,
+      visibility: 'internal',
+      commandVisibility: 'public',
+      emailGrant: null,
+    })
+
+    const response = await PATCH(sendRequest({}), { params: { id: messageId } })
+
+    expect(response.status).toBe(403)
+    expect(lockedDraft.isDraft).toBe(true)
+    expect(em.begin).not.toHaveBeenCalled()
+  })
+
+  it('rejects a delivery state that changed before acquiring the write lock', async () => {
+    const { em, lockedDraft } = setup({
+      hasView: true,
+      channelThread: false,
+      visibility: 'internal',
+      lockedVisibility: 'public',
+      emailGrant: null,
+    })
+    findWithDecryptionMock.mockResolvedValueOnce([{ recipientUserId: userId }])
+
+    const response = await PATCH(sendRequest({}), { params: { id: messageId } })
+
+    expect(response.status).toBe(409)
+    expect(lockedDraft.isDraft).toBe(true)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(findOneWithDecryptionMock).toHaveBeenLastCalledWith(
+      em,
+      Message,
+      { id: messageId, tenantId, organizationId, deletedAt: null },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      { tenantId, organizationId },
+    )
+    expect(em.begin.mock.invocationCallOrder[0]).toBeLessThan(findOneWithDecryptionMock.mock.invocationCallOrder[1])
+  })
+
+  it.each(['messages.email', 'messages.*', '*'])('honors %s for a public send', async (emailGrant) => {
+    const { lockedDraft } = setup({ hasView: true, channelThread: false, visibility: 'public', emailGrant })
+
+    const response = await PATCH(sendRequest({}), { params: { id: messageId } })
+
+    expect(response.status).toBe(200)
+    expect(lockedDraft.isDraft).toBe(false)
+  })
+
+  it('denies a public send when the hub lookup fails', async () => {
+    const { em, lockedDraft } = setup({ hasView: true, channelThread: true, visibility: 'public', lookupFails: true })
+
+    const response = await PATCH(sendRequest({}), { params: { id: messageId } })
+
+    expect(response.status).toBe(403)
+    expect(lockedDraft.isDraft).toBe(true)
+    expect(em.flush).not.toHaveBeenCalled()
   })
 })
 
