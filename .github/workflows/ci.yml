@@ -1247,6 +1247,17 @@ jobs:
             .ai/qa/test-results/coverage-shard-${{ steps.shard-meta.outputs.shard_index }}/
           if-no-files-found: ignore
 
+      - name: Verify staff and portal auth rate limits
+        if: matrix.shard == 'none' || matrix.shard == '1/15'
+        env:
+          OM_INTEGRATION_AUTH_RATE_LIMIT_FIXTURE: '1'
+          OM_TEST_RATE_LIMIT_MODE: enabled
+          RATE_LIMIT_TRUST_PROXY_DEPTH: '0'
+          RATE_LIMIT_STRATEGY: memory
+          RATE_LIMIT_LOGIN_IP_POINTS: '2'
+          RATE_LIMIT_CUSTOMER_LOGIN_IP_POINTS: '2'
+        run: yarn test:integration:ephemeral TC-AUTH-016 --no-reuse-env
+
   # ── Merge shard coverage ─────────────────────────────────────────────────────
   # Final gate — runs after all integration shards AND the test job complete.
   # Ensures both typecheck/units and integration must pass before reporting green.
