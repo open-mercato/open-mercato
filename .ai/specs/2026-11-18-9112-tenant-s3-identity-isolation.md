@@ -62,3 +62,5 @@ Provider-local implementation only. Existing generic validator/types, DI names, 
 - 2026-11-18: Parent review traced hosted CI failure to app-level S3 route fixtures; supplied explicit tenant keys and preserved app-boundary MIME/quota/download assertions. Added required root client/operator migration and contract records without assuming a human waiver.
 
 Parent independently reproduced all five app route-test failures with the original implicit-credential fixture, then passed all five after supplying explicit tenant keys. Hosted CI for the prior head also reported this exact app-suite regression; fixture correction preserves MIME, quota and download-header assertions.
+
+- 2026-11-21: Integrated current main, retaining all compatibility notices. Reproduced the required-context budget failure and condensed disclosure/policy prose without changing any waiver condition or harness ceiling; all five compatibility case budgets pass. Provider191/app5 regressions pass; named human approval, live AWS/personal QA and fresh CI remain pending.

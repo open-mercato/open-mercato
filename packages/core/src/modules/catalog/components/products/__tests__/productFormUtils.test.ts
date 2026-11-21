@@ -15,6 +15,7 @@ jest.mock("@open-mercato/ui/backend/utils/serverErrors", () => ({
 }));
 
 import {
+  applyProductMarkdownPreference,
   pickEnrichmentNamespaces,
   toTrimmedOrNull,
   parseNumericInput,
@@ -189,6 +190,32 @@ describe("normalizeProductConversionInputs", () => {
     ];
     const result = normalizeProductConversionInputs(rows, "dup");
     expect(result[0].isActive).toBe(true);
+  });
+});
+
+describe("applyProductMarkdownPreference", () => {
+  it.each([undefined, false, null])("preserves an absent preference when Markdown remains off (%s)", (useMarkdown) => {
+    const metadata = { customIntegration: { mode: "preserve" } };
+    expect(applyProductMarkdownPreference(metadata, useMarkdown)).toEqual(metadata);
+    expect(metadata).toEqual({ customIntegration: { mode: "preserve" } });
+  });
+
+  it("records an explicit opt-in without changing unrelated metadata", () => {
+    expect(applyProductMarkdownPreference({ customIntegration: "preserve" }, true)).toEqual({
+      customIntegration: "preserve", __useMarkdown: true,
+    });
+  });
+
+  it("records opt-out for a previously enabled preference", () => {
+    const metadata = { __useMarkdown: true, customIntegration: "preserve" };
+    expect(applyProductMarkdownPreference(metadata, false)).toEqual({
+      __useMarkdown: false, customIntegration: "preserve",
+    });
+    expect(metadata.__useMarkdown).toBe(true);
+  });
+
+  it("retains an existing explicit disabled preference", () => {
+    expect(applyProductMarkdownPreference({ __useMarkdown: false }, false)).toEqual({ __useMarkdown: false });
   });
 });
 
