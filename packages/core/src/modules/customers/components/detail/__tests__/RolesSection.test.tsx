@@ -9,6 +9,7 @@ import { RolesSection } from '../RolesSection'
 
 const readApiResultOrThrowMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
+const apiCallMock = jest.fn()
 const reportErrorMock = jest.fn()
 let mockGrantedFeatures: string[]
 
@@ -19,6 +20,7 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  apiCall: (...args: unknown[]) => apiCallMock(...args),
   apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
 }))
@@ -42,8 +44,11 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 }))
 
 jest.mock('../RoleAssignmentRow', () => ({
-  RoleAssignmentRow: ({ role, onChangeUser }: { role: { id: string }; onChangeUser?: () => void }) => (
-    <button type="button" onClick={onChangeUser}>{`change-${role.id}`}</button>
+  RoleAssignmentRow: ({ role, onChangeUser }: { role: { id: string; userName?: string }; onChangeUser?: () => void }) => (
+    <div>
+      <span>{role.userName}</span>
+      <button type="button" onClick={onChangeUser}>{`change-${role.id}`}</button>
+    </div>
   ),
 }))
 
@@ -57,7 +62,7 @@ jest.mock('../AssignRoleDialog', () => ({
   }: {
     open: boolean
     roleTypes: Array<{ value: string; label: string }>
-    editingAssignment?: { id: string; roleType: string; userId: string } | null
+    editingAssignment?: { id: string; roleType: string; userId: string; userName?: string } | null
     onAssign?: (roleType: string, userId: string) => Promise<void>
     onReassign?: (assignmentId: string, userId: string) => Promise<void>
   }) => {
@@ -68,12 +73,15 @@ jest.mock('../AssignRoleDialog', () => ({
           <div key={roleType.value}>{roleType.label}</div>
         ))}
         {editingAssignment ? (
-          <button
-            type="button"
-            onClick={() => { onReassign?.(editingAssignment.id, 'user-2').catch(() => undefined) }}
-          >
-            {`reassign-${editingAssignment.id}`}
-          </button>
+          <>
+            <span>{`Currently: ${editingAssignment.userName}`}</span>
+            <button
+              type="button"
+              onClick={() => { onReassign?.(editingAssignment.id, 'user-2').catch(() => undefined) }}
+            >
+              {`reassign-${editingAssignment.id}`}
+            </button>
+          </>
         ) : (
           <button
             type="button"
@@ -94,6 +102,8 @@ describe('RolesSection', () => {
     jest.mocked(flash).mockClear()
     apiCallOrThrowMock.mockReset()
     apiCallOrThrowMock.mockResolvedValue({})
+    apiCallMock.mockReset()
+    apiCallMock.mockResolvedValue({ ok: false, status: 404, result: null })
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockImplementation(async (path: string) => {
       if (path === '/api/customers/companies/company-1/roles') {
@@ -104,6 +114,40 @@ describe('RolesSection', () => {
       }
       return { items: [] }
     })
+  })
+
+  it('uses the exact roster user’s name for the saved role and its reassignment dialog', async () => {
+    mockGrantedFeatures.push('customers.roles.manage')
+    readApiResultOrThrowMock.mockResolvedValueOnce({ items: [{
+      id: 'role-1', roleType: 'decision_maker', userId: 'user-1', userName: 'Employee', userEmail: 'employee@example.com',
+    }] })
+    apiCallMock.mockResolvedValueOnce({ ok: true, result: { items: [
+      { userId: 'other-user', displayName: 'Other person' },
+      { userId: 'user-1', displayName: 'Priya Nair' },
+    ] } })
+
+    renderWithProviders(<RolesSection entityType="person" entityId="person-1" />)
+
+    expect(await screen.findByText('Priya Nair')).toBeInTheDocument()
+    expect(screen.queryByText('Employee')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'change-role-1' }))
+    expect(screen.getByText('Currently: Priya Nair')).toBeInTheDocument()
+  })
+
+  it.each([404, 403])('keeps the account name when the roster returns %s', async (status) => {
+    mockGrantedFeatures.push('customers.roles.manage')
+    readApiResultOrThrowMock.mockResolvedValueOnce({ items: [{
+      id: 'role-1', roleType: 'decision_maker', userId: 'user-1', userName: 'Employee', userEmail: 'employee@example.com',
+    }] })
+    apiCallMock.mockResolvedValueOnce({ ok: false, status, result: null })
+
+    renderWithProviders(<RolesSection entityType="person" entityId="person-1" />)
+
+    expect(await screen.findByText('Employee')).toBeInTheDocument()
+    expect(apiCallMock).toHaveBeenCalledWith(expect.stringContaining('search=employee%40example.com'), expect.objectContaining({
+      headers: { 'x-om-forbidden-redirect': '0' },
+    }))
+    expect(flash).not.toHaveBeenCalled()
   })
 
   it.each(['company', 'person'] as const)('skips role and dictionary requests without roles view access for a %s', (entityType) => {

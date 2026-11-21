@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Plus, Settings, UserCheck } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
@@ -38,6 +38,46 @@ type GuardedMutationRunner = <T,>(
   mutationPayload?: Record<string, unknown>,
 ) => Promise<T>
 
+async function resolveRosterName(userId: string, email: string, signal: AbortSignal) {
+  const pageSize = 100
+  const params = new URLSearchParams({ search: email, pageSize: String(pageSize) })
+  for (let page = 1; !signal.aborted; page += 1) {
+    params.set('page', String(page))
+    const { ok, result } = await apiCall<{
+      items?: Array<{ userId: string; displayName?: string | null }>
+      total?: number
+    }>(`/api/staff/team-members/assignable?${params}`, {
+      headers: { 'x-om-forbidden-redirect': '0' },
+      signal,
+    })
+    if (!ok || !Array.isArray(result?.items)) return null
+
+    const member = result.items.find((item) => item.userId === userId)
+    if (member) return member.displayName?.trim() || null
+    if (result.items.length < pageSize || page * pageSize >= (result.total ?? 0)) return null
+  }
+  return null
+}
+
+async function applyRosterNames(roles: RoleAssignment[], signal: AbortSignal) {
+  const assignees = new Map<string, string>()
+  for (const role of roles) {
+    const email = role.userEmail?.trim()
+    if (email) assignees.set(role.userId, email)
+  }
+
+  const names = new Map<string, string>()
+  await Promise.allSettled(Array.from(assignees, async ([userId, email]) => {
+    const name = await resolveRosterName(userId, email, signal)
+    if (name) names.set(userId, name)
+  }))
+
+  return roles.map((role) => {
+    const name = names.get(role.userId)
+    return name ? { ...role, userName: name } : role
+  })
+}
+
 export function RolesSection(props: RolesSectionProps) {
   const { payload } = useBackendChrome()
   const features = payload?.grantedFeatures ?? []
@@ -48,6 +88,7 @@ export function RolesSection(props: RolesSectionProps) {
       {...props}
       canReadRoleTypes={hasFeature(features, 'customers.people.view')}
       canManageRoleTypes={hasFeature(features, 'customers.settings.manage')}
+      canReadRoster={hasFeature(features, 'customers.roles.manage') || hasFeature(features, 'customers.activities.manage')}
     />
   )
 }
@@ -58,7 +99,8 @@ function RolesSectionContent({
   entityName,
   canReadRoleTypes,
   canManageRoleTypes,
-}: RolesSectionProps & { canReadRoleTypes: boolean; canManageRoleTypes: boolean }) {
+  canReadRoster,
+}: RolesSectionProps & { canReadRoleTypes: boolean; canManageRoleTypes: boolean; canReadRoster: boolean }) {
   const t = useT()
   const [roles, setRoles] = React.useState<RoleAssignment[]>([])
   const [roleTypes, setRoleTypes] = React.useState<DictionaryEntryOption[]>([])
@@ -66,6 +108,7 @@ function RolesSectionContent({
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [initialRoleType, setInitialRoleType] = React.useState<string | null>(null)
   const [editingAssignment, setEditingAssignment] = React.useState<RoleAssignment | null>(null)
+  const rolesRequest = React.useRef<AbortController | null>(null)
   const hasConfiguredRoleTypes = roleTypes.length > 0
 
   const basePath = entityType === 'company' ? 'companies' : 'people'
@@ -106,21 +149,30 @@ function RolesSectionContent({
   )
 
   const loadRoles = React.useCallback(async () => {
+    rolesRequest.current?.abort()
+    const controller = new AbortController()
+    rolesRequest.current = controller
     try {
       const data = await readApiResultOrThrow<{ items?: RoleAssignment[] }>(
         `/api/customers/${basePath}/${entityId}/roles`,
       )
-      setRoles(Array.isArray(data?.items) ? data.items : [])
+      if (controller.signal.aborted) return
+      const assignments = Array.isArray(data?.items) ? data.items : []
+      const resolved = canReadRoster ? await applyRosterNames(assignments, controller.signal) : assignments
+      if (!controller.signal.aborted) setRoles(resolved)
     } catch (error) {
+      if (controller.signal.aborted) return
       logger.error('customers.roles.load failed', { err: error })
       flash(t('customers.roles.loadFailed', 'Failed to load role assignments.'), 'error')
       setRoles([])
+    } finally {
+      if (!controller.signal.aborted) setLoading(false)
     }
-    setLoading(false)
-  }, [basePath, entityId, t])
+  }, [basePath, canReadRoster, entityId, t])
 
   React.useEffect(() => {
-    loadRoles()
+    void loadRoles()
+    return () => rolesRequest.current?.abort()
   }, [loadRoles])
 
   React.useEffect(() => {
