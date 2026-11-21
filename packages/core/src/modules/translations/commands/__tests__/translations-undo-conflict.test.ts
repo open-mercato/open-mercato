@@ -75,9 +75,11 @@ class FakeDb {
     const wheres: Where[] = []
     let patch: Record<string, unknown> = {}
     let columns: string[] | null = null
+    let returnDeletedRow = false
     const matches = (row: Row) => wheres.every((where) => (row as Record<string, unknown>)[where.column] === where.value)
     const builder = {
       selectAll() { return builder },
+      returningAll() { returnDeletedRow = true; return builder },
       select(selected: string[]) { columns = selected; return builder },
       forUpdate() { db.lockedReads += 1; return builder },
       where(...args: unknown[]) {
@@ -103,9 +105,9 @@ class FakeDb {
           return { numUpdatedRows: BigInt(targets.length) }
         }
         if (kind === 'delete') {
-          const before = db.rows.length
+          const deleted = db.rows.find(matches)
           db.rows = db.rows.filter((row) => !matches(row))
-          return { numDeletedRows: BigInt(before - db.rows.length) }
+          return returnDeletedRow ? deleted : { numDeletedRows: BigInt(Number(Boolean(deleted))) }
         }
         if (db.failNextInsertWithUniqueViolation) {
           db.failNextInsertWithUniqueViolation = false
@@ -229,6 +231,40 @@ describe('translations undo refuses to overwrite later changes', () => {
     expect(db.rows).toHaveLength(1)
     expect(db.rows[0].translations).toEqual({ en: { name: 'Shoe' } })
     expect(db.lockedReads).toBeGreaterThan(0)
+  })
+
+  it('restores the row the save actually replaced when another save ran after prepare', async () => {
+    const { save } = loadHandlers()
+    const db = new FakeDb()
+    const ctx = makeCtx(db)
+    const intervening = { en: { name: 'Intervening save' } }
+    await runSave(save, ctx, { en: { name: 'Original' } })
+    const input = { ...KEY, translations: { en: { name: 'Final save' } } }
+    const prepared = await save.prepare!(input, ctx)
+    await runSave(save, ctx, intervening)
+
+    const result = await save.execute(input, ctx)
+    const after = await save.captureAfter!(input, result, ctx)
+    const log = await save.buildLog!({ input, result, ctx, snapshots: { before: prepared?.before, after } } as never)
+    await undo(save, ctx, log as LogEntry)
+
+    expect(db.rows[0].translations).toEqual(intervening)
+  })
+
+  it('restores the row the delete actually removed when another save ran after prepare', async () => {
+    const { save, remove } = loadHandlers()
+    const db = new FakeDb()
+    const ctx = makeCtx(db)
+    const intervening = { en: { name: 'Intervening save' } }
+    await runSave(save, ctx, { en: { name: 'Original' } })
+    const prepared = await remove.prepare!(KEY, ctx)
+    await runSave(save, ctx, intervening)
+
+    const result = await remove.execute(KEY, ctx)
+    const log = await remove.buildLog!({ input: KEY, result, ctx, snapshots: { before: prepared?.before } } as never)
+    await undo(remove, ctx, log as LogEntry)
+
+    expect(db.rows[0].translations).toEqual(intervening)
   })
 
   it('refuses to undo an update after another operator saved the record', async () => {

@@ -15,7 +15,7 @@ type TranslationSnapshot = {
   entityId: string
   translations: Record<string, Record<string, string | null>> | null
   organizationId: string | null
-  tenantId: string
+  tenantId: string | null
 }
 
 type TranslationUndoPayload = {
@@ -42,7 +42,7 @@ type TranslationRow = {
   entity_id: string
   translations: TranslationSnapshot['translations']
   organization_id: string | null
-  tenant_id: string
+  tenant_id: string | null
 }
 
 type SaveInput = {
@@ -60,28 +60,9 @@ type DeleteInput = {
   tenantId: string
 }
 
-function resolveDb(ctx: CommandRuntimeContext): Kysely<any> {
+function resolveDb(ctx: CommandRuntimeContext): Kysely<TranslationsDatabase> {
   const em = ctx.container.resolve('em') as EntityManager
-  return em.getKysely<any>()
-}
-
-async function loadTranslationSnapshot(
-  db: Kysely<any>,
-  entityType: string,
-  entityId: string,
-  tenantId: string,
-  organizationId: string | null,
-): Promise<TranslationSnapshot | null> {
-  const row = await (db as any)
-    .selectFrom('entity_translations')
-    .selectAll()
-    .where('entity_type', '=', entityType)
-    .where('entity_id', '=', entityId)
-    .where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
-    .where(sql<boolean>`organization_id is not distinct from ${organizationId}`)
-    .executeTakeFirst() as TranslationRow | undefined
-
-  return row ? toTranslationSnapshot(row) : null
+  return em.getKysely<TranslationsDatabase>()
 }
 
 function toTranslationSnapshot(row: TranslationRow): TranslationSnapshot {
@@ -113,38 +94,36 @@ function sameTranslations(
   return isDeepStrictEqual(current ?? null, expected ?? null)
 }
 
-const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string; snapshot: TranslationSnapshot | null }> = {
+const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string; before: TranslationSnapshot | null; snapshot: TranslationSnapshot | null }> = {
   id: 'translations.translation.save',
 
   async prepare(input, ctx) {
     ensureTenantScope(ctx, input.tenantId)
-    const db = resolveDb(ctx)
-    const snapshot = await loadTranslationSnapshot(db, input.entityType, input.entityId, input.tenantId, input.organizationId)
-    return { before: snapshot }
+    return {}
   },
 
   async execute(input, ctx) {
-    const db = resolveDb(ctx) as any
+    const db = resolveDb(ctx)
 
-    // Run the lookup + upsert + id read in one transaction so a concurrent
-    // writer cannot slip between the existence check and the insert/update.
-    const snapshot = await db.transaction().execute(async (trx: any) => {
+    const { before, snapshot } = await db.transaction().execute(async (trx) => {
       const existing = await trx
         .selectFrom('entity_translations')
-        .select(['id'])
+        .selectAll()
         .where('entity_type', '=', input.entityType)
         .where('entity_id', '=', input.entityId)
         .where(sql<boolean>`tenant_id is not distinct from ${input.tenantId}`)
         .where(sql<boolean>`organization_id is not distinct from ${input.organizationId}`)
-        .executeTakeFirst() as { id: string } | undefined
+        .forUpdate()
+        .executeTakeFirst()
 
+      const before = existing ? toTranslationSnapshot(existing) : null
       if (existing) {
         await trx
           .updateTable('entity_translations')
           .set({
             translations: sql`${JSON.stringify(input.translations)}::jsonb`,
             updated_at: sql`now()`,
-          } as any)
+          })
           .where('id', '=', existing.id)
           .execute()
       } else {
@@ -158,7 +137,7 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string; snapsho
             translations: sql`${JSON.stringify(input.translations)}::jsonb`,
             created_at: sql`now()`,
             updated_at: sql`now()`,
-          } as any)
+          })
           .execute()
       }
 
@@ -169,9 +148,9 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string; snapsho
         .where('entity_id', '=', input.entityId)
         .where(sql<boolean>`tenant_id is not distinct from ${input.tenantId}`)
         .where(sql<boolean>`organization_id is not distinct from ${input.organizationId}`)
-        .executeTakeFirst() as TranslationRow | undefined
+        .executeTakeFirst()
 
-      return saved ? toTranslationSnapshot(saved) : null
+      return { before, snapshot: saved ? toTranslationSnapshot(saved) : null }
     })
 
     // Emit AFTER the write commits — never announce a change that rolled back.
@@ -182,7 +161,7 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string; snapsho
       tenantId: input.tenantId,
     }, { persistent: true }).catch(() => undefined)
 
-    return { rowId: snapshot?.id ?? '', snapshot }
+    return { rowId: snapshot?.id ?? '', before, snapshot }
   },
 
   async captureAfter(_input, result) {
@@ -191,7 +170,7 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string; snapsho
 
   async buildLog({ snapshots, result }) {
     const { translate } = await resolveTranslations()
-    const before = snapshots.before as TranslationSnapshot | null | undefined
+    const before = result.before
     const after = snapshots.after as TranslationSnapshot | null | undefined
     return {
       actionLabel: translate('translations.audit.save', 'Save translation'),
@@ -212,7 +191,7 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string; snapsho
     const before = payload?.before ?? null
     const after = payload?.after ?? null
     if (!after) return throwTranslationUndoConflict()
-    const db = resolveDb(ctx) as Kysely<TranslationsDatabase>
+    const db = resolveDb(ctx)
 
     await db.transaction().execute(async (trx) => {
       const current = await trx
@@ -246,26 +225,24 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string; snapsho
   },
 }
 
-const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean }> = {
+const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean; before: TranslationSnapshot | null }> = {
   id: 'translations.translation.delete',
 
   async prepare(input, ctx) {
     ensureTenantScope(ctx, input.tenantId)
-    const db = resolveDb(ctx)
-    const snapshot = await loadTranslationSnapshot(db, input.entityType, input.entityId, input.tenantId, input.organizationId)
-    return { before: snapshot }
+    return {}
   },
 
   async execute(input, ctx) {
-    const db = resolveDb(ctx) as any
-    const result = await db
+    const db = resolveDb(ctx)
+    const deleted = await db
       .deleteFrom('entity_translations')
       .where('entity_type', '=', input.entityType)
       .where('entity_id', '=', input.entityId)
       .where(sql<boolean>`tenant_id is not distinct from ${input.tenantId}`)
       .where(sql<boolean>`organization_id is not distinct from ${input.organizationId}`)
-      .executeTakeFirst() as { numDeletedRows?: bigint | number } | undefined
-    const count = Number(result?.numDeletedRows ?? 0)
+      .returningAll()
+      .executeTakeFirst()
 
     await emitTranslationsEvent('translations.translation.deleted', {
       entityType: input.entityType,
@@ -274,11 +251,11 @@ const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean }
       tenantId: input.tenantId,
     }, { persistent: true }).catch(() => undefined)
 
-    return { deleted: count > 0 }
+    return { deleted: Boolean(deleted), before: deleted ? toTranslationSnapshot(deleted) : null }
   },
 
-  async buildLog({ snapshots }) {
-    const before = snapshots.before as TranslationSnapshot | null | undefined
+  async buildLog({ result }) {
+    const before = result.before
     if (!before) return null
     const { translate } = await resolveTranslations()
     return {
@@ -298,7 +275,7 @@ const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean }
     const payload = extractUndoPayload<TranslationUndoPayload>(logEntry)
     const before = payload?.before
     if (!before || !before.translations) return
-    const db = resolveDb(ctx) as Kysely<TranslationsDatabase>
+    const db = resolveDb(ctx)
 
     const existing = await db
       .selectFrom('entity_translations')
