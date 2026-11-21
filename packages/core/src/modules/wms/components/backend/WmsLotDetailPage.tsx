@@ -45,6 +45,7 @@ import { AdjustInventoryDialog } from './AdjustInventoryDialog'
 import { ChangeLotStatusDialog } from './ChangeLotStatusDialog'
 import { CycleCountWizardDialog } from './CycleCountWizardDialog'
 import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
+import { fetchOptionalCatalogVariant } from './catalogVariantLookup'
 
 const lotIdSchema = z.string().uuid()
 
@@ -550,18 +551,9 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
     queryKey: ['wms-lot-detail', 'variant', catalogVariantId],
     enabled: Boolean(catalogVariantId),
     queryFn: async () => {
-      const params = new URLSearchParams({
-        id: catalogVariantId!,
-        page: '1',
-        pageSize: '1',
-      })
-      const call = await apiCall<PagedResponse<CatalogVariantRow>>(
-        `/api/catalog/variants?${params.toString()}`,
+      return fetchOptionalCatalogVariant<CatalogVariantRow>(catalogVariantId!, (response) =>
+        raiseCrudError(response, t('wms.backend.lot.errors.variant', 'Failed to load SKU.')),
       )
-      if (!call.ok) {
-        await raiseCrudError(call.response, t('wms.backend.lot.errors.variant', 'Failed to load SKU.'))
-      }
-      return call.result?.items?.[0] ?? null
     },
   })
 
