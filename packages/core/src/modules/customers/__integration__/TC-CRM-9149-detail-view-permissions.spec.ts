@@ -21,7 +21,7 @@ test('CRM detail respects the related-deal permission on both record types', asy
   const { tenantId, organizationId } = getTokenScope(adminToken)
   const marker = randomUUID()
   const email = `crm-reader-${marker}@example.test`
-  const password = randomUUID()
+  const password = `Qa1!-${randomUUID()}`
   const recordFeatures = ['customers.people.view', 'customers.companies.view']
   let roleId: string | null = null
   let userId: string | null = null
