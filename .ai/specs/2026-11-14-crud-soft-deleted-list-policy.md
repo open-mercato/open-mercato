@@ -33,7 +33,7 @@ Deleted-row recovery routes must explicitly opt in. Cache isolation prevents sta
 
 ## Coverage and final compliance
 
-`crud-factory.test.ts` exercises real factory GET handlers for default-denied and opted-in reads, boolean tokens, schema-only declarations, exports, ORM fallback, and cache isolation. `records.get.custom-entity.test.ts` exercises generic lists and full exports, asserting false deletion visibility and retained tenant scope. No UI rendering changes require browser evidence.
+`crud-factory.test.ts` exercises real factory GET handlers for default-denied and opted-in reads, boolean tokens, schema-only declarations, exports, ORM fallback, and cache isolation. `records.get.custom-entity.test.ts` exercises generic lists and full exports, asserting false deletion visibility and retained tenant scope. The PostgreSQL fixture in `deleted-list-scope.integration.test.ts` covers authenticated default and opted-in ORM lists, opted-in full export, and unauthenticated refusal with persisted live and deleted rows in separate tenant and organization scopes. Run it with `yarn workspace @open-mercato/shared test:pg-integration`. No UI rendering changes require browser evidence.
 
 ## Changelog
 
