@@ -163,7 +163,7 @@ Events consumed by WMS (subscribers):
 
 Undo expectations:
 - CRUD-style configuration commands are undoable by reverting fields or soft-deleting the created row.
-- Primary warehouse reassignment captures `demotedPrimariesBefore` in warehouse create/update undo payloads and restores sibling `isPrimary` flags on undo.
+- Primary warehouse reassignment captures `demotedPrimariesBefore` in warehouse create/update undo payloads; undo re-promotes a demoted sibling only while it is live, active and no other warehouse is primary.
 - Inventory mutations must write inverse movement entries rather than mutating historical ledger rows.
 - Reconcile/adjust commands must preserve before/after bucket snapshots for reversal.
 
@@ -395,7 +395,7 @@ See [2026-06-13-wms-ledger-integrity.md](2026-06-13-wms-ledger-integrity.md) for
 
 All validators live in `data/validators.ts`:
 
-- `warehouseCreateSchema`: `name` required, `code` required and unique per organization, `isPrimary` optional with at-most-one enforcement per organization in commands (sibling primaries demoted org-wide via `enforcePrimaryWarehouse`; undo restores demoted siblings from `demotedPrimariesBefore`); rejects `isPrimary=true` when `isActive=false`; deactivating a primary warehouse auto-clears `isPrimary`
+- `warehouseCreateSchema`: `name` required, `code` required and unique per organization, `isPrimary` optional with at-most-one enforcement per organization in commands (sibling primaries demoted org-wide via `enforcePrimaryWarehouse`; undo re-promotes a sibling from `demotedPrimariesBefore` only while it is live, active and no other warehouse is primary); rejects `isPrimary=true` when `isActive=false`; deactivating a primary warehouse auto-clears `isPrimary`
 - `locationCreateSchema`: validate hierarchy (`parent_id` must belong to same warehouse), capacity constraints (`capacity_units` / `capacity_weight` non-negative when provided)
 - `inventoryAdjustSchema`: `reason` required, `delta` must be non-zero
 - `reservationCreateSchema`: `quantity` must be positive, must not exceed `quantity_available` in target buckets
@@ -677,6 +677,9 @@ None.
 
 ### 2026-11-15
 - The CSV inventory import read a `quantity` that isn't a number (for example `1,000` with a comma thousands separator, a decimal comma like `1,5`, or other text) as 0, so the row was skipped in additive mode or set the bucket to 0 in reconcile mode. Validation now rejects it with the existing `quantity_invalid` row error, whose message now asks for a plain number with a dot for decimals. Coverage: `inventoryImportService.test.ts`, `TC-WMS-035`.
+
+### 2026-10-29
+- Warehouse create and update undo no longer fail on `wms_warehouses_org_primary_unique_idx` when another warehouse became primary after the undone command. Update undo restores the warehouse's own `isPrimary` only when the undone update changed it, and then demotes the current primary first, as `execute()` does. Both undos re-promote a demoted sibling only while it is live, active and no other warehouse is primary, run in one `withAtomicFlush({ transaction: true })`, and map a lost race to the existing `409` (`wms.validation.warehouse.primaryConflict`). Delete undo is unchanged. Coverage: `configuration.primaryWarehouse.test.ts`, `TC-WMS-033`.
 
 ### 2026-10-09
 - Balance buckets without a serial number had no unique index, and `upsertBalanceBucket` read the bucket `FOR UPDATE` (locking nothing when no row exists) before inserting it, so concurrent receipts, adjustments, cycle counts or moves into an empty bucket each inserted their own row. Cycle counts and moves then read one of those rows, and `verify-balances --repair` set every row to the bucket total. Creating a bucket now takes a transaction-scoped advisory lock on the bucket identity (warehouse, location, variant, lot, serial) and re-reads it before inserting; writes to existing buckets are unchanged. `move` no longer creates an empty source bucket before answering `409 insufficient_stock`. Existing duplicate rows are not merged. Coverage: `inventory-actions.balanceBucket.test.ts`, `TC-WMS-030`.
