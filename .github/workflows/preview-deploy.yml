@@ -1,0 +1,212 @@
+name: Deploy Preview Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to build and test in a disposable sandbox"
+        required: true
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+env:
+  MERCATO_CLI_VERSION: "0.1.3"
+
+jobs:
+  deploy:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 120
+    outputs:
+      sandbox_id: ${{ steps.sandbox.outputs.sandbox_id }}
+      preview_url: ${{ steps.preview.outputs.preview_url }}
+      admin_email: ${{ steps.preview.outputs.admin_email }}
+      admin_password: ${{ steps.preview.outputs.admin_password }}
+    env:
+      MERCATO_API_TOKEN: ${{ secrets.MERCATO_API_TOKEN }}
+      BRANCH: ${{ inputs.branch }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Prepare CLI
+        run: |
+          set -euo pipefail
+          : "${MERCATO_API_TOKEN:?Set the MERCATO_API_TOKEN repository secret with sandbox:read and sandbox:write scopes}"
+          git check-ref-format "refs/heads/$BRANCH"
+
+          cat > "$RUNNER_TEMP/mercato-preview.bash" <<'BASH'
+          mercato() {
+            npx --yes "mercato-sandbox@${MERCATO_CLI_VERSION}" "$@"
+          }
+
+          sandbox_exec() {
+            mercato sandbox exec "$SANDBOX_ID" -- "$@"
+          }
+          BASH
+          echo "BASH_ENV=$RUNNER_TEMP/mercato-preview.bash" >> "$GITHUB_ENV"
+
+      - name: Create Sandbox
+        id: sandbox
+        run: |
+          set -euo pipefail
+          branch_slug=$(printf '%s' "$BRANCH" | LC_ALL=C tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//')
+          branch_slug=${branch_slug:-preview}
+          random_suffix=$(openssl rand -hex 3)
+          sandbox_name="${branch_slug:0:247}-${random_suffix:0:5}"
+
+          sandbox=$(mercato sandbox create \
+            --name "$sandbox_name" \
+            --template custom-workspace-template-default \
+            --json)
+          sandbox_id=$(jq -er '.id | select(type == "string" and length > 0)' <<< "$sandbox")
+
+          echo "sandbox_id=$sandbox_id" >> "$GITHUB_OUTPUT"
+          echo "SANDBOX_ID=$sandbox_id" >> "$GITHUB_ENV"
+          printf 'Created sandbox %s (%s)\n' "$sandbox_name" "$sandbox_id"
+
+      - name: Clean custom template and clone selected branch
+        run: |
+          set -euo pipefail
+          repository_url="https://github.com/${GITHUB_REPOSITORY}.git"
+          sandbox_exec timeout --kill-after=10s 180s bash -euo pipefail -c '
+            cd /workspace
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+            git clone --depth 1 --single-branch --branch "$2" -- "$1" .
+            git rev-parse HEAD
+          ' bash "$repository_url" "$BRANCH"
+
+      - name: Prepare environment file
+        run: |
+          set -euo pipefail
+          mercato sandbox port expose "$SANDBOX_ID" 3000 > /dev/null
+          share=$(mercato sandbox share "$SANDBOX_ID" --mode restricted --no-password --json)
+          preview_url=$(jq -er '.shareUrl | select(type == "string" and startswith("https://"))' <<< "$share")
+          app_host=${preview_url#https://}
+          app_url="https://${app_host%%[/?#]*}"
+
+          admin_email=preview@example.com
+          admin_password="Preview-$(openssl rand -hex 16)!"
+          {
+            echo "PREVIEW_URL=$preview_url"
+            echo "PREVIEW_ADMIN_EMAIL=$admin_email"
+            echo "PREVIEW_ADMIN_PASSWORD=$admin_password"
+          } >> "$GITHUB_ENV"
+
+          sandbox_exec bash -euo pipefail -c '
+            cd /workspace/apps/mercato
+            umask 077
+            cp .env.example .env
+            chmod 600 .env
+
+            # Remove only the values replaced below; retain other settings and comments.
+            sed -i -E "/^(NODE_ENV|APP_URL|DATABASE_URL|REDIS_URL|JWT_SECRET|AUTH_SECRET|TENANT_DATA_ENCRYPTION|TENANT_DATA_ENCRYPTION_FALLBACK_KEY|LOOKUP_HASH_PEPPER|DEMO_MODE|OM_INIT_SUPERADMIN_EMAIL|OM_INIT_SUPERADMIN_PASSWORD|AUTO_SPAWN_WORKERS|AUTO_SPAWN_SCHEDULER)=/d" .env
+
+            cat >> .env <<EOF
+
+          NODE_ENV=production
+          APP_URL=$1
+          DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/open-mercato
+          REDIS_URL=redis://:redis-dev-password@127.0.0.1:6379/1
+          JWT_SECRET=$(openssl rand -hex 32)
+          AUTH_SECRET=$(openssl rand -hex 32)
+          TENANT_DATA_ENCRYPTION=true
+          TENANT_DATA_ENCRYPTION_FALLBACK_KEY=$(openssl rand -hex 32)
+          LOOKUP_HASH_PEPPER=$(openssl rand -hex 32)
+          DEMO_MODE=false
+          OM_INIT_SUPERADMIN_EMAIL=$2
+          OM_INIT_SUPERADMIN_PASSWORD=$3
+          AUTO_SPAWN_WORKERS=true
+          AUTO_SPAWN_SCHEDULER=true
+          EOF
+          ' bash "$app_url" "$admin_email" "$admin_password"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          sandbox_exec timeout --kill-after=10s 840s bash -euo pipefail -c '
+            cd /workspace
+            corepack enable
+            yarn install --immutable
+          '
+
+      - name: Build Open Mercato
+        run: |
+          set -euo pipefail
+          sandbox_exec timeout --kill-after=10s 840s env NODE_ENV=production yarn build
+
+      - name: Initialize Open Mercato
+        run: |
+          set -euo pipefail
+          sandbox_exec timeout --kill-after=10s 840s bash -euo pipefail -c '
+            cd /workspace
+            umask 077
+            # Initialization prints credentials; keep its output inside the sandbox.
+            if NODE_ENV=production yarn workspace @open-mercato/app initialize \
+              --no-examples --no-demo-users > /tmp/mercato-preview-init.log 2>&1; then
+              echo "Open Mercato initialized"
+            else
+              echo "Initialization failed" >&2
+              exit 1
+            fi
+          '
+
+      - name: Configure and start production service
+        run: |
+          set -euo pipefail
+          sandbox_exec bash -euo pipefail -c '
+            cat > /workspace/om-sandbox.toml <<EOF
+          version = 3
+
+          [[services]]
+          name = "web"
+          start_command = ["env", "NODE_ENV=production", "PORT=3000", "HOSTNAME=0.0.0.0", "yarn", "workspace", "@open-mercato/app", "start"]
+          EOF
+            workspace-agent-cli start
+          '
+
+      - name: Check preview health
+        run: |
+          set -euo pipefail
+          health=$(sandbox_exec curl \
+            --silent --show-error --fail \
+            --retry 30 --retry-delay 2 --retry-connrefused --retry-max-time 120 \
+            --connect-timeout 5 --max-time 10 \
+            http://127.0.0.1:3000/api/healthz)
+          jq -e '.status == "ok"' <<< "$health" > /dev/null
+          echo "Preview healthcheck passed"
+
+      - name: Return shared preview config
+        id: preview
+        run: |
+          set -euo pipefail
+          echo "preview_url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+          echo "admin_email=$PREVIEW_ADMIN_EMAIL" >> "$GITHUB_OUTPUT"
+          echo "admin_password=$PREVIEW_ADMIN_PASSWORD" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Preview Data"
+            printf -- '- Sandbox ID: `%s`\n' "$SANDBOX_ID"
+            printf -- '- Shared preview: %s\n' "$PREVIEW_URL"
+            printf -- '- Superadmin email: `%s`\n' "$PREVIEW_ADMIN_EMAIL"
+            printf -- '- Superadmin password: `%s`\n' "$PREVIEW_ADMIN_PASSWORD"
+            echo "- Cleanup deletes this sandbox after the test; the link will stop working."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup sandbox
+        if: ${{ always() && steps.sandbox.outputs.sandbox_id != '' }}
+        timeout-minutes: 5
+        env:
+          SANDBOX_ID: ${{ steps.sandbox.outputs.sandbox_id }}
+        run: |
+          set -euo pipefail
+          npx --yes "mercato-sandbox@${MERCATO_CLI_VERSION}" sandbox delete "$SANDBOX_ID" --yes
+          echo "Sandbox cleanup completed." >> "$GITHUB_STEP_SUMMARY"
