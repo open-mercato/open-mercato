@@ -68,6 +68,10 @@
     "reason": "one fetch, client-side filter; total = filteredItems.length"
   },
   {
+    "file": "packages/marketing-automation/src/modules/marketing_automation/backend/marketing/score-rules/page.tsx",
+    "reason": "GET /api/score-rules counts with em.findAndCount (api/score-rules/route.ts:47) — an exact total, not a capped query-engine count; the response schema has no totalIsCapped field to forward"
+  },
+  {
     "file": "packages/search/src/modules/search/frontend/components/HybridSearchTable.tsx",
     "reason": "pseudo-pagination over in-memory rows; totalPages fixed at 1"
   }

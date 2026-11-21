@@ -6535,6 +6535,11 @@ const updateOrderCommand: CommandHandler<
         organizationId: order.organizationId,
         tenantId: order.tenantId,
       },
+      // Same config the create command passes (`events: orderCrudEvents`), so `sales.order.updated`
+      // actually reaches the bus. Without it, a PUT that changes something other than `status` —
+      // setting `placedAt` on an order confirmed at creation, for one — emitted nothing at all:
+      // `emitOrderLifecycleEventsForTransition` below only fires on an actual status transition.
+      events: orderCrudEvents,
       indexer: { entityType: E.sales.sales_order },
       actorUserId: ctx.auth?.sub ?? null,
     });
