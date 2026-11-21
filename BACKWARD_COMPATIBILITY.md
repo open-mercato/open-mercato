@@ -86,7 +86,7 @@ Required fields MUST NOT be removed or narrowed. Optional fields may be added fr
 - `InjectionWidgetMetadata`: `id`, `title` — MUST NOT remove
 - `InjectionWidgetComponentProps`: `context`, `data`, `onDataChange`, `disabled` — MUST NOT remove
 - `WidgetInjectionEventHandlers`: all existing handler names (`onLoad`, `onBeforeSave`, `onSave`, `onAfterSave`, `onBeforeDelete`, `onDelete`, `onAfterDelete`, `onDeleteError`) — MUST NOT remove or change signatures
-- `SearchModuleConfig`: `entities` — MUST NOT remove; `SearchEntityConfig.entityId` — MUST NOT remove. Optional search-authorization extensions are additive and fail closed: `SearchEntityConfig.filterResults` + `SearchOptions.viewer` (added 2026-11-13) evaluate per-record visibility after strategy merging and before presenter enrichment (dropping all hits of that entity when `viewer` is absent or the hook throws); `SearchEntityConfig.aclFeaturesMode` (`'all' | 'any'`, default `'all'`, added 2026-11-21) lets polymorphic entities pass the coarse entity-type gate when the caller holds any declared feature, provided `filterResults` is declared (failing closed otherwise).
+- `SearchModuleConfig`: `entities` — MUST NOT remove; `SearchEntityConfig.entityId` — MUST NOT remove. Optional `filterResults` + `SearchOptions.viewer` (2026-11-13) and `aclFeaturesMode?: 'all' | 'any'` (default `'all'`, requires `filterResults` when `'any'`, 2026-11-21) are additive and fail closed.
 - `NotificationTypeDefinition`: `type`, `module`, `titleKey`, `icon`, `severity`, `actions` — MUST NOT remove
 - `DashboardWidgetMetadata`: `id`, `title` — MUST NOT remove
 - `DashboardWidgetComponentProps`: `mode`, `layout`, `settings`, `context`, `onSettingsChange`, `refreshToken` — MUST NOT remove
