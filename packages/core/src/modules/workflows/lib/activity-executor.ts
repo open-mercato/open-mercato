@@ -23,7 +23,7 @@ import {
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { isPrivateCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
+import { getDeclaredEvents, isPrivateCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import {
   definitionDeclaresGrant,
@@ -962,9 +962,9 @@ export async function executeEmitEvent(
   container: AwilixContainer,
   signal?: AbortSignal
 ): Promise<any> {
-  const { eventName, payload } = config
+  const { eventName, payload }: { eventName?: unknown; payload?: Record<string, unknown> } = config
 
-  if (!eventName) {
+  if (typeof eventName !== 'string' || !eventName) {
     throw new Error('EMIT_EVENT requires "eventName" field')
   }
 
@@ -974,6 +974,11 @@ export async function executeEmitEvent(
   // regular event activity into a cross-process invalidation primitive.
   if (isPrivateCrossProcessBroadcastEvent(eventName)) {
     throw new Error(`EMIT_EVENT cannot emit private cross-process event "${eventName}"`)
+  }
+
+  const declaration = getDeclaredEvents().find((event) => event.id === eventName)
+  if (declaration?.workflowEmittable !== true || declaration.portalBroadcast || declaration.crossProcessBroadcast) {
+    throw new Error(`EMIT_EVENT cannot emit event "${eventName}" from a workflow`)
   }
 
   // Emissions are fire-and-forget and no subscriber validates the payload shape,
@@ -997,22 +1002,23 @@ export async function executeEmitEvent(
   }
 
   // Publish event with workflow metadata
-  const enrichedPayload = {
+  const { tenantId, organizationId } = context.workflowInstance
+  const enrichedPayload: Record<string, unknown> = {
     ...payload,
+    tenantId,
+    organizationId,
     _workflow: {
       workflowInstanceId: context.workflowInstance.id,
       workflowId: context.workflowInstance.workflowId,
-      tenantId: context.workflowInstance.tenantId,
-      organizationId: context.workflowInstance.organizationId,
+      tenantId,
+      organizationId,
     },
   }
+  delete enrichedPayload.organizationIds
 
   await raceAbortable(
     Promise.resolve(
-      eventBus.emitEvent(eventName, enrichedPayload, {
-        tenantId: context.workflowInstance.tenantId,
-        organizationId: context.workflowInstance.organizationId,
-      })
+      eventBus.emitEvent(eventName, enrichedPayload, { tenantId, organizationId })
     ),
     signal
   )
