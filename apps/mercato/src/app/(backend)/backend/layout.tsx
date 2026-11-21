@@ -1,3 +1,4 @@
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { cookies, headers } from 'next/headers'
 import { backendRouteMetadata } from '@/.mercato/generated/backend-route-metadata.generated'
 import { findRouteManifestMatch } from '@open-mercato/shared/modules/registry'
@@ -32,13 +33,16 @@ function collectStaticSettingsPathPrefixes(): string[] {
   return Array.from(prefixes)
 }
 
-export default async function BackendLayout({
-  children,
-  params,
-}: {
+type BackendLayoutProps = {
   children: React.ReactNode
   params: Promise<{ slug?: string[] }>
-}) {
+}
+
+export default async function BackendLayout(props: BackendLayoutProps) {
+  return runInOwnedRequestScope(() => renderBackendLayout(props))
+}
+
+async function renderBackendLayout({ children, params }: BackendLayoutProps) {
   const auth = await getAuthFromCookies()
   const cookieStore = await cookies()
   const headerStore = await headers()

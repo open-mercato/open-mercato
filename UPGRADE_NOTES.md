@@ -1,5 +1,21 @@
 # Upgrade Notes
 
+## Optional process DI root (#8989)
+
+`OM_PROCESS_CONTAINER_ROOT=on` enables generation-owned registration/bootstrap with isolated caller scopes. It defaults to off pending workload qualification. Existing `createRequestContainer()` calls retain separate EntityManagers and mutation boundaries. No schema migration is required.
+
+Custom module/app registrars continue through the legacy builder unless explicitly audited and marked with `defineProcessDiRegistrar`. Use `asScopedService` for factories that need the resolving caller; never capture a process root as the request container. Module DI overrides and custom event buses also select the legacy builder to preserve registration and subscriber ordering. See the request lifecycle documentation for setup hooks, counters and explicit event-context boundaries.
+
+## Backend API documentation permission (#3810)
+
+`/backend/docs` now requires `api_docs.view`. Staff without that feature lose the
+backend resource page and its navigation entry; public `/docs/api` and JSON/Markdown
+exports keep their current policy. Existing tenants: run
+`yarn mercato auth sync-role-acls` for default admins, or explicitly grant the
+feature to intended custom roles. Superadministrator access is preserved. Clients
+that link to the backend page must allow for permission denial. No database
+migration, environment change, or startup-command change is required.
+
 ## Deal loss reasons seeded by customers (#8801)
 
 `customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.
@@ -147,6 +163,7 @@ now warns when a connected channel relies on polling but no scheduler is enabled
 or the organization's poll schedule is missing or disabled, and
 `GET /api/communication_channels/me/channels` returns an additive
 `automaticSyncEnabled` boolean that drives that warning.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.
@@ -264,6 +281,24 @@ where tenant_id = '<tenant>' and code = '<code>';
 The earlier active state is unknown, so check `is_active` after restoring. The SQL
 bypasses cache invalidation: clear the CRUD/API cache (or restart the app)
 afterwards. No migration is needed.
+
+## Module events dispatch per request (#2963)
+
+Module emitters (`createModuleEvents().emit`) now run inline subscribers against
+the DI container built for the current API request or queue job, instead of the
+container built most recently anywhere in the process. Before this fix, a
+subscriber's `ctx.resolve('em')` (or `dataEngine`, `tenantEncryptionService`, …)
+could return another concurrent request's services. Within one request nothing
+changes: the latest container built during that request is used, as before.
+
+The API dispatcher (`app/api/[...slug]/route.ts`) and the per-job worker handler
+now open a request scope via `runInRequestScope` from
+`@open-mercato/shared/lib/di/request-scope`. **Standalone apps** that keep a
+customized copy of the catch-all API route should wrap their request handling in
+`runInRequestScope(() => …)` the same way. Without it, emits fall back to the
+global bus exactly as before. Code outside a scope (CLI commands, scheduler timers,
+RSC pages) is unchanged. No configuration, database, route, event or DI-key change
+is needed.
 
 ## Event-triggered workflow execution identity (#9137)
 
