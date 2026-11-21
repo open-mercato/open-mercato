@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 import { CheckoutLink, CheckoutLinkTemplate } from '../data/entities'
+import { findUncollectedPayerFields, resolveRequiredPayerFields } from '../lib/payerFieldRequirements'
 import { requireCheckoutScope, type CheckoutScope } from '../lib/utils'
 import { serializeTemplateOrLink } from '../lib/utils'
 
@@ -212,7 +213,6 @@ export function buildSelectiveLinkedLinkSnapshot(
   previousTemplate: CheckoutTemplateSnapshot,
   nextTemplate: CheckoutTemplateSnapshot,
 ): { changed: boolean; snapshot: CheckoutLinkSnapshot } {
-  let changed = false
   const snapshot = cloneJson(current)
 
   for (const key of PROPAGATED_TEMPLATE_FIELD_KEYS) {
@@ -221,10 +221,26 @@ export function buildSelectiveLinkedLinkSnapshot(
     if (valuesEqual(currentValue, readPropagatedTemplateField(nextTemplate, key))) continue
     copyPropagatedTemplateField(snapshot, nextTemplate, key)
     if (isPropagatedTemplateMoneyField(key)) copyPropagatedExactMoneyField(snapshot, nextTemplate, key)
-    changed = true
   }
 
-  return { changed, snapshot }
+  const missingPayerFields = findUncollectedPayerFields({
+    requiredPayerFields: resolveRequiredPayerFields(snapshot.gatewayProviderKey),
+    collectCustomerDetails: snapshot.collectCustomerDetails,
+    customerFieldsSchema: snapshot.customerFieldsSchema,
+  })
+  if (missingPayerFields.length > 0) {
+    for (const key of ['gatewayProviderKey', 'gatewaySettings', 'collectCustomerDetails', 'customerFieldsSchema'] as const) {
+      copyPropagatedTemplateField(snapshot, current, key)
+    }
+  }
+
+  return {
+    changed: PROPAGATED_TEMPLATE_FIELD_KEYS.some((key) => !valuesEqual(
+      readPropagatedTemplateField(current, key),
+      readPropagatedTemplateField(snapshot, key),
+    )),
+    snapshot,
+  }
 }
 
 export function buildSelectiveLinkedCustomFieldUpdates(
