@@ -37,6 +37,7 @@
   "scheduler.error.fetch_job_failed": "Job-Details konnten nicht abgerufen werden",
   "scheduler.error.forbidden": "Verboten",
   "scheduler.error.invalidPayload": "Ungültiges JSON-Payload",
+  "scheduler.error.invalid_id": "Ungültige Zeitplan-ID",
   "scheduler.error.invalid_queue_name": "Ungültiger Queue-Name",
   "scheduler.error.invalid_schedule_value": "Ungültiger Zeitplanwert.",
   "scheduler.error.job_not_found": "Job in BullMQ nicht gefunden (möglicherweise entfernt)",

@@ -161,25 +161,34 @@ RUN if grep -Eq 'http://(localhost|127\\.0\\.0\\.1):' .yarnrc.yml; then \
     fi
 RUN yarn workspaces focus --all --production
 
-COPY --from=builder /app/.mercato/next ./.mercato/next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/types ./types
-COPY --from=builder /app/.mercato ./.mercato
-COPY --from=builder /app/next.config.ts ./next.config.ts
-COPY --from=builder /app/postcss.config.mjs ./postcss.config.mjs
-COPY --from=builder /app/components.json ./components.json
-COPY --from=builder /app/tsconfig.json ./tsconfig.json
-COPY --from=builder /app/scripts ./scripts
+# Create the runtime user first and copy app files already owned by it.
+# A separate `chown -R /app` after the copies rewrites every file of /app
+# (node_modules + the Next build) into a new layer, roughly doubling the
+# image. The production node_modules installed above stay root-owned and
+# read-only.
+RUN adduser -D -u 1001 omuser
+
+COPY --chown=omuser:omuser --from=builder /app/.mercato ./.mercato
+COPY --chown=omuser:omuser --from=builder /app/public ./public
+COPY --chown=omuser:omuser --from=builder /app/src ./src
+COPY --chown=omuser:omuser --from=builder /app/types ./types
+COPY --chown=omuser:omuser --from=builder /app/next.config.ts ./next.config.ts
+COPY --chown=omuser:omuser --from=builder /app/postcss.config.mjs ./postcss.config.mjs
+COPY --chown=omuser:omuser --from=builder /app/components.json ./components.json
+COPY --chown=omuser:omuser --from=builder /app/tsconfig.json ./tsconfig.json
+COPY --chown=omuser:omuser --from=builder /app/scripts ./scripts
 COPY docker/scripts/init-or-migrate.sh /app/docker/scripts/init-or-migrate.sh
 COPY scripts/dev-encryption-preflight.mjs /app/docker/scripts/encryption-preflight.mjs
 # Used by the optional `mcp` service (compose profile `agents`).
 COPY docker/scripts/mcp-entrypoint.sh /app/docker/scripts/mcp-entrypoint.sh
-RUN chmod +x /app/docker/scripts/init-or-migrate.sh
-RUN chmod +x /app/docker/scripts/mcp-entrypoint.sh
+RUN chmod +x /app/docker/scripts/init-or-migrate.sh /app/docker/scripts/mcp-entrypoint.sh
 
-RUN adduser -D -u 1001 omuser \
- && chown -R omuser:omuser /app
+# Runtime write targets, owned without recursion: /app itself, the local
+# attachment storage (`storage/attachments`, usually a volume) and the CLI /
+# bootstrap cache in node_modules/.cache (`init` fails with EACCES without
+# it). The Next and queue data under .mercato is owned by the COPY above.
+RUN mkdir -p /app/storage /app/node_modules/.cache \
+ && chown omuser:omuser /app /app/storage /app/node_modules/.cache
 
 USER omuser
 
