@@ -43,4 +43,26 @@ describe('flashMutationError', () => {
 
     expect(flash).toHaveBeenCalledWith('Failed to save location.', 'error')
   })
+
+  it('translates the putaway_quantity_exceeds_task code instead of flashing the raw token', () => {
+    flashMutationError(
+      new Error('putaway_quantity_exceeds_task'),
+      'Failed to complete putaway task.',
+      (key, fallback) => (key === 'wms.errors.putawayQuantityExceedsTask' ? 'translated exceeds' : fallback ?? key),
+    )
+
+    expect(flash).toHaveBeenCalledWith('translated exceeds', 'error')
+  })
+
+  it('uses the English fallback for a known putaway code when no translator is given', () => {
+    flashMutationError(new Error('invalid_putaway_quantity'), 'Failed to complete putaway task.')
+
+    expect(flash).toHaveBeenCalledWith('Confirmed quantity must be a number greater than zero.', 'error')
+  })
+
+  it('still flashes unknown server messages as-is', () => {
+    flashMutationError(new Error('Something else'), 'Failed to complete putaway task.')
+
+    expect(flash).toHaveBeenCalledWith('Something else', 'error')
+  })
 })
