@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { sql } from 'kysely'
 import { resolveTranslationsRouteContext, requireTranslationFeatures, resolveTranslationsActorId } from '@open-mercato/core/modules/translations/api/context'
 import { translationBodySchema, entityTypeParamSchema, entityIdParamSchema } from '@open-mercato/core/modules/translations/data/validators'
+import { isTranslatedRecordSoftDeleted } from '@open-mercato/core/modules/translations/lib/soft-deleted-owner'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -13,6 +14,7 @@ import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/op
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import {
   assertTranslationFields,
@@ -87,8 +89,9 @@ export async function GET(req: Request, ctx: { params?: { entityType?: string; e
       .where(sql<boolean>`organization_id is not distinct from ${context.organizationId}`)
       .executeTakeFirst() as Record<string, any> | undefined
 
-    if (!row) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    if (!row || await isTranslatedRecordSoftDeleted(context.em, entityType, entityId, { tenantId: context.tenantId })) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({ error: translate('translations.errors.notFound', 'Not found') }, { status: 404 })
     }
 
     return NextResponse.json({
@@ -370,7 +373,7 @@ const getDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Entity type is not registered for translation' },
     { status: 401, description: 'Authentication required' },
     { status: 403, description: 'Target record view feature required' },
-    { status: 404, description: 'Record or translations not found in the effective scope' },
+    { status: 404, description: 'Record or translations not found in the effective scope, or the record is soft-deleted' },
   ],
 }
 

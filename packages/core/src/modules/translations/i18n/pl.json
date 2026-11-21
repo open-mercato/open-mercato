@@ -1,5 +1,6 @@
 {
   "translations.config.nav.title": "Tłumaczenia",
+  "translations.errors.notFound": "Nie znaleziono",
   "translations.locales.add": "Dodaj",
   "translations.locales.addPlaceholder": "np. fr, it, ja...",
   "translations.locales.alwaysServed": "{{locale}} jest językiem domyślnym i zawsze pozostaje dostępny, dlatego nie można go usunąć.",
