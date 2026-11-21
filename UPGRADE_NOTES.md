@@ -28,6 +28,33 @@ If upgrading across #7826 without having rebuilt fulltext, run scoped
 replace pre-#7826 presenter data. A rollback that restores vector indexing
 requires a scoped vector rebuild to repopulate purged records.
 
+## Query index metadata cached across requests (#2967)
+
+The query index engine no longer re-reads table metadata and custom-field definitions
+on every request:
+
+- Base-table column maps are cached per process for `OM_QUERY_INDEX_COLUMN_CACHE_MS`
+  (default 300000 ms; `0` disables it). A column missing from a cached map is always
+  re-checked, so a tenant, organization or soft-delete column added by a migration
+  takes effect immediately. A dropped or newly added non-scoping column is picked up
+  when the entry expires.
+- Custom-field definitions and sort kinds are cached in the DI `cache` service for
+  `QUERY_INDEX_CF_KEYS_CACHE_MS` (default 300000 ms; `0` keeps the old per-request
+  behavior). Definition writes through the definitions API, batch, restore,
+  `install-from-ce` and the Akeneo importer invalidate them immediately for the
+  writer's tenant. Definitions written by seeds or CLI commands, global definitions
+  edited from another tenant, and other instances when `CACHE_STRATEGY=memory` can
+  take up to the TTL to appear in list queries. Use `CACHE_STRATEGY=redis` in
+  multi-instance deployments, or lower the TTL, to converge sooner.
+
+No configuration, database, route, event or DI-key change is required.
+
+## Optional process DI root (#8989)
+
+`OM_PROCESS_CONTAINER_ROOT=on` enables generation-owned registration/bootstrap with isolated caller scopes. It defaults to off pending workload qualification. Existing `createRequestContainer()` calls retain separate EntityManagers and mutation boundaries. No schema migration is required.
+
+Custom module/app registrars continue through the legacy builder unless explicitly audited and marked with `defineProcessDiRegistrar`. Use `asScopedService` for factories that need the resolving caller; never capture a process root as the request container. Module DI overrides and custom event buses also select the legacy builder to preserve registration and subscriber ordering. See the request lifecycle documentation for setup hooks, counters and explicit event-context boundaries.
+
 ## Backend API documentation permission (#3810)
 
 `/backend/docs` now requires `api_docs.view`. Staff without that feature lose the
@@ -303,6 +330,24 @@ where tenant_id = '<tenant>' and code = '<code>';
 The earlier active state is unknown, so check `is_active` after restoring. The SQL
 bypasses cache invalidation: clear the CRUD/API cache (or restart the app)
 afterwards. No migration is needed.
+
+## Module events dispatch per request (#2963)
+
+Module emitters (`createModuleEvents().emit`) now run inline subscribers against
+the DI container built for the current API request or queue job, instead of the
+container built most recently anywhere in the process. Before this fix, a
+subscriber's `ctx.resolve('em')` (or `dataEngine`, `tenantEncryptionService`, …)
+could return another concurrent request's services. Within one request nothing
+changes: the latest container built during that request is used, as before.
+
+The API dispatcher (`app/api/[...slug]/route.ts`) and the per-job worker handler
+now open a request scope via `runInRequestScope` from
+`@open-mercato/shared/lib/di/request-scope`. **Standalone apps** that keep a
+customized copy of the catch-all API route should wrap their request handling in
+`runInRequestScope(() => …)` the same way. Without it, emits fall back to the
+global bus exactly as before. Code outside a scope (CLI commands, scheduler timers,
+RSC pages) is unchanged. No configuration, database, route, event or DI-key change
+is needed.
 
 ## Event-triggered workflow execution identity (#9137)
 
@@ -920,10 +965,6 @@ with an extension-load error. Reloading the page retries bootstrap. No API or da
 migration is required.
 
 ### Rebuild customer search vectors after the privacy fix (#7826)
-
-On releases with #8135, follow the [customer vector purge above](#customer-profiles-and-accounts-use-fulltext-and-token-search-8135)
-and rebuild fulltext separately if that part of the #7826 cleanup is pending.
-Continue the procedure below for deployments that explicitly retain vectors.
 
 The person, company, and customer-account vector builders now use explicit safe
 fields. Contact email/phone, `hashOnly` and `excluded` custom fields, unapproved
