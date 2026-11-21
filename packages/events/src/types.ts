@@ -224,7 +224,10 @@ export interface EventBus {
    *   depend on the two coinciding.
    * @param container - The REAL container `resolve` is bound from, when the
    *   caller has one (see `SubscriberContext.container`). The events worker
-   *   passes its per-job container alongside `ctx.resolve`.
+   *   passes its per-job container alongside `ctx.resolve`. A container without
+   *   `resolve` also supplies the resolver; a foreign `resolve` without a
+   *   container leaves `SubscriberContext.container` unset rather than pairing
+   *   it with the bus's container.
    * @returns One entry per dispatched subscriber, `error` set on failure
    */
   dispatchQueued?(

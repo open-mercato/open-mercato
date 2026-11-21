@@ -524,11 +524,12 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       return []
     }
 
-    const resolver = resolve ?? opts.resolve
-    // Same reasoning as `resolver` above: prefer the caller's own per-job
-    // container (the events worker passes `ctx.container`) over the bus's own,
-    // since under `OM_BOOTSTRAP_CACHE` those can diverge.
-    const containerOverride = container ?? opts.container
+    // `resolve` and `container` MUST describe the same scope. A caller's
+    // container without a resolver resolves through that container; a caller's
+    // resolver without a container gets no container rather than the bus's,
+    // which under `OM_BOOTSTRAP_CACHE` belongs to a different request scope.
+    const resolver = resolve ?? (container ? container.resolve.bind(container) : opts.resolve)
+    const containerOverride = container ?? (resolve && resolve !== opts.resolve ? undefined : opts.container)
 
     const settled = await Promise.allSettled(
       subscribers.map((subscriber) =>
