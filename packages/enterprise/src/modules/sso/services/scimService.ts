@@ -1,6 +1,6 @@
 import { EntityManager, type FilterQuery, type RequiredEntityData } from '@mikro-orm/postgresql'
 import { User, Session } from '@open-mercato/core/modules/auth/data/entities'
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { lockAuthorizationUserRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SsoIdentity, SsoUserDeactivation, ScimProvisioningLog } from '../data/entities'
@@ -52,6 +52,7 @@ export class ScimService {
       }
     }
 
+<<<<<<< HEAD
     // Check if user already exists by email
     const emailHash = computeEmailHash(email)
     const where: FilterQuery<User> = {
@@ -75,6 +76,59 @@ export class ScimService {
       })
       if (existingLink) {
         throw new ScimServiceError(409, `User with email ${email} is already linked to this SSO configuration`)
+=======
+      const where: FilterQuery<User> = {
+        organizationId: scope.organizationId,
+        deletedAt: null,
+        $or: [{ email }, { emailHash: { $in: emailHashLookupValues(email) } }],
+      }
+      const existingUser = await findOneWithDecryption(
+        txEm, User,
+        where,
+        {},
+        { tenantId: scope.tenantId ?? '', organizationId: scope.organizationId },
+      )
+
+      if (existingUser) {
+        await authorization.assertAccount(txEm, scope.config, existingUser, scope.actorUserId ?? null)
+        const existingLink = await txEm.findOne(SsoIdentity, {
+          ssoConfigId: scope.ssoConfigId,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          userId: existingUser.id,
+          deletedAt: null,
+        })
+        if (existingLink) {
+          throw new ScimServiceError(409, `User with email ${email} is already linked to this SSO configuration`)
+        }
+
+        const now = new Date()
+        const identity = txEm.create(SsoIdentity, {
+          tenantId: scope.tenantId ?? null,
+          organizationId: scope.organizationId,
+          ssoConfigId: scope.ssoConfigId,
+          userId: existingUser.id,
+          idpSubject: parsed.externalId ?? email,
+          idpEmail: email,
+          idpName: buildDisplayName(parsed),
+          idpGroups: [],
+          externalId: parsed.externalId ?? null,
+          provisioningMethod: 'scim',
+          createdAt: now,
+          updatedAt: now,
+        } as RequiredEntityData<SsoIdentity>)
+        await txEm.persist(identity).flush()
+
+        const deactivation = parsed.active === false
+          ? await this.createDeactivationTx(txEm, existingUser.id, scope)
+          : null
+
+        await this.logTx(txEm, scope, 'CREATE', identity.id, parsed.externalId, 201)
+        return {
+          resource: toScimUserResource(existingUser, identity, baseUrl, deactivation),
+          status: 201,
+        }
+>>>>>>> 4cfb337a0d (fix(encryption): keep lookups working during pepper rotation (#10177) (#10207))
       }
 
       // Auto-link: create SsoIdentity for existing user
