@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -26,7 +27,10 @@ export async function POST(req: Request) {
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const result = await customerTokenService.verifyEmailToken(parsed.data.token, 'email_verification')
+  const result = await customerTokenService.verifyEmailToken(
+    parsed.data.token, 'email_verification', undefined,
+    (tenantId) => requireCustomerPortalEnabled(container, tenantId),
+  )
   if (!result) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
@@ -57,6 +61,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 200, description: 'Email verified', schema: successSchema },
   ],
   errors: [
+    { status: 403, description: 'Customer portal is disabled', schema: errorSchema },
     { status: 400, description: 'Invalid or expired token', schema: errorSchema },
   ],
 }

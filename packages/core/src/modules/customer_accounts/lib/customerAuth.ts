@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { requireCustomerPortalEnabled } from './portalAccess'
 import { verifyAudienceJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -123,6 +125,8 @@ export async function validateUserState(
     return { valid: false }
   }
 
+  await requireCustomerPortalEnabled(container, currentTenantId)
+
   const { CustomerRbacService } = await import(
     '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
   )
@@ -218,7 +222,8 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
       resolvedFeatures: userState.resolvedFeatures,
       isPortalAdmin: userState.isPortalAdmin,
     }
-  } catch {
+  } catch (error) {
+    if (isCrudHttpError(error)) throw error
     // Invalid or expired JWT — treat as unauthenticated
     return null
   }

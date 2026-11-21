@@ -1636,7 +1636,54 @@ The following capabilities are explicitly deferred from the current scope. They 
 - Exceeded limits trigger workflow engine (SPEC workflows module) for approval routing.
 - **No changes to `customer_accounts` RBAC needed**: Purchase limits are separate from feature-based RBAC. They operate on financial thresholds, not access permissions.
 
+## Portal availability at API boundaries (#9162)
+
+The existing tenant-scoped `portal_enabled` boolean also gates customer authentication.
+`requireCustomerPortalEnabled` resolves the optional feature-toggle service through DI,
+uses the authenticated or stored-token tenant, and throws a dispatcher-supported
+`CrudHttpError(403)` when disabled. Missing service/toggle retains the existing enabled
+default. Invalid toggle configuration fails closed with 503; operational read failures
+propagate rather than granting access. Existing feature-toggle cache semantics apply.
+
+The shared live-user validation gates both API and server-cookie authentication before
+loading permissions. API authentication preserves the deliberate HTTP denial; server
+components continue treating denied authentication as absent. Password login, signup,
+magic-link and password-reset requests check before account lookup or email delivery.
+Magic-link/email verification, password-reset confirmation and invitation acceptance
+check the stored credential's tenant before atomic consumption or account creation.
+Token/invitation service methods accept an optional final `beforeConsume` callback;
+existing callers retain their signatures and behavior. Session refresh checks the
+persisted user's tenant before refreshing. Logout remains available for revocation;
+staff administration and public domain-discovery endpoints retain their behavior.
+
+### Migration & Backward Compatibility
+
+This intentionally narrows STABLE HTTP authentication behavior: requests that previously
+bypassed a disabled portal now return 403, including existing cookie/bearer sessions.
+Retaining the bypass as a compatibility bridge would retain the vulnerability. Route
+URLs, payloads, cookie names, JWT shape, ACL IDs, token TTLs and database schema remain
+unchanged. Operators who intentionally need customer API access must enable the portal
+for that tenant; clients must treat 403 as unavailable rather than retrying sign-in.
+Tokens blocked by this check remain unused and can be retried after re-enabling, subject
+to their original expiry. Existing accounts and sessions are neither deleted nor revoked.
+See UPGRADE_NOTES.md. The security exception still requires named human maintainer signoff.
+
+### Regression coverage
+
+- `api/__tests__/portal-access.route.test.ts`: all nine public/token/refresh entry points
+  reject before account, token, email, event or session writes; tenant isolation, optional
+  service/toggle defaults and configuration failures.
+- `__tests__/tenant-authentication.test.ts`: existing cookie/bearer sessions, SSR denial,
+  re-enabling, real magic-link consumption and invitation side-effect ordering.
+- `__tests__/customerTokenService.test.ts`: email/reset guards run before atomic updates.
+- `__integration__/TC-PORTAL-014-disabled-api.spec.ts`: isolated tenant/user/token/session
+  fixtures exercise HTTP 403 across auth routes and existing sessions, verify unused
+  tokens/unaccepted invitations/no signup, and prove a second enabled tenant still works.
+
 ## Changelog
+
+### 2026-11-15
+- Enforce the existing portal availability setting at customer API/auth boundaries (#9162).
 
 ### 2026-04-29 (v5 — Portal signup messaging alignment)
 - **Portal signup success UX fix**: The portal signup page no longer promises immediate login after a `202 Accepted` response. It now tells users to check email for next steps before signing in, which stays compatible with anti-enumeration responses, email verification, and tenants that require manual activation.

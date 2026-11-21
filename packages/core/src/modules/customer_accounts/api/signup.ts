@@ -27,6 +27,7 @@ import {
 } from '@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext'
 import { urlForCustomerOrg } from '@open-mercato/core/modules/customer_accounts/lib/customerUrl'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
 
 const logger = createLogger('customer_accounts').child({ component: 'signup' })
 
@@ -104,6 +105,7 @@ export async function POST(req: Request) {
   }
 
   const container = await createRequestContainer()
+  await requireCustomerPortalEnabled(container, tenantId)
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
@@ -235,6 +237,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 202, description: 'Signup accepted', schema: signupAcceptedSchema },
   ],
   errors: [
+    { status: 403, description: 'Customer portal is disabled', schema: errorSchema },
     { status: 400, description: 'Validation failed or invalid request origin', schema: errorSchema },
     { status: 429, description: 'Too many signup attempts', schema: rateLimitErrorSchema },
     { status: 500, description: 'Signup email origin is not configured', schema: errorSchema },
