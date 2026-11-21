@@ -36,7 +36,7 @@ describe('computeCheckoutTotals', () => {
     expect(totals.subtotal).toBe(5.03)
   })
 
-  test('uses zero decimal places for a currency without minor units', () => {
+  test('uses zero decimal places for a zero-decimal currency', () => {
     const totals = computeCheckoutTotals([{ id: 'p1', name: 'Widget', price: 49.99, quantity: 1 }], 150.5, 'JPY')
 
     expect(totals.items[0].price).toBe(7523)
