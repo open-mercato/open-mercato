@@ -45,6 +45,7 @@ function makeEm() {
   return {
     fork() { return this },
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
+    count: jest.fn(async () => 0),
     findOne: jest.fn(async () => null),
     find: jest.fn(async () => []),
     flush: jest.fn(async () => {}),

@@ -173,13 +173,13 @@ Next.js Node Middleware (middleware.ts, runtime: 'nodejs', Next.js ≥ 15.2)
     ↓
 Catch-all layout: /app/(frontend)/[...slug]/layout.tsx
   1. Extract orgSlug from rewritten path: "acme"
-  2. Resolve Organization by slug (existing flow)
-  3. Render PortalLayoutShell (existing flow)
+  2. Resolve the active host mapping and match its tenant, organization, and current slug
+  3. Render PortalLayoutShell with the resolved organization
     ↓
 Page renders with branded portal. Browser URL remains: shop.acme.com/products
 ```
 
-### Request Flow: Platform Domain (unchanged)
+### Request Flow: Platform Domain
 
 ```
 Browser → openmercato.com/my-org/portal/products
@@ -188,8 +188,10 @@ Next.js Node Middleware (runtime: 'nodejs')
   1. Read Host header: "openmercato.com"
   2. Check: IS a platform domain → NextResponse.next() (pass through)
     ↓
-Existing catch-all layout + page routing (no changes)
+Catch-all layout and protected page gate resolve a single live organization by slug
 ```
+
+The directory lookup, frontend layout, and protected page gate share the same resolver. An active custom domain pins the organization and tenant before matching the current slug. A portal session must match both IDs on the resolved organization.
 
 ### Request Flow: API Calls on Custom Domain
 
@@ -1404,6 +1406,12 @@ These handles are declared via `useRegisteredComponent(handle, FallbackComponent
 
 ## Migration & Compatibility
 
+### Migration & Backward Compatibility — organization slug ownership (#9140)
+
+The directory migration adds a case-insensitive unique index for undeleted organization slugs. It keeps the oldest organization for each colliding slug, using organization ID to break timestamp ties. It suffixes the other slugs while respecting existing live slugs and same-tenant deleted rows. The repair runs in a transaction that blocks organization writes until the index is in place.
+
+Directory create, update, and default seeding continue to suffix unavailable slugs. Explicit CLI provisioning continues to return `ORG_SLUG_EXISTS` for an unavailable slug, including a reservation made after its initial check. Operators should confirm which organizations keep their URLs, update links for renamed organizations, and refresh domain-routing caches. Rolling back the index preserves the repaired slugs.
+
 ### Migration & Backward Compatibility — bundled edge ports (#7833)
 
 The opt-in `starters/docker/compose.fullapp.traefik.yml` overlay resets the
@@ -1935,6 +1943,12 @@ None.
 10. Canonical URLs + email-domain awareness.
 
 ## Changelog
+
+### 2026-11-19 — Platform portal slug ownership (#9140)
+
+- Reserve live slugs across tenants and repair existing collisions in age order.
+- Share host and slug resolution between the public lookup, portal layout, and protected route gate.
+- Cover slug allocation, host binding, and session matching in the directory and portal regression suites.
 
 ### 2026-10-26 — Private ports behind bundled Traefik (#7833)
 - Reset app and optional collaboration host-port publications in the canonical

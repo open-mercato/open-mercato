@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import Link from 'next/link'
 import { findRouteManifestMatch, getFrontendRouteManifests, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'
 import { frontendRoutes } from '@/.mercato/generated/frontend-routes.generated'
@@ -10,9 +11,8 @@ import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scop
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
-import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { resolvePortalOrganization } from '@open-mercato/core/modules/directory/lib/resolvePortalOrganization'
 import type { Metadata } from 'next'
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middleware/page-executor'
 import { frontendMiddlewareEntries } from '@/.mercato/generated/frontend-middleware.generated'
@@ -76,16 +76,8 @@ async function renderSiteCatchAll({ params }: FrontendParams) {
     }
     await ensureServerBootstrap()
     const portalContainer = await createRequestContainer()
-    const em = portalContainer.resolve('em') as EntityManager
-    const org = orgSlug
-      ? await em.findOne(Organization, {
-          id: customerAuth.orgId,
-          slug: orgSlug,
-          deletedAt: null,
-        } as any)
-      : null
-    const organizationId = org ? String(org.id) : null
-    if (!organizationId || organizationId !== customerAuth.orgId) return renderAccessDenied()
+    const org = await resolvePortalOrganization(portalContainer, orgSlug, (await headers()).get('host'))
+    if (org?.id !== customerAuth.orgId || org.tenantId !== customerAuth.tenantId) return renderAccessDenied()
 
     const customerFeatures = match.route.requireCustomerFeatures
     if (customerFeatures && customerFeatures.length) {

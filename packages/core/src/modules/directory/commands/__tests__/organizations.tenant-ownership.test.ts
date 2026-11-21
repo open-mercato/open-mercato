@@ -1,5 +1,7 @@
 /** @jest-environment node */
 
+import { RawQueryFragment } from '@mikro-orm/core'
+
 jest.mock('@open-mercato/shared/lib/commands/flush', () => ({
   withAtomicFlush: async (
     _em: unknown,
@@ -96,12 +98,19 @@ function tenantIdOf(organization: TestOrganization): string {
   return String(organization.tenant.id)
 }
 
-function matchesFilter(organization: TestOrganization, filter: Record<string, unknown>): boolean {
+function matchesFilter(organization: TestOrganization, filter: Record<PropertyKey, unknown>): boolean {
   if (filter.id && typeof filter.id === 'string' && String(organization.id) !== filter.id) return false
   const idFilter = filter.id
   if (idFilter && typeof idFilter === 'object' && '$in' in idFilter) {
     const ids = (idFilter as { $in: string[] }).$in.map(String)
     if (!ids.includes(String(organization.id))) return false
+  }
+  if (idFilter && typeof idFilter === 'object' && '$ne' in idFilter && organization.id === idFilter.$ne) return false
+  if (Array.isArray(filter.$or) && !filter.$or.some((part) => matchesFilter(organization, part))) return false
+  for (const key of Object.getOwnPropertySymbols(filter)) {
+    if (RawQueryFragment.getKnownFragment(key)?.sql.endsWith('.slug)') && organization.slug?.toLowerCase() !== filter[key]) {
+      return false
+    }
   }
   if (typeof filter.tenant === 'string' && tenantIdOf(organization) !== filter.tenant) return false
   if (typeof filter.parentId === 'string' && organization.parentId !== filter.parentId) return false
@@ -115,6 +124,9 @@ function makeHarness(organizations: TestOrganization[], generatedIds: readonly s
   const logs: Array<Record<string, unknown>> = []
   let generatedIdIndex = 0
   const em = {
+    count: jest.fn(async (_entity: unknown, filter: Record<PropertyKey, unknown>) => (
+      records.filter((organization) => matchesFilter(organization, filter)).length
+    )),
     findOne: jest.fn(async (_entity: unknown, filter: Record<string, unknown>) => {
       return records.find((organization) => matchesFilter(organization, filter)) ?? null
     }),
@@ -941,8 +953,21 @@ describe('directory organization command tenant ownership', () => {
     const lockOrder = firstCallOrder(jest.mocked(lockOrganizationHierarchyForTenant))
     expect(lockOrder).toBeLessThan(firstCallOrder(harness.em.findOne))
     expect(lockOrder).toBeLessThan(firstCallOrder(harness.em.find))
+    expect(lockOrder).toBeLessThan(firstCallOrder(harness.em.count))
     expect(created.slug).toBe('acme-1')
     expect(created.parentId).toBe(PARENT_ID)
+  })
+
+  it('allocates the next available slug across live organizations and same-tenant reservations', async () => {
+    const harness = makeHarness([
+      makeOrganization(PARENT_ID, FOREIGN_TENANT_ID, { slug: 'Acme' }),
+      makeOrganization(TARGET_ID, ACTOR_TENANT_ID, { slug: 'acme-1', deletedAt: new Date() }),
+      makeOrganization(CHILD_ID, FOREIGN_TENANT_ID, { slug: 'acme-2', deletedAt: new Date() }),
+    ])
+
+    const created = await createHandler.execute({ name: 'Acme' }, makeContext(harness))
+
+    expect(created.slug).toBe('acme-2')
   })
 
   it.each([
@@ -1016,8 +1041,18 @@ describe('directory organization command tenant ownership', () => {
     const lockOrder = firstCallOrder(jest.mocked(lockOrganizationHierarchyForTenant))
     expect(harness.em.findOne.mock.invocationCallOrder.filter((order) => order < lockOrder)).toHaveLength(1)
     expect(firstCallOrder(harness.em.find)).toBeGreaterThan(lockOrder)
+    expect(firstCallOrder(harness.em.count)).toBeGreaterThan(lockOrder)
     expect(target.slug).toBe('renamed')
     expect(child.parentId).toBe(TARGET_ID)
+  })
+
+  it('preserves the updating organization’s own slug', async () => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID, { slug: 'acme' })
+    const harness = makeHarness([target])
+
+    await updateHandler.execute({ id: TARGET_ID, slug: 'acme' }, makeContext(harness))
+
+    expect(target.slug).toBe('acme')
   })
 
   it.each(commandScenarios)('rejects an out-of-scope same-tenant $label through CommandBus before snapshots or writes', async (scenario) => {
