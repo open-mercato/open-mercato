@@ -1917,7 +1917,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           await enrichListPayload(payload, ctx, profiler)
         }
         logCacheOutcome('hit', items.length)
-        const response = respondWithPayload(payload)
+        const response = respondWithPayload(payload, cacheAfterInterceptors.headers)
         finishProfile({ result: 'cache_hit', cacheStatus })
         return response
       }
@@ -1991,7 +1991,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           Object.assign(emptyPayload, emptyAfterInterceptors.body)
           await maybeStoreCrudCache(emptyPayload)
           logCacheOutcome(cacheStatus, emptyPayload.items.length)
-          const response = respondWithPayload(emptyPayload)
+          const response = respondWithPayload(emptyPayload, emptyAfterInterceptors.headers)
           finishProfile({ result: 'empty_scope', cacheStatus, itemCount: 0, total: 0 })
           return response
         }
@@ -2183,7 +2183,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         await enrichAndStorePayload(payload)
         profiler.mark('cache_store_attempt', { cacheEnabled })
         logCacheOutcome(cacheStatus, payload.items.length)
-        const response = respondWithPayload(payload)
+        const response = respondWithPayload(payload, afterInterceptors.headers)
         finishProfile({
           result: 'ok',
           cacheStatus,
@@ -2241,7 +2241,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         Object.assign(emptyPayload, fallbackEmptyAfterInterceptors.body)
         await maybeStoreCrudCache(emptyPayload)
         logCacheOutcome(cacheStatus, emptyPayload.items.length)
-        const response = respondWithPayload(emptyPayload)
+        const response = respondWithPayload(emptyPayload, fallbackEmptyAfterInterceptors.headers)
         finishProfile({
           result: 'empty_scope',
           cacheStatus,
@@ -2376,7 +2376,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       await enrichAndStorePayload(payload)
       profiler.mark('cache_store_attempt', { cacheEnabled })
       logCacheOutcome(cacheStatus, payload.items.length)
-      const response = respondWithPayload(payload)
+      const response = respondWithPayload(payload, fallbackAfterInterceptors.headers)
       finishProfile({
         result: 'ok',
         cacheStatus,
@@ -2503,6 +2503,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         let resolvedPayload = await Promise.resolve(payload)
+        let afterInterceptorHeaders: Record<string, string> | undefined
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
           const afterInterceptors = await applyInterceptorsAfter({
             ctx,
@@ -2516,10 +2517,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           if (afterInterceptors && !afterInterceptors.ok) {
             return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
           }
-          if (afterInterceptors?.ok) resolvedPayload = afterInterceptors.body
+          if (afterInterceptors?.ok) {
+            resolvedPayload = afterInterceptors.body
+            afterInterceptorHeaders = afterInterceptors.headers
+          }
         }
         const status = action.status ?? 201
-        const response = json(resolvedPayload, { status })
+        const response = json(resolvedPayload, { status, headers: afterInterceptorHeaders })
         attachOperationHeader(response, logEntry)
         const commandResultId = pickFirstIdentifier(
           (result as Record<string, unknown> | null | undefined)?.id,
@@ -2687,6 +2691,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'created', resourceTargets)
 
       let payload = createConfig.response ? createConfig.response(entity) : { id: createdEntityId }
+      let afterInterceptorHeaders: Record<string, string> | undefined
       if (interceptorRequestPayload && payload && typeof payload === 'object' && !Array.isArray(payload)) {
         const afterInterceptors = await applyInterceptorsAfter({
           ctx,
@@ -2700,10 +2705,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (afterInterceptors && !afterInterceptors.ok) {
           return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
         }
-        if (afterInterceptors?.ok) payload = afterInterceptors.body
+        if (afterInterceptors?.ok) {
+          payload = afterInterceptors.body
+          afterInterceptorHeaders = afterInterceptors.headers
+        }
       }
       payload = await enrichSingleRecord(payload, ctx)
-      return json(payload, { status: 201 })
+      return json(payload, { status: 201, headers: afterInterceptorHeaders })
     } catch (e) {
       return handleError(e, request)
     }
@@ -2819,6 +2827,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         )
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         let resolvedPayload = await Promise.resolve(payload)
+        let afterInterceptorHeaders: Record<string, string> | undefined
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
           const afterInterceptors = await applyInterceptorsAfter({
             ctx,
@@ -2832,10 +2841,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           if (afterInterceptors && !afterInterceptors.ok) {
             return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
           }
-          if (afterInterceptors?.ok) resolvedPayload = afterInterceptors.body
+          if (afterInterceptors?.ok) {
+            resolvedPayload = afterInterceptors.body
+            afterInterceptorHeaders = afterInterceptors.headers
+          }
         }
         const status = action.status ?? 200
-        const response = json(resolvedPayload, { status })
+        const response = json(resolvedPayload, { status, headers: afterInterceptorHeaders })
         attachOperationHeader(response, logEntry)
         if (cmdUpdateGuardAfterCallbacks.length && ctx.auth.tenantId && candidateId) {
           await runGuardAfterSuccessCallbacks(cmdUpdateGuardAfterCallbacks, {
@@ -3156,6 +3168,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         )
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         let resolvedPayload = await Promise.resolve(payload)
+        let afterInterceptorHeaders: Record<string, string> | undefined
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
           const afterInterceptors = await applyInterceptorsAfter({
             ctx,
@@ -3169,10 +3182,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           if (afterInterceptors && !afterInterceptors.ok) {
             return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
           }
-          if (afterInterceptors?.ok) resolvedPayload = afterInterceptors.body
+          if (afterInterceptors?.ok) {
+            resolvedPayload = afterInterceptors.body
+            afterInterceptorHeaders = afterInterceptors.headers
+          }
         }
         const status = action.status ?? 200
-        const response = json(resolvedPayload, { status })
+        const response = json(resolvedPayload, { status, headers: afterInterceptorHeaders })
         attachOperationHeader(response, logEntry)
         if (cmdDeleteGuardAfterCallbacks.length && ctx.auth.tenantId && candidateId) {
           await runGuardAfterSuccessCallbacks(cmdDeleteGuardAfterCallbacks, {
