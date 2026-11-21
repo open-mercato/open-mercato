@@ -428,3 +428,37 @@ describe('account enumeration hardening (issue #2242)', () => {
     expect(authServiceMock.verifyPassword).toHaveBeenCalledWith(null, 'secret')
   })
 })
+
+describe('POST /api/auth/login — organization scope selection', () => {
+  beforeEach(() => {
+    registerApiInterceptors([])
+    jest.clearAllMocks()
+  })
+
+  function loginRequest(extra: Record<string, string> = {}) {
+    return new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret', ...extra }),
+    })
+  }
+
+  test('drops the previous identity’s selection on a successful login', async () => {
+    const res = await POST(loginRequest())
+
+    expect(res.status).toBe(200)
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toContain('om_selected_tenant=;')
+    expect(setCookie).toContain('om_selected_org=;')
+    expect(setCookie).toMatch(/om_selected_tenant=;[^,]*Max-Age=0/i)
+    expect(setCookie).toMatch(/om_selected_org=;[^,]*Max-Age=0/i)
+  })
+
+  test('leaves the selection alone when the login fails', async () => {
+    authServiceMock.findUsersByEmail.mockResolvedValueOnce([])
+
+    const res = await POST(loginRequest())
+
+    expect(res.status).toBe(401)
+    expect(res.headers.get('set-cookie') ?? '').not.toContain('om_selected')
+  })
+})
