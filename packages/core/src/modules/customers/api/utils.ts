@@ -35,6 +35,13 @@ type SearchTokenSource = {
   }
 }
 
+function resolveSearchOrganizationIds(ctx: CrudCtx): string[] | null {
+  if (Array.isArray(ctx.organizationIds)) {
+    return Array.from(new Set(ctx.organizationIds.filter((id) => typeof id === 'string' && id.length > 0)))
+  }
+  return ctx.selectedOrganizationId ? [ctx.selectedOrganizationId] : null
+}
+
 async function enrichSearchSourcesWithCustomFieldTokens(
   ctx: CrudCtx,
   sources: SearchTokenSource[],
@@ -62,16 +69,14 @@ async function enrichSearchSourcesWithCustomFieldTokens(
     eb('tenant_id', 'is', null),
   ]))
 
-  if (ctx.selectedOrganizationId) {
+  const organizationIds = resolveSearchOrganizationIds(ctx)
+  if (organizationIds && organizationIds.length > 0) {
     defsQuery = defsQuery.where((eb: any) => eb.or([
-      eb('organization_id', '=', ctx.selectedOrganizationId),
+      eb('organization_id', 'in', organizationIds),
       eb('organization_id', 'is', null),
     ]))
-  } else if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length > 0) {
-    defsQuery = defsQuery.where((eb: any) => eb.or([
-      eb('organization_id', 'in', ctx.organizationIds),
-      eb('organization_id', 'is', null),
-    ]))
+  } else if (organizationIds) {
+    defsQuery = defsQuery.where('organization_id', 'is', null)
   }
 
   const customFieldKeysByEntity = new Map<string, Set<string>>()
@@ -105,6 +110,8 @@ async function findSearchTokenEntityIds({
   fields,
   query,
 }: SearchTokenMatchInput): Promise<string[] | null> {
+  const organizationIds = resolveSearchOrganizationIds(ctx)
+  if (organizationIds && organizationIds.length === 0) return []
   const em = ctx.container.resolve('em') as EntityManager
   return findEntityIdsBySearchTokensCompat({
     db: em.getKysely<SearchTokenDatabase>(),
@@ -113,8 +120,7 @@ async function findSearchTokenEntityIds({
     fields,
     scope: {
       tenantId: ctx.auth?.tenantId !== undefined ? ctx.auth?.tenantId ?? null : undefined,
-      organizationId: ctx.selectedOrganizationId ?? undefined,
-      organizationIds: ctx.organizationIds,
+      organizationIds: organizationIds ?? undefined,
     },
   })
 }
@@ -144,10 +150,10 @@ async function mapScopedEntityIds({
   if (ctx.auth?.tenantId !== undefined) {
     mapQuery = mapQuery.where(sql<boolean>`${sql.ref(tenantColumn)} is not distinct from ${ctx.auth?.tenantId ?? null}`)
   }
-  if (ctx.selectedOrganizationId) {
-    mapQuery = mapQuery.where(organizationColumn, '=', ctx.selectedOrganizationId)
-  } else if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length > 0) {
-    mapQuery = mapQuery.where(organizationColumn, 'in', ctx.organizationIds)
+  const organizationIds = resolveSearchOrganizationIds(ctx)
+  if (organizationIds && organizationIds.length === 0) return []
+  if (organizationIds) {
+    mapQuery = mapQuery.where(organizationColumn, 'in', organizationIds)
   }
 
   const rows = await mapQuery.execute() as Array<Record<string, unknown>>
