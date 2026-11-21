@@ -65,6 +65,12 @@ export function AddressesSection({
           return {
             id,
             name: typeof record.name === 'string' ? record.name : null,
+            recipientName: typeof record.recipient_name === 'string'
+              ? record.recipient_name
+              : typeof record.recipientName === 'string'
+                ? record.recipientName
+                : null,
+            phone: typeof record.phone === 'string' ? record.phone : null,
             purpose: typeof record.purpose === 'string' ? record.purpose : null,
             companyName: typeof record.company_name === 'string'
               ? record.company_name
@@ -245,6 +251,8 @@ export function AddressesSection({
       addressTypesAdapter={addressTypesAdapter}
       loadFormat={loadFormat}
       showCoordinateFields
+      showRecipientNameField
+      showPhoneField
     />
   )
 }

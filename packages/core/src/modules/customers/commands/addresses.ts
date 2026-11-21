@@ -44,6 +44,8 @@ type AddressSnapshot = {
   entityId: string
   entityKind: string | null
   name: string | null
+  recipientName: string | null
+  phone: string | null
   purpose: string | null
   companyName: string | null
   addressLine1: string
@@ -97,6 +99,8 @@ async function loadAddressSnapshot(em: EntityManager, id: string, ctx: CommandRu
     entityId: typeof entityRef === 'string' ? entityRef : entityRef.id,
     entityKind,
     name: address.name ?? null,
+    recipientName: address.recipientName ?? null,
+    phone: address.phone ?? null,
     purpose: address.purpose ?? null,
     companyName: address.companyName ?? null,
     addressLine1: address.addressLine1,
@@ -200,6 +204,8 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
       tenantId: parsed.tenantId,
       entity,
       name: parsed.name ?? null,
+      recipientName: parsed.recipientName ?? null,
+      phone: parsed.phone ?? null,
       purpose: parsed.purpose ?? null,
       companyName: parsed.companyName ?? null,
       addressLine1: parsed.addressLine1,
@@ -320,6 +326,8 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
         tenantId: after.tenantId,
         entity,
         name: after.name,
+        recipientName: after.recipientName,
+        phone: after.phone,
         purpose: after.purpose,
         companyName: after.companyName,
         addressLine1: after.addressLine1,
@@ -340,6 +348,8 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
     } else {
       address.entity = entity
       address.name = after.name
+      address.recipientName = after.recipientName
+      address.phone = after.phone
       address.purpose = after.purpose
       address.companyName = after.companyName
       address.addressLine1 = after.addressLine1
@@ -416,6 +426,8 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
     await withAtomicFlush(em, [
       () => {
         if (parsed.name !== undefined) address.name = parsed.name ?? null
+        if (parsed.recipientName !== undefined) address.recipientName = parsed.recipientName ?? null
+        if (parsed.phone !== undefined) address.phone = parsed.phone ?? null
         if (parsed.purpose !== undefined) address.purpose = parsed.purpose ?? null
         if (parsed.companyName !== undefined) address.companyName = parsed.companyName ?? null
         if (parsed.addressLine1 !== undefined) address.addressLine1 = parsed.addressLine1
@@ -476,6 +488,8 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
             [
               'entityId',
               'name',
+              'recipientName',
+              'phone',
               'purpose',
               'companyName',
               'addressLine1',
@@ -532,6 +546,8 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
         tenantId: before.tenantId,
         entity,
         name: before.name,
+        recipientName: before.recipientName,
+        phone: before.phone,
         purpose: before.purpose,
         companyName: before.companyName,
         addressLine1: before.addressLine1,
@@ -552,6 +568,8 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
     } else {
       address.entity = entity
       address.name = before.name
+      address.recipientName = before.recipientName
+      address.phone = before.phone
       address.purpose = before.purpose
       address.companyName = before.companyName
       address.addressLine1 = before.addressLine1
@@ -673,6 +691,8 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           tenantId: before.tenantId,
           entity,
           name: before.name,
+          recipientName: before.recipientName,
+          phone: before.phone,
           purpose: before.purpose,
           companyName: before.companyName,
           addressLine1: before.addressLine1,
@@ -693,6 +713,8 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       } else {
         address.entity = entity
         address.name = before.name
+        address.recipientName = before.recipientName
+        address.phone = before.phone
         address.purpose = before.purpose
         address.addressLine1 = before.addressLine1
         address.addressLine2 = before.addressLine2

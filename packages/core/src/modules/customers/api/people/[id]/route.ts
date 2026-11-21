@@ -964,6 +964,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         ? addresses.map((address) => ({
             id: address.id,
             name: address.name,
+            recipientName: address.recipientName ?? null,
+            phone: address.phone ?? null,
             purpose: address.purpose,
             addressLine1: address.addressLine1,
             addressLine2: address.addressLine2,
@@ -1207,6 +1209,8 @@ const personDetailResponseSchema = z.object({
     z.object({
       id: z.string().uuid(),
       name: z.string().nullable().optional(),
+      recipientName: z.string().nullable().optional(),
+      phone: z.string().nullable().optional(),
       purpose: z.string().nullable().optional(),
       addressLine1: z.string().nullable().optional(),
       addressLine2: z.string().nullable().optional(),

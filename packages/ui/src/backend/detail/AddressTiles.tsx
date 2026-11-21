@@ -28,6 +28,8 @@ export type Translator = (
 
 export type AddressInput = {
   name?: string
+  recipientName?: string | null
+  phone?: string | null
   purpose?: string
   companyName?: string
   addressLine1: string
@@ -66,6 +68,8 @@ type AddressTilesProps<C = unknown> = {
   emptyStateActionLabel?: string
   labelPrefix?: string
   showCoordinateFields?: boolean
+  showRecipientNameField?: boolean
+  showPhoneField?: boolean
   addressTypesAdapter?: AddressTypesAdapter<C>
   addressTypesContext?: C
   loadFormat?: (context?: C) => Promise<AddressFormatStrategy>
@@ -74,6 +78,8 @@ type AddressTilesProps<C = unknown> = {
 
 type DraftAddressState = {
   name: string
+  recipientName: string
+  phone: string
   purpose: string
   companyName: string
   addressLine1: string
@@ -102,6 +108,8 @@ type AddressValidationDetail = {
 
 const defaultDraft: DraftAddressState = {
   name: '',
+  recipientName: '',
+  phone: '',
   purpose: '',
   companyName: '',
   addressLine1: '',
@@ -119,6 +127,8 @@ const defaultDraft: DraftAddressState = {
 
 const serverFieldMap: Record<string, DraftFieldKey> = {
   name: 'name',
+  recipientName: 'recipientName',
+  phone: 'phone',
   purpose: 'purpose',
   companyName: 'companyName',
   addressLine1: 'addressLine1',
@@ -184,6 +194,8 @@ export function AddressTiles<C = unknown>({
   emptyStateActionLabel,
   labelPrefix = 'customers.people.detail.addresses',
   showCoordinateFields = false,
+  showRecipientNameField = false,
+  showPhoneField = false,
   addressTypesAdapter,
   addressTypesContext,
   loadFormat,
@@ -234,6 +246,8 @@ export function AddressTiles<C = unknown>({
   const fieldLabels = React.useMemo(
     () => ({
       name: label('fields.label', 'Label'),
+      recipientName: label('fields.recipientName', 'Recipient name'),
+      phone: label('fields.phone', 'Phone'),
       purpose: label('fields.type', 'Address type'),
       companyName: label('fields.companyName', 'Company name'),
       addressLine1: label('fields.line1', 'Address line 1'),
@@ -308,6 +322,8 @@ export function AddressTiles<C = unknown>({
   const handleEdit = React.useCallback((value: AddressValue) => {
     setDraft({
       name: value.name ?? '',
+      recipientName: value.recipientName ?? '',
+      phone: value.phone ?? '',
       purpose: value.purpose ?? '',
       companyName: value.companyName ?? '',
       addressLine1: value.addressLine1 ?? '',
@@ -360,6 +376,15 @@ export function AddressTiles<C = unknown>({
         name: normalizeOptional(draft.name),
         purpose: normalizeOptional(draft.purpose),
         companyName: normalizeOptional(draft.companyName),
+        // An emptied contact field must be sent as `null` on edit to clear the stored value; only
+        // send it when the host actually renders that field, so a host without the input cannot
+        // wipe contact data it never showed. On create nothing is stored yet, so omit empties.
+        recipientName: showRecipientNameField
+          ? (normalizeOptional(draft.recipientName) ?? (editingId ? null : undefined))
+          : undefined,
+        phone: showPhoneField
+          ? (normalizeOptional(draft.phone) ?? (editingId ? null : undefined))
+          : undefined,
         addressLine1: draft.addressLine1.trim(),
         addressLine2: normalizeOptional(draft.addressLine2),
         buildingNumber: normalizeOptional(draft.buildingNumber),
@@ -491,7 +516,13 @@ export function AddressTiles<C = unknown>({
           <AddressEditor
             value={draft}
             onChange={(next) => {
-              setDraft({ ...next, latitude: next.latitude ?? '', longitude: next.longitude ?? '' })
+              setDraft({
+                ...next,
+                recipientName: next.recipientName ?? '',
+                phone: next.phone ?? '',
+                latitude: next.latitude ?? '',
+                longitude: next.longitude ?? '',
+              })
               if (Object.keys(fieldErrors).length) {
                 const nextErrors = { ...fieldErrors }
                 ;(Object.keys(nextErrors) as DraftFieldKey[]).forEach((key) => {
@@ -509,6 +540,8 @@ export function AddressTiles<C = unknown>({
             errors={fieldErrors}
             showFormatHint={!formatLoading}
             showCoordinateFields={showCoordinateFields}
+            showRecipientNameField={showRecipientNameField}
+            showPhoneField={showPhoneField}
             labelPrefix={labelPrefix}
             addressTypesAdapter={addressTypesAdapter}
             addressTypesContext={addressTypesContext}
@@ -552,6 +585,8 @@ export function AddressTiles<C = unknown>({
       labelPrefix,
       saving,
       showCoordinateFields,
+      showPhoneField,
+      showRecipientNameField,
       t,
     ]
   )
@@ -602,12 +637,21 @@ export function AddressTiles<C = unknown>({
                       </p>
                     ) : null}
                     <AddressView address={address} format={format} className="text-sm text-foreground" />
+                    {(showRecipientNameField && address.recipientName) || (showPhoneField && address.phone) ? (
+                      <p className="text-xs text-muted-foreground" data-testid="address-contact">
+                        {[
+                          showRecipientNameField ? address.recipientName : null,
+                          showPhoneField ? address.phone : null,
+                        ].filter(Boolean).join(' · ')}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-1 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100 focus-within:opacity-100">
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
+                      aria-label={label('editAction', 'Edit address')}
                       onClick={() => handleEdit(address)}
                       disabled={disableActions}
                     >
@@ -617,6 +661,7 @@ export function AddressTiles<C = unknown>({
                       type="button"
                       variant="ghost"
                       size="icon"
+                      aria-label={label('deleteAction', 'Delete address')}
                       onClick={() => handleDelete(address.id)}
                       disabled={disableActions}
                     >

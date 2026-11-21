@@ -55,6 +55,13 @@ export type AddressEditorDraft = {
    */
   taxIdType?: string
   phone?: string
+  /**
+   * Who to call about this specific address — distinct from `name`, the address's own label.
+   * Gated by its own `showRecipientNameField`, not bundled with `showPhoneField`: the customer
+   * address book (Phase 3) opts into both, but a future caller whose storage holds only one
+   * should not be forced to render the other.
+   */
+  recipientName?: string
   latitude?: string
   longitude?: string
   isPrimary: boolean
@@ -75,6 +82,7 @@ export type AddressEditorField =
   | 'taxId'
   | 'taxIdType'
   | 'phone'
+  | 'recipientName'
   | 'latitude'
   | 'longitude'
   | 'isPrimary'
@@ -104,6 +112,11 @@ type AddressEditorProps = {
    * it carries a value and takes the same `disabled` as every neighbour.
    */
   showTaxIdField?: boolean
+  /**
+   * Render the recipient name. Its own flag, not bundled with `showPhoneField` — see the
+   * field's doc comment on `AddressEditorDraft` for why.
+   */
+  showRecipientNameField?: boolean
 }
 
 /**
@@ -128,6 +141,7 @@ export function AddressEditor({
   showCoordinateFields = false,
   showPhoneField = false,
   showTaxIdField = false,
+  showRecipientNameField = false,
 }: AddressEditorProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -166,6 +180,7 @@ export function AddressEditor({
     taxId: value.taxId ?? '',
     taxIdType: value.taxIdType ?? '',
     phone: value.phone ?? '',
+    recipientName: value.recipientName ?? '',
     ...(showCoordinateFields
       ? { latitude: value.latitude ?? '', longitude: value.longitude ?? '' }
       : {}),
@@ -585,6 +600,20 @@ export function AddressEditor({
               aria-invalid={errors.phone ? 'true' : undefined}
             />
             {errors.phone ? <p className="text-xs text-destructive">{errors.phone}</p> : null}
+          </>
+        ) : null}
+        {showRecipientNameField ? (
+          <>
+            <Input
+              className={inputClass('recipientName')}
+              placeholder={t('customers.people.detail.addresses.fields.recipientName', 'Recipient name')}
+              aria-label={t('customers.people.detail.addresses.fields.recipientName', 'Recipient name')}
+              value={current.recipientName ?? ''}
+              onChange={(evt) => update('recipientName', evt.target.value)}
+              disabled={disabled}
+              aria-invalid={errors.recipientName ? 'true' : undefined}
+            />
+            {errors.recipientName ? <p className="text-xs text-status-error-text">{errors.recipientName}</p> : null}
           </>
         ) : null}
       </div>

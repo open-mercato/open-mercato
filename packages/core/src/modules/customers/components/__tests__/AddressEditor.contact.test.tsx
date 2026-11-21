@@ -92,4 +92,30 @@ describe('AddressEditor — the contact fields are the caller\'s to offer', () =
     render({ value: { phone: '+48 600 100 200' }, showPhoneField: true, showTaxIdField: true })
     expect(screen.getByText('Phone')).toBeInTheDocument()
   })
+
+  it('offers the recipient name under its own flag, not bundled with the phone (Phase 3, #5232)', () => {
+    // A future caller whose storage holds only one of the two must not be forced to render the
+    // other — the same reasoning that keeps showPhoneField and showTaxIdField apart.
+    const { unmount } = render({ showPhoneField: true })
+    expect(screen.queryByPlaceholderText('Recipient name')).toBeNull()
+    unmount()
+
+    render({ showRecipientNameField: true })
+    expect(screen.getByPlaceholderText('Recipient name')).toBeInTheDocument()
+  })
+
+  it('renders the recipient name empty and enabled like its neighbours, and disables with the form', () => {
+    const { unmount } = render({ showRecipientNameField: true })
+    expect(screen.getByPlaceholderText('Recipient name')).toHaveValue('')
+    expect(screen.getByPlaceholderText('Recipient name')).not.toBeDisabled()
+    unmount()
+
+    render({ showRecipientNameField: true, disabled: true })
+    expect(screen.getByPlaceholderText('Recipient name')).toBeDisabled()
+  })
+
+  it('does not render the recipient name by default', () => {
+    render()
+    expect(screen.queryByPlaceholderText('Recipient name')).toBeNull()
+  })
 })
