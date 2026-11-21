@@ -5,6 +5,7 @@ const entityType = 'resources:resources_resource'
 const entityId = '44444444-4444-4444-8444-444444444444'
 
 const isTranslatedRecordSoftDeletedMock = jest.fn()
+const resolveTranslationTargetFieldsMock = jest.fn()
 
 const db = {
   selectFrom: jest.fn().mockReturnThis(),
@@ -35,6 +36,11 @@ jest.mock('@open-mercato/core/modules/translations/lib/soft-deleted-owner', () =
   isTranslatedRecordSoftDeleted: (...args: unknown[]) => isTranslatedRecordSoftDeletedMock(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/translations/lib/target-access', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/translations/lib/target-access'),
+  resolveTranslationTargetFields: (...args: unknown[]) => resolveTranslationTargetFieldsMock(...args),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => ({
     translate: (key: string) => `translated:${key}`,
@@ -53,6 +59,7 @@ describe('translations entity read route for soft-deleted records', () => {
     db.selectFrom.mockReturnThis()
     db.selectAll.mockReturnThis()
     db.where.mockReturnThis()
+    resolveTranslationTargetFieldsMock.mockResolvedValue(new Set(['name']))
     db.executeTakeFirst.mockResolvedValue({
       entity_type: entityType,
       entity_id: entityId,
