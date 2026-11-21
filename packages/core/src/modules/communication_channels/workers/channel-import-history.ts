@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { ResolveOptions } from 'awilix'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -46,7 +47,7 @@ export const metadata: WorkerMeta = {
 }
 
 type HandlerContext = JobContext & {
-  resolve: <T = unknown>(name: string) => T
+  resolve: <T = unknown>(name: string, options?: ResolveOptions) => T
 }
 
 type CredentialsServiceLike = {
@@ -68,7 +69,11 @@ export default async function handle(
   const payload = job.payload
   const { progressJobId, channelId, sinceDays, contactEmails, maxMessages, scope } = payload
 
-  const progressService = ctx.resolve<ProgressService>('progressService')
+  const progressService = ctx.resolve<ProgressService | undefined>('progressService', { allowUnregistered: true })
+  if (!progressService) {
+    logger.warn('Skipping history import because the progress module is disabled', { channelId, progressJobId })
+    return
+  }
   const progressContext: ProgressServiceContext = {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,

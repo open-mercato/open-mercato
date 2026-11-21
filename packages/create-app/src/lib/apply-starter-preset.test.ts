@@ -85,7 +85,6 @@ test('resolvePreset: crm returns 25-module list extending empty (includes attach
   // hub only persists credentials through integrations and only shows connect buttons for a
   // provider module that injects into profile:communication-channels:connect (issue #6169).
   assert.ok(ids.includes('communication_channels'))
-  // progress backs communication_channels' declared `requires: ['progress']` (issue #6094)
   assert.ok(ids.includes('progress'))
   assert.ok(ids.includes('integrations'))
   assert.ok(ids.includes('channel_imap'))
@@ -467,10 +466,7 @@ function declaredRequires(entry: ModuleEntry): string[] {
 
 test('every non-classic preset satisfies the declared `requires` of every module it enables', () => {
   // Premise assertion, so a future refactor turns this red rather than vacuously green.
-  assert.deepEqual(
-    declaredRequires({ id: 'communication_channels', from: '@open-mercato/core' }),
-    ['progress'],
-  )
+  assert.ok(declaredRequires({ id: 'customers', from: '@open-mercato/core' }).includes('progress'))
 
   for (const presetId of ['empty', 'crm', 'wms']) {
     const modules = resolvePreset(presetId).modules

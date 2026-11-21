@@ -3,6 +3,9 @@
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockRejectedValue(new Error('Translations unavailable')),
+}))
 jest.mock('../../lib/adapter-registry-singleton', () => ({
   getChannelAdapterRegistry: jest.fn(),
 }))
@@ -11,6 +14,7 @@ jest.mock('../../lib/queue', () => ({
   getCommunicationChannelsQueue: jest.fn(),
 }))
 
+import { asValue, createContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getChannelAdapterRegistry } from '../../lib/adapter-registry-singleton'
 import { getCommunicationChannelsQueue } from '../../lib/queue'
@@ -92,6 +96,23 @@ describe('queueImportHistorySchema', () => {
 })
 
 describe('queueImportHistory', () => {
+  it('refuses the import before enqueueing when progress is disabled', async () => {
+    jest.mocked(findOneWithDecryption).mockResolvedValue(buildConnectedChannel())
+    ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({
+      get: () => ({ importHistory: jest.fn() }),
+    })
+    const container = createContainer().register({ em: asValue({ fork: () => ({}) }) })
+    await expect(queueImportHistory({
+      container,
+      scope: { tenantId: TENANT, organizationId: ORG, userId: USER },
+      input: { channelId: CHANNEL, sinceDays: 30, maxMessages: 100 },
+    })).rejects.toMatchObject({
+      status: 503,
+      message: 'History import is unavailable because the progress module is disabled.',
+    })
+    expect(getCommunicationChannelsQueue).not.toHaveBeenCalled()
+  })
+
   it('returns 404 envelope when channel not found', async () => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
     const { container } = buildContainer({})

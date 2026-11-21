@@ -1,4 +1,5 @@
 import React from 'react'
+import { asValue, createContainer } from 'awilix'
 import { isSystemEmailTransportConfigured, sendSystemEmail } from '../system-email'
 import type { ChannelAdapter } from '../adapter'
 import { registerSystemEmailProviderConfigResolver } from '../system-email-provider-config'
@@ -6,7 +7,7 @@ import { registerSystemEmailProviderConfigResolver } from '../system-email-provi
 type ContainerOptions = {
   fork: Record<string, unknown>
   sendMessage: jest.Mock
-  credentials: Record<string, unknown> | null
+  credentials?: Record<string, unknown> | null
   convertOutbound?: jest.Mock
 }
 
@@ -25,16 +26,17 @@ function buildContainer({ fork, sendMessage, credentials, convertOutbound }: Con
     getStatus: jest.fn(),
   } satisfies ChannelAdapter
 
-  return {
-    resolve(name: string) {
-      if (name === 'em') return { fork: () => fork }
-      if (name === 'channelAdapterRegistry') return { get: () => adapter }
-      if (name === 'integrationCredentialsService') {
-        return { resolve: jest.fn().mockResolvedValue(credentials) }
-      }
-      throw new Error(`[internal] unexpected dependency ${name}`)
-    },
+  const container = createContainer()
+  container.register({
+    em: asValue({ fork: () => fork }),
+    channelAdapterRegistry: asValue({ get: () => adapter }),
+  })
+  if (credentials !== undefined) {
+    container.register({
+      integrationCredentialsService: asValue({ resolve: jest.fn().mockResolvedValue(credentials) }),
+    })
   }
+  return container
 }
 
 describe('sendSystemEmail', () => {
@@ -156,10 +158,13 @@ describe('sendSystemEmail', () => {
   })
 
   describe('upgrade path (issue #5010)', () => {
-    it('sends through environment credentials when an existing tenant has no channel row', async () => {
+    it.each([
+      { reason: 'the credential store is empty', credentials: null },
+      { reason: 'integrations is disabled', credentials: undefined },
+    ])('uses environment credentials when the tenant has no channel and $reason', async ({ credentials }) => {
       const findOne = jest.fn().mockResolvedValue(null)
       const sendMessage = jest.fn().mockResolvedValue({ externalMessageId: 'email-1', status: 'sent' })
-      const container = buildContainer({ fork: { findOne }, sendMessage, credentials: null })
+      const container = buildContainer({ fork: { findOne }, sendMessage, credentials })
 
       await sendSystemEmail(container as never, {
         to: 'user@example.com',
@@ -304,7 +309,10 @@ describe('sendSystemEmail', () => {
       }))
     })
 
-    it('still fails closed when a configured channel is missing its credentials', async () => {
+    it.each([
+      { reason: 'the credential store is empty', credentials: null },
+      { reason: 'integrations is disabled', credentials: undefined },
+    ])('fails closed when the tenant has a channel and $reason', async ({ credentials }) => {
       const channel = {
         providerKey: 'test-email',
         channelType: 'email',
@@ -312,10 +320,11 @@ describe('sendSystemEmail', () => {
         isActive: true,
         status: 'connected',
       }
+      const sendMessage = jest.fn()
       const container = buildContainer({
         fork: { findOne: jest.fn().mockResolvedValue(channel) },
-        sendMessage: jest.fn(),
-        credentials: null,
+        sendMessage,
+        credentials,
       })
 
       await expect(sendSystemEmail(container as never, {
@@ -326,6 +335,7 @@ describe('sendSystemEmail', () => {
         tenantId: 'tenant-1',
         organizationId: 'org-1',
       })).rejects.toThrow('SYSTEM_EMAIL_CREDENTIALS_NOT_CONFIGURED')
+      expect(sendMessage).not.toHaveBeenCalled()
     })
   })
 

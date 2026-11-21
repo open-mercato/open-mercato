@@ -7,7 +7,9 @@ jest.mock('../../lib/credential-refresh', () => ({
   refreshCredentialsIfNeeded: jest.fn(async ({ credentials }) => ({ credentials })),
 }))
 
+import { createContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { registerLoggerExtension } from '@open-mercato/shared/lib/logger'
 import handler, { metadata } from '../channel-import-history'
 import type { QueuedJob } from '@open-mercato/queue'
 import type { ChannelImportHistoryJobPayload } from '../../commands/queue-import-history'
@@ -93,6 +95,28 @@ describe('channel-import-history worker metadata', () => {
 })
 
 describe('channel-import-history worker', () => {
+  it('warns once and finishes a stale job when progress is disabled', async () => {
+    const container = createContainer()
+    const emit = jest.fn()
+    const dispose = registerLoggerExtension({ emit })
+    try {
+      await handler(buildJob(), {
+        jobId: 'job-1',
+        attemptNumber: 1,
+        queueName: metadata.queue,
+        resolve: container.resolve.bind(container),
+      })
+      expect(emit).toHaveBeenCalledTimes(1)
+      expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+        level: 'warn',
+        fields: expect.objectContaining({ channelId: CHANNEL, progressJobId: 'progress-1' }),
+      }))
+      expect(findOneWithDecryption).not.toHaveBeenCalled()
+    } finally {
+      dispose()
+    }
+  })
+
   it('fails the progress job when the channel is missing', async () => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
     const { ctx, progressService } = buildCtx({})

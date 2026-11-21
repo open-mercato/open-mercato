@@ -1,25 +1,17 @@
+import { asFunction, asValue, createContainer } from 'awilix'
+import handler, { metadata } from '../channel-requires-reauth-notification'
+
 const mockCreate = jest.fn()
 const mockCreateForFeature = jest.fn()
 
-jest.mock('../../../notifications/lib/notificationService', () => ({
-  resolveNotificationService: () => ({
-    create: mockCreate,
-    createForFeature: mockCreateForFeature,
-  }),
-}))
-
-import handler, { metadata } from '../channel-requires-reauth-notification'
-
-function makeCtx(channel: unknown) {
+function makeCtx(channel: unknown, notificationsEnabled = true) {
   const findOne = jest.fn().mockResolvedValue(channel)
-  const em = { findOne }
-  const ctx = {
-    resolve: <T>(name: string): T => {
-      if (name === 'em') return { fork: () => em } as unknown as T
-      return null as unknown as T
-    },
+  const container = createContainer()
+  container.register('em', asValue({ fork: () => ({ findOne }) }))
+  if (notificationsEnabled) {
+    container.register('notificationService', asValue({ create: mockCreate, createForFeature: mockCreateForFeature }))
   }
-  return { ctx, findOne }
+  return { ctx: { resolve: container.resolve.bind(container) }, container, findOne }
 }
 
 beforeEach(() => {
@@ -36,6 +28,21 @@ describe('channel-requires-reauth-notification metadata', () => {
 })
 
 describe('channel-requires-reauth-notification behaviour', () => {
+  it('skips the channel lookup when notifications is disabled', async () => {
+    const { ctx, findOne } = makeCtx({ id: 'ch1', userId: 'user-9' }, false)
+    await handler({ channelId: 'ch1', tenantId: 't1' }, ctx)
+    expect(findOne).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
+    expect(mockCreateForFeature).not.toHaveBeenCalled()
+  })
+
+  it('propagates a registered notification service initialization failure', async () => {
+    const { ctx, container } = makeCtx(null)
+    const failure = new Error('notification service initialization failed')
+    container.register('notificationService', asFunction(() => { throw failure }))
+    await expect(handler({ channelId: 'ch1', tenantId: 't1' }, ctx)).rejects.toBe(failure)
+  })
+
   it('no-ops when channelId is missing', async () => {
     const { ctx, findOne } = makeCtx(null)
     await handler({ tenantId: 't1' } as never, ctx)
@@ -71,8 +78,8 @@ describe('channel-requires-reauth-notification behaviour', () => {
   })
 
   it('notifies managers for a tenant-wide channel without an owner', async () => {
-    const { ctx } = makeCtx({ id: 'ch2', userId: null })
-    await handler({ channelId: 'ch2', tenantId: 't1', organizationId: null }, ctx)
+    const { container } = makeCtx({ id: 'ch2', userId: null })
+    await handler({ channelId: 'ch2', tenantId: 't1', organizationId: null }, { container })
     expect(mockCreate).not.toHaveBeenCalled()
     expect(mockCreateForFeature).toHaveBeenCalledTimes(1)
     const [input] = mockCreateForFeature.mock.calls[0]

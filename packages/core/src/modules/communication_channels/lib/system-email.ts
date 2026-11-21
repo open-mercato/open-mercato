@@ -213,8 +213,10 @@ async function resolveTenantCredentials(
 ): Promise<Record<string, unknown>> {
   const tenantId = payload.tenantId as string
   const organizationId = channel.organizationId ?? payload.organizationId ?? tenantId
-  const credentialsService = container.resolve('integrationCredentialsService') as CredentialsServiceLike
-  const resolvedCredentials = await credentialsService.resolve(`channel_${channel.providerKey}`, {
+  const credentialsService = container.resolve<CredentialsServiceLike | undefined>('integrationCredentialsService', {
+    allowUnregistered: true,
+  })
+  const resolvedCredentials = await credentialsService?.resolve(`channel_${channel.providerKey}`, {
     tenantId,
     organizationId,
     userId: null,
