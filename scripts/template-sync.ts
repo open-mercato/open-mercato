@@ -372,6 +372,28 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // yarn add @open-mercato/channel-discord, then uncomment the registration.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
   },
+  // template-sync didn't know the ledger module was deliberately kept
+  // commented out in the template (see the comment in
+  // packages/create-app/template/src/modules.ts), so `template-sync --check`
+  // reported it as drift and `template:sync:fix` would have silently
+  // re-enabled it there.
+  ledger: {
+    source: `  { id: 'ledger', from: '@open-mercato/core' },`,
+    template: `  // General Ledger core engine — ships with the scaffold but stays disabled
+  // here until its module fact-sheet gains catalog coverage (run the
+  // om-refresh-standalone-harness skill to add it, then enable this line).
+  // Tracked in TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a
+  // deliberate divergence, not drift.
+  // { id: 'ledger', from: '@open-mercato/core' },`,
+  },
+  journal_entry_line_dimensions: {
+    source: `  { id: 'journal_entry_line_dimensions', from: '@open-mercato/core' },`,
+    template: `  // Journal Entry Line Dimensions — tags on posted ledger lines. Requires
+  // ledger, so it stays disabled here while ledger is. Tracked in
+  // TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a deliberate
+  // divergence, not drift.
+  // { id: 'journal_entry_line_dimensions', from: '@open-mercato/core' },`,
+  },
   gateway_autopay: {
     source: `  { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },`,
     template: `  // Autopay hosted-redirect PLN payment gateway. The package ships with the
@@ -391,6 +413,14 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // .ai/skills/om-refresh-standalone-harness/SKILL.md. Install
   // @open-mercato/carrier-inpost and uncomment the line to use it.
   // { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
+  },
+  posting_rules: {
+    source: `  { id: 'posting_rules', from: '@open-mercato/core' },`,
+    template: `  // Posting Rules Engine — cost reclassification (zespół 4 → 5) on ledger
+  // postings. Requires ledger and journal_entry_line_dimensions, so it stays
+  // disabled here while they are. Tracked in TEMPLATE_COMMENTED_MODULES
+  // (scripts/template-sync.ts) as a deliberate divergence, not drift.
+  // { id: 'posting_rules', from: '@open-mercato/core' },`,
   },
   forms: {
     source: `  // Audit-grade questionnaire/form primitive — versioned definitions, append-only
