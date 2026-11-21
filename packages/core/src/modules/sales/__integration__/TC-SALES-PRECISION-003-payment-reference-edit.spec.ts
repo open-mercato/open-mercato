@@ -66,8 +66,7 @@ test('TC-SALES-PRECISION-003: a reference-only payment edit keeps the exact amou
     await page.getByRole('button', { name: 'Payments', exact: true }).click()
     const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: reference, exact: true }) })
     await expect(row).toBeVisible({ timeout: 15_000 })
-    await row.getByRole('button', { name: 'Open actions', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Edit payment', exact: true }).click()
+    await row.click()
 
     const dialog = page.getByRole('dialog')
     const referenceInput = dialog.locator('[data-crud-field-id="paymentReference"] input').first()

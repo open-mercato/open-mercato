@@ -10,6 +10,7 @@ import {
 } from './cli'
 import { ensureDictionaryEntry } from './commands/shared'
 import { DEFAULT_CUSTOMER_ROLE_TYPES } from './lib/customerRoleTypes'
+import { seedDealLossReasons } from './lib/dealLossReasons'
 
 const interactionFeatureToggles = [
   {
@@ -60,6 +61,7 @@ export const setup: ModuleSetupConfig = {
     const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
     await seedCustomerDictionaries(ctx.em, scope)
     await seedCurrencyDictionary(ctx.em, scope)
+    await seedDealLossReasons(ctx.em, scope)
     await seedDefaultPipeline(ctx.em, scope)
     await ensureCustomerCustomFieldDefinitions(ctx.em, ctx.tenantId)
     await seedInteractionFeatureToggles(ctx.em)

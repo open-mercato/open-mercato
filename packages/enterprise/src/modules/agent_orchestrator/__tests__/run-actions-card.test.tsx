@@ -9,6 +9,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { ForbiddenError } from '@open-mercato/ui/backend/utils/api'
 import en from '../i18n/en.json'
 import { RunActionsCard } from '../components/trace/RunActionsCard'
+import { OPTIONAL_REQUEST_INIT } from '../components/optionalRequest'
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({ apiCall: jest.fn() }))
 
@@ -56,7 +57,20 @@ describe('RunActionsCard', () => {
     expect(screen.getByText('customers.deals.update')).toBeTruthy()
     expect(screen.getByText(dict['agent_orchestrator.traces.actions.columns.onBehalfOf'])).toBeTruthy()
     expect(screen.getByText(dict['agent_orchestrator.traces.actions.columns.proposal'])).toBeTruthy()
-    expect(mockedApiCall).toHaveBeenCalledWith(`/api/agent_orchestrator/runs/${RUN_ID}/actions?pageSize=50`)
+    expect(mockedApiCall).toHaveBeenCalledWith(
+      `/api/agent_orchestrator/runs/${RUN_ID}/actions?pageSize=50`,
+      OPTIONAL_REQUEST_INIT,
+    )
+  })
+
+  it('opts out of the global forbidden flash so a missing audit permission stays silent', async () => {
+    respond(403, { error: 'Forbidden', requiredFeatures: ['audit_logs.view_tenant'] })
+
+    renderWithProviders(<RunActionsCard runId={RUN_ID} />, { dict })
+
+    await waitFor(() => expect(mockedApiCall).toHaveBeenCalledTimes(1))
+    const init = mockedApiCall.mock.calls[0][1]
+    expect(new Headers(init?.headers).get('x-om-forbidden-redirect')).toBe('0')
   })
 
   it('links each action to its audit entry and its proposal', async () => {
