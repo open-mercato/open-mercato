@@ -1327,6 +1327,11 @@ Surfaces it consumes or helps freeze elsewhere:
 
 ## 13) Changelog
 
+### 2026-11-20 (AS1 implemented — PR #10036)
+
+- AS1 landed: module registration, the six §6.9 features, the §6.8 event ids, `AssistedSellingStoreSettings` and `GET/PUT /settings/:storeId`. The `employee` role also receives `cart.proposals.view` from `assisted_selling/setup.ts` (D-R5-AS1).
+- The §6.0 store-by-id read is the optional `storeContextService.findStoreForOrganizations` member added to `ecommerce`.
+
 ### 2026-11-19 (rev 6.3 — Re-landing audit — remediation of `.ai/analysis/pre-implement-2026-09-22-assisted-selling-release-5.md`)
 
 Resolves the Critical and Important findings of the 2026-11-19 pre-implementation audit, checked against `main` and the reference implementation (closed PR #8268, `bdb747c36a`). The core decision is unchanged.
