@@ -95,7 +95,7 @@ export async function GET(req: Request) {
     CustomerUserInvitation,
     where as any,
     {
-      orderBy: { createdAt: 'DESC' },
+      orderBy: { createdAt: 'DESC', id: 'DESC' },
       limit: pageSize,
       offset: (page - 1) * pageSize,
     },
