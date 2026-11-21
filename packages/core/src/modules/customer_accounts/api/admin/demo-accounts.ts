@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { compare as bcryptCompare } from 'bcryptjs'
+import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -72,7 +72,7 @@ export async function GET(req: Request) {
   for (const user of seededUsers) {
     const account = accountByHash.get(user.emailHash as string)
     if (!account || !user.passwordHash) continue
-    if (await bcryptCompare(account.password, user.passwordHash)) loginableUsers.push(user)
+    if (await getPasswordHasher().verify(account.password, user.passwordHash)) loginableUsers.push(user)
   }
 
   if (loginableUsers.length === 0) {

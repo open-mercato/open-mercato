@@ -1,12 +1,15 @@
 import { EntityManager } from '@mikro-orm/postgresql'
-import { hash, compare } from 'bcryptjs'
+import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
-const BCRYPT_COST = 10
 const MAX_FAILED_ATTEMPTS = 5
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000 // 15 minutes
+
+const logger = createLogger('customer_accounts').child({ component: 'customer-user-service' })
 
 type CustomerUserLockoutDatabase = {
   customer_users: {
@@ -25,7 +28,7 @@ export class CustomerUserService {
     displayName: string,
     scope: { tenantId: string; organizationId: string },
   ): Promise<CustomerUser> {
-    const passwordHash = await hash(password, BCRYPT_COST)
+    const passwordHash = await getPasswordHasher().hash(password)
     const emailHash = hashForLookup(email)
     const user = this.em.create(CustomerUser, {
       email: email.toLowerCase().trim(),
@@ -73,7 +76,43 @@ export class CustomerUserService {
 
   async verifyPassword(user: CustomerUser, password: string): Promise<boolean> {
     if (!user.passwordHash) return false
-    return compare(password, user.passwordHash)
+    return getPasswordHasher().verify(password, user.passwordHash)
+  }
+
+  /**
+   * After a successful portal login, replace a hash made with an outdated algorithm or
+   * parameters (`OM_PASSWORD_HASH`) with a fresh one. Best effort: a failure is logged and
+   * reported, never thrown, so it can not fail the login. The update is a compare-and-swap on
+   * the old hash, so a concurrent password change wins.
+   */
+  async rehashPasswordIfNeeded(user: CustomerUser, password: string): Promise<boolean> {
+    const storedHash = user.passwordHash ?? null
+    if (!storedHash) return false
+    const hasher = getPasswordHasher()
+    try {
+      if (!hasher.needsRehash(storedHash)) return false
+      const nextHash = await hasher.hash(password)
+      const affected = await this.em.nativeUpdate(
+        CustomerUser,
+        {
+          id: user.id,
+          tenantId: user.tenantId,
+          organizationId: user.organizationId,
+          passwordHash: storedHash,
+        },
+        { passwordHash: nextHash },
+      )
+      if (affected === 0) return false
+      return true
+    } catch (error) {
+      logger.warn('Password rehash after login failed', { userId: user.id, err: error })
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'customer_accounts',
+        code: 'customer_accounts.password_rehash_failed',
+        attributes: { userId: user.id },
+      })
+      return false
+    }
   }
 
   async updateLastLoginAt(user: CustomerUser): Promise<void> {
@@ -125,7 +164,7 @@ export class CustomerUserService {
   }
 
   async updatePassword(user: CustomerUser, newPassword: string, em?: EntityManager): Promise<void> {
-    const passwordHash = await hash(newPassword, BCRYPT_COST)
+    const passwordHash = await getPasswordHasher().hash(newPassword)
     await (em ?? this.em).nativeUpdate(CustomerUser, {
       id: user.id,
       tenantId: user.tenantId,
