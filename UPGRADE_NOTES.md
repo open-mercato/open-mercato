@@ -1,5 +1,15 @@
 # Upgrade Notes
 
+## Backend API documentation permission (#3810)
+
+`/backend/docs` now requires `api_docs.view`. Staff without that feature lose the
+backend resource page and its navigation entry; public `/docs/api` and JSON/Markdown
+exports keep their current policy. Existing tenants: run
+`yarn mercato auth sync-role-acls` for default admins, or explicitly grant the
+feature to intended custom roles. Superadministrator access is preserved. Clients
+that link to the backend page must allow for permission denial. No database
+migration, environment change, or startup-command change is required.
+
 ## Deal loss reasons seeded by customers (#8801)
 
 `customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.
@@ -147,6 +157,7 @@ now warns when a connected channel relies on polling but no scheduler is enabled
 or the organization's poll schedule is missing or disabled, and
 `GET /api/communication_channels/me/channels` returns an additive
 `automaticSyncEnabled` boolean that drives that warning.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.
