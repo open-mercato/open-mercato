@@ -7,6 +7,8 @@ import { Building2, FileText, Hash, UserSearch } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
@@ -39,6 +41,7 @@ import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../
 import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 
+import { ReadOnlyDealDetails } from './ReadOnlyDealDetails'
 import { formatCurrency, startOfNextQuarter } from './hooks/formatters'
 import type { DealDetailPayload } from './hooks/types'
 import { useDealActivities } from './hooks/useDealActivities'
@@ -54,6 +57,21 @@ import { useScheduleDialog } from './hooks/useScheduleDialog'
 export default function DealDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id ?? ''
   const t = useT()
+  const { payload, isReady: isChromeReady } = useBackendChrome()
+  const canViewActivities = hasFeature(payload?.grantedFeatures, 'customers.interactions.view')
+  const canManageActivities = hasFeature(payload?.grantedFeatures, 'customers.interactions.manage')
+  const canViewNotes = hasFeature(payload?.grantedFeatures, 'customers.activities.view')
+  const canManageNotes = hasFeature(payload?.grantedFeatures, 'customers.activities.manage')
+  const canViewFiles = hasFeature(payload?.grantedFeatures, 'attachments.view')
+  const canManageFiles = hasFeature(payload?.grantedFeatures, 'attachments.manage')
+  const canViewChangelog = hasFeature(payload?.grantedFeatures, 'audit_logs.view_self')
+  const hiddenTabIds = isChromeReady ? [
+    ...(!canViewActivities ? ['activities'] : []),
+    ...(!canViewNotes ? ['notes'] : []),
+    ...(!canViewFiles ? ['files'] : []),
+    ...(!canViewChangelog ? ['changelog'] : []),
+  ] : undefined
+  const canManageDeal = hasFeature(payload?.grantedFeatures, 'customers.deals.manage')
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -133,8 +151,12 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   } = useDealActivities({ dealId: id, runMutationWithContext })
 
   React.useEffect(() => {
-    void Promise.all([loadData({ cache: true }), loadPlannedActivities({ cache: true })])
-  }, [loadData, loadPlannedActivities])
+    void loadData({ cache: true })
+  }, [loadData])
+
+  React.useEffect(() => {
+    if (canViewActivities) void loadPlannedActivities({ cache: true })
+  }, [canViewActivities, loadPlannedActivities])
 
   const activityEntities = React.useMemo(
     () => (data
@@ -439,7 +461,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     <div className="rounded-[10px] border border-border bg-card px-5 py-5">
       {(() => {
 
-        if (activeTab === 'activities') {
+        if (activeTab === 'activities' && canViewActivities) {
           const activityEntitySelection = activityEntities.length > 1 ? (
             <div className="rounded-[10px] border border-border bg-muted/20 px-5 py-5">
               <label htmlFor="deal-activity-entity" className="text-sm font-semibold text-foreground">
@@ -473,7 +495,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           return (
             <div className="space-y-4">
               {activityEntities.length > 1 ? activityEntitySelection : null}
-              {activityEntities.length === 0 ? (
+              {canManageActivities && (activityEntities.length === 0 ? (
                 <div className="rounded-[10px] border border-border bg-muted/20 px-5 py-5">
                   <div className="text-sm font-semibold text-foreground">
                     {t('customers.deals.detail.activities.linkEntityTitle', 'Link a person or company first')}
@@ -510,15 +532,15 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     'Select the customer record that should receive new deal activities before logging or scheduling anything.',
                   )}
                 />
-              )}
+              ))}
               <PlannedActivitiesSection
                 activities={plannedActivities}
                 loadFailed={plannedLoadFailed}
                 onRetryLoad={() => { void loadPlannedActivities() }}
-                onComplete={(interactionId) => { void handleMarkDone(interactionId) }}
-                onSchedule={selectedActivityEntity ? openSchedule : undefined}
-                onEdit={handleEditActivity}
-                onCancel={(interactionId) => { void handleCancelActivity(interactionId) }}
+                onComplete={canManageActivities ? (interactionId) => { void handleMarkDone(interactionId) } : undefined}
+                onSchedule={canManageActivities && selectedActivityEntity ? openSchedule : undefined}
+                onEdit={canManageActivities ? handleEditActivity : undefined}
+                onCancel={canManageActivities ? (interactionId) => { void handleCancelActivity(interactionId) } : undefined}
               />
               {selectedActivityEntity ? (
                 <ActivitiesSection
@@ -536,7 +558,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                   runGuardedMutation={runMutationWithContext}
                   onDataRefresh={() => { void handleActivityCreated() }}
                   refreshKey={activityRefreshKey}
-                  onEditActivity={handleEditActivity}
+                  onEditActivity={canManageActivities ? handleEditActivity : undefined}
+                  readOnly={!canManageActivities}
                 />
               ) : null}
             </div>
@@ -552,6 +575,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               onSaveSelection={(next) => handlePeopleAssociationsChange(next)}
               addActionLabel={t('customers.deals.detail.peopleAdd', 'Add person')}
               disabled={peopleSaving || isSaving}
+              readOnly={!canManageDeal}
               emptyLabel={t('customers.deals.detail.peopleEmpty', 'No people linked to this deal yet.')}
               emptyState={{
                 title: t('customers.deals.detail.peopleEmptyTitle', 'Link the people involved'),
@@ -573,7 +597,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               linkedItems={data.companies}
               linkedCount={data.counts.companies}
               selectedIds={companiesEditorIds}
-              disabled={companiesSaving || isSaving}
+              disabled={!canManageDeal || companiesSaving || isSaving}
               savePending={companiesSaving}
               hrefBuilder={(companyId) => `/backend/customers/companies-v2/${encodeURIComponent(companyId)}`}
               onSaveSelection={(next) => handleCompaniesAssociationsChange(next)}
@@ -585,7 +609,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           )
         }
 
-        if (activeTab === 'notes') {
+        if (activeTab === 'notes' && canViewNotes) {
           return (
             <NotesSection
               entityId={null}
@@ -602,6 +626,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                 actionLabel: t('customers.deals.detail.notesEmptyAction', 'Add a note'),
               }}
               translator={detailTranslator}
+              readOnly={!canManageNotes}
               dataAdapter={notesAdapter}
               renderIcon={renderDictionaryIcon}
               renderColor={renderDictionaryColor}
@@ -612,17 +637,18 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           )
         }
 
-        if (activeTab === 'files') {
+        if (activeTab === 'files' && canViewFiles) {
           return (
             <AttachmentsSection
               entityId={E.customers.customer_deal}
               recordId={data.deal.id}
+              readOnly={!canManageFiles}
               title={t('customers.deals.detail.tabs.files', 'Files')}
             />
           )
         }
 
-        if (activeTab === 'changelog') {
+        if (activeTab === 'changelog' && canViewChangelog) {
           return <ChangelogTab entityId={data.deal.id} entityType="deal" />
         }
 
@@ -644,14 +670,15 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               companies={data.companies}
               pipelineName={currentPipelineName}
               extraActions={<InjectionSpot spotId={extensionPoints.hosts.dealHeader.spotId} context={injectionContext} data={data} />}
-              actions={<InjectionSpot spotId={extensionPoints.hosts.dealHeaderActions.spotId} context={{ ...injectionContext, isDirty, isSaving }} data={data} disabled={isSaving} />}
-              secondaryActions={(
+              actions={canManageDeal ? <InjectionSpot spotId={extensionPoints.hosts.dealHeaderActions.spotId} context={{ ...injectionContext, isDirty, isSaving }} data={data} disabled={isSaving} /> : undefined}
+              secondaryActions={canManageDeal ? (
                 <DealClosureActionBar
                   closureOutcome={data.deal.closureOutcome}
                   onWon={() => { void handleWon() }}
                   onLost={openLostDialog}
                 />
-              )}
+              ) : undefined}
+              canManage={canManageDeal}
               onSave={handleHeaderSave}
               onDelete={handleDelete}
               isDirty={isDirty}
@@ -666,29 +693,40 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               currentStageId={data.deal.pipelineStageId}
               pipelineName={currentPipelineName}
               closureOutcome={data.deal.closureOutcome}
-              onStageChange={handleStageChange}
+              onStageChange={canManageDeal ? handleStageChange : undefined}
               stageChangeDisabled={isDirty || isSaving || isStageSaving}
             />
           </section>
+
+          {!canManageDeal ? (
+            <ReadOnlyDealDetails
+              deal={data.deal}
+              customFields={data.customFields}
+              canViewDictionaries={hasFeature(payload?.grantedFeatures, 'dictionaries.view')}
+            />
+          ) : null}
 
           <CustomerDetailSidebar spotId={extensionPoints.hosts.dealSidebar.spotId} context={injectionContext} data={data} onDataChange={setData} disabled={isSaving}>
           <DealDetailTabs
             isLoadingInjectedTabs={injectedTabsLoading}
             activeTab={activeTab}
+            hiddenTabIds={hiddenTabIds}
             onTabChange={handleTabChange}
             injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, priority: tab.priority }))}
             peopleCount={data.counts.people}
             companiesCount={data.counts.companies}
           >
-            <CollapsibleZoneLayout
-              pageType="deal-detail-v3"
-              entityName={dealName}
-              isDirty={isDirty}
-              sections={zoneSections}
-              zone1DefaultWidth="540px"
-              zone1={zone1Content}
-              zone2={zone2Content}
-            />
+            {canManageDeal ? (
+              <CollapsibleZoneLayout
+                pageType="deal-detail-v3"
+                entityName={dealName}
+                isDirty={isDirty}
+                sections={zoneSections}
+                zone1DefaultWidth="540px"
+                zone1={zone1Content}
+                zone2={zone2Content}
+              />
+            ) : zone2Content}
           </DealDetailTabs>
           </CustomerDetailSidebar>
 
@@ -697,7 +735,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
         {ConfirmDialogElement}
 
-        {selectedActivityEntity ? (
+        {canManageActivities && selectedActivityEntity ? (
           <ScheduleActivityDialog
             open={scheduleDialogOpen}
             onClose={closeSchedule}
@@ -736,7 +774,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           lossNotes={data.deal.lossNotes}
           stats={lostStats}
           onBackToPipeline={handleBackToPipeline}
-          onScheduleFollowUp={selectedActivityEntity ? handleScheduleLostFollowUp : undefined}
+          onScheduleFollowUp={canManageActivities && selectedActivityEntity ? handleScheduleLostFollowUp : undefined}
         />
       </PageBody>
     </Page>

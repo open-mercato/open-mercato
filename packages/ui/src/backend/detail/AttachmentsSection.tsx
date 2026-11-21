@@ -6,6 +6,7 @@ import { Button } from '../../primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
+import { buildAttachmentFileUrl } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { AttachmentVisualPreview, formatAttachmentFileSize } from './AttachmentVisualPreview'
 import { AttachmentDeleteDialog } from './AttachmentDeleteDialog'
@@ -32,6 +33,7 @@ type Props = {
   className?: string
   showHeader?: boolean
   compact?: boolean
+  readOnly?: boolean
   onChanged?: () => void
 }
 
@@ -43,6 +45,7 @@ function AttachmentsSectionImpl({
   className,
   showHeader = true,
   compact = false,
+  readOnly = false,
   onChanged,
 }: Props) {
   const t = useT()
@@ -253,7 +256,7 @@ function AttachmentsSectionImpl({
         </div>
       ) : null}
 
-      {!recordId ? (
+      {readOnly ? null : !recordId ? (
         <div className="rounded-md border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
           {t('attachments.library.upload.saveFirst', 'Save the record before uploading files.')}
         </div>
@@ -296,53 +299,68 @@ function AttachmentsSectionImpl({
           compact ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-5' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
         )}>
           {items.map((item) => {
+            const preview = (
+              <>
+                <AttachmentVisualPreview
+                  fileName={item.fileName}
+                  mimeType={item.mimeType}
+                  thumbnailUrl={item.thumbnailUrl}
+                  className={compact ? 'aspect-[2/1] w-full' : 'aspect-[4/3] w-full'}
+                />
+                <div className={cn('space-y-1 w-full', compact ? 'p-2' : 'p-3')}>
+                  <div className={cn('truncate font-medium', compact ? 'text-xs' : 'text-sm')} title={item.fileName}>
+                    {item.fileName}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatAttachmentFileSize(item.fileSize)}
+                  </div>
+                </div>
+              </>
+            )
             return (
               <div
                 key={item.id}
                 role="group"
                 className="group relative flex flex-col overflow-hidden rounded-lg border bg-card text-left transition-shadow hover:shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
               >
-                <Button
-                  type="button"
-                  variant="ghost"
-                  aria-label={item.fileName}
-                  onClick={() => openMetadataDialog(item)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      openMetadataDialog(item)
-                    }
-                  }}
-                  className="flex h-auto w-full flex-col items-stretch rounded-lg p-0 text-left hover:bg-transparent focus-visible:outline-none focus-visible:ring-0"
-                >
-                  <AttachmentVisualPreview
-                    fileName={item.fileName}
-                    mimeType={item.mimeType}
-                    thumbnailUrl={item.thumbnailUrl}
-                    className={compact ? 'aspect-[2/1] w-full' : 'aspect-[4/3] w-full'}
-                  />
-                  <div className={cn('space-y-1 w-full', compact ? 'p-2' : 'p-3')}>
-                    <div className={cn('truncate font-medium', compact ? 'text-xs' : 'text-sm')} title={item.fileName}>
-                      {item.fileName}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatAttachmentFileSize(item.fileSize)}
-                    </div>
-                  </div>
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-2 z-10 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    openDeleteDialog(item)
-                  }}
-                  aria-label={t('attachments.library.delete', 'Delete attachment')}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
+                {readOnly ? (
+                  <Button variant="ghost" asChild className="flex h-auto w-full flex-col items-stretch rounded-lg p-0 text-left hover:bg-transparent focus-visible:outline-none focus-visible:ring-0">
+                    <a href={buildAttachmentFileUrl(item.id, { download: true })} download>
+                      {preview}
+                    </a>
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      aria-label={item.fileName}
+                      onClick={() => openMetadataDialog(item)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          openMetadataDialog(item)
+                        }
+                      }}
+                      className="flex h-auto w-full flex-col items-stretch rounded-lg p-0 text-left hover:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+                    >
+                      {preview}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-2 top-2 z-10 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openDeleteDialog(item)
+                      }}
+                      aria-label={t('attachments.library.delete', 'Delete attachment')}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </>
+                )}
               </div>
             )
           })}
@@ -367,20 +385,24 @@ function AttachmentsSectionImpl({
         </div>
       ) : null}
 
-      <AttachmentMetadataDialog
-        open={metadataOpen}
-        onOpenChange={setMetadataOpen}
-        item={selectedItem}
-        availableTags={[]}
-        onSave={handleMetadataSave}
-      />
-      <AttachmentDeleteDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        fileName={deleteTarget?.fileName}
-        onConfirm={handleDelete}
-        isDeleting={false}
-      />
+      {!readOnly ? (
+        <>
+          <AttachmentMetadataDialog
+            open={metadataOpen}
+            onOpenChange={setMetadataOpen}
+            item={selectedItem}
+            availableTags={[]}
+            onSave={handleMetadataSave}
+          />
+          <AttachmentDeleteDialog
+            open={deleteOpen}
+            onOpenChange={setDeleteOpen}
+            fileName={deleteTarget?.fileName}
+            onConfirm={handleDelete}
+            isDeleting={false}
+          />
+        </>
+      ) : null}
     </div>
   )
 }
