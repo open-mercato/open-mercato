@@ -432,8 +432,19 @@ export default function TimeTrackingSettingsPage() {
         flash(t('staff.time_tracking.settings.retro.error', 'Failed to start the recalculation.'), 'error')
         return
       }
-      if (!call.result?.progressJobId) {
+      if (!call.result?.candidateCount) {
         flash(t('staff.time_tracking.settings.retro.nothing', 'There is nothing to recalculate.'), 'info')
+        return
+      }
+      if (!call.result.progressJobId) {
+        flash(
+          t(
+            'staff.time_tracking.settings.retro.queuedWithoutProgress',
+            'Recalculating rounded time on {count} entries in the background.',
+            { count: call.result.candidateCount },
+          ),
+          'success',
+        )
         return
       }
       flash(

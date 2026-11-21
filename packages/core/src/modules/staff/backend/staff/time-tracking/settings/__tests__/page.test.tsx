@@ -529,6 +529,22 @@ describe('time tracking settings page', () => {
     )
   })
 
+  it('reports the queued count without a progress bar when the progress module is disabled', async () => {
+    reapplyResponse = { ok: true, progressJobId: null, candidateCount: 1284 }
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('reapply-rounding'))
+
+    await waitFor(() =>
+      expect(mockFlash).toHaveBeenCalledWith(
+        'Recalculating rounded time on 1284 entries in the background.',
+        'success',
+      ),
+    )
+    expect(mockFlash).not.toHaveBeenCalledWith('There is nothing to recalculate.', 'info')
+  })
+
   it('degrades to a stated message when the impact preview fails', async () => {
     mockApiCall.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input)
