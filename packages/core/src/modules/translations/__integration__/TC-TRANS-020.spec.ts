@@ -1,230 +1,127 @@
-import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { login } from '@open-mercato/core/helpers/integration/auth'
-import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures'
+import { randomUUID } from 'node:crypto'
+import { expect, test } from '@playwright/test'
+import { apiRequest, getAuthToken, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
+import {
+  createRoleFixture,
+  createUserFixture,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
-import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { expectOperation, skipIfUndoTestsDisabled, undoByToken, undoOk } from '@open-mercato/core/helpers/integration/undoHarness'
-import { deleteTranslationIfExists, getLocales, setLocales } from './helpers/translationFixtures'
+import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { deleteTranslationIfExists } from './helpers/translationFixtures'
 
-type Translations = Record<string, Record<string, string | null>>
+const entityType = 'catalog:catalog_product'
 
-const ENTITY_TYPE = 'catalog:catalog_product'
-const CONFLICT_CODE = 'translations.errors.undoConflict'
-const CONFLICT_MESSAGE = 'These translations changed after the action you are undoing. Undo was refused.'
-const CONFLICT_MESSAGE_PL = 'Te tłumaczenia zmieniły się po akcji, którą próbujesz cofnąć. Cofnięcie zostało odrzucone.'
-const SECOND_PASSWORD = 'Valid1!Pass'
+export const integrationMeta = { dependsOnModules: ['auth', 'catalog', 'translations'] }
 
-function translationPath(productId: string): string {
-  return `/api/translations/${ENTITY_TYPE}/${productId}`
-}
-
-async function saveTranslations(
-  request: APIRequestContext,
-  token: string,
-  productId: string,
-  translations: Translations,
-) {
-  const response = await apiRequest(request, 'PUT', translationPath(productId), { token, data: translations })
-  expect(response.status(), 'translation save should succeed').toBe(200)
-  return expectOperation(response, `save translations for ${productId}`)
-}
-
-async function readTranslations(request: APIRequestContext, token: string, productId: string): Promise<Translations | null> {
-  const response = await apiRequest(request, 'GET', translationPath(productId), { token })
-  if (response.status() === 404) return null
-  expect(response.status(), 'translation read should succeed').toBe(200)
-  const body = await readJsonSafe<{ translations?: Translations }>(response)
-  return body?.translations ?? null
-}
-
-async function expectUndoConflict(request: APIRequestContext, token: string, undoToken: string): Promise<void> {
-  const response = await undoByToken(request, token, undoToken)
-  const body = await readJsonSafe<{ error?: string; code?: string }>(response)
-  expect(response.status(), `stale undo should be refused, got ${JSON.stringify(body)}`).toBe(409)
-  expect(body?.code).toBe(CONFLICT_CODE)
-}
-
-async function expectLocalizedUndoConflict(request: APIRequestContext, token: string, undoToken: string): Promise<void> {
-  const response = await apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/undo', {
-    token,
-    data: { undoToken },
-    headers: { 'Accept-Language': 'pl' },
-  })
-  const body = await readJsonSafe<{ error?: string; code?: string }>(response)
-  expect(response.status(), `stale undo should be refused, got ${JSON.stringify(body)}`).toBe(409)
-  expect(body?.code).toBe(CONFLICT_CODE)
-  expect(body?.error, 'the refusal is localized').toBe(CONFLICT_MESSAGE_PL)
-}
-
-async function createSecondOperator(
-  request: APIRequestContext,
-  adminToken: string,
-  label: string,
-): Promise<{ userId: string; token: string }> {
-  const email = `tc-trans-020-${label}-${Date.now()}@example.com`
-  const userId = await createUserFixture(request, adminToken, {
-    email,
-    password: SECOND_PASSWORD,
-    organizationId: getTokenScope(adminToken).organizationId,
-    roles: ['admin'],
-  })
-  try {
-    return { userId, token: await getAuthToken(request, email, SECOND_PASSWORD) }
-  } catch (error) {
-    await deleteUserIfExists(request, adminToken, userId)
-    throw error
-  }
-}
-
-function escapeForRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-async function selectTranslationRecord(page: Page, recordId: string): Promise<void> {
-  const entityInput = page.getByPlaceholder('Select an entity')
-  await expect(entityInput).toBeEnabled({ timeout: 10_000 })
-  await entityInput.click()
-  await page.getByRole('option', { name: new RegExp(`\\b${escapeForRegex(ENTITY_TYPE)}$`) }).click()
-  const recordInput = page.getByPlaceholder('Search records...')
-  await expect(recordInput).toBeEnabled({ timeout: 10_000 })
-  await recordInput.fill(recordId)
-  await recordInput.press('Enter')
-}
-
-async function firstTranslationField(root: Locator): Promise<Locator> {
-  const fields = root.locator('table').locator('input, textarea')
-  await expect.poll(async () => fields.count(), { timeout: 45_000 }).toBeGreaterThan(0)
-  const field = fields.first()
-  await expect(field).toBeEnabled()
-  return field
-}
-
-/**
- * TC-TRANS-020: translation undo never discards a later edit by another operator.
- *
- * The undo route only offers each actor their own latest action, so operator A can still undo
- * an older translation save or delete after operator B changed the same record. That undo must
- * be refused with a translated 409 and keep B's translations; once B's change is undone, A's
- * token works again.
- */
-test.describe('TC-TRANS-020: translation undo keeps later edits by another operator', () => {
-  test.beforeEach(() => {
-    skipIfUndoTestsDisabled()
-  })
-
-  test('refuses to undo a save that another operator saved over', async ({ request }) => {
+test.describe('TC-TRANS-020: translation target authorization and fields', () => {
+  test('requires target permissions even when the caller has translation grants', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
-    const stamp = Date.now()
+    const { tenantId, organizationId } = getTokenContext(adminToken)
+    const stamp = randomUUID()
+    const email = `translation-role-${stamp}@example.com`
+    const password = `Translation1!${randomUUID()}`
+    const translations = { de: { title: `Lokalisierter Artikel ${stamp}` } }
     let productId: string | null = null
-    let secondUserId: string | null = null
+    let roleId: string | null = null
+    let userId: string | null = null
+
     try {
-      productId = await createProductFixture(request, adminToken, { title: `QA TC-TRANS-020-1 ${stamp}`, sku: `QA-TRANS-020-1-${stamp}` })
-      const second = await createSecondOperator(request, adminToken, 'save')
-      secondUserId = second.userId
+      productId = await createProductFixture(request, adminToken, {
+        title: `Translation permission check ${stamp}`,
+        sku: `QA-TRANS-${stamp}`,
+      })
+      const route = `/api/translations/${entityType}/${productId}`
+      const saved = await apiRequest(request, 'PUT', route, { token: adminToken, data: translations })
+      expect(saved.status()).toBe(200)
 
-      await saveTranslations(request, adminToken, productId, { en: { title: 'Shoe' } })
-      const firstUpdate = await saveTranslations(request, adminToken, productId, { en: { title: 'Sneaker' } })
-      const secondSave = await saveTranslations(request, second.token, productId, {
-        en: { title: 'Sneaker' },
-        fr: { title: 'Baskets' },
+      roleId = await createRoleFixture(request, adminToken, { name: `translation-role-${stamp}`, tenantId })
+      await setRoleAclFeatures(request, adminToken, {
+        roleId,
+        features: ['translations.view', 'translations.manage'],
+        organizations: [organizationId],
+      })
+      userId = await createUserFixture(request, adminToken, { email, password, organizationId, roles: [roleId] })
+
+      await withCredentialIsolatedRequest(async (isolatedRequest) => {
+        const token = await getAuthToken(isolatedRequest, email, password)
+        const locales = await apiRequest(isolatedRequest, 'GET', '/api/translations/locales', { token })
+        expect(locales.status()).toBe(200)
+
+        const read = await apiRequest(isolatedRequest, 'GET', route, { token })
+        expect(read.status()).toBe(403)
+        const save = await apiRequest(isolatedRequest, 'PUT', route, { token, data: translations })
+        expect(save.status()).toBe(403)
+        const remove = await apiRequest(isolatedRequest, 'DELETE', route, { token })
+        expect(remove.status()).toBe(403)
       })
 
-      await expectUndoConflict(request, adminToken, firstUpdate.undoToken)
-      await expectLocalizedUndoConflict(request, adminToken, firstUpdate.undoToken)
-      expect(await readTranslations(request, adminToken, productId)).toEqual({
-        en: { title: 'Sneaker' },
-        fr: { title: 'Baskets' },
-      })
-
-      await undoOk(request, second.token, secondSave.undoToken, 'second operator save')
-      await undoOk(request, adminToken, firstUpdate.undoToken, 'first operator update after the newer save was undone')
-      expect(await readTranslations(request, adminToken, productId)).toEqual({ en: { title: 'Shoe' } })
+      const result = await apiRequest(request, 'GET', route, { token: adminToken })
+      expect(result.status()).toBe(200)
+      await expect(result.json()).resolves.toMatchObject({ entityId: productId, translations })
     } finally {
-      await deleteTranslationIfExists(request, adminToken, ENTITY_TYPE, productId)
-      await deleteUserIfExists(request, adminToken, secondUserId)
+      await deleteTranslationIfExists(request, adminToken, entityType, productId)
       await deleteCatalogProductIfExists(request, adminToken, productId)
+      await deleteUserIfExists(request, adminToken, userId)
+      await deleteRoleIfExists(request, adminToken, roleId)
     }
   })
 
-  test('refuses to undo a delete after another operator saved new translations', async ({ request }) => {
-    const adminToken = await getAuthToken(request, 'admin')
-    const stamp = Date.now()
+  test('validates the target and localizes a registered field in lists and view exports', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = randomUUID()
+    const sku = `QA-TRANS-${stamp}`
+    const title = `Localization fixture ${stamp}`
+    const translatedTitle = `Lokalisierter Artikel ${stamp}`
+    const translations = { de: { title: translatedTitle } }
     let productId: string | null = null
-    let secondUserId: string | null = null
+
     try {
-      productId = await createProductFixture(request, adminToken, { title: `QA TC-TRANS-020-2 ${stamp}`, sku: `QA-TRANS-020-2-${stamp}` })
-      const second = await createSecondOperator(request, adminToken, 'delete')
-      secondUserId = second.userId
+      productId = await createProductFixture(request, token, { title, sku })
+      const route = `/api/translations/${entityType}/${productId}`
 
-      await saveTranslations(request, adminToken, productId, { en: { title: 'Shoe' } })
-      const deleteResponse = await apiRequest(request, 'DELETE', translationPath(productId), { token: adminToken })
-      expect(deleteResponse.status(), 'translation delete should succeed').toBe(204)
-      const deleteOperation = expectOperation(deleteResponse, `delete translations for ${productId}`)
-      const secondSave = await saveTranslations(request, second.token, productId, { de: { title: 'Schuh' } })
-
-      await expectUndoConflict(request, adminToken, deleteOperation.undoToken)
-      expect(await readTranslations(request, adminToken, productId)).toEqual({ de: { title: 'Schuh' } })
-
-      await undoOk(request, second.token, secondSave.undoToken, 'second operator save')
-      await undoOk(request, adminToken, deleteOperation.undoToken, 'first operator delete after the newer save was undone')
-      expect(await readTranslations(request, adminToken, productId)).toEqual({ en: { title: 'Shoe' } })
-    } finally {
-      await deleteTranslationIfExists(request, adminToken, ENTITY_TYPE, productId)
-      await deleteUserIfExists(request, adminToken, secondUserId)
-      await deleteCatalogProductIfExists(request, adminToken, productId)
-    }
-  })
-
-  test('shows the conflict when the undo banner would discard another operator edit', async ({ page, request }) => {
-    test.slow()
-    const adminToken = await getAuthToken(request, 'admin')
-    const originalLocales = await getLocales(request, adminToken)
-    const stamp = Date.now()
-    let productId: string | null = null
-    let secondUserId: string | null = null
-    try {
-      await setLocales(request, adminToken, [...new Set([...originalLocales, 'de'])])
-      productId = await createProductFixture(request, adminToken, { title: `QA TC-TRANS-020-3 ${stamp}`, sku: `QA-TRANS-020-3-${stamp}` })
-      const second = await createSecondOperator(request, adminToken, 'ui')
-      secondUserId = second.userId
-
-      await login(page, 'admin')
-      await page.goto('/backend/config/translations')
-      await selectTranslationRecord(page, productId)
-      const managerCard = page.locator('.bg-card').filter({
-        has: page.getByRole('button', { name: 'Save translations' }),
+      const save = await apiRequest(request, 'PUT', route, { token, data: translations })
+      expect(save.status()).toBe(200)
+      const invalidField = await apiRequest(request, 'PUT', route, {
+        token, data: { de: { title: 'Alternate title', marketingCaption: 'Supplementary text' } },
       })
-      await managerCard.getByRole('tab', { name: 'DE' }).click()
-      const field = await firstTranslationField(managerCard)
-      await field.click()
-      await page.keyboard.type('Deutscher Titel QA')
-      await expect.poll(async () => field.inputValue()).toBe('Deutscher Titel QA')
+      expect(invalidField.status()).toBe(400)
 
-      const encodedPath = `/api/translations/${encodeURIComponent(ENTITY_TYPE)}/${productId}`
-      const saveResponse = page.waitForResponse((response) =>
-        response.request().method() === 'PUT' && response.url().includes(encodedPath),
-      )
-      await page.getByRole('button', { name: 'Save translations' }).click()
-      expect((await saveResponse).ok()).toBeTruthy()
-      await expect(page.getByText('Translations saved').first()).toBeVisible()
+      const unregisteredRoute = `/api/translations/catalog:unregistered_translation_target/${productId}`
+      const invalidSave = await apiRequest(request, 'PUT', unregisteredRoute, { token, data: translations })
+      expect(invalidSave.status()).toBe(400)
+      const invalidDelete = await apiRequest(request, 'DELETE', unregisteredRoute, { token })
+      expect(invalidDelete.status()).toBe(400)
 
-      const saved = await readTranslations(request, adminToken, productId)
-      expect(saved).toBeTruthy()
-      const newer = { ...(saved as Translations), fr: { title: 'Titre QA' } }
-      await saveTranslations(request, second.token, productId, newer)
+      const missingOwner = await apiRequest(request, 'PUT', `/api/translations/${entityType}/${randomUUID()}`, {
+        token, data: translations,
+      })
+      expect(missingOwner.status()).toBe(404)
+      const result = await apiRequest(request, 'GET', route, { token })
+      expect(result.status()).toBe(200)
+      await expect(result.json()).resolves.toMatchObject({ entityId: productId, translations })
 
-      const undoButton = page.getByRole('button', { name: /^Undo(?: last action)?$/ })
-      await expect(undoButton).toBeVisible()
-      await undoButton.click()
+      const listRoute = `/api/catalog/products?id=${productId}&locale=de`
+      const list = await apiRequest(request, 'GET', listRoute, { token })
+      expect(list.status()).toBe(200)
+      await expect(list.json()).resolves.toMatchObject({
+        items: [{ id: productId, sku, title: translatedTitle }],
+      })
 
-      await expect(page.getByText(CONFLICT_MESSAGE).first()).toBeVisible()
-      expect(await readTranslations(request, adminToken, productId)).toEqual(newer)
+      const exported = await apiRequest(request, 'GET', `${listRoute}&format=csv&exportScope=view`, { token })
+      expect(exported.status()).toBe(200)
+      expect(exported.headers()['content-type']).toContain('text/csv')
+      const csv = await exported.text()
+      expect(csv).toContain(translatedTitle)
+      expect(csv).toContain(sku)
+
+      const remove = await apiRequest(request, 'DELETE', route, { token })
+      expect(remove.status()).toBe(204)
     } finally {
-      await deleteTranslationIfExists(request, adminToken, ENTITY_TYPE, productId)
-      await deleteUserIfExists(request, adminToken, secondUserId)
-      await deleteCatalogProductIfExists(request, adminToken, productId)
-      await setLocales(request, adminToken, originalLocales).catch(() => {})
+      await deleteTranslationIfExists(request, token, entityType, productId)
+      await deleteCatalogProductIfExists(request, token, productId)
     }
   })
 })

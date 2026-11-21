@@ -1,242 +1,89 @@
 import { expect, test } from '@playwright/test'
-import {
-  createAdminApiToken,
-  createUserFixture,
-  deleteUserFixture,
-  enrollOtpEmail,
-  fetchJson,
-  loginViaApi,
-} from './helpers/securityFixtures'
+import { enrollTotp, fetchJson } from './helpers/securityFixtures'
+import { createIsolatedMfaSudoFixture, verifyTotpSudoChallenge } from './helpers/sudoFixtures'
 
-// Positive path (admin + target/control users) is intentionally same-tenant: every
-// fixture user is created with the same admin token, so the tenant-ownership guard
-// added for issue #2612 passes and the 200 assertions below remain valid.
-// The cross-tenant negative case (tenant-A admin -> tenant-B user => 404, and
-// foreign-tenant compliance => 403) is covered by the route/service unit tests
-// (mfa-status.route.test.ts, mfa-reset.route.test.ts, mfa-compliance.route.test.ts,
-// MfaAdminService.test.ts) because this harness does not provision a second tenant.
+type MfaStatus = {
+  enrolled: boolean
+  methods: Array<{ id: string; type: string }>
+  recoveryCodesRemaining: number
+}
+
 test.describe('TC-SEC-007: Admin MFA reset and status reporting', () => {
-  let adminToken: string
-  let targetUserId: string | null = null
-  let controlUserId: string | null = null
+  let fixture: Awaited<ReturnType<typeof createIsolatedMfaSudoFixture>> | undefined
 
   test.beforeAll(async ({ request }) => {
-    adminToken = await createAdminApiToken(request)
-
-    const targetUser = await createUserFixture(request, adminToken)
-    const controlUser = await createUserFixture(request, adminToken)
-    targetUserId = targetUser.id
-    controlUserId = controlUser.id
-
-    const targetLogin = await fetchJson<{ token: string }>(
-      request,
-      'POST',
-      '/api/auth/login',
-      {
-        token: adminToken,
-        headers: {
-          'content-type': 'application/x-www-form-urlencoded',
-        },
-        data: undefined,
-      },
-    ).catch(async () => {
-      return null
-    })
-
-    void targetLogin
+    fixture = await createIsolatedMfaSudoFixture(request)
+    await enrollTotp(request, fixture.target.token)
+    await enrollTotp(request, fixture.control.token)
   })
 
   test.afterAll(async ({ request }) => {
-    await deleteUserFixture(request, adminToken ?? null, targetUserId)
-    await deleteUserFixture(request, adminToken ?? null, controlUserId)
+    await fixture?.cleanup(request)
   })
 
-  // This test stops at the unconditional `test.skip` mid-body: the sudo-gated admin reset and
-  // post-reset status assertions after it need a genuine WebAuthn assertion and are unreachable
-  // until #5307 lands a virtual authenticator. They stay in place as the blueprint for that work.
-  // Everything above the skip runs and can still fail.
-  test('reports user MFA status, enforces sudo for reset, and leaves unrelated users unchanged', async ({ request }) => {
-    const targetUser = await createUserFixture(request, adminToken, { password: 'Valid1!Pass' })
-    await deleteUserFixture(request, adminToken ?? null, targetUserId)
-    targetUserId = targetUser.id
-
-    const controlUser = await createUserFixture(request, adminToken, { password: 'Valid1!Pass' })
-    await deleteUserFixture(request, adminToken ?? null, controlUserId)
-    controlUserId = controlUser.id
-
-    const targetLogin = await loginViaApi(request, targetUser.email, targetUser.password)
-    const controlLogin = await loginViaApi(request, controlUser.email, controlUser.password)
-
-    await enrollOtpEmail(request, targetLogin.token)
-
-    const statusBeforeReset = await fetchJson<{
-      enrolled: boolean
-      methods: Array<{ type: string }>
-      recoveryCodesRemaining: number
-      compliant: boolean
-    }>(
-      request,
-      'GET',
-      `/api/security/users/${targetUserId}/mfa/status`,
-      { token: adminToken },
+  test('resets only the selected user after MFA step-up and rejects invalid requests', async ({ request }) => {
+    if (!fixture) throw new Error('[internal] Sudo fixture was not initialized')
+    const { token, secret, target, control } = fixture
+    const status = (userId: string) => fetchJson<MfaStatus>(
+      request, 'GET', `/api/security/users/${userId}/mfa/status`, { token },
     )
-    test.skip(
-      statusBeforeReset.status === 403,
-      'The seeded admin account in this workspace does not have security.admin.manage access, so the admin-reset scenario cannot run here.',
-    )
-    expect(statusBeforeReset.status).toBe(200)
-    expect(statusBeforeReset.body.enrolled).toBe(true)
-    expect(statusBeforeReset.body.methods.map((method) => method.type)).toContain('otp_email')
+    const before = await status(target.id)
+    expect(before.status).toBe(200)
+    expect(before.body.enrolled).toBe(true)
+    expect(before.body.methods.map((method) => method.type)).toEqual(['totp'])
+    const controlBefore = await status(control.id)
+    expect(controlBefore.status).toBe(200)
+    expect(controlBefore.body.enrolled).toBe(true)
 
-    const complianceResponse = await fetchJson<{ items: Array<{ userId: string; enrolled: boolean }> }>(
-      request,
-      'GET',
-      '/api/security/users/mfa/compliance',
-      { token: adminToken },
+    const compliance = await fetchJson<{ items: Array<{ userId: string; enrolled: boolean }> }>(
+      request, 'GET', '/api/security/users/mfa/compliance', { token },
     )
-    expect(complianceResponse.status).toBe(200)
-    expect(complianceResponse.body.items.some((item) => item.userId === targetUserId && item.enrolled)).toBe(true)
-
-    const invalidStatus = await fetchJson<{ error?: string }>(
-      request,
-      'GET',
-      '/api/security/users/not-a-uuid/mfa/status',
-      { token: adminToken },
-    )
+    expect(compliance.status).toBe(200)
+    expect(compliance.body.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: target.id, enrolled: true }),
+      expect.objectContaining({ userId: control.id, enrolled: true }),
+    ]))
+    const invalidStatus = await status('not-a-uuid')
     expect(invalidStatus.status).toBe(400)
+    const resetPath = `/api/security/users/${target.id}/mfa/reset`
+    const missingSudo = await fetchJson<{ error?: string }>(request, 'POST', resetPath, {
+      token, data: { reason: 'TC-SEC-007 missing sudo' },
+    })
+    expect(missingSudo.status).toBe(403)
+    expect(missingSudo.body.error).toBe('sudo_required')
 
-    const resetWithoutSudo = await fetchJson<{ error?: string }>(
-      request,
-      'POST',
-      `/api/security/users/${targetUserId}/mfa/reset`,
-      {
-        token: adminToken,
-        data: { reason: 'TC-SEC-007 missing sudo' },
-      },
-    )
-    expect(resetWithoutSudo.status).toBe(403)
-    expect(resetWithoutSudo.body.error).toBe('sudo_required')
+    const sudo = await verifyTotpSudoChallenge(request, {
+      token, secret, targetIdentifier: 'security.admin.mfa.reset',
+    })
+    const invalidSudo = await fetchJson<{ error?: string }>(request, 'POST', resetPath, {
+      token,
+      headers: { 'x-sudo-token': `${sudo.sudoToken}-invalid` },
+      data: { reason: 'TC-SEC-007 invalid sudo' },
+    })
+    expect(invalidSudo.status).toBe(403)
+    expect(invalidSudo.body.error).toBe('sudo_required')
+    const emptyReason = await fetchJson(request, 'POST', resetPath, {
+      token, headers: { 'x-sudo-token': sudo.sudoToken as string }, data: { reason: '' },
+    })
+    expect(emptyReason.status).toBe(400)
+    const unchanged = await status(target.id)
+    expect(unchanged.status).toBe(200)
+    expect(unchanged.body).toEqual(before.body)
 
-    const adminMethods = await fetchJson<{
-      methods: Array<{ type: string; providerMetadata?: Record<string, unknown> | null }>
-    }>(
-      request,
-      'GET',
-      '/api/security/mfa/methods',
-      { token: adminToken },
-    )
-    const passkeyMethod = adminMethods.body.methods.find((method) => method.type === 'passkey')
-    test.skip(!passkeyMethod, 'This environment needs an admin passkey method to complete sudo-gated reset coverage.')
-
-    const sudoSession = await fetchJson<{ sessionId?: string; method?: string }>(
-      request,
-      'POST',
-      '/api/security/sudo',
-      {
-        token: adminToken,
-        data: {
-          targetIdentifier: 'security.admin.mfa.reset',
-        },
-      },
-    )
-    expect(sudoSession.status).toBe(200)
-    expect(sudoSession.body.method).toBe('mfa')
-
-    const sudoPrepared = await fetchJson<{ clientData?: { challenge?: string } }>(
-      request,
-      'POST',
-      '/api/security/sudo/prepare',
-      {
-        token: adminToken,
-        data: {
-          sessionId: sudoSession.body.sessionId,
-          methodType: 'passkey',
-        },
-      },
-    )
-    expect(sudoPrepared.status).toBe(200)
-
-    const sudoVerify = await fetchJson<{ sudoToken?: string }>(
-      request,
-      'POST',
-      '/api/security/sudo/verify',
-      {
-        token: adminToken,
-        data: {
-          sessionId: sudoSession.body.sessionId,
-          targetIdentifier: 'security.admin.mfa.reset',
-          methodType: 'passkey',
-          payload: {
-            credentialId: passkeyMethod?.providerMetadata?.credentialId,
-            challenge: sudoPrepared.body.clientData?.challenge,
-          },
-        },
-      },
-    )
-    expect(sudoVerify.status).toBe(401)
-    expect(sudoVerify.body.sudoToken).toBeFalsy()
-
-    test.skip(
-      true,
-      'Passkey sudo step-up requires a genuine WebAuthn assertion (#3852), which no API-level fixture can produce; the sudo-gated admin reset coverage below needs a Playwright virtual authenticator.',
-    )
-
-    const resetWithSudo = await fetchJson<{ ok?: boolean }>(
-      request,
-      'POST',
-      `/api/security/users/${targetUserId}/mfa/reset`,
-      {
-        token: adminToken,
-        headers: {
-          'x-sudo-token': sudoVerify.body.sudoToken as string,
-        },
-        data: { reason: 'TC-SEC-007 confirmed admin reset' },
-      },
-    )
-    expect(resetWithSudo.status).toBe(200)
-    expect(resetWithSudo.body.ok).toBe(true)
-
-    const statusAfterReset = await fetchJson<{
-      enrolled: boolean
-      methods: Array<{ type: string }>
-      recoveryCodesRemaining: number
-    }>(
-      request,
-      'GET',
-      `/api/security/users/${targetUserId}/mfa/status`,
-      { token: adminToken },
-    )
-    expect(statusAfterReset.status).toBe(200)
-    expect(statusAfterReset.body.enrolled).toBe(false)
-    expect(statusAfterReset.body.methods).toHaveLength(0)
-
-    const controlStatus = await fetchJson<{
-      enrolled: boolean
-      methods: Array<{ type: string }>
-    }>(
-      request,
-      'GET',
-      `/api/security/users/${controlUserId}/mfa/status`,
-      { token: adminToken },
-    )
-    expect(controlStatus.status).toBe(200)
-    expect(controlStatus.body.enrolled).toBe(false)
-    expect(controlStatus.body.methods).toHaveLength(0)
-
-    const emptyReasonReset = await fetchJson<{ error?: string }>(
-      request,
-      'POST',
-      `/api/security/users/${controlUserId}/mfa/reset`,
-      {
-        token: adminToken,
-        headers: {
-          'x-sudo-token': sudoVerify.body.sudoToken as string,
-        },
-        data: { reason: '' },
-      },
-    )
-    expect(emptyReasonReset.status).toBe(400)
-
-    expect(controlLogin.token).toBeTruthy()
+    const reset = await fetchJson<{ ok?: boolean }>(request, 'POST', resetPath, {
+      token,
+      headers: { 'x-sudo-token': sudo.sudoToken as string },
+      data: { reason: 'TC-SEC-007 confirmed reset' },
+    })
+    expect(reset.status).toBe(200)
+    expect(reset.body.ok).toBe(true)
+    const after = await status(target.id)
+    expect(after.status).toBe(200)
+    expect(after.body.enrolled).toBe(false)
+    expect(after.body.methods).toEqual([])
+    expect(after.body.recoveryCodesRemaining).toBe(0)
+    const controlAfter = await status(control.id)
+    expect(controlAfter.status).toBe(200)
+    expect(controlAfter.body).toEqual(controlBefore.body)
   })
 })
