@@ -27,6 +27,8 @@ import { fetchStuckDealIds } from '../../lib/stuckDeals'
 import { expandDealStatusAliases } from '../../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { withExactAmounts } from '@open-mercato/shared/lib/decimal'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('customers')
 
@@ -588,46 +590,63 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
     // to a misleading value. Association filtering happens pre-pagination in `buildFilters`
     // via `fetchDealIdsMatchingAssociations`.
     afterList: async (payload, ctx) => {
-      const items = Array.isArray(payload.items) ? payload.items : []
+      const items: unknown[] = Array.isArray(payload.items) ? payload.items : []
       if (!items.length) return
-      const scopeSource = (items[0] ?? {}) as Record<string, unknown>
-      const tenantIdRaw = scopeSource.tenantId ?? scopeSource.tenant_id
-      const fallbackTenantId = (typeof tenantIdRaw === 'string' && tenantIdRaw.trim().length ? tenantIdRaw : null) ?? ctx.auth?.tenantId ?? null
-      const orgIdRaw = scopeSource.organizationId ?? scopeSource.organization_id
-      const fallbackOrganizationId = (typeof orgIdRaw === 'string' && orgIdRaw.trim().length ? orgIdRaw : null) ?? ctx.auth?.orgId ?? null
-      const ids = items
-        .map((item: unknown) => {
-          if (!item || typeof item !== 'object') return null
-          const candidate = (item as Record<string, unknown>).id
-          return typeof candidate === 'string' && candidate.trim().length ? candidate : null
-        })
-        .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
-      if (!ids.length) {
-        payload.items = []
+      const rows = items.flatMap((item: unknown) => {
+        if (!item || typeof item !== 'object') return []
+        const data = item as Record<string, unknown>
+        if (typeof data.id !== 'string' || !data.id.trim()) return []
+        const tenant = data.tenant_id ?? data.tenantId
+        const organization = data.organization_id ?? data.organizationId
+        return [{
+          ...data,
+          id: data.id,
+          tenantId: typeof tenant === 'string' ? tenant.trim() || null : null,
+          organizationId: typeof organization === 'string' ? organization.trim() || null : null,
+          people: [],
+          personIds: [],
+          companies: [],
+          companyIds: [],
+        }]
+      })
+      payload.items = rows
+      if (!rows.length) {
         payload.total = 0
         return
       }
+      const actorId = ctx.auth?.sub
+      if (!actorId) return
+
+      const groups = new Map<string, { tenantId: string; organizationId: string; ids: string[] }>()
+      for (const { id, tenantId, organizationId } of rows) {
+        if (!tenantId || !organizationId) continue
+        const key = `${tenantId}:${organizationId}`
+        const group = groups.get(key)
+        if (group) group.ids.push(id)
+        else groups.set(key, { tenantId, organizationId, ids: [id] })
+      }
       try {
-        const em = (ctx.container.resolve('em') as EntityManager)
-        const [allPersonLinks, allCompanyLinks] = await Promise.all([
-          findWithDecryption(
-            em,
-            CustomerDealPersonLink,
-            { deal: { $in: ids } },
-            { populate: ['person'] },
-            { tenantId: fallbackTenantId, organizationId: fallbackOrganizationId },
-          ),
-          findWithDecryption(
-            em,
-            CustomerDealCompanyLink,
-            { deal: { $in: ids } },
-            { populate: ['company'] },
-            { tenantId: fallbackTenantId, organizationId: fallbackOrganizationId },
-          ),
-        ])
+        const em = ctx.container.resolve<EntityManager>('em')
+        const rbac = ctx.container.resolve<RbacService>('rbacService')
+        const associations = await Promise.all(Array.from(groups.values(), async ({ tenantId, organizationId, ids }) => {
+          const scope = { tenantId, organizationId }
+          const where = { deal: { id: { $in: ids }, ...scope } }
+          const [canViewPeople, canViewCompanies] = await Promise.all([
+            rbac.userHasAllFeatures(actorId, ['customers.people.view'], scope),
+            rbac.userHasAllFeatures(actorId, ['customers.companies.view'], scope),
+          ])
+          return Promise.all([
+            canViewPeople
+              ? findWithDecryption(em, CustomerDealPersonLink, where, { populate: ['person'] }, scope)
+              : [],
+            canViewCompanies
+              ? findWithDecryption(em, CustomerDealCompanyLink, where, { populate: ['company'] }, scope)
+              : [],
+          ])
+        }))
 
         const personAssignments = new Map<string, { id: string; label: string }[]>()
-        allPersonLinks.forEach((link) => {
+        associations.flatMap(([people]) => people).forEach((link) => {
           const deal = link.deal
           const dealRecord = deal && typeof deal === 'object' ? deal as unknown as Record<string, unknown> : null
           const dealId = typeof deal === 'string' ? deal
@@ -651,7 +670,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
         })
 
         const companyAssignments = new Map<string, { id: string; label: string }[]>()
-        allCompanyLinks.forEach((link) => {
+        associations.flatMap(([, companies]) => companies).forEach((link) => {
           const deal = link.deal
           const dealRecord = deal && typeof deal === 'object' ? deal as unknown as Record<string, unknown> : null
           const dealId = typeof deal === 'string' ? deal
@@ -674,59 +693,28 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
           }
         })
 
-        const enhancedItems = items
-          .map((item: unknown) => {
-            if (!item || typeof item !== 'object') return null
-            const data = item as Record<string, unknown>
-            const candidate = typeof data.id === 'string' ? data.id : null
-            if (!candidate || !candidate.trim().length) return null
-            const people = personAssignments.get(candidate) ?? []
-            const companies = companyAssignments.get(candidate) ?? []
-            const tenantIdRaw =
-              typeof data.tenantId === 'string'
-                ? data.tenantId
-                : typeof data.tenant_id === 'string'
-                  ? data.tenant_id
-                  : null
-            const organizationIdRaw =
-              typeof data.organizationId === 'string'
-                ? data.organizationId
-                : typeof data.organization_id === 'string'
-                  ? data.organization_id
-                  : null
-            const tenantId = tenantIdRaw && tenantIdRaw.trim().length ? tenantIdRaw.trim() : null
-            const organizationId = organizationIdRaw && organizationIdRaw.trim().length ? organizationIdRaw.trim() : null
-            return {
-              ...data,
-              personIds: people.map((entry) => entry.id),
-              people,
-              companyIds: companies.map((entry) => entry.id),
-              companies,
-              tenantId,
-              organizationId,
-            }
-          })
-          .filter(
-            (item: Record<string, unknown> | null): item is Record<string, unknown> => item !== null,
-          )
-
-        payload.items = enhancedItems
+        payload.items = rows.map((row) => {
+          const people = personAssignments.get(row.id) ?? []
+          const companies = companyAssignments.get(row.id) ?? []
+          return {
+            ...row,
+            personIds: people.map((entry) => entry.id),
+            people,
+            companyIds: companies.map((entry) => entry.id),
+            companies,
+          }
+        })
       } catch (err) {
         // We swallow rather than fail the request because the kanban is still useful without
         // people/companies labels (cards just lose their company pill). Tag every item with
         // `_associations: { ok: false }` so a future surface can render a degraded-state hint
         // instead of silently showing cards without company badges.
         logger.warn('failed to decorate items with person/company links', { component: 'deals', err })
-        payload.items = items.map((item: unknown) => {
-          if (!item || typeof item !== 'object') return item
-          return {
-            ...(item as Record<string, unknown>),
-            _associations: {
-              ok: false,
-              reason: err instanceof Error ? err.message : 'unknown',
-            },
-          }
-        })
+        reportTelemetryError(err, { module: 'customers', code: 'customers.deals.associations' })
+        payload.items = rows.map((row) => ({
+          ...row,
+          _associations: { ok: false, reason: 'unavailable' },
+        }))
       }
     },
   },

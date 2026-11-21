@@ -16,6 +16,7 @@ import {
   CustomerPipelineStage,
 } from '../../../data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
@@ -53,6 +54,13 @@ type DealAssociation = {
   subtitle: string | null
   kind: 'person' | 'company'
   isPrimary?: boolean
+}
+
+function collectLinkedIds(refs: Array<CustomerEntity | string | null | undefined>): string[] {
+  const ids = refs
+    .map((ref) => typeof ref === 'string' ? ref : ref?.id)
+    .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+  return Array.from(new Set(ids))
 }
 
 function normalizePersonAssociation(entity: CustomerEntity): { label: string; subtitle: string | null } {
@@ -374,15 +382,17 @@ function buildDealDetailCacheKey(params: {
   scopeSignature: string
   view: 'full' | 'lite'
   includeKey: string
+  relatedAccess: string
 }): string {
   return [
-    'customers:deal:detail',
+    'customers:deal:detail:v2',
     `tenant=${params.tenantId ?? 'null'}`,
     `org=${params.organizationId ?? 'null'}`,
     `deal=${params.dealId}`,
     `scope=${params.scopeSignature}`,
     `view=${params.view}`,
     `include=${params.includeKey}`,
+    `related=${params.relatedAccess}`,
   ].join(':')
 }
 
@@ -405,7 +415,6 @@ export async function GET(request: Request, context: { params?: Record<string, u
   const includeFlags = readIncludeFlags(request)
   const viewMode = readViewMode(request)
   const liteView = viewMode === 'lite'
-  const includeStages = includeFlags.has('stages')
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(request)
   if (!auth?.sub && !auth?.isApiKey) {
@@ -424,9 +433,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     em,
     CustomerDeal,
     { id: parsedParams.data.id, deletedAt: null },
-    {
-      populate: ['people.person', 'people.person.personProfile', 'companies.company', 'companies.company.companyProfile'],
-    },
+    {},
     { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
   )
   if (!deal) {
@@ -452,6 +459,19 @@ export async function GET(request: Request, context: { params?: Record<string, u
     tenantId: deal.tenantId ?? auth.tenantId ?? null,
     organizationId: deal.organizationId ?? auth.orgId ?? null,
   }
+  const actorId = auth.sub
+  const recordScope = { tenantId: deal.tenantId, organizationId: deal.organizationId }
+  const rbac = actorId && recordScope.tenantId && recordScope.organizationId
+    ? container.resolve<RbacService>('rbacService')
+    : null
+  const [canViewPeople, canViewCompanies, canViewPipeline] = actorId && rbac
+    ? await Promise.all([
+        rbac.userHasAllFeatures(actorId, ['customers.people.view'], recordScope),
+        rbac.userHasAllFeatures(actorId, ['customers.companies.view'], recordScope),
+        rbac.userHasAllFeatures(actorId, ['customers.pipelines.view'], recordScope),
+      ])
+    : [false, false, false]
+  const includeStages = canViewPipeline && includeFlags.has('stages')
 
   const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
   const resolveViewer = async (): Promise<{ name: string | null; email: string | null }> => {
@@ -472,11 +492,9 @@ export async function GET(request: Request, context: { params?: Record<string, u
   }
 
   // Opt-in detail cache (ENABLE_CRUD_API_CACHE). The lookup runs after the deal is
-  // resolved and the tenant + organization read-access checks pass, so the cache
-  // only ever memoizes a payload this caller is already authorized to see; it then
-  // skips the heavy association / custom-field / pipeline-stage / dictionary /
-  // audit-fallback sweeps below. The viewer block is request-specific, so it is
-  // excluded from the cached value and always resolved fresh.
+  // resolved and both organization access and related view grants are known. The cache
+  // partitions by those grants so hits can skip association, custom-field, and
+  // pipeline reads. Viewer details are resolved separately for each request.
   const cacheTenantId = deal.tenantId ?? auth.tenantId ?? null
   const cacheOrganizationId = deal.organizationId ?? null
   const detailCache = isCrudCacheEnabled() ? resolveCrudCache(container) : null
@@ -489,6 +507,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
         scopeSignature: buildDealDetailScopeSignature(auth, scope),
         view: viewMode,
         includeKey,
+        relatedAccess: [canViewPeople, canViewCompanies, canViewPipeline].map(Number).join(''),
       })
     : null
 
@@ -545,35 +564,11 @@ export async function GET(request: Request, context: { params?: Record<string, u
         ),
       ])
 
-      const linkedPersonIds = Array.from(
-        new Set(
-          personLinkRows
-            .map((link) => {
-              const personRef = link.person
-              if (!personRef) return null
-              if (typeof personRef === 'string') return personRef
-              const personIdValue = personRef.id
-              return typeof personIdValue === 'string' ? personIdValue : null
-            })
-            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
-        ),
-      )
-      const linkedCompanyIds = Array.from(
-        new Set(
-          companyLinkRows
-            .map((link) => {
-              const companyRef = link.company
-              if (!companyRef) return null
-              if (typeof companyRef === 'string') return companyRef
-              const companyIdValue = companyRef.id
-              return typeof companyIdValue === 'string' ? companyIdValue : null
-            })
-            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
-        ),
-      )
+      const linkedPersonIds = collectLinkedIds(personLinkRows.map((link) => link.person))
+      const linkedCompanyIds = collectLinkedIds(companyLinkRows.map((link) => link.company))
 
       const [previewPeople, previewCompanies] = await Promise.all([
-        linkedPersonIds.length
+        canViewPeople && linkedPersonIds.length
           ? findWithDecryption(
               em,
               CustomerEntity,
@@ -582,7 +577,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
               decryptionScope,
             )
           : [],
-        linkedCompanyIds.length
+        canViewCompanies && linkedCompanyIds.length
           ? findWithDecryption(
               em,
               CustomerEntity,
@@ -622,31 +617,21 @@ export async function GET(request: Request, context: { params?: Record<string, u
         em,
         CustomerDealPersonLink,
         { deal: deal.id },
-        { populate: ['person', 'person.personProfile'] },
+        canViewPeople ? { populate: ['person', 'person.personProfile'] } : {},
         decryptionScope,
       ),
       findWithDecryption(
         em,
         CustomerDealCompanyLink,
         { deal: deal.id },
-        { populate: ['company', 'company.companyProfile'] },
+        canViewCompanies ? { populate: ['company', 'company.companyProfile'] } : {},
         decryptionScope,
       ),
     ])
-    const fallbackTenantId = deal.tenantId ?? auth.tenantId ?? null
-    const fallbackOrgId = deal.organizationId ?? auth.orgId ?? null
-    await decryptEntitiesWithFallbackScope(personLinks, {
-      em,
-      tenantId: fallbackTenantId,
-      organizationId: fallbackOrgId,
-    })
-    await decryptEntitiesWithFallbackScope(companyLinks, {
-      em,
-      tenantId: fallbackTenantId,
-      organizationId: fallbackOrgId,
-    })
+    if (canViewPeople) await decryptEntitiesWithFallbackScope(personLinks, { em, ...decryptionScope })
+    if (canViewCompanies) await decryptEntitiesWithFallbackScope(companyLinks, { em, ...decryptionScope })
 
-    const people = personLinks.reduce<DealAssociation[]>((acc, link) => {
+    const people = (canViewPeople ? personLinks : []).reduce<DealAssociation[]>((acc, link) => {
       const entity = link.person as CustomerEntity | null
       if (!entity || entity.deletedAt) return acc
       const { label, subtitle } = normalizePersonAssociation(entity)
@@ -654,7 +639,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
       return acc
     }, [])
 
-    const companies = companyLinks.reduce<DealAssociation[]>((acc, link) => {
+    const companies = (canViewCompanies ? companyLinks : []).reduce<DealAssociation[]>((acc, link) => {
       const entity = link.company as CustomerEntity | null
       if (!entity || entity.deletedAt) return acc
       const { label, subtitle } = normalizeCompanyAssociation(entity)
@@ -664,8 +649,8 @@ export async function GET(request: Request, context: { params?: Record<string, u
     return {
       people,
       companies,
-      linkedPersonIds: people.map((entry) => entry.id),
-      linkedCompanyIds: companies.map((entry) => entry.id),
+      linkedPersonIds: canViewPeople ? people.map((entry) => entry.id) : collectLinkedIds(personLinks.map((link) => link.person)),
+      linkedCompanyIds: canViewCompanies ? companies.map((entry) => entry.id) : collectLinkedIds(companyLinks.map((link) => link.company)),
     }
   }
 
@@ -745,7 +730,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
         decryptionScope,
       )
       : [],
-    effectivePipelineId
+    canViewPipeline && effectivePipelineId
       ? findOneWithDecryption(
         em,
         CustomerPipeline,
@@ -791,12 +776,12 @@ export async function GET(request: Request, context: { params?: Record<string, u
       order: 0,
     }
   })()
-  const stageTransitionPayload = mergeStageTransitions({
+  const stageTransitionPayload = canViewPipeline ? mergeStageTransitions({
     persisted: persistedStageTransitions,
     recovered: recoveredStageTransitions,
     currentStage: effectiveCurrentStage,
     fallbackTimestamp: deal.createdAt.toISOString(),
-  })
+  }) : []
 
   const viewer = {
     userId: viewerUserId,
@@ -804,8 +789,8 @@ export async function GET(request: Request, context: { params?: Record<string, u
     email: viewerEmail,
   }
 
-  // Everything except the request-specific viewer block is shareable across
-  // authorized callers, so it is what gets cached.
+  // This body is shared by callers with the same related-view grants. Viewer
+  // details are resolved separately for each request.
   const cacheableBody = {
     deal: {
       id: deal.id,
@@ -963,7 +948,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Fetch deal with associations and pipeline context',
-      description: 'Returns a deal with linked people, companies, closure fields, optional pipeline history, custom fields, and viewer context.',
+      description: 'Returns a deal with closure fields, custom fields, and viewer context. Linked people, companies, and pipeline metadata require their corresponding view permissions.',
       query: dealDetailQuerySchema,
       responses: [
         { status: 200, description: 'Deal detail payload', schema: dealDetailResponseSchema },
