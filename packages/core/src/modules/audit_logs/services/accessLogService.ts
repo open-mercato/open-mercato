@@ -382,7 +382,7 @@ export class AccessLogService {
       AccessLog,
       where,
       {
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: 'desc', id: 'desc' },
         limit: pageSize,
         offset,
       },
