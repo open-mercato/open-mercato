@@ -33,6 +33,7 @@ import {
   type CompanyUpdateInput,
 } from '../data/validators'
 import {
+  findScopedCustomerCommandRecord,
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
@@ -246,43 +247,68 @@ type CompanyUndoPayload = {
   after?: CompanySnapshot | null
 }
 
+<<<<<<< HEAD
 async function loadCompanySnapshot(em: EntityManager, id: string): Promise<CompanySnapshot | null> {
   const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
+=======
+async function loadCompanySnapshot(
+  em: EntityManager,
+  id: string,
+  ctx: CommandRuntimeContext,
+  options: { includeInteractionRestoreDetails?: boolean } = {},
+): Promise<CompanySnapshot | null> {
+  const entity = await findScopedCustomerCommandRecord(em, CustomerEntity, { id, deletedAt: null }, undefined, ctx)
+>>>>>>> 36c73b01e6 (fix(customers): decrypt command reads before snapshots and undo (#2115) (#8744))
   if (!entity || entity.kind !== 'company') return null
-  const profile = await em.findOne(CustomerCompanyProfile, { entity })
+  ensureTenantScope(ctx, entity.tenantId)
+  ensureOrganizationScope(ctx, entity.organizationId)
+  const scope = { tenantId: entity.tenantId, organizationId: entity.organizationId }
+  const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity, ...scope }, undefined, scope)
   if (!profile) return null
   const tagIds = await loadEntityTagIds(em, entity)
   const deals = await findWithDecryption(
     em,
     CustomerDealCompanyLink,
-    { company: entity },
+    { company: entity, deal: scope },
     { orderBy: { createdAt: 'asc' }, populate: ['deal'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
   const members = await findWithDecryption(
     em,
     CustomerPersonProfile,
-    { company: entity },
+    { company: entity, ...scope },
     { orderBy: { createdAt: 'asc' }, populate: ['entity'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
-  const addresses = await em.find(CustomerAddress, { entity }, { orderBy: { createdAt: 'asc' } })
+  const addresses = await findWithDecryption(
+    em,
+    CustomerAddress,
+    { entity, ...scope },
+    { orderBy: { createdAt: 'asc' } },
+    scope,
+  )
   const comments = await findWithDecryption(
     em,
     CustomerComment,
-    { entity },
+    { entity, ...scope },
     { orderBy: { createdAt: 'asc' }, populate: ['deal'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
   const activities = await findWithDecryption(
     em,
     CustomerActivity,
-    { entity },
+    { entity, ...scope },
     { orderBy: { createdAt: 'asc' }, populate: ['deal'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
-  const todoLinks = await em.find(CustomerTodoLink, { entity }, { orderBy: { createdAt: 'asc' } })
-  const interactions = await em.find(CustomerInteraction, { entity }, { orderBy: { createdAt: 'asc' } })
+  const todoLinks = await em.find(CustomerTodoLink, { entity, ...scope }, { orderBy: { createdAt: 'asc' } })
+  const interactions = await findWithDecryption(
+    em,
+    CustomerInteraction,
+    { entity, ...scope },
+    { orderBy: { createdAt: 'asc' } },
+    scope,
+  )
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: COMPANY_ENTITY_ID,
     recordId: profile.id,
@@ -554,7 +580,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadCompanySnapshot(em, result.entityId)
+    return await loadCompanySnapshot(em, result.entityId, ctx)
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -578,9 +604,12 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     const entityId = logEntry?.resourceId
     if (!entityId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await em.findOne(CustomerEntity, { id: entityId })
+    const entity = await findScopedCustomerCommandRecord(em, CustomerEntity, { id: entityId }, undefined, ctx)
     if (!entity) return
-    const profile = await em.findOne(CustomerCompanyProfile, { entity })
+    const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity, tenantId: entity.tenantId, organizationId: entity.organizationId }, undefined, {
+      tenantId: entity.tenantId,
+      organizationId: entity.organizationId,
+    })
     const identifiers = {
       id: payload?.after?.profile.id ?? profile?.id ?? entity.id,
       organizationId: entity.organizationId,
@@ -618,7 +647,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     let entity = await findOneWithDecryption(
       em,
       CustomerEntity,
-      { id: after.entity.id },
+      { id: after.entity.id, tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
       undefined,
       { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
     )
@@ -670,7 +699,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     let profile = await findOneWithDecryption(
       em,
       CustomerCompanyProfile,
-      { entity: restoredEntity },
+      { entity: restoredEntity, tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
       undefined,
       { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
     )
@@ -733,17 +762,26 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(companyUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadCompanySnapshot(em, parsed.id)
+    const snapshot = await loadCompanySnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(companyUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await em.findOne(CustomerEntity, { id: parsed.id, deletedAt: null })
+    const entity = await findScopedCustomerCommandRecord(
+      em,
+      CustomerEntity,
+      { id: parsed.id, deletedAt: null },
+      undefined,
+      ctx,
+    )
     const record = assertFound(entity, 'Company not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    const profile = await em.findOne(CustomerCompanyProfile, { entity: record })
+    const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity: record, tenantId: record.tenantId, organizationId: record.organizationId }, undefined, {
+      tenantId: record.tenantId,
+      organizationId: record.organizationId,
+    })
     if (!profile) throw notFound('Company profile not found')
 
     await withAtomicFlush(em, [
@@ -822,7 +860,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadCompanySnapshot(em, result.entityId)
+    return await loadCompanySnapshot(em, result.entityId, ctx)
   },
   buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -853,7 +891,15 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+<<<<<<< HEAD
     let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
+=======
+    await redactRestoredNextInteractionName(em, before.entity)
+    let entity = await findOneWithDecryption(em, CustomerEntity, { id: before.entity.id, tenantId: before.entity.tenantId, organizationId: before.entity.organizationId }, undefined, {
+      tenantId: before.entity.tenantId,
+      organizationId: before.entity.organizationId,
+    })
+>>>>>>> 36c73b01e6 (fix(customers): decrypt command reads before snapshots and undo (#2115) (#8744))
     if (!entity) {
       entity = em.create(CustomerEntity, {
         id: before.entity.id,
@@ -901,7 +947,10 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     }
     await em.flush()
 
-    let profile = await em.findOne(CustomerCompanyProfile, { entity })
+    let profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity, tenantId: entity.tenantId, organizationId: entity.organizationId }, undefined, {
+      tenantId: entity.tenantId,
+      organizationId: entity.organizationId,
+    })
     if (!profile) {
       profile = em.create(CustomerCompanyProfile, {
         id: before.profile.id,
@@ -934,11 +983,17 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     await em.nativeDelete(CustomerDealCompanyLink, { company: entity })
     if (before.deals?.length) {
       const dealIds = before.deals.map((link) => link.dealId)
-      const deals = await em.find(CustomerDeal, {
-        id: { $in: dealIds },
-        organizationId: entity.organizationId,
-        tenantId: entity.tenantId,
-      })
+      const deals = await findWithDecryption(
+        em,
+        CustomerDeal,
+        {
+          id: { $in: dealIds },
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+        },
+        undefined,
+        { tenantId: entity.tenantId, organizationId: entity.organizationId },
+      )
       const dealMap = new Map(deals.map((deal) => [deal.id, deal]))
       for (const link of before.deals) {
         const deal = dealMap.get(link.dealId)
@@ -956,11 +1011,17 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
 
     if (before.members?.length) {
       const memberIds = before.members.map((member) => member.profileId)
-      const profiles = await em.find(CustomerPersonProfile, {
-        id: { $in: memberIds },
-        organizationId: entity.organizationId,
-        tenantId: entity.tenantId,
-      })
+      const profiles = await findWithDecryption(
+        em,
+        CustomerPersonProfile,
+        {
+          id: { $in: memberIds },
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+        },
+        undefined,
+        { tenantId: entity.tenantId, organizationId: entity.organizationId },
+      )
       const profileMap = new Map(profiles.map((profile) => [profile.id, profile]))
       for (const member of before.members) {
         const profile = profileMap.get(member.profileId)
@@ -998,12 +1059,17 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
     async prepare(input, ctx) {
       const id = requireId(input, 'Company id required')
       const em = (ctx.container.resolve('em') as EntityManager)
+<<<<<<< HEAD
       const snapshot = await loadCompanySnapshot(em, id)
+=======
+      const snapshot = await loadCompanySnapshot(em, id, ctx, { includeInteractionRestoreDetails: true })
+>>>>>>> 36c73b01e6 (fix(customers): decrypt command reads before snapshots and undo (#2115) (#8744))
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Company id required')
       const baseEm = (ctx.container.resolve('em') as EntityManager).fork()
+<<<<<<< HEAD
       const snapshot = await loadCompanySnapshot(baseEm, id)
       const entity = await baseEm.findOne(CustomerEntity, { id, deletedAt: null })
       const record = assertFound(entity, 'Company not found')
@@ -1030,6 +1096,26 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
         const { translate } = await resolveTranslations()
         throw buildCompanyHasDependentsError(translate, { personLinks, dealLinks, directPeople })
       }
+=======
+      const snapshot = await loadCompanySnapshot(baseEm, id, ctx)
+
+      const { record, profile, labelAssignments } = await baseEm.transactional(async (em) => {
+        // Lock the entity row first, before any dependent check or child
+        // cleanup, so a concurrent insert of a child row (label assignment,
+        // person link, deal link, direct person, etc.) serializes behind
+        // this transaction instead of racing the final delete with a 409
+        // FOREIGN_KEY_VIOLATION. See issue #7613.
+        const entity = await findScopedCustomerCommandRecord(
+          em,
+          CustomerEntity,
+          { id, deletedAt: null },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          ctx,
+        )
+        const record = assertFound(entity, 'Company not found')
+        ensureTenantScope(ctx, record.tenantId)
+        ensureOrganizationScope(ctx, record.organizationId)
+>>>>>>> 36c73b01e6 (fix(customers): decrypt command reads before snapshots and undo (#2115) (#8744))
 
       const profile = await baseEm.findOne(CustomerCompanyProfile, { entity: record })
 
@@ -1055,6 +1141,14 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
           })
         }
 
+<<<<<<< HEAD
+=======
+        const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity: record, tenantId: record.tenantId, organizationId: record.organizationId }, undefined, {
+          tenantId: record.tenantId,
+          organizationId: record.organizationId,
+        })
+
+>>>>>>> 36c73b01e6 (fix(customers): decrypt command reads before snapshots and undo (#2115) (#8744))
         await em.nativeUpdate(CustomerPersonProfile, { company: record }, { company: null })
         // Soft-deleted person links keep their `company_entity_id` foreign key, so the hard
         // delete below would violate it. The guard above already proved no active link
@@ -1079,7 +1173,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
         const txEntity = await findOneWithDecryption(
           em,
           CustomerEntity,
-          { id: record.id },
+          { id: record.id, tenantId: record.tenantId, organizationId: record.organizationId },
           undefined,
           { tenantId: record.tenantId, organizationId: record.organizationId },
         )
@@ -1195,7 +1289,15 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
+<<<<<<< HEAD
       let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
+=======
+      await redactRestoredNextInteractionName(em, before.entity)
+      let entity = await findOneWithDecryption(em, CustomerEntity, { id: before.entity.id, tenantId: before.entity.tenantId, organizationId: before.entity.organizationId }, undefined, {
+        tenantId: before.entity.tenantId,
+        organizationId: before.entity.organizationId,
+      })
+>>>>>>> 36c73b01e6 (fix(customers): decrypt command reads before snapshots and undo (#2115) (#8744))
       if (!entity) {
         entity = em.create(CustomerEntity, {
           id: before.entity.id,
@@ -1240,7 +1342,10 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       entity.isActive = before.entity.isActive
       entity.deletedAt = null
 
-      let profile = await em.findOne(CustomerCompanyProfile, { entity })
+      let profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity, tenantId: entity.tenantId, organizationId: entity.organizationId }, undefined, {
+        tenantId: entity.tenantId,
+        organizationId: entity.organizationId,
+      })
       if (!profile) {
         profile = em.create(CustomerCompanyProfile, {
           id: before.profile.id,
@@ -1288,11 +1393,17 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
             if (comment.dealId) relatedDealIds.add(comment.dealId)
           }
           if (relatedDealIds.size) {
-            const deals = await em.find(CustomerDeal, {
-              id: { $in: Array.from(relatedDealIds) },
-              organizationId: entity.organizationId,
-              tenantId: entity.tenantId,
-            })
+            const deals = await findWithDecryption(
+              em,
+              CustomerDeal,
+              {
+                id: { $in: Array.from(relatedDealIds) },
+                organizationId: entity.organizationId,
+                tenantId: entity.tenantId,
+              },
+              undefined,
+              { tenantId: entity.tenantId, organizationId: entity.organizationId },
+            )
             dealMap = new Map(deals.map((deal) => [deal.id, deal]))
           }
 
@@ -1311,11 +1422,17 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
 
           if (beforeMembers.length) {
             const memberIds = beforeMembers.map((member) => member.profileId)
-            const profiles = await em.find(CustomerPersonProfile, {
-              id: { $in: memberIds },
-              organizationId: entity.organizationId,
-              tenantId: entity.tenantId,
-            })
+            const profiles = await findWithDecryption(
+              em,
+              CustomerPersonProfile,
+              {
+                id: { $in: memberIds },
+                organizationId: entity.organizationId,
+                tenantId: entity.tenantId,
+              },
+              undefined,
+              { tenantId: entity.tenantId, organizationId: entity.organizationId },
+            )
             const profileMap = new Map(profiles.map((profile) => [profile.id, profile]))
             for (const member of beforeMembers) {
               const memberProfile = profileMap.get(member.profileId)
