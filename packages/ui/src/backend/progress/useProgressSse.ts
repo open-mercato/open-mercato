@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { apiCall } from '../utils/apiCall'
-import { useAppEvent } from '../injection/useAppEvent'
+import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '../injection/useAppEvent'
 import { subscribeProgressUpdate } from '@open-mercato/shared/lib/frontend/progressEvents'
 import type { ProgressJobDto, UseProgressPollResult } from './useProgressPoll'
 import { applyLocalProgressUpdate, isLocalProgressJob } from './useProgressPoll'
@@ -176,7 +176,7 @@ export function useProgressSse(): UseProgressPollResult {
     void fetchJobs()
   }, [fetchJobs])
 
-  useAppEvent('om:bridge:reconnected', () => {
+  useAppEvent(BRIDGE_RECONNECTED_EVENT_ID, () => {
     void fetchJobs()
   }, [fetchJobs])
 
