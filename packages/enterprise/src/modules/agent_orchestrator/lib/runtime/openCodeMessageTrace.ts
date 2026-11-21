@@ -104,11 +104,25 @@ export type OpenCodeMessageCollector = {
   assistantMessages(): OpenCodeAssistantMessage[]
 }
 
+function sumReported(values: ReadonlyArray<number | undefined>): number | undefined {
+  const reported = values.filter((value): value is number => value !== undefined)
+  return reported.length > 0 ? Math.round(reported.reduce((total, value) => total + value, 0)) : undefined
+}
+
+/**
+ * OpenCode's `input` EXCLUDES prompt-cache reads/writes and its `output`
+ * EXCLUDES reasoning, while a span's usage follows the run's (and the native
+ * path's) convention: `inputTokens` is the whole input with `cachedInputTokens`
+ * a SUBSET of it, and `outputTokens` includes `reasoningTokens`. Normalized the
+ * same way as the run totals in `openCodeUsage`, so a step is priced like its run.
+ */
 function toUsage(tokens: ReportedTokens | undefined): TraceLlmUsageIngest | null {
   if (!tokens) return null
   const usage: TraceLlmUsageIngest = {}
-  if (tokens.input !== undefined) usage.inputTokens = Math.round(tokens.input)
-  if (tokens.output !== undefined) usage.outputTokens = Math.round(tokens.output)
+  const inputTokens = sumReported([tokens.input, tokens.cache?.read, tokens.cache?.write])
+  const outputTokens = sumReported([tokens.output, tokens.reasoning])
+  if (inputTokens !== undefined) usage.inputTokens = inputTokens
+  if (outputTokens !== undefined) usage.outputTokens = outputTokens
   if (tokens.reasoning !== undefined) usage.reasoningTokens = Math.round(tokens.reasoning)
   if (tokens.cache?.read !== undefined) usage.cachedInputTokens = Math.round(tokens.cache.read)
   return Object.keys(usage).length > 0 ? usage : null

@@ -16,10 +16,13 @@
  * guardrail check, exactly like an answer that parsed but failed validation.
  */
 
+import { readCachedInputTokens } from './nativeTraceCapture'
+
 export type StructuredOutputFailure = {
   reason: 'no_object' | 'no_output'
   recovered: unknown
-  usage: { inputTokens?: number; outputTokens?: number } | null
+  /** `cachedInputTokens` is the cached SUBSET of `inputTokens`; absent when the provider did not report it. */
+  usage: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number } | null
 }
 
 const NO_OBJECT_ERROR = 'AI_NoObjectGeneratedError'
@@ -64,7 +67,9 @@ function readUsage(usage: unknown): StructuredOutputFailure['usage'] {
   if (!record) return null
   const inputTokens = typeof record.inputTokens === 'number' ? record.inputTokens : undefined
   const outputTokens = typeof record.outputTokens === 'number' ? record.outputTokens : undefined
-  return inputTokens === undefined && outputTokens === undefined ? null : { inputTokens, outputTokens }
+  if (inputTokens === undefined && outputTokens === undefined) return null
+  const cachedInputTokens = readCachedInputTokens(usage)
+  return { inputTokens, outputTokens, ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}) }
 }
 
 export function readStructuredOutputFailure(err: unknown): StructuredOutputFailure | null {

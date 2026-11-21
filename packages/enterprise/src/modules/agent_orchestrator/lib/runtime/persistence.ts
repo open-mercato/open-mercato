@@ -269,6 +269,8 @@ export async function createRun(
  */
 export type RunUsageStamp = {
   inputTokens?: number | null
+  /** Cached SUBSET of `inputTokens`; null = unknown. */
+  cachedInputTokens?: number | null
   outputTokens?: number | null
   costMinor?: number | null
   currency?: string | null
@@ -328,6 +330,7 @@ export async function failRun(
 function pickUsageStamp(input: RunUsageStamp): RunUsageStamp {
   const stamp: RunUsageStamp = {}
   if (input.inputTokens !== undefined) stamp.inputTokens = input.inputTokens
+  if (input.cachedInputTokens !== undefined) stamp.cachedInputTokens = input.cachedInputTokens
   if (input.outputTokens !== undefined) stamp.outputTokens = input.outputTokens
   if (input.costMinor !== undefined) stamp.costMinor = input.costMinor
   if (input.currency !== undefined) stamp.currency = input.currency

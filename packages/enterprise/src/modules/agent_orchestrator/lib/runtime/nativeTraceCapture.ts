@@ -58,13 +58,39 @@ export type NativeStepToolCall = Pick<ExtractedToolCall, 'toolName' | 'args' | '
 export type NativeStepRecord = {
   modelId: string
   finishReason: string
-  usage: { inputTokens: number; outputTokens: number }
+  /** `cachedInputTokens` is the cached SUBSET of `inputTokens`; absent when the provider did not report it. */
+  usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number }
   toolCalls: NativeStepToolCall[]
   /** Wall-clock ms when the step's onStepFinish fired. */
   endedAtMs: number
   call?: NativeModelCallRecord
   /** Requested settings the provider dropped for this step (`unsupported` warnings). */
   ignoredSettings?: IgnorableCallSetting[]
+}
+
+/**
+ * Cached share of an AI SDK usage object. ai@7 reports it as
+ * `inputTokenDetails.cacheReadTokens`; older SDKs and some providers use the flat
+ * `cachedInputTokens`. Undefined when neither is a non-negative number, so an
+ * unreported share stays unknown instead of becoming 0.
+ */
+export function readCachedInputTokens(usage: unknown): number | undefined {
+  if (!usage || typeof usage !== 'object') return undefined
+  const shape = usage as { cachedInputTokens?: unknown; inputTokenDetails?: { cacheReadTokens?: unknown } }
+  for (const candidate of [shape.inputTokenDetails?.cacheReadTokens, shape.cachedInputTokens]) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0) return candidate
+  }
+  return undefined
+}
+
+/** Sum of the reported cached shares; null when no step reported one (unknown, not 0). */
+export function sumCachedInputTokens(steps: ReadonlyArray<Pick<NativeStepRecord, 'usage'>>): number | null {
+  let total: number | null = null
+  for (const step of steps) {
+    if (step.usage.cachedInputTokens === undefined) continue
+    total = (total ?? 0) + step.usage.cachedInputTokens
+  }
+  return total
 }
 
 export type NativeTraceInput = {
@@ -76,7 +102,7 @@ export type NativeTraceInput = {
   /** Wall-clock ms when the model execution settled. */
   endedAtMs: number
   /** Run-level usage fallback for toolless runs (no step callbacks). */
-  fallbackUsage?: { inputTokens?: number; outputTokens?: number } | null
+  fallbackUsage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number } | null
   /** Declared model id fallback when no step reported one. */
   fallbackModel?: string | null
   fallbackCall?: NativeModelCallRecord | null
@@ -104,10 +130,15 @@ export function buildNativeStepRecord(
   const raw = (event && typeof event === 'object' ? event : {}) as RawStepEvent
   const meta = extractStepMeta(raw)
   const ignoredSettings = extractIgnoredCallSettings((raw as { warnings?: unknown }).warnings)
+  const cachedInputTokens = readCachedInputTokens(raw.usage)
   return {
     modelId: meta.modelId,
     finishReason: meta.finishReason,
-    usage: { inputTokens: meta.usage.inputTokens, outputTokens: meta.usage.outputTokens },
+    usage: {
+      inputTokens: meta.usage.inputTokens,
+      outputTokens: meta.usage.outputTokens,
+      ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+    },
     toolCalls: extractStepToolCalls(raw).map((toolCall) => ({
       toolName: toolCall.toolName,
       args: toolCall.args,
@@ -205,7 +236,7 @@ function contentOutcomeFor(call: NativeModelCallRecord, captureLevel: RunManifes
 function buildCallMetadataAttributes(
   call: NativeModelCallRecord,
   captureLevel: RunManifestCaptureLevel,
-  fallbackUsage: { inputTokens?: number; outputTokens?: number } | null | undefined,
+  fallbackUsage: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number } | null | undefined,
   ignoredSettings: readonly IgnorableCallSetting[],
 ): SpanAttributes {
   const attributes: SpanAttributes = {
@@ -221,11 +252,18 @@ function buildCallMetadataAttributes(
   const outputTokens = isFiniteNumber(call.usage.outputTokens) ? call.usage.outputTokens : fallbackUsage?.outputTokens
   assignNumber(attributes, GEN_AI_ATTRIBUTES.usageInputTokens, inputTokens)
   assignNumber(attributes, GEN_AI_ATTRIBUTES.usageOutputTokens, outputTokens)
-  assignNumber(attributes, GEN_AI_ATTRIBUTES.usageCacheReadInputTokens, call.usage.cachedInputTokens)
+  const cachedInputTokens = isFiniteNumber(call.usage.cachedInputTokens)
+    ? call.usage.cachedInputTokens
+    : fallbackUsage?.cachedInputTokens
+  assignNumber(attributes, GEN_AI_ATTRIBUTES.usageCacheReadInputTokens, cachedInputTokens)
   assignNumber(attributes, GEN_AI_ATTRIBUTES.usageReasoningOutputTokens, call.usage.reasoningTokens)
   if (call.finishReason) attributes[GEN_AI_ATTRIBUTES.responseFinishReasons] = [call.finishReason]
   assignNumber(attributes, OM_LLM_ATTRIBUTES.latencyMs, call.latencyMs)
-  const cost = computeCostMicros(call.responseModel ?? call.requestModel, { inputTokens, outputTokens })
+  const cost = computeCostMicros(
+    call.responseModel ?? call.requestModel,
+    { inputTokens, outputTokens },
+    cachedInputTokens,
+  )
   if (cost) {
     attributes[OM_LLM_ATTRIBUTES.costMicros] = cost.micros
     attributes[OM_LLM_ATTRIBUTES.costCurrency] = cost.currency
@@ -284,7 +322,7 @@ function buildLlmSpanAttributes(
   legacy: SpanAttributes | null,
   call: NativeModelCallRecord | null | undefined,
   captureLevel: RunManifestCaptureLevel,
-  fallbackUsage?: { inputTokens?: number; outputTokens?: number } | null,
+  fallbackUsage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number } | null,
   ignoredSettings: readonly IgnorableCallSetting[] = [],
 ): SpanAttributes | null {
   if (captureLevel === 'off' || !call) return legacy
@@ -411,6 +449,10 @@ export function buildNativeTracePayload(input: NativeTraceInput): TraceIngest {
     input.steps.length > 0 ? stepUsage.inputTokens : (input.fallbackUsage?.inputTokens ?? null)
   const outputTokens =
     input.steps.length > 0 ? stepUsage.outputTokens : (input.fallbackUsage?.outputTokens ?? null)
+  const cachedInputTokens =
+    input.steps.length > 0
+      ? sumCachedInputTokens(input.steps)
+      : (input.fallbackUsage?.cachedInputTokens ?? null)
   const modelId = resolveModelId(input)
 
   return {
@@ -419,6 +461,7 @@ export function buildNativeTracePayload(input: NativeTraceInput): TraceIngest {
     agentId: input.agentId,
     ...(modelId ? { model: modelId } : {}),
     ...(inputTokens != null ? { inputTokens } : {}),
+    ...(cachedInputTokens != null ? { cachedInputTokens } : {}),
     ...(outputTokens != null ? { outputTokens } : {}),
     latencyMs: Math.max(0, input.endedAtMs - input.startedAtMs),
     spans,

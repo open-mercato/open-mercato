@@ -16,7 +16,7 @@ import {
   type ArtifactPutResult,
   type ArtifactResultOffloader,
 } from './artifactStore'
-import { computeCostMinor } from '../runtime/modelPricing'
+import { clampCachedInputTokens, computeCostMinor } from '../runtime/modelPricing'
 import { redactSecrets } from './redactToolSummary'
 import { hasGenAiVocabularyKey, normalizeGenAiAttributes } from './genAiAttributes'
 import type { RunManifestCapture } from './runManifest'
@@ -260,7 +260,7 @@ export async function ingestTrace(
   // path — compute the estimate from the static pricing table. Never overwrite
   // a non-null cost (the native runner stamps it at completion).
   if (run.costMinor == null && run.model && (run.inputTokens != null || run.outputTokens != null)) {
-    const cost = computeCostMinor(run.model, run.inputTokens, run.outputTokens)
+    const cost = computeCostMinor(run.model, run.inputTokens, run.outputTokens, run.cachedInputTokens)
     if (cost) {
       run.costMinor = cost.costMinor
       run.currency = cost.currency
@@ -387,6 +387,9 @@ function applyRunFields(run: AgentRun, payload: TraceIngest): void {
   if (payload.proposalId !== undefined) run.proposalId = payload.proposalId ?? null
   if (payload.confidence !== undefined) run.confidence = payload.confidence
   if (payload.inputTokens !== undefined) run.inputTokens = payload.inputTokens
+  if (payload.cachedInputTokens !== undefined) run.cachedInputTokens = payload.cachedInputTokens
+  const cachedInputTokens = clampCachedInputTokens(run.cachedInputTokens, run.inputTokens)
+  if (cachedInputTokens !== run.cachedInputTokens) run.cachedInputTokens = cachedInputTokens
   if (payload.outputTokens !== undefined) run.outputTokens = payload.outputTokens
   if (payload.costMinor !== undefined) run.costMinor = payload.costMinor
   if (payload.currency !== undefined) run.currency = payload.currency
