@@ -457,6 +457,7 @@ export async function GET(req: Request) {
         })(),
         filterable: Boolean(d.configJson?.filterable),
         formEditable: d.configJson?.formEditable !== undefined ? Boolean(d.configJson.formEditable) : true,
+        ...(d.configJson?.sectionOnly === true ? { sectionOnly: true } : {}),
         listVisible: d.configJson?.listVisible !== undefined ? Boolean(d.configJson.listVisible) : true,
         editor: typeof d.configJson?.editor === 'string'
           ? d.configJson.editor

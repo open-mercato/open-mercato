@@ -1,6 +1,7 @@
 import { DefaultDataEngine, clearDataEngineTableExistsCache } from '../engine'
 import { registerEntityIds } from '../../encryption/entityIds'
 import { withAdvisoryXactLock } from '../../db/advisoryLock'
+import { withAtomicFlush } from '../../commands/flush'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 
 const ENTITY_ID = 'user:qa_record'
@@ -152,6 +153,48 @@ describe('create-only custom entity records', () => {
       entityId: ENTITY_ID, recordId: RECORD_ID, tenantId: 'tenant-a', organizationId: 'org-a',
       values: {}, createOnly: true,
     })).rejects.toMatchObject({ status: 409 })
+  })
+
+  test('uses the outer transaction for the lock, insert, and custom fields', async () => {
+    const { engine, em, requestDb, transactionDb } = buildEngine()
+    let inTransaction = false
+    const ambientEm = {
+      ...em,
+      isInTransaction: () => inTransaction,
+      begin: jest.fn(async () => { inTransaction = true }),
+      commit: jest.fn(async () => { inTransaction = false }),
+      rollback: jest.fn(async () => { inTransaction = false }),
+      flush: jest.fn(async () => undefined),
+      fork: jest.fn(),
+      execute: jest.fn(async () => [{ locked: true }]),
+      getKysely: () => ({
+        ...transactionDb,
+        selectFrom: (table: string) => table === 'information_schema.tables'
+          ? requestDb.selectFrom()
+          : transactionDb.selectFrom(),
+      }),
+    }
+    const scope = engine.createCommandTransactionScope(ambientEm as never, {} as never)
+
+    await expect(withAtomicFlush(ambientEm as never, [async () => {
+      await scope.dataEngine.createCustomEntityRecord({
+        entityId: ENTITY_ID, recordId: RECORD_ID, organizationId: 'org-a', tenantId: 'tenant-a',
+        values: { title: 'Tentative record' }, createOnly: true,
+      })
+      throw new Error('[internal] Sink rejected the transaction')
+    }], { transaction: true })).rejects.toThrow('Sink rejected the transaction')
+    await scope.complete('rolled_back')
+
+    expect(ambientEm.execute).toHaveBeenCalledWith(
+      expect.stringContaining('pg_try_advisory_xact_lock'),
+      [`custom_entity_create:${JSON.stringify(['tenant-a', 'org-a', ENTITY_ID, RECORD_ID])}`],
+    )
+    expect(transactionDb.insertInto).toHaveBeenCalledWith('custom_entities_storage')
+    expect(setRecordCustomFields).toHaveBeenCalledWith(ambientEm, expect.objectContaining({ recordId: RECORD_ID }))
+    expect(ambientEm.rollback).toHaveBeenCalledTimes(1)
+    expect(ambientEm.commit).not.toHaveBeenCalled()
+    expect(ambientEm.fork).not.toHaveBeenCalled()
+    expect(withAdvisoryXactLock).not.toHaveBeenCalled()
   })
 
   test.each([

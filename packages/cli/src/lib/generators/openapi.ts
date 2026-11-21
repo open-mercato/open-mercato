@@ -7,11 +7,12 @@
  */
 
 import * as fs from 'node:fs'
-import { randomBytes } from 'node:crypto'
 import * as path from 'node:path'
 import type { ModuleEntry, PackageResolver } from '../resolver'
 import { getEnabledModuleIdentities } from '../module-identity'
 import { isModuleRouteFile } from './scanner'
+import { resolveNamedObjectExport } from './module-registry'
+import { generatedDerivedCrudRouteIndex, readDerivedCrudFormSectionRouteIndex } from './form-sections'
 import {
   calculateChecksum,
   calculateStructureChecksum,
@@ -31,12 +32,13 @@ type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 interface ApiRouteInfo {
   path: string
+  moduleId: string
   methods: HttpMethod[]
   openApiPath: string
 }
 
 interface OpenApiInputManifest {
-  version: 1
+  version: 2
   inputPaths: string[]
 }
 
@@ -54,9 +56,10 @@ interface OpenApiInputContext {
 interface OpenApiBundleResult {
   doc: Record<string, any> | null
   inputPaths: string[]
+  qualifierFailure?: string
 }
 
-const OPENAPI_INPUT_MANIFEST_VERSION = 1
+const OPENAPI_INPUT_MANIFEST_VERSION = 2
 
 function createOpenApiInputContext(resolver: PackageResolver): OpenApiInputContext {
   const enabled = resolver.loadEnabledModules()
@@ -115,6 +118,7 @@ function calculateOpenApiInputFingerprint(
   const appDir = resolver.getAppDir()
   const configPaths = [
     resolver.getModulesConfigPath(),
+    path.join(resolver.getOutputDir(), generatedDerivedCrudRouteIndex),
     path.join(rootDir, 'package.json'),
     path.join(rootDir, 'yarn.lock'),
     path.join(rootDir, 'package-lock.json'),
@@ -195,18 +199,30 @@ async function findApiRoutes(
 
       // Build API path
       const routeSegs = relativePath ? relativePath.split('/') : []
-      const apiPath = `/api/${modId}${routeSegs.length ? '/' + routeSegs.join('/') : ''}`
+      const metadataPath = resolveNamedObjectExport(fullPath, 'metadata')?.path
+      const routePath = typeof metadataPath === 'string' && metadataPath
+        ? metadataPath
+        : `/${modId}${routeSegs.length ? '/' + routeSegs.join('/') : ''}`
+      const apiPath = `/api/${routePath.replace(/^\/+/, '')}`
         // Convert [param] to {param} for OpenAPI format
         .replace(/\[([^\]]+)\]/g, '{$1}')
 
       routes.push({
         path: fullPath,
+        moduleId: modId,
         methods: await detectMethods(fullPath),
         openApiPath: apiPath,
       })
     }
   }
 
+  const enabledIds = new Set(enabled.map(({ id }) => id))
+  const derived = readDerivedCrudFormSectionRouteIndex(resolver.getOutputDir())
+  routes.push(...derived.filter(({ moduleId }) => enabledIds.has(moduleId)).map(({ moduleId, routePath, methods, fileName }) => ({
+    moduleId, methods,
+    path: path.join(resolver.getOutputDir(), fileName),
+    openApiPath: `/api${routePath}`.replace(/\[([^\]]+)\]/g, '{$1}'),
+  })))
   return routes
 }
 
@@ -338,13 +354,6 @@ async function generateOpenApiViaBundle(
     return { doc: null, inputPaths: [] }
   }
 
-  const cacheDir = path.join(rootDir, 'node_modules', '.cache')
-  if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true })
-
-  // Per-run file: `yarn dev`'s watcher and a CLI `generate` (e.g. after
-  // create-mercato-module init) can bundle concurrently, and a shared path let
-  // one process execute the other's half-written bundle ("Unexpected end of input").
-  const bundlePath = path.join(cacheDir, `_openapi-bundle-${process.pid}-${randomBytes(6).toString('hex')}.mjs`)
   let inputPaths: string[] = []
 
   // Build the entry script that imports all routes and calls buildOpenApiDocument
@@ -358,7 +367,7 @@ async function generateOpenApiViaBundle(
     importLines.push(`import * as R${i} from ${JSON.stringify(route.path)};`)
     // Use [param] format so normalizePath in buildOpenApiDocument extracts path params
     const bracketPath = route.openApiPath.replace(/\{([^}]+)\}/g, '[$1]')
-    routeMapLines.push(`  [${JSON.stringify(bracketPath)}, R${i}],`)
+    routeMapLines.push(`  [${JSON.stringify(bracketPath)}, ${JSON.stringify(route.moduleId)}, R${i}],`)
   }
 
   const entryScript = `${importLines.join('\n')}
@@ -368,8 +377,7 @@ ${routeMapLines.join('\n')}
 ];
 
 const modules = new Map();
-for (const [apiPath, mod] of routeEntries) {
-  const moduleId = apiPath.replace(/^\\/api\\//, '').split('/')[0];
+for (const [apiPath, moduleId, mod] of routeEntries) {
   if (!modules.has(moduleId)) modules.set(moduleId, { id: moduleId, apis: [] });
   modules.get(moduleId).apis.push({
     path: apiPath,
@@ -531,6 +539,8 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
     },
   }
 
+  const bundleDir = fs.mkdtempSync(path.join(resolver.getOutputDir(), '.openapi-'))
+  const bundlePath = path.join(bundleDir, 'bundle.mjs')
   try {
     const buildResult = await esbuild.build({
       stdin: {
@@ -605,16 +615,13 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
         }
       }
     }
-    return { doc: null, inputPaths }
+    const qualifierFailure = /Cannot derive CrudForm section host: [^\r\n]+/.exec(`${errMsg}\n${String(stderr ?? '')}`)?.[0]
+    return { doc: null, inputPaths, qualifierFailure }
   } finally {
     // Shut down esbuild's persistent Go service so it does not deadlock at
     // process exit when a plugin request is still in flight.
     try { await esbuild.stop() } catch {}
-    // Clean up old files from previous tsx-based approach
-    try { fs.unlinkSync(bundlePath) } catch {}
-    for (const file of ['_openapi-bundle.mjs', '_openapi-register.mjs', '_openapi-loader.mjs', '_next-stub.cjs']) {
-      try { fs.unlinkSync(path.join(cacheDir, file)) } catch {}
-    }
+    try { fs.rmSync(bundleDir, { recursive: true, force: true }) } catch {}
   }
 }
 
@@ -713,6 +720,10 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
   // Try esbuild bundle approach first — produces full requestBody/response schemas
   const bundleResult = await generateOpenApiViaBundle(routes, resolver, quiet)
   let doc: Record<string, any> | null = bundleResult.doc
+
+  if (!doc && readDerivedCrudFormSectionRouteIndex(outputDir).length) {
+    throw new Error(bundleResult.qualifierFailure ?? '[generate] Could not validate generated CrudForm section-policy OpenAPI schemas')
+  }
 
   // Fallback to static regex approach (extracts operationId/summary/tags but no schemas)
   if (!doc) {

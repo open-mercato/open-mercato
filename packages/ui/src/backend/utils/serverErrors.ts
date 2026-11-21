@@ -180,10 +180,20 @@ export function normalizeCrudServerError(err: unknown): NormalizedCrudServerErro
 
 export type FieldNameMapperOptions = {
   customEntity?: boolean
+  sectionDescriptors?: readonly object[]
 }
 
 export function mapServerFieldNameToFormId(field: string, options?: FieldNameMapperOptions): string {
   const trimmed = field.trim()
+  const sectionFieldIds = new Set<string>()
+  for (const descriptor of options?.sectionDescriptors ?? []) {
+    if (!('fieldPayloadPaths' in descriptor) || !descriptor.fieldPayloadPaths
+        || typeof descriptor.fieldPayloadPaths !== 'object') continue
+    for (const [id, paths] of Object.entries(descriptor.fieldPayloadPaths)) {
+      if (Array.isArray(paths) && paths.includes(trimmed)) sectionFieldIds.add(id)
+    }
+  }
+  if (sectionFieldIds.size === 1) return [...sectionFieldIds][0]
   const customEntity = !!options?.customEntity
   if (customEntity) {
     if (trimmed.startsWith('cf_')) return trimmed.slice(3)

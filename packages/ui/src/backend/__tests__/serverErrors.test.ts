@@ -159,3 +159,17 @@ describe('serverErrors helpers', () => {
     expect(result).toEqual({ ok: true })
   })
 })
+
+it('maps canonical extension paths only through unique active section field declarations', () => {
+  const fieldErrors = { 'customFields.priority': 'Priority rejected', 'extensions.example.supplier': 'Supplier rejected' }
+  const sectionDescriptors = [
+    { fieldPayloadPaths: { cf_priority: ['customFields.priority'] } },
+    { fieldPayloadPaths: { supplier: ['extensions.example.supplier'] } },
+  ]
+  expect(mapCrudServerErrorToFormErrors({ fieldErrors }, { sectionDescriptors }).fieldErrors)
+    .toEqual({ cf_priority: 'Priority rejected', supplier: 'Supplier rejected' })
+  expect(mapCrudServerErrorToFormErrors({ fieldErrors }).fieldErrors).toEqual(fieldErrors)
+  expect(mapCrudServerErrorToFormErrors({ fieldErrors }, {
+    sectionDescriptors: [...sectionDescriptors, { fieldPayloadPaths: { other: ['customFields.priority'] } }],
+  }).fieldErrors).toEqual({ 'customFields.priority': 'Priority rejected', supplier: 'Supplier rejected' })
+})

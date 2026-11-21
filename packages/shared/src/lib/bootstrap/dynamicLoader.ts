@@ -787,16 +787,16 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
   // modules.cli.generated.ts excludes Next.js-dependent code (routes, APIs, widgets)
   const [
     modulesModule,
-    entitiesModule,
     diModule,
     searchModule,
     commandLoadersModule,
     webResearchModule,
     commandInterceptorsModule,
     workflowsModule,
+    eventsModule,
+    crudFormSectionModule,
   ] = await Promise.all([
     compileAndImport(path.join(generatedDir, 'modules.cli.generated.ts')),
-    compileAndImport(path.join(generatedDir, 'entities.generated.ts')),
     compileAndImport(path.join(generatedDir, 'di.generated.ts')),
     loadOptionalGeneratedModule(path.join(generatedDir, 'search.generated.ts'), { searchModuleConfigs: [] }),
     loadOptionalGeneratedModule(path.join(generatedDir, 'command-loaders.generated.ts'), { commandLoaderEntries: [] }),
@@ -807,11 +807,17 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
       commandInterceptorEntries: [],
     }),
     loadOptionalGeneratedModule(path.join(generatedDir, 'workflows.generated.ts'), { allCodeWorkflows: [] }),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'events.generated.ts'), {}),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'crud-form-section-facts.generated.ts'), {
+      crudFormSectionServerModules: [],
+    }),
   ])
+  const entities = crudFormSectionModule.crudFormSectionOrmEntities
+    ?? (await compileAndImport(path.join(generatedDir, 'entities.generated.ts'))).entities
 
   return {
     modules: modulesModule.modules as BootstrapData['modules'],
-    entities: entitiesModule.entities as BootstrapData['entities'],
+    entities: entities as BootstrapData['entities'],
     diRegistrars: [
       ...(diModule.diRegistrars as BootstrapData['diRegistrars']),
       appValueRegistrar('webResearchAdapterEntries', webResearchModule.webResearchAdapterEntries ?? []),
@@ -828,6 +834,8 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
       []) as BootstrapData['commandInterceptorEntries'],
     // Code workflow definitions are needed by workers to resume code-defined instances
     codeWorkflows: (workflowsModule.allCodeWorkflows ?? []) as BootstrapData['codeWorkflows'],
+    eventModuleConfigs: eventsModule.eventModuleConfigs as BootstrapData['eventModuleConfigs'],
+    crudFormSectionServerModules: (crudFormSectionModule.crudFormSectionServerModules ?? []) as BootstrapData['crudFormSectionServerModules'],
     // Empty UI-related data - not needed for CLI
     dashboardWidgetEntries: [],
     injectionWidgetEntries: [],

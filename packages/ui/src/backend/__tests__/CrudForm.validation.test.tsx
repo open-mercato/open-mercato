@@ -25,6 +25,25 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { CrudForm, type CrudField } from '../CrudForm'
 
 describe('CrudForm validation state', () => {
+  it('renders field and option translation keys and uses declarative field visibility', () => {
+    const fields: CrudField[] = [
+      { id: 'visible', type: 'checkbox', label: 'Show', labelKey: 'form.show' },
+      {
+        id: 'material', type: 'select', label: 'Material', labelKey: 'form.material',
+        options: [{ value: 'wood', label: 'Wood', labelKey: 'form.wood' }],
+        visibleWhen: { field: 'visible', operator: 'eq', value: true },
+      },
+      { id: 'legacyHidden', type: 'text', label: 'Legacy hidden', visibleWhen: { field: 'visible', equals: false } },
+    ]
+    const { getByRole, queryByLabelText } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} initialValues={{ visible: true, material: 'wood' }} onSubmit={() => {}} />,
+      { dict: { 'form.show': 'Translated switch', 'form.material': 'Translated material', 'form.wood': 'Translated wood' } },
+    )
+    expect(getByRole('checkbox', { name: 'Translated switch' })).toBeChecked()
+    expect(getByRole('combobox', { name: 'Translated material' })).toHaveTextContent('Translated wood')
+    expect(queryByLabelText('Legacy hidden')).toBeNull()
+  })
+
   it('renders each custom field error through exactly one declared owner', async () => {
     const fields: CrudField[] = [
       {

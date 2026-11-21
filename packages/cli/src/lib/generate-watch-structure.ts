@@ -24,6 +24,7 @@ const STRUCTURAL_CONVENTION_FILES = [
   'notifications.ts',
   'notifications.client.ts',
   'notifications.handlers.ts',
+  'form-sections.ts',
   'translations.ts',
   'generators.ts',
   'ai-tools.ts',
