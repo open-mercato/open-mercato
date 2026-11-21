@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v4.13 — one trusted-context import path, the proposal `buyerContext` callers 2026-11-21; v4.12 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, review fixes, the deleted default sales channel, the Release 5 `resolveForBuyer` contract, and its re-landing audit fixes) |
+| **Status** | Specification (v4.14 — the pay-link resolution owned by `cart.create` 2026-11-21; v4.13 — one trusted-context import path, the proposal `buyerContext` callers 2026-11-21; v4.12 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, review fixes, the deleted default sales channel, the Release 5 `resolveForBuyer` contract, and its re-landing audit fixes) |
 | **Created** | 2026-02-17 |
 | **Rescoped** | 2026-08-14 |
 | **Pre-implementation fixes** | 2026-08-17 — see §21 |
@@ -438,8 +438,8 @@ The error carries the marker `Symbol.for('@open-mercato/ecommerce/StorefrontReso
 | Cart proposals route, `cart.proposal.create` against a storefront target (cart §7a) | The target cart's store | The target cart's identity (refresh rule) | Scope and price the proposal under the resolved target buyer: the route passes the result as the command's `buyerContext`, never the target cart's stored customer fields, price kind or digest |
 | Cart admin re-price, `POST /api/cart/carts/:id/reprice` (cart §10.2) | `cart.storeId` when set | The cart's identity (refresh rule) | Refresh identity, and scope for a storefront cart, before the whole-cart re-price |
 | Whole-cart re-price at lock of a non-storefront cart with a buyer (cart §6a.4) | None | The cart's identity (refresh rule) | Refresh identity before the lock's re-price and approval gate. A storefront cart locks with the route context from the buyer's request instead (cart §9.1) |
-| `cart.create` trusted path, `api`/`agent` carts with a customer (cart §6a.4) | The cart's store, when it has one | Authenticated command input | Same identity as a storefront buyer, so the approval gate (D-R5-29) and credit see the company |
-| Checkout pay-link cart seeding with a logged-in buyer (D-R5-19) | None | The session's `customerUserId`, when its tenant and organization equal the link's | Template lines without `unit_price_override` price at the buyer's own rate; terms, credit and approval resolve to the company |
+| `cart.create` trusted path, `api`/`agent` carts with a customer (cart §6a.4) | The cart's store, when it has one | Authenticated command input | Same identity as a storefront buyer, so the approval gate (D-R5-29) and credit see the company. A `pay_link` cart is the next row, not this one |
+| Checkout pay-link cart seeding with a logged-in buyer (D-R5-19), resolved inside `cart.create` for `channel: 'pay_link'` (cart §6a.4 step 3) | None | The session's `customerUserId` alone, which checkout passes to `cart.create` when the session's tenant and organization equal the link's. Checkout never calls `resolveForBuyer` itself (checkout §4.3 step 3) | Template lines without `unit_price_override` price at the buyer's own rate; terms, credit and approval resolve to the company |
 
 **How each caller handles absence and refusal.** `buyer_resolution_unavailable` and `cart_buyer_unresolvable` are cart error codes. Refusals are logged as warnings with the cart or link id; they are expected outcomes, not errors.
 
@@ -451,7 +451,7 @@ The error carries the marker `Symbol.for('@open-mercato/ecommerce/StorefrontReso
 | Cart admin re-price | The re-price runs without an identity refresh (cart §6a.4 fallback) | `503 buyer_resolution_unavailable` | `store_misconfigured` → `503 store_misconfigured`; any other code → `409 cart_buyer_unresolvable`; the cart is unchanged |
 | Lock of a non-storefront cart | The lock keeps the stored identity (cart §6a.4 fallback) | The lock is refused with `503 buyer_resolution_unavailable` | The lock is refused with `409 cart_buyer_unresolvable`; the cart stays `active` |
 | `cart.create` trusted path | Keeps the input identity (`customerIds = [customerId]`, no groups), as cart §6a.4 documents | `503 buyer_resolution_unavailable`, nothing persisted | The error's own `status` and `code` (`403 buyer_out_of_scope`, `403 store_out_of_scope`, `503 store_misconfigured`), nothing persisted |
-| Checkout pay-link seeding | Guest cart | Guest cart | Guest cart; the buyer can still pay the link at its template prices. In all three cases the cart stores no buyer identifiers, groups or buyer price kind (checkout §4.3, CH3 gate) |
+| Checkout pay-link seeding (`cart.create`, `channel: 'pay_link'`) | Guest cart | Guest cart | Guest cart; the buyer can still pay the link at its template prices. In all three cases the cart stores no buyer identifiers, groups or buyer price kind (checkout §4.3, CH3 gate). `cart.create` applies this row, not the trusted-path row above, to a `pay_link` cart |
 
 A `409 cart_buyer_unresolvable` blocks checkout for that cart until staff relink the buyer or the cart is recreated. That is deliberate: a fallback would price a relinked buyer under the old company's terms.
 
@@ -1009,6 +1009,15 @@ Open:
 ---
 
 ## 21) Changelog
+
+### 2026-11-21 — v4.14 (pay-link resolution owned by `cart.create`)
+
+Self-review of #10000 against checkout #9998 (head `54ceb3def3`) and cart #9999.
+
+- §6.3 callers table: the checkout pay-link row is resolved inside `cart.create` for `channel: 'pay_link'` (cart §6a.4 step 3) from the `customerUserId` checkout passes alone. Checkout never calls `resolveForBuyer`. This is the v4.11 design ("the cart trusted path for `pay_link`") and the wording of checkout §4.3 on #9998 and in this PR's checkout v2.4.9.
+- §6.3 absence table: `cart.create` applies the pay-link row (guest cart, no stored buyer identifiers) to a `pay_link` cart, never the `api`/`agent` trusted-path row (`503 buyer_resolution_unavailable`, refusal codes, trusted-input fallback). The Cart text belongs to #9999 (checkout §16 cross-module requirements).
+- The v4.12 note "checkout §4.3 step 3 still passes the full identity to `cart.create` (N2)" is resolved: checkout passes `customerUserId` alone.
+- Consistent with #9998: recovery never calls `resolveForBuyer` (D-R5-SF4), and the order is created directly with `sales.orders.create` (checkout D-R5-CH1), so no SPEC-029 caller depends on a quote conversion.
 
 ### 2026-11-21 — v4.13 (re-review of #10000, [review 6002336743](https://github.com/open-mercato/open-mercato/pull/10000#pullrequestreview-6002336743))
 
