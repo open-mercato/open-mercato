@@ -4,7 +4,8 @@ import { CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/cru
 import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
 import { isUnrestrictedOrganizationScope } from '@open-mercato/shared/lib/auth/organizationAccess'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
+import { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
+import { loadEntityRecordScope } from '@open-mercato/shared/lib/db/recordScope'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EventBus } from '@open-mercato/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -68,7 +69,7 @@ export function buildCustomerCommandLookup(where: Record<string, unknown>, ctx: 
   }
 }
 
-export function findScopedCustomerCommandRecord<Entity extends object, Hint extends string = never>(
+export async function findScopedCustomerCommandRecord<Entity extends object, Hint extends string = never>(
   em: EntityManager,
   entity: EntityName<Entity>,
   where: Record<string, unknown>,
@@ -76,7 +77,16 @@ export function findScopedCustomerCommandRecord<Entity extends object, Hint exte
   ctx: CommandRuntimeContext,
 ): Promise<Entity | null> {
   const lookup = buildCustomerCommandLookup(where, ctx)
-  return findOneWithDecryption<Entity, Hint>(em, entity, lookup.where as FilterQuery<Entity>, options, lookup.scope)
+  const record = await findOneWithDecryption<Entity, Hint>(em, entity, lookup.where as FilterQuery<Entity>, options, lookup.scope)
+  if (!record && ctx.auth && typeof where.id === 'string') {
+    const entityType = em.getMetadata().get(entity).className
+    const recordScope = await loadEntityRecordScope(em as unknown as Parameters<typeof loadEntityRecordScope>[0], entityType, where.id)
+    if (recordScope && await em.count(entity, { ...where, ...recordScope } as FilterQuery<NoInfer<Entity>>)) {
+      if (recordScope.tenantId) ensureTenantScope(ctx, recordScope.tenantId)
+      if (recordScope.organizationId) ensureOrganizationScope(ctx, recordScope.organizationId)
+    }
+  }
+  return record
 }
 
 export async function requireCustomerEntity(

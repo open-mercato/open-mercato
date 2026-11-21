@@ -14,6 +14,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...(args as [])),
 }))
 
+jest.mock('@open-mercato/shared/lib/db/recordScope', () => ({
+  loadEntityRecordScope: jest.fn(async () => null),
+}))
+
 import '@open-mercato/core/modules/customers/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -114,6 +118,7 @@ function makeStore(
   }
 
   const em: any = {
+    getMetadata: () => ({ get: () => ({ className: 'CustomerAddress' }) }),
     fork: jest.fn(),
     isInTransaction: jest.fn(() => false),
     begin: jest.fn(async () => {
