@@ -9,6 +9,7 @@ import {
   ecommercePriceSortFallbackSchema,
   ecommerceStoreSettingsSchema,
   ecommerceStoreStatusSchema,
+  type EcommercePriceDisplayMode,
   type EcommercePriceSortFallback,
   type EcommerceStoreSettings,
   type EcommerceStoreStatus,
@@ -53,6 +54,9 @@ export type StorefrontResolutionErrorCode =
   | 'store_misconfigured'
   | 'portal_session_scope_mismatch'
   | 'portal_session_invalid'
+  // Added 2026-10-26 (Release 5, D-R5-22): `resolveForBuyer`'s own refusal codes (§6.3).
+  | 'store_out_of_scope'
+  | 'buyer_out_of_scope'
 
 export type StorefrontResolutionStatus = 400 | 401 | 403 | 404 | 410 | 503
 
@@ -712,4 +716,78 @@ export async function resolveStoreFromRequest(
     },
     localeCandidates,
   )
+}
+
+/**
+ * Trusted buyer-store lookup (SPEC-029 §6.3, D-R5-22): a store row scoped by id, tenant AND
+ * organization in one query — no row means "not in scope" (missing or belonging to a different
+ * tenant/organization), which `resolveForBuyer` turns into `store_out_of_scope`. Unlike
+ * `resolveStoreFromRequest`/`resolveStoreBySlug` this never caches (always fresh) and never checks
+ * `status` (D-R5-22: "serving gates stay at the storefront edge"). `channel` is `null` when the
+ * store has no usable default channel binding — no binding, or its sales channel is deleted or
+ * outside the store's tenant/organization — the same rule `resolve()` applies; `resolveForBuyer`
+ * refuses that with `store_misconfigured` (D-R5-SF3).
+ */
+export type StoreChannelForBuyer = {
+  currencyCode: string
+  priceDisplayModeDefault: EcommercePriceDisplayMode
+  channel: {
+    priceKindId: string | null
+    assortmentScope: AssortmentScope | null
+    requireAuthentication: boolean
+  } | null
+}
+
+export async function loadStoreChannelForBuyer(
+  container: StoreContextContainer,
+  input: { storeId: string; tenantId: string; organizationId: string },
+): Promise<StoreChannelForBuyer | null> {
+  const em = resolveEntityManager(container)
+  const row = await em
+    .getKysely<StoreResolutionDatabase>()
+    .selectFrom('ecommerce_stores as s')
+    .leftJoin('ecommerce_store_channel_bindings as c', (join) =>
+      join
+        .onRef('c.store_id', '=', 's.id')
+        .onRef('c.tenant_id', '=', 's.tenant_id')
+        .onRef('c.organization_id', '=', 's.organization_id')
+        .on('c.is_default', '=', true)
+        .on('c.deleted_at', 'is', null),
+    )
+    .leftJoin('sales_channels as sc', (join) =>
+      join
+        .onRef('sc.id', '=', 'c.sales_channel_id')
+        .onRef('sc.tenant_id', '=', 'c.tenant_id')
+        .onRef('sc.organization_id', '=', 'c.organization_id')
+        .on('sc.deleted_at', 'is', null),
+    )
+    .select([
+      's.default_currency_code as store_default_currency_code',
+      's.settings as store_settings',
+      'c.id as channel_binding_id',
+      'c.price_kind_id as channel_price_kind_id',
+      'c.assortment_scope as channel_assortment_scope',
+      'c.require_authentication as channel_require_authentication',
+      'sc.id as channel_live_sales_channel_id',
+    ])
+    .where('s.id', '=', input.storeId)
+    .where('s.tenant_id', '=', input.tenantId)
+    .where('s.organization_id', '=', input.organizationId)
+    .where('s.deleted_at', 'is', null)
+    .executeTakeFirst()
+  if (!row) return null
+  const settings = parseSettings(row.store_settings, input.storeId)
+  const channel =
+    row.channel_binding_id && row.channel_live_sales_channel_id
+      ? {
+          priceKindId: row.channel_price_kind_id ?? null,
+          assortmentScope: parseAssortmentScope(row.channel_assortment_scope),
+          requireAuthentication: row.channel_require_authentication === true,
+        }
+      : null
+  return {
+    currencyCode: row.store_default_currency_code,
+    priceDisplayModeDefault: settings.display.priceDisplayModeDefault,
+    channel,
+  }
 }

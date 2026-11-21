@@ -1,5 +1,21 @@
 # Upgrade Notes
 
+## `StoreContextService` gains an optional `resolveForBuyer` (SPEC-029 §6.3, Release 5)
+
+- **`StoreContextService`** (`packages/core/src/modules/ecommerce/lib/storeContextService.ts`)
+  adds an optional `resolveForBuyer?(input): Promise<ResolveForBuyerResult>` method
+  to the DI-replaceable service interface. Existing `StoreContextService`
+  overrides keep compiling unchanged. **Module authors providing a custom
+  override** should implement `resolveForBuyer` to support trusted buyer
+  resolution (cart reprice, proposals, pay-link seeding); when it is absent,
+  callers treat the identity refresh as unavailable and fail closed (the
+  storefront assortment scope is not resolved and the operation is refused or
+  runs without a buyer-scoped refresh, as each caller documents). **Callers**
+  must check `service.resolveForBuyer` before invoking it.
+- **`StorefrontResolutionErrorCode`** (`packages/core/src/modules/ecommerce/lib/storeContext.ts`)
+  gains two members, `store_out_of_scope` and `buyer_out_of_scope`. Code with an
+  exhaustive `switch` over this union needs a case or a `default` branch for them.
+
 ## Deal loss reasons seeded by customers (#8801)
 
 `customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.
