@@ -10,13 +10,15 @@ import { HrdService } from './services/hrdService'
 import { ScimTokenService } from './services/scimTokenService'
 import { ScimService } from './services/scimService'
 import { SsoAuthService } from './services/ssoAuthService'
+import { SsoAuthorizationService } from './services/ssoAuthorizationService'
 
 export function register(container: AppContainer) {
   const registry = new SsoProviderRegistry()
   registry.register(new OidcProvider())
 
   container.register({
-    authService: asFunction(({ em }: { em: EntityManager }) => new SsoAuthService(em)).scoped().proxy(),
+    ssoAuthorizationService: asClass(SsoAuthorizationService).scoped(),
+    authService: asFunction(({ em, ssoAuthorizationService }: { em: EntityManager; ssoAuthorizationService: SsoAuthorizationService }) => new SsoAuthService(em, ssoAuthorizationService)).scoped().proxy(),
     ssoProviderRegistry: asValue(registry),
     ssoService: asClass(SsoService).scoped(),
     accountLinkingService: asClass(AccountLinkingService).scoped(),

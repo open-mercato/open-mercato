@@ -13,7 +13,7 @@ type UndoTarget = {
   organizationId: string
 }
 
-type UndoSnapshot = {
+export type UndoSnapshot = {
   createdAt: string
   updatedAt: string
   custom?: Record<string, unknown> | null

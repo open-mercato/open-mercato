@@ -214,6 +214,7 @@
   "customer_accounts.admin.roles.confirm.delete": "Delete role \"{{name}}\"?",
   "customer_accounts.admin.roles.default": "Default",
   "customer_accounts.admin.roles.error.delete": "Failed to delete role",
+  "customer_accounts.admin.roles.error.deleteAssigned": "Cannot delete role with {count} assigned user(s). Reassign users first.",
   "customer_accounts.admin.roles.error.deleteDefault": "The default role cannot be deleted. Set another role as default first.",
   "customer_accounts.admin.roles.error.load": "Failed to load roles",
   "customer_accounts.admin.roles.flash.deleted": "Role deleted",
