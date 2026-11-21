@@ -69,7 +69,7 @@ describeWithPostgres('notifications list paging against PostgreSQL', () => {
     try {
       const rows = Array.from({ length: 30 }, (_, index) => em.create(Notification, {
         recipientUserId: userId,
-        type: 'test.c189',
+        type: 'test.paging_tiebreak',
         title: `Notification ${index}`,
         tenantId,
         organizationId,
