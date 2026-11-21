@@ -1,16 +1,10 @@
 # Upgrade Notes
 
-## Undoing entity translation changes (#9099)
+## Optional process DI root (#8989)
 
-Undo now returns HTTP 409 with code `translations.errors.undoConflict` when
-the current translations conflict with the saved action. The server leaves the
-translations unchanged. Refresh the record and inspect the current values
-before retrying. A successful undo of a delete restores the original row ID.
-No database migration is required.
+`OM_PROCESS_CONTAINER_ROOT=on` enables generation-owned registration/bootstrap with isolated caller scopes. It defaults to off pending workload qualification. Existing `createRequestContainer()` calls retain separate EntityManagers and mutation boundaries. No schema migration is required.
 
-Actions recorded before the upgrade retain their original snapshots. If a
-translation was edited concurrently with one of those actions, verify its
-history before undoing it.
+Custom module/app registrars continue through the legacy builder unless explicitly audited and marked with `defineProcessDiRegistrar`. Use `asScopedService` for factories that need the resolving caller; never capture a process root as the request container. Module DI overrides and custom event buses also select the legacy builder to preserve registration and subscriber ordering. See the request lifecycle documentation for setup hooks, counters and explicit event-context boundaries.
 
 ## Backend API documentation permission (#3810)
 
@@ -288,6 +282,24 @@ The earlier active state is unknown, so check `is_active` after restoring. The S
 bypasses cache invalidation: clear the CRUD/API cache (or restart the app)
 afterwards. No migration is needed.
 
+## Module events dispatch per request (#2963)
+
+Module emitters (`createModuleEvents().emit`) now run inline subscribers against
+the DI container built for the current API request or queue job, instead of the
+container built most recently anywhere in the process. Before this fix, a
+subscriber's `ctx.resolve('em')` (or `dataEngine`, `tenantEncryptionService`, …)
+could return another concurrent request's services. Within one request nothing
+changes: the latest container built during that request is used, as before.
+
+The API dispatcher (`app/api/[...slug]/route.ts`) and the per-job worker handler
+now open a request scope via `runInRequestScope` from
+`@open-mercato/shared/lib/di/request-scope`. **Standalone apps** that keep a
+customized copy of the catch-all API route should wrap their request handling in
+`runInRequestScope(() => …)` the same way. Without it, emits fall back to the
+global bus exactly as before. Code outside a scope (CLI commands, scheduler timers,
+RSC pages) is unchanged. No configuration, database, route, event or DI-key change
+is needed.
+
 ## Event-triggered workflow execution identity (#9137)
 
 Event payload `userId` and `actorUserId` remain data and no longer supply
@@ -494,6 +506,18 @@ Radix positioning and charts. Inline style **elements** require a nonce. Image
 and font permissions, route/DB contracts and the attachment sandbox are unchanged.
 
 [Implementation specification](.ai/specs/2026-10-29-production-content-security-policy.md).
+
+## Undoing entity translation changes (#9099)
+
+Undo now returns HTTP 409 with code `translations.errors.undoConflict` when
+the current translations conflict with the saved action. The server leaves the
+translations unchanged. Refresh the record and inspect the current values
+before retrying. A successful undo of a delete restores the original row ID.
+No database migration is required.
+
+Actions recorded before the upgrade retain their original snapshots. If a
+translation was edited concurrently with one of those actions, verify its
+history before undoing it.
 
 Open Mercato `0.5.0` is our biggest release so far. It bundles more than 250 fixes and
 improvements that landed after the Hackathon in Sopot, alongside several important
