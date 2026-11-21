@@ -108,12 +108,15 @@ describe('filterVisibleMessages', () => {
     organizationIds?: string[] | null
     omitContainer?: boolean
   }) {
-    mockedFindWithDecryption.mockResolvedValue(options.messages ?? [])
-    const emFind = jest.fn().mockResolvedValue(options.recipientRows ?? [])
+    mockedFindWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === Message) return options.messages ?? []
+      if (entity === MessageRecipient) return options.recipientRows ?? []
+      return []
+    })
     const userHasAllFeatures = options.userHasAllFeatures ?? jest.fn().mockResolvedValue(false)
     const container = {
       resolve: (name: string) => {
-        if (name === 'em') return { find: emFind }
+        if (name === 'em') return {}
         if (name === 'rbacService') return { userHasAllFeatures }
         if (name === 'communicationChannelsResolveChannelThreadAccess') {
           if (options.channelAccessResolver) return options.channelAccessResolver
@@ -140,7 +143,7 @@ describe('filterVisibleMessages', () => {
         container: options.omitContainer ? undefined : container,
       },
     }
-    return { ctx, emFind, userHasAllFeatures }
+    return { ctx, userHasAllFeatures }
   }
 
   beforeEach(() => {
@@ -152,7 +155,7 @@ describe('filterVisibleMessages', () => {
     const rReceived = makeResult(MSG_RECEIVED)
     const rPrivate = makeResult(MSG_PRIVATE)
     const rDraft = makeResult(MSG_DRAFT)
-    const { ctx, emFind } = makeCtx({
+    const { ctx } = makeCtx({
       results: [rSent, rReceived, rPrivate, rDraft],
       messages: [
         { id: MSG_SENT, tenantId: TENANT_ID, organizationId: ORG_ID, senderUserId: USER_A, isDraft: true, visibility: 'internal' },
@@ -173,7 +176,8 @@ describe('filterVisibleMessages', () => {
       expect.objectContaining({ fields: expect.any(Array) }),
       { tenantId: TENANT_ID, organizationId: ORG_ID },
     )
-    expect(emFind).toHaveBeenCalledWith(
+    expect(mockedFindWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
       MessageRecipient,
       {
         messageId: { $in: [MSG_RECEIVED, MSG_PRIVATE] },
@@ -181,6 +185,7 @@ describe('filterVisibleMessages', () => {
         deletedAt: null,
       },
       { fields: ['messageId'] },
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
     )
   })
 

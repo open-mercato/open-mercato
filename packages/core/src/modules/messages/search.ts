@@ -104,7 +104,8 @@ export async function filterVisibleMessages(ctx: SearchResultVisibilityContext):
     .map((message) => message.id)
 
   const recipientRows = nonSenderNonDraftIds.length > 0
-    ? await em.find(
+    ? await findWithDecryption(
+        em,
         MessageRecipient,
         {
           messageId: { $in: nonSenderNonDraftIds },
@@ -112,61 +113,13 @@ export async function filterVisibleMessages(ctx: SearchResultVisibilityContext):
           deletedAt: null,
         },
         { fields: ['messageId'] },
+        decryptionScope,
       )
     : []
   const recipientMessageIds = new Set(recipientRows.map((row) => row.messageId))
 
   const visibleIds = new Set<string>()
-  const channelFallbackByOrg = new Map<string, Promise<boolean>>()
-  const channelThreadByKey = new Map<string, Promise<boolean>>()
-  const actorFeatures = resolveActorFeatures(auth)
-
-  const hasChannelFallback = (organizationId: string | null): Promise<boolean> => {
-    const key = organizationId ?? '__null__'
-    let pending = channelFallbackByOrg.get(key)
-    if (!pending) {
-      pending = canUseChannelThreadFallback(
-        { container },
-        { tenantId: ctx.tenantId, organizationId, userId },
-      )
-      channelFallbackByOrg.set(key, pending)
-    }
-    return pending
-  }
-
-  const hasChannelThreadAccess = (organizationId: string | null, threadId: string): Promise<boolean> => {
-    const key = `${organizationId ?? '__null__'}:${threadId}`
-    let pending = channelThreadByKey.get(key)
-    if (!pending) {
-      pending = (async () => {
-        try {
-          const access = await resolveMessageChannelThreadAccess(
-            container,
-            { tenantId: ctx.tenantId, organizationId },
-            { messageThreadId: threadId },
-            { userId, features: actorFeatures },
-          )
-          return access?.canAccess === true
-        } catch (error) {
-          logger.warn('Channel thread visibility lookup failed; denying channel fallback for thread', {
-            threadId,
-            error: error instanceof Error ? error.message : String(error),
-          })
-          getTelemetryRuntime()?.reportError(
-            error instanceof Error ? error : new Error('[internal] Channel thread visibility lookup failed'),
-            {
-              module: 'messages',
-              code: 'messages.search_channel_thread_visibility_failed',
-              attributes: { threadId },
-            },
-          )
-          return false
-        }
-      })()
-      channelThreadByKey.set(key, pending)
-    }
-    return pending
-  }
+  const channelCandidates: Array<{ id: string; organizationId: string | null; threadId: string }> = []
 
   for (const message of scopedMessages) {
     if (message.senderUserId === userId) {
@@ -184,10 +137,83 @@ export async function filterVisibleMessages(ctx: SearchResultVisibilityContext):
     ) {
       continue
     }
-    const orgId = message.organizationId ?? null
-    if (!(await hasChannelFallback(orgId))) continue
-    if (await hasChannelThreadAccess(orgId, message.threadId ?? message.id)) {
-      visibleIds.add(message.id)
+    channelCandidates.push({
+      id: message.id,
+      organizationId: message.organizationId ?? null,
+      threadId: message.threadId ?? message.id,
+    })
+  }
+
+  if (channelCandidates.length > 0) {
+    const actorFeatures = resolveActorFeatures(auth)
+    const distinctOrgs = Array.from(
+      new Map(channelCandidates.map((candidate) => [candidate.organizationId ?? '__null__', candidate.organizationId])).entries(),
+    )
+    const fallbackEntries = await Promise.all(
+      distinctOrgs.map(async ([key, organizationId]) => {
+        const allowed = await canUseChannelThreadFallback(
+          { container },
+          { tenantId: ctx.tenantId, organizationId, userId },
+        )
+        return [key, allowed] as const
+      }),
+    )
+    const allowedOrgKeys = new Set(
+      fallbackEntries.filter(([, allowed]) => allowed).map(([key]) => key),
+    )
+
+    const eligibleCandidates = channelCandidates.filter((candidate) =>
+      allowedOrgKeys.has(candidate.organizationId ?? '__null__'),
+    )
+    const distinctThreads = Array.from(
+      new Map(
+        eligibleCandidates.map((candidate) => [
+          `${candidate.organizationId ?? '__null__'}:${candidate.threadId}`,
+          candidate,
+        ]),
+      ).entries(),
+    )
+
+    const allowedThreadKeys = new Set<string>()
+    const THREAD_CONCURRENCY = 10
+    for (let index = 0; index < distinctThreads.length; index += THREAD_CONCURRENCY) {
+      const batch = distinctThreads.slice(index, index + THREAD_CONCURRENCY)
+      const batchResults = await Promise.all(
+        batch.map(async ([key, candidate]) => {
+          try {
+            const access = await resolveMessageChannelThreadAccess(
+              container,
+              { tenantId: ctx.tenantId, organizationId: candidate.organizationId },
+              { messageThreadId: candidate.threadId },
+              { userId, features: actorFeatures },
+            )
+            return [key, access?.canAccess === true] as const
+          } catch (error) {
+            logger.warn('Channel thread visibility lookup failed; denying channel fallback for thread', {
+              threadId: candidate.threadId,
+              error: error instanceof Error ? error.message : String(error),
+            })
+            getTelemetryRuntime()?.reportError(
+              error instanceof Error ? error : new Error('[internal] Channel thread visibility lookup failed'),
+              {
+                module: 'messages',
+                code: 'messages.search_channel_thread_visibility_failed',
+                attributes: { threadId: candidate.threadId },
+              },
+            )
+            return [key, false] as const
+          }
+        }),
+      )
+      for (const [key, allowed] of batchResults) {
+        if (allowed) allowedThreadKeys.add(key)
+      }
+    }
+
+    for (const candidate of eligibleCandidates) {
+      if (allowedThreadKeys.has(`${candidate.organizationId ?? '__null__'}:${candidate.threadId}`)) {
+        visibleIds.add(candidate.id)
+      }
     }
   }
 

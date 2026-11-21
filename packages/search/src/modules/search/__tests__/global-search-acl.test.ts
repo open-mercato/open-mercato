@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import ts from 'typescript'
 import { setup } from '../setup'
 import features from '../acl'
 
@@ -129,20 +130,89 @@ describe('searchable entity ACL coverage', () => {
     }
   })
 
-  it.each(files)('%s pairs every aclFeaturesMode: "any" entity with a filterResults hook', (file) => {
-    const source = readFileSync(file, 'utf8')
-    const entitiesArrayStart = source.search(/^ {2}entities: \[$/m)
-    expect(entitiesArrayStart).toBeGreaterThan(-1)
-    const entitiesArray = source.slice(entitiesArrayStart)
-    const entityMatches = [...entitiesArray.matchAll(/^ {6}entityId: (.+),$/gm)]
+  function findAllSearchConfigFiles(): string[] {
+    const packagesRoot = join(repoRoot, 'packages')
+    const packageModuleRoots = existsSync(packagesRoot)
+      ? readdirSync(packagesRoot, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => join(packagesRoot, entry.name, 'src', 'modules'))
+          .filter((dir) => existsSync(dir))
+      : []
+    const extraRoots = [
+      join(repoRoot, 'apps', 'mercato', 'src', 'modules'),
+      join(repoRoot, 'packages', 'create-app', 'template', 'src', 'modules'),
+    ].filter((dir) => existsSync(dir))
 
-    for (let i = 0; i < entityMatches.length; i++) {
-      const start = entityMatches[i].index!
-      const end = i + 1 < entityMatches.length ? entityMatches[i + 1].index! : entitiesArray.length
-      const block = entitiesArray.slice(start, end)
-      if (block.includes("aclFeaturesMode: 'any'") || block.includes('aclFeaturesMode: "any"')) {
-        expect(block).toMatch(/^ {6}filterResults:/m)
+    return [...packageModuleRoots, ...extraRoots].flatMap((root) =>
+      readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(root, entry.name, 'search.ts'))
+        .filter((file) => existsSync(file)),
+    )
+  }
+
+  function extractEntityObjectLiterals(file: string): ts.ObjectLiteralExpression[] {
+    const source = readFileSync(file, 'utf8')
+    const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+    const entities: ts.ObjectLiteralExpression[] = []
+
+    function visit(node: ts.Node): void {
+      if (
+        ts.isVariableDeclaration(node)
+        && ts.isIdentifier(node.name)
+        && node.name.text === 'searchConfig'
+        && node.initializer
+        && ts.isObjectLiteralExpression(node.initializer)
+      ) {
+        for (const prop of node.initializer.properties) {
+          if (
+            ts.isPropertyAssignment(prop)
+            && ts.isIdentifier(prop.name)
+            && prop.name.text === 'entities'
+            && ts.isArrayLiteralExpression(prop.initializer)
+          ) {
+            for (const element of prop.initializer.elements) {
+              if (ts.isObjectLiteralExpression(element)) {
+                entities.push(element)
+              }
+            }
+          }
+        }
       }
+      ts.forEachChild(node, visit)
+    }
+
+    visit(sourceFile)
+    return entities
+  }
+
+  function getPropertyInitializer(
+    obj: ts.ObjectLiteralExpression,
+    name: string,
+  ): ts.Expression | undefined {
+    for (const prop of obj.properties) {
+      if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name) && prop.name.text === name) {
+        return prop.initializer
+      }
+      if (ts.isShorthandPropertyAssignment(prop) && prop.name.text === name) {
+        return prop.name
+      }
+    }
+    return undefined
+  }
+
+  const allSearchFiles = findAllSearchConfigFiles()
+
+  it.each(allSearchFiles)('%s pairs every aclFeaturesMode: "any" entity with a non-null filterResults hook', (file) => {
+    const entities = extractEntityObjectLiterals(file)
+    for (const entity of entities) {
+      const modeInit = getPropertyInitializer(entity, 'aclFeaturesMode')
+      const isAnyMode = modeInit && ts.isStringLiteral(modeInit) && modeInit.text === 'any'
+      if (!isAnyMode) continue
+      const filterInit = getPropertyInitializer(entity, 'filterResults')
+      expect(filterInit).toBeDefined()
+      expect(filterInit?.kind).not.toBe(ts.SyntaxKind.NullKeyword)
+      expect(ts.isIdentifier(filterInit!) && filterInit.text === 'undefined').toBe(false)
     }
   })
 

@@ -669,4 +669,37 @@ describe('search viewer for per-record visibility (PR #9648 B-8)', () => {
     await findTool('search.get_record_context').handler({ entityId: 'catalog:product', recordId: 'rec-1' }, ctx as any)
     expect((calls[0].options.viewer as { auth: Record<string, unknown> }).auth).toMatchObject({ sub: 'user-1', tenantId: 'tenant-1' })
   })
+
+  it('search.get_record_context rejects aclFeaturesMode "any" without filterResults and allows it with filterResults', async () => {
+    const { service } = makeSearchService([])
+    const unsafeLookup = {
+      getEntityConfig: () => ({
+        entityId: 'sales:sales_note',
+        aclFeatures: ['sales.orders.view', 'sales.quotes.view'],
+        aclFeaturesMode: 'any' as const,
+      }),
+      getAllEntityConfigs: () => [],
+    }
+    const ctx = makeCtx({ userFeatures: ['search.view', 'sales.quotes.view'] })
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, unsafeLookup as any))
+    await expect(
+      findTool('search.get_record_context').handler({ entityId: 'sales:sales_note', recordId: 'rec-1' }, ctx as any),
+    ).rejects.toThrow(/aclFeaturesMode "any" without filterResults/)
+
+    const safeLookup = {
+      getEntityConfig: () => ({
+        entityId: 'sales:sales_note',
+        aclFeatures: ['sales.orders.view', 'sales.quotes.view'],
+        aclFeaturesMode: 'any' as const,
+        filterResults: ({ results }: { results: unknown[] }) => results,
+      }),
+      getAllEntityConfigs: () => [],
+    }
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, safeLookup as any))
+    const result = await findTool('search.get_record_context').handler(
+      { entityId: 'sales:sales_note', recordId: 'rec-1' },
+      ctx as any,
+    )
+    expect(result).toEqual({ found: false, entityId: 'sales:sales_note', recordId: 'rec-1' })
+  })
 })

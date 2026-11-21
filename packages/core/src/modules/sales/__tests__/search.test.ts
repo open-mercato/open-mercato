@@ -194,7 +194,9 @@ describe('filterVisibleSalesNotes', () => {
     expect(await filterVisibleSalesNotes(liveSuperCtx.ctx)).toEqual([rOrder])
   })
 
-  it('evaluates delegated API-key subjects through rbacService.loadAcl', async () => {
+  it('evaluates delegated API-key subjects through rbacService.loadAcl and rejects non-UUID subjects', async () => {
+    const apiKeyId = '55555555-5555-4555-8555-555555555577'
+    const apiKeySub = `api_key:${apiKeyId}`
     const rQuote = makeResult('sales:sales_note', QUOTE_ROW_ID)
     const rOrder = makeResult('sales:sales_note', ORDER_ROW_ID)
     const loadAcl = jest.fn().mockResolvedValue({
@@ -205,7 +207,7 @@ describe('filterVisibleSalesNotes', () => {
     const { ctx } = makeCtx({
       entityId: 'sales:sales_note',
       results: [rOrder, rQuote],
-      authOverrides: { sub: 'api_key:key-77', userId: undefined, isApiKey: true, keyId: 'key-77' },
+      authOverrides: { sub: apiKeySub, userId: undefined, isApiKey: true, keyId: apiKeyId },
       loadAcl,
       rows: [
         { id: ORDER_ROW_ID, tenantId: TENANT_ID, organizationId: ORG_ID, contextType: 'order' },
@@ -214,7 +216,37 @@ describe('filterVisibleSalesNotes', () => {
     })
 
     expect(await filterVisibleSalesNotes(ctx)).toEqual([rQuote])
-    expect(loadAcl).toHaveBeenCalledWith('api_key:key-77', { tenantId: TENANT_ID, organizationId: ORG_ID })
+    expect(loadAcl).toHaveBeenCalledWith(apiKeySub, { tenantId: TENANT_ID, organizationId: ORG_ID })
+
+    jest.clearAllMocks()
+    const badUserSub = makeCtx({
+      entityId: 'sales:sales_note',
+      results: [rQuote],
+      authOverrides: { sub: 'not-a-uuid', userId: undefined },
+    })
+    expect(await filterVisibleSalesNotes(badUserSub.ctx)).toEqual([])
+    expect(mockedFindWithDecryption).not.toHaveBeenCalled()
+
+    const badApiKeySub = makeCtx({
+      entityId: 'sales:sales_note',
+      results: [rQuote],
+      authOverrides: { sub: 'api_key:not-a-uuid', userId: undefined, isApiKey: true, keyId: 'not-a-uuid' },
+    })
+    expect(await filterVisibleSalesNotes(badApiKeySub.ctx)).toEqual([])
+    expect(mockedFindWithDecryption).not.toHaveBeenCalled()
+
+    const staleCrossTenantJwt = makeCtx({
+      entityId: 'sales:sales_note',
+      results: [rQuote],
+      authOverrides: { tenantId: '99999999-9999-4999-8999-999999999999', isSuperAdmin: true },
+      loadAcl: jest.fn().mockResolvedValue({
+        isSuperAdmin: false,
+        features: ['sales.quotes.view'],
+        organizations: [ORG_ID],
+      }),
+      rows: [{ id: QUOTE_ROW_ID, tenantId: TENANT_ID, organizationId: ORG_ID, contextType: 'quote' }],
+    })
+    expect(await filterVisibleSalesNotes(staleCrossTenantJwt.ctx)).toEqual([])
   })
 
   it('sanitizes non-UUID recordIds, enforces DB-row organization scope, and fails closed on missing services', async () => {

@@ -33,15 +33,9 @@ const SALES_NOTE_ENTITY = 'sales:sales_note'
 const SALES_ADDRESS_ENTITY = 'sales:sales_document_address'
 const USER_PASSWORD = 'QaSearch5183!Password'
 
-function decodeJwtSubject(token: string): string {
-  const payloadPart = token.split('.')[1] ?? ''
-  const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/')
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
-  const decoded = JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as { sub?: unknown }
-  if (typeof decoded.sub !== 'string' || decoded.sub.length === 0) {
-    throw new Error('Auth token does not contain user subject')
-  }
-  return decoded.sub
+type UserCleanupTracker = {
+  roleIds: string[]
+  userIds: string[]
 }
 
 async function searchRecords(
@@ -96,11 +90,13 @@ async function createRestrictedUser(
   scope: { tenantId: string; organizationId: string },
   prefix: string,
   features: string[],
+  tracker: UserCleanupTracker,
 ): Promise<{ roleId: string; userId: string; token: string }> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const roleName = `${prefix}-role-${stamp}`
   const email = `${prefix}-${stamp}@example.test`
   const roleId = await createRoleFixture(request, adminToken, { name: roleName, tenantId: scope.tenantId })
+  tracker.roleIds.push(roleId)
   await setRoleAclFeatures(request, adminToken, {
     roleId,
     features,
@@ -113,8 +109,22 @@ async function createRestrictedUser(
     roles: [roleName],
     name: `${prefix} user`,
   })
+  tracker.userIds.push(userId)
   const token = await getAuthToken(request, email, USER_PASSWORD)
   return { roleId, userId, token }
+}
+
+async function cleanupTrackedUsers(
+  request: APIRequestContext,
+  adminToken: string | null,
+  tracker: UserCleanupTracker,
+): Promise<void> {
+  for (const userId of [...tracker.userIds].reverse()) {
+    await deleteUserIfExists(request, adminToken, userId)
+  }
+  for (const roleId of [...tracker.roleIds].reverse()) {
+    await deleteRoleIfExists(request, adminToken, roleId)
+  }
 }
 
 /**
@@ -127,16 +137,13 @@ test.describe('TC-SEARCH-019: row-aware search authorization for messages and po
   test('messages:message returns only rows where the caller is a permitted participant', async ({ request }) => {
     test.slow()
     let adminToken: string | null = null
-    let viewerRoleId: string | null = null
-    let viewerUserId: string | null = null
+    const tracker: UserCleanupTracker = { roleIds: [], userIds: [] }
     let allowedMessageId: string | null = null
     let deniedMessageId: string | null = null
 
     try {
       adminToken = await getAuthToken(request, 'admin')
-      const employeeToken = await getAuthToken(request, 'employee')
       const adminCtx = getTokenContext(adminToken)
-      const employeeUserId = decodeJwtSubject(employeeToken)
       expect(adminCtx.organizationId, 'admin token must carry an organizationId').toBeTruthy()
       const organizationId = adminCtx.organizationId as string
 
@@ -146,9 +153,16 @@ test.describe('TC-SEARCH-019: row-aware search authorization for messages and po
         { tenantId: adminCtx.tenantId, organizationId },
         'tc-search-019-msg',
         ['search.global', 'search.view', 'messages.view'],
+        tracker,
       )
-      viewerRoleId = viewer.roleId
-      viewerUserId = viewer.userId
+      const otherRecipient = await createRestrictedUser(
+        request,
+        adminToken,
+        { tenantId: adminCtx.tenantId, organizationId },
+        'tc-search-019-other',
+        ['messages.view'],
+        tracker,
+      )
 
       const stamp = Date.now()
       const sharedToken = `QATCSEARCH019MSG${stamp}`
@@ -170,7 +184,7 @@ test.describe('TC-SEARCH-019: row-aware search authorization for messages and po
       const deniedRes = await apiRequest(request, 'POST', '/api/messages', {
         token: adminToken,
         data: {
-          recipients: [{ userId: employeeUserId, type: 'to' }],
+          recipients: [{ userId: otherRecipient.userId, type: 'to' }],
           subject: `${sharedToken} ${deniedSecret}`,
           body: `Private message body ${sharedToken} ${deniedSecret}`,
           sendViaEmail: false,
@@ -201,8 +215,7 @@ test.describe('TC-SEARCH-019: row-aware search authorization for messages and po
           token: adminToken,
         }).catch(() => undefined)
       }
-      await deleteUserIfExists(request, adminToken, viewerUserId)
-      await deleteRoleIfExists(request, adminToken, viewerRoleId)
+      await cleanupTrackedUsers(request, adminToken, tracker)
     }
   })
 
@@ -211,10 +224,7 @@ test.describe('TC-SEARCH-019: row-aware search authorization for messages and po
   }) => {
     test.slow()
     let adminToken: string | null = null
-    let quoteRoleId: string | null = null
-    let quoteUserId: string | null = null
-    let orderRoleId: string | null = null
-    let orderUserId: string | null = null
+    const tracker: UserCleanupTracker = { roleIds: [], userIds: [] }
     let orderId: string | null = null
     let quoteId: string | null = null
     let orderNoteId: string | null = null
@@ -238,9 +248,8 @@ test.describe('TC-SEARCH-019: row-aware search authorization for messages and po
         { tenantId: adminCtx.tenantId, organizationId },
         'tc-search-019-quote',
         ['search.global', 'search.view', 'sales.quotes.view'],
+        tracker,
       )
-      quoteRoleId = quoteReader.roleId
-      quoteUserId = quoteReader.userId
 
       const orderReader = await createRestrictedUser(
         request,
@@ -248,9 +257,8 @@ test.describe('TC-SEARCH-019: row-aware search authorization for messages and po
         { tenantId: adminCtx.tenantId, organizationId },
         'tc-search-019-order',
         ['search.global', 'search.view', 'sales.orders.view'],
+        tracker,
       )
-      orderRoleId = orderReader.roleId
-      orderUserId = orderReader.userId
 
       orderId = await createSalesOrderFixture(request, adminToken)
       quoteId = await createSalesQuoteFixture(request, adminToken)
@@ -361,10 +369,7 @@ test.describe('TC-SEARCH-019: row-aware search authorization for messages and po
       }
       await deleteSalesEntityIfExists(request, adminToken, '/api/sales/orders', orderId)
       await deleteSalesEntityIfExists(request, adminToken, '/api/sales/quotes', quoteId)
-      await deleteUserIfExists(request, adminToken, quoteUserId)
-      await deleteRoleIfExists(request, adminToken, quoteRoleId)
-      await deleteUserIfExists(request, adminToken, orderUserId)
-      await deleteRoleIfExists(request, adminToken, orderRoleId)
+      await cleanupTrackedUsers(request, adminToken, tracker)
     }
   })
 })

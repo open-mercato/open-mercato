@@ -50,6 +50,14 @@ function isOrganizationVisible(ctx: SearchResultVisibilityContext, organizationI
   return true
 }
 
+function isValidRbacSubject(sub: unknown): sub is string {
+  if (typeof sub !== 'string' || sub.length === 0) return false
+  if (sub.startsWith('api_key:')) {
+    return UUID_PATTERN.test(sub.slice('api_key:'.length))
+  }
+  return UUID_PATTERN.test(sub)
+}
+
 function resolveSalesDocumentViewFeature(kind: unknown): string | null {
   if (kind === 'order' || kind === 'quote' || kind === 'invoice' || kind === 'credit_memo') {
     return SALES_DOCUMENT_VIEW_FEATURE_BY_KIND[kind]
@@ -71,8 +79,9 @@ async function filterVisibleSalesPolymorphicRecords(
     throw new Error('[internal] Sales visibility check requires a request container')
   }
   const auth = ctx.viewer.auth
-  if (!auth.sub) return []
-  if (auth.isSuperAdmin !== true && auth.tenantId !== ctx.tenantId) return []
+  if (!isValidRbacSubject(auth.sub)) return []
+  const isApiKeySubject = auth.isApiKey === true || auth.sub.startsWith('api_key:')
+  if (isApiKeySubject && auth.tenantId !== ctx.tenantId) return []
   if (!ctx.organizationId && Array.isArray(ctx.organizationIds) && ctx.organizationIds.length === 0) return []
 
   const recordIds = Array.from(
@@ -110,6 +119,9 @@ async function filterVisibleSalesPolymorphicRecords(
     const acl = await loadOrgAcl(organizationId)
     if (typeof acl?.isSuperAdmin !== 'boolean' || !Array.isArray(acl.features)) {
       throw new Error('[internal] Invalid ACL data during sales visibility check')
+    }
+    if (auth.tenantId !== ctx.tenantId && !acl.isSuperAdmin) {
+      continue
     }
     if (
       !acl.isSuperAdmin
