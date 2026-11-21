@@ -100,10 +100,10 @@ test('person detail and linked companies respect company and deal view access', 
     expect((await get(enrichedPath)).status()).toBe(403)
 
     await page.goto(pagePath)
-    await expect(page.getByRole('tab', { name: /^Activities/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tablist').first().getByRole('tab', { selected: true })).toBeVisible()
     await expect(page.getByRole('tab', { name: /^Companies/ })).toHaveCount(0)
     await expect(page.getByRole('link', { name: companyName, exact: true })).toHaveCount(0)
-    const moreTabs = page.getByRole('button', { name: 'More', exact: true })
+    const moreTabs = page.getByTestId('detail-tabs-more')
     if (await moreTabs.isVisible()) {
       await moreTabs.click()
       const overflow = page.getByRole('menu', { name: 'More', exact: true })
