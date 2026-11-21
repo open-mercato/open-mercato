@@ -10,9 +10,10 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CustomerGroup } from '../../../data/entities'
-import { isCustomerInScope, organizationIdsFromScope } from '../../../lib/customerScope'
+import { findCustomerInScope, organizationIdsFromScope } from '../../../lib/customerScope'
 import {
   loadCustomerGroupAncestorChain,
+  TERMS_CURRENCY_SOURCE_BASE_CURRENCY,
   type CustomerGroupsService,
   type ResolvedTerms,
   type ResolvedTermsSources,
@@ -34,6 +35,10 @@ const TERMS_FIELDS = [
   'allowPurchaseOnAccount',
   'approvalRequiredAbove',
   'minOrderValue',
+  'termsCurrencyCode',
+  'approvalPolicy',
+  'allowQuoteRequests',
+  'requiresPoNumber',
 ] as const satisfies readonly (keyof ResolvedTermsSources)[]
 
 type TermsField = (typeof TERMS_FIELDS)[number]
@@ -42,9 +47,14 @@ const querySchema = z.object({ customerId: z.string().uuid() })
 
 type GroupSummary = { id: string; code: string; name: string }
 
+// `source` tells a group-supplied value apart from the tenant default and from the
+// organization's base currency (D-R5-37), whose `sources` entry is not a group id.
+type ExplainTermsSource = 'group' | 'tenant_default' | 'base_currency'
+
 type ExplainTermsField = {
   value: string | number | boolean | null
   sourceGroupId: string | null
+  source: ExplainTermsSource
   path: GroupSummary[]
 }
 
@@ -104,7 +114,8 @@ export async function GET(req: Request) {
     // Same fallback as `makeCrudRoute`: an unresolvable scope narrows to the account org.
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req }).catch(() => null)
     const organizationIds = organizationIdsFromScope(scope, scope?.selectedId ?? auth.orgId ?? null)
-    if (!(await isCustomerInScope(em, customerId, { tenantId, organizationIds }))) {
+    const customer = await findCustomerInScope(em, customerId, { tenantId, organizationIds })
+    if (!customer) {
       throw notFound(translate('customer_groups.errors.customerNotFound', 'Customer not found.'))
     }
 
@@ -113,6 +124,7 @@ export async function GET(req: Request) {
       customerId,
       tenantId,
       groupIds: groupResolution.groupIds,
+      ...(customer.organizationId ? { organizationId: customer.organizationId } : {}),
     })
 
     // The FULL `{id,code,name}` ancestor path per field (not just the winning
@@ -128,10 +140,13 @@ export async function GET(req: Request) {
     }
 
     const fields = TERMS_FIELDS.reduce<Record<TermsField, ExplainTermsField>>((acc, field) => {
-      const sourceGroupId = resolvedTerms.sources[field]
+      const rawSource = resolvedTerms.sources[field]
+      const isBaseCurrency = rawSource === TERMS_CURRENCY_SOURCE_BASE_CURRENCY
+      const sourceGroupId = isBaseCurrency ? null : rawSource
       acc[field] = {
         value: resolvedTerms[field],
         sourceGroupId,
+        source: isBaseCurrency ? 'base_currency' : sourceGroupId ? 'group' : 'tenant_default',
         path: buildAncestorPath(chains, sourceGroupId),
       }
       return acc
@@ -158,6 +173,7 @@ const groupSummarySchema = z.object({ id: z.string().uuid(), code: z.string(), n
 const explainTermsFieldSchema = z.object({
   value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
   sourceGroupId: z.string().uuid().nullable(),
+  source: z.enum(['group', 'tenant_default', 'base_currency']),
   path: z.array(groupSummarySchema),
 })
 const explainTermsResponseSchema = z.object({
@@ -168,6 +184,10 @@ const explainTermsResponseSchema = z.object({
     allowPurchaseOnAccount: explainTermsFieldSchema,
     approvalRequiredAbove: explainTermsFieldSchema,
     minOrderValue: explainTermsFieldSchema,
+    termsCurrencyCode: explainTermsFieldSchema,
+    approvalPolicy: explainTermsFieldSchema,
+    allowQuoteRequests: explainTermsFieldSchema,
+    requiresPoNumber: explainTermsFieldSchema,
   }),
 })
 const explainTermsErrorSchema = z.object({ error: z.string() })
@@ -179,7 +199,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Explain a customer’s resolved commercial terms',
       description:
-        'Resolves the effective commercial terms for a customer and, per field, the group that supplied the value (or tenant default) plus the visible ancestor path (child → parent → tenant) used to find it.',
+        'Resolves the effective commercial terms for a customer and, per field, the group that supplied the value (or tenant default, or the organization base currency for termsCurrencyCode) plus the visible ancestor path (child → parent → tenant) used to find it.',
       query: querySchema,
       responses: [
         { status: 200, description: 'Resolved terms with per-field provenance', schema: explainTermsResponseSchema },

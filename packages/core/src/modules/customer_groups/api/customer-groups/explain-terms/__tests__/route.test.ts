@@ -12,7 +12,7 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
 }))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
-const isCustomerInScopeMock = jest.fn(async () => true)
+const findCustomerInScopeMock = jest.fn(async (): Promise<{ organizationId: string | null } | null> => ({ organizationId: ORG_ID }))
 const resolveOrganizationScopeMock = jest.fn(async () => ({
   selectedId: ORG_ID,
   filterIds: [ORG_ID],
@@ -26,7 +26,7 @@ jest.mock('../../../../lib/customerScope', () => {
   const actual = jest.requireActual('../../../../lib/customerScope')
   return {
     ...actual,
-    isCustomerInScope: (...args: unknown[]) => isCustomerInScopeMock(...(args as [])),
+    findCustomerInScope: (...args: unknown[]) => findCustomerInScopeMock(...(args as [])),
   }
 })
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -77,8 +77,20 @@ function resolvedTermsFixture(overrides: {
   allowPurchaseOnAccount?: boolean
   approvalRequiredAbove?: number | null
   minOrderValue?: number | null
+  termsCurrencyCode?: string | null
+  approvalPolicy?: 'buyer' | 'merchant' | 'both'
+  allowQuoteRequests?: boolean
+  requiresPoNumber?: boolean
   sources?: Partial<Record<
-    'priceKindId' | 'paymentTermsDays' | 'allowPurchaseOnAccount' | 'approvalRequiredAbove' | 'minOrderValue',
+    | 'priceKindId'
+    | 'paymentTermsDays'
+    | 'allowPurchaseOnAccount'
+    | 'approvalRequiredAbove'
+    | 'minOrderValue'
+    | 'termsCurrencyCode'
+    | 'approvalPolicy'
+    | 'allowQuoteRequests'
+    | 'requiresPoNumber',
     string | null
   >>
 }) {
@@ -88,12 +100,20 @@ function resolvedTermsFixture(overrides: {
     allowPurchaseOnAccount: overrides.allowPurchaseOnAccount ?? false,
     approvalRequiredAbove: overrides.approvalRequiredAbove ?? null,
     minOrderValue: overrides.minOrderValue ?? null,
+    termsCurrencyCode: overrides.termsCurrencyCode ?? null,
+    approvalPolicy: overrides.approvalPolicy ?? 'buyer',
+    allowQuoteRequests: overrides.allowQuoteRequests ?? false,
+    requiresPoNumber: overrides.requiresPoNumber ?? false,
     sources: {
       priceKindId: null,
       paymentTermsDays: null,
       allowPurchaseOnAccount: null,
       approvalRequiredAbove: null,
       minOrderValue: null,
+      termsCurrencyCode: null,
+      approvalPolicy: null,
+      allowQuoteRequests: null,
+      requiresPoNumber: null,
       ...overrides.sources,
     },
   }
@@ -144,7 +164,7 @@ describe('GET /api/customer-groups/explain-terms', () => {
   })
 
   it('returns 404 without resolving terms when the customer is outside the caller organization scope', async () => {
-    isCustomerInScopeMock.mockResolvedValueOnce(false)
+    findCustomerInScopeMock.mockResolvedValueOnce(null)
     const findOne = jest.fn(async () => null)
     const resolveGroups = jest.fn()
     const resolveTerms = jest.fn()
@@ -153,7 +173,7 @@ describe('GET /api/customer-groups/explain-terms', () => {
     const res = await GET(request(CUSTOMER_ID))
 
     expect(res.status).toBe(404)
-    expect(isCustomerInScopeMock).toHaveBeenCalledWith(expect.anything(), CUSTOMER_ID, {
+    expect(findCustomerInScopeMock).toHaveBeenCalledWith(expect.anything(), CUSTOMER_ID, {
       tenantId: TENANT_ID,
       organizationIds: [ORG_ID],
     })
@@ -171,10 +191,64 @@ describe('GET /api/customer-groups/explain-terms', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.groups).toEqual([])
-    expect(body.fields.priceKindId).toEqual({ value: null, sourceGroupId: null, path: [] })
+    expect(body.fields.priceKindId).toEqual({ value: null, sourceGroupId: null, source: 'tenant_default', path: [] })
     expect(resolveTerms).toHaveBeenCalledWith(
       expect.objectContaining({ customerId: CUSTOMER_ID, tenantId: TENANT_ID, groupIds: [] }),
     )
+  })
+
+  it('passes the customer organization to resolveTerms and renders the base-currency sentinel as its own source (D-R5-37)', async () => {
+    const findOne = jest.fn(async () => null)
+    const resolveGroups = jest.fn().mockResolvedValue({ groupIds: [], groups: [] })
+    const resolveTerms = jest.fn().mockResolvedValue(
+      resolvedTermsFixture({ termsCurrencyCode: 'EUR', sources: { termsCurrencyCode: 'base_currency' } }),
+    )
+    setupContainer({ findOne, resolveGroups, resolveTerms })
+
+    const res = await GET(request(CUSTOMER_ID))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(resolveTerms).toHaveBeenCalledWith(expect.objectContaining({ organizationId: ORG_ID }))
+    expect(body.fields.termsCurrencyCode).toEqual({ value: 'EUR', sourceGroupId: null, source: 'base_currency', path: [] })
+  })
+
+  it('explains the four Release 5 terms like the shipped ones', async () => {
+    const findOne = jest.fn(async (_entity: unknown, where: { id: string }) =>
+      where.id === CHILD_GROUP_ID ? childGroup : null,
+    )
+    const resolveGroups = jest.fn().mockResolvedValue({
+      groupIds: [CHILD_GROUP_ID],
+      groups: [{ id: CHILD_GROUP_ID, code: 'retail', name: 'Retail', kind: 'standard', priority: 10 }],
+    })
+    const resolveTerms = jest.fn().mockResolvedValue(
+      resolvedTermsFixture({
+        termsCurrencyCode: 'PLN',
+        approvalPolicy: 'both',
+        allowQuoteRequests: true,
+        sources: { termsCurrencyCode: CHILD_GROUP_ID, approvalPolicy: CHILD_GROUP_ID, allowQuoteRequests: CHILD_GROUP_ID },
+      }),
+    )
+    setupContainer({ findOne, resolveGroups, resolveTerms })
+
+    const res = await GET(request(CUSTOMER_ID))
+    const body = await res.json()
+    const path = [{ id: CHILD_GROUP_ID, code: 'retail', name: 'Retail' }]
+    expect(body.fields.termsCurrencyCode).toEqual({ value: 'PLN', sourceGroupId: CHILD_GROUP_ID, source: 'group', path })
+    expect(body.fields.approvalPolicy).toEqual({ value: 'both', sourceGroupId: CHILD_GROUP_ID, source: 'group', path })
+    expect(body.fields.allowQuoteRequests).toEqual({ value: true, sourceGroupId: CHILD_GROUP_ID, source: 'group', path })
+    expect(body.fields.requiresPoNumber).toEqual({ value: false, sourceGroupId: null, source: 'tenant_default', path: [] })
+  })
+
+  it('omits organizationId when the customer has no organization', async () => {
+    findCustomerInScopeMock.mockResolvedValueOnce({ organizationId: null })
+    const findOne = jest.fn(async () => null)
+    const resolveGroups = jest.fn().mockResolvedValue({ groupIds: [], groups: [] })
+    const resolveTerms = jest.fn().mockResolvedValue(resolvedTermsFixture({}))
+    setupContainer({ findOne, resolveGroups, resolveTerms })
+
+    const res = await GET(request(CUSTOMER_ID))
+    expect(res.status).toBe(200)
+    expect(resolveTerms.mock.calls[0][0]).not.toHaveProperty('organizationId')
   })
 
   it('reconstructs a single-group path when the field is set on the customer\'s own matching group', async () => {
@@ -200,6 +274,7 @@ describe('GET /api/customer-groups/explain-terms', () => {
     expect(body.fields.priceKindId).toEqual({
       value: 'pk-1',
       sourceGroupId: CHILD_GROUP_ID,
+      source: 'group',
       path: [{ id: CHILD_GROUP_ID, code: 'retail', name: 'Retail' }],
     })
   })
@@ -228,6 +303,7 @@ describe('GET /api/customer-groups/explain-terms', () => {
     expect(body.fields.paymentTermsDays).toEqual({
       value: 45,
       sourceGroupId: PARENT_GROUP_ID,
+      source: 'group',
       path: [
         { id: CHILD_GROUP_ID, code: 'retail', name: 'Retail' },
         { id: PARENT_GROUP_ID, code: 'wholesale', name: 'Wholesale' },
@@ -311,8 +387,8 @@ describe('GET /api/customer-groups/explain-terms', () => {
     const res = await GET(request(CUSTOMER_ID))
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.fields.paymentTermsDays).toEqual({ value: null, sourceGroupId: null, path: [] })
-    expect(body.fields.allowPurchaseOnAccount).toEqual({ value: false, sourceGroupId: null, path: [] })
+    expect(body.fields.paymentTermsDays).toEqual({ value: null, sourceGroupId: null, source: 'tenant_default', path: [] })
+    expect(body.fields.allowPurchaseOnAccount).toEqual({ value: false, sourceGroupId: null, source: 'tenant_default', path: [] })
   })
 
   it('stops the explained path at an inactive parent, agreeing with the real resolveTerms', async () => {
@@ -350,8 +426,8 @@ describe('GET /api/customer-groups/explain-terms', () => {
     const res = await GET(request(CUSTOMER_ID))
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.fields.paymentTermsDays).toEqual({ value: null, sourceGroupId: null, path: [] })
-    expect(body.fields.allowPurchaseOnAccount).toEqual({ value: false, sourceGroupId: null, path: [] })
+    expect(body.fields.paymentTermsDays).toEqual({ value: null, sourceGroupId: null, source: 'tenant_default', path: [] })
+    expect(body.fields.allowPurchaseOnAccount).toEqual({ value: false, sourceGroupId: null, source: 'tenant_default', path: [] })
   })
 
   it('returns 500 and reports the error when resolution fails unexpectedly', async () => {

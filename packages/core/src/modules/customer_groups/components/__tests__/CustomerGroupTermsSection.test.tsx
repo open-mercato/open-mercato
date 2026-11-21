@@ -23,7 +23,7 @@ type MockCrudFormProps = {
   optimisticLockUpdatedAt?: string | null
   initialValues?: Record<string, unknown>
   schema?: { safeParse: (value: unknown) => { success: boolean; data?: Record<string, unknown> } }
-  fields?: Array<{ id: string; type: string }>
+  fields?: Array<{ id: string; type: string; component?: (props: { values?: Record<string, unknown> }) => React.ReactNode }>
   onSubmit?: (values: Record<string, unknown>) => Promise<void>
 }
 
@@ -74,13 +74,14 @@ const storedTerms: CustomerGroupTermsDTO = {
   updatedAt: '2026-09-02T00:00:00.000Z',
 }
 
-function renderSection(terms: CustomerGroupTermsDTO | null, canManage: boolean) {
+function renderSection(terms: CustomerGroupTermsDTO | null, canManage: boolean, isDefaultGroup = false) {
   return render(
     <CustomerGroupTermsSection
       groupId="group-1"
       terms={terms}
       loading={false}
       canManage={canManage}
+      isDefaultGroup={isDefaultGroup}
       onSaved={() => {}}
     />,
   )
@@ -245,5 +246,93 @@ describe('CustomerGroupTermsSection exact amounts', () => {
     const cleared = lastFormProps?.schema?.safeParse({ ...base, minOrderValue: undefined })
     expect(cleared?.success).toBe(true)
     expect(cleared?.data?.minOrderValue).toBeUndefined()
+  })
+})
+
+describe('CustomerGroupTermsSection Release 5 terms', () => {
+  const updateCrudMock = updateCrud as jest.Mock
+
+  beforeEach(() => {
+    updateCrudMock.mockReset()
+    updateCrudMock.mockResolvedValue({ result: { terms: storedTerms } })
+    lastFormProps = null
+  })
+
+  function renderWarnings(values: Record<string, unknown>) {
+    const warningsField = (lastFormProps?.fields ?? []).find((field) => field.id === 'termsWarnings')
+    expect(warningsField?.component).toBeDefined()
+    return render(<>{warningsField?.component?.({ values })}</>)
+  }
+
+  it('seeds the four fields as inherit when the stored row leaves them unset', () => {
+    renderSection(storedTerms, true)
+    expect(lastFormProps?.initialValues).toMatchObject({
+      termsCurrencyCode: '',
+      approvalPolicy: 'inherit',
+      allowQuoteRequests: 'inherit',
+      requiresPoNumber: 'inherit',
+    })
+  })
+
+  it('seeds explicit stored values', () => {
+    renderSection(
+      { ...storedTerms, termsCurrencyCode: 'EUR', approvalPolicy: 'merchant', allowQuoteRequests: true, requiresPoNumber: false },
+      true,
+    )
+    expect(lastFormProps?.initialValues).toMatchObject({
+      termsCurrencyCode: 'EUR',
+      approvalPolicy: 'merchant',
+      allowQuoteRequests: 'allow',
+      requiresPoNumber: 'deny',
+    })
+  })
+
+  it('saves explicit values, uppercasing the currency, and inherit as null', async () => {
+    renderSection(storedTerms, true)
+    await lastFormProps?.onSubmit?.({
+      ...lastFormProps?.initialValues,
+      termsCurrencyCode: ' pln ',
+      approvalPolicy: 'both',
+      allowQuoteRequests: 'allow',
+      requiresPoNumber: 'inherit',
+    })
+    await waitFor(() => expect(updateCrudMock).toHaveBeenCalledTimes(1))
+    expect(updateCrudMock.mock.calls[0][1]).toMatchObject({
+      termsCurrencyCode: 'PLN',
+      approvalPolicy: 'both',
+      allowQuoteRequests: true,
+      requiresPoNumber: null,
+    })
+  })
+
+  it('accepts only a three-letter currency code', () => {
+    renderSection(storedTerms, true)
+    const base = { ...lastFormProps?.initialValues }
+    expect(lastFormProps?.schema?.safeParse({ ...base, termsCurrencyCode: 'EURO' }).success).toBe(false)
+    expect(lastFormProps?.schema?.safeParse({ ...base, termsCurrencyCode: 'E1R' }).success).toBe(false)
+    expect(lastFormProps?.schema?.safeParse({ ...base, termsCurrencyCode: 'eur' }).success).toBe(true)
+    expect(lastFormProps?.schema?.safeParse({ ...base, termsCurrencyCode: '' }).success).toBe(true)
+  })
+
+  it('warns on the default group that an approval threshold blocks guest orders', () => {
+    renderSection(storedTerms, true, true)
+    renderWarnings({ approvalRequiredAbove: '500', termsCurrencyCode: 'EUR' })
+    expect(screen.getByTestId('customer-group-terms-default-group-warning')).toBeTruthy()
+    expect(screen.queryByTestId('customer-group-terms-missing-currency-warning')).toBeNull()
+  })
+
+  it('does not show the default-group warning on other groups', () => {
+    renderSection(storedTerms, true, false)
+    renderWarnings({ approvalRequiredAbove: '500', termsCurrencyCode: 'EUR' })
+    expect(screen.queryByTestId('customer-group-terms-default-group-warning')).toBeNull()
+  })
+
+  it('warns when a threshold or minimum has no terms currency', () => {
+    renderSection(storedTerms, true)
+    const { unmount } = renderWarnings({ minOrderValue: '10', termsCurrencyCode: '' })
+    expect(screen.getByTestId('customer-group-terms-missing-currency-warning')).toBeTruthy()
+    unmount()
+    renderWarnings({ termsCurrencyCode: '' })
+    expect(screen.queryByTestId('customer-group-terms-missing-currency-warning')).toBeNull()
   })
 })

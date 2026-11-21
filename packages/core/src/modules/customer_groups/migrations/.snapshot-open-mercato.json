@@ -300,6 +300,40 @@
           "enumItems": [],
           "mappedType": "boolean"
         },
+        "allow_quote_requests": {
+          "name": "allow_quote_requests",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
+        "approval_policy": {
+          "name": "approval_policy",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "approval_required_above": {
           "name": "approval_required_above",
           "type": "numeric",
@@ -521,6 +555,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "requires_po_number": {
+          "name": "requires_po_number",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
         "tenant_id": {
           "name": "tenant_id",
           "type": "uuid",
@@ -537,6 +588,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "terms_currency_code": {
+          "name": "terms_currency_code",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
         },
         "updated_at": {
           "name": "updated_at",
