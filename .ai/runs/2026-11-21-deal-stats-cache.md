@@ -27,5 +27,5 @@ PR: #10225
 ### Phase 1: Cache closed-deal stats
 
 - [x] 1.1 Implement the scoped route cache and its unit coverage. — 8e1bbc7c4d, 17880d7c40
-- [ ] 1.2 Add the API integration test for a real cache hit and invalidation after a peer deal closes.
+- [x] 1.2 Add the API integration test for a real cache hit and invalidation after a peer deal closes. — e39d9eaacb
 - [ ] 1.3 Regenerate route artifacts and run the configured validation and review gates.
