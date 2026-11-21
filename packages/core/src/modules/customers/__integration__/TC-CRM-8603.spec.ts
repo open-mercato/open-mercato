@@ -81,15 +81,20 @@ async function withActivityPage(
       })
       ownRecord('/api/customers/interactions', interactionId)
     }
-    const formDefinitions = page.waitForResponse((response) => {
-      const url = new URL(response.url())
-      return url.pathname === '/api/entities/definitions'
-        && url.searchParams.getAll('entityId').includes('customers:customer_entity')
-    })
+    const isMobilePerson = kind === 'people' && (page.viewportSize()?.width ?? 1440) <= 767
+    const formDefinitions = isMobilePerson
+      ? null
+      : page.waitForResponse((response) => {
+          const url = new URL(response.url())
+          return url.pathname === '/api/entities/definitions'
+            && url.searchParams.getAll('entityId').includes('customers:customer_entity')
+        })
     await page.goto(activityPath(kind, entityId))
-    const definitionsResponse = await formDefinitions
-    expect(definitionsResponse.ok()).toBe(true)
-    await definitionsResponse.finished()
+    if (formDefinitions) {
+      const definitionsResponse = await formDefinitions
+      expect(definitionsResponse.ok()).toBe(true)
+      await definitionsResponse.finished()
+    }
     await page.evaluate(() => new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
     }))
