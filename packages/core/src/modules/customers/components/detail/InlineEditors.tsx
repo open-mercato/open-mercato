@@ -677,7 +677,6 @@ export function InlineNextInteractionEditor({
                   <div className="flex-1">
                     <span className="block">{formatDateTime(valueAt)}</span>
                     {valueName ? <span className="text-xs text-muted-foreground">{valueName}</span> : null}
-                    {valueRefId ? <span className="text-xs text-muted-foreground">#{valueRefId}</span> : null}
                   </div>
                   {valueColor ? renderDictionaryColor(valueColor, 'h-3 w-3 rounded-full border border-border') : null}
                 </div>
