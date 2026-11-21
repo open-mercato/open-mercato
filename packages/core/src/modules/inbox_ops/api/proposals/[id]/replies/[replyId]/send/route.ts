@@ -9,6 +9,7 @@ import { InboxProposalAction, InboxEmail } from '../../../../../../data/entities
 import { draftReplyPayloadSchema } from '../../../../../../data/validators'
 import { emitInboxOpsEvent } from '../../../../../../events'
 import { createMessageRecordForReply } from '../../../../../../lib/messagesIntegration'
+import { ensureBrackets, sanitizeHeaderValue } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
 import {
   resolveRequestContext,
   resolveProposal,
@@ -19,6 +20,12 @@ import {
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('inbox_ops').child({ component: 'reply-send' })
+
+function toMessageIdHeader(value: string | null | undefined): string | undefined {
+  if (!value) return undefined
+  const sanitized = sanitizeHeaderValue(value)
+  return sanitized ? ensureBrackets(sanitized) : undefined
+}
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['inbox_ops.replies.send'] },
@@ -83,7 +90,8 @@ export async function POST(req: Request) {
     if (!payloadResult.success) {
       return NextResponse.json({ error: 'Reply payload missing required fields (to, subject, body)' }, { status: 400 })
     }
-    const { to: toAddress, toName, subject, body } = payloadResult.data
+    const { to: toAddress, toName, body } = payloadResult.data
+    const subject = sanitizeHeaderValue(payloadResult.data.subject)
 
     const apiKey = process.env.RESEND_API_KEY
     if (!apiKey) {
@@ -106,12 +114,15 @@ export async function POST(req: Request) {
     }
 
     const headers: Record<string, string> = {}
-    const inReplyTo = inReplyToMessageId || email?.messageId
+    const inReplyTo = toMessageIdHeader(inReplyToMessageId || email?.messageId)
     if (inReplyTo) {
       headers['In-Reply-To'] = inReplyTo
     }
-    const references = payloadReferences || (email?.emailReferences as string[])
-    if (references && references.length > 0) {
+    const references = (payloadReferences || (email?.emailReferences as unknown[]) || [])
+      .filter((reference): reference is string => typeof reference === 'string')
+      .map(toMessageIdHeader)
+      .filter((reference): reference is string => Boolean(reference))
+    if (references.length > 0) {
       headers['References'] = references.join(' ')
     }
 
