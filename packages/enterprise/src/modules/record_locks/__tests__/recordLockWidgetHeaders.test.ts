@@ -93,6 +93,10 @@ describe('record lock widget resolution headers', () => {
     const context: Parameters<NonNullable<typeof widget.eventHandlers.onBeforeSave>>[1] = { formId }
     const result = await widget.eventHandlers.onBeforeSave({}, context)
     expect(result.ok).toBe(false)
+    // Regression (#9225): the conflict toast must route through the existing
+    // i18n key instead of a hard-coded English string, so callers (CrudForm,
+    // useGuardedMutation) can localize it.
+    if (!result.ok) expect(result.message).toBe('record_locks.conflict.title')
     expect(mockedValidateBeforeSave).not.toHaveBeenCalled()
   })
 
@@ -167,7 +171,9 @@ describe('record lock widget resolution headers', () => {
     const result = await widget.eventHandlers.onBeforeSave({}, { formId } as any)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('Expected blocked save result')
-    expect(result.message).toContain('deleted')
+    // Regression (#9225): route through the existing i18n key, not a
+    // hard-coded English string.
+    expect(result.message).toBe('record_locks.conflict.record_deleted_title')
     expect(mockedValidateBeforeSave).not.toHaveBeenCalled()
   })
 
@@ -227,6 +233,7 @@ describe('record lock widget resolution headers', () => {
     const result = await widget.eventHandlers.onBeforeSave({}, { formId })
 
     expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.message).toBe('record_locks.conflict.title')
     expect(getRecordLockFormState(formId)?.lock?.token).toBe('lock-token')
     expect(getRecordLockFormState(formId)?.conflict).toEqual(conflict)
   })
