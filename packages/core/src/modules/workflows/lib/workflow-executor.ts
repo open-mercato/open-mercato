@@ -93,6 +93,14 @@ export interface StartWorkflowOptions {
    * options object would stop protecting the run the moment it suspended.
    */
   isDryRun?: boolean
+  /**
+   * Let an explicit `version` select a retained, non-latest CODE workflow
+   * version. Only trusted, definition-authored pins (SUB_WORKFLOW
+   * `config.version`, the error handler's `version`) set it; caller-supplied
+   * start input never does, so a public start always runs the latest code
+   * version. See `findWorkflowDefinition`.
+   */
+  allowRetainedCodeVersion?: boolean
   tenantId: string
   organizationId: string
 }
@@ -202,6 +210,7 @@ export async function startWorkflow(
     correlationKey,
     metadata,
     isDryRun = false,
+    allowRetainedCodeVersion = false,
     tenantId,
     organizationId,
   } = options
@@ -212,6 +221,7 @@ export async function startWorkflow(
     version,
     tenantId,
     organizationId,
+    allowRetainedCodeVersion,
   })
 
   if (!definition) {

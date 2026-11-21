@@ -1165,6 +1165,7 @@ async function handleSubWorkflowStep(
       version,
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
+      allowRetainedCodeVersion: true,
     })
     const ioContract = (childDefinition?.definition as { io?: WorkflowIoContract } | undefined)?.io
 
@@ -1204,6 +1205,7 @@ async function handleSubWorkflowStep(
       },
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
+      allowRetainedCodeVersion: true,
     })
 
     // Log sub-workflow invocation event

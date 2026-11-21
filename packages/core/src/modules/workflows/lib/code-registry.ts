@@ -17,6 +17,8 @@ const logger = createLogger('workflows')
 
 export {
   getCodeWorkflow,
+  getCodeWorkflowVersion,
+  getCodeWorkflowVersions,
   getAllCodeWorkflows,
   isCodeWorkflow,
   clearCodeWorkflowRegistry,
