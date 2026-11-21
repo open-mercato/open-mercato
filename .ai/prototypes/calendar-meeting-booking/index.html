@@ -1,0 +1,1547 @@
+<!doctype html>
+<html lang="en" data-prototype-id="calendar-meeting-booking">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Meeting booking — interactive prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+<style>
+  /* Feature-specific pieces; tokens only. */
+  .wh { display: flex; flex-direction: column; gap: 0.5rem; }
+  .wh-row { display: grid; grid-template-columns: 2.5rem 3.25rem minmax(0, 1fr); gap: 0.75rem; align-items: center; min-height: 2.25rem; }
+  .wh-day { font-size: 0.875rem; font-weight: 500; }
+  .wh-range { display: inline-flex; align-items: center; gap: 0.375rem; }
+  .wh-range .input { width: 5.5rem; }
+  .url-preview { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-md); background: color-mix(in oklab, var(--muted) 50%, transparent); font-size: 0.8125rem; }
+  .url-preview code { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .preview-slot { display: flex; justify-content: space-between; font-size: 0.875rem; padding: 0.375rem 0; border-bottom: 1px solid var(--border); }
+  .preview-slot:last-child { border-bottom: 0; }
+  .person-opt { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-radius: var(--radius-md); font-size: 0.875rem; }
+  .person-opt.hl { background: var(--accent); }
+  .person-opt .lines { display: flex; flex-direction: column; min-width: 0; }
+
+  /* Settings: one-line summary rows and collapsible sections */
+  .set-list { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
+  .set-row { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1rem; min-height: 3.5rem; }
+  .set-row + .set-row, .set-list > .sec { border-top: 1px solid var(--border); }
+  .set-row .set-label { width: 9rem; flex: none; font-size: 0.875rem; font-weight: 500; }
+  .set-row .set-value { flex: 1; min-width: 0; font-size: 0.875rem; display: flex; flex-direction: column; gap: 0.125rem; }
+  .set-row .set-value .t-hint { margin: 0; }
+  .set-row .select { width: 9rem; }
+  .sec > summary { list-style: none; display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1rem; min-height: 3.5rem; cursor: pointer; }
+  .sec > summary::-webkit-details-marker { display: none; }
+  .sec > summary .set-label { width: 9rem; flex: none; font-size: 0.875rem; font-weight: 500; }
+  .sec > summary .sec-sum { flex: 1; min-width: 0; font-size: 0.875rem; color: var(--muted-foreground); }
+  .sec > summary > svg { width: 1rem; height: 1rem; flex: none; color: var(--muted-foreground); transition: transform 0.15s; }
+  .sec[open] > summary > svg { transform: rotate(180deg); }
+  .sec[open] > summary .sec-sum { visibility: hidden; }
+  .sec-body { padding: 0.25rem 1rem 1rem; display: flex; flex-direction: column; gap: 1rem; }
+  .sentence { font-size: 0.875rem; line-height: 2.5rem; margin: 0; }
+  .sentence .input { display: inline-block; width: 4rem; height: 2rem; text-align: center; margin: 0 0.25rem; vertical-align: middle; }
+  @media (max-width: 639px) { .set-row, .sec > summary { flex-wrap: wrap; } .set-row .set-label, .sec > summary .set-label { width: 100%; } }
+
+  /* Tables: sortable headers and the visitor's note */
+  .th-sort { display: inline-flex; align-items: center; gap: 0.25rem; background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; white-space: nowrap; }
+  .th-sort svg { width: 0.875rem; height: 0.875rem; color: var(--muted-foreground); }
+  .th-sort.is-active svg { color: var(--foreground); }
+  .req-note { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 18rem; font-size: 0.875rem; }
+  .cell-lines { display: flex; flex-direction: column; gap: 0.125rem; }
+  .cell-lines .t-hint { margin: 0; }
+  tr.is-expired td { opacity: 0.55; }
+  tr.is-expired td:last-child { opacity: 1; }
+  .row-menu { position: absolute; right: 2.5rem; width: 14rem; z-index: var(--z-index-popover, 50); }
+
+  /* Narrow screen (phone) */
+  .phone-frame { max-width: 24.375rem; margin: 0 auto; }
+  .m-app { background: var(--background); min-height: 46rem; position: relative; }
+  .m-top { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .m-top h1 { font-size: 1rem; font-weight: 600; margin: 0; flex: 1; }
+  .m-body { padding: 0.75rem 1rem 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+  .m-tools { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  .req-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); padding: 0.875rem; display: flex; flex-direction: column; gap: 0.625rem; }
+  .req-card .req-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+  .req-card .req-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .req-card .req-acts .btn { width: 100%; justify-content: center; }
+  .m-form { padding-bottom: 5rem; }
+  .m-form .form-group { padding: 1rem; }
+  .m-form .url-preview { flex-wrap: wrap; }
+  .m-form .url-preview code { flex: 1 1 calc(100% - 2rem); min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+  .m-form .url-preview .btn { flex: 1; justify-content: center; }
+  .m-form .set-row, .m-form .sec > summary { flex-wrap: wrap; row-gap: 0.25rem; }
+  .m-form .set-row .set-label, .m-form .sec > summary .set-label { width: auto; flex: 1 1 100%; }
+  .m-form .sec > summary > svg { margin-left: auto; }
+  .m-form .sec > summary .sec-sum { flex: 1 1 0; }
+  .m-form .sec[open] > summary .sec-sum { display: none; }
+  .m-form .sec[open] > summary .set-label { flex: 1 1 0; }
+  .m-form .sentence { line-height: 2.5rem; }
+  .m-foot { position: absolute; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; padding: 0.75rem 1rem; background: var(--card); border-top: 1px solid var(--border); }
+  .m-foot .btn { width: 100%; justify-content: center; }
+
+  /* Mini week grid for the calendar screen */
+  .wk { display: grid; grid-template-columns: 3rem repeat(5, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--card); }
+  .wk-h { padding: 0.5rem; font-size: 0.75rem; font-weight: 500; color: var(--muted-foreground); border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); text-align: center; }
+  .wk-h:first-child { border-left: 0; }
+  .wk-col { position: relative; height: 22rem; border-left: 1px solid var(--border); background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(2.75rem - 1px), var(--border) calc(2.75rem - 1px), var(--border) 2.75rem); }
+  .wk-times { position: relative; height: 22rem; font-size: 0.6875rem; color: var(--muted-foreground); }
+  .wk-times span { position: absolute; right: 0.375rem; transform: translateY(-50%); }
+  .ev { position: absolute; left: 0.25rem; right: 0.25rem; border-radius: var(--radius-sm); padding: 0.25rem 0.375rem; font-size: 0.75rem; line-height: 1.2; overflow: hidden; border-left: 3px solid; }
+  .ev-meeting { background: var(--status-warning-bg); color: var(--status-warning-text); border-color: var(--status-warning-border); }
+  .ev-call { background: var(--status-info-bg); color: var(--status-info-text); border-color: var(--status-info-border); }
+  .ev-pending { background: repeating-linear-gradient(135deg, var(--card) 0, var(--card) 0.375rem, color-mix(in oklab, var(--muted) 80%, transparent) 0.375rem, color-mix(in oklab, var(--muted) 80%, transparent) 0.75rem); color: var(--foreground); border: 1px dashed var(--muted-foreground); border-left: 3px dashed var(--muted-foreground); cursor: pointer; }
+  .ev strong { display: block; font-weight: 600; }
+
+  /* Public, chrome-less booking surface. Tokens only. */
+  .bk-page { background: color-mix(in oklab, var(--muted) 50%, var(--background)); padding: 2rem 1rem; min-height: 40rem; position: relative; }
+  .bk-card { max-width: 64rem; margin: 0 auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
+  @media (min-width: 1024px) { .bk-card { grid-template-columns: 17rem minmax(0, 1fr) 15rem; } .bk-card.bk-two { grid-template-columns: 17rem minmax(0, 1fr); } }
+  .bk-info { padding: 1.5rem; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.75rem; }
+  @media (min-width: 1024px) { .bk-info { border-bottom: 0; border-right: 1px solid var(--border); } }
+  .bk-info h1 { font-size: 1.25rem; font-weight: 600; line-height: 1.3; margin: 0; }
+  .bk-owner { display: flex; flex-direction: column; font-size: 0.875rem; }
+  .bk-owner span:last-child { color: var(--muted-foreground); }
+  .bk-meta { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: var(--muted-foreground); }
+  .bk-meta svg { width: 1rem; height: 1rem; flex: none; }
+  .bk-meta strong { color: var(--foreground); font-weight: 500; }
+  .bk-cal-wrap { padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+  .bk-cal-head { display: flex; align-items: center; justify-content: space-between; }
+  .bk-cal-head h2 { font-size: 1rem; font-weight: 600; margin: 0; }
+  .bk-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.25rem; text-align: center; }
+  .bk-dow { font-size: 0.75rem; font-weight: 500; color: var(--muted-foreground); padding: 0.25rem 0; text-transform: uppercase; letter-spacing: 0.05em; }
+  .bk-day { aspect-ratio: 1; max-width: 2.75rem; width: 100%; margin: 0 auto; border-radius: 9999px; border: 0; background: transparent; font-size: 0.875rem; color: var(--muted-foreground); cursor: default; position: relative; }
+  .bk-day.out { opacity: 0.6; }
+  .bk-day.avail { color: var(--primary); font-weight: 600; background: color-mix(in oklab, var(--primary) 8%, transparent); cursor: pointer; }
+  .bk-day.avail::after { content: ""; position: absolute; left: 50%; bottom: 0.3rem; width: 0.25rem; height: 0.25rem; border-radius: 9999px; background: currentColor; transform: translateX(-50%); }
+  .bk-day.avail:hover { background: color-mix(in oklab, var(--primary) 16%, transparent); }
+  .bk-day.sel { background: var(--primary); color: var(--primary-foreground); }
+  .bk-day.today { box-shadow: inset 0 0 0 1.5px var(--foreground); color: var(--foreground); font-weight: 600; opacity: 1; }
+  .bk-legend { display: flex; flex-wrap: wrap; gap: 1rem; font-size: 0.75rem; color: var(--muted-foreground); }
+  .bk-legend span { display: inline-flex; align-items: center; gap: 0.375rem; }
+  .bk-legend i { display: inline-block; width: 0.875rem; height: 0.875rem; border-radius: 9999px; }
+  .bk-legend .lg-avail { background: color-mix(in oklab, var(--primary) 16%, transparent); position: relative; }
+  .bk-legend .lg-avail::after { content: ""; position: absolute; left: 50%; top: 50%; width: 0.25rem; height: 0.25rem; border-radius: 9999px; background: var(--primary); transform: translate(-50%, -50%); }
+  .bk-legend .lg-today { box-shadow: inset 0 0 0 1.5px var(--foreground); }
+  .bk-tz { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
+  .bk-tz > svg { width: 1rem; height: 1rem; color: var(--muted-foreground); }
+  .bk-tz .segmented { margin-left: auto; }
+  .bk-slots-wrap { padding: 1.5rem 1rem; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.75rem; }
+  @media (min-width: 1024px) { .bk-slots-wrap { border-top: 0; border-left: 1px solid var(--border); } }
+  .bk-slots-wrap h3 { font-size: 0.875rem; font-weight: 600; margin: 0; }
+  .bk-slots { display: flex; flex-direction: column; gap: 0.5rem; max-height: 24rem; overflow-y: auto; padding-right: 0.25rem; }
+  .bk-slot { width: 100%; height: 2.75rem; justify-content: center; font-weight: 600; color: var(--primary); border-color: color-mix(in oklab, var(--primary) 35%, transparent); }
+  .bk-slot:hover { border-color: var(--primary); }
+  .bk-form { padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; max-width: 30rem; }
+  .bk-summary { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem 1rem; border-radius: var(--radius-lg); background: color-mix(in oklab, var(--muted) 50%, transparent); }
+  .bk-consent { display: flex; gap: 0.5rem; align-items: flex-start; font-size: 0.875rem; }
+  .bk-consent a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+  .bk-result { max-width: 34rem; margin: 0 auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); padding: 2rem; display: flex; flex-direction: column; gap: 1.25rem; align-items: center; text-align: center; }
+  .bk-result-icon { width: 3rem; height: 3rem; border-radius: 9999px; display: grid; place-items: center; }
+  .bk-result-icon svg { width: 1.5rem; height: 1.5rem; }
+  .bk-result-icon.ok { background: var(--status-success-bg); color: var(--status-success-icon); }
+  .bk-result-icon.wait { background: var(--status-warning-bg); color: var(--status-warning-icon); }
+  .bk-result-icon.off { background: var(--muted); color: var(--muted-foreground); }
+  .bk-result .bk-summary { width: 100%; text-align: left; }
+  .bk-foot { display: flex; align-items: center; justify-content: center; gap: 1rem; font-size: 0.75rem; color: var(--muted-foreground); margin-top: 1.5rem; }
+  .bk-foot .select { width: auto; height: 1.75rem; font-size: 0.75rem; padding: 0 0.5rem; }
+  .bk-banner { max-width: 64rem; margin: 0 auto 1rem; }
+  .bk-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; text-align: center; padding: 1.5rem 0.5rem; font-size: 0.875rem; color: var(--muted-foreground); flex: 1; }
+  .bk-empty svg { width: 1.5rem; height: 1.5rem; }
+  .bk-empty strong { color: var(--foreground); font-weight: 500; }
+
+  .doc-toolbar .screen-nav { flex-wrap: nowrap; overflow-x: auto; min-width: 0; flex: 1; }
+  .doc-toolbar .screen-nav a { flex: none; }
+  .frame + .frame { margin-top: 1rem; }
+  .frame-label { font-size: 0.75rem; font-weight: 500; color: var(--muted-foreground); margin: 1rem 0 0.5rem; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  a.btn, a.avatar { text-decoration: none; }
+  a.btn-outline, a.avatar { color: var(--foreground); }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></symbol>
+<symbol id="ic-inbox" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+<symbol id="ic-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+<symbol id="ic-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+<symbol id="ic-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></symbol>
+<symbol id="ic-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+<symbol id="ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+<symbol id="ic-external" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+<symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+<symbol id="ic-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+<symbol id="ic-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></symbol>
+<symbol id="ic-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+<symbol id="ic-hourglass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></symbol>
+<symbol id="ic-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+<symbol id="ic-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+<symbol id="ic-sort" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></symbol>
+<symbol id="ic-arrow-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+<symbol id="ic-arrow-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></symbol>
+<symbol id="ic-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></symbol>
+<symbol id="ic-message" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/></symbol>
+<symbol id="ic-calendar-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="m14 14-4 4"/><path d="m10 14 4 4"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.17 6.81a2.82 2.82 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Meeting booking — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Settings</a>
+    <a href="#s2">2 Working hours</a>
+    <a href="#s3">3 Pick a time</a>
+    <a href="#s4">4 Details</a>
+    <a href="#s5">5 Form errors</a>
+    <a href="#s6">6 Booked</a>
+    <a href="#s7">7 Request sent</a>
+    <a href="#s8">8 No times / 404</a>
+    <a href="#s9">9 Pending</a>
+    <a href="#s10">10 Accept overlap</a>
+    <a href="#s11">11 Decline</a>
+    <a href="#s12">12 Expired</a>
+    <a href="#s13">13 Empty</a>
+    <a href="#s14">14 Phone</a>
+    <a href="#s15">15 Calendar</a>
+    <a href="#s16">16 Upcoming</a>
+    <a href="#s17">17 Link person</a>
+    <a href="#s18">18 History</a>
+    <a href="#s19">19 Manage</a>
+    <a href="#s20">20 Cancel</a>
+    <a href="#s21">21 Reschedule</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Meeting booking — screen inventory</h1>
+  <p class="muted" style="max-width:70ch;margin:0">
+    End-to-end flow for <code class="t-mono">.ai/specs/2026-10-29-calendar-public-meeting-booking.md</code>:
+    the CRM user turns on their booking page (1–2), an external visitor books on the public page (3–8),
+    the user handles requests on the Meeting requests page and in the CRM Calendar (9–18), and the booker manages the meeting from the e-mail link (19–21).
+    This revision applies the UX review of 17 Nov 2026: settings cut to five essentials plus a collapsed Advanced section, a one-click Accept, three tabs instead of five, no bulk actions or counter tiles, and the error, empty, expired and narrow-screen states drawn.
+    Backoffice screens are shown as of <strong>Fri, 30 Oct 2026, 11:30</strong>; public screens as of <strong>Thu, 29 Oct</strong>.
+    All people and organizations are fictional.
+  </p>
+</header>
+
+<!-- ═════════════════════════════ s1 ═════════════════════════════ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. My meeting booking (profile settings)</h2>
+    <p>Five things to go live: the on/off switch with the link, a page title, the meeting length, working hours and approval. Everything else sits in a collapsed Advanced section with defaults. Click a row to expand it. Below: the same page on a phone.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX My meeting booking</span><span class="ref">US-A1</span><span class="ref">US-A2</span><span class="ref">US-A3</span><span class="ref">US-A4</span><span class="ref">US-A5</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/profile/meeting-booking</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav">
+          <a class="nav-item" href="#s9" data-goto="s9"><svg><use href="#ic-chevron-left"/></svg> Back to app</a>
+          <div class="nav-group"><span>Account</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-user"/></svg> Profile</span>
+            <span class="nav-item"><svg><use href="#ic-key"/></svg> Change password</span>
+            <span class="nav-item"><svg><use href="#ic-bell"/></svg> Notification preferences</span>
+            <span class="nav-item active"><svg><use href="#ic-calendar"/></svg> My meeting booking</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Profile</span><svg><use href="#ic-chevron-right"/></svg><span class="here">My meeting booking</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">AK</span></div>
+        </header>
+        <main class="page">
+          <div class="page-head"><h1 class="t-page-title">My meeting booking</h1></div>
+          <form class="form-layout" onsubmit="return false">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="between"><div class="title">Booking page</div><span class="row" style="gap:0.5rem;font-size:0.875rem">On <span class="switch" role="switch" aria-checked="true" aria-label="Booking page on" tabindex="0"></span></span></div>
+                <div class="url-preview"><svg width="16" height="16"><use href="#ic-link"/></svg><code class="t-mono">https://crm.example.com/calendar/northwind/anna/meetings</code><button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-copy"/></svg> Copy</button><button class="btn btn-ghost btn-xs" type="button" data-goto="s3"><svg><use href="#ic-external"/></svg> Open</button></div>
+                <div class="field">
+                  <label for="ptitle">Page title <span class="req">*</span></label>
+                  <input id="ptitle" class="input" value="Meet with Anna" />
+                </div>
+              </div>
+
+              <div class="set-list">
+                <div class="set-row">
+                  <span class="set-label">Meeting length</span>
+                  <div class="set-value"></div>
+                  <select class="select" aria-label="Meeting length"><option>15 min</option><option selected>30 min</option><option>45 min</option><option>60 min</option><option>90 min</option></select>
+                </div>
+                <div class="set-row">
+                  <span class="set-label">Working hours</span>
+                  <div class="set-value"><span>Mon to Thu, 09:00 to 17:00</span><span>Fri, 09:00 to 14:00</span><span class="t-hint">Europe/Warsaw</span></div>
+                  <button class="btn btn-outline btn-sm" type="button" data-goto="s2"><svg><use href="#ic-pencil"/></svg> Edit</button>
+                </div>
+                <div class="set-row">
+                  <span class="set-label">Approval</span>
+                  <div class="set-value"><span>You confirm each request</span></div>
+                  <span class="switch" role="switch" aria-checked="true" aria-label="Require my approval" tabindex="0"></span>
+                </div>
+                <details class="sec">
+                  <summary><span class="set-label">Advanced</span><span class="sec-sum">Up to 60 days ahead, at least 2 hours notice, 10 minutes free after each meeting</span><svg><use href="#ic-chevron-down"/></svg></summary>
+                  <div class="sec-body">
+                    <div class="field"><label for="pdesc">Description</label><textarea id="pdesc" class="textarea" rows="2">Intro call about your project. Pick a time that works for you.</textarea></div>
+                    <div class="field"><label for="ploc">Location</label><input id="ploc" class="input" value="Northwind office, Prosta 20, Warsaw" /><span class="t-hint">Leave empty to hide it. No video link is created for you; add your own meeting link here if you use one.</span></div>
+                    <div class="separator"></div>
+                    <p class="sentence">People can book up to <input class="input" value="60" aria-label="Days ahead" /> days ahead, with at least <input class="input" value="2" aria-label="Hours of notice" /> hours notice.</p>
+                    <p class="sentence">Keep <input class="input" value="10" aria-label="Minutes free after each meeting" /> minutes free after each meeting, and take at most <input class="input" value="" placeholder="any" aria-label="Bookings per day" /> bookings a day.</p>
+                    <div class="separator"></div>
+                    <div class="between"><span style="font-size:0.875rem">Bookers can cancel and reschedule online</span><span class="switch" role="switch" aria-checked="true" aria-label="Bookers can cancel and reschedule online" tabindex="0"></span></div>
+                  </div>
+                </details>
+              </div>
+
+              <div class="form-foot"><div class="actions"><button class="btn btn-outline" type="button">Cancel</button><button class="btn btn-primary" type="submit"><svg><use href="#ic-save"/></svg> Save</button></div></div>
+            </div>
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Next available times</div>
+                <div>
+                  <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">09:00</span></div>
+                  <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">09:30</span></div>
+                  <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">10:30</span></div>
+                  <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">11:00</span></div>
+                  <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">13:00</span></div>
+                </div>
+              </div>
+              <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div>Only your Open Mercato calendar blocks times. Meetings you keep in Google or Outlook are not checked, so add them here as events or keep your working hours to times you are free.</div></div>
+            </div>
+          </form>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div class="frame-label">On a phone (390px)</div>
+  <div class="frame phone-frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/profile/meeting-booking</span></div>
+    <div class="m-app">
+      <div class="m-top">
+        <button class="btn btn-ghost btn-icon btn-sm" aria-label="Menu"><svg><use href="#ic-menu"/></svg></button>
+        <h1>My meeting booking</h1>
+        <span class="avatar avatar-sm">AK</span>
+      </div>
+      <form class="m-body m-form" onsubmit="return false">
+        <div class="form-group">
+          <div class="between"><div class="title">Booking page</div><span class="row" style="gap:0.5rem;font-size:0.875rem">On <span class="switch" role="switch" aria-checked="true" aria-label="Booking page on" tabindex="0"></span></span></div>
+          <div class="url-preview"><svg width="16" height="16"><use href="#ic-link"/></svg><code class="t-mono">https://crm.example.com/calendar/northwind/anna/meetings</code><button class="btn btn-outline btn-sm" type="button"><svg><use href="#ic-copy"/></svg> Copy</button><button class="btn btn-outline btn-sm" type="button" data-goto="s3"><svg><use href="#ic-external"/></svg> Open</button></div>
+          <div class="field">
+            <label for="m-ptitle">Page title <span class="req">*</span></label>
+            <input id="m-ptitle" class="input" value="Meet with Anna" />
+          </div>
+        </div>
+
+        <div class="set-list">
+          <div class="set-row">
+            <span class="set-label">Meeting length</span>
+            <div class="set-value"><span>Each booking is this long</span></div>
+            <select class="select" aria-label="Meeting length"><option>15 min</option><option selected>30 min</option><option>45 min</option><option>60 min</option><option>90 min</option></select>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Working hours</span>
+            <div class="set-value"><span>Mon to Thu, 09:00 to 17:00</span><span>Fri, 09:00 to 14:00</span><span class="t-hint">Europe/Warsaw</span></div>
+            <button class="btn btn-outline btn-sm" type="button" data-goto="s2"><svg><use href="#ic-pencil"/></svg> Edit</button>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Approval</span>
+            <div class="set-value"><span>You confirm each request</span></div>
+            <span class="switch" role="switch" aria-checked="true" aria-label="Require my approval" tabindex="0"></span>
+          </div>
+          <details class="sec">
+            <summary><span class="set-label">Advanced</span><span class="sec-sum">Up to 60 days ahead, at least 2 hours notice, 10 minutes free after each meeting</span><svg><use href="#ic-chevron-down"/></svg></summary>
+            <div class="sec-body">
+              <div class="field"><label for="m-pdesc">Description</label><textarea id="m-pdesc" class="textarea" rows="2">Intro call about your project. Pick a time that works for you.</textarea></div>
+              <div class="field"><label for="m-ploc">Location</label><input id="m-ploc" class="input" value="Northwind office, Prosta 20, Warsaw" /><span class="t-hint">Leave empty to hide it. No video link is created for you; add your own meeting link here if you use one.</span></div>
+              <div class="separator"></div>
+              <p class="sentence">People can book up to <input class="input" value="60" aria-label="Days ahead" /> days ahead, with at least <input class="input" value="2" aria-label="Hours of notice" /> hours notice.</p>
+              <p class="sentence">Keep <input class="input" value="10" aria-label="Minutes free after each meeting" /> minutes free after each meeting, and take at most <input class="input" value="" placeholder="any" aria-label="Bookings per day" /> bookings a day.</p>
+              <div class="separator"></div>
+              <div class="between" style="gap:1rem"><span style="font-size:0.875rem">Bookers can cancel and reschedule online</span><span class="switch" role="switch" aria-checked="true" aria-label="Bookers can cancel and reschedule online" tabindex="0"></span></div>
+            </div>
+          </details>
+        </div>
+
+        <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div>Only your Open Mercato calendar blocks times. Meetings you keep in Google or Outlook are not checked, so add them here as events or keep your working hours to times you are free.</div></div>
+
+        <div class="form-group">
+          <div class="title">Next available times</div>
+          <div>
+            <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">09:00</span></div>
+            <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">09:30</span></div>
+            <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">10:30</span></div>
+          </div>
+        </div>
+      </form>
+      <div class="m-foot"><button class="btn btn-outline" type="button">Cancel</button><button class="btn btn-primary" type="submit"><svg><use href="#ic-save"/></svg> Save</button></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>First run (not drawn): the page is off and every value has a default (30 min, Mon to Fri 09:00 to 17:00 in the browser's timezone, approval on, 60 days ahead, 2 hours notice, no buffer, no daily limit, booker changes allowed). Turning the switch on and saving is enough to share the link. The link name defaults to the user's e-mail local part and can be changed from the link's Copy menu (not drawn).</span></div>
+    <div class="note"><b>2</b><span>Removed from the first version: "Start times every" (starts follow the meeting length), "Saved in CRM as" (always a meeting), "Buffer before", "Respond within" (fixed at 24 h), the self-service cutoff (fixed at 1 h before the meeting), "Max new requests per day" (an admin/system abuse limit, not a per-user setting), date overrides (block a day off with a calendar event), multiple ranges per day and "Copy Monday to all weekdays".</span></div>
+    <div class="note"><b>3</b><span>Advanced is collapsed by default and its summary line shows the current values, so the whole configuration reads without opening anything. The two booking-window values are edited in place inside the sentence. Save uses optimistic locking (conflict bar on 409).</span></div>
+    <div class="note"><b>4</b><span>The info alert answers the external-calendar question. This phase is for people who manage their calendar wholly in Open Mercato, or who block their Google or Microsoft calendar time by hand. Integration with external calendar providers is out of scope until calendar connectors exist in the codebase; once a connector syncs events into the CRM, they block times without changes here.</span></div>
+    <div class="note"><b>5</b><span>The page needs <code>customers.booking.manage_own</code>, not <code>customers.interactions.manage</code>. Not drawn: the warning alert shown here and on Meeting requests when booking maintenance is not scheduled or was disabled by an admin.</span></div>
+    <div class="note"><b>6</b><span>On a phone (below 640px) the page is one column with no horizontal scroll: the link wraps onto its own line with full-width Copy and Open, each label sits above its summary and control, and the info alert and next times follow the form. Cancel and Save stay pinned to the bottom.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s2 ═════════════════════════════ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Edit working hours</h2>
+    <p>Working hours are one saved schedule with a compact summary on the settings page; Edit opens this dialog. One time range per day.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX My meeting booking</span><span class="ref">US-A2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/profile/meeting-booking</span></div>
+    <div class="app app-tall modal-scrim">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Account</span></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-calendar"/></svg> My meeting booking</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">My meeting booking</span></div></div></header>
+        <main class="page"><div class="set-list" style="height:20rem"></div></main>
+      </div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="wh-title" style="width:30rem">
+        <div class="modal-head"><h2 id="wh-title" class="t-section" style="margin:0">Working hours</h2></div>
+        <div class="modal-body">
+          <div class="field"><label for="wh-tz">Timezone</label><select id="wh-tz" class="select"><option>Europe/Warsaw</option></select></div>
+          <div class="wh">
+            <div class="wh-row"><span class="wh-day">Mon</span><span class="switch" role="switch" aria-checked="true" aria-label="Monday"></span><span class="wh-range"><input class="input" value="09:00" aria-label="Monday from" /> to <input class="input" value="17:00" aria-label="Monday until" /></span></div>
+            <div class="wh-row"><span class="wh-day">Tue</span><span class="switch" role="switch" aria-checked="true" aria-label="Tuesday"></span><span class="wh-range"><input class="input" value="09:00" aria-label="Tuesday from" /> to <input class="input" value="17:00" aria-label="Tuesday until" /></span></div>
+            <div class="wh-row"><span class="wh-day">Wed</span><span class="switch" role="switch" aria-checked="true" aria-label="Wednesday"></span><span class="wh-range"><input class="input" value="09:00" aria-label="Wednesday from" /> to <input class="input" value="17:00" aria-label="Wednesday until" /></span></div>
+            <div class="wh-row"><span class="wh-day">Thu</span><span class="switch" role="switch" aria-checked="true" aria-label="Thursday"></span><span class="wh-range"><input class="input" value="09:00" aria-label="Thursday from" /> to <input class="input" value="17:00" aria-label="Thursday until" /></span></div>
+            <div class="wh-row"><span class="wh-day">Fri</span><span class="switch" role="switch" aria-checked="true" aria-label="Friday"></span><span class="wh-range"><input class="input" value="09:00" aria-label="Friday from" /> to <input class="input" value="14:00" aria-label="Friday until" /></span></div>
+            <div class="wh-row"><span class="wh-day">Sat</span><span class="switch" role="switch" aria-checked="false" aria-label="Saturday"></span><span class="muted" style="font-size:0.875rem">Not available</span></div>
+            <div class="wh-row"><span class="wh-day">Sun</span><span class="switch" role="switch" aria-checked="false" aria-label="Sunday"></span><span class="muted" style="font-size:0.875rem">Not available</span></div>
+          </div>
+        </div>
+        <div class="modal-foot" style="justify-content:flex-end"><div class="row" style="gap:0.5rem"><button class="btn btn-outline" data-goto="s1">Cancel</button><button class="btn btn-primary" data-goto="s1">Save</button></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Escape cancels, Cmd/Ctrl+Enter saves. An end time before the start time shows an inline error under that day (not drawn).</span></div>
+    <div class="note"><b>2</b><span>The settings row summarises consecutive days with the same hours ("Mon to Thu, 09:00 to 17:00"). A lunch break or a one-off day off is blocked with a CRM calendar event instead of a second range or a date override.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s3 ═════════════════════════════ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Pick a time (first available day preselected)</h2>
+    <p>The visitor opens the shared link. Today (Thu 29 Oct) is outlined, and it and Fri 30 Oct are fully booked, so Mon 2 Nov is selected.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Public page</span><span class="ref">US-B1</span><span class="ref">US-B2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/calendar/northwind/anna/meetings</span></div>
+    <div class="bk-page">
+      <div class="bk-card">
+        <div class="bk-info">
+          <span class="avatar avatar-lg">AK</span>
+          <div class="bk-owner"><span>Anna Kowalska</span><span>Northwind Trading</span></div>
+          <h1>Meet with Anna</h1>
+          <p class="muted" style="font-size:0.875rem;margin:0">Intro call about your project. Pick a time that works for you.</p>
+          <div class="bk-meta"><svg><use href="#ic-clock"/></svg><strong>30 min</strong></div>
+          <div class="bk-meta"><svg><use href="#ic-pin"/></svg>Northwind office, Prosta 20, Warsaw</div>
+          <div class="bk-meta"><svg><use href="#ic-calendar"/></svg>Anna confirms within 24 hours</div>
+        </div>
+        <div class="bk-cal-wrap">
+          <div class="bk-cal-head">
+            <h2>November 2026</h2>
+            <div class="row" style="gap:0.25rem">
+              <button class="btn btn-ghost btn-icon btn-sm" aria-label="Previous month"><svg><use href="#ic-chevron-left"/></svg></button>
+              <button class="btn btn-ghost btn-icon btn-sm" aria-label="Next month"><svg><use href="#ic-chevron-right"/></svg></button>
+            </div>
+          </div>
+          <div class="bk-cal" data-month="2026-11" data-selected="2"></div>
+          <div class="bk-legend"><span><i class="lg-avail"></i>Times available</span><span><i class="lg-today"></i>Today</span></div>
+          <div class="bk-tz">
+            <svg><use href="#ic-globe"/></svg>
+            <button class="btn btn-ghost btn-sm">Europe/Warsaw (GMT+1) <svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="group" aria-label="Time format"><button type="button">12h</button><button type="button" aria-selected="true">24h</button></div>
+          </div>
+        </div>
+        <div class="bk-slots-wrap">
+          <h3>Monday, 2 November</h3>
+          <div class="bk-slots" role="listbox" aria-label="Available times on Monday, 2 November">
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">09:00</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">09:30</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">10:30</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">11:00</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">13:00</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">13:30</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">14:00</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">15:30</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">16:00</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">16:30</button>
+          </div>
+        </div>
+      </div>
+      <div class="bk-foot"><span>Powered by Open Mercato</span><select class="select" aria-label="Language"><option>English</option><option>Polski</option><option>Deutsch</option></select></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Available days carry a dot as well as a tint, so availability does not depend on colour alone. Today has an outline ring and <code>aria-current="date"</code>. Days from the previous month fill the first row. Weekends, fully booked days and days past the 60-day horizon are disabled; month navigation stops at the horizon.</span></div>
+    <div class="note"><b>2</b><span>Times show in the visitor's browser timezone. The 12h / 24h switch defaults to the visitor's locale (24h for en-GB / pl, 12h for en-US) and is remembered in the browser. Busy reasons are never exposed.</span></div>
+    <div class="note"><b>3</b><span>Page language: the page renders in the visitor's browser language (<code>Accept-Language</code>) when the app has that locale, otherwise in the tenant's default. The footer switch changes it; the chosen language is also the one used for the booker's e-mails.</span></div>
+    <div class="note"><b>4</b><span>The location line appears only when Anna entered one. Without it, nothing is shown: the system never promises a video link. Below 1024px the slot list stacks under the calendar.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s4 ═════════════════════════════ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Your details</h2>
+    <p>After picking 13:00 the visitor enters e-mail, first name, last name and, optionally, what the meeting is about.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Public page</span><span class="ref">US-B2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/calendar/northwind/anna/meetings</span></div>
+    <div class="bk-page">
+      <div class="bk-card bk-two">
+        <div class="bk-info">
+          <button class="btn btn-ghost btn-sm" style="align-self:flex-start;padding-left:0.25rem" data-goto="s3"><svg><use href="#ic-arrow-left"/></svg> Back</button>
+          <span class="avatar avatar-lg">AK</span>
+          <div class="bk-owner"><span>Anna Kowalska</span><span>Northwind Trading</span></div>
+          <h1>Meet with Anna</h1>
+          <div class="bk-meta"><svg><use href="#ic-clock"/></svg><strong>30 min</strong></div>
+          <div class="bk-meta"><svg><use href="#ic-calendar"/></svg><strong>Mon, 2 Nov 2026, 13:00 to 13:30</strong></div>
+          <div class="bk-meta"><svg><use href="#ic-globe"/></svg>Europe/Warsaw (GMT+1)</div>
+          <div class="bk-meta"><svg><use href="#ic-pin"/></svg>Northwind office, Prosta 20, Warsaw</div>
+        </div>
+        <form class="bk-form" onsubmit="return false">
+          <h2 class="t-section" style="margin:0">Enter your details</h2>
+          <div class="field">
+            <label for="bk-email">E-mail <span class="req">*</span></label>
+            <input id="bk-email" class="input" type="email" value="j.doe@example.com" />
+          </div>
+          <div class="form-grid form-grid-2">
+            <div class="field"><label for="bk-first">First name <span class="req">*</span></label><input id="bk-first" class="input" value="Jordan" /></div>
+            <div class="field"><label for="bk-last">Last name <span class="req">*</span></label><input id="bk-last" class="input" value="Doe" /></div>
+          </div>
+          <div class="field">
+            <label for="bk-about">What would you like to talk about? <span class="muted">(optional)</span></label>
+            <textarea id="bk-about" class="textarea" rows="3">Pricing for 40 seats and moving over from our current CRM.</textarea>
+          </div>
+          <div class="bk-consent">
+            <span class="check" role="checkbox" aria-checked="false" tabindex="0" aria-labelledby="bk-consent-text"><svg><use href="#ic-check"/></svg></span>
+            <span id="bk-consent-text">I agree that Northwind Trading processes my name, e-mail and message to schedule this meeting, as described in the <a href="#s4">privacy policy</a>.</span>
+          </div>
+          <div class="row" style="gap:0.5rem;flex-wrap:wrap">
+            <button class="btn btn-primary" type="submit" data-goto="s7">Request meeting</button>
+            <button class="btn btn-ghost" type="button" data-goto="s6">Preview instant booking</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>The consent checkbox is <strong>unticked by default</strong>; submitting without it shows an error (screen 5).</span></div>
+    <div class="note"><b>2</b><span>The optional message (up to 500 characters) is shown to Anna in the request row so she can decide without opening anything. It is encrypted at rest and cleared by the 90-day anonymisation, like the names.</span></div>
+    <div class="note"><b>3</b><span>Anna requires approval, so the button reads <strong>Request meeting</strong> and leads to Request sent. With approval off it reads <strong>Book meeting</strong> and leads to Booked; the ghost button only previews that path in the prototype.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s5 ═════════════════════════════ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Validation and submit errors</h2>
+    <p>Field errors after a submit with a typo in the e-mail, an empty last name and no consent. Below: the time was taken by someone else while the visitor typed.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Public page</span><span class="ref">US-B2</span></div>
+  </div>
+  <div class="frame-label">Field errors</div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/calendar/northwind/anna/meetings</span></div>
+    <div class="bk-page" style="min-height:0">
+      <div class="bk-card bk-two">
+        <div class="bk-info">
+          <button class="btn btn-ghost btn-sm" style="align-self:flex-start;padding-left:0.25rem" data-goto="s3"><svg><use href="#ic-arrow-left"/></svg> Back</button>
+          <h1>Meet with Anna</h1>
+          <div class="bk-meta"><svg><use href="#ic-calendar"/></svg><strong>Mon, 2 Nov 2026, 13:00 to 13:30</strong></div>
+          <div class="bk-meta"><svg><use href="#ic-globe"/></svg>Europe/Warsaw (GMT+1)</div>
+        </div>
+        <form class="bk-form" onsubmit="return false">
+          <h2 class="t-section" style="margin:0">Enter your details</h2>
+          <div class="field">
+            <label for="bk-email-e">E-mail <span class="req">*</span></label>
+            <input id="bk-email-e" class="input input-invalid" type="email" value="j.doe@example" aria-invalid="true" aria-describedby="bk-email-err" />
+            <span class="field-error" id="bk-email-err">Enter a full e-mail address, like name@example.com</span>
+          </div>
+          <div class="form-grid form-grid-2">
+            <div class="field"><label for="bk-first-e">First name <span class="req">*</span></label><input id="bk-first-e" class="input" value="Jordan" /></div>
+            <div class="field"><label for="bk-last-e">Last name <span class="req">*</span></label><input id="bk-last-e" class="input input-invalid" value="" aria-invalid="true" aria-describedby="bk-last-err" /><span class="field-error" id="bk-last-err">Enter your last name</span></div>
+          </div>
+          <div class="field">
+            <label for="bk-about-e">What would you like to talk about? <span class="muted">(optional)</span></label>
+            <textarea id="bk-about-e" class="textarea" rows="2"></textarea>
+          </div>
+          <div class="field">
+            <div class="bk-consent">
+              <span class="check" role="checkbox" aria-checked="false" aria-invalid="true" tabindex="0" style="border-color:var(--destructive)"><svg><use href="#ic-check"/></svg></span>
+              <span>I agree that Northwind Trading processes my name, e-mail and message to schedule this meeting, as described in the <a href="#s5">privacy policy</a>.</span>
+            </div>
+            <span class="field-error">Tick the box to send your request</span>
+          </div>
+          <div class="row"><button class="btn btn-primary" type="submit">Request meeting</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="frame-label">Time taken meanwhile</div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/calendar/northwind/anna/meetings</span></div>
+    <div class="bk-page" style="min-height:0">
+      <div class="alert alert-warning bk-banner" role="alert">
+        <svg><use href="#ic-warn"/></svg>
+        <div><span class="alert-title">That time was just taken</span><div>Pick another time. Your details are kept.</div></div>
+      </div>
+      <div class="bk-card">
+        <div class="bk-info">
+          <h1>Meet with Anna</h1>
+          <div class="bk-meta"><svg><use href="#ic-clock"/></svg><strong>30 min</strong></div>
+        </div>
+        <div class="bk-cal-wrap">
+          <div class="bk-cal-head"><h2>November 2026</h2></div>
+          <div class="bk-cal" data-month="2026-11" data-selected="2"></div>
+        </div>
+        <div class="bk-slots-wrap">
+          <h3>Monday, 2 November</h3>
+          <div class="bk-slots" role="listbox" aria-label="Available times on Monday, 2 November">
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">09:00</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">09:30</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">10:30</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">11:00</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">13:30</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">14:00</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Errors appear under each field after the first submit, the first invalid field gets focus, and a summary is announced through <code>aria-live</code>. Errors clear as the field is fixed.</span></div>
+    <div class="note"><b>2</b><span><code>409 slot_taken</code> and <code>422 slot_not_offered</code> return to the picker with this banner and refreshed slots (13:00 is gone). The form keeps what was typed.</span></div>
+    <div class="note"><b>3</b><span>Other submit errors keep the visitor on the form with an error alert above the button (not drawn separately): <code>429</code> reads "Too many requests right now. Try again in a few minutes."; a network or server error reads "Your request wasn't sent. Check your connection and try again."</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s6 ═════════════════════════════ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Booked (instant confirmation)</h2>
+    <p>The meeting is in Anna's CRM calendar; the visitor gets an e-mail with an .ics invite and, later, a reminder.</p>
+    <div class="screen-refs"><span class="ref">§Proposed Solution 6</span><span class="ref">US-B3</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/calendar/northwind/anna/meetings</span></div>
+    <div class="bk-page">
+      <div class="bk-result">
+        <div class="bk-result-icon ok"><svg><use href="#ic-check"/></svg></div>
+        <div class="stack-2">
+          <h1 class="t-page-title" style="margin:0">You're booked</h1>
+          <p class="muted" style="margin:0">A calendar invite was sent to <strong>j.doe@example.com</strong>.</p>
+        </div>
+        <div class="bk-summary">
+          <div class="bk-meta"><svg><use href="#ic-calendar"/></svg><strong>Meet with Anna</strong></div>
+          <div class="bk-meta"><svg><use href="#ic-clock"/></svg>Mon, 2 Nov 2026, 13:00 to 13:30 (Europe/Warsaw)</div>
+          <div class="bk-meta"><svg><use href="#ic-pin"/></svg>Northwind office, Prosta 20, Warsaw</div>
+        </div>
+        <button class="btn btn-outline"><svg><use href="#ic-download"/></svg> Add to calendar (.ics)</button>
+        <p class="muted" style="font-size:0.75rem;margin:0">We'll e-mail you a reminder 24 hours before the meeting. To change it, use the link in your e-mail.</p>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>The .ics download is the same file attached to the e-mail (METHOD:REQUEST, UTC times, stable UID).</span></div>
+    <div class="note"><b>2</b><span>Reminder: one e-mail to the booker 24 hours before the start. A meeting confirmed less than 24 hours before its start gets none (its confirmation is recent), and the reminder line on this card is then hidden. It carries the manage link and is skipped if the meeting was cancelled or moved. The owner gets no reminder from this feature; the CRM calendar already handles that.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s7 ═════════════════════════════ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Request sent (approval required)</h2>
+    <p>The owner requires approval: the slot is held and the visitor learns when they will hear back.</p>
+    <div class="screen-refs"><span class="ref">§Proposed Solution 4</span><span class="ref">US-B3</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/calendar/northwind/anna/meetings</span></div>
+    <div class="bk-page">
+      <div class="bk-result">
+        <div class="bk-result-icon wait"><svg><use href="#ic-hourglass"/></svg></div>
+        <div class="stack-2">
+          <h1 class="t-page-title" style="margin:0">Request sent</h1>
+          <p class="muted" style="margin:0">Anna will confirm by <strong>Fri, 30 Oct 2026, 13:40</strong>. We'll e-mail <strong>j.doe@example.com</strong> either way.</p>
+        </div>
+        <div class="bk-summary">
+          <div class="bk-meta"><svg><use href="#ic-calendar"/></svg><strong>Meet with Anna</strong> <span class="badge badge-warning"><span class="dot"></span>Awaiting confirmation</span></div>
+          <div class="bk-meta"><svg><use href="#ic-clock"/></svg>Mon, 2 Nov 2026, 13:00 to 13:30 (Europe/Warsaw)</div>
+        </div>
+        <div class="alert alert-info" style="text-align:left">
+          <svg><use href="#ic-info"/></svg>
+          <div>This time is held for you until then. If it isn't confirmed in time, the request expires and the time is released.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Confirm-by = the earlier of request time + 24 h and the slot start. The .ics is sent only after Anna accepts.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s8 ═════════════════════════════ -->
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. No availability and page unavailable</h2>
+    <p>Above: the page is on but nothing is free in the next 60 days. Below: an unknown link or a page that was turned off.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Public page</span><span class="ref">US-B1</span></div>
+  </div>
+  <div class="frame-label">No availability</div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/calendar/northwind/anna/meetings</span></div>
+    <div class="bk-page" style="min-height:0">
+      <div class="bk-card">
+        <div class="bk-info">
+          <span class="avatar avatar-lg">AK</span>
+          <div class="bk-owner"><span>Anna Kowalska</span><span>Northwind Trading</span></div>
+          <h1>Meet with Anna</h1>
+          <div class="bk-meta"><svg><use href="#ic-clock"/></svg><strong>30 min</strong></div>
+        </div>
+        <div class="bk-cal-wrap">
+          <div class="bk-cal-head"><h2>November 2026</h2></div>
+          <div class="bk-cal" data-month="2026-11" data-empty="true"></div>
+          <div class="bk-legend"><span><i class="lg-today"></i>Today</span></div>
+        </div>
+        <div class="bk-slots-wrap">
+          <div class="bk-empty"><svg><use href="#ic-calendar-x"/></svg><strong>No times available in the next 60 days</strong><span>Anna's calendar is full. Check back later.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="frame-label">Page unavailable</div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/calendar/northwind/anna-k/meetings</span></div>
+    <div class="bk-page" style="min-height:22rem">
+      <div class="bk-result">
+        <div class="bk-result-icon off"><svg><use href="#ic-calendar-x"/></svg></div>
+        <div class="stack-2">
+          <h1 class="t-page-title" style="margin:0">This booking page isn't available</h1>
+          <p class="muted" style="margin:0">The link may be mistyped, or the page was turned off. Ask the person who sent it for a new link.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>The empty state replaces the slot column; every day is disabled and month navigation still works up to the horizon. Days are disabled, not hidden, so the visitor can see it is a full calendar and not a broken page.</span></div>
+    <div class="note"><b>2</b><span>The unavailable page is the same 404 for an unknown slug, a disabled page, an inactive owner and an ambiguous link, so nothing about the owner leaks. No backend chrome, no search, no owner name.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s9 ═════════════════════════════ -->
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Meeting requests (Pending)</h2>
+    <p>Anna decides on requests before they expire. The visitor's note is in the row; Accept is one click. Shown as of <strong>Fri, 30 Oct 2026, 11:30</strong>.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Meeting requests</span><span class="ref">US-C1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customers/booking-requests</span></div>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Customers</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" href="#s15" data-goto="s15"><svg><use href="#ic-calendar"/></svg> Calendar</a>
+            <span class="nav-item active"><svg><use href="#ic-inbox"/></svg> Meeting requests <span class="badge badge-warning" style="margin-left:auto">3</span></span>
+            <span class="nav-item"><svg><use href="#ic-user"/></svg> People</span>
+            <span class="nav-item"><svg><use href="#ic-users"/></svg> Companies</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Customers</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Meeting requests</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><a class="avatar" href="#s1" data-goto="s1">AK</a></div>
+        </header>
+        <main class="page">
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row"><h2 class="t-table-title">Meeting requests</h2><div class="dt-head-actions"><a class="btn btn-outline btn-sm" href="#s1" data-goto="s1"><svg><use href="#ic-calendar"/></svg> Booking settings</a><a class="btn btn-outline btn-sm" href="#s3" data-goto="s3"><svg><use href="#ic-external"/></svg> Open my booking page</a></div></div>
+              <div class="dt-toolbar">
+                <div class="tabs" role="tablist">
+                  <button role="tab" aria-selected="true">Pending <span class="tab-count">3</span></button>
+                  <button role="tab" aria-selected="false" data-goto="s16">Upcoming <span class="tab-count">5</span></button>
+                  <button role="tab" aria-selected="false" data-goto="s18">History</button>
+                </div>
+                <div class="dt-toolbar-row"><div class="input dt-search"><svg width="16" height="16"><use href="#ic-search"/></svg> Search by exact e-mail</div></div>
+              </div>
+            </div>
+            <div class="scroll-x">
+              <table class="table">
+                <thead><tr>
+                  <th><button class="th-sort" type="button">Meeting <svg><use href="#ic-sort"/></svg></button></th>
+                  <th>Booker</th>
+                  <th>About</th>
+                  <th><button class="th-sort" type="button">Requested <svg><use href="#ic-sort"/></svg></button></th>
+                  <th aria-sort="ascending"><button class="th-sort is-active" type="button">Respond by <svg><use href="#ic-arrow-up"/></svg></button></th>
+                  <th class="right"><span class="sr-only">Actions</span></th>
+                </tr></thead>
+                <tbody>
+                  <tr>
+                    <td><div class="cell-lines"><strong>Mon, 2 Nov</strong><span class="t-hint">13:00 to 13:30</span></div></td>
+                    <td><div class="cell-lines"><span>Jordan Doe</span><span class="t-hint">j.doe@example.com</span></div></td>
+                    <td><span class="req-note">Pricing for 40 seats and moving over from our current CRM.</span></td>
+                    <td class="num">Thu, 29 Oct, 13:40</td>
+                    <td><div class="cell-lines"><span class="badge badge-error" style="align-self:flex-start">2 h 10 min left</span><span class="t-hint">Overlaps Call: Q4 review</span></div></td>
+                    <td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end;flex-wrap:nowrap"><button class="btn btn-ghost btn-sm" data-goto="s11">Decline</button><button class="btn btn-outline btn-sm" data-goto="s10">Accept</button></div></td>
+                  </tr>
+                  <tr>
+                    <td><div class="cell-lines"><strong>Tue, 3 Nov</strong><span class="t-hint">09:30 to 10:00</span></div></td>
+                    <td><div class="cell-lines"><span>Riley Novak</span><span class="t-hint">riley@fabrikam.example</span></div></td>
+                    <td><span class="muted" style="font-size:0.875rem">No message</span></td>
+                    <td class="num">Fri, 30 Oct, 05:30</td>
+                    <td>18 h left</td>
+                    <td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end;flex-wrap:nowrap"><button class="btn btn-ghost btn-sm">Decline</button><button class="btn btn-outline btn-sm" data-goto="s16">Accept</button></div></td>
+                  </tr>
+                  <tr>
+                    <td><div class="cell-lines"><strong>Thu, 5 Nov</strong><span class="t-hint">15:00 to 15:30</span><span class="badge badge-info" style="align-self:flex-start">Reschedule</span></div></td>
+                    <td><div class="cell-lines"><span>Sam Ortega</span><span class="t-hint">sam.ortega@contoso.example</span></div></td>
+                    <td><div class="cell-lines"><span class="req-note">Our team is travelling on Wednesday, can we move it?</span><span class="t-hint">Currently Wed, 4 Nov, 11:00</span></div></td>
+                    <td class="num">Fri, 30 Oct, 10:30</td>
+                    <td>23 h left</td>
+                    <td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end;flex-wrap:nowrap"><button class="btn btn-ghost btn-sm">Decline</button><button class="btn btn-outline btn-sm" data-goto="s16">Accept</button></div></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="dt-foot"><span class="muted num" style="font-size:0.875rem">3 results</span></div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Removed: the four counter tiles (the pending count is already in the sidebar and on the tab), the status filter (duplicated the tabs), the Filters button, row selection and bulk Accept/Decline. Tabs are Pending, Upcoming and History.</span></div>
+    <div class="note"><b>2</b><span><strong>Accept is one click.</strong> It creates a new CRM person for a new booker (or keeps the existing person for a reschedule), creates the meeting and sends the invite, then confirms with a toast (screen 16). Only when the slot now overlaps something does a small dialog ask for confirmation (screen 10). Linking to an existing person stays a separate action afterwards (screen 17).</span></div>
+    <div class="note"><b>3</b><span>The page has no primary button: Accept is a secondary (outline) button and Decline a ghost button, so the pending badge in the sidebar carries the emphasis. Every column that is not encrypted sorts on the server: Meeting, Requested and Respond by here, Status and Outcome on History. Booker, About and CRM person are encrypted, so they have no sort control on any tab; this is an accepted exception. The default is Respond by, soonest first.</span></div>
+    <div class="note"><b>4</b><span>"Respond by" turns into an error badge under 3 hours. The overlap hint names what the slot now overlaps. Users with <code>customers.booking.manage</code> also get an Owner column.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s10 ═════════════════════════════ -->
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Accept, only when the time now overlaps</h2>
+    <p>Jordan's slot overlaps a call added after the request, so Accept asks once. Without an overlap there is no dialog.</p>
+    <div class="screen-refs"><span class="ref">§Proposed Solution 5</span><span class="ref">US-C1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customers/booking-requests</span></div>
+    <div class="app modal-scrim">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customers</span></div><div class="nav-items"><span class="nav-item"><svg><use href="#ic-calendar"/></svg> Calendar</span><span class="nav-item active"><svg><use href="#ic-inbox"/></svg> Meeting requests</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Meeting requests</span></div></div></header>
+        <main class="page"><div class="dt" style="height:16rem"></div></main>
+      </div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="acc-title" style="width:28rem">
+        <div class="modal-head"><h2 id="acc-title" class="t-section" style="margin:0">Accept despite the overlap?</h2></div>
+        <div class="modal-body">
+          <div class="bk-summary">
+            <strong style="font-size:0.875rem">Jordan Doe</strong>
+            <span class="muted" style="font-size:0.875rem">j.doe@example.com</span>
+            <span style="font-size:0.875rem">Mon, 2 Nov, 13:00 to 13:30</span>
+          </div>
+          <div class="alert alert-warning"><svg><use href="#ic-warn"/></svg><div>Overlaps <strong>Call: Q4 review</strong>, 13:15 to 13:45, added after this request.</div></div>
+        </div>
+        <div class="modal-foot" style="justify-content:flex-end"><div class="row" style="gap:0.5rem"><button class="btn btn-outline" data-goto="s9">Cancel</button><button class="btn btn-primary" data-goto="s16">Accept</button></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>No person choice: a new booker becomes a new CRM person. A same-e-mail person is never picked automatically, because typed e-mails are not identities; the row's ⋯ menu offers Link to existing person afterwards.</span></div>
+    <div class="note"><b>2</b><span>Escape cancels, Cmd/Ctrl+Enter accepts. Optimistic lock: a stale request returns 409 with the conflict bar.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s11 ═════════════════════════════ -->
+<section class="screen" id="s11">
+  <div class="screen-meta">
+    <h2>11. Decline</h2>
+    <p>Anna declines with an optional message that goes into the e-mail to the booker.</p>
+    <div class="screen-refs"><span class="ref">§API decline</span><span class="ref">US-C1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customers/booking-requests</span></div>
+    <div class="app modal-scrim">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customers</span></div><div class="nav-items"><span class="nav-item"><svg><use href="#ic-calendar"/></svg> Calendar</span><span class="nav-item active"><svg><use href="#ic-inbox"/></svg> Meeting requests</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Meeting requests</span></div></div></header>
+        <main class="page"><div class="dt" style="height:16rem"></div></main>
+      </div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dec-title" style="width:28rem">
+        <div class="modal-head"><h2 id="dec-title" class="t-section" style="margin:0">Decline meeting request?</h2></div>
+        <div class="modal-body">
+          <div class="bk-summary">
+            <strong style="font-size:0.875rem">Jordan Doe</strong>
+            <span class="muted" style="font-size:0.875rem">j.doe@example.com</span>
+            <span style="font-size:0.875rem">Mon, 2 Nov, 13:00 to 13:30</span>
+          </div>
+          <div class="field">
+            <label for="dec-msg">Message to Jordan <span class="muted">(optional)</span></label>
+            <textarea id="dec-msg" class="textarea" rows="3">Thanks for reaching out. Our partner team handles orders of this size, they will contact you this week.</textarea>
+            <span class="t-hint">Added to the e-mail Jordan receives.</span>
+          </div>
+        </div>
+        <div class="modal-foot" style="justify-content:flex-end"><div class="row" style="gap:0.5rem"><button class="btn btn-outline" data-goto="s9">Cancel</button><button class="btn btn-destructive" data-goto="s18">Decline</button></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Up to 500 characters, encrypted at rest. The time is released at once and the row moves to History with the message shown under its outcome.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s12 ═════════════════════════════ -->
+<section class="screen" id="s12">
+  <div class="screen-meta">
+    <h2>12. Expired request</h2>
+    <p>At 13:41 Anna clicks Accept on Jordan's request, which expired at 13:40. The row greys out and the page explains what happened.</p>
+    <div class="screen-refs"><span class="ref">§State transitions</span><span class="ref">US-C1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customers/booking-requests</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customers</span></div><div class="nav-items"><span class="nav-item"><svg><use href="#ic-calendar"/></svg> Calendar</span><span class="nav-item active"><svg><use href="#ic-inbox"/></svg> Meeting requests <span class="badge badge-warning" style="margin-left:auto">2</span></span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Customers</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Meeting requests</span></div></div></header>
+        <main class="page">
+          <div class="alert alert-error" role="alert"><svg><use href="#ic-warn"/></svg><div><span class="alert-title">This request expired at 13:40</span><div>It was not accepted. The time was released and Jordan Doe was told by e-mail.</div></div></div>
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row"><h2 class="t-table-title">Meeting requests</h2></div>
+              <div class="dt-toolbar"><div class="tabs" role="tablist"><button role="tab" aria-selected="true">Pending <span class="tab-count">2</span></button><button role="tab" aria-selected="false" data-goto="s16">Upcoming <span class="tab-count">5</span></button><button role="tab" aria-selected="false" data-goto="s18">History</button></div></div>
+            </div>
+            <div class="scroll-x">
+              <table class="table">
+                <thead><tr><th><button class="th-sort" type="button">Meeting <svg><use href="#ic-sort"/></svg></button></th><th>Booker</th><th>About</th><th aria-sort="ascending"><button class="th-sort is-active" type="button">Respond by <svg><use href="#ic-arrow-up"/></svg></button></th><th class="right"><span class="sr-only">Actions</span></th></tr></thead>
+                <tbody>
+                  <tr class="is-expired">
+                    <td><div class="cell-lines"><strong>Mon, 2 Nov</strong><span class="t-hint">13:00 to 13:30</span></div></td>
+                    <td><div class="cell-lines"><span>Jordan Doe</span><span class="t-hint">j.doe@example.com</span></div></td>
+                    <td><span class="req-note">Pricing for 40 seats and moving over from our current CRM.</span></td>
+                    <td><span class="badge badge-neutral">Expired</span></td>
+                    <td class="right"><button class="btn btn-ghost btn-sm">Dismiss</button></td>
+                  </tr>
+                  <tr>
+                    <td><div class="cell-lines"><strong>Tue, 3 Nov</strong><span class="t-hint">09:30 to 10:00</span></div></td>
+                    <td><div class="cell-lines"><span>Riley Novak</span><span class="t-hint">riley@fabrikam.example</span></div></td>
+                    <td><span class="muted" style="font-size:0.875rem">No message</span></td>
+                    <td>16 h left</td>
+                    <td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end;flex-wrap:nowrap"><button class="btn btn-ghost btn-sm">Decline</button><button class="btn btn-outline btn-sm">Accept</button></div></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Accepting a request past its deadline returns <code>409</code>; the alert replaces the generic conflict bar because the outcome is final. The row stays greyed with Dismiss until the list refreshes, then lives in History as Expired.</span></div>
+    <div class="note"><b>2</b><span>A request that expires while the page is open greys out the same way without the alert. Jordan can book again from the public page; the expiry e-mail links to it.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s13 ═════════════════════════════ -->
+<section class="screen" id="s13">
+  <div class="screen-meta">
+    <h2>13. Empty states</h2>
+    <p>Above: nothing to decide. Below: the user opens Meeting requests before turning their booking page on.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Meeting requests</span><span class="ref">US-C1</span></div>
+  </div>
+  <div class="frame-label">No pending requests</div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customers/booking-requests</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customers</span></div><div class="nav-items"><span class="nav-item"><svg><use href="#ic-calendar"/></svg> Calendar</span><span class="nav-item active"><svg><use href="#ic-inbox"/></svg> Meeting requests</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Customers</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Meeting requests</span></div></div></header>
+        <main class="page">
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row"><h2 class="t-table-title">Meeting requests</h2><div class="dt-head-actions"><a class="btn btn-outline btn-sm" href="#s1" data-goto="s1"><svg><use href="#ic-calendar"/></svg> Booking settings</a><a class="btn btn-outline btn-sm" href="#s3" data-goto="s3"><svg><use href="#ic-external"/></svg> Open my booking page</a></div></div>
+              <div class="dt-toolbar"><div class="tabs" role="tablist"><button role="tab" aria-selected="true">Pending</button><button role="tab" aria-selected="false" data-goto="s16">Upcoming <span class="tab-count">5</span></button><button role="tab" aria-selected="false" data-goto="s18">History</button></div></div>
+            </div>
+            <div class="empty">
+              <div class="empty-icon"><svg><use href="#ic-inbox"/></svg></div>
+              <strong>Nothing waiting for you</strong>
+              <span class="muted" style="font-size:0.875rem">New requests from your booking page appear here.</span>
+              <button class="btn btn-outline btn-sm" type="button"><svg><use href="#ic-copy"/></svg> Copy my booking link</button>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div class="frame-label">Booking page not turned on</div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customers/booking-requests</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customers</span></div><div class="nav-items"><span class="nav-item"><svg><use href="#ic-calendar"/></svg> Calendar</span><span class="nav-item active"><svg><use href="#ic-inbox"/></svg> Meeting requests</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Customers</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Meeting requests</span></div></div></header>
+        <main class="page">
+          <h2 class="t-table-title" style="margin:0">Meeting requests</h2>
+          <div class="empty">
+            <div class="empty-icon"><svg><use href="#ic-calendar"/></svg></div>
+            <strong>Let people book meetings with you</strong>
+            <span class="muted" style="font-size:0.875rem;max-width:40ch">Turn on your booking page and share the link. Requests show up here.</span>
+            <a class="btn btn-primary btn-sm" href="#s1" data-goto="s1">Set up booking page</a>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Each tab says why it is empty. Upcoming: "No upcoming meetings from your booking page." History: "Declined, expired, cancelled and past meetings appear here." A search with no match: "No requests from this e-mail address" with a Clear search button.</span></div>
+    <div class="note"><b>2</b><span>The set-up state shows when the user has no enabled booking page and no requests yet; it hides tabs and search because there is nothing to sort or search.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s14 ═════════════════════════════ -->
+<section class="screen" id="s14">
+  <div class="screen-meta">
+    <h2>14. Meeting requests on a phone</h2>
+    <p>At 390px the table becomes a card list. Each card holds everything needed to decide, and Accept and Decline are full-width touch targets.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Meeting requests</span><span class="ref">US-C1</span></div>
+  </div>
+  <div class="frame phone-frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customers/booking-requests</span></div>
+    <div class="m-app">
+      <div class="m-top">
+        <button class="btn btn-ghost btn-icon btn-sm" aria-label="Menu"><svg><use href="#ic-menu"/></svg></button>
+        <h1>Meeting requests</h1>
+        <button class="btn btn-ghost btn-icon btn-sm" aria-label="Search"><svg><use href="#ic-search"/></svg></button>
+        <span class="avatar avatar-sm">AK</span>
+      </div>
+      <div class="m-body">
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true">Pending <span class="tab-count">3</span></button>
+          <button role="tab" aria-selected="false">Upcoming <span class="tab-count">5</span></button>
+          <button role="tab" aria-selected="false">History</button>
+        </div>
+        <div class="m-tools"><span class="muted" style="font-size:0.75rem">3 requests</span><button class="btn btn-ghost btn-xs"><svg><use href="#ic-sort"/></svg> Respond by</button></div>
+
+        <div class="req-card">
+          <div class="req-head">
+            <div class="cell-lines"><strong>Mon, 2 Nov</strong><span class="t-hint">13:00 to 13:30</span></div>
+            <span class="badge badge-error">2 h 10 min left</span>
+          </div>
+          <div class="cell-lines"><span style="font-size:0.875rem">Jordan Doe</span><span class="t-hint">j.doe@example.com</span></div>
+          <span class="req-note">Pricing for 40 seats and moving over from our current CRM.</span>
+          <span class="t-hint" style="color:var(--status-warning-text)">Overlaps Call: Q4 review</span>
+          <div class="req-acts"><button class="btn btn-ghost" data-goto="s11">Decline</button><button class="btn btn-outline" data-goto="s10">Accept</button></div>
+        </div>
+
+        <div class="req-card">
+          <div class="req-head">
+            <div class="cell-lines"><strong>Tue, 3 Nov</strong><span class="t-hint">09:30 to 10:00</span></div>
+            <span class="muted" style="font-size:0.75rem">18 h left</span>
+          </div>
+          <div class="cell-lines"><span style="font-size:0.875rem">Riley Novak</span><span class="t-hint">riley@fabrikam.example</span></div>
+          <div class="req-acts"><button class="btn btn-ghost">Decline</button><button class="btn btn-outline" data-goto="s16">Accept</button></div>
+        </div>
+
+        <div class="req-card">
+          <div class="req-head">
+            <div class="cell-lines"><strong>Thu, 5 Nov</strong><span class="t-hint">15:00 to 15:30</span><span class="t-hint">Currently Wed, 4 Nov, 11:00</span></div>
+            <span class="badge badge-info">Reschedule</span>
+          </div>
+          <div class="cell-lines"><span style="font-size:0.875rem">Sam Ortega</span><span class="t-hint">sam.ortega@contoso.example</span></div>
+          <span class="req-note">Our team is travelling on Wednesday, can we move it?</span>
+          <div class="req-acts"><button class="btn btn-ghost">Decline</button><button class="btn btn-outline" data-goto="s16">Accept</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Below the sm breakpoint (640px) the DataTable renders this card list; sort moves into the single Respond by control above the list. The accept and decline dialogs become bottom sheets with the same content.</span></div>
+    <div class="note"><b>2</b><span>The new-request notification and e-mail deep-link here, so a request can be accepted from a phone in two taps. A card with no message omits the note line instead of showing a placeholder.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s15 ═════════════════════════════ -->
+<section class="screen" id="s15">
+  <div class="screen-meta">
+    <h2>15. CRM Calendar with pending requests</h2>
+    <p>Pending requests appear in Anna's week view as hatched blocks; clicking one opens the request.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Meeting requests</span><span class="ref">US-C3</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/calendar?view=week</span></div>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customers</span></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-calendar"/></svg> Calendar</span><a class="nav-item" href="#s9" data-goto="s9"><svg><use href="#ic-inbox"/></svg> Meeting requests <span class="badge badge-warning" style="margin-left:auto">3</span></a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Calendar</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><h1 class="t-page-title">2 to 6 November 2026</h1><div class="page-actions"><div class="segmented"><button>Day</button><button aria-selected="true">Week</button><button>Month</button><button>Agenda</button></div><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New event</button></div></div>
+          <div class="wk">
+            <div class="wk-h"></div><div class="wk-h">Mon 2</div><div class="wk-h">Tue 3</div><div class="wk-h">Wed 4</div><div class="wk-h">Thu 5</div><div class="wk-h">Fri 6</div>
+            <div class="wk-times"><span style="top:0">9:00</span><span style="top:5.5rem">11:00</span><span style="top:11rem">13:00</span><span style="top:16.5rem">15:00</span></div>
+            <div class="wk-col">
+              <div class="ev ev-meeting" style="top:2.75rem;height:2.75rem"><strong>Demo: Woodgrove</strong>10:00 to 11:00</div>
+              <div class="ev ev-pending" style="top:11rem;height:1.375rem;right:calc(50% + 0.125rem)" data-goto="s10" role="button" tabindex="0"><strong>Pending: Jordan Doe</strong></div>
+              <div class="ev ev-call" style="top:11.6875rem;height:1.375rem;left:50%"><strong>Call: Q4 review</strong></div>
+            </div>
+            <div class="wk-col"><div class="ev ev-pending" style="top:1.375rem;height:1.375rem" data-goto="s9" role="button" tabindex="0"><strong>Pending: Riley Novak</strong></div></div>
+            <div class="wk-col"><div class="ev ev-meeting" style="top:5.5rem;height:4.125rem"><strong>Workshop</strong>11:00 to 12:30</div></div>
+            <div class="wk-col"><div class="ev ev-meeting" style="top:2.75rem;height:1.375rem"><strong>Meet with Anna</strong></div><div class="ev ev-pending" style="top:16.5rem;height:1.375rem" data-goto="s9" role="button" tabindex="0"><strong>Pending: Sam Ortega</strong></div></div>
+            <div class="wk-col"><div class="ev ev-meeting" style="top:2.75rem;height:1.375rem"><strong>Meet with Anna</strong>10:00 to 10:30</div></div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Pending blocks are visible only to the owner (and <code>manage</code> holders), are not interactions, and disappear on decline or expiry. Clicking one runs the same one-click Accept, with the overlap dialog when needed. Confirmed bookings are normal meetings titled with the page title, never the booker's name.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s16 ═════════════════════════════ -->
+<section class="screen" id="s16">
+  <div class="screen-meta">
+    <h2>16. Upcoming, right after accepting</h2>
+    <p>Riley's request was accepted in one click. Alex Rivera booked instantly and became a new person; Anna opens the row menu to link Alex to an existing person.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Meeting requests</span><span class="ref">US-C1</span><span class="ref">US-C2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customers/booking-requests?tab=upcoming</span></div>
+    <div class="app" style="position:relative">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customers</span></div><div class="nav-items"><a class="nav-item" href="#s15" data-goto="s15"><svg><use href="#ic-calendar"/></svg> Calendar</a><span class="nav-item active"><svg><use href="#ic-inbox"/></svg> Meeting requests <span class="badge badge-warning" style="margin-left:auto">2</span></span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Customers</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Meeting requests</span></div></div></header>
+        <main class="page">
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row"><h2 class="t-table-title">Meeting requests</h2></div>
+              <div class="dt-toolbar">
+                <div class="tabs" role="tablist"><button role="tab" aria-selected="false" data-goto="s9">Pending <span class="tab-count">2</span></button><button role="tab" aria-selected="true">Upcoming <span class="tab-count">6</span></button><button role="tab" aria-selected="false" data-goto="s18">History</button></div>
+                <div class="dt-toolbar-row"><div class="input dt-search"><svg width="16" height="16"><use href="#ic-search"/></svg> Search by exact e-mail</div></div>
+              </div>
+            </div>
+            <div class="scroll-x" style="position:relative">
+              <table class="table">
+                <thead><tr>
+                  <th aria-sort="ascending"><button class="th-sort is-active" type="button">Meeting <svg><use href="#ic-arrow-up"/></svg></button></th>
+                  <th>Booker</th>
+                  <th>About</th>
+                  <th>CRM person</th>
+                  <th class="right"><span class="sr-only">Actions</span></th>
+                </tr></thead>
+                <tbody>
+                  <tr>
+                    <td><div class="cell-lines"><strong>Fri, 30 Oct</strong><span class="t-hint">15:00 to 15:30</span></div></td>
+                    <td><div class="cell-lines"><span>Alex Rivera</span><span class="t-hint">alex@tailspin.example</span></div></td>
+                    <td><span class="req-note">Follow-up on the integration questions from last week.</span></td>
+                    <td><div class="cell-lines"><span>Alex Rivera</span><span class="badge badge-info" style="align-self:flex-start">New from booking</span></div></td>
+                    <td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions" aria-expanded="true"><svg><use href="#ic-more"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td><div class="cell-lines"><strong>Tue, 3 Nov</strong><span class="t-hint">09:30 to 10:00</span></div></td>
+                    <td><div class="cell-lines"><span>Riley Novak</span><span class="t-hint">riley@fabrikam.example</span></div></td>
+                    <td><span class="muted" style="font-size:0.875rem">No message</span></td>
+                    <td><div class="cell-lines"><span>Riley Novak</span><span class="badge badge-info" style="align-self:flex-start">New from booking</span></div></td>
+                    <td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td><div class="cell-lines"><strong>Thu, 5 Nov</strong><span class="t-hint">10:00 to 10:30</span></div></td>
+                    <td><div class="cell-lines"><span>Morgan Lee</span><span class="t-hint">m.lee@woodgrove.example</span></div></td>
+                    <td><span class="muted" style="font-size:0.875rem">No message</span></td>
+                    <td>Morgan Lee</td>
+                    <td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="popover row-menu" role="menu" style="top:6rem">
+                <div class="menu-item" role="menuitem"><svg><use href="#ic-calendar"/></svg> Open in calendar</div>
+                <div class="menu-item" role="menuitem" data-goto="s17"><svg><use href="#ic-link"/></svg> Link to existing person</div>
+                <div class="menu-item danger" role="menuitem"><svg><use href="#ic-x"/></svg> Cancel meeting</div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+      <div class="toast"><svg style="color:var(--status-success-icon)"><use href="#ic-check"/></svg> Meeting with Riley Novak accepted. Invite sent. <button class="btn btn-ghost btn-xs">Undo</button></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>After a one-click Accept the row leaves Pending and appears here; the toast names the booker and offers Undo. Riley became a new person, marked "New from booking", which is the cue to link them if they already exist in the CRM.</span></div>
+    <div class="note"><b>2</b><span>Row menu on upcoming meetings: Open in calendar, Link to existing person, Cancel meeting (opens a confirmation dialog with the meeting summary; no message field, since the booker can reply to the cancellation e-mail).</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s17 ═════════════════════════════ -->
+<section class="screen" id="s17">
+  <div class="screen-meta">
+    <h2>17. Link to an existing person</h2>
+    <p>The auto-created Alex Rivera is merged into the existing CRM person.</p>
+    <div class="screen-refs"><span class="ref">§API link-person</span><span class="ref">US-C2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customers/booking-requests?tab=upcoming</span></div>
+    <div class="app modal-scrim">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customers</span></div><div class="nav-items"><span class="nav-item"><svg><use href="#ic-calendar"/></svg> Calendar</span><span class="nav-item active"><svg><use href="#ic-inbox"/></svg> Meeting requests</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Meeting requests</span></div></div></header>
+        <main class="page"><div class="dt" style="height:16rem"></div></main>
+      </div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="lp-title" style="width:32rem">
+        <div class="modal-head"><h2 id="lp-title" class="t-section" style="margin:0">Link to existing person</h2></div>
+        <div class="modal-body">
+          <div class="bk-summary">
+            <strong style="font-size:0.875rem">Alex Rivera</strong>
+            <span class="muted" style="font-size:0.875rem">alex@tailspin.example</span>
+            <span style="font-size:0.875rem">Fri, 30 Oct, 15:00 to 15:30</span>
+          </div>
+          <div class="input" style="display:flex;align-items:center;gap:0.5rem"><svg width="16" height="16"><use href="#ic-search"/></svg> alex riv</div>
+          <div>
+            <div class="person-opt hl"><span class="avatar avatar-sm">AR</span><div class="lines"><span>Alexandra Rivera</span><span class="t-hint">a.rivera@tailspin.example</span><span class="t-hint">Tailspin Toys</span></div></div>
+            <div class="person-opt"><span class="avatar avatar-sm">AR</span><div class="lines"><span>Alex Rivas</span><span class="t-hint">alex.rivas@example.com</span></div></div>
+          </div>
+          <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div>The meeting moves to the person you pick. The auto-created "Alex Rivera" is removed if nothing else is attached to it.</div></div>
+        </div>
+        <div class="modal-foot" style="justify-content:flex-end"><div class="row" style="gap:0.5rem"><button class="btn btn-outline" data-goto="s16">Cancel</button><button class="btn btn-primary" data-goto="s16">Link person</button></div></div>
+      </div>
+      <div class="toast" style="z-index:var(--z-index-toast)"><svg style="color:var(--status-success-icon)"><use href="#ic-check"/></svg> Linked to Alexandra Rivera. <button class="btn btn-ghost btn-xs">Undo</button></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>The toast is the post-submit state, shown together for review. Persons with the same e-mail are listed first as suggestions but never preselected. If the auto-created person had other data, the toast says it was kept.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s18 ═════════════════════════════ -->
+<section class="screen" id="s18">
+  <div class="screen-meta">
+    <h2>18. Meeting requests (History)</h2>
+    <p>Past meetings and everything declined, expired or cancelled. Status and outcome are separate columns.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Meeting requests</span><span class="ref">US-C1</span><span class="ref">US-C2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customers/booking-requests?tab=history</span></div>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Customers</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" href="#s15" data-goto="s15"><svg><use href="#ic-calendar"/></svg> Calendar</a>
+            <span class="nav-item active"><svg><use href="#ic-inbox"/></svg> Meeting requests <span class="badge badge-warning" style="margin-left:auto">3</span></span>
+            <span class="nav-item"><svg><use href="#ic-user"/></svg> People</span>
+            <span class="nav-item"><svg><use href="#ic-users"/></svg> Companies</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Customers</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Meeting requests</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><a class="avatar" href="#s1" data-goto="s1">AK</a></div>
+        </header>
+        <main class="page">
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row"><h2 class="t-table-title">Meeting requests</h2><div class="dt-head-actions"><a class="btn btn-outline btn-sm" href="#s1" data-goto="s1"><svg><use href="#ic-calendar"/></svg> Booking settings</a><a class="btn btn-outline btn-sm" href="#s3" data-goto="s3"><svg><use href="#ic-external"/></svg> Open my booking page</a></div></div>
+              <div class="dt-toolbar">
+                <div class="tabs" role="tablist">
+                  <button role="tab" aria-selected="false" data-goto="s9">Pending <span class="tab-count">3</span></button>
+                  <button role="tab" aria-selected="false" data-goto="s16">Upcoming <span class="tab-count">5</span></button>
+                  <button role="tab" aria-selected="true">History</button>
+                </div>
+                <div class="dt-toolbar-row">
+                  <div class="input dt-search"><svg width="16" height="16"><use href="#ic-search"/></svg> Search by exact e-mail</div>
+                  <span class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Meeting date</span>
+                </div>
+              </div>
+            </div>
+            <div class="scroll-x">
+              <table class="table">
+                <thead><tr>
+                  <th aria-sort="descending"><button class="th-sort is-active" type="button">Meeting <svg><use href="#ic-arrow-down"/></svg></button></th>
+                  <th>Booker</th>
+                  <th><button class="th-sort" type="button">Status <svg><use href="#ic-sort"/></svg></button></th>
+                  <th><button class="th-sort" type="button">Outcome <svg><use href="#ic-sort"/></svg></button></th>
+                  <th>CRM person</th>
+                  <th class="right"><span class="sr-only">Actions</span></th>
+                </tr></thead>
+                <tbody>
+                  <tr>
+                    <td><div class="cell-lines"><strong>Wed, 28 Oct</strong><span class="t-hint">14:00 to 14:30</span></div></td>
+                    <td><div class="cell-lines"><span>Casey Park</span><span class="t-hint">casey.park@example.net</span></div></td>
+                    <td><span class="badge badge-neutral"><span class="dot"></span>Declined</span></td>
+                    <td><div class="cell-lines"><span>Declined by you on Tue, 27 Oct</span><span class="t-hint">"Our partner team handles orders of this size."</span></div></td>
+                    <td class="muted">None</td>
+                    <td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td><div class="cell-lines"><strong>Tue, 27 Oct</strong><span class="t-hint">16:00 to 16:30</span></div></td>
+                    <td><div class="cell-lines"><span>Drew Santos</span><span class="t-hint">drew@litware.example</span></div></td>
+                    <td><span class="badge badge-neutral"><span class="dot"></span>Expired</span></td>
+                    <td>Not answered within 24 hours</td>
+                    <td class="muted">None</td>
+                    <td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td><div class="cell-lines"><strong>Mon, 26 Oct</strong><span class="t-hint">11:00 to 11:30</span></div></td>
+                    <td><div class="cell-lines"><span>Jamie Fox</span><span class="t-hint">jamie.fox@example.org</span></div></td>
+                    <td><span class="badge badge-error"><span class="dot"></span>Cancelled by booker</span></td>
+                    <td>Cancelled on Sun, 25 Oct</td>
+                    <td>Jamie Fox</td>
+                    <td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td><div class="cell-lines"><strong>Thu, 22 Oct</strong><span class="t-hint">10:00 to 10:30</span></div></td>
+                    <td><div class="cell-lines"><span>Pat Kim</span><span class="t-hint">pat.kim@adventure-works.example</span></div></td>
+                    <td><span class="badge badge-success"><span class="dot"></span>Took place</span></td>
+                    <td>Accepted by you on Tue, 20 Oct</td>
+                    <td>Pat Kim</td>
+                    <td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="dt-foot">
+              <span class="muted num" style="font-size:0.875rem">Showing 1 to 4 of 16 results</span>
+              <ul class="pager"><li><button class="nav" aria-label="Previous page"><svg><use href="#ic-chevron-left"/></svg></button></li><li><button aria-current="page">1</button></li><li><button>2</button></li><li><button class="nav" aria-label="Next page"><svg><use href="#ic-chevron-right"/></svg></button></li></ul>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Respond by / outcome" is split: Pending has Respond by, History has Outcome (who decided and when, plus the decline message on its own line). "Chosen on accept" is gone; CRM person shows a name or "None". Outcome sorts by the date it shows (when the request was decided or cancelled).</span></div>
+    <div class="note"><b>2</b><span>Cancelled badges name who cancelled: "Cancelled by booker", "Cancelled by you", "Cancelled: person deleted", "Cancelled: original cancelled". Row menu: View details only; nothing can be re-opened, because the booker was already e-mailed. A moved meeting keeps only its latest request in the list; View details shows the full reschedule history.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s19 ═════════════════════════════ -->
+<section class="screen" id="s19">
+  <div class="screen-meta">
+    <h2>19. Manage booking (from the e-mail link)</h2>
+    <p>The booker opens the private link from the confirmation e-mail to cancel or reschedule.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Manage page</span><span class="ref">US-B4</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/calendar/northwind/anna/meetings/manage/•••••••</span></div>
+    <div class="bk-page">
+      <div class="bk-result">
+        <span class="avatar avatar-lg">AK</span>
+        <div class="stack-2">
+          <h1 class="t-page-title" style="margin:0">Your meeting with Anna Kowalska</h1>
+          <span class="badge badge-success" style="align-self:center"><span class="dot"></span>Confirmed</span>
+        </div>
+        <div class="bk-summary">
+          <div class="bk-meta"><svg><use href="#ic-calendar"/></svg><strong>Meet with Anna</strong></div>
+          <div class="bk-meta"><svg><use href="#ic-clock"/></svg>Mon, 2 Nov 2026, 13:00 to 13:30 (Europe/Warsaw)</div>
+          <div class="bk-meta"><svg><use href="#ic-pin"/></svg>Northwind office, Prosta 20, Warsaw</div>
+          <div class="bk-meta"><svg><use href="#ic-mail"/></svg>Booked as Jordan Doe (j.doe@example.com)</div>
+        </div>
+        <div class="row" style="gap:0.5rem;justify-content:center">
+          <button class="btn btn-outline" data-goto="s20">Cancel meeting</button>
+          <button class="btn btn-primary" data-goto="s21">Reschedule</button>
+        </div>
+        <p class="muted" style="font-size:0.75rem;margin:0">You can change this until 1 hour before the meeting.</p>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>After the cutoff both buttons are disabled with "This meeting can no longer be changed online. Reply to the invite e-mail." Cancelled, expired and declined bookings show read-only with their badge and no buttons (not drawn).</span></div>
+    <div class="note"><b>2</b><span>The token is shown masked; an unknown, revoked or anonymised link renders its own card, "This link isn't valid. Reply to the invite e-mail to change your meeting." (404 <code>booking_link_invalid</code>). Served with <code>Referrer-Policy: no-referrer</code>.</span></div>
+    <div class="note"><b>3</b><span>While a reschedule waits for Anna's approval this card reads "Reschedule requested for {time}, waiting for confirmation" and Reschedule is disabled.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s20 ═════════════════════════════ -->
+<section class="screen" id="s20">
+  <div class="screen-meta">
+    <h2>20. Cancel meeting (booker)</h2>
+    <p>The booker confirms the cancellation from the manage page.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Manage page</span><span class="ref">US-B4</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/calendar/northwind/anna/meetings/manage/•••••••</span></div>
+    <div class="bk-page modal-scrim">
+      <div class="bk-result" style="min-height:24rem"></div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bc-title" style="width:26rem">
+        <div class="modal-head"><h2 id="bc-title" class="t-section" style="margin:0">Cancel this meeting?</h2></div>
+        <div class="modal-body">
+          <div class="bk-summary">
+            <strong style="font-size:0.875rem">Meet with Anna</strong>
+            <span style="font-size:0.875rem">Mon, 2 Nov 2026, 13:00 to 13:30</span>
+          </div>
+          <p style="font-size:0.875rem;margin:0">Anna will be told and the time is released. This can't be undone, but you can book a new time afterwards.</p>
+        </div>
+        <div class="modal-foot" style="justify-content:flex-end"><div class="row" style="gap:0.5rem"><button class="btn btn-outline" data-goto="s19">Keep meeting</button><button class="btn btn-destructive" data-goto="s19">Cancel meeting</button></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Escape keeps the meeting, Cmd/Ctrl+Enter cancels. After cancelling, the manage page shows the Cancelled badge, a METHOD:CANCEL e-mail is sent, and a "Book a new time" link returns to the public page. If Anna moved or cancelled the meeting meanwhile, a 409 reloads the card with the current state.</span></div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════ s21 ═════════════════════════════ -->
+<section class="screen" id="s21">
+  <div class="screen-meta">
+    <h2>21. Reschedule</h2>
+    <p>Same picker as Pick a time with the current booking shown; picking a new time and confirming moves the meeting.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Manage page</span><span class="ref">US-B4</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/calendar/northwind/anna/meetings/manage/•••••••/reschedule</span></div>
+    <div class="bk-page">
+      <div class="alert alert-info bk-banner">
+        <svg><use href="#ic-info"/></svg>
+        <div><span class="alert-title">Rescheduling</span><div>Currently Mon, 2 Nov, 13:00 to 13:30. Your current time stays booked until the new one is confirmed.</div></div>
+      </div>
+      <div class="bk-card">
+        <div class="bk-info">
+          <button class="btn btn-ghost btn-sm" style="align-self:flex-start;padding-left:0.25rem" data-goto="s19"><svg><use href="#ic-arrow-left"/></svg> Back</button>
+          <span class="avatar avatar-lg">AK</span>
+          <h1>Meet with Anna</h1>
+          <div class="bk-meta"><svg><use href="#ic-clock"/></svg><strong>30 min</strong></div>
+        </div>
+        <div class="bk-cal-wrap">
+          <div class="bk-cal-head">
+            <h2>November 2026</h2>
+            <div class="row" style="gap:0.25rem">
+              <button class="btn btn-ghost btn-icon btn-sm" aria-label="Previous month"><svg><use href="#ic-chevron-left"/></svg></button>
+              <button class="btn btn-ghost btn-icon btn-sm" aria-label="Next month"><svg><use href="#ic-chevron-right"/></svg></button>
+            </div>
+          </div>
+          <div class="bk-cal" data-month="2026-11" data-selected="4"></div>
+          <div class="bk-legend"><span><i class="lg-avail"></i>Times available</span><span><i class="lg-today"></i>Today</span></div>
+          <div class="bk-tz">
+            <svg><use href="#ic-globe"/></svg>
+            <button class="btn btn-ghost btn-sm">Europe/Warsaw (GMT+1) <svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="group" aria-label="Time format"><button type="button">12h</button><button type="button" aria-selected="true">24h</button></div>
+          </div>
+        </div>
+        <div class="bk-slots-wrap">
+          <h3>Wednesday, 4 November</h3>
+          <div class="bk-slots" role="listbox" aria-label="Available times on Wednesday, 4 November">
+            <button class="btn btn-outline bk-slot" role="option">09:00</button>
+            <button class="btn btn-outline bk-slot" role="option">10:00</button>
+            <div class="row" style="gap:0.5rem">
+              <button class="btn btn-outline bk-slot" role="option" aria-selected="true" style="flex:1;color:var(--foreground)">10:30</button>
+              <button class="btn btn-primary" style="height:2.75rem;flex:1" data-goto="s6">Confirm</button>
+            </div>
+            <button class="btn btn-outline bk-slot" role="option">11:00</button>
+            <button class="btn btn-outline bk-slot" role="option">14:00</button>
+            <button class="btn btn-outline bk-slot" role="option">14:30</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Selecting a slot splits it into time and Confirm; the booker's details and message are kept. Instant mode: the meeting moves and an updated .ics (same UID, SEQUENCE+1) is sent.</span></div>
+    <div class="note"><b>2</b><span>Approval mode: a new pending request is created and shown to Anna as "Reschedule"; the original stays booked until she accepts. On decline or expiry the original time stays.</span></div>
+  </div>
+</section>
+
+</div>
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+  var dows = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  var today = 29;
+  var fullyBooked = { 20: true };
+  function cell(day, classes, label, enabled, extra) {
+    return '<button type="button" class="' + classes.join(' ') + '" aria-label="' + label + '"' + (enabled ? '' : ' disabled') + (extra || '') + '>' + day + '</button>';
+  }
+  document.querySelectorAll('.bk-cal[data-month]').forEach(function (grid) {
+    var selected = Number(grid.getAttribute('data-selected'));
+    var empty = grid.getAttribute('data-empty') === 'true';
+    var html = dows.map(function (d) { return '<div class="bk-dow">' + d + '</div>'; }).join('');
+    for (var octDay = 26; octDay <= 31; octDay++) {
+      var isToday = octDay === today;
+      var octClasses = ['bk-day', 'out'];
+      if (isToday) octClasses.push('today');
+      html += cell(octDay, octClasses, 'October ' + octDay + (isToday ? ', today' : '') + ', no times', false, isToday ? ' aria-current="date"' : '');
+    }
+    for (var day = 1; day <= 30; day++) {
+      var weekday = (6 + day - 1) % 7;
+      var avail = !empty && weekday < 5 && !fullyBooked[day];
+      var classes = ['bk-day'];
+      if (avail) classes.push('avail');
+      if (day === selected) classes.push('sel');
+      var label = 'November ' + day + (avail ? ', times available' : ', no times');
+      html += cell(day, classes, label, avail, day === selected ? ' aria-pressed="true"' : '');
+    }
+    grid.innerHTML = html;
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>
