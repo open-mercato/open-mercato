@@ -80,7 +80,7 @@ describe('llm-bootstrap — built-in provider registration', () => {
     expect(cheaperInference?.name).toBe('Cheaper Inference')
     expect(cheaperInference?.envKeys).toEqual(['CHEAPER_INFERENCE_API_KEY'])
     expect(cheaperInference?.defaultModel).toBe('gpt-5.4-mini')
-    expect(cheaperInference?.defaultModels.map((m) => m.id)).toEqual(['gpt-5.4-mini'])
+    expect(cheaperInference?.defaultModels.map((model) => model.id)).toEqual(['gpt-5.4-mini'])
     expect(cheaperInference?.usesVendorPrefixedModelIds).toBe(false)
   })
 
@@ -90,6 +90,14 @@ describe('llm-bootstrap — built-in provider registration', () => {
       env: { CHEAPER_INFERENCE_API_KEY: 'cheaper-key' },
     })
     expect(picked?.id).toBe('cheaperinference')
+  })
+
+  it('keeps LM Studio first when both LM Studio and Cheaper Inference are configured', () => {
+    registerBuiltInLlmProviders()
+    const picked = llmProviderRegistry.resolveFirstConfigured({
+      env: { LM_STUDIO_API_KEY: 'local-key', CHEAPER_INFERENCE_API_KEY: 'cheaper-key' },
+    })
+    expect(picked?.id).toBe('lm-studio')
   })
 
   it('atlas-cloud provider comes from the OpenAI-compatible preset', () => {

@@ -336,7 +336,7 @@ describe('LM Studio preset', () => {
 })
 
 describe('Cheaper Inference preset', () => {
-  const cheaperInferencePreset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === 'cheaperinference')!
+  const cheaperInferencePreset = OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'cheaperinference')!
 
   const CHAT_COMPLETION_RESPONSE = {
     id: 'chatcmpl-1',
@@ -369,10 +369,13 @@ describe('Cheaper Inference preset', () => {
         headers: { 'content-type': 'application/json' },
       }),
     )
-    if (options.envBaseURL) {
-      process.env.CHEAPER_INFERENCE_BASE_URL = options.envBaseURL
-    }
+    const originalBaseURL = process.env.CHEAPER_INFERENCE_BASE_URL
     try {
+      if (options.envBaseURL === undefined) {
+        delete process.env.CHEAPER_INFERENCE_BASE_URL
+      } else {
+        process.env.CHEAPER_INFERENCE_BASE_URL = options.envBaseURL
+      }
       const model = createOpenAICompatibleProvider(preset).createModel({
         apiKey: 'test-key',
         modelId: preset.defaultModel,
@@ -384,8 +387,12 @@ describe('Cheaper Inference preset', () => {
       expect(fetchSpy).toHaveBeenCalledTimes(1)
       return String(fetchSpy.mock.calls[0][0])
     } finally {
-      delete process.env.CHEAPER_INFERENCE_BASE_URL
-      jest.restoreAllMocks()
+      if (originalBaseURL === undefined) {
+        delete process.env.CHEAPER_INFERENCE_BASE_URL
+      } else {
+        process.env.CHEAPER_INFERENCE_BASE_URL = originalBaseURL
+      }
+      fetchSpy.mockRestore()
     }
   }
 
