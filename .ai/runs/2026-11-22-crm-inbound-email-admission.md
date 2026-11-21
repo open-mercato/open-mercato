@@ -34,8 +34,8 @@ An incorrect skip can discard valid CRM email when the cursor advances. The comm
 
 ### Phase 1: Shared admission
 
-- [ ] 1.1 Implement scoped contact lookup and the pre-persistence admission decision.
-- [ ] 1.2 Verify admitted senders, thread replies, skipped messages, and lookup failures at the command boundary.
+- [x] 1.1 Implement scoped contact lookup and the pre-persistence admission decision. — 3eda8687c6
+- [x] 1.2 Verify admitted senders, thread replies, skipped messages, and lookup failures at the command boundary. — 3eda8687c6
 
 ### Phase 2: Entry-point verification
 
