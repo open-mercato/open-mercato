@@ -198,11 +198,11 @@ jobs:
             printf -- '- Shared preview: %s\n' "$PREVIEW_URL"
             printf -- '- Superadmin email: `%s`\n' "$PREVIEW_ADMIN_EMAIL"
             printf -- '- Superadmin password: `%s`\n' "$PREVIEW_ADMIN_PASSWORD"
-            echo "- Cleanup deletes this sandbox after the test; the link will stop working."
+            echo "- Preview remains running after a successful deployment; delete the sandbox when no longer needed."
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Cleanup sandbox
-        if: ${{ always() && steps.sandbox.outputs.sandbox_id != '' }}
+      - name: Cleanup failed preview
+        if: ${{ (failure() || cancelled()) && steps.sandbox.outputs.sandbox_id != '' }}
         timeout-minutes: 5
         env:
           SANDBOX_ID: ${{ steps.sandbox.outputs.sandbox_id }}
