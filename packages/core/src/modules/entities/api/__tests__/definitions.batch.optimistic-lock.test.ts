@@ -55,6 +55,7 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
 }))
 
 jest.mock('@open-mercato/core/modules/entities/data/entities', () => ({
+  CustomEntity: 'CustomEntity',
   CustomFieldDef: 'CustomFieldDef',
   CustomFieldEntityConfig: 'CustomFieldEntityConfig',
 }))
@@ -95,7 +96,7 @@ describe('entities/definitions.batch POST optimistic locking (issue #3152)', () 
     resolveVersionMock.mockResolvedValue('2026-06-01T00:00:00.000Z')
   })
 
-  it('rejects a stale save with a structured 409 before touching the transaction', async () => {
+  it('rejects a stale save with a structured 409 before persisting any changes', async () => {
     // Client loaded an older version than the current aggregate version.
     const response = await POST(
       makeRequest(body, { [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-01-01T00:00:00.000Z' }),
@@ -105,7 +106,7 @@ describe('entities/definitions.batch POST optimistic locking (issue #3152)', () 
     const json = (await response.json()) as { code?: string }
     expect(json.code).toBe(OPTIMISTIC_LOCK_CONFLICT_CODE)
     // Conflict is detected before any write work.
-    expect(mockEm.begin).not.toHaveBeenCalled()
+    expect(mockEm.rollback).toHaveBeenCalledTimes(1)
     expect(mockEm.persist).not.toHaveBeenCalled()
     expect(mockEm.commit).not.toHaveBeenCalled()
   })
@@ -120,6 +121,21 @@ describe('entities/definitions.batch POST optimistic locking (issue #3152)', () 
     expect(json.ok).toBe(true)
     expect(json.version).toBe('2026-06-01T00:00:00.000Z')
     expect(mockEm.commit).toHaveBeenCalledTimes(1)
+  })
+
+  it('rolls back a combined save if flushing metadata and definitions fails', async () => {
+    mockEm.flush.mockRejectedValueOnce(new Error('[internal] Database unavailable'))
+    const response = await POST(makeRequest({
+      ...body,
+      entityMetadata: { label: 'Draft label' },
+    }))
+
+    expect(response.status).toBe(500)
+    expect(mockEm.persist).toHaveBeenCalledWith(expect.objectContaining({ label: 'Draft label' }))
+    expect(mockEm.persist).toHaveBeenCalledWith(expect.objectContaining({ key: 'alpha' }))
+    expect(mockEm.rollback).toHaveBeenCalledTimes(1)
+    expect(mockEm.commit).not.toHaveBeenCalled()
+    expect(invalidateDefinitionsCacheMock).not.toHaveBeenCalled()
   })
 
   it('stays additive: a save without the header proceeds unchanged', async () => {

@@ -81,7 +81,7 @@ const withScopedApiRequestHeadersMock = withScopedApiRequestHeaders as jest.Mock
 function mockLoad(entityId: string, source: 'code' | 'custom', version?: string) {
   readApiResultOrThrowMock.mockImplementation((url: string) => {
     if (url.startsWith('/api/entities/entities')) {
-      return Promise.resolve({ items: [{ entityId, label: entityId, description: '', source }] })
+      return Promise.resolve({ items: [{ entityId, label: entityId, description: '', source, updatedAt: '2026-05-01T00:00:00.000Z' }] })
     }
     return Promise.resolve({ items: [], deletedKeys: [], fieldsets: [], settings: {}, version })
   })
@@ -111,10 +111,11 @@ describe('EditDefinitionsPage submit (#3115)', () => {
     fireEvent.click(screen.getByTestId('submit-button'))
 
     await waitFor(() => expect(calledUrls()).toContain('/api/entities/definitions.batch'))
-    expect(calledUrls()).not.toContain('/api/entities/entities')
+    expect(calledUrls()).toEqual(['/api/entities/definitions.batch'])
+    expect(JSON.parse(apiCallMock.mock.calls[0][1].body)).not.toHaveProperty('entityMetadata')
   })
 
-  it('still registers entity metadata for custom (user-defined) entities', async () => {
+  it('submits custom entity metadata and definitions together', async () => {
     const entityId = 'demo:thing'
     mockLoad(entityId, 'custom')
 
@@ -124,7 +125,12 @@ describe('EditDefinitionsPage submit (#3115)', () => {
     fireEvent.click(screen.getByTestId('submit-button'))
 
     await waitFor(() => expect(calledUrls()).toContain('/api/entities/definitions.batch'))
-    expect(calledUrls()).toContain('/api/entities/entities')
+    expect(calledUrls()).toEqual(['/api/entities/definitions.batch'])
+    expect(JSON.parse(apiCallMock.mock.calls[0][1].body)).toMatchObject({
+      entityId,
+      entityMetadata: { label: entityId, expectedUpdatedAt: '2026-05-01T00:00:00.000Z' },
+      definitions: [],
+    })
   })
 
   it('sends the loaded schema version as the optimistic-lock header on the definitions batch (#3152)', async () => {

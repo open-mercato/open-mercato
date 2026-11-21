@@ -1,18 +1,24 @@
 import { NextResponse } from 'next/server'
+import { LockMode } from '@mikro-orm/core'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { CustomFieldDef, CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
-import { customFieldEntityConfigSchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
+import { CustomEntity, CustomFieldDef, CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
+import { customFieldEntityConfigSchema, upsertCustomEntitySchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { z } from 'zod'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLock, enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { isOrmBackedSystemEntityId, SYSTEM_ENTITY_RECORDS_BLOCKED_CODE } from '@open-mercato/shared/lib/data/engine'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { invalidateCustomEntityNavigation, persistCustomEntityMetadata } from '../lib/custom-entity-metadata'
 import { invalidateDefinitionsCache } from './definitions.cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { mergeEntityFieldsetConfig, normalizeEntityFieldsetConfig } from '../lib/fieldsets'
 import { resolveEntityDefinitionsVersion } from '../lib/definitions-version'
 import {
   beginEntitiesMutationGuard,
+  ENTITY_DEFINITION_RESOURCE_KIND,
   FIELD_DEFINITION_RESOURCE_KIND,
 } from './definitions.mutation-guard'
 import {
@@ -33,6 +39,10 @@ const MAX_DEFINITIONS_PER_BATCH = 1000
 const batchSchema = z
   .object({
     entityId: z.string().regex(/^[a-z0-9_]+:[a-z0-9_]+$/),
+    entityMetadata: upsertCustomEntitySchema.omit({ entityId: true }).extend({
+      accessRestricted: z.boolean().optional(),
+      expectedUpdatedAt: z.iso.datetime().nullish(),
+    }).optional(),
     definitions: z
       .array(
         upsertCustomFieldDefSchema
@@ -67,12 +77,12 @@ function cloneFieldsets(fieldsets?: IncomingFieldset): IncomingFieldset {
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  let body: any
+  let body: unknown
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
 
   const parsed = batchSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
-  const { entityId, definitions, fieldsets, singleFieldsetPerRecord } = parsed.data
+  const { entityId, definitions, fieldsets, singleFieldsetPerRecord, entityMetadata } = parsed.data
 
   const container = await createRequestContainer()
   const scope = await resolveDefinitionMutationScope({ auth, container, request: req })
@@ -82,6 +92,13 @@ export async function POST(req: Request) {
   try {
     cache = resolve('cache') as CacheStrategy
   } catch {}
+
+  if (entityMetadata && isOrmBackedSystemEntityId(em, entityId)) {
+    return NextResponse.json(
+      { error: 'System entities cannot be registered as custom entities', code: SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, entityId },
+      { status: 400 },
+    )
+  }
 
   const guard = await beginEntitiesMutationGuard({
     container,
@@ -94,33 +111,56 @@ export async function POST(req: Request) {
   })
   if (guard.blockedResponse) return guard.blockedResponse
 
-  // Optimistic locking (issue #3152): the batch upserts a whole definition set,
-  // so guard the entity's aggregate schema version (the newest updated_at across
-  // its field definitions and fieldset config). A stale save — another tab changed
-  // the schema after this form loaded — fails with the same structured 409 the CRUD
-  // path returns. Strictly additive: callers that do not send the expected version
-  // header pass through unchanged.
-  const currentVersion = await resolveEntityDefinitionsVersion(em, {
-    entityId,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
+  let afterMetadataSuccess: (() => Promise<void>) | undefined
+  let nextVersion: string | null
+  await em.begin()
   try {
+    const metadataScope = { entityId, organizationId: auth.orgId, tenantId: auth.tenantId ?? null }
+    const entity: CustomEntity | null = entityMetadata
+      ? await em.findOne(CustomEntity, metadataScope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+      : null
+    const currentVersion = await resolveEntityDefinitionsVersion(em, { entityId, ...scope })
     enforceCommandOptimisticLock({
       resourceKind: FIELD_DEFINITION_RESOURCE_KIND,
       resourceId: entityId,
       current: currentVersion,
       request: req,
     })
-  } catch (err) {
-    if (isCrudHttpError(err) && err.status === 409) {
-      return NextResponse.json(err.body, { status: err.status })
-    }
-    throw err
-  }
 
-  await em.begin()
-  try {
+    if (entityMetadata) {
+      const { expectedUpdatedAt, ...metadataInput } = entityMetadata
+      const metadataHeaders = new Headers(req.headers)
+      metadataHeaders.delete(OPTIMISTIC_LOCK_HEADER_NAME)
+      if (expectedUpdatedAt) metadataHeaders.set(OPTIMISTIC_LOCK_HEADER_NAME, expectedUpdatedAt)
+      const metadataRequest = new Request(req.url, { method: req.method, headers: metadataHeaders })
+      if (entity) {
+        await enforceCommandOptimisticLockWithGuards(container, {
+          resourceKind: ENTITY_DEFINITION_RESOURCE_KIND,
+          resourceId: entity.id,
+          current: entity.updatedAt ?? null,
+          request: metadataRequest,
+        })
+      }
+      const input = { entityId, ...metadataInput, accessRestricted: metadataInput.accessRestricted ?? false }
+      const metadataGuard = await beginEntitiesMutationGuard({
+        container,
+        auth,
+        req: metadataRequest,
+        resourceKind: ENTITY_DEFINITION_RESOURCE_KIND,
+        resourceId: entity?.id ?? entityId,
+        operation: entity ? 'update' : 'create',
+        mutationPayload: input,
+      })
+      if (metadataGuard.blockedResponse) {
+        await em.rollback()
+        return metadataGuard.blockedResponse
+      }
+      await persistCustomEntityMetadata(
+        em, container, metadataScope, entity, input, metadataInput.accessRestricted !== undefined,
+      )
+      afterMetadataSuccess = metadataGuard.runAfterSuccess
+    }
+
     // Prefetch every existing definition for this entity in a single query, then index
     // by key so the per-definition loop resolves create/update without round trips.
     const defByKey = new Map<string, any>()
@@ -220,26 +260,29 @@ export async function POST(req: Request) {
       em.persist(cfg)
     }
     await em.flush()
+    nextVersion = await resolveEntityDefinitionsVersion(em, { entityId, ...scope })
     await em.commit()
   } catch (e) {
     try { await em.rollback() } catch {}
+    if (isCrudHttpError(e)) return NextResponse.json(e.body, { status: e.status })
+    getTelemetryRuntime()?.reportError(e, {
+      module: 'entities',
+      code: 'entities.definitions_batch_save_failed',
+      attributes: { entityId },
+    })
     return NextResponse.json({ error: 'Failed to save definitions batch' }, { status: 500 })
   }
 
+  if (afterMetadataSuccess) {
+    await afterMetadataSuccess()
+    await invalidateCustomEntityNavigation(container, auth.tenantId)
+  }
   await guard.runAfterSuccess()
 
   await invalidateDefinitionsCache(cache, {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     entityIds: [entityId],
-  })
-
-  // Return the post-save version so the form can round-trip the token for a
-  // subsequent save (reorder, delete, second save) without a false conflict.
-  const nextVersion = await resolveEntityDefinitionsVersion(em, {
-    entityId,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
   })
 
   return NextResponse.json({ ok: true, version: nextVersion })
@@ -256,7 +299,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Save multiple custom field definitions',
-      description: 'Creates or updates multiple definitions for a single entity in one transaction.',
+      description: 'Creates or updates definitions and optional custom entity metadata in one transaction. The expected-version header applies to definitions. entityMetadata.expectedUpdatedAt applies to metadata.',
       requestBody: {
         contentType: 'application/json',
         schema: batchSchema,
