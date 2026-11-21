@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 195 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 197 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -18,6 +18,7 @@ This catalog indexes 195 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+- [Semantic validators must not coerce structured JSON](lessons/semantic-validators-must-not-coerce-structured-json.md) — area:module-data,testing; module:checkout; topic:validation-errors,api-contracts,untrusted-input
 - [Queue triage stops do not complete a fix quota](lessons/queue-triage-stops-do-not-complete-a-fix-quota.md) — area:ai-workflow; module:platform; topic:autofix,triage,completion
 - [Redact URL authority credentials before telemetry export](lessons/redact-url-authority-credentials-before-telemetry-export.md) — area:architecture,testing; module:telemetry; topic:network-security,telemetry,testing
 - [Replay covers SDK preprocessing and trial state](lessons/replay-covers-sdk-preprocessing-and-trial-state.md) — area:ai-workflow,testing; module:agent_orchestrator,ai_assistant; topic:offline-replay,fixtures,sdk-preprocessing,file-io
@@ -259,4 +260,5 @@ This catalog indexes 195 focused lessons. Route the task first, then read only r
 - [Preserve generated fact row selectors when compacting](lessons/preserve-generated-fact-row-selectors-when-compacting.md) — area:testing,debugging; module:cli,create_app; topic:generated-files,context-budgets,backward-compatibility
 
 - [Resolve script entrypoints through symlinks](lessons/resolve-script-entrypoints-through-symlinks.md) — area:debugging,testing; module:starter,create_app; topic:symlinks,script-entrypoints,encryption,setup
+- [Shared send budgets must disable per-process insurance fallback](lessons/shared-rate-limits-must-disable-insurance-fallback.md) — area:architecture,testing; module:checkout,shared; topic:rate-limiting,network-security,failure-states
 - [Handle timestamp ties when filtering undone price history](lessons/catalog-history-undo-timestamp-ties.md) — area:module-data,testing; module:catalog; topic:undo-redo,data-integrity,timestamp-ordering
