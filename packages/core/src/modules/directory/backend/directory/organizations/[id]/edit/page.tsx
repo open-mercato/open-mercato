@@ -338,7 +338,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           cancelHref="/backend/directory/organizations"
           successRedirect={`/backend/directory/organizations?flash=${encodeURIComponent(t('directory.organizations.flash.updated', 'Organization updated'))}&type=success`}
           extraActions={pathLabel ? (
-            <span className="text-xs text-muted-foreground">
+            <span className="min-w-0 max-w-full wrap-anywhere text-xs text-muted-foreground">
               {t('directory.organizations.form.pathLabel', { path: pathLabel })}
             </span>
           ) : null}
