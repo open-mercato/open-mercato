@@ -64,7 +64,7 @@ async function expectMatchingSurfaces(page: Page, cells: Locator, testInfo: Test
     const normal = group.find((color) => !color.pinned)
     expect(normal, `${checkpoint}: a visible normal ${tag} cell is required`).toBeTruthy()
     const pinned = group.filter((color) => color.pinned)
-    expect(pinned, `${checkpoint}: both edge columns must be pinned`).toHaveLength(2)
+    expect(pinned, `${checkpoint}: selection, first data and actions columns must be pinned`).toHaveLength(3)
     for (const cell of pinned) {
       const difference = Math.max(...cell.rgb.map((channel, index) => Math.abs(channel - normal!.rgb[index])))
       expect(difference, `${checkpoint}: pinned ${tag} ${cell.rgb} must match normal ${normal!.rgb}`).toBeLessThanOrEqual(1)
@@ -106,7 +106,7 @@ for (const theme of ['light', 'dark'] as const) {
         await row.hover()
         await expectMatchingSurfaces(page, cells, testInfo, `${theme}-policy-hover`)
         const pinnedColumns = table.locator('thead th[class*=sticky], tbody td[class*=sticky]')
-        await expect(pinnedColumns).toHaveCount(4)
+        await expect(pinnedColumns).toHaveCount(6)
         await page.setViewportSize({ width: 600, height: 900 })
         await expect.poll(() => pinnedColumns.evaluateAll((elements) =>
           elements.every((element) => getComputedStyle(element).position !== 'sticky'),

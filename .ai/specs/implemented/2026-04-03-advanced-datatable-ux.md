@@ -20,7 +20,7 @@ Upgrade the shared `DataTable` component with eight production-grade features: (
 - All entity fields (including detail-page-only fields like "Legal Name", "Website", "Domain") must appear in the filter and column chooser — auto-discovered from custom field definitions API
 - Filter fields, column chooser fields, and search behavior must be auto-discoverable without hardcoded per-page arrays
 - Search must be full-text across all main text columns (name, email, phone, description), not just the name column
-- Sticky column must be the first data column (after the checkbox), not the checkbox itself — and must follow column reorder (whichever column is first becomes sticky)
+- Sticky column must be the first data column (after the checkbox), not the checkbox itself — and must follow column reorder (whichever column is first becomes sticky). When the checkbox column is present it is pinned as well, at the edge, so the pinned data column never covers it (updated 2026-11-07)
 
 ---
 
@@ -230,11 +230,12 @@ type ColumnChooserField = {
 ### F6 — Sticky First Data Column & Table Margins
 
 **Changes**:
-- The first data column (after the checkbox, if present) gets `position: sticky; left: 0; z-index: 10; background: bg-background` so it stays visible during horizontal scroll
-- The checkbox column is NOT sticky — only the first data column (typically name/title) is pinned
+- The first data column (after the checkbox, if present) gets `position: sticky; z-index: 10; background: bg-background` so it stays visible during horizontal scroll. It pins at `left: 0`, or at `left: 3rem` (`md:left-12`) when the checkbox column is present
+- The first data column (typically name/title) remains the identifying pinned column. When bulk selection is active, the checkbox column (fixed `w-12`, 48px) is pinned too, at `left: 0`. Pinning only the data column at `left: 0` made it slide over the scrolling checkboxes, so rows could not be selected after a horizontal scroll (updated 2026-11-07)
+- The pinned-column edge shadow is rendered only on the first data column; pinning applies at the `md` breakpoint and up
 - When columns are reordered via drag-and-drop, whichever column ends up in the first position automatically becomes the new sticky column
 - Table container gets horizontal padding/margins (`mx-1 sm:mx-2`) so it doesn't touch screen edges
-- Implemented via CSS — applied dynamically based on `headerIndex === 0` / `cellIndex === 0`
+- Implemented via CSS — applied dynamically based on `headerIndex === 0` / `cellIndex === 0`, with the left offset switching to `md:left-12` when the checkbox column is pinned
 
 **New prop** — opt-in via `stickyFirstColumn={true}`. Defaults to `false` so existing pages are unaffected. Enabled on customers people, companies, and deals pages.
 
@@ -475,10 +476,10 @@ User opens column chooser
 - Persist order in component state; sync with perspectives if active
 
 **Step 3.4 — Sticky checkbox column**
-- Apply `position: sticky; left: 0; z-index: 1` to the checkbox column `<th>`/`<td>` when `bulkActions` is provided
-- Add subtle right border shadow on the sticky column when table is scrolled horizontally
+- Only when `stickyFirstColumn` is enabled and the checkbox column is present: apply `position: sticky; left: 0; z-index: 10` to the checkbox column `<th>`/`<td>` and offset the first data column to `md:left-12`
+- Keep the right edge shadow on the first data column only
 - Ensure sticky works with horizontal overflow on the table container
-- No separate prop — automatic when checkboxes are present
+- No separate prop — follows `stickyFirstColumn` (updated 2026-11-07)
 
 **Step 3.5 — Wire column chooser on customers pages**
 - Define full column sets for people, companies, and deals (all entity fields + custom fields)
@@ -599,7 +600,7 @@ No other new dependencies. All other features built on existing TanStack React T
 - [x] Step 5.7: Updated search placeholders to indicate broader scope
 
 ### Phase 6 — UX Bug Fixes (added 2026-04-04)
-- [x] Step 6.1: Sticky column corrected — first data column, not checkbox; follows DnD reorder
+- [x] Step 6.1: Sticky column corrected — first data column, not checkbox; follows DnD reorder. Updated 2026-11-07 (#8961): the checkbox column is pinned at the edge alongside it, first data column offset to `md:left-12`
 - [x] Step 6.2: Bulk action buttons hidden when no rows selected (was: disabled but visible)
 - [x] Step 6.3: Column chooser dedup — available section excludes already-selected columns
 - [x] Step 6.4: Advanced filter opens with pre-populated condition row (was: empty requiring extra click)
@@ -623,3 +624,4 @@ No other new dependencies. All other features built on existing TanStack React T
 | 2026-04-04 | Added F9 (auto-discovery) and F10 (full-text search). Post-implementation requirements documented. |
 | 2026-04-04 | Phase 5: useAutoDiscoveredFields hook, auto mode props, $or query engine support, customer pages migrated to auto mode |
 | 2026-04-04 | Phase 6: UX bug fixes — sticky column, bulk action visibility, column chooser dedup, filter UX, page size dropdown, DnD persistence, hydration fix |
+| 2026-11-07 | Checkbox column pinned alongside the sticky first data column (#8961) — F6, Step 3.4 and Step 6.1 updated |
