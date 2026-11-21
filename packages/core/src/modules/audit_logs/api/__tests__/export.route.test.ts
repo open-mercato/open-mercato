@@ -377,10 +377,10 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       expect(csv).toContain('Old shared subject')
     })
 
-    it('fails closed in the export when the live-authority lookup finds nothing (interaction deleted since)', async () => {
+    it.each(['user-1', 'user-2'])('hides unverified historical ownership from viewer %s when live authority is unavailable', async (viewerUserId) => {
       const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
       const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
-      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: viewerUserId, tenantId: 'tenant-1', orgId: 'org-1' })
       ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
       mockRbac.userHasAllFeatures.mockResolvedValue(true)
       mockLiveInteraction(null)
