@@ -11,15 +11,23 @@ const HIDDEN_ID = '22222222-2222-4222-8222-222222222222'
 
 function makeCtx(
   items: Record<string, unknown>[],
-  filterResults: (ctx: SearchResultVisibilityContext) => unknown,
-  overrides: { userId?: string | null } = {},
+  filterResults: ((ctx: SearchResultVisibilityContext) => unknown) | undefined,
+  overrides: {
+    userId?: string | null
+    userFeatures?: string[]
+    isSuperAdmin?: boolean
+    apiKeyId?: string | null
+    aclFeatures?: string[]
+    aclFeaturesMode?: 'all' | 'any'
+  } = {},
 ) {
   const mockQuery = jest.fn().mockResolvedValue({ items, total: items.length })
-  const filterSpy = jest.fn(filterResults)
+  const filterSpy = filterResults ? jest.fn(filterResults) : undefined
   const sectionConfig = {
-    aclFeatures: ['attachments.view'],
+    aclFeatures: overrides.aclFeatures ?? ['attachments.view'],
+    ...(overrides.aclFeaturesMode ? { aclFeaturesMode: overrides.aclFeaturesMode } : {}),
     fieldPolicy: { searchable: ['number_label', 'heading', 'text'], excluded: [] },
-    filterResults: filterSpy,
+    ...(filterSpy ? { filterResults: filterSpy } : {}),
   }
   const searchIndexer = {
     getEntityConfig: (entityId: string) => (entityId === SECTION_ENTITY ? sectionConfig : undefined),
@@ -29,8 +37,9 @@ function makeCtx(
     tenantId: 'tenant-1',
     organizationId: 'org-1',
     userId: overrides.userId !== undefined ? overrides.userId : 'user-1',
-    userFeatures: ['search.view', 'attachments.view'],
-    isSuperAdmin: false,
+    userFeatures: overrides.userFeatures ?? ['search.view', 'attachments.view'],
+    isSuperAdmin: overrides.isSuperAdmin ?? false,
+    ...(overrides.apiKeyId !== undefined ? { apiKeyId: overrides.apiKeyId } : {}),
     container: {
       resolve: (name: string) => {
         if (name === 'searchIndexer') return searchIndexer
@@ -93,5 +102,65 @@ describe('search AI tools honor the entity filterResults hook', () => {
 
     expect(result.total).toBe(1)
     expect(result.buckets.map((bucket) => bucket.value)).toEqual(['shared text'])
+  })
+
+  it('search_get and search_aggregate honor aclFeaturesMode "any" when paired with filterResults', async () => {
+    const { ctx } = makeCtx(
+      [
+        { id: VISIBLE_ID, text: 'quote note' },
+        { id: HIDDEN_ID, text: 'order note' },
+      ],
+      onlyVisible,
+      {
+        aclFeatures: ['sales.orders.view', 'sales.quotes.view'],
+        aclFeaturesMode: 'any',
+        userFeatures: ['search.view', 'sales.quotes.view'],
+      },
+    )
+
+    const getResult = (await getTool.handler({ entityType: SECTION_ENTITY, recordId: VISIBLE_ID }, ctx)) as Record<string, unknown>
+    expect(getResult.found).toBe(true)
+
+    const aggResult = (await aggregateTool.handler(
+      { entityType: SECTION_ENTITY, groupBy: 'text', limit: 20 },
+      ctx,
+    )) as { total: number; buckets: Array<{ value: string | null }> }
+    expect(aggResult.total).toBe(1)
+    expect(aggResult.buckets.map((bucket) => bucket.value)).toEqual(['quote note'])
+  })
+
+  it('search_get denies aclFeaturesMode "any" when filterResults is missing', async () => {
+    const { ctx } = makeCtx([{ id: VISIBLE_ID, text: 'quote note' }], undefined, {
+      aclFeatures: ['sales.orders.view', 'sales.quotes.view'],
+      aclFeaturesMode: 'any',
+      userFeatures: ['search.view', 'sales.quotes.view'],
+    })
+
+    await expect(
+      getTool.handler({ entityType: SECTION_ENTITY, recordId: VISIBLE_ID }, ctx),
+    ).rejects.toThrow(/aclFeaturesMode "any" without filterResults/)
+  })
+
+  it('search_get and search_aggregate still run filterResults for superadmins and API-key callers', async () => {
+    const superadminRun = makeCtx(
+      [{ id: HIDDEN_ID, text: 'private message' }],
+      onlyVisible,
+      { isSuperAdmin: true, userFeatures: ['*'] },
+    )
+    const superGet = (await getTool.handler({ entityType: SECTION_ENTITY, recordId: HIDDEN_ID }, superadminRun.ctx)) as Record<string, unknown>
+    expect(superGet.found).toBe(false)
+    expect(superadminRun.filterSpy).toHaveBeenCalledTimes(1)
+
+    const apiKeyRun = makeCtx(
+      [{ id: VISIBLE_ID, text: 'scoped note' }],
+      onlyVisible,
+      { apiKeyId: 'key-42', userFeatures: ['search.view', 'attachments.view'] },
+    )
+    await getTool.handler({ entityType: SECTION_ENTITY, recordId: VISIBLE_ID }, apiKeyRun.ctx)
+    expect(apiKeyRun.filterSpy?.mock.calls[0][0].viewer.auth).toMatchObject({
+      sub: 'api_key:key-42',
+      isApiKey: true,
+      keyId: 'key-42',
+    })
   })
 })

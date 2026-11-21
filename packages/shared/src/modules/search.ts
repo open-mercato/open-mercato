@@ -352,6 +352,8 @@ export type SearchFieldPolicy = {
   excluded?: string[]
 }
 
+export type SearchAclFeaturesMode = 'all' | 'any'
+
 /**
  * Configuration for a single searchable entity within a module.
  */
@@ -404,13 +406,23 @@ export type SearchEntityConfig = {
   filterResults?: (ctx: SearchResultVisibilityContext) => Promise<SearchResult[]> | SearchResult[]
   /**
    * Per-entity view feature(s) required to read this entity's records through
-   * data-returning surfaces (e.g. the `search_get` / `search_aggregate` AI tools).
-   * These tools must NOT rely on the search-administration `search.view` feature
-   * to gate record reads — callers must additionally hold the owning module's
-   * `<entity>.view` feature(s) declared here. When omitted, those tools fail
-   * closed (deny) so an entity is never exposed without an explicit grant.
+   * search surfaces (global search, hybrid search, and AI search tools).
+   * These surfaces must NOT rely on `search.global` / `search.view` alone to
+   * gate record reads — callers must additionally hold the owning module's
+   * view feature(s) declared here. When omitted, callers fail closed (deny) so
+   * an entity is never exposed without an explicit grant.
    */
   aclFeatures?: string[]
+  /**
+   * How `aclFeatures` are evaluated at the coarse entity-type gate (additive,
+   * 2026-11-21).
+   * - `'all'` (default): the caller must hold every feature in `aclFeatures`.
+   * - `'any'`: the caller must hold at least one feature in `aclFeatures`;
+   *   intended for polymorphic entities whose per-record read feature depends on
+   *   row context. Requires `filterResults` to be declared on the entity —
+   *   `canReadSearchEntity` fails closed otherwise.
+   */
+  aclFeaturesMode?: SearchAclFeaturesMode
 }
 
 /**
