@@ -51,6 +51,8 @@ Scope is search plus issue-specific documentation. No direct ORM relationships, 
 
 ## Changelog
 
+- 2026-11-21: Reject HTTPS-to-HTTP redirects in the shared Ollama fetch boundary before forwarding any body and cancel the redirect response. Five status-code regressions fail before the repair; retain HTTPS redirects and direct explicitly configured HTTP endpoints. Preserve per-job vector CLI isolation while integrating current main. Existing named compatibility/security and personal-QA decisions remain pending.
+
 - 2026-11-19: Repair inherited production-QA findings for custom-model URL edits, same-tenant stale provider saves and embedding load-error recovery. Commit UI regressions and PostgreSQL route coverage for stale/concurrent/first-override saves, same-clock versions, rollback and unaffected tenant/index data; retain the existing personal protected-QA gate.
 
 - 2026-11-18: Closed the reviewed allowlist HTTP downgrade; helper and POST regressions reject plaintext before probing or saving, accept HTTPS, and preserve the exact explicitly configured private HTTP endpoint.

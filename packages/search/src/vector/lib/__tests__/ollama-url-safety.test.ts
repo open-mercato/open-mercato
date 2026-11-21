@@ -339,6 +339,67 @@ describe('safeOllamaFetch', () => {
     )
   })
 
+  it.each([301, 302, 303, 307, 308])('blocks an HTTPS-to-HTTP redirect (%s) before forwarding the request', async (status) => {
+    process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST = 'ollama.example.com:11434'
+    const redirectResponse = new Response('redirect', {
+      status,
+      headers: { location: 'http://ollama.example.com:11434/api/embed' },
+    })
+    const cancel = jest.spyOn(redirectResponse.body!, 'cancel')
+    const fetchImpl = jest.fn()
+      .mockResolvedValueOnce(redirectResponse)
+      .mockResolvedValueOnce(new Response('{}', { status: 200 })) as jest.MockedFunction<typeof fetch>
+
+    await expect(safeOllamaFetch('https://ollama.example.com:11434/api/embed', {
+      method: 'POST',
+      body: JSON.stringify({ input: 'fixture embedding text' }),
+    }, {
+      lookupHost: async () => [{ address: '93.184.216.34', family: 4 }],
+      fetchImpl,
+    })).rejects.toMatchObject({ reason: 'operator_not_allowed' })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps HTTPS redirects working without dropping the POST body', async () => {
+    process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST = 'ollama.example.com'
+    const fetchImpl = jest.fn()
+      .mockResolvedValueOnce(new Response(null, {
+        status: 307,
+        headers: { location: 'https://ollama.example.com/api/embed-v2' },
+      }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 })) as jest.MockedFunction<typeof fetch>
+
+    await expect(safeOllamaFetch('https://ollama.example.com/api/embed', {
+      method: 'POST',
+      body: 'fixture embedding text',
+    }, {
+      lookupHost: async () => [{ address: '93.184.216.34', family: 4 }],
+      fetchImpl,
+    })).resolves.toMatchObject({ status: 200 })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(fetchImpl).toHaveBeenLastCalledWith('https://ollama.example.com/api/embed-v2', expect.objectContaining({
+      method: 'POST',
+      body: expect.any(ArrayBuffer),
+    }))
+  })
+
+  it('preserves direct requests to the explicitly configured private HTTP operator endpoint', async () => {
+    process.env.OLLAMA_BASE_URL = 'http://10.0.0.7:11434/ollama'
+    process.env.OM_SEARCH_OLLAMA_ALLOW_PRIVATE = 'true'
+    expect(() => assertTenantOllamaBaseUrl(process.env.OLLAMA_BASE_URL!)).not.toThrow()
+    const fetchImpl = jest.fn().mockResolvedValue(new Response('{}', { status: 200 })) as jest.MockedFunction<typeof fetch>
+
+    await expect(safeOllamaFetch('http://10.0.0.7:11434/ollama/api/embed', {}, {
+      lookupHost: async () => [{ address: '10.0.0.7', family: 4 }],
+      fetchImpl,
+    })).resolves.toMatchObject({ status: 200 })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
   it('preserves explicitly allowlisted internal Ollama hosts', async () => {
     process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST = 'ollama.internal.example.com:11434'
     const fetchImpl = jest

@@ -110,7 +110,12 @@ export async function safeOllamaFetch(
       )
     }
 
+    await response.body?.cancel()
     const nextUrl = new URL(location, currentUrl)
+    assertSafeOllamaBaseUrl(nextUrl.toString())
+    if (new URL(currentUrl).protocol === 'https:' && nextUrl.protocol === 'http:') {
+      throw new UnsafeOllamaBaseUrlError('operator_not_allowed')
+    }
     if (nextUrl.origin !== new URL(currentUrl).origin) {
       currentHeaders = new Headers(currentHeaders)
       currentHeaders.delete('authorization')
@@ -126,7 +131,6 @@ export async function safeOllamaFetch(
       currentHeaders.delete('content-length')
       currentHeaders.delete('content-type')
     }
-    await response.body?.cancel()
     currentUrl = nextUrl.toString()
   }
 

@@ -823,7 +823,7 @@ async function workerCommand(rest: string[]): Promise<void> {
     await runWorker<FulltextIndexJobPayload>({
       queueName: FULLTEXT_INDEXING_QUEUE_NAME,
       handler: async (job: QueuedJob<FulltextIndexJobPayload>, ctx: JobContext) => {
-        await handleFulltextIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
+        await handleFulltextIndexJob(job, ctx, { resolve: container.resolve })
       },
       connection: { url: redisUrl },
       concurrency,
