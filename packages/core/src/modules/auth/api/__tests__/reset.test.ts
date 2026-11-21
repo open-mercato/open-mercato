@@ -202,7 +202,7 @@ describe('POST /api/auth/reset', () => {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       at: expect.any(String),
-    }, { persistent: true })
+    }, { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' })
   })
 
   test('does not emit auth.password.reset.requested for an unknown account', async () => {
