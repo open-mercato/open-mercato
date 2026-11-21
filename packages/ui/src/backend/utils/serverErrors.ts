@@ -1,8 +1,17 @@
 export type CrudServerFieldErrors = Record<string, string>
 
+export type CrudServerFieldIssue = {
+  code?: string
+  message: string
+  params?: Record<string, string | number>
+}
+
+export type CrudServerFieldIssues = Record<string, CrudServerFieldIssue>
+
 export type NormalizedCrudServerError = {
   message?: string
   fieldErrors?: CrudServerFieldErrors
+  fieldIssues?: CrudServerFieldIssues
   details?: unknown
   status?: number
   raw?: string | null
@@ -11,6 +20,7 @@ export type NormalizedCrudServerError = {
 
 const JSON_FIELD_KEYS = ['fieldErrors', 'fields', 'errors', 'data'] as const
 const ISSUE_KEYS = ['details', 'issues', 'errors'] as const
+const ZOD_ISSUE_PARAM_KEYS = ['minimum', 'maximum', 'expected', 'received', 'type', 'origin', 'format'] as const
 
 function coerceFieldErrors(input: unknown): CrudServerFieldErrors | null {
   if (!input || typeof input !== 'object') return null
@@ -31,9 +41,21 @@ function coerceFieldErrors(input: unknown): CrudServerFieldErrors | null {
   return Object.keys(result).length ? result : null
 }
 
-function mapIssueArray(issues: unknown): CrudServerFieldErrors | null {
+function extractIssueParams(issue: Record<string, unknown>): Record<string, string | number> | undefined {
+  const params: Record<string, string | number> = {}
+  for (const key of ZOD_ISSUE_PARAM_KEYS) {
+    const value = issue[key]
+    if (typeof value === 'string' || typeof value === 'number') params[key] = value
+  }
+  return Object.keys(params).length ? params : undefined
+}
+
+function mapIssueArray(
+  issues: unknown,
+): { fieldErrors: CrudServerFieldErrors; fieldIssues: CrudServerFieldIssues } | null {
   if (!Array.isArray(issues)) return null
-  const result: CrudServerFieldErrors = {}
+  const fieldErrors: CrudServerFieldErrors = {}
+  const fieldIssues: CrudServerFieldIssues = {}
   for (const issue of issues) {
     if (!issue || typeof issue !== 'object') continue
     const pathValue: unknown[] = Array.isArray((issue as any).path) ? (issue as any).path : []
@@ -55,9 +77,12 @@ function mapIssueArray(issues: unknown): CrudServerFieldErrors | null {
     if (!field) continue
     const message = typeof (issue as any).message === 'string' ? (issue as any).message : null
     if (!message) continue
-    result[field] = message
+    fieldErrors[field] = message
+    const issueRecord = issue as Record<string, unknown>
+    const code = typeof issueRecord.code === 'string' ? issueRecord.code : undefined
+    fieldIssues[field] = { code, message, params: extractIssueParams(issueRecord) }
   }
-  return Object.keys(result).length ? result : null
+  return Object.keys(fieldErrors).length ? { fieldErrors, fieldIssues } : null
 }
 
 function tryParseJson(text: string): unknown {
@@ -101,6 +126,7 @@ function collectCandidatePayloads(err: unknown): unknown[] {
 export function normalizeCrudServerError(err: unknown): NormalizedCrudServerError {
   let message: string | undefined
   let fieldErrors: CrudServerFieldErrors | undefined
+  let fieldIssues: CrudServerFieldIssues | undefined
   const processed = new Set<unknown>()
 
   const queue = collectCandidatePayloads(err)
@@ -153,7 +179,8 @@ export function normalizeCrudServerError(err: unknown): NormalizedCrudServerErro
       const value = (current as any)[key]
       const mapped = mapIssueArray(value)
       if (mapped) {
-        fieldErrors = { ...(fieldErrors || {}), ...mapped }
+        fieldErrors = { ...(fieldErrors || {}), ...mapped.fieldErrors }
+        fieldIssues = { ...(fieldIssues || {}), ...mapped.fieldIssues }
       }
     }
 
@@ -175,7 +202,7 @@ export function normalizeCrudServerError(err: unknown): NormalizedCrudServerErro
     message = err
   }
 
-  return { message, fieldErrors }
+  return { message, fieldErrors, fieldIssues }
 }
 
 export type FieldNameMapperOptions = {
@@ -198,7 +225,7 @@ export function mapServerFieldNameToFormId(field: string, options?: FieldNameMap
 export function mapCrudServerErrorToFormErrors(
   err: unknown,
   options?: FieldNameMapperOptions,
-): { message?: string; fieldErrors?: CrudServerFieldErrors } {
+): { message?: string; fieldErrors?: CrudServerFieldErrors; fieldIssues?: CrudServerFieldIssues } {
   const normalized = normalizeCrudServerError(err)
   const fieldErrors = normalized.fieldErrors
   if (!fieldErrors) return { message: normalized.message }
@@ -208,6 +235,13 @@ export function mapCrudServerErrorToFormErrors(
     const formId = mapServerFieldNameToFormId(key, options)
     if (!formId) continue
     mapped[formId] = value
+  }
+
+  const mappedIssues: CrudServerFieldIssues = {}
+  for (const [key, issue] of Object.entries(normalized.fieldIssues ?? {})) {
+    const formId = mapServerFieldNameToFormId(key, options)
+    if (!formId) continue
+    mappedIssues[formId] = issue
   }
 
   let message = normalized.message
@@ -225,6 +259,7 @@ export function mapCrudServerErrorToFormErrors(
   return {
     message,
     fieldErrors: mapped,
+    fieldIssues: Object.keys(mappedIssues).length ? mappedIssues : undefined,
   }
 }
 
@@ -317,4 +352,47 @@ export async function readJsonSafe<T>(res: Response, fallback: T | null = null):
   } catch {
     return fallback
   }
+}
+
+export type FieldIssueTranslation = {
+  key: string
+  fallback: string
+  params?: Record<string, string | number>
+}
+
+const ZOD_CODE_I18N_KEYS: Record<string, string> = {
+  too_big: 'ui.forms.errors.tooBig',
+  too_small: 'ui.forms.errors.tooSmall',
+  invalid_type: 'ui.forms.errors.invalidType',
+}
+
+const ZOD_DEFAULT_BOUND = String.raw`-?(?:\d+(?:\.\d+)?(?:e[+-]?\d+)?|Infinity)`
+const ZOD_DEFAULT_DATE = String.raw`(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{2} \d{4} \d{2}:\d{2}:\d{2} GMT[+-]\d{4} \([^()]+\)`
+const ZOD_DEFAULT_MESSAGE_PATTERNS: Record<string, RegExp> = {
+  too_big: new RegExp(`^(?:Too big: expected \\w+ to (?:be (?:<=?|exactly )(?:${ZOD_DEFAULT_BOUND}|${ZOD_DEFAULT_DATE})|have (?:<=?|exactly )${ZOD_DEFAULT_BOUND} (?:characters|bytes|items|entries|elements))|(?:Number|BigInt) must be (?:exactly|less than(?: or equal to)?) ${ZOD_DEFAULT_BOUND}|(?:String|Array) must contain (?:exactly|at most|under|less than) ${ZOD_DEFAULT_BOUND} (?:character|element)\\(s\\)|Date must be (?:exactly|smaller than(?: or equal to)?) ${ZOD_DEFAULT_DATE})$`),
+  too_small: new RegExp(`^(?:Too small: expected \\w+ to (?:be (?:>=?|exactly )(?:${ZOD_DEFAULT_BOUND}|${ZOD_DEFAULT_DATE})|have (?:>=?|exactly )${ZOD_DEFAULT_BOUND} (?:characters|bytes|items|entries|elements))|(?:Number|BigInt) must be (?:exactly equal to|greater than(?: or equal to)?) ${ZOD_DEFAULT_BOUND}|(?:String|Array) must contain (?:exactly|at least|over|more than) ${ZOD_DEFAULT_BOUND} (?:character|element)\\(s\\)|Date must be (?:exactly equal to|greater than(?: or equal to)?) ${ZOD_DEFAULT_DATE})$`),
+  invalid_type: /^(?:Invalid input: expected \S+, received \S+|Expected \S+, received \S+|Required)$/,
+}
+
+// Only Zod's own default wording is replaced by the code-based key; a validator
+// that supplied an explicit message (an i18n key or custom text) keeps it.
+function isDefaultZodIssueMessage(code: string | undefined, message: string): boolean {
+  if (!code) return false
+  const pattern = ZOD_DEFAULT_MESSAGE_PATTERNS[code]
+  return pattern ? pattern.test(message.trim()) : false
+}
+
+// Maps a Zod issue code to a localizable key with its numeric params so the
+// caller's `t()` can render it; unmapped/missing codes and explicit validator
+// messages keep the raw server message as-is (it may already be a stable i18n
+// key a command returned).
+export function resolveFieldIssueTranslation(
+  issue: CrudServerFieldIssue | undefined,
+  fallbackMessage: string,
+): FieldIssueTranslation {
+  const key = issue?.code ? ZOD_CODE_I18N_KEYS[issue.code] : undefined
+  if (!key || !isDefaultZodIssueMessage(issue?.code, issue?.message ?? fallbackMessage)) {
+    return { key: '', fallback: fallbackMessage }
+  }
+  return { key, fallback: fallbackMessage, params: issue?.params }
 }
