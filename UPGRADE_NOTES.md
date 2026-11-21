@@ -6129,3 +6129,7 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+### Staff report-history money permissions (#8595)
+
+Report-sheet event metadata now honors `staff.timesheets.rates.view`. Callers without it receive nonfinancial counts, rounding and export details, with close/unlock totals and currency omitted. This repairs an unauthorized disclosure; authorized output is unchanged. Consumers must treat omitted monetary metadata as unavailable. No database or operator migration is required.
