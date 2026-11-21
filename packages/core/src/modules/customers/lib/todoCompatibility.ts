@@ -52,6 +52,7 @@ export type CustomerTodoRow = {
   todoSource: string
   todoTitle: string | null
   todoIsDone: boolean | null
+  todoStatus?: string | null
   todoPriority?: number | null
   todoSeverity?: string | null
   todoDescription?: string | null
@@ -662,6 +663,7 @@ export function mapInteractionRecordToTodoRow(
         : CUSTOMER_INTERACTION_TASK_SOURCE,
     todoTitle: interaction.title ?? null,
     todoIsDone: interaction.status === 'done',
+    todoStatus: interaction.status,
     todoPriority: interaction.priority ?? null,
     todoSeverity:
       typeof customValues.severity === 'string' && customValues.severity.trim().length > 0
