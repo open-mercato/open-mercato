@@ -2259,6 +2259,22 @@ not a member of (and does not manage) now gets `404` instead of `200`. This was 
 treat it as the fix it is, not as a behavior to route around. No route path, request shape, or
 response schema changed for an authorized caller.
 
+### Gmail connect requires a resolvable mailbox address (#9498)
+
+Gmail OAuth connect now fails with `exchange_failed` (the translated "Failed to connect channel."
+message) when neither Google userinfo nor the Gmail profile returns the mailbox address. Before, it
+saved a channel with no address, which never matched a Pub/Sub push and sent as `From: me`.
+Userinfo is still tried first; when it fails or has no email, the adapter reads `emailAddress` from
+`users.getProfile`. With the default scopes this only happens when both Google calls fail, and
+retrying the connect is enough.
+
+**Action for operators with custom Gmail scopes:** a scope set that allows neither the userinfo
+email nor `users.getProfile`, such as send-only (`gmail.send`), can no longer connect. Add `email`
+(or `https://www.googleapis.com/auth/userinfo.email`), or one of `mail.google.com`, `gmail.modify`,
+`gmail.compose`, `gmail.readonly` or `gmail.metadata`, then reconnect. Channels already saved
+without an address are not repaired. No database migration or API change is needed;
+`GmailApiClient.getProfile` only gains an optional `options` argument.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
