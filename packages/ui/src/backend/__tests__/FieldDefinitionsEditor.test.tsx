@@ -3,7 +3,7 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { FieldDefinitionsEditor, type FieldDefinition } from '../custom-fields/FieldDefinitionsEditor'
 
@@ -139,4 +139,64 @@ describe('FieldDefinitionsEditor', () => {
       consoleErrorSpy.mockRestore()
     }
   })
+  it('does not submit an enclosing form when a rule is added', () => {
+    const handleSubmit = jest.fn((event: { preventDefault: () => void }) => event.preventDefault())
+    const handleDefinitionChange = jest.fn()
+
+    const definitions: FieldDefinition[] = [
+      {
+        key: 'nickname',
+        kind: 'text',
+        configJson: { label: 'Nickname' },
+        isActive: true,
+      },
+    ]
+
+    renderWithProviders(
+      <form onSubmit={handleSubmit}>
+        <FieldDefinitionsEditor
+          definitions={definitions}
+          onAddField={() => undefined}
+          onRemoveField={() => undefined}
+          onDefinitionChange={handleDefinitionChange}
+        />
+      </form>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add rule' }))
+
+    expect(handleSubmit).not.toHaveBeenCalled()
+    expect(handleDefinitionChange).toHaveBeenCalledWith(0, expect.objectContaining({
+      key: 'nickname',
+      configJson: expect.objectContaining({
+        validation: [expect.objectContaining({ rule: 'required' })],
+      }),
+    }))
+  })
+
+
+  it('adds a select option without submitting its enclosing form', () => {
+    const handleSubmit = jest.fn((event: { preventDefault: () => void }) => event.preventDefault())
+    const handleDefinitionChange = jest.fn()
+    renderWithProviders(
+      <form onSubmit={handleSubmit}>
+        <FieldDefinitionsEditor
+          definitions={[{ key: 'priority', kind: 'select', configJson: { options: [] } }]}
+          onAddField={() => undefined}
+          onRemoveField={() => undefined}
+          onDefinitionChange={handleDefinitionChange}
+        />
+      </form>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Add option' }))
+    expect(handleSubmit).not.toHaveBeenCalled()
+    const dialog = screen.getByRole('dialog', { name: 'Add option' })
+    fireEvent.change(within(dialog).getByPlaceholderText('unique_value'), { target: { value: 'high' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add option' }))
+    expect(handleSubmit).not.toHaveBeenCalled()
+    expect(handleDefinitionChange).toHaveBeenCalledWith(0, expect.objectContaining({
+      configJson: expect.objectContaining({ options: [{ value: 'high', label: 'high' }] }),
+    }))
+  })
+
 })
