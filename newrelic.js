@@ -33,9 +33,8 @@ exports.config = {
     enabled: true,
   },
   logging: { level: 'info' },
-  application_logging: { forwarding: { enabled: true } },
+  application_logging: { forwarding: { enabled: process.env.NEW_RELIC_FORWARD_LOGS === 'true' } },
   attributes: {
-    include: ['request.*'],
     exclude: sensitiveRequestHeaders.map((name) => `request.headers.${name}`),
   },
 }
