@@ -1843,9 +1843,9 @@ const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId
     const lot = await loadLot(em, ctx, parsed.id)
     if (parsed.manufacturedAt !== undefined || parsed.bestBeforeAt !== undefined || parsed.expiresAt !== undefined) {
       inventoryLotDateOrderingSchema.parse({
-        manufacturedAt: parsed.manufacturedAt ?? lot.manufacturedAt ?? undefined,
-        bestBeforeAt: parsed.bestBeforeAt ?? lot.bestBeforeAt ?? undefined,
-        expiresAt: parsed.expiresAt ?? lot.expiresAt ?? undefined,
+        manufacturedAt: (parsed.manufacturedAt !== undefined ? parsed.manufacturedAt : lot.manufacturedAt) ?? undefined,
+        bestBeforeAt: (parsed.bestBeforeAt !== undefined ? parsed.bestBeforeAt : lot.bestBeforeAt) ?? undefined,
+        expiresAt: (parsed.expiresAt !== undefined ? parsed.expiresAt : lot.expiresAt) ?? undefined,
       })
     }
     const nextVariantId = parsed.catalogVariantId ?? lot.catalogVariantId
