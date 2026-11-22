@@ -24,10 +24,12 @@ export type FreightSettings = {
   defaultVatRate: number
   salesChannelId: string | null
   requirePodForBilling: boolean
+  autoCreateTripOnConfirm: boolean
   orderNumberPrefix: string
   contractNumberPrefix: string
   tripNumberPrefix: string
   abstractNumberPrefix: string
+  deliveryNoteNumberPrefix: string
 }
 
 export const FREIGHT_SETTINGS_DEFAULTS: FreightSettings = {
@@ -37,10 +39,12 @@ export const FREIGHT_SETTINGS_DEFAULTS: FreightSettings = {
   defaultVatRate: SAUDI_STANDARD_VAT_RATE,
   salesChannelId: null,
   requirePodForBilling: false,
+  autoCreateTripOnConfirm: false,
   orderNumberPrefix: 'FO',
   contractNumberPrefix: 'FC',
   tripNumberPrefix: 'FT',
   abstractNumberPrefix: 'FA',
+  deliveryNoteNumberPrefix: 'DN',
 }
 
 export type FreightSettingsScope = {
@@ -61,10 +65,14 @@ export function mergeFreightSettings(value: unknown): FreightSettings {
     defaultVatRate: stored.defaultVatRate ?? FREIGHT_SETTINGS_DEFAULTS.defaultVatRate,
     salesChannelId: stored.salesChannelId ?? null,
     requirePodForBilling: stored.requirePodForBilling ?? FREIGHT_SETTINGS_DEFAULTS.requirePodForBilling,
+    autoCreateTripOnConfirm:
+      stored.autoCreateTripOnConfirm ?? FREIGHT_SETTINGS_DEFAULTS.autoCreateTripOnConfirm,
     orderNumberPrefix: stored.orderNumberPrefix ?? FREIGHT_SETTINGS_DEFAULTS.orderNumberPrefix,
     contractNumberPrefix: stored.contractNumberPrefix ?? FREIGHT_SETTINGS_DEFAULTS.contractNumberPrefix,
     tripNumberPrefix: stored.tripNumberPrefix ?? FREIGHT_SETTINGS_DEFAULTS.tripNumberPrefix,
     abstractNumberPrefix: stored.abstractNumberPrefix ?? FREIGHT_SETTINGS_DEFAULTS.abstractNumberPrefix,
+    deliveryNoteNumberPrefix:
+      stored.deliveryNoteNumberPrefix ?? FREIGHT_SETTINGS_DEFAULTS.deliveryNoteNumberPrefix,
   }
 }
 

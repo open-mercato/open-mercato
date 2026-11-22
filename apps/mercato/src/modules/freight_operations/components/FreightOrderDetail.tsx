@@ -25,6 +25,7 @@ import {
 } from './freightOptions'
 import { LIST_HREF } from './orderListMeta'
 import { FreightPaymentsPanel } from './FreightPaymentsPanel'
+import { DeliveryNotesSection } from './DeliveryNotesSection'
 import type { FreightOrderRow, FreightOrderStatus } from './FreightOrdersTable'
 
 const RESOURCE = 'freight_operations/orders'
@@ -73,6 +74,7 @@ export default function FreightOrderDetail({ id }: { id: string }) {
   const [vehicleId, setVehicleId] = React.useState('')
   const [driverId, setDriverId] = React.useState('')
   const [podReference, setPodReference] = React.useState('')
+  const [trackingBusy, setTrackingBusy] = React.useState(false)
 
   const query = useQuery({
     queryKey: ['freight-order-detail', id],
@@ -110,6 +112,47 @@ export default function FreightOrderDetail({ id }: { id: string }) {
     }
   }, [confirm, order, query, retryLastMutation, runMutation])
 
+  const copyTrackingLink = React.useCallback(async () => {
+    if (!order) return
+    setTrackingBusy(true)
+    try {
+      const result = await runMutation<Awaited<ReturnType<typeof apiCallOrThrow>>>({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(order.updatedAt ?? order.updated_at ?? null),
+          () => apiCallOrThrow('/api/freight_operations/orders/tracking-link', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: order.id }),
+          }, {
+            errorMessage: t('freight_operations.orders.actions.trackingLink.error', 'Unable to create the tracking link.'),
+          }),
+        ),
+        mutationPayload: { operation: 'orders.tracking_link', id: order.id },
+        context: {
+          formId: DETAIL_MUTATION_CONTEXT_ID,
+          resourceKind: ENTITY_ID,
+          resourceId: order.id,
+          retryLastMutation,
+        },
+      })
+      const token = (result?.result as { trackingToken?: string } | null | undefined)?.trackingToken
+      if (!token || !navigator.clipboard?.writeText) {
+        throw new Error(t('freight_operations.orders.actions.trackingLink.error', 'Unable to create the tracking link.'))
+      }
+      await navigator.clipboard.writeText(`${window.location.origin}/track/${token}`)
+      flash(t('freight_operations.orders.actions.trackingLink.success', 'Tracking link copied.'), 'success')
+    } catch (error) {
+      flash(
+        error instanceof Error && error.message
+          ? error.message
+          : t('freight_operations.orders.actions.trackingLink.error', 'Unable to create the tracking link.'),
+        'error',
+      )
+    } finally {
+      setTrackingBusy(false)
+    }
+  }, [order, retryLastMutation, runMutation, t])
+
   if (query.isLoading) {
     return <Page><PageBody><LoadingMessage label={t('freight_operations.orders.detail.loading', 'Loading order…')} /></PageBody></Page>
   }
@@ -144,10 +187,20 @@ export default function FreightOrderDetail({ id }: { id: string }) {
               <div className="flex items-center gap-3">
                 <h1 className="text-xl font-semibold text-foreground">{order.order_number}</h1>
                 <Badge variant="secondary">{statusLabel}</Badge>
+                {order.source === 'customer_portal' ? (
+                  <Badge variant="secondary">
+                    {t('freight_operations.orders.detail.customerPortal', 'Customer portal')}
+                  </Badge>
+                ) : null}
               </div>
               <p className="text-sm text-muted-foreground">{customerNameOf(order.customer_snapshot)}</p>
             </div>
             <div className="flex items-center gap-2">
+              {status !== 'cancelled' ? (
+                <Button variant="outline" onClick={() => { void copyTrackingLink() }} disabled={trackingBusy}>
+                  {t('freight_operations.orders.actions.trackingLink.label', 'Copy tracking link')}
+                </Button>
+              ) : null}
               {(status === 'draft' || status === 'confirmed') && (
                 <Button asChild variant="outline">
                   <Link href={`${LIST_HREF}/${order.id}/edit`}>{t('freight_operations.orders.actions.edit', 'Edit')}</Link>
@@ -186,7 +239,14 @@ export default function FreightOrderDetail({ id }: { id: string }) {
             <DetailSection title={t('freight_operations.orders.detail.route', 'Route and cargo')}>
               <FieldRow label={t('freight_operations.orders.columns.lane', 'Lane')} value={`${order.pickup_location} → ${order.dropoff_location}`} />
               <FieldRow label={t('freight_operations.orders.form.fields.cargoDescription', 'Cargo description')} value={order.cargo_description} />
+              <FieldRow
+                label={t('freight_operations.orders.form.fields.cargoQuantity', 'Quantity')}
+                value={order.cargo_quantity ? `${order.cargo_quantity}${order.cargo_unit ? ` ${order.cargo_unit}` : ''}` : '—'}
+              />
+              <FieldRow label={t('freight_operations.orders.form.fields.cargoWeight', 'Cargo weight (kg)')} value={order.cargo_weight_kg || '—'} />
+              <FieldRow label={t('freight_operations.orders.form.fields.cargoVolume', 'Cargo volume (m³)')} value={order.cargo_volume_m3 || '—'} />
               <FieldRow label={t('freight_operations.orders.form.fields.requestedPickup', 'Requested pickup')} value={formatFreightDate(order.requested_pickup_at)} />
+              <FieldRow label={t('freight_operations.orders.form.fields.requestedDelivery', 'Requested delivery')} value={formatFreightDate(order.requested_delivery_at)} />
               <FieldRow label={t('freight_operations.orders.form.fields.truckType', 'Truck type')} value={t(`freight_operations.orders.truck_type.${order.truck_type_required}`, order.truck_type_required ?? '—')} />
             </DetailSection>
 
@@ -261,7 +321,11 @@ export default function FreightOrderDetail({ id }: { id: string }) {
                   </Button>
                 )}
                 {(status === 'delivered' || status === 'in_transit') && (
-                  <FieldRow label={t('freight_operations.orders.detail.pod', 'Proof of delivery')} value={podReferenceStored || t('freight_operations.orders.detail.podMissing', 'Not recorded')} />
+                  <>
+                    <FieldRow label={t('freight_operations.orders.detail.pod', 'Proof of delivery')} value={podReferenceStored || t('freight_operations.orders.detail.podMissing', 'Not recorded')} />
+                    <FieldRow label={t('freight_operations.orders.detail.podReceivedBy', 'Received by')} value={order.pod_received_by_name || '—'} />
+                    <FieldRow label={t('freight_operations.orders.detail.podReceivedAt', 'Received at')} value={formatFreightDate(order.pod_received_at)} />
+                  </>
                 )}
                 {status === 'in_transit' && (
                   <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center">
@@ -281,6 +345,31 @@ export default function FreightOrderDetail({ id }: { id: string }) {
                     </Button>
                   </div>
                 )}
+                {status === 'cancelled' && order.cancellation_reason ? (
+                  <FieldRow
+                    label={t('freight_operations.orders.detail.cancellationReason', 'Cancellation reason')}
+                    value={order.cancellation_reason}
+                  />
+                ) : null}
+                {status === 'delivered' && (
+                  <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center">
+                    <Input
+                      value={podReference}
+                      onChange={(event) => setPodReference(event.target.value)}
+                      placeholder={t('freight_operations.orders.form.fields.podReference', 'POD reference')}
+                      aria-label={t('freight_operations.orders.form.fields.podReference', 'POD reference')}
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={() => { void runAction('deliver', { podReference: podReference.trim() || undefined }, {
+                        success: t('freight_operations.orders.actions.savePod.success', 'POD saved.'),
+                        error: t('freight_operations.orders.actions.deliver.error', 'Unable to record the delivery.'),
+                      }) }}
+                    >
+                      {t('freight_operations.orders.actions.savePod.label', 'Save POD')}
+                    </Button>
+                  </div>
+                )}
                 {status === 'delivered' && (
                   <Button size="sm" className="self-start" onClick={() => { void runAction('complete', {}, {
                     success: t('freight_operations.orders.actions.complete.success', 'Order completed.'),
@@ -292,6 +381,13 @@ export default function FreightOrderDetail({ id }: { id: string }) {
               </div>
             </DetailSection>
           </div>
+
+          {status !== 'draft' && status !== 'cancelled' ? (
+            <DeliveryNotesSection
+              freightOrderId={order.id}
+              sourceLabel={order.order_number}
+            />
+          ) : null}
 
           <DetailSection title={t('freight_operations.orders.detail.invoice', 'Invoice and payments')}>
             {salesInvoiceId ? (

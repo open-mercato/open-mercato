@@ -17,6 +17,8 @@ export function numberPrefix(kind: DocumentSequenceKind, settings: FreightSettin
       return settings.tripNumberPrefix
     case 'abstract':
       return settings.abstractNumberPrefix
+    case 'delivery_note':
+      return settings.deliveryNoteNumberPrefix
   }
 }
 

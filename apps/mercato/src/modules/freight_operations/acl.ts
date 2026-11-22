@@ -12,6 +12,8 @@ export const features = [
   { id: 'freight.abstracts.invoice', title: 'Issue invoices from abstracts', module: 'freight_operations', dependsOn: ['freight.abstracts.resolve'] },
   { id: 'freight.abstracts.manage', title: 'Cancel and delete abstracts', module: 'freight_operations', dependsOn: ['freight.abstracts.generate'] },
   { id: 'freight.payments.record', title: 'Record and void freight payments', module: 'freight_operations', dependsOn: ['freight.read'] },
+  { id: 'freight.delivery_notes.manage', title: 'Manage delivery notes and waybill references', module: 'freight_operations', dependsOn: ['freight.read'] },
+  { id: 'freight.driver_app', title: 'Use the driver workspace', module: 'freight_operations' },
   { id: 'freight.settings.manage', title: 'Manage freight settings', module: 'freight_operations', dependsOn: ['freight.read'] },
   { id: 'freight.admin', title: 'Administer freight operations', module: 'freight_operations', dependsOn: ['freight.settings.manage'] },
 ]

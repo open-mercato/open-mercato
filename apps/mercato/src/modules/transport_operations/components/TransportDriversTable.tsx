@@ -24,6 +24,7 @@ export type DriverStatus = 'available' | 'on_trip' | 'on_leave' | 'suspended'
 export const DRIVER_STATUS_VALUES: DriverStatus[] = ['available', 'on_trip', 'on_leave', 'suspended']
 
 export type DriverRow = {
+  user_id?: string | null
   id: string
   employee_id?: string | null
   full_name: string

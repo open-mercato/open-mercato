@@ -21,6 +21,8 @@ export const ABSTRACT_DISPUTE_STATUS_VALUES = ['none', 'disputed', 'resolved'] a
 export const ABSTRACT_LINE_RESOLUTION_VALUES = ['accepted_as_disputed', 'rejected_dispute', 'adjusted', 'removed'] as const
 export const PAYMENT_METHOD_VALUES = ['bank_transfer', 'cheque', 'cash', 'adjustment'] as const
 export const PAYMENT_STATUS_VALUES = ['recorded', 'voided'] as const
+export const TRUCK_TYPE_VALUES = ['flatbed', 'curtain_side', 'refrigerated', 'tanker', 'tipper', 'lowbed', 'other'] as const
+export const CARGO_UNIT_VALUES = ['trip', 'ton', 'kg', 'm3', 'pallet', 'container', 'other'] as const
 
 export const CONTRACT_STATUS_FALLBACKS: Record<string, string> = {
   draft: 'Draft',

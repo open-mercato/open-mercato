@@ -28,6 +28,7 @@ export type UpdateVehicleInput = z.infer<typeof updateVehicleSchema>
 
 export const createDriverSchema = z.object({
   employeeId: z.string().uuid().optional().nullable(),
+  userId: z.string().uuid().optional().nullable(),
   fullName: z.string().min(1),
   nationalId: z.string().min(1),
   licenseNumber: z.string().min(1),
@@ -82,3 +83,32 @@ export const updateTripScheduleSchema = z.object({
 
 export type CreateTripScheduleInput = z.infer<typeof createTripScheduleSchema>
 export type UpdateTripScheduleInput = z.infer<typeof updateTripScheduleSchema>
+const geoLatitude = z.coerce.number().min(-90).max(90)
+const geoLongitude = z.coerce.number().min(-180).max(180)
+
+export const recordVehiclePositionSchema = z.object({
+  vehicleId: z.string().uuid(),
+  driverId: z.string().uuid().optional().nullable(),
+  tripId: z.string().uuid().optional().nullable(),
+  latitude: geoLatitude,
+  longitude: geoLongitude,
+  speedKph: z.coerce.number().min(0).max(400).optional().nullable(),
+  heading: z.coerce.number().min(0).max(360).optional().nullable(),
+  recordedAt: z.string().datetime().or(z.date()).optional(),
+  source: z.string().trim().min(1).max(64).optional(),
+  raw: z.record(z.string(), z.unknown()).optional().nullable(),
+})
+
+export const recordVehiclePositionBatchSchema = z.object({
+  positions: z.array(recordVehiclePositionSchema).min(1).max(500),
+})
+
+export const routeEstimateSchema = z.object({
+  origin: z.object({ latitude: geoLatitude, longitude: geoLongitude }),
+  destination: z.object({ latitude: geoLatitude, longitude: geoLongitude }),
+})
+
+export type RecordVehiclePositionInput = z.infer<typeof recordVehiclePositionSchema>
+export type RecordVehiclePositionBatchInput = z.infer<typeof recordVehiclePositionBatchSchema>
+export type RouteEstimateInput = z.infer<typeof routeEstimateSchema>
+

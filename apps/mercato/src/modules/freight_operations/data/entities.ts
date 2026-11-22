@@ -4,6 +4,9 @@ import { Entity, Enum, Index, ManyToOne, PrimaryKey, Property } from '@mikro-orm
 export const ORDER_STATUSES = ['draft', 'confirmed', 'assigned', 'in_transit', 'delivered', 'completed', 'invoiced', 'cancelled'] as const
 export type OrderStatus = (typeof ORDER_STATUSES)[number]
 
+export const ORDER_SOURCES = ['staff', 'customer_portal'] as const
+export type OrderSource = (typeof ORDER_SOURCES)[number]
+
 export const TRUCK_TYPES = ['flatbed', 'curtain_side', 'refrigerated', 'tanker', 'tipper', 'lowbed', 'other'] as const
 export type TruckType = (typeof TRUCK_TYPES)[number]
 
@@ -55,7 +58,13 @@ export type FreightPaymentMethod = (typeof PAYMENT_METHODS)[number]
 export const PAYMENT_STATUSES = ['recorded', 'voided'] as const
 export type FreightPaymentStatus = (typeof PAYMENT_STATUSES)[number]
 
-export const DOCUMENT_SEQUENCE_KINDS = ['order', 'contract', 'trip', 'abstract'] as const
+export const DELIVERY_NOTE_STATUSES = ['draft', 'issued', 'delivered', 'cancelled'] as const
+export type DeliveryNoteStatus = (typeof DELIVERY_NOTE_STATUSES)[number]
+
+export const EXTERNAL_WAYBILL_STATUSES = ['not_recorded', 'recorded', 'cancelled'] as const
+export type ExternalWaybillStatus = (typeof EXTERNAL_WAYBILL_STATUSES)[number]
+
+export const DOCUMENT_SEQUENCE_KINDS = ['order', 'contract', 'trip', 'abstract', 'delivery_note'] as const
 export type DocumentSequenceKind = (typeof DOCUMENT_SEQUENCE_KINDS)[number]
 
 @Entity({ tableName: 'freight_orders' })
@@ -68,8 +77,13 @@ export type DocumentSequenceKind = (typeof DOCUMENT_SEQUENCE_KINDS)[number]
   expression:
     'create unique index "freight_orders_number_unique_idx" on "freight_orders" ("organization_id", "tenant_id", "order_number") where deleted_at is null',
 })
+@Index({
+  name: 'freight_orders_tracking_token_unique_idx',
+  expression:
+    'create unique index "freight_orders_tracking_token_unique_idx" on "freight_orders" ("tracking_token") where tracking_token is not null and deleted_at is null',
+})
 export class FreightOrder {
-  [OptionalProps]?: 'status' | 'currencyCode' | 'vatRate' | 'cargoHazardous' | 'cargoRefrigerated' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'status' | 'source' | 'submittedAt' | 'trackingToken' | 'currencyCode' | 'vatRate' | 'cargoHazardous' | 'cargoRefrigerated' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -85,6 +99,15 @@ export class FreightOrder {
 
   @Enum({ items: [...ORDER_STATUSES], type: 'text', name: 'status', default: 'draft' })
   status: OrderStatus = 'draft'
+
+  @Enum({ items: [...ORDER_SOURCES], type: 'text', name: 'source', default: 'staff' })
+  source: OrderSource = 'staff'
+
+  @Property({ name: 'submitted_at', type: Date, nullable: true })
+  submittedAt?: Date | null
+
+  @Property({ name: 'tracking_token', type: 'text', nullable: true })
+  trackingToken?: string | null
 
   @Property({ name: 'customer_id', type: 'uuid' })
   customerId!: string
@@ -973,6 +996,314 @@ export class FreightPayment {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'freight_delivery_notes' })
+@Index({ name: 'freight_delivery_notes_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'freight_delivery_notes_status_idx', properties: ['organizationId', 'status'] })
+@Index({ name: 'freight_delivery_notes_order_idx', properties: ['organizationId', 'freightOrderId'] })
+@Index({ name: 'freight_delivery_notes_trip_idx', properties: ['organizationId', 'freightTripId'] })
+@Index({ name: 'freight_delivery_notes_customer_idx', properties: ['organizationId', 'customerId'] })
+@Index({
+  name: 'freight_delivery_notes_number_unique_idx',
+  expression:
+    'create unique index "freight_delivery_notes_number_unique_idx" on "freight_delivery_notes" ("organization_id", "tenant_id", "note_number") where deleted_at is null',
+})
+export class FreightDeliveryNote {
+  [OptionalProps]?: 'status' | 'cargoHazardous' | 'cargoRefrigerated' | 'externalWaybillStatus' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'note_number', type: 'text' })
+  noteNumber!: string
+
+  @Enum({ items: [...DELIVERY_NOTE_STATUSES], type: 'text', name: 'status', default: 'draft' })
+  status: DeliveryNoteStatus = 'draft'
+
+  @Property({ name: 'freight_order_id', type: 'uuid', nullable: true })
+  freightOrderId?: string | null
+
+  @Property({ name: 'freight_trip_id', type: 'uuid', nullable: true })
+  freightTripId?: string | null
+
+  @Property({ name: 'order_number_snapshot', type: 'text', nullable: true })
+  orderNumberSnapshot?: string | null
+
+  @Property({ name: 'trip_number_snapshot', type: 'text', nullable: true })
+  tripNumberSnapshot?: string | null
+
+  @Property({ name: 'customer_id', type: 'uuid' })
+  customerId!: string
+
+  @Property({ name: 'customer_snapshot', type: 'jsonb' })
+  customerSnapshot: Record<string, unknown> = {}
+
+  @Property({ name: 'seller_snapshot', type: 'jsonb' })
+  sellerSnapshot: Record<string, unknown> = {}
+
+  @Property({ name: 'consignee_name', type: 'text', nullable: true })
+  consigneeName?: string | null
+
+  @Property({ name: 'consignee_phone', type: 'text', nullable: true })
+  consigneePhone?: string | null
+
+  @Property({ name: 'consignee_address', type: 'text', nullable: true })
+  consigneeAddress?: string | null
+
+  @Property({ type: 'text' })
+  origin!: string
+
+  @Property({ type: 'text' })
+  destination!: string
+
+  @Property({ name: 'requested_pickup_at', type: Date, nullable: true })
+  requestedPickupAt?: Date | null
+
+  @Property({ name: 'requested_delivery_at', type: Date, nullable: true })
+  requestedDeliveryAt?: Date | null
+
+  @Property({ name: 'cargo_description', type: 'text' })
+  cargoDescription!: string
+
+  @Property({ name: 'cargo_quantity', type: 'numeric', precision: 18, scale: 3, nullable: true })
+  cargoQuantity?: string | null
+
+  @Enum({ items: [...CARGO_UNITS], type: 'text', name: 'cargo_unit', nullable: true })
+  cargoUnit?: CargoUnit | null
+
+  @Property({ name: 'cargo_weight_kg', type: 'numeric', precision: 18, scale: 3, nullable: true })
+  cargoWeightKg?: string | null
+
+  @Property({ name: 'cargo_volume_m3', type: 'numeric', precision: 18, scale: 3, nullable: true })
+  cargoVolumeM3?: string | null
+
+  @Property({ name: 'cargo_hazardous', type: 'boolean', default: false })
+  cargoHazardous: boolean = false
+
+  @Property({ name: 'cargo_refrigerated', type: 'boolean', default: false })
+  cargoRefrigerated: boolean = false
+
+  @Property({ name: 'seal_number', type: 'text', nullable: true })
+  sealNumber?: string | null
+
+  @Property({ name: 'vehicle_id', type: 'uuid', nullable: true })
+  vehicleId?: string | null
+
+  @Property({ name: 'driver_id', type: 'uuid', nullable: true })
+  driverId?: string | null
+
+  @Property({ name: 'vehicle_snapshot', type: 'jsonb', nullable: true })
+  vehicleSnapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'driver_snapshot', type: 'jsonb', nullable: true })
+  driverSnapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'issued_at', type: Date, nullable: true })
+  issuedAt?: Date | null
+
+  @Property({ name: 'delivered_at', type: Date, nullable: true })
+  deliveredAt?: Date | null
+
+  @Property({ name: 'received_by_name', type: 'text', nullable: true })
+  receivedByName?: string | null
+
+  @Property({ name: 'received_by_id_number', type: 'text', nullable: true })
+  receivedByIdNumber?: string | null
+
+  @Property({ name: 'pod_reference', type: 'text', nullable: true })
+  podReference?: string | null
+
+  @Property({ name: 'pod_document_id', type: 'uuid', nullable: true })
+  podDocumentId?: string | null
+
+  @Property({ name: 'pop_reference', type: 'text', nullable: true })
+  popReference?: string | null
+
+  @Property({ name: 'pop_document_id', type: 'uuid', nullable: true })
+  popDocumentId?: string | null
+
+  @Property({ name: 'external_waybill_number', type: 'text', nullable: true })
+  externalWaybillNumber?: string | null
+
+  @Enum({ items: [...EXTERNAL_WAYBILL_STATUSES], type: 'text', name: 'external_waybill_status', default: 'not_recorded' })
+  externalWaybillStatus: ExternalWaybillStatus = 'not_recorded'
+
+  @Property({ name: 'external_waybill_url', type: 'text', nullable: true })
+  externalWaybillUrl?: string | null
+
+  @Property({ name: 'external_waybill_recorded_at', type: Date, nullable: true })
+  externalWaybillRecordedAt?: Date | null
+
+  @Property({ name: 'external_waybill_cancelled_at', type: Date, nullable: true })
+  externalWaybillCancelledAt?: Date | null
+
+  @Property({ name: 'external_waybill_notes', type: 'text', nullable: true })
+  externalWaybillNotes?: string | null
+
+  @Property({ name: 'cancellation_reason', type: 'text', nullable: true })
+  cancellationReason?: string | null
+
+  @Property({ name: 'cancelled_at', type: Date, nullable: true })
+  cancelledAt?: Date | null
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'freight_driver_rest_breaks' })
+@Index({ name: 'freight_driver_rest_breaks_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'freight_driver_rest_breaks_driver_idx', properties: ['organizationId', 'driverId', 'endedAt'] })
+export class FreightDriverRestBreak {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'driver_id', type: 'uuid' })
+  driverId!: string
+
+  @Property({ name: 'trip_id', type: 'uuid', nullable: true })
+  tripId?: string | null
+
+  @Property({ name: 'started_at', type: Date })
+  startedAt: Date = new Date()
+
+  @Property({ name: 'ended_at', type: Date, nullable: true })
+  endedAt?: Date | null
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+export const DRIVER_ALERT_KINDS = ['sos'] as const
+export type DriverAlertKind = (typeof DRIVER_ALERT_KINDS)[number]
+
+@Entity({ tableName: 'freight_driver_alerts' })
+@Index({ name: 'freight_driver_alerts_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'freight_driver_alerts_driver_idx', properties: ['organizationId', 'driverId', 'createdAt'] })
+export class FreightDriverAlert {
+  [OptionalProps]?: 'kind' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'driver_id', type: 'uuid' })
+  driverId!: string
+
+  @Property({ name: 'trip_id', type: 'uuid', nullable: true })
+  tripId?: string | null
+
+  @Property({ name: 'order_id', type: 'uuid', nullable: true })
+  orderId?: string | null
+
+  @Enum({ items: [...DRIVER_ALERT_KINDS], type: 'text', name: 'kind', default: 'sos' })
+  kind: DriverAlertKind = 'sos'
+
+  @Property({ type: 'numeric', precision: 10, scale: 7, nullable: true })
+  latitude?: string | null
+
+  @Property({ type: 'numeric', precision: 10, scale: 7, nullable: true })
+  longitude?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  note?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'freight_driver_ratings' })
+@Index({ name: 'freight_driver_ratings_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'freight_driver_ratings_driver_idx', properties: ['organizationId', 'driverId'] })
+@Index({
+  name: 'freight_driver_ratings_order_unique_idx',
+  expression:
+    'create unique index "freight_driver_ratings_order_unique_idx" on "freight_driver_ratings" ("organization_id", "tenant_id", "order_id") where deleted_at is null',
+})
+export class FreightDriverRating {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'order_id', type: 'uuid' })
+  orderId!: string
+
+  @Property({ name: 'trip_id', type: 'uuid', nullable: true })
+  tripId?: string | null
+
+  @Property({ name: 'driver_id', type: 'uuid' })
+  driverId!: string
+
+  @Property({ name: 'customer_id', type: 'uuid' })
+  customerId!: string
+
+  @Property({ type: 'integer' })
+  rating!: number
+
+  @Property({ type: 'text', nullable: true })
+  comment?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'freight_document_sequences' })
 @Index({
   name: 'freight_document_sequences_kind_unique_idx',
@@ -1016,5 +1347,9 @@ export const FREIGHT_ENTITIES = [
   FreightTripAbstract,
   FreightTripAbstractLine,
   FreightPayment,
+  FreightDeliveryNote,
+  FreightDriverRestBreak,
+  FreightDriverAlert,
+  FreightDriverRating,
   FreightDocumentSequence,
 ] as const

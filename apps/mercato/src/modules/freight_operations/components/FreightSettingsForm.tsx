@@ -31,10 +31,12 @@ type FreightSettingsResponse = {
   defaultVatRate: number
   salesChannelId: string | null
   requirePodForBilling: boolean
+  autoCreateTripOnConfirm: boolean
   orderNumberPrefix: string
   contractNumberPrefix: string
   tripNumberPrefix: string
   abstractNumberPrefix: string
+  deliveryNoteNumberPrefix: string
   updatedAt: string | null
 }
 
@@ -45,10 +47,12 @@ type FormState = {
   vatRatePercent: string
   salesChannelId: string
   requirePodForBilling: boolean
+  autoCreateTripOnConfirm: boolean
   orderNumberPrefix: string
   contractNumberPrefix: string
   tripNumberPrefix: string
   abstractNumberPrefix: string
+  deliveryNoteNumberPrefix: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -58,10 +62,12 @@ const EMPTY_FORM: FormState = {
   vatRatePercent: '15',
   salesChannelId: '',
   requirePodForBilling: false,
+  autoCreateTripOnConfirm: false,
   orderNumberPrefix: 'FO',
   contractNumberPrefix: 'FC',
   tripNumberPrefix: 'FT',
   abstractNumberPrefix: 'FA',
+  deliveryNoteNumberPrefix: 'DN',
 }
 
 function toFormState(response: FreightSettingsResponse): FormState {
@@ -72,10 +78,12 @@ function toFormState(response: FreightSettingsResponse): FormState {
     vatRatePercent: String(Number((response.defaultVatRate * 100).toFixed(2))),
     salesChannelId: response.salesChannelId ?? '',
     requirePodForBilling: response.requirePodForBilling,
+    autoCreateTripOnConfirm: response.autoCreateTripOnConfirm,
     orderNumberPrefix: response.orderNumberPrefix,
     contractNumberPrefix: response.contractNumberPrefix,
     tripNumberPrefix: response.tripNumberPrefix,
     abstractNumberPrefix: response.abstractNumberPrefix,
+    deliveryNoteNumberPrefix: response.deliveryNoteNumberPrefix,
   }
 }
 
@@ -125,10 +133,12 @@ export default function FreightSettingsForm() {
         defaultVatRate: Number.isFinite(vatFraction) ? vatFraction : 0.15,
         salesChannelId: form.salesChannelId.trim() || null,
         requirePodForBilling: form.requirePodForBilling,
+        autoCreateTripOnConfirm: form.autoCreateTripOnConfirm,
         orderNumberPrefix: form.orderNumberPrefix.trim() || 'FO',
         contractNumberPrefix: form.contractNumberPrefix.trim() || 'FC',
         tripNumberPrefix: form.tripNumberPrefix.trim() || 'FT',
         abstractNumberPrefix: form.abstractNumberPrefix.trim() || 'FA',
+        deliveryNoteNumberPrefix: form.deliveryNoteNumberPrefix.trim() || 'DN',
       }
       await runMutation<Awaited<ReturnType<typeof apiCallOrThrow>>>({
         operation: () => withScopedApiRequestHeaders(
@@ -182,6 +192,12 @@ export default function FreightSettingsForm() {
                 description={t('freight_operations.settings.hints.requirePodForBilling', 'Delivery recording refuses to complete without a POD reference or document.')}
                 checked={form.requirePodForBilling}
                 onCheckedChange={(checked) => update('requirePodForBilling', checked)}
+              />
+              <SwitchField
+                label={t('freight_operations.settings.fields.autoCreateTripOnConfirm', 'Create a freight trip when an order is confirmed')}
+                description={t('freight_operations.settings.hints.autoCreateTripOnConfirm', 'The trip starts unassigned and is linked to the order; assignment on the order is copied to it.')}
+                checked={form.autoCreateTripOnConfirm}
+                onCheckedChange={(checked) => update('autoCreateTripOnConfirm', checked)}
               />
             </CardContent>
           </Card>
@@ -246,6 +262,7 @@ export default function FreightSettingsForm() {
                 ['contractNumberPrefix', 'freight_operations.settings.fields.contractNumberPrefix', 'Contract prefix'],
                 ['tripNumberPrefix', 'freight_operations.settings.fields.tripNumberPrefix', 'Trip prefix'],
                 ['abstractNumberPrefix', 'freight_operations.settings.fields.abstractNumberPrefix', 'Abstract prefix'],
+                ['deliveryNoteNumberPrefix', 'freight_operations.settings.fields.deliveryNoteNumberPrefix', 'Delivery note prefix'],
               ] as const).map(([key, labelKey, fallback]) => (
                 <div key={key} className="flex flex-col gap-2">
                   <Label htmlFor={`freight-prefix-${key}`}>{t(labelKey, fallback)}</Label>

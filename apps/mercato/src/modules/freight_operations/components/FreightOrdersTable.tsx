@@ -19,6 +19,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useDirection, useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useInitialFilters } from '../lib/useInitialFilters'
+import { ImportOrdersDialog } from './ImportOrdersDialog'
 import {
   customerNameOf,
   formatFreightAmount,
@@ -34,7 +35,7 @@ export const ENTITY_ID = 'freight_operations:freight_order'
 
 const LIST_MUTATION_CONTEXT_ID = 'freight_operations.orders.list'
 
-const INITIAL_FILTER_KEYS = ['status', 'customerId', 'q']
+const INITIAL_FILTER_KEYS = ['status', 'source', 'customerId', 'q']
 
 export type FreightOrderStatus =
   | 'draft' | 'confirmed' | 'assigned' | 'in_transit' | 'delivered' | 'completed' | 'invoiced' | 'cancelled'
@@ -47,13 +48,24 @@ export type FreightOrderRow = {
   id: string
   order_number: string
   status: FreightOrderStatus
+  source?: 'staff' | 'customer_portal' | null
+  submitted_at?: string | null
   customer_id: string
   customer_snapshot?: Record<string, unknown> | null
   cargo_description: string
+  cargo_quantity?: string | null
+  cargo_unit?: string | null
+  cargo_weight_kg?: string | null
+  cargo_volume_m3?: string | null
   pickup_location: string
   dropoff_location: string
   requested_pickup_at?: string | null
+  requested_delivery_at?: string | null
   truck_type_required?: string | null
+  pod_reference?: string | null
+  pod_received_by_name?: string | null
+  pod_received_at?: string | null
+  cancellation_reason?: string | null
   agreed_amount_net: string
   adjustment_amount_net?: string | null
   currency_code: string
@@ -92,6 +104,7 @@ export default function FreightOrdersTable() {
   const [values, setValues] = React.useState<FilterValues>(initialFilters)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'requested_pickup_at', desc: true }])
   const [page, setPage] = React.useState(1)
+  const [importOpen, setImportOpen] = React.useState(false)
 
   // The dashboard tiles arrive as `?status=…`; without this the link lands on an
   // unfiltered list that looks like it ignored the click.
@@ -104,6 +117,7 @@ export default function FreightOrdersTable() {
   const { options: customerOptions, byId } = useCustomerOptions()
 
   const statusFilter = typeof values.status === 'string' ? values.status : undefined
+  const sourceFilter = typeof values.source === 'string' ? values.source : undefined
   const customerFilter = typeof values.customerId === 'string' ? values.customerId : undefined
   const searchValue = typeof values.q === 'string' ? values.q : undefined
 
@@ -115,10 +129,11 @@ export default function FreightOrdersTable() {
       sortDir: sorting[0]?.desc ? 'desc' : 'asc',
     }
     if (statusFilter) out.status = statusFilter
+    if (sourceFilter) out.source = sourceFilter
     if (customerFilter) out.customerId = customerFilter
     if (searchValue && searchValue.trim().length) out.search = searchValue.trim()
     return out
-  }, [page, searchValue, sorting, statusFilter, customerFilter])
+  }, [page, searchValue, sorting, statusFilter, sourceFilter, customerFilter])
 
   const query = useQuery({
     queryKey: ['freight-orders', params, scopeVersion],
@@ -250,9 +265,14 @@ export default function FreightOrdersTable() {
         title={t('freight_operations.orders.page.title', 'Freight orders')}
         titleHeadingLevel={1}
         actions={(
-          <Button asChild>
-            <Link href={CREATE_HREF}>{t('freight_operations.orders.actions.create', 'New order')}</Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" onClick={() => setImportOpen(true)}>
+              {t('freight_operations.orders.actions.import', 'Import orders')}
+            </Button>
+            <Button asChild>
+              <Link href={CREATE_HREF}>{t('freight_operations.orders.actions.create', 'New order')}</Link>
+            </Button>
+          </div>
         )}
         searchValue={searchValue}
         onSearchChange={(next: string) => {
@@ -299,6 +319,15 @@ export default function FreightOrdersTable() {
             })),
           },
           {
+            id: 'source',
+            label: t('freight_operations.orders.filters.source', 'Source'),
+            type: 'select',
+            options: [
+              { value: 'staff', label: t('freight_operations.orders.source.staff', 'Staff') },
+              { value: 'customer_portal', label: t('freight_operations.orders.source.customer_portal', 'Customer portal') },
+            ],
+          },
+          {
             id: 'customerId',
             label: t('freight_operations.orders.filters.customer', 'Customer'),
             type: 'select',
@@ -330,6 +359,11 @@ export default function FreightOrdersTable() {
           onPageChange: setPage,
         }}
         isLoading={query.isLoading}
+      />
+      <ImportOrdersDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={() => { void query.refetch() }}
       />
       {ConfirmDialogElement}
     </>

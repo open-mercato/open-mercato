@@ -106,6 +106,16 @@ const SEED_CURRENCIES: CurrencySeed[] = [
     isActive: true,
   },
   {
+    code: 'SAR',
+    name: 'Saudi Riyal',
+    decimalPlaces: 2,
+    symbol: 'ر.س',
+    decimalSeparator: '.',
+    thousandsSeparator: ',',
+    isBase: false,
+    isActive: true,
+  },
+  {
     code: 'PLN',
     name: 'Polish Zloty',
     decimalPlaces: 2,

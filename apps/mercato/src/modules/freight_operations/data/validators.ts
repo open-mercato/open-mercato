@@ -100,9 +100,106 @@ export const cancelOrderSchema = z.object({
   reason: z.string().trim().max(2000).optional().nullable(),
 })
 
+export const createPortalOrderSchema = z.object({
+  cargoDescription: z.string().trim().min(1).max(2000),
+  pickupLocation: z.string().trim().min(1).max(500),
+  dropoffLocation: z.string().trim().min(1).max(500),
+  requestedPickupAt: z.string().datetime().or(z.date()).optional().nullable(),
+  requestedDeliveryAt: z.string().datetime().or(z.date()).optional().nullable(),
+  truckTypeRequired: z.enum(TRUCK_TYPES).optional(),
+  cargoQuantity: nonNegativeAmount.optional().nullable(),
+  cargoUnit: z.enum(CARGO_UNITS).optional().nullable(),
+  cargoWeightKg: nonNegativeAmount.optional().nullable(),
+  cargoVolumeM3: nonNegativeAmount.optional().nullable(),
+  cargoHazardous: z.boolean().optional(),
+  cargoRefrigerated: z.boolean().optional(),
+  notes: z.string().trim().max(4000).optional().nullable(),
+})
+
+export type CreatePortalOrderInput = z.infer<typeof createPortalOrderSchema>
+
 export type AssignOrderInput = z.infer<typeof assignOrderSchema>
 export type DeliverOrderInput = z.infer<typeof deliverOrderSchema>
 export type CancelOrderInput = z.infer<typeof cancelOrderSchema>
+
+const deliveryNoteCargoSchema = z.object({
+  cargoDescription: z.string().trim().min(1).max(2000).optional(),
+  cargoQuantity: nonNegativeAmount.optional().nullable(),
+  cargoUnit: z.enum(CARGO_UNITS).optional().nullable(),
+  cargoWeightKg: nonNegativeAmount.optional().nullable(),
+  cargoVolumeM3: nonNegativeAmount.optional().nullable(),
+  cargoHazardous: z.boolean().optional(),
+  cargoRefrigerated: z.boolean().optional(),
+  sealNumber: z.string().trim().max(200).optional().nullable(),
+})
+
+const consigneeSchema = z.object({
+  consigneeName: z.string().trim().max(500).optional().nullable(),
+  consigneePhone: z.string().trim().max(50).optional().nullable(),
+  consigneeAddress: z.string().trim().max(2000).optional().nullable(),
+})
+
+export const createDeliveryNoteSchema = z
+  .object({
+    freightOrderId: z.string().uuid().optional().nullable(),
+    freightTripId: z.string().uuid().optional().nullable(),
+    notes: z.string().trim().max(4000).optional().nullable(),
+    ...consigneeSchema.shape,
+    ...deliveryNoteCargoSchema.shape,
+  })
+  .refine((data) => Boolean(data.freightOrderId) !== Boolean(data.freightTripId), {
+    message: 'Provide exactly one of freightOrderId or freightTripId',
+    path: ['freightOrderId'],
+  })
+
+export const updateDeliveryNoteSchema = z.object({
+  id: z.string().uuid(),
+  notes: z.string().trim().max(4000).optional().nullable(),
+  ...consigneeSchema.shape,
+  ...deliveryNoteCargoSchema.shape,
+})
+
+export const deliveryNoteActionSchema = z.object({ id: z.string().uuid() })
+
+export const deliverDeliveryNoteSchema = z
+  .object({
+    id: z.string().uuid(),
+    receivedByName: z.string().trim().min(1).max(500),
+    receivedByIdNumber: z.string().trim().max(100).optional().nullable(),
+    podDocumentId: z.string().uuid().optional().nullable(),
+    podReference: z.string().trim().max(500).optional().nullable(),
+    popDocumentId: z.string().uuid().optional().nullable(),
+    popReference: z.string().trim().max(500).optional().nullable(),
+    deliveredAt: z.string().datetime().or(z.date()).optional().nullable(),
+  })
+  .refine((data) => Boolean(data.podDocumentId) || Boolean(data.podReference), {
+    message: 'A proof of delivery document or reference is required',
+    path: ['podReference'],
+  })
+
+export const cancelDeliveryNoteSchema = z.object({
+  id: z.string().uuid(),
+  reason: z.string().trim().min(1).max(2000),
+})
+
+export const recordExternalWaybillSchema = z
+  .object({
+    id: z.string().uuid(),
+    status: z.enum(['recorded', 'cancelled']),
+    waybillNumber: z.string().trim().min(1).max(200).optional().nullable(),
+    url: z.string().trim().url().max(2000).optional().nullable(),
+    notes: z.string().trim().max(2000).optional().nullable(),
+  })
+  .refine((data) => data.status !== 'recorded' || Boolean(data.waybillNumber), {
+    message: 'A waybill number is required when recording a waybill',
+    path: ['waybillNumber'],
+  })
+
+export type CreateDeliveryNoteInput = z.infer<typeof createDeliveryNoteSchema>
+export type UpdateDeliveryNoteInput = z.infer<typeof updateDeliveryNoteSchema>
+export type DeliverDeliveryNoteInput = z.infer<typeof deliverDeliveryNoteSchema>
+export type CancelDeliveryNoteInput = z.infer<typeof cancelDeliveryNoteSchema>
+export type RecordExternalWaybillInput = z.infer<typeof recordExternalWaybillSchema>
 
 const contractFieldsSchema = z.object({
   customerId: z.string().uuid(),
@@ -324,6 +421,78 @@ export const paymentSyncSchema = z
     path: ['orderId'],
   })
 
+export const driverActionSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('order_dispatch'),
+    orderId: z.string().uuid(),
+  }),
+  z.object({
+    type: z.literal('order_deliver'),
+    orderId: z.string().uuid(),
+    podReference: z.string().trim().min(1).max(500),
+    podReceivedByName: z.string().trim().max(500).optional().nullable(),
+  }),
+  z.object({
+    type: z.literal('trip_start'),
+    tripId: z.string().uuid(),
+  }),
+  z.object({
+    type: z.literal('trip_deliver'),
+    tripId: z.string().uuid(),
+    podReference: z.string().trim().min(1).max(500),
+    podReceivedByName: z.string().trim().max(500).optional().nullable(),
+  }),
+  z.object({
+    type: z.literal('rest_start'),
+    tripId: z.string().uuid().optional().nullable(),
+  }),
+  z.object({
+    type: z.literal('rest_end'),
+    breakId: z.string().uuid(),
+  }),
+  z.object({
+    type: z.literal('sos'),
+    tripId: z.string().uuid().optional().nullable(),
+    orderId: z.string().uuid().optional().nullable(),
+    latitude: z.coerce.number().min(-90).max(90).optional().nullable(),
+    longitude: z.coerce.number().min(-180).max(180).optional().nullable(),
+    note: z.string().trim().max(2000).optional().nullable(),
+  }),
+])
+
+export type DriverActionInput = z.infer<typeof driverActionSchema>
+export const driverRatingSchema = z.object({
+  orderId: z.string().uuid(),
+  rating: z.coerce.number().int().min(1).max(5),
+  comment: z.string().trim().max(1000).optional().nullable(),
+})
+
+export type DriverRatingInput = z.infer<typeof driverRatingSchema>
+
+export const driverRestStartSchema = z.object({
+  driverId: z.string().uuid(),
+  tripId: z.string().uuid().optional().nullable(),
+})
+
+export const driverRestEndSchema = z.object({
+  driverId: z.string().uuid(),
+  breakId: z.string().uuid(),
+})
+
+export const driverSosSchema = z.object({
+  driverId: z.string().uuid(),
+  tripId: z.string().uuid().optional().nullable(),
+  orderId: z.string().uuid().optional().nullable(),
+  latitude: z.coerce.number().min(-90).max(90).optional().nullable(),
+  longitude: z.coerce.number().min(-180).max(180).optional().nullable(),
+  note: z.string().trim().max(2000).optional().nullable(),
+})
+
+export type DriverRestStartInput = z.infer<typeof driverRestStartSchema>
+export type DriverRestEndInput = z.infer<typeof driverRestEndSchema>
+export type DriverSosInput = z.infer<typeof driverSosSchema>
+
+
 export const freightSettingsStoredSchema = z.object({
   defaultRequiresCustomerApproval: z.boolean().optional(),
   defaultPaymentTermsDays: z.coerce.number().int().min(0).max(365).optional(),
@@ -333,10 +502,12 @@ export const freightSettingsStoredSchema = z.object({
   defaultVatRate: z.coerce.number().min(0).max(1).optional(),
   salesChannelId: z.string().uuid().nullable().optional(),
   requirePodForBilling: z.boolean().optional(),
+  autoCreateTripOnConfirm: z.boolean().optional(),
   orderNumberPrefix: z.string().trim().min(1).max(8).optional(),
   contractNumberPrefix: z.string().trim().min(1).max(8).optional(),
   tripNumberPrefix: z.string().trim().min(1).max(8).optional(),
   abstractNumberPrefix: z.string().trim().min(1).max(8).optional(),
+  deliveryNoteNumberPrefix: z.string().trim().min(1).max(8).optional(),
 })
 
 export const freightSettingsInputSchema = freightSettingsStoredSchema

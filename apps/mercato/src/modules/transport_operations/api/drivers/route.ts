@@ -36,7 +36,7 @@ const crud = makeCrudRoute({
   indexer: { entityType: TRANSPORT_DRIVER_ENTITY_ID },
   list: {
     schema: listSchema, entityId: TRANSPORT_DRIVER_ENTITY_ID,
-    fields: ['id', 'organization_id', 'tenant_id', 'employee_id', 'full_name', 'national_id', 'license_number', 'license_expiry', 'phone', 'status', 'created_at', 'updated_at'],
+    fields: ['id', 'organization_id', 'tenant_id', 'employee_id', 'user_id', 'full_name', 'national_id', 'license_number', 'license_expiry', 'phone', 'status', 'created_at', 'updated_at'],
     sortFieldMap: { fullName: 'full_name', licenseExpiry: 'license_expiry', status: 'status', createdAt: 'created_at', updatedAt: 'updated_at' },
     buildFilters: (query) => {
       const cutoff = expiryCutoff(query.expiry, { expired: 0, within30: EXPIRY_WINDOW_DAYS })

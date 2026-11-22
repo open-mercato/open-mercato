@@ -8,6 +8,7 @@ describe('freight document numbers', () => {
     expect(formatDocumentNumber('contract', 42, FREIGHT_SETTINGS_DEFAULTS)).toBe('FC-00042')
     expect(formatDocumentNumber('trip', 999, FREIGHT_SETTINGS_DEFAULTS)).toBe('FT-00999')
     expect(formatDocumentNumber('abstract', 12345, FREIGHT_SETTINGS_DEFAULTS)).toBe('FA-12345')
+    expect(formatDocumentNumber('delivery_note', 8, FREIGHT_SETTINGS_DEFAULTS)).toBe('DN-00008')
   })
 
   it('honours operator overrides and clamps nonsense sequences', () => {

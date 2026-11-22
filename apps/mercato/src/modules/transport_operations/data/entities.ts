@@ -101,6 +101,11 @@ export class TransportVehicle {
 @Index({ name: 'transport_drivers_status_idx', properties: ['organizationId', 'status'] })
 @Index({ name: 'transport_drivers_national_id_unique_idx', properties: ['organizationId', 'tenantId', 'nationalId'], options: { unique: true, where: 'deleted_at IS NULL' } })
 @Index({ name: 'transport_drivers_license_unique_idx', properties: ['organizationId', 'tenantId', 'licenseNumber'], options: { unique: true, where: 'deleted_at IS NULL' } })
+@Index({
+  name: 'transport_drivers_user_unique_idx',
+  expression:
+    'create unique index "transport_drivers_user_unique_idx" on "transport_drivers" ("organization_id", "tenant_id", "user_id") where user_id is not null and deleted_at is null',
+})
 export class TransportDriver {
   [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -115,6 +120,9 @@ export class TransportDriver {
 
   @Property({ name: 'employee_id', type: 'uuid', nullable: true })
   employeeId?: string | null
+
+  @Property({ name: 'user_id', type: 'uuid', nullable: true })
+  userId?: string | null
 
   @Property({ name: 'full_name', type: 'text' })
   fullName!: string
@@ -248,3 +256,53 @@ export class TransportTripSchedule {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+@Entity({ tableName: 'transport_vehicle_positions' })
+@Index({ name: 'transport_vehicle_positions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'transport_vehicle_positions_vehicle_time_idx', properties: ['organizationId', 'vehicleId', 'recordedAt'] })
+export class TransportVehiclePosition {
+  [OptionalProps]?: 'source' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'vehicle_id', type: 'uuid' })
+  vehicleId!: string
+
+  @Property({ name: 'driver_id', type: 'uuid', nullable: true })
+  driverId?: string | null
+
+  @Property({ name: 'trip_id', type: 'uuid', nullable: true })
+  tripId?: string | null
+
+  @Property({ type: 'numeric', precision: 10, scale: 7 })
+  latitude!: string
+
+  @Property({ type: 'numeric', precision: 10, scale: 7 })
+  longitude!: string
+
+  @Property({ name: 'speed_kph', type: 'numeric', precision: 6, scale: 2, nullable: true })
+  speedKph?: string | null
+
+  @Property({ type: 'numeric', precision: 6, scale: 2, nullable: true })
+  heading?: string | null
+
+  @Property({ name: 'recorded_at', type: Date })
+  recordedAt!: Date
+
+  @Property({ type: 'text', default: 'manual' })
+  source: string = 'manual'
+
+  @Property({ type: 'jsonb', nullable: true })
+  raw?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+

@@ -14,7 +14,7 @@ export const setup: ModuleSetupConfig = {
     employee: ['freight.read'],
   },
   defaultCustomerRoleFeatures: {
-    buyer: ['portal.freight.view', 'portal.freight.respond'],
+    buyer: ['portal.freight.view', 'portal.freight.respond', 'portal.freight.orders.create', 'portal.freight.rate'],
     viewer: ['portal.freight.view'],
   },
 }

@@ -149,10 +149,12 @@ const settingsResponseSchema = z.object({
   defaultVatRate: z.number(),
   salesChannelId: z.string().nullable(),
   requirePodForBilling: z.boolean(),
+  autoCreateTripOnConfirm: z.boolean(),
   orderNumberPrefix: z.string(),
   contractNumberPrefix: z.string(),
   tripNumberPrefix: z.string(),
   abstractNumberPrefix: z.string(),
+  deliveryNoteNumberPrefix: z.string(),
   updatedAt: z.string().nullable(),
 })
 

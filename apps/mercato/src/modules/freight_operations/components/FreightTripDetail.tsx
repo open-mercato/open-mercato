@@ -31,6 +31,7 @@ import { RESOURCE, type FreightTripRow } from './FreightTripsTable'
 import { TripChargesSection } from './TripChargesSection'
 import { TripChargesDialog } from './TripChargesDialog'
 import { TripDeliverDialog } from './TripDeliverDialog'
+import { DeliveryNotesSection } from './DeliveryNotesSection'
 
 const ENTITY_ID = 'freight_operations:freight_trip'
 const DETAIL_MUTATION_CONTEXT_ID = 'freight_operations.trips.detail'
@@ -266,6 +267,14 @@ export default function FreightTripDetail({ id }: { id: string }) {
               />
             </DetailSection>
           </div>
+
+          {trip.execution_status !== 'cancelled' ? (
+            <DeliveryNotesSection
+              freightTripId={trip.id}
+              sourceLabel={trip.trip_number}
+              requiresCargoDescription={!trip.freight_order_id}
+            />
+          ) : null}
 
           <TripChargesSection
             tripId={trip.id}

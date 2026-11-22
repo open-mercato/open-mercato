@@ -5,6 +5,7 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { createCrud, deleteCrud, fetchCrudList, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { withFlash } from '@open-mercato/ui/backend/utils/flash'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { DriverRow, DriverStatus } from './TransportDriversTable'
 
@@ -30,6 +31,7 @@ export type DriverFormValues = {
   licenseNumber: string
   licenseExpiry: string
   phone: string
+  userId: string
   status: DriverStatus
   // Carries the optimistic-lock version into `CrudForm`, which derives the expected-version header
   // from `initialValues.updatedAt` for update AND delete.
@@ -56,6 +58,7 @@ export function toDriverFormValues(row: DriverRow): DriverFormValues {
     licenseNumber: row.license_number ?? '',
     licenseExpiry: toDateOnly(row.license_expiry),
     phone: row.phone ?? '',
+    userId: row.user_id ?? '',
     status: row.status,
     updatedAt: row.updatedAt ?? row.updated_at ?? null,
   }
@@ -69,6 +72,7 @@ export function buildDriverFormDefaults(id = ''): DriverFormValues {
     licenseNumber: '',
     licenseExpiry: '',
     phone: '',
+    userId: '',
     status: 'available',
     updatedAt: null,
   }
@@ -82,6 +86,7 @@ export function toDriverPayload(values: DriverFormValues): Record<string, unknow
     licenseNumber: values.licenseNumber.trim(),
     licenseExpiry: values.licenseExpiry,
     phone: values.phone.trim(),
+    userId: values.userId.trim() || null,
     status: values.status,
   }
 }
@@ -95,6 +100,27 @@ function useDriverFields(t: Translate): CrudField[] {
     { id: 'phone', label: t('transport_operations.drivers.form.fields.phone', 'Phone'), type: 'text', required: true, layout: 'half' },
     { id: 'licenseNumber', label: t('transport_operations.drivers.form.fields.licenseNumber', 'Licence number'), type: 'text', required: true, layout: 'half' },
     { id: 'licenseExpiry', label: t('transport_operations.drivers.form.fields.licenseExpiry', 'Licence expiry'), type: 'date', required: true, layout: 'half' },
+    {
+      id: 'userId',
+      label: t('transport_operations.drivers.form.fields.userId', 'Driver login user'),
+      description: t(
+        'transport_operations.drivers.form.hints.userId',
+        'Staff user who can open the driver workspace. Leave empty for a driver without a login.',
+      ),
+      type: 'relation',
+      layout: 'half',
+      loadOptions: async (query?: string) => {
+        const params = new URLSearchParams({ pageSize: '50' })
+        if (query?.trim()) params.set('search', query.trim())
+        const call = await apiCall<{ items?: Array<{ id: string; name?: string | null; email: string }> }>(
+          `/api/auth/users?${params.toString()}`,
+        )
+        return (call.result?.items ?? []).map((user) => ({
+          value: user.id,
+          label: user.name?.trim() ? `${user.name} (${user.email})` : user.email,
+        }))
+      },
+    },
     {
       id: 'status',
       label: t('transport_operations.drivers.form.fields.status', 'Status'),
@@ -115,7 +141,7 @@ function useDriverGroups(t: Translate): CrudFormGroup[] {
       id: 'identity',
       title: t('transport_operations.drivers.form.groups.identity', 'Identity'),
       column: 1,
-      fields: ['fullName', 'nationalId', 'phone'],
+      fields: ['fullName', 'nationalId', 'phone', 'userId'],
     },
     {
       id: 'licence',

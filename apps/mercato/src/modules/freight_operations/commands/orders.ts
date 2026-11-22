@@ -1,16 +1,20 @@
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { z } from 'zod'
+import { registerCommand, type CommandBus, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { FreightOrder } from '../data/entities'
+import { FreightOrder, FreightTrip } from '../data/entities'
 import {
   assignOrderSchema,
   cancelOrderSchema,
   createOrderSchema,
+  createPortalOrderSchema,
+  customerSnapshotSchema,
   deliverOrderSchema,
   orderActionSchema,
   updateOrderSchema,
@@ -23,6 +27,7 @@ import { FREIGHT_ORDER_ENTITY_ID, freightOrderEvents, freightOrderIndexer } from
 import { raiseFreightError } from '../lib/errors'
 import { readFreightSettings, type FreightScope, type FreightSettings } from '../lib/freightSettings'
 import { allocateDocumentNumber } from '../lib/documentNumber'
+import { createTrackingToken } from '../lib/trackingToken'
 import { assertFreightAssignmentAvailable } from '../lib/assignment'
 import { buildInvoiceDraft } from '../lib/invoiceDraft'
 import { toAmountNumber } from '../lib/money'
@@ -34,6 +39,7 @@ import {
 import { emitFreightEvent } from '../events'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
+const logger = createLogger('freight_operations')
 
 function compact(input: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined))
@@ -105,6 +111,40 @@ async function emitOrderUpdate(
   })
 }
 
+async function ensureAutoTripForOrder(
+  ctx: CommandRuntimeContext,
+  order: FreightOrder,
+  scope: FreightScope,
+  settings: FreightSettings,
+): Promise<void> {
+  if (!settings.autoCreateTripOnConfirm) return
+  const em = entityManager(ctx)
+  const existing = await em.findOne(FreightTrip, {
+    freightOrderId: order.id,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    deletedAt: null,
+  })
+  if (existing) return
+  const executionDate = (order.requestedPickupAt ?? new Date()).toISOString().slice(0, 10)
+  try {
+    const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    await commandBus.execute('freight_operations.trips.create', {
+      input: {
+        source: 'spot',
+        freightOrderId: order.id,
+        executionDate,
+        quantity: '1',
+        ...(order.vehicleId ? { vehicleId: order.vehicleId } : {}),
+        ...(order.driverId ? { driverId: order.driverId } : {}),
+      },
+      ctx,
+    })
+  } catch (err) {
+    logger.warn('Auto trip creation failed', { orderId: order.id, err })
+  }
+}
+
 async function emitOrderLifecycle(
   eventId: Parameters<typeof emitFreightEvent>[0],
   order: FreightOrder,
@@ -134,6 +174,7 @@ const orderCrudConfig: CrudCommandConfig<FreightOrder> = {
     return {
       orderNumber,
       status: 'draft',
+      trackingToken: createTrackingToken(),
       customerId: String(input.customerId),
       customerSnapshot: input.customerSnapshot as Record<string, unknown>,
       cargoDescription: String(input.cargoDescription),
@@ -205,6 +246,117 @@ const orderCrudConfig: CrudCommandConfig<FreightOrder> = {
 
 registerCrudCommands(orderCrudConfig)
 
+const ensureTrackingTokenCommand: CommandHandler<
+  { id: string },
+  { orderId: string; trackingToken: string }
+> = {
+  id: 'freight_operations.orders.ensure_tracking_token',
+  async execute(rawInput, ctx) {
+    const input = orderActionSchema.parse(rawInput)
+    const scope = resolveScope(ctx)
+    const em = entityManager(ctx)
+    const order = await em.transactional(async (tx) => {
+      const locked = await findOrderForUpdate(ctx, tx, scope, input.id)
+      if (!locked.trackingToken) {
+        locked.trackingToken = createTrackingToken()
+        locked.updatedAt = new Date()
+        await tx.persist(locked).flush()
+      }
+      return locked
+    })
+    await emitOrderUpdate(ctx, order, scope, ctx.auth?.sub ?? null)
+    return { orderId: order.id, trackingToken: order.trackingToken as string }
+  },
+  buildLog: ({ input, ctx }) => {
+    const scope = resolveScope(ctx)
+    return {
+      actionLabel: 'Ensure order tracking link',
+      resourceKind: FREIGHT_ORDER_ENTITY_ID,
+      resourceId: input.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }
+  },
+}
+
+const submitExternalOrderSchema = createPortalOrderSchema.extend({
+  customerId: z.string().uuid(),
+  customerSnapshot: customerSnapshotSchema,
+})
+
+type SubmitExternalOrderInput = z.infer<typeof submitExternalOrderSchema>
+
+const submitExternalOrderCommand: CommandHandler<
+  SubmitExternalOrderInput,
+  { orderId: string; orderNumber: string }
+> = {
+  id: 'freight_operations.orders.submit_external',
+  async execute(rawInput, ctx) {
+    const input = submitExternalOrderSchema.parse(rawInput)
+    const scope = resolveScope(ctx)
+    const settings = await loadSettings(ctx, scope)
+    const em = entityManager(ctx)
+    const order = await em.transactional(async (tx) => {
+      const orderNumber = await allocateDocumentNumber(tx, scope, 'order', settings)
+      const submittedAt = new Date()
+      const entity = tx.create(FreightOrder, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        orderNumber,
+        status: 'draft',
+        source: 'customer_portal',
+        submittedAt,
+        trackingToken: createTrackingToken(),
+        customerId: input.customerId,
+        customerSnapshot: input.customerSnapshot as Record<string, unknown>,
+        cargoDescription: input.cargoDescription,
+        cargoWeightKg: optionalString(input.cargoWeightKg),
+        cargoVolumeM3: optionalString(input.cargoVolumeM3),
+        cargoQuantity: optionalString(input.cargoQuantity),
+        cargoUnit: input.cargoUnit ?? null,
+        cargoHazardous: Boolean(input.cargoHazardous ?? false),
+        cargoRefrigerated: Boolean(input.cargoRefrigerated ?? false),
+        pickupLocation: input.pickupLocation,
+        dropoffLocation: input.dropoffLocation,
+        requestedPickupAt: toDate(input.requestedPickupAt),
+        requestedDeliveryAt: toDate(input.requestedDeliveryAt),
+        truckTypeRequired: input.truckTypeRequired ?? 'other',
+        agreedAmountNet: '0',
+        currencyCode: 'SAR',
+        vatRate: String(settings.defaultVatRate * 100),
+        notes: optionalString(input.notes),
+        createdBy: ctx.auth?.sub ?? null,
+      })
+      await tx.persist(entity).flush()
+      return entity
+    })
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: order,
+      identifiers: { id: order.id, ...scope },
+      actorUserId: ctx.auth?.sub ?? null,
+      events: freightOrderEvents,
+      indexer: freightOrderIndexer,
+    })
+    await emitOrderLifecycle('freight_operations.order.submitted', order, scope, {
+      source: 'customer_portal',
+    })
+    return { orderId: order.id, orderNumber: order.orderNumber }
+  },
+  buildLog: ({ result, ctx }) => {
+    const scope = resolveScope(ctx)
+    return {
+      actionLabel: 'Submit customer order',
+      resourceKind: FREIGHT_ORDER_ENTITY_ID,
+      resourceId: result.orderId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }
+  },
+}
+
 const confirmOrderCommand: CommandHandler<{ id: string }, { orderId: string }> = {
   id: 'freight_operations.orders.confirm',
   async execute(rawInput, ctx) {
@@ -223,6 +375,7 @@ const confirmOrderCommand: CommandHandler<{ id: string }, { orderId: string }> =
     })
     await emitOrderUpdate(ctx, order, scope, ctx.auth?.sub ?? null)
     await emitOrderLifecycle('freight_operations.order.confirmed', order, scope)
+    await ensureAutoTripForOrder(ctx, order, scope, await loadSettings(ctx, scope))
     return { orderId: order.id }
   },
   buildLog: ({ input, ctx }) => {
@@ -260,6 +413,12 @@ const assignOrderCommand: CommandHandler<AssignOrderInput, { orderId: string }> 
         { orderId: locked.id, vehicleId: input.vehicleId, driverId: input.driverId, start, end },
         scope,
       )
+      const linkedTrip = await tx.findOne(FreightTrip, {
+        freightOrderId: locked.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      })
       locked.vehicleId = input.vehicleId
       locked.driverId = input.driverId
       locked.vehicleSnapshot = snapshots.vehicleSnapshot
@@ -268,6 +427,14 @@ const assignOrderCommand: CommandHandler<AssignOrderInput, { orderId: string }> 
       locked.status = 'assigned'
       locked.assignedAt = locked.assignedAt ?? new Date()
       locked.updatedAt = new Date()
+      if (linkedTrip && linkedTrip.billingStatus === 'unbilled' && linkedTrip.executionStatus === 'planned') {
+        linkedTrip.vehicleId = input.vehicleId
+        linkedTrip.driverId = input.driverId
+        linkedTrip.vehicleSnapshot = snapshots.vehicleSnapshot
+        linkedTrip.driverSnapshot = snapshots.driverSnapshot
+        linkedTrip.updatedAt = locked.updatedAt
+        await tx.persist(linkedTrip)
+      }
       await tx.persist(locked).flush()
       return locked
     })
@@ -340,7 +507,7 @@ const deliverOrderCommand: CommandHandler<DeliverOrderInput, { orderId: string }
     const em = entityManager(ctx)
     const order = await em.transactional(async (tx) => {
       const locked = await findOrderForUpdate(ctx, tx, scope, input.id)
-      if (locked.status !== 'in_transit') {
+      if (locked.status !== 'in_transit' && locked.status !== 'delivered') {
         return raiseFreightError(409, 'order_not_in_transit', 'Only orders in transit can be delivered.')
       }
       const podDocumentId = input.podDocumentId ?? null
@@ -348,8 +515,8 @@ const deliverOrderCommand: CommandHandler<DeliverOrderInput, { orderId: string }
       if (settings.requirePodForBilling && !podDocumentId && !podReference) {
         return raiseFreightError(409, 'pod_required', 'A proof of delivery is required before delivery can be recorded.')
       }
-      const deliveredAt = new Date()
-      locked.status = 'delivered'
+      const deliveredAt = locked.deliveredAt ?? new Date()
+      if (locked.status === 'in_transit') locked.status = 'delivered'
       locked.deliveredAt = deliveredAt
       locked.podDocumentId = podDocumentId ?? locked.podDocumentId ?? null
       locked.podReference = podReference ?? locked.podReference ?? null
@@ -385,6 +552,9 @@ const completeOrderCommand: CommandHandler<{ id: string }, { orderId: string }> 
       const locked = await findOrderForUpdate(ctx, tx, scope, input.id)
       if (locked.status !== 'delivered') {
         return raiseFreightError(409, 'order_not_delivered', 'Only delivered orders can be completed.')
+      }
+      if (!locked.podDocumentId && !locked.podReference) {
+        return raiseFreightError(409, 'pod_required', 'A proof of delivery is required before the order can be completed.')
       }
       locked.status = 'completed'
       locked.completedAt = new Date()
@@ -550,6 +720,8 @@ const invoiceOrderCommand: CommandHandler<{ id: string }, InvoiceOrderResult> = 
   },
 }
 
+registerCommand(ensureTrackingTokenCommand)
+registerCommand(submitExternalOrderCommand)
 registerCommand(confirmOrderCommand)
 registerCommand(assignOrderCommand)
 registerCommand(dispatchOrderCommand)

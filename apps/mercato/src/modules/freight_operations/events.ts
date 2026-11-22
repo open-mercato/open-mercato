@@ -4,6 +4,7 @@ const events = [
   { id: 'freight_operations.order.created', label: 'Freight Order Created', entity: 'order', category: 'crud' },
   { id: 'freight_operations.order.updated', label: 'Freight Order Updated', entity: 'order', category: 'crud' },
   { id: 'freight_operations.order.deleted', label: 'Freight Order Deleted', entity: 'order', category: 'crud' },
+  { id: 'freight_operations.order.submitted', label: 'Freight Order Submitted by Customer', entity: 'order', category: 'lifecycle' },
   { id: 'freight_operations.order.confirmed', label: 'Freight Order Confirmed', entity: 'order', category: 'lifecycle' },
   { id: 'freight_operations.order.assigned', label: 'Freight Order Assigned', entity: 'order', category: 'lifecycle' },
   { id: 'freight_operations.order.dispatched', label: 'Freight Order Dispatched', entity: 'order', category: 'lifecycle' },
@@ -42,6 +43,17 @@ const events = [
   { id: 'freight_operations.trip_abstract.cancelled', label: 'Trip Abstract Cancelled', entity: 'trip_abstract', category: 'lifecycle' },
   { id: 'freight_operations.payment.recorded', label: 'Freight Payment Recorded', entity: 'payment', category: 'lifecycle' },
   { id: 'freight_operations.payment.voided', label: 'Freight Payment Voided', entity: 'payment', category: 'lifecycle' },
+  { id: 'freight_operations.delivery_note.created', label: 'Delivery Note Created', entity: 'delivery_note', category: 'crud' },
+  { id: 'freight_operations.delivery_note.updated', label: 'Delivery Note Updated', entity: 'delivery_note', category: 'crud' },
+  { id: 'freight_operations.delivery_note.deleted', label: 'Delivery Note Deleted', entity: 'delivery_note', category: 'crud' },
+  { id: 'freight_operations.delivery_note.issued', label: 'Delivery Note Issued', entity: 'delivery_note', category: 'lifecycle' },
+  { id: 'freight_operations.delivery_note.delivered', label: 'Delivery Note Delivered', entity: 'delivery_note', category: 'lifecycle' },
+  { id: 'freight_operations.delivery_note.cancelled', label: 'Delivery Note Cancelled', entity: 'delivery_note', category: 'lifecycle' },
+  { id: 'freight_operations.delivery_note.waybill_recorded', label: 'External Waybill Recorded', entity: 'delivery_note', category: 'lifecycle' },
+  { id: 'freight_operations.driver.rest_started', label: 'Driver Rest Break Started', entity: 'driver', category: 'lifecycle' },
+  { id: 'freight_operations.driver.rest_ended', label: 'Driver Rest Break Ended', entity: 'driver', category: 'lifecycle' },
+  { id: 'freight_operations.driver.sos', label: 'Driver SOS Raised', entity: 'driver', category: 'lifecycle' },
+  { id: 'freight_operations.driver.rated', label: 'Driver Rated by Customer', entity: 'driver', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

@@ -119,7 +119,7 @@ export async function createTransportVehicleFixture(
 export async function createTransportDriverFixture(
   request: APIRequestContext,
   token: string,
-  overrides: { status?: string; licenseExpiry?: string } = {},
+  overrides: { status?: string; licenseExpiry?: string; userId?: string | null } = {},
 ): Promise<string> {
   const suffix = uniqueFreightSuffix();
   return createFreightEntity(request, token, '/api/transport_operations/drivers', {
@@ -129,6 +129,7 @@ export async function createTransportDriverFixture(
     licenseExpiry: overrides.licenseExpiry ?? isoDate(90),
     phone: '+966500000001',
     status: overrides.status ?? 'available',
+    ...(overrides.userId ? { userId: overrides.userId } : {}),
   }, ['id', 'driverId']);
 }
 
@@ -412,4 +413,54 @@ export async function getFreightPaymentRows(
   const payload = await readJsonSafe<{ items?: JsonMap[] }>(response);
   if (!response.ok()) return [];
   return payload?.items ?? [];
+}
+
+export async function createDeliveryNoteFixture(
+  request: APIRequestContext,
+  token: string,
+  input: { freightOrderId?: string; freightTripId?: string; cargoDescription?: string; consigneeName?: string },
+): Promise<{ id: string; noteNumber: string | null }> {
+  const id = await createFreightEntity(request, token, '/api/freight_operations/delivery-notes', {
+    ...(input.freightOrderId ? { freightOrderId: input.freightOrderId } : {}),
+    ...(input.freightTripId ? { freightTripId: input.freightTripId } : {}),
+    ...(input.cargoDescription ? { cargoDescription: input.cargoDescription } : {}),
+    ...(input.consigneeName ? { consigneeName: input.consigneeName } : {}),
+  }, ['id', 'deliveryNoteId']);
+  const note = await getDeliveryNoteFixture(request, token, id);
+  const noteNumber = note && typeof note.note_number === 'string' ? note.note_number : null;
+  return { id, noteNumber };
+}
+
+export async function getDeliveryNoteFixture(
+  request: APIRequestContext,
+  token: string,
+  id: string,
+): Promise<JsonMap | null> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/freight_operations/delivery-notes?ids=${encodeURIComponent(id)}&pageSize=1`,
+    { token },
+  );
+  const payload = await readJsonSafe<{ items?: JsonMap[] }>(response);
+  if (!response.ok()) return null;
+  return payload?.items?.[0] ?? null;
+}
+
+export type DeliveryNoteAction = 'issue' | 'deliver' | 'cancel' | 'record-waybill';
+
+export async function runDeliveryNoteAction(
+  request: APIRequestContext,
+  token: string,
+  id: string,
+  action: DeliveryNoteAction,
+  data: Record<string, unknown> = {},
+): Promise<{ ok: boolean; status: number; body: JsonMap | null }> {
+  const response = await apiRequest(request, 'POST', `/api/freight_operations/delivery-notes/${action}`, {
+    token,
+    data: { id, ...data },
+    retryTransport: false,
+  });
+  const body = await readJsonSafe<JsonMap>(response);
+  return { ok: response.ok(), status: response.status(), body };
 }

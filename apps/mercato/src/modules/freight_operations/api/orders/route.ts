@@ -3,7 +3,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { FreightOrder, ORDER_STATUSES, TRUCK_TYPES } from '../../data/entities'
+import { FreightOrder, ORDER_SOURCES, ORDER_STATUSES, TRUCK_TYPES } from '../../data/entities'
 import { createOrderSchema, updateOrderSchema } from '../../data/validators'
 import { withOrConditions } from '../../lib/crudFilters'
 import { createPagedListResponseSchema, createFreightCrudOpenApi, defaultOkResponseSchema } from '../openapi'
@@ -17,6 +17,7 @@ const listSchema = z
     id: z.string().uuid().optional(),
     ids: z.string().optional(),
     status: z.enum(ORDER_STATUSES).optional(),
+    source: z.enum(ORDER_SOURCES).optional(),
     customerId: z.string().uuid().optional(),
     truckTypeRequired: z.enum(TRUCK_TYPES).optional(),
     requestedFrom: z.string().optional(),
@@ -43,11 +44,15 @@ const crud = makeCrudRoute({
     schema: listSchema,
     entityId: FREIGHT_ORDER_ENTITY_ID,
     fields: [
-      'id', 'organization_id', 'tenant_id', 'order_number', 'status', 'customer_id', 'customer_snapshot',
-      'cargo_description', 'pickup_location', 'dropoff_location', 'requested_pickup_at', 'requested_delivery_at',
+      'id', 'organization_id', 'tenant_id', 'order_number', 'status', 'source', 'submitted_at', 'customer_id', 'customer_snapshot',
+      'cargo_description', 'cargo_quantity', 'cargo_unit', 'cargo_weight_kg', 'cargo_volume_m3',
+      'cargo_hazardous', 'cargo_refrigerated', 'notes', 'cancellation_reason',
+      'pickup_location', 'dropoff_location', 'requested_pickup_at', 'requested_delivery_at',
       'truck_type_required', 'vehicle_id', 'driver_id', 'vehicle_snapshot', 'driver_snapshot',
       'agreed_amount_net', 'adjustment_amount_net', 'currency_code', 'vat_rate',
-      'delivered_at', 'completed_at', 'sales_order_id', 'sales_invoice_id', 'invoiced_at',
+      'assigned_at', 'dispatched_at', 'delivered_at', 'completed_at',
+      'pod_document_id', 'pod_reference', 'pod_received_by_name', 'pod_received_at',
+      'sales_order_id', 'sales_invoice_id', 'invoiced_at',
       'created_at', 'updated_at',
     ],
     sortFieldMap: {
@@ -63,6 +68,7 @@ const crud = makeCrudRoute({
           ...(query.id ? { id: { $eq: query.id } } : {}),
           ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
           ...(query.status ? { status: { $eq: query.status } } : {}),
+          ...(query.source ? { source: { $eq: query.source } } : {}),
           ...(query.customerId ? { customer_id: { $eq: query.customerId } } : {}),
           ...(query.truckTypeRequired ? { truck_type_required: { $eq: query.truckTypeRequired } } : {}),
           ...(query.requestedFrom ? { requested_pickup_at: { $gte: query.requestedFrom } } : {}),
@@ -126,9 +132,19 @@ const orderListItemSchema = z.object({
   tenant_id: z.string().uuid(),
   order_number: z.string(),
   status: z.enum(ORDER_STATUSES),
+  source: z.enum(ORDER_SOURCES).optional(),
+  submitted_at: z.string().nullable().optional(),
   customer_id: z.string().uuid(),
   customer_snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
   cargo_description: z.string(),
+  cargo_quantity: z.string().nullable().optional(),
+  cargo_unit: z.string().nullable().optional(),
+  cargo_weight_kg: z.string().nullable().optional(),
+  cargo_volume_m3: z.string().nullable().optional(),
+  cargo_hazardous: z.boolean().optional(),
+  cargo_refrigerated: z.boolean().optional(),
+  notes: z.string().nullable().optional(),
+  cancellation_reason: z.string().nullable().optional(),
   pickup_location: z.string(),
   dropoff_location: z.string(),
   requested_pickup_at: z.string().nullable().optional(),
@@ -142,6 +158,14 @@ const orderListItemSchema = z.object({
   adjustment_amount_net: z.string().nullable().optional(),
   currency_code: z.string(),
   vat_rate: z.string(),
+  assigned_at: z.string().nullable().optional(),
+  dispatched_at: z.string().nullable().optional(),
+  delivered_at: z.string().nullable().optional(),
+  completed_at: z.string().nullable().optional(),
+  pod_document_id: z.string().uuid().nullable().optional(),
+  pod_reference: z.string().nullable().optional(),
+  pod_received_by_name: z.string().nullable().optional(),
+  pod_received_at: z.string().nullable().optional(),
   sales_order_id: z.string().uuid().nullable().optional(),
   sales_invoice_id: z.string().uuid().nullable().optional(),
   invoiced_at: z.string().nullable().optional(),
