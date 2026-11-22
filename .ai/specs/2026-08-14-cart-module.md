@@ -1080,6 +1080,7 @@ Release 4 filtered all four sweepers on `kind = 'basket'`, so no proposal would 
 - `TC-CART-CONC-03` Same key with a different body returns 422
 - `TC-CART-CONC-04` Re-pricing bump carries `versionBumpReason: 'repricing'` (R3)
 - `TC-CART-CONC-05` 20 parallel add-line calls yield a consistent final quantity
+- `TC-CART-CONC-06/07/08` Five parallel bulk adds of quantity 2 settle at quantity 10 on an empty cart, 11 on a cart with quantity 1, and 16 when mixed with five single adds of quantity 1. Each case retains one line and matching totals; bulk merge candidates and line numbering are read only after acquiring the per-cart mutation lock.
 
 **Merge (`TC-CART-MERGE-*`, Phase 3 gate):**
 - `TC-CART-MERGE-01` All six §7.1 situations, including the `manual` row added in rev 7
@@ -1408,6 +1409,10 @@ The `UPGRADE_NOTES.md` entry for D-R5-21 is written with the Phase 4a implementa
 ### 2026-11-20 (capped fixed-discount clarification)
 
 §3.2 rule 2 now qualifies the fixed-amount net/gross equality and covers independently capped fixed effects under the existing metadata requirement, with a worked `100.00`/`123.00`, fixed `110.00` example. This corrects rev 10/11's percentage-only and unconditional zero-tax wording; it changes no resolver, mapping or public contract and adds no accounting decision. The existing `TC-CART-TOT-06` coverage follow-up remains open at [#9632](https://github.com/open-mercato/open-mercato/issues/9632).
+### 2026-10-29 (bulk-add lock snapshot — #8221)
+
+- Move the bulk command's existing-line snapshot and next-line-number read into the first locked phase. The prior preload survived lock waits and could lose committed quantities or attempt duplicate inserts. Catalog batching and existing mutation, promotion, totals and side-effect phases retain their behavior.
+- Add deterministic regressions for a line inserted/updated by a preceding writer and for line-number allocation, plus `TC-CART-CONC-06/07/08` for the three concurrent HTTP scenarios reported by QA. No API, schema or retry-contract changes.
 
 ### 2026-11-20 (rev 10 — checkout lock and idempotency reconciliation)
 
