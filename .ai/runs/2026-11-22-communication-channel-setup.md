@@ -22,5 +22,5 @@ PR: #10365
 
 ### Phase 3: Verification
 
-- [ ] 3.1 Add API and UI integration coverage and archive the capability
+- [x] 3.1 Add API and UI integration coverage and archive the capability — 393a5eebc3
 - [ ] 3.2 Run validation and review
