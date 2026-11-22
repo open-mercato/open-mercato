@@ -75,7 +75,7 @@ const mockEm = {
 const mockContainer = { resolve: (key: string) => ({
   em: mockEm, storageDriverFactory: { resolveForPartition: mockResolveDriver },
   dataEngine: { flushOrmEntityChanges: jest.fn(async () => undefined) }, queryEngine: mockQueryEngine,
-  rbacService: { loadAcl: mockLoadAcl, getEffectiveFeatures: async () => ['documents.edit'] },
+  rbacService: { loadAcl: mockLoadAcl, userHasAllFeatures: async () => false, getEffectiveFeatures: async () => ['documents.edit'] },
 })[key] }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: async () => mockAuth }))

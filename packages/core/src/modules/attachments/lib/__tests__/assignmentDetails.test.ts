@@ -5,6 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { getApiInterceptorsForRoute } from '@open-mercato/shared/lib/crud/interceptor-registry'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { assertEntityAclForRequest } from '@open-mercato/core/modules/entities/lib/entityAcl'
 import { classifyRecordsEntity } from '@open-mercato/core/modules/entities/lib/entityClassification'
@@ -43,7 +44,7 @@ const foreignId = '20000000-0000-4000-8000-000000000002'
 const outOfOrgId = '20000000-0000-4000-8000-000000000003'
 const product = { type: 'catalog:catalog_product', id: localId }
 const auth = { sub: 'fixture-user', tenantId, orgId: organizationId }
-const loadAcl = jest.fn()
+const userHasAllFeatures = jest.fn()
 const em = {
   getMetadata: () => ({
     find: (name: string) => {
@@ -53,7 +54,7 @@ const em = {
     },
   }),
 }
-const container = { resolve: (key: string) => key === 'em' ? em : { loadAcl } } as unknown as AwilixContainer
+const container = { resolve: (key: string) => key === 'em' ? em : { userHasAllFeatures } } as unknown as AwilixContainer
 const query = jest.fn()
 const opts = {
   tenantId, organizationId, authorization: { auth, container },
@@ -61,7 +62,7 @@ const opts = {
 }
 
 function grant(...features: string[]) {
-  loadAcl.mockResolvedValue({ features, isSuperAdmin: false, organizations: [organizationId] })
+  userHasAllFeatures.mockImplementation(async (_subject, required) => authorizeFeatures(required, { grantedFeatures: features }))
 }
 
 beforeEach(() => {
@@ -95,7 +96,7 @@ it('requires a verified caller, specific organization, and a valid record ID', a
   await expect(resolveAssignmentEnrichments([product], { ...opts, organizationId: null })).resolves.toEqual(new Map())
   await expect(resolveAssignmentEnrichments([product], { ...opts, tenantId: foreignTenantId })).resolves.toEqual(new Map())
   await expect(resolveAssignmentEnrichments([{ ...product, id: 'invalid' }], opts)).resolves.toEqual(new Map())
-  expect(loadAcl).not.toHaveBeenCalled()
+  expect(userHasAllFeatures).not.toHaveBeenCalled()
   expect(query).not.toHaveBeenCalled()
 })
 
@@ -214,7 +215,7 @@ postgresSuite('assignment enrichment with the initialized query engine', () => {
     grant('catalog.products.view')
     const variantType = 'catalog:catalog_product_variant'
     const pgContainer = { resolve: (key: string) => (
-      key === 'em' ? { ...em, getKysely: () => db } : { loadAcl }
+      key === 'em' ? { ...em, getKysely: () => db } : { userHasAllFeatures }
     ) } as unknown as AwilixContainer
     const assignments = [{ type: variantType, id: localId }, { type: variantType, id: foreignId }]
     const pgOpts = { ...opts, authorization: { auth, container: pgContainer }, queryEngine: engine }

@@ -14,7 +14,6 @@ import { RECORDS_VIEW_FEATURE } from '@open-mercato/core/modules/entities/lib/re
 import { getApiInterceptorsForRoute } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { collectQuerySubscribers, entityIdToEventEntity } from '@open-mercato/shared/lib/query/query-extension-runner'
-import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -227,13 +226,14 @@ export async function resolveAssignmentEnrichments(
     const em = container.resolve<EntityManager>('em')
     const rbac = container.resolve<RbacService>('rbacService')
     const scope = { tenantId, organizationId }
-    const acl = await rbac.loadAcl(auth.sub, scope)
-    if (!acl.isSuperAdmin && acl.organizations
-      && !acl.organizations.includes(organizationId) && !acl.organizations.includes('__all__')) return map
-    const hasFeature = (feature: string) => authorizeFeatures([feature], {
-      grantedFeatures: acl.features,
-      unrestricted: acl.isSuperAdmin,
-    })
+    const readDecisions = new Map<string, Promise<boolean>>()
+    const canRead = (feature: string) => {
+      const cached = readDecisions.get(feature)
+      if (cached) return cached
+      const allowed = rbac.userHasAllFeatures(auth.sub, [feature], scope)
+      readDecisions.set(feature, allowed)
+      return allowed
+    }
     const modules = getModules()
     const entitySpecs = new Map<string, CustomEntitySpec>()
     for (const moduleEntry of modules) {
@@ -250,13 +250,16 @@ export async function resolveAssignmentEnrichments(
         if (parent && (hasQueryHooks(parent.entityId) || (parent.route && hasReadHooks(parent.route)))) continue
         const declaredRequirement = resolveEntityAclRequirement(entityId)
         if (declaredRequirement?.platformOnly) continue
-        const readPolicies = linkSpec?.readPolicies.filter(({ route, feature }) => (
-          !hasReadHooks(route) && hasFeature(feature)
-        )) ?? []
-        if (linkSpec && (!readPolicies.length || !moduleIds.has(entityId.split(':')[0]))) continue
-        if (!linkSpec && (!hasFeature(RECORDS_VIEW_FEATURE) || !moduleIds.has('entities')
-          || !moduleIds.has('query_index') || queryEngine instanceof BasicQueryEngine
-          || hasReadHooks('entities/records'))) continue
+        const readPolicies: AssignmentReadPolicy[] = []
+        if (linkSpec) {
+          if (!moduleIds.has(entityId.split(':')[0])) continue
+          for (const policy of linkSpec.readPolicies) {
+            if (!hasReadHooks(policy.route) && await canRead(policy.feature)) readPolicies.push(policy)
+          }
+          if (!readPolicies.length) continue
+        } else if (!moduleIds.has('entities') || !moduleIds.has('query_index')
+          || queryEngine instanceof BasicQueryEngine || hasReadHooks('entities/records')
+          || !await canRead(RECORDS_VIEW_FEATURE)) continue
         // These reads do not participate in the source endpoint's query pipeline.
         if (hasQueryHooks(entityId)) continue
         const classification = await classifyRecordsEntity(em, entityId, scope)
