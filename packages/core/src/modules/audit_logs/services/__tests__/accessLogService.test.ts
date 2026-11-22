@@ -2,8 +2,13 @@ jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
   resolveTenantEncryptionService: jest.fn(() => null),
 }))
 
-import { AccessLogService, flushAccessLog } from '../accessLogService'
+import {
+  AccessLogService,
+  flushAccessLog,
+  resetAccessLogRuntimeStateForTests,
+} from '../accessLogService'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { registerLoggerExtension } from '@open-mercato/shared/lib/logger'
 
 type ExecuteCall = { sql: string; params: unknown[] }
 
@@ -47,12 +52,17 @@ function payload(idx: number) {
 }
 
 describe('AccessLogService.logMany', () => {
+  const originalMaxPending = process.env.AUDIT_LOGS_MAX_PENDING
+
   beforeEach(() => {
     ;(resolveTenantEncryptionService as jest.Mock).mockImplementation(() => null)
+    resetAccessLogRuntimeStateForTests()
   })
 
   afterEach(async () => {
     await flushAccessLog()
+    if (originalMaxPending === undefined) delete process.env.AUDIT_LOGS_MAX_PENDING
+    else process.env.AUDIT_LOGS_MAX_PENDING = originalMaxPending
     jest.clearAllMocks()
   })
 
@@ -164,6 +174,98 @@ describe('AccessLogService.logMany', () => {
     expect(encryptionMock.encryptEntityPayload).toHaveBeenCalledTimes(8)
     // Sequential awaits would peak at 1; parallel awaits must peak at the chunk size.
     expect(inflight.peak).toBeGreaterThan(1)
+  })
+
+  it('reserves write capacity across tenants and charges every tenant in mixed batches', async () => {
+    process.env.AUDIT_LOGS_MAX_PENDING = '4'
+    let releaseWrites!: () => void
+    const gate = new Promise<void>((resolve) => { releaseWrites = resolve })
+    const { em, fork } = makeFakeEm()
+    const execute = jest.fn(async () => { await gate; return [{ id: payload(0).resourceId }] })
+    fork.getConnection = () => ({ execute })
+    const service = new AccessLogService(em as never)
+    const otherTenant = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const mixed = service.logMany([payload(0), { ...payload(1), tenantId: otherTenant }])
+    const firstTenant = service.log(payload(2))
+    try {
+      expect(await service.log(payload(3))).toBeNull()
+      const otherWrite = service.log({ ...payload(4), tenantId: otherTenant })
+      expect(await service.log({ ...payload(5), tenantId: otherTenant.toUpperCase() })).toBeNull()
+      await Promise.resolve()
+      releaseWrites()
+      await Promise.all([mixed, firstTenant, otherWrite])
+      expect(execute).toHaveBeenCalledTimes(3)
+    } finally {
+      releaseWrites()
+      await flushAccessLog()
+    }
+    expect(await service.log(payload(6))).not.toBeNull()
+  })
+
+  it('falls back from a one-slot configuration so another tenant has reserved capacity', async () => {
+    process.env.AUDIT_LOGS_MAX_PENDING = '1'
+    const { em } = makeFakeEm()
+    const service = new AccessLogService(em as never)
+    const writes = Array.from({ length: 2 }, (_, index) => service.log(payload(index)))
+    expect((await Promise.all(writes)).every((record) => record !== null)).toBe(true)
+  })
+
+  it('rejects service writes before parsing or database work when capacity is full', async () => {
+    process.env.AUDIT_LOGS_MAX_PENDING = '2'
+    let releaseWrite: () => void = () => {}
+    const pendingWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve
+    })
+    const { em, fork } = makeFakeEm()
+    const execute = jest.fn(async () => {
+      await pendingWrite
+      return [{ id: '00000000-0000-4000-8000-000000000001' }]
+    })
+    fork.getConnection = () => ({ execute })
+    const service = new AccessLogService(em as never)
+
+    const emit = jest.fn()
+    const dispose = registerLoggerExtension({ emit })
+    const accepted = service.log(payload(0))
+    try {
+      const rejectedSingle = await service.log(payload(1))
+      const rejectedBatch = await service.logMany([payload(2)])
+
+      expect(rejectedSingle).toBeNull()
+      expect(rejectedBatch).toBe(0)
+      expect(emit).toHaveBeenCalledTimes(1)
+      expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+        level: 'warn',
+        message: 'Dropped access-log writes because pending capacity was full',
+        fields: {
+          component: 'access-log-service',
+          backlogDrained: false,
+          capacity: 2,
+          stage: 'service_write',
+          dropped: 1,
+          totalDropped: 1,
+        },
+      }))
+    } finally {
+      releaseWrite()
+      await accepted
+      await flushAccessLog()
+      dispose()
+    }
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(emit).toHaveBeenLastCalledWith(expect.objectContaining({
+      level: 'warn',
+      message: 'Dropped access-log writes because pending capacity was full',
+      fields: {
+        component: 'access-log-service',
+        backlogDrained: true,
+        capacity: 2,
+        stage: 'service_write',
+        dropped: 1,
+        totalDropped: 2,
+      },
+    }))
   })
 })
 

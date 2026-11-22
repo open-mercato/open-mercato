@@ -8,6 +8,27 @@ Registration definitions and audited infrastructure are reused across the proces
 
 This replaces the unsafe prototype that shared one initialized container per HTTP request. `createRequestContainer({ fresh: true })` remains accepted; every call now provides that isolation without the option. Prefer `OM_PROCESS_CONTAINER_ROOT` for new deployments. No database migration, route, event or DI-key change is required.
 
+## Query index metadata cached across requests (#2967)
+
+The query index engine no longer re-reads table metadata and custom-field definitions
+on every request:
+
+- Base-table column maps are cached per process for `OM_QUERY_INDEX_COLUMN_CACHE_MS`
+  (default 300000 ms; `0` disables it). A column missing from a cached map is always
+  re-checked, so a tenant, organization or soft-delete column added by a migration
+  takes effect immediately. A dropped or newly added non-scoping column is picked up
+  when the entry expires.
+- Custom-field definitions and sort kinds are cached in the DI `cache` service for
+  `QUERY_INDEX_CF_KEYS_CACHE_MS` (default 300000 ms; `0` keeps the old per-request
+  behavior). Definition writes through the definitions API, batch, restore,
+  `install-from-ce` and the Akeneo importer invalidate them immediately for the
+  writer's tenant. Definitions written by seeds or CLI commands, global definitions
+  edited from another tenant, and other instances when `CACHE_STRATEGY=memory` can
+  take up to the TTL to appear in list queries. Use `CACHE_STRATEGY=redis` in
+  multi-instance deployments, or lower the TTL, to converge sooner.
+
+No configuration, database, route, event or DI-key change is required.
+
 ## Optional process DI root (#8989)
 
 `OM_PROCESS_CONTAINER_ROOT=on` enables generation-owned registration/bootstrap with isolated caller scopes. It defaults to off pending workload qualification. Existing `createRequestContainer()` calls retain separate EntityManagers and mutation boundaries. No schema migration is required.
@@ -1071,6 +1092,12 @@ API-key profiles; use independently administered machine keys for those actions.
 A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
+
+### Cart line contention returns retryable 503 (#8072)
+
+`POST /api/cart/current/lines` and `POST /api/cart/current/lines/bulk` release pooled connections while waiting for the existing cart transaction lock. If contention lasts for the 15-second wait budget, they now return `503` with `code: "cart_busy"`, a localized `error`, `Retry-After: 1` and `Cache-Control: no-store`. This response is issued only after an unsuccessful pre-mutation lock attempt has rolled back; the requested line add/bulk-add mutation phases did not run and no successful idempotency response was recorded. Existing preflight cart activity/reactivation or context-triggered repricing may already have persisted; normal optimistic-lock checks still apply to a retry.
+
+**Client action:** wait at least one second and retry the same body and `Idempotency-Key`. Do not apply this safe-retry rule to unrelated `500` responses or uncertain commit outcomes. Successful responses, request schemas and database structure are unchanged; no operator migration is required. See [Cart API](apps/docs/docs/api/cart.mdx) and the [cart specification](.ai/specs/2026-08-14-cart-module.md).
 
 ### Custom-record POST rejects existing UUIDs (#7815)
 
@@ -6059,6 +6086,10 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
+
+### Access-log overload admission
+
+The new access-log backlog cap reserves capacity across tenants: one tenant can occupy at most half of `AUDIT_LOGS_MAX_PENDING` (rounded down), shared across its organizations. Values below 2 fall back to 256. Global saturation can still drop best-effort audit writes. Existing retention sweeps no longer hold unrelated writers open; `flushAccessLog()` still drains rotation during shutdown.
 
 
 ## Setup service isolation and remote database acknowledgement
