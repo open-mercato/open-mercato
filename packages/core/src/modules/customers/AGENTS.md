@@ -53,7 +53,7 @@ yarn workspace @open-mercato/core build
 - **People** — individual customers. MUST have name; email/phone optional but searchable
 - **Companies** — business customers. MUST have name; tax ID optional
 - **Deals** — sales opportunities. MUST link to a person or company
-- **Activities** — logged interactions. MUST reference the parent entity
+- **Activities** — native non-email interactions can be unlinked. Email MUST reference a person or company.
 - **Todos** — action items. MUST have an assigned user
 - **Comments** — notes on records. MUST reference the parent entity
 - **Addresses** — multi-address support. MUST link to person or company via FK

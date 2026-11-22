@@ -37,9 +37,11 @@ PR: #10405
 ### Phase 1: Scoped native interactions
 
 - [x] 1.1 Characterize current linked creation, canonical null rejection, and CRM projection updates — 609190425e
-- [ ] 1.2 Add nullable persistence and scoped interaction lifecycle and reads
+- [x] 1.2 Add nullable persistence and scoped interaction lifecycle and reads — fea436981e
 
 ### Phase 2: Calendar and Tasks
 
-- [ ] 2.1 Make the Calendar picker optional and cover the browser workflow
-- [ ] 2.2 Run validation and review and archive the capability Delta
+- [x] 2.1 Make the Calendar picker optional and cover the browser workflow — 0b6ae30e3c
+- [x] 2.2 Run validation and review and archive the capability Delta — fea436981e
+
+Validation used the local runner and Linux CI. Local macOS could not resolve two unchanged generated-Jest harness cases inside its sandbox. The [Linux workspace test job](https://github.com/open-mercato/open-mercato/actions/runs/45081346364) passed on the reviewed source revision. PostgreSQL migration and Playwright verification ran in disposable environments.
