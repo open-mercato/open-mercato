@@ -19,21 +19,27 @@ No base-branch merge, weakening tests, unrelated product changes, dependency add
 2.3 Publish evidence, mark ready, and apply automerge only after verified green checks.
 
 ## Risks
-Main currently has a passing 15-shard CI run (44955209511 at c98419720f18d2456cc8b9a00e7c55073c3559d2); historical failures may already be fixed. Current snapshot release 44955209558 remains in progress. Do not manufacture source changes for superseded failures. Local build resources and release publication permissions may constrain verification; report actual outcomes.
+Main run 44992812572 at 9b4d23d72d passed all 15 integration shards but failed the script gate: the lesson catalog declares 196 records while it indexes 197. Correct the metadata without relaxing the validator. Historical snapshot 44911867595 also exposed a false HTTP-status assertion when a version hash contained `403`; the preserved fix has ten regression cases. Local installation reports optional native-build warnings. Preserve the independent NPM preview approval guard; its historical failure is an operational approval issue, not a reason to publish or weaken the guard.
+
+## Resume evidence
+Run ee871019-6028-4fa6-bfee-738691b64bbe resumed PR #10286 after the operator requested autonomous continuation. The cockpit confirms prior run 3d778c8a-300a-4459-a976-ec0b54305c89 and its child finished, and its worktree was removed. Recovered abandoned lock SHA 363aaa36f24a218190ba83d986d110429e2159cb using an exact-SHA lease and acquired a new atomic lock. Preserve the original plan and autosaved fix rather than opening a duplicate PR.
+
+Runner: local (no running compose app). Ten focused snapshot-status Jest cases, 48 CI workflow script cases and five catalog-checker cases pass. The catalog check reproduced the failure before the metadata correction. The configured eight-command validation sequence is running in order with `TMPDIR=/tmp` to avoid the cockpit temporary directory's Unix socket path limit; normal hooks remain enabled.
 
 ## Delegation
-Subtask 1: read-only diagnosis of snapshot/release failures; no edits or external mutations.
+Subtask 1: read-only audit of latest main CI failures; no edits or external mutations. The previous run's completed snapshot diagnosis is retained as evidence.
 Subtask 2: final independent review after implementation and validation; read-only, no merging.
 Coupled implementation, regression tests, PR state, and validation remain in the parent.
 
 ## Progress
+PR: #10286
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnosis and stabilization
 
-- [ ] 1.1 Audit current main failures and full-suite coverage
-- [ ] 1.2 Implement demonstrated root-cause fixes with focused regression coverage
+- [x] 1.1 Audit current main failures and full-suite coverage — 4e46de0e3b
+- [x] 1.2 Implement demonstrated root-cause fixes with focused regression coverage — a76908d5d4, 4e46de0e3b
 
 ### Phase 2: Verification and review
 
