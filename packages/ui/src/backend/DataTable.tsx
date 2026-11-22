@@ -686,8 +686,9 @@ const COLUMN_MAX_WIDTH = 900
 
 // While a reload swaps the rows for a single loading row, the auto table layout
 // would re-derive column widths from header text alone and the headers would
-// jump. Header widths measured while data was shown are re-applied for the
-// duration of the load; a user-resized width always wins.
+// jump. Header widths measured in the last non-loading state (rows, empty or
+// error) are re-applied for the duration of the load; a user-resized width
+// always wins.
 const BULK_SELECT_WIDTH_KEY = '__om_bulk_select__'
 const ROW_ACTIONS_WIDTH_KEY = '__om_row_actions__'
 const HEADER_WIDTH_CELL_SELECTOR = ':scope > table > thead > tr > th[data-column-width-key]'
@@ -3739,10 +3740,10 @@ function DataTableImpl<T extends RowData>({
   const allRows = table.getRowModel().rows
   const hasRowActionsColumn = Boolean(rowActions || injectedRowActions.length > 0)
   const measuredHeaderWidthsRef = React.useRef<Map<string, number>>(new Map())
-  const showsDataRows = !isLoading && !error && allRows.length > 0
+  const canMeasureHeaders = !isLoading
   const visibleColumnSignature = table.getVisibleLeafColumns().map((column) => column.id).join('|')
   React.useLayoutEffect(() => {
-    if (!showsDataRows || !tableScrollEl) return
+    if (!canMeasureHeaders || !tableScrollEl) return
     const recordWidth = (cell: Element, target: Map<string, number>) => {
       const key = cell instanceof HTMLElement ? cell.dataset.columnWidthKey : undefined
       if (!key) return
@@ -3760,7 +3761,7 @@ function DataTableImpl<T extends RowData>({
     })
     cells.forEach((cell) => observer.observe(cell))
     return () => observer.disconnect()
-  }, [showsDataRows, tableScrollEl, allRows.length, visibleColumnSignature, hasInjectedBulkActions, hasRowActionsColumn, columnSizing])
+  }, [canMeasureHeaders, tableScrollEl, allRows.length, error, visibleColumnSignature, hasInjectedBulkActions, hasRowActionsColumn, columnSizing])
   const resolveHeaderWidth = (key: string, manualWidth?: number) =>
     resolveLoadingHeaderWidth(manualWidth, measuredHeaderWidthsRef.current.get(key), Boolean(isLoading))
   // Hooks must run on every render regardless of props (Rules of Hooks). Call

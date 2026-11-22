@@ -25,12 +25,14 @@ class ResizeObserverMock {
   disconnect() {}
 }
 
-const measuredWidths: Record<string, number> = {
+const defaultWidths: Record<string, number> = {
   name: 240,
   email: 310,
   city: 180,
   __om_row_actions__: 96,
 }
+
+let measuredWidths: Record<string, number> = { ...defaultWidths }
 
 const baseColumns: ColumnDef<Row>[] = [
   { accessorKey: 'name', header: 'Name' },
@@ -73,6 +75,7 @@ describe('DataTable header widths while loading', () => {
   let rectSpy: jest.SpyInstance
 
   beforeEach(() => {
+    measuredWidths = { ...defaultWidths }
     ;(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserverMock }).ResizeObserver =
       ResizeObserverMock
     rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
@@ -131,6 +134,38 @@ describe('DataTable header widths while loading', () => {
       await waitFor(() => expect(screen.getByText('City')).toBeInTheDocument())
       expect(headerCell('City').style.width).toBe('')
       expect(headerCell('Name').style.width).toBe('240px')
+    } finally {
+      rendered.cleanupQueryClient()
+    }
+  })
+
+  it('uses the widths of an empty result rather than those of earlier rows', async () => {
+    const rendered = renderTable({ isLoading: false })
+    try {
+      await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument())
+
+      measuredWidths.name = 120
+      rendered.rerenderTable({ isLoading: false, data: [] })
+      await waitFor(() => expect(screen.queryByText('Alice')).not.toBeInTheDocument())
+
+      rendered.rerenderTable({ isLoading: true, data: [] })
+      expect(headerCell('Name').style.width).toBe('120px')
+    } finally {
+      rendered.cleanupQueryClient()
+    }
+  })
+
+  it('uses the widths of an error state rather than those of earlier rows', async () => {
+    const rendered = renderTable({ isLoading: false })
+    try {
+      await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument())
+
+      measuredWidths.name = 130
+      rendered.rerenderTable({ isLoading: false, data: [], error: 'Request failed' })
+      await waitFor(() => expect(screen.getByText('Request failed')).toBeInTheDocument())
+
+      rendered.rerenderTable({ isLoading: true, data: [] })
+      expect(headerCell('Name').style.width).toBe('130px')
     } finally {
       rendered.cleanupQueryClient()
     }
