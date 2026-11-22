@@ -1,6 +1,7 @@
 import { asValue } from 'awilix'
 import type { BootstrapData } from './types'
 import type { AppDiRegistrar } from '../di/container'
+import { defineProcessDiRegistrar } from '../di/process-registrar'
 import { findAppRoot, type AppRoot } from './appResolver'
 import { registerEntityIds } from '../encryption/entityIds'
 import { createLogger } from '../logger'
@@ -566,9 +567,9 @@ async function compileAndImport(
  * a registrar built from the same generated file keeps both processes in step.
  */
 function appValueRegistrar(key: string, value: unknown): BootstrapData['diRegistrars'][number] {
-  return (container) => {
+  return defineProcessDiRegistrar((container) => {
     container.register({ [key]: asValue(value) })
-  }
+  })
 }
 
 /**
