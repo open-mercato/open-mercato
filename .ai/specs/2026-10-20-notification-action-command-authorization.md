@@ -57,7 +57,7 @@ Both codes are exported from `@open-mercato/shared/modules/notifications/types` 
 
 ## Migration & Backward Compatibility
 
-**Classification.** Two STABLE surfaces narrow: the create-route request shape (§7, `commandId` was a documented field of `notificationActionSchema`) and the action route's behaviour for stored command actions. Every other change is additive: two optional type fields, two exported constants and two i18n keys. Route URLs, methods, success response shapes, event IDs, ACL features, DI names, database schema and CLI commands are unchanged.
+**Classification.** Two STABLE surfaces narrow: the create-route request shape (§7, `commandId` was a documented field of `notificationActionSchema`) and the action route's behaviour for stored command actions. Every other change is additive: two optional type fields, two exported constants and two i18n keys. Route URLs, methods, success response shapes, event IDs, ACL features, DI names and database schema are unchanged. Existing CLI commands remain unchanged; #7675 adds the optional cleanup command described below.
 
 **Why the deprecation protocol does not apply.** The removed behaviour *is* the vulnerability. A bridge release that kept accepting caller-supplied `commandId`, or kept dispatching undeclared stored commands behind a flag, would leave both attacks open for the whole deprecation window. Rows planted through the API cannot be told apart from server-built ones by shape, so a warn-first mode would still execute them. The change is the narrowest that closes the hole: link-only actions, server-side producers using declared actions, and the claim/409 semantics are untouched, and no flag, config toggle or opt-in keeps the old path reachable.
 
@@ -82,6 +82,16 @@ where action_data::text like '%commandId%'
 
 No database migration is needed.
 
+### Optional legacy-row cleanup (#7675)
+
+The module CLI adds `mercato notifications cleanup-legacy-commands --tenant <uuid> --before <past ISO timestamp> [--org <uuid>] [--limit 1-100] [--apply]`. The operator supplies the upgrade cutoff and tenant; omitting `--org` includes all organizations and tenant-global notifications in that tenant. Preview is the default and never writes, emits events or invalidates caches. Unknown options, invalid scope IDs, future cutoffs and limits outside 1–100 are rejected before opening a container.
+
+Each invocation selects at most 100 rows, strictly older than the cutoff, whose status is unread/read/dismissed, whose `actioned_at` is null, and whose actions contain a `commandId` property. This deliberately includes dismissed rows because they can be restored. Applying locks candidates with `SKIP LOCKED`, removes command-backed actions while preserving link actions and other action metadata, sets expiry to no later than now, and dismisses the rows without fabricating action history. Already-claimed/executed actions are left untouched. Repeated runs consume successive batches and eventually return zero. Legitimate pre-upgrade command actions cannot be distinguished from API-planted copies; both are selected, so operators must review their scope and cutoff before applying. No cleanup runs automatically at startup, upgrade or request time.
+
+After the write commits, the CLI invalidates notification caches for affected organizations and emits the existing `notifications.expired` event. The service's atomic action claim also compares the current `action_data` with its read snapshot: a click that read a command before cleanup cannot dispatch that removed command afterwards and gets the existing 409 response instead. Restoring a cleaned row cannot restore its removed commands.
+
+This is an additive CLI surface, using existing storage, cache and event seams. Existing CLI invocations, HTTP shapes, schema, declared actions, startup and app configuration remain unchanged. The operator-triggered cleanup itself has no undo; retain the normal deployment backup if historical command buttons must be recovered.
+
 **Exception bookkeeping.** The PR description's "Upgrade notes" section carries the client and operator notes for the release notes (maintainers asked to keep new entries out of `UPGRADE_NOTES.md`); the PR description holds the waiver (there is no `BACKWARD_COMPATIBILITY.md` entry, because even a one-line entry puts the OMH-057 compatibility context over its byte cap); the PR carries the `security` label and needs a named human maintainer approval acknowledging the waiver.
 
 ## Testing
@@ -92,12 +102,16 @@ No database migration is needed.
 - UI hook test: opt-out header, coded flash, generic fallback, silent 409.
 - Integration `TC-NOTIF-020`: planted `wms.locations.delete` refused on the single and feature routes with the location surviving; leave approval refused without `staff.leave_requests.manage` and allowed once restored; the bell-panel **Approve** click shows the translated refusal.
 
+- Unit `__tests__/cli.legacy-command-cleanup.test.ts`: rejects unsafe arguments before DI, previews by default, explicitly applies scoped bounded batches, invalidates/emits only after a successful write, and preserves `cleanup-expired`.
+- Unit `__tests__/notificationService.action-authorization.test.ts`: a stale click cannot claim a row after its stored command actions change.
+- PostgreSQL integration `__integration__/TC-NOTIF-7675.spec.ts`: isolated synthetic fixtures cover preview, link/metadata preservation, reruns, cutoff boundaries, tenant/organization isolation, malformed legacy JSON, terminal rows, batch limits, tenant-global rows and a concurrent action lock.
+
 ## Risks & Impact Review
 
 | Risk | Severity | Mitigation | Residual |
 |---|---|---|---|
 | Third-party producers attach undeclared command actions | Medium | Documented in the release upgrade notes; the fix is a declaration in the module's own `notifications.ts` | Their buttons answer 403 until declared |
-| Pre-upgrade API-planted rows that copy a declared action | Medium | Still gated by the declared `requiredFeatures`; operator query provided | Executable by a recipient who already holds the features |
+| Pre-upgrade API-planted rows that copy a declared action | Medium | Declared feature checks plus optional tenant-scoped preview-first command-action cleanup | Remains executable until the operator applies cleanup; legitimate historical actions are also removed |
 | RBAC outage blocks every command action | Low | Fail-closed by design; error reported | Buttons refuse until RBAC recovers |
 | Workflow one-click completion breaks | Low | Declared from the producer's own builder; contract test pins the match | None found |
 
@@ -112,3 +126,5 @@ No database migration is needed.
 - 2026-10-20 — Spec written for #7215 to record the Migration & Backward Compatibility rationale of the shipped fix.
 - 2026-10-28 — Upgrade notes moved from `UPGRADE_NOTES.md` to the PR description; operator query inlined; the `BACKWARD_COMPATIBILITY.md` entry shortened to one line to fit the context budget.
 - 2026-10-29 — `BACKWARD_COMPATIBILITY.md` entry removed; after merging `main` even the one-line entry put the OMH-057 compatibility context over its byte cap. The waiver stays in the PR description.
+
+- 2026-11-22 — Added optional bounded legacy command-action cleanup for #7675 and action-snapshot claim protection; no automatic data migration.

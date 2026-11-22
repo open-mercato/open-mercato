@@ -785,6 +785,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         .where('tenant_id' as any, '=', ctx.tenantId)
         .where('status' as any, '!=', 'actioned')
         .where('actioned_at' as any, 'is', null)
+        .where(sql<boolean>`action_data is not distinct from ${JSON.stringify(actionData ?? null)}::jsonb`)
         .executeTakeFirst()) as { numUpdatedRows?: bigint | number } | undefined
 
       if (Number(claimResult?.numUpdatedRows ?? 0) === 0) {

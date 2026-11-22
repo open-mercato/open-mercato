@@ -4,6 +4,16 @@ import { isSafeNotificationHref } from '../lib/safeHref'
 export const notificationStatusSchema = z.enum(['unread', 'read', 'actioned', 'dismissed'])
 export const notificationSeveritySchema = z.enum(['info', 'warning', 'success', 'error'])
 
+export const legacyCommandCleanupOptionsSchema = z.object({
+  tenant: z.string().uuid(),
+  org: z.string().uuid().optional(),
+  before: z.string().datetime({ offset: true }).refine((value) => Date.parse(value) <= Date.now()),
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+  apply: z.boolean().default(false),
+}).strict()
+
+export type LegacyCommandCleanupOptions = z.infer<typeof legacyCommandCleanupOptionsSchema>
+
 export const safeRelativeHrefSchema = z.string().min(1).refine(
   (href) => isSafeNotificationHref(href),
   { message: 'Href must be a same-origin relative path starting with /' }
