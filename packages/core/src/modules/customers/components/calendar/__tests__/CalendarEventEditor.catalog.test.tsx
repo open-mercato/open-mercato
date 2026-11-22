@@ -6,7 +6,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { calendarEventTypes } from '../../../calendar-event-types'
 import type { ScopedCalendarEventType } from '../../../lib/calendar/eventTypeResolver'
 import { buildCalendarItem } from './fixtures'
-import * as timezoneHelpers from '../../../lib/calendar/timezone'
+import * as timezoneHelpers from '@open-mercato/core/helpers/calendar/timezone'
 
 const crudPropsMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()

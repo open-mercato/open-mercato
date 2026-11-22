@@ -71,11 +71,18 @@ function subtractPeriods(period: Period, blockers: readonly Period[]): Period[] 
   return remaining
 }
 
+export function resolveStaffLeaveRange(startDate: Date, endDate: Date, timezone: string): AvailabilityRange | null {
+  if (!Number.isFinite(+startDate) || !Number.isFinite(+endDate)) return null
+  const start = zonedWallTimeToInstant(isoDate(startDate), '00:00', timezone)
+  const followingDay = new Date(+endDate)
+  followingDay.setUTCDate(followingDay.getUTCDate() + 1)
+  const end = zonedWallTimeToInstant(isoDate(followingDay), '00:00', timezone)
+  return start && end && start < end ? { start, end } : null
+}
+
 function leavePeriod(request: Leave, range: AvailabilityRange): Period | null {
-  const start = zonedWallTimeToInstant(isoDate(request.startDate), '00:00', request.timezone)
-  const followingDay = new Date(request.endDate.getTime() + AVAILABILITY_WINDOW_DAY_MS)
-  const end = zonedWallTimeToInstant(isoDate(followingDay), '00:00', request.timezone)
-  return start && end ? clippedPeriod(start, end, range) : null
+  const leave = resolveStaffLeaveRange(request.startDate, request.endDate, request.timezone)
+  return leave ? clippedPeriod(leave.start, leave.end, range) : null
 }
 
 function isApprovedLeaveMirror(rule: ScheduleRule, requests: readonly Leave[]): boolean {

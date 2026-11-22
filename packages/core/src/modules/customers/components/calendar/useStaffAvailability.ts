@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import type { CalendarRange } from './types'
 import {
   EMPTY_STAFF_AVAILABILITY,
@@ -20,11 +21,12 @@ export function useStaffAvailability({
   organizationId?: string | null
   debounceMs?: number
 }): StaffAvailability {
+  const scopeVersion = useOrganizationScopeVersion()
   const requestedIds = staffAvailabilityUserIds(userIds).join(',')
   const from = range?.from.getTime()
   const to = range?.to.getTime()
   const requestKey = requestedIds && from !== undefined && to !== undefined && from < to
-    ? JSON.stringify([requestedIds, from, to, organizationId])
+    ? JSON.stringify([requestedIds, from, to, organizationId, scopeVersion])
     : null
   const [result, setResult] = React.useState<{ requestKey: string; availability: StaffAvailability }>()
 
