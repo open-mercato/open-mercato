@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -57,7 +58,8 @@ export function OrganisationPicker({ open, scope, onOpenChange, save, onSaved }:
       } else {
         setLoadError(call.result?.error ?? t('sync_xero.picker.loadFailed'))
       }
-    }).catch(() => {
+    }).catch((error: unknown) => {
+      getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code: 'sync_xero.organisations_load_failed' })
       if (!cancelled) setLoadError(t('sync_xero.picker.loadFailed'))
     })
     return () => {

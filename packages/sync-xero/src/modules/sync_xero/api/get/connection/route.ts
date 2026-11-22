@@ -46,13 +46,17 @@ export async function GET(req: Request, ctx?: XeroHandlerContext): Promise<Respo
     throw error
   }
   const inspection = await grant.grantService.inspectGrant(grant.descriptor, grant.owner)
+  const [canManage, canConfigureSchedules] = await Promise.all([
+    userHoldsFeatures(container, userId, [CREDENTIALS_MANAGE_FEATURE], scope),
+    userHoldsFeatures(container, userId, [SCHEDULE_CONFIGURE_FEATURE], scope),
+  ])
 
   return NextResponse.json({
     redirectUri: displayRedirectUri(),
     baseUrlMissing: inspection.baseUrlMissing,
     configured: inspection.connectionState !== 'not_configured',
-    canManage: await userHoldsFeatures(container, userId, [CREDENTIALS_MANAGE_FEATURE], scope),
-    canConfigureSchedules: await userHoldsFeatures(container, userId, [SCHEDULE_CONFIGURE_FEATURE], scope),
+    canManage,
+    canConfigureSchedules,
     seamActive: await isSeamOrganization(scope, grant.credentialsService),
     grant: toXeroGrantView(inspection, new Date()),
     schedules: await listXeroSchedules(container.resolve<SyncScheduleService>('dataSyncScheduleService'), scope),

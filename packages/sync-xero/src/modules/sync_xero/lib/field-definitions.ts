@@ -62,9 +62,11 @@ export async function ensureXeroFieldDefinitions(input: EnsureXeroFieldDefinitio
 }
 
 export function resolveDefinitionsCache(container: AppContainer): DefinitionsCache {
+  if (!container.hasRegistration('cache')) return undefined
   try {
     return container.resolve<DefinitionsCache>('cache')
-  } catch {
+  } catch (error) {
+    getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code: 'sync_xero.field_definitions_cache_unavailable' })
     return undefined
   }
 }

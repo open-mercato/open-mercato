@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { XeroConnectionView } from './types'
 
 export type XeroConnectionState = {
@@ -22,7 +23,8 @@ export function useXeroConnection(): XeroConnectionState {
       const call = await apiCall<XeroConnectionView>('/api/sync_xero/connection', undefined, { fallback: null })
       if (call.ok && call.result) setConnection(call.result)
       else setHasError(true)
-    } catch {
+    } catch (error) {
+      getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code: 'sync_xero.connection_load_failed' })
       setHasError(true)
     } finally {
       setIsLoading(false)

@@ -3,6 +3,7 @@ import type { CustomFieldDef } from '@open-mercato/core/modules/entities/data/en
 import {
   ensureXeroFieldDefinitions,
   ensureXeroFieldDefinitionsAfterSave,
+  resolveDefinitionsCache,
   XERO_COMPANY_FIELD_DEFINITIONS,
   XERO_COMPANY_FIELDS_ENTITY_ID,
 } from '../lib/field-definitions'
@@ -136,5 +137,22 @@ describe('ensureXeroFieldDefinitionsAfterSave', () => {
     await expect(ensureXeroFieldDefinitionsAfterSave(container, scope)).resolves.toBe(false)
 
     expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), { module: 'sync_xero', code: 'sync_xero.field_definitions_failed' })
+  })
+})
+
+describe('resolveDefinitionsCache', () => {
+  beforeEach(() => mockReportError.mockClear())
+
+  it('returns no cache without a registration and reports nothing', () => {
+    expect(resolveDefinitionsCache(createFakeContainer({}))).toBeUndefined()
+    expect(mockReportError).not.toHaveBeenCalled()
+  })
+
+  it('reports a registered cache that cannot be resolved and continues without it', () => {
+    const failure = new Error('[internal] cache resolve failed')
+    const container = createFakeContainer({ cache: null })
+    container.resolve = (() => { throw failure }) as typeof container.resolve
+    expect(resolveDefinitionsCache(container)).toBeUndefined()
+    expect(mockReportError).toHaveBeenCalledWith(failure, { module: 'sync_xero', code: 'sync_xero.field_definitions_cache_unavailable' })
   })
 })

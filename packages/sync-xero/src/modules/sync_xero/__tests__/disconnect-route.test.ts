@@ -182,6 +182,7 @@ describe('POST /api/sync_xero/disconnect', () => {
     expect(grants.state.status).toBe('active')
     expect(runHealthCheck).not.toHaveBeenCalled()
     expect(upsertState).not.toHaveBeenCalled()
+    expect(mockEmitIntegrationsEvent).not.toHaveBeenCalledWith('integrations.state.updated', expect.anything())
   })
 
   it('refuses an unreadable grant without force, then erases it without a revoke when forced', async () => {
@@ -190,6 +191,7 @@ describe('POST /api/sync_xero/disconnect', () => {
     expect(refused.status).toBe(409)
     expect(await json(refused)).toMatchObject({ code: 'disconnect_tokens_unreadable' })
     expect(upsertState).not.toHaveBeenCalled()
+    expect(mockEmitIntegrationsEvent).not.toHaveBeenCalledWith('integrations.state.updated', expect.anything())
 
     const forced = await disconnect(request({ force: true }))
     expect(forced.status).toBe(200)
@@ -204,6 +206,7 @@ describe('POST /api/sync_xero/disconnect', () => {
     expect(await json(response)).toMatchObject({ code: 'transient' })
     expect(grants.state.status).toBe('active')
     expect(upsertState).not.toHaveBeenCalled()
+    expect(mockEmitIntegrationsEvent).not.toHaveBeenCalledWith('integrations.state.updated', expect.anything())
   })
 
   it('reports a failed revoke and still runs the remaining steps', async () => {
@@ -258,6 +261,7 @@ describe('POST /api/sync_xero/disconnect', () => {
     const body = await json(await disconnect(request({}, currentRevision())))
     expect(body.steps).toEqual({ healthCheck: 'ok', disable: 'failed', removeClientCredentials: 'skipped' })
     expect(upsertState).not.toHaveBeenCalled()
+    expect(mockEmitIntegrationsEvent).not.toHaveBeenCalledWith('integrations.state.updated', expect.anything())
   })
 
   it('skips disabling the integration for an admin without integrations.manage', async () => {
@@ -265,6 +269,7 @@ describe('POST /api/sync_xero/disconnect', () => {
     const body = await json(await disconnect(request({}, currentRevision())))
     expect(body.steps).toEqual({ healthCheck: 'ok', disable: 'skipped', removeClientCredentials: 'skipped' })
     expect(upsertState).not.toHaveBeenCalled()
+    expect(mockEmitIntegrationsEvent).not.toHaveBeenCalledWith('integrations.state.updated', expect.anything())
   })
 
   it('reports the follow-up steps as failed when an integration guard blocks them', async () => {
@@ -272,6 +277,7 @@ describe('POST /api/sync_xero/disconnect', () => {
     const body = await json(await disconnect(request({ removeClientCredentials: true }, currentRevision())))
     expect(body).toMatchObject({ erased: true, steps: { healthCheck: 'ok', disable: 'failed', removeClientCredentials: 'failed' } })
     expect(upsertState).not.toHaveBeenCalled()
+    expect(mockEmitIntegrationsEvent).not.toHaveBeenCalledWith('integrations.state.updated', expect.anything())
     expect(saveCredentials).not.toHaveBeenCalled()
   })
 
@@ -306,6 +312,7 @@ describe('POST /api/sync_xero/disconnect', () => {
     const body = await json(await disconnect(request({ removeClientCredentials: true }, currentRevision())))
     expect(body).toMatchObject({ erased: true, steps: { healthCheck: 'ok', disable: 'skipped', removeClientCredentials: 'skipped' } })
     expect(upsertState).not.toHaveBeenCalled()
+    expect(mockEmitIntegrationsEvent).not.toHaveBeenCalledWith('integrations.state.updated', expect.anything())
     expect(saveCredentials).not.toHaveBeenCalled()
   })
 
@@ -322,6 +329,7 @@ describe('POST /api/sync_xero/disconnect', () => {
     const escalated = await json(await disconnect(request({ removeClientCredentials: true }, currentRevision())))
     expect(escalated.steps).toEqual({ healthCheck: 'ok', disable: 'skipped', removeClientCredentials: 'failed' })
     expect(upsertState).not.toHaveBeenCalled()
+    expect(mockEmitIntegrationsEvent).not.toHaveBeenCalledWith('integrations.state.updated', expect.anything())
     expect(saveCredentials).not.toHaveBeenCalled()
   })
 
