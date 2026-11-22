@@ -86,6 +86,15 @@ describe('mapXeroContactToCompany — App Spec § 6.2a Company rows', () => {
     expect(invalid.warnings).toEqual([{ code: 'xero.value_left_out', field: 'websiteUrl' }])
   })
 
+  it('leaves out a website whose scheme is not http or https', () => {
+    for (const website of ['javascript://alert(1)', 'ftp://files.acme.example', 'data://text/plain,acme']) {
+      const company = mapped({ Website: website })
+      expect(company.websiteUrl).toBeNull()
+      expect(company.warnings).toEqual([{ code: 'xero.value_left_out', field: 'websiteUrl' }])
+    }
+    expect(mapped({ Website: 'HTTPS://acme.example' }).websiteUrl).toBe('HTTPS://acme.example')
+  })
+
   it('keeps the tax number as Xero holds it, never maps CompanyNumber, and reads the contact status', () => {
     const company = mapped({ TaxNumber: ' gb 123 456 ', CompanyNumber: '0123', ContactStatus: 'archived' })
     expect(company.taxNumber).toBe('gb 123 456')

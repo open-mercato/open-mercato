@@ -149,8 +149,9 @@ async function finishConnect(started: StartedConnect, extraQuery: Record<string,
 
 function resultOf(response: Response): string | null {
   expect(response.status).toBe(302)
-  const location = new URL(response.headers.get('location') as string)
-  expect(`${location.origin}${location.pathname}`).toBe(`${APP_ORIGIN}/backend/integrations/sync_xero`)
+  const header = response.headers.get('location') as string
+  expect(header.startsWith('/backend/integrations/sync_xero?')).toBe(true)
+  const location = new URL(header, APP_ORIGIN)
   expect(location.searchParams.get('tab')).toBe('xero')
   return location.searchParams.get('xeroResult')
 }
@@ -341,6 +342,15 @@ describe('GET /api/sync_xero/oauth/callback', () => {
     const replay = await finishConnect(started)
     expect(resultOf(replay)).toBe('connect_state_invalid')
     expect(authorizationServer.counters().token.authorizationCode).toBe(1)
+  })
+
+  it('redirects to a relative path, never to a host taken from request headers', async () => {
+    const response = await callback(new Request(`${REDIRECT_URI}?error=access_denied`, {
+      headers: { host: 'attacker.example', 'x-forwarded-host': 'attacker.example' },
+    }))
+    expect(resultOf(response)).toBe('connect_cancelled')
+    expect(response.headers.get('location')).not.toContain('attacker.example')
+    expectCookieCleared(response)
   })
 
   it('refuses an expired state', async () => {

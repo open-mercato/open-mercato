@@ -6,6 +6,7 @@ export const XERO_PHONE_TYPES = ['DEFAULT', 'MOBILE', 'DDI', 'OFFICE'] as const
 const ITALY_COUNTRY_CODE = '39'
 const PERSONAL_TAX_NUMBER_TYPES: ReadonlySet<string> = new Set(['SSN', 'ITIN', 'ATIN'])
 const URL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i
+const WEB_URL_SCHEME = /^https?:\/\//i
 
 export type XeroCompanyField = 'displayName' | 'legalName' | 'primaryEmail' | 'primaryPhone' | 'websiteUrl' | 'taxId'
 export type XeroValueWarning = { code: 'xero.value_left_out' | 'xero.value_truncated'; field: XeroCompanyField }
@@ -99,7 +100,7 @@ export function mapXeroContactToCompany(contact: XeroContact): XeroCompanyMappin
   const website = nonBlank(contact.Website)
   if (website) {
     const normalized = normalizeXeroWebsite(website)
-    if (accepted(fields.websiteUrl, normalized)) websiteUrl = normalized
+    if (WEB_URL_SCHEME.test(normalized) && accepted(fields.websiteUrl, normalized)) websiteUrl = normalized
     else warnings.push({ code: 'xero.value_left_out', field: 'websiteUrl' })
   }
 

@@ -6,7 +6,6 @@ import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-muta
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import {
   consumeOAuthStateOnce,
   OAuthStateError,
@@ -65,11 +64,9 @@ function reportCallbackError(error: unknown, code: string): void {
   getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code })
 }
 
-function redirectToTab(req: Request, result: XeroCallbackResult): Response {
-  const target = new URL(toAbsoluteUrl(req, XERO_TAB_PATH))
-  target.searchParams.set('tab', XERO_CONNECT_TAB_ID)
-  target.searchParams.set(XERO_RESULT_QUERY_PARAM, result)
-  const response = NextResponse.redirect(target.toString(), 302)
+function redirectToTab(result: XeroCallbackResult): Response {
+  const query = new URLSearchParams({ tab: XERO_CONNECT_TAB_ID, [XERO_RESULT_QUERY_PARAM]: result })
+  const response = new NextResponse(null, { status: 302, headers: { Location: `${XERO_TAB_PATH}?${query.toString()}` } })
   clearXeroStateCookie(response)
   return response
 }
@@ -210,7 +207,7 @@ export async function GET(req: Request, ctx?: XeroHandlerContext): Promise<Respo
       result = 'connect_failed'
     }
   }
-  return redirectToTab(req, result)
+  return redirectToTab(result)
 }
 
 export const openApi: OpenApiRouteDoc = {
