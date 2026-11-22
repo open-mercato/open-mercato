@@ -9,7 +9,7 @@ export type AttachmentOwnerAccessRow = AttachmentAccessRecord
 
 export type AttachmentOwnerAccessDestination = AttachmentAccessDestination
 
-export type AttachmentOwnerAccessPrincipal = Pick<McpToolContext, 'tenantId' | 'organizationId' | 'userId' | 'apiKeyId' | 'apiKeyUserId'> & {
+export type AttachmentOwnerAccessPrincipal = Pick<McpToolContext, 'tenantId' | 'organizationId' | 'userId' | 'principalApiKeyId' | 'apiKeyUserId'> & {
   isSuperAdmin?: boolean
   /** Required to evaluate the principal; without it, protected rows are denied. */
   container?: McpToolContext['container']
@@ -40,7 +40,7 @@ export async function filterAttachmentRowsByOwnerAccess<Row extends AttachmentOw
     tenantId: principal.tenantId,
     organizationId: principal.organizationId,
     userId: principal.userId,
-    apiKeyId: principal.apiKeyId,
+    apiKeyId: principal.principalApiKeyId,
     apiKeyUserId: principal.apiKeyUserId,
     isSuperAdmin: principal.isSuperAdmin,
   })

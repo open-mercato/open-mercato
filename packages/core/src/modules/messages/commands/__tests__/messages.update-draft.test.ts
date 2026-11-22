@@ -13,6 +13,8 @@ const mockRegisterCommand = jest.fn((command: RegisteredCommand) => {
 const emitMessagesEventMock = jest.fn(async () => {})
 const findOneWithDecryptionMock = jest.fn()
 const findWithDecryptionMock = jest.fn()
+const deleteMessageAttachmentRowsMock = jest.fn()
+const enqueueMessageAttachmentSectionCleanupMock = jest.fn()
 const assertExternalEmailBudgetMock = jest.fn(async () => {})
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({
@@ -36,6 +38,8 @@ jest.mock('@open-mercato/core/modules/messages/lib/attachments', () => ({
   linkAttachmentsToMessage: jest.fn(),
   linkLibraryAttachmentsToMessage: jest.fn(),
   copyAttachmentsForForwardMessages: jest.fn(),
+  deleteMessageAttachmentRows: (...args: unknown[]) => deleteMessageAttachmentRowsMock(...args),
+  enqueueMessageAttachmentSectionCleanup: (...args: unknown[]) => enqueueMessageAttachmentSectionCleanupMock(...args),
 }))
 
 const messageId = '11111111-1111-4111-8111-111111111111'
@@ -43,6 +47,7 @@ const tenantId = '22222222-2222-4222-8222-222222222222'
 const organizationId = '33333333-3333-4333-8333-333333333333'
 const senderUserId = '44444444-4444-4444-8444-444444444444'
 const recipientUserId = '55555555-5555-4555-8555-555555555555'
+const keptAttachmentId = '66666666-6666-4666-8666-666666666666'
 
 function createDraftMessage(overrides: Partial<Message> = {}) {
   return {
@@ -263,5 +268,43 @@ describe('messages.messages.update_draft command send transition', () => {
     expect(emFork.commit).not.toHaveBeenCalled()
     expect(eventBus.emitEvent).not.toHaveBeenCalled()
     expect(emitMessagesEventMock).not.toHaveBeenCalled()
+  })
+
+  it('purges removed draft attachments inside the transaction and queues search cleanup after commit', async () => {
+    const { command, emFork, ctx } = createHarness()
+    const deleted = {
+      deletedCount: 1,
+      purgedSections: [{ scope: { tenantId, organizationId }, sectionIds: ['section-1'] }],
+    }
+    deleteMessageAttachmentRowsMock.mockResolvedValue(deleted)
+
+    await command.execute(updateInput({ isDraft: undefined, attachmentIds: [keptAttachmentId] }), ctx)
+
+    expect(emFork.nativeDelete).not.toHaveBeenCalled()
+    expect(deleteMessageAttachmentRowsMock).toHaveBeenCalledWith(emFork, {
+      messageId,
+      tenantId,
+      organizationId,
+      excludeIds: [keptAttachmentId],
+    })
+    expect(enqueueMessageAttachmentSectionCleanupMock).toHaveBeenCalledWith(deleted)
+    expect(emFork.begin.mock.invocationCallOrder[0]).toBeLessThan(
+      deleteMessageAttachmentRowsMock.mock.invocationCallOrder[0],
+    )
+    expect(emFork.commit.mock.invocationCallOrder[0]).toBeLessThan(
+      enqueueMessageAttachmentSectionCleanupMock.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('queues no search cleanup when the draft transaction rolls back', async () => {
+    const { command, emFork, ctx } = createHarness()
+    deleteMessageAttachmentRowsMock.mockResolvedValue({ deletedCount: 1, purgedSections: [] })
+    emFork.flush.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('[internal] flush failed'))
+
+    await expect(command.execute(updateInput({ isDraft: undefined, attachmentIds: [] }), ctx)).rejects.toThrow('flush failed')
+
+    expect(deleteMessageAttachmentRowsMock).toHaveBeenCalledWith(emFork, expect.objectContaining({ excludeIds: [] }))
+    expect(emFork.rollback).toHaveBeenCalledTimes(1)
+    expect(enqueueMessageAttachmentSectionCleanupMock).not.toHaveBeenCalled()
   })
 })

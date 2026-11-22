@@ -21,6 +21,7 @@ jest.mock('@modelcontextprotocol/sdk/types.js', () => ({
 jest.mock('../tool-registry', () => ({
   getToolRegistry: () => ({
     getTools: () => new Map(),
+    getTool: (name: string) => ({ name }),
     listToolNames: () => [],
   }),
 }))
@@ -151,7 +152,7 @@ describe('issue #2673 — MCP stdio server must fail closed without auth', () =>
     await createMcpServer(baseOptions({ apiKeySecret: 'omk_valid.secret' }))
     const callTool = [...mockRequestHandlers.entries()].find(([schema]) => (schema as { name?: string }).name === 'call')?.[1]
     await callTool?.({ params: { name: 'attachments.read_attachment', arguments: {} } })
-    expect(mockExecuteTool).toHaveBeenCalledWith('attachments.read_attachment', {}, expect.objectContaining({ apiKeyId: 'key-1' }))
+    expect(mockExecuteTool).toHaveBeenCalledWith('attachments.read_attachment', {}, expect.objectContaining({ principalApiKeyId: 'key-1' }), expect.anything())
     expect(mockExecuteTool.mock.calls[0][2]).not.toHaveProperty('apiKeyUserId')
   })
 
@@ -171,6 +172,6 @@ describe('issue #2673 — MCP stdio server must fail closed without auth', () =>
     await createMcpServer(baseOptions({ apiKeySecret: 'omk_valid.secret' }))
     const callTool = [...mockRequestHandlers.entries()].find(([schema]) => (schema as { name?: string }).name === 'call')?.[1]
     await callTool?.({ params: { name: 'attachments.read_attachment', arguments: {} } })
-    expect(mockExecuteTool).toHaveBeenCalledWith('attachments.read_attachment', {}, expect.objectContaining({ apiKeyId: 'key-1', apiKeyUserId: 'user-1' }))
+    expect(mockExecuteTool).toHaveBeenCalledWith('attachments.read_attachment', {}, expect.objectContaining({ principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' }), expect.anything())
   })
 })

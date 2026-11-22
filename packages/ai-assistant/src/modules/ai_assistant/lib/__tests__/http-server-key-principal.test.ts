@@ -29,7 +29,7 @@ const baseContext = {
   userFeatures: [],
   isSuperAdmin: false,
   apiKeySecret: 'omk_server.secret',
-  apiKeyId: 'server-key',
+  principalApiKeyId: 'server-key',
 } as unknown as McpToolContext
 
 const sessionKey = {
@@ -46,21 +46,27 @@ describe('HTTP MCP server key principal', () => {
     findSessionApiKeyWithSecret.mockResolvedValue({ key: sessionKey, secret: 'omk_session.secret' })
     resolveVerifiedSessionKeyUserId.mockResolvedValue('user-1')
 
-    const context = await resolveSessionContext('sess_token', baseContext)
+    const resolved = await resolveSessionContext('sess_token', baseContext)
 
     expect(loadAcl).toHaveBeenCalledWith('api_key:session-key-1', { tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(resolveVerifiedSessionKeyUserId).toHaveBeenCalledWith(em, sessionKey)
-    expect(context).toMatchObject({ apiKeyId: 'session-key-1', apiKeyUserId: 'user-1', apiKeySecret: 'omk_session.secret' })
+    expect(resolved?.sessionKeyId).toBe('session-key-1')
+    expect(resolved?.context).toMatchObject({
+      principalApiKeyId: 'session-key-1',
+      apiKeyUserId: 'user-1',
+      apiKeySecret: 'omk_session.secret',
+    })
+    expect(resolved?.context).not.toHaveProperty('apiKeyId')
   })
 
   it('leaves the session user out when verification fails, so the key is evaluated alone', async () => {
     findSessionApiKeyWithSecret.mockResolvedValue({ key: sessionKey, secret: 'omk_session.secret' })
     resolveVerifiedSessionKeyUserId.mockResolvedValue(null)
 
-    const context = await resolveSessionContext('sess_token', baseContext)
+    const resolved = await resolveSessionContext('sess_token', baseContext)
 
-    expect(context?.apiKeyId).toBe('session-key-1')
-    expect(context).not.toHaveProperty('apiKeyUserId')
+    expect(resolved?.context.principalApiKeyId).toBe('session-key-1')
+    expect(resolved?.context).not.toHaveProperty('apiKeyUserId')
   })
 
   it('carries a regular header key id without a backing user', async () => {
@@ -70,7 +76,7 @@ describe('HTTP MCP server key principal', () => {
     const context = await resolveApiKeyContext(regularKey, baseContext)
 
     expect(resolveVerifiedSessionKeyUserId).toHaveBeenCalledWith(em, regularKey)
-    expect(context).toMatchObject({ apiKeyId: 'regular-key-1', userId: 'creator-1' })
+    expect(context).toMatchObject({ principalApiKeyId: 'regular-key-1', userId: 'creator-1' })
     expect(context).not.toHaveProperty('apiKeyUserId')
   })
 })

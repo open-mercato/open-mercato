@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/core'
-import type { EntityManager as PostgresEntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager as SqlEntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveAttachmentScopePair } from '@open-mercato/core/modules/attachments/lib/scope'
@@ -21,7 +21,7 @@ async function assertAttachmentsLinkable(
   const { evaluateAttachmentRowAccess } = await import('@open-mercato/core/modules/attachments/lib/access-rows')
   const { denied } = await evaluateAttachmentRowAccess({
     container: access?.container,
-    em: em as unknown as PostgresEntityManager,
+    em: em as unknown as SqlEntityManager,
     auth: access?.auth ?? undefined,
     rows: moving,
     action: 'reassign',
@@ -83,6 +83,101 @@ export async function linkAttachmentsToMessage(
     tenantId,
     ...buildOrganizationScopeFilter(organizationId),
   }, messageId, access)
+}
+
+type MessageAttachmentRowsDatabase = {
+  attachments: {
+    id: string
+    entity_id: string
+    record_id: string
+    tenant_id: string | null
+    organization_id: string | null
+  }
+}
+
+export type MessageAttachmentRowsFilter = {
+  messageId: string
+  tenantId: string
+  organizationId: string | null
+  includeIds?: readonly string[]
+  excludeIds?: readonly string[]
+}
+
+type AttachmentRowScope = { tenantId: string | null; organizationId: string | null }
+
+export type DeletedMessageAttachmentRows = {
+  deletedCount: number
+  purgedSections: Array<{ scope: AttachmentRowScope; sectionIds: string[] }>
+}
+
+async function selectMessageAttachmentRows(
+  em: SqlEntityManager,
+  filter: MessageAttachmentRowsFilter,
+): Promise<Array<{ id: string } & AttachmentRowScope>> {
+  if (filter.includeIds && filter.includeIds.length === 0) return []
+  let query = em
+    .getKysely<MessageAttachmentRowsDatabase>()
+    .selectFrom('attachments')
+    .select(['id', 'tenant_id', 'organization_id'])
+    .where('entity_id', '=', MESSAGE_ATTACHMENT_ENTITY_ID)
+    .where('record_id', '=', filter.messageId)
+    .where('tenant_id', '=', filter.tenantId)
+  query = filter.organizationId === null
+    ? query.where('organization_id', 'is', null)
+    : query.where('organization_id', '=', filter.organizationId)
+  if (filter.includeIds) query = query.where('id', 'in', [...filter.includeIds])
+  if (filter.excludeIds && filter.excludeIds.length > 0) query = query.where('id', 'not in', [...filter.excludeIds])
+  const rows = await query.execute()
+  return rows.map((row) => ({
+    id: String(row.id),
+    tenantId: row.tenant_id ?? null,
+    organizationId: row.organization_id ?? null,
+  }))
+}
+
+/**
+ * Deletes message attachment rows together with their document structure (extractions and
+ * sections). Joins the caller's transaction when one is open, otherwise opens its own. The search
+ * records of purged sections are NOT cleaned here: pass the result to
+ * `enqueueMessageAttachmentSectionCleanup` once the surrounding transaction has committed.
+ */
+export async function deleteMessageAttachmentRows(
+  em: EntityManager,
+  filter: MessageAttachmentRowsFilter,
+): Promise<DeletedMessageAttachmentRows> {
+  const sqlEm = em as unknown as SqlEntityManager
+  const run = async (target: SqlEntityManager): Promise<DeletedMessageAttachmentRows> => {
+    const rows = await selectMessageAttachmentRows(target, filter)
+    if (rows.length === 0) return { deletedCount: 0, purgedSections: [] }
+    const [{ Attachment }, { purgeDocumentStructure }] = await Promise.all([
+      import('@open-mercato/core/modules/attachments/data/entities'),
+      import('@open-mercato/core/modules/attachments/lib/documentStructure/purge'),
+    ])
+    const purgedSections: DeletedMessageAttachmentRows['purgedSections'] = []
+    for (const row of rows) {
+      const scope = { tenantId: row.tenantId, organizationId: row.organizationId }
+      if ((scope.tenantId === null) !== (scope.organizationId === null)) continue
+      const purge = await purgeDocumentStructure(target, { attachmentId: row.id, ...scope }, { flush: false })
+      if (purge.indexedSectionIds.length > 0) purgedSections.push({ scope, sectionIds: purge.indexedSectionIds })
+    }
+    const deletedCount = await target.nativeDelete(Attachment, {
+      id: { $in: rows.map((row) => row.id) },
+      entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
+      recordId: filter.messageId,
+      tenantId: filter.tenantId,
+      organizationId: filter.organizationId,
+    })
+    return { deletedCount, purgedSections }
+  }
+  const isInTransaction = (sqlEm as { isInTransaction?: () => boolean }).isInTransaction
+  if (typeof isInTransaction === 'function' && isInTransaction.call(sqlEm)) return run(sqlEm)
+  return sqlEm.transactional((tx) => run(tx))
+}
+
+export async function enqueueMessageAttachmentSectionCleanup(deleted: DeletedMessageAttachmentRows): Promise<void> {
+  if (deleted.purgedSections.length === 0) return
+  const { enqueuePurgedSectionSearchDelete } = await import('@open-mercato/core/modules/attachments/lib/documentStructure/purge')
+  for (const entry of deleted.purgedSections) await enqueuePurgedSectionSearchDelete(entry.scope, entry.sectionIds)
 }
 
 export async function getMessageAttachments(

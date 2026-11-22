@@ -105,6 +105,7 @@ function buildRequest(options: {
   agent?: string | null
   body?: unknown
   bodyRaw?: string
+  headers?: Record<string, string>
 }): Request {
   const url = new URL('http://localhost/api/ai/chat')
   if (options.agent !== undefined && options.agent !== null) {
@@ -115,7 +116,7 @@ function buildRequest(options: {
     init.body = options.bodyRaw
   } else if (options.body !== undefined) {
     init.body = JSON.stringify(options.body)
-    init.headers = { 'content-type': 'application/json' }
+    init.headers = { 'content-type': 'application/json', ...(options.headers ?? {}) }
   }
   return new Request(url, init)
 }
@@ -326,7 +327,7 @@ describe('POST /api/ai/chat', () => {
     seedAgentRegistryForTests([makeAgent({ id: 'customers.assistant', moduleId: 'customers' })])
     const keyAuth = { sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', tenantId: 'tenant-1', orgId: 'org-1' }
     authMock.mockResolvedValue(keyAuth)
-    resolveRequestApiKeyPrincipalMock.mockResolvedValue({ apiKeyId: 'key-1', apiKeyUserId: 'user-1' })
+    resolveRequestApiKeyPrincipalMock.mockResolvedValue({ principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' })
 
     const response = await POST(
       buildRequest({ agent: 'customers.assistant', body: { messages: [{ role: 'user', content: 'Hello' }] } }) as any,
@@ -334,7 +335,48 @@ describe('POST /api/ai/chat', () => {
 
     expect(response.status).toBe(200)
     expect(resolveRequestApiKeyPrincipalMock).toHaveBeenCalledWith(expect.anything(), keyAuth)
-    expect(runAiAgentTextMock.mock.calls[0][0].authContext).toMatchObject({ userId: 'api_key:key-1', apiKeyId: 'key-1', apiKeyUserId: 'user-1' })
+    expect(runAiAgentTextMock.mock.calls[0][0].authContext).toMatchObject({ userId: 'api_key:key-1', principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' })
+  })
+
+  it('passes a generated runId with the chat channel and the request correlation id', async () => {
+    seedAgentRegistryForTests([makeAgent({ id: 'customers.assistant', moduleId: 'customers' })])
+
+    await POST(
+      buildRequest({
+        agent: 'customers.assistant',
+        body: { messages: [{ role: 'user', content: 'Hello assistant' }] },
+        headers: { 'x-correlation-id': ' corr-42 ' },
+      }) as any,
+    )
+
+    const callArg = runAiAgentTextMock.mock.calls[0][0] as {
+      runId?: string
+      trace?: { channel?: string; correlationId?: string }
+    }
+    expect(callArg.runId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(callArg.trace).toEqual({ channel: 'chat', correlationId: 'corr-42' })
+  })
+
+  it('uses the playground channel and a generated correlation id for playground turns', async () => {
+    seedAgentRegistryForTests([makeAgent({ id: 'customers.assistant', moduleId: 'customers' })])
+
+    await POST(
+      buildRequest({
+        agent: 'customers.assistant',
+        body: {
+          messages: [{ role: 'user', content: 'Hello assistant' }],
+          pageContext: { source: 'playground', pageId: 'ai_assistant.playground' },
+        },
+      }) as any,
+    )
+
+    const callArg = runAiAgentTextMock.mock.calls[0][0] as {
+      runId?: string
+      trace?: { channel?: string; correlationId?: string }
+    }
+    expect(callArg.trace?.channel).toBe('playground')
+    expect(callArg.trace?.correlationId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(callArg.trace?.correlationId).not.toBe(callArg.runId)
   })
 
   it('persists the user message before dispatch and the assistant message after the stream finishes', async () => {
@@ -424,6 +466,7 @@ describe('POST /api/ai/chat', () => {
         clientMessageId: 'msg-user-1:assistant',
         role: 'assistant',
         content: 'Hello world',
+        metadata: { runId: (runAiAgentTextMock.mock.calls[0][0] as { runId: string }).runId },
       }),
       expect.objectContaining({
         tenantId: 'tenant-1',

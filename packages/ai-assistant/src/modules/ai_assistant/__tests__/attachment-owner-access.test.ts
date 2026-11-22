@@ -75,7 +75,7 @@ beforeEach(() => {
 })
 
 describe('attachments.* tools', () => {
-  const ctx = { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'creator-1', apiKeyId: 'key-1', container, userFeatures: ['attachments.view'], isSuperAdmin: false }
+  const ctx = { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'creator-1', principalApiKeyId: 'key-1', container, userFeatures: ['attachments.view'], isSuperAdmin: false }
 
   it('omits rows the owner policy denies from the record listing', async () => {
     findWithDecryptionMock.mockResolvedValueOnce([protectedRow, plainRow])
@@ -172,7 +172,7 @@ describe('chat attachment bridge', () => {
     await resolveAttachmentParts({
       attachmentIds: ['plain'],
       authContext: {
-        tenantId: 'tenant-1', organizationId: 'org-1', userId: 'creator-1', apiKeyId: 'key-1', apiKeyUserId: 'user-1',
+        tenantId: 'tenant-1', organizationId: 'org-1', userId: 'creator-1', principalApiKeyId: 'key-1', apiKeyUserId: 'user-1',
         features: [], isSuperAdmin: false,
       },
       container: container as never,
@@ -223,7 +223,7 @@ describe('pending-action recheck', () => {
   it('evaluates a key-authenticated confirmation as the key, with the verified user of a session key', async () => {
     findWithDecryptionMock.mockResolvedValueOnce([plainRow])
     denyIds()
-    await checkAttachmentScope(action, { ...recheckCtx, apiKeyId: 'key-1', apiKeyUserId: 'user-2' })
+    await checkAttachmentScope(action, { ...recheckCtx, principalApiKeyId: 'key-1', apiKeyUserId: 'user-2' })
     expect(buildAttachmentAccessAuthMock).toHaveBeenCalledWith(expect.objectContaining({ apiKeyId: 'key-1', apiKeyUserId: 'user-2' }))
   })
 

@@ -341,7 +341,7 @@ export async function resolveAttachmentParts(
         tenantId: input.authContext.tenantId,
         organizationId: input.authContext.organizationId,
         userId: input.authContext.userId,
-        apiKeyId: input.authContext.apiKeyId ?? undefined,
+        principalApiKeyId: input.authContext.principalApiKeyId ?? undefined,
         apiKeyUserId: input.authContext.apiKeyUserId ?? undefined,
         isSuperAdmin: input.authContext.isSuperAdmin,
         container: input.container,

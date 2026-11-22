@@ -513,7 +513,7 @@ describe('warranty claim AI assessment packet', () => {
     createRequestContainerMock.mockResolvedValue(container)
     const keyAuth = { sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', tenantId: TENANT_ID, orgId: ORG_ID, isSuperAdmin: false }
     getAuthFromRequestMock.mockResolvedValue(keyAuth)
-    resolveRequestApiKeyPrincipalMock.mockResolvedValue({ apiKeyId: 'key-1', apiKeyUserId: USER_ID })
+    resolveRequestApiKeyPrincipalMock.mockResolvedValue({ principalApiKeyId: 'key-1', apiKeyUserId: USER_ID })
     resolveOrganizationScopeForRequestMock.mockResolvedValue({ selectedId: ORG_ID, filterIds: [ORG_ID] })
     runRouteMutationGuardsMock.mockResolvedValue({ ok: true, modifiedPayload: null, runAfterSuccess: jest.fn() })
 
@@ -602,7 +602,7 @@ describe('warranty claim AI assessment packet', () => {
       claimId: CLAIM_ID,
       lineId: LINE_ID,
       attachmentId: ATTACHMENT_ID,
-    }, { ...makeToolContext(container), apiKeyId })).rejects.toThrow('Attachment is not linked')
+    }, { ...makeToolContext(container), principalApiKeyId: apiKeyId })).rejects.toThrow('Attachment is not linked')
 
     const auth = attachmentTargetAccessMock.mock.calls[0]?.[0]?.auth
     expect(auth).toMatchObject({ sub: `api_key:${apiKeyId}`, keyId: apiKeyId, isApiKey: true })

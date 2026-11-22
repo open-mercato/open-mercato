@@ -344,7 +344,7 @@ describe('catalog.draft_description_from_media', () => {
     mockEvaluatedAuth.length = 0
     await tool.handler(
       { productId: PRODUCT_ID, userUploadedAttachmentIds: [attachmentId] },
-      { ...makeAuthoringCtx(), apiKeyId: 'key-1' } as any,
+      { ...makeAuthoringCtx(), principalApiKeyId: 'key-1' } as any,
     )
     expect(mockEvaluatedAuth).toEqual([expect.objectContaining({ sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1' })])
     expect(mockEvaluatedAuth[0]).not.toHaveProperty('userId')

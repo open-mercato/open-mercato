@@ -68,7 +68,7 @@ export class InProcessMcpClient implements McpClientInterface {
       tenantId: auth.tenantId,
       organizationId: auth.organizationId,
       userId: auth.userId,
-      ...(keyAuthenticated ? { apiKeyId: auth.keyId } : {}),
+      ...(keyAuthenticated ? { principalApiKeyId: auth.keyId } : {}),
       ...(keyAuthenticated && auth.apiKeyUserId ? { apiKeyUserId: auth.apiKeyUserId } : {}),
       container,
       userFeatures: auth.features,

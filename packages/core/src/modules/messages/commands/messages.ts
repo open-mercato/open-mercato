@@ -12,14 +12,21 @@ import {
   replyMessageSchema,
   updateDraftSchema,
 } from '../data/validators'
-import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
+import {
+  copyAttachmentsForForwardMessages,
+  deleteMessageAttachmentRows,
+  enqueueMessageAttachmentSectionCleanup,
+  linkAttachmentsToMessage,
+  linkLibraryAttachmentsToMessage,
+  type DeletedMessageAttachmentRows,
+} from '../lib/attachments'
 import { resolveAttachmentLinkAccess } from '../lib/attachmentLinkAccess'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveActorFeatures,
   resolveMessageChannelThreadAccess,
 } from '../lib/channelThreadAccess'
-import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID } from '../lib/constants'
+import { MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID } from '../lib/constants'
 import { canUseChannelThreadFallback } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
@@ -595,6 +602,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       )
     }
 
+    let deletedAttachments: DeletedMessageAttachmentRows | null = null
     // Phase 1 mutates the managed `message` scalars; the per-phase flush issues
     // those changes before phase 2's interleaved reads run (e.g.
     // `linkAttachmentsToMessage` issues an `em.find`). Under MikroORM v7 a read
@@ -643,23 +651,12 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
 
       if (input.attachmentIds) {
-        const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-        if (input.attachmentIds.length === 0) {
-          await em.nativeDelete(Attachment, {
-            entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-            recordId: message.id,
-            tenantId: input.tenantId,
-            organizationId: input.organizationId,
-          })
-        } else {
-          await em.nativeDelete(Attachment, {
-            entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-            recordId: message.id,
-            tenantId: input.tenantId,
-            organizationId: input.organizationId,
-            id: { $nin: input.attachmentIds },
-          })
-        }
+        deletedAttachments = await deleteMessageAttachmentRows(em, {
+          messageId: message.id,
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+          excludeIds: input.attachmentIds,
+        })
         await linkAttachmentsToMessage(
           em,
           message.id,
@@ -679,6 +676,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
         if (!message.threadId) message.threadId = message.id
       }
     }], { transaction: true })
+    if (deletedAttachments) await enqueueMessageAttachmentSectionCleanup(deletedAttachments)
 
     await emitMessageIndexUpsert(ctx.container, {
       messageId: message.id,

@@ -29,7 +29,7 @@ describe('InProcessMcpClient key principal', () => {
     authenticateMcpRequest.mockResolvedValue({ ...keyAuth, apiKeyUserId: 'user-1' })
     const client = await InProcessMcpClient.create({ apiKeySecret: 'omk_key.secret', container })
     await client.callTool('attachments.read_attachment', {})
-    expect(executeTool).toHaveBeenCalledWith('attachments.read_attachment', {}, expect.objectContaining({ apiKeyId: 'key-1', apiKeyUserId: 'user-1' }))
+    expect(executeTool).toHaveBeenCalledWith('attachments.read_attachment', {}, expect.objectContaining({ principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' }))
   })
 
   it('carries no key principal for a pre-authenticated user context', async () => {
@@ -39,7 +39,7 @@ describe('InProcessMcpClient key principal', () => {
     })
     await client.callTool('attachments.read_attachment', {})
     const context = executeTool.mock.calls[0][2]
-    expect(context).not.toHaveProperty('apiKeyId')
+    expect(context).not.toHaveProperty('principalApiKeyId')
     expect(context).not.toHaveProperty('apiKeyUserId')
   })
 })

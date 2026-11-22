@@ -33,7 +33,7 @@ export interface WarrantyClaimsToolContext {
   userFeatures: string[]
   isSuperAdmin: boolean
   apiKeySecret?: string
-  apiKeyId?: string | null
+  principalApiKeyId?: string | null
   apiKeyUserId?: string | null
   sessionId?: string
   approvedPendingActionId?: string
@@ -113,7 +113,7 @@ function buildAttachmentAuthContext(ctx: WarrantyClaimsToolContext, scope: Scope
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     userId: ctx.userId,
-    apiKeyId: ctx.apiKeyId ?? null,
+    principalApiKeyId: ctx.principalApiKeyId ?? null,
     apiKeyUserId: ctx.apiKeyUserId ?? null,
     features: ctx.userFeatures,
     isSuperAdmin: ctx.isSuperAdmin,
@@ -128,7 +128,7 @@ function buildAttachmentRecordAuthContext(
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     userId: ctx.userId,
-    apiKeyId: ctx.apiKeyId,
+    apiKeyId: ctx.principalApiKeyId,
     apiKeyUserId: ctx.apiKeyUserId,
     isSuperAdmin: ctx.isSuperAdmin,
   })

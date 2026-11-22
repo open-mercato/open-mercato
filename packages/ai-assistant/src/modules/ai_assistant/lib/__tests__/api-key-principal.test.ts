@@ -32,7 +32,7 @@ describe('resolveRequestApiKeyPrincipal', () => {
     findOneWithDecryption.mockResolvedValue(key)
     resolveVerifiedSessionKeyUserId.mockResolvedValue(null)
 
-    await expect(resolveRequestApiKeyPrincipal(container, keyAuth)).resolves.toEqual({ apiKeyId: 'key-1' })
+    await expect(resolveRequestApiKeyPrincipal(container, keyAuth)).resolves.toEqual({ principalApiKeyId: 'key-1' })
     expect(resolveVerifiedSessionKeyUserId).toHaveBeenCalledWith(em, key)
   })
 
@@ -71,7 +71,7 @@ describe('resolveRequestApiKeyPrincipal', () => {
     findOneWithDecryption.mockResolvedValue({ id: 'key-1', ...keyScope })
     resolveVerifiedSessionKeyUserId.mockResolvedValue('user-1')
 
-    await expect(resolveRequestApiKeyPrincipal(container, keyAuth)).resolves.toEqual({ apiKeyId: 'key-1' })
+    await expect(resolveRequestApiKeyPrincipal(container, keyAuth)).resolves.toEqual({ principalApiKeyId: 'key-1' })
     expect(resolveVerifiedSessionKeyUserId).not.toHaveBeenCalled()
   })
 
@@ -79,13 +79,13 @@ describe('resolveRequestApiKeyPrincipal', () => {
     findOneWithDecryption.mockResolvedValue({ id: 'key-1', tenantId: 'tenant-1', organizationId: 'org-1' })
     resolveVerifiedSessionKeyUserId.mockResolvedValue('user-1')
 
-    await expect(resolveRequestApiKeyPrincipal(container, keyAuth)).resolves.toEqual({ apiKeyId: 'key-1', apiKeyUserId: 'user-1' })
+    await expect(resolveRequestApiKeyPrincipal(container, keyAuth)).resolves.toEqual({ principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' })
   })
 
   it('keeps the key id when the key row is gone', async () => {
     findOneWithDecryption.mockResolvedValue(null)
 
-    await expect(resolveRequestApiKeyPrincipal(container, keyAuth)).resolves.toEqual({ apiKeyId: 'key-1' })
+    await expect(resolveRequestApiKeyPrincipal(container, keyAuth)).resolves.toEqual({ principalApiKeyId: 'key-1' })
     expect(resolveVerifiedSessionKeyUserId).not.toHaveBeenCalled()
   })
 })

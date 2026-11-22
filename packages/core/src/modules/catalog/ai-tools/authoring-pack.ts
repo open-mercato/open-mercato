@@ -304,7 +304,7 @@ async function loadUserMedia(
       tenantId,
       organizationId: ctx.organizationId,
       userId: ctx.userId,
-      apiKeyId: ctx.apiKeyId,
+      apiKeyId: ctx.principalApiKeyId,
       apiKeyUserId: ctx.apiKeyUserId,
       isSuperAdmin: ctx.isSuperAdmin,
     }),

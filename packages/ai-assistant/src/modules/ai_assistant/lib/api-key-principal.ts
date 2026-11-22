@@ -6,7 +6,7 @@ import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { resolveVerifiedSessionKeyUserId } from '@open-mercato/core/modules/api_keys/services/sessionKeyRoles'
 
 export type ApiKeyPrincipal = {
-  apiKeyId?: string
+  principalApiKeyId?: string
   apiKeyUserId?: string
 }
 
@@ -34,5 +34,5 @@ export async function resolveRequestApiKeyPrincipal(
     && (key.tenantId ?? null) === tenantId
     && (key.organizationId ?? null) === organizationId
   const apiKeyUserId = keyMatchesScope ? await resolveVerifiedSessionKeyUserId(em, key) : null
-  return { apiKeyId: auth.keyId, ...(apiKeyUserId ? { apiKeyUserId } : {}) }
+  return { principalApiKeyId: auth.keyId, ...(apiKeyUserId ? { apiKeyUserId } : {}) }
 }
