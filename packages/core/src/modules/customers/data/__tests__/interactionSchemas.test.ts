@@ -46,6 +46,14 @@ describe('interaction validators — extended scheduling fields', () => {
     guestPermissions: { canInviteOthers: true, canModify: false, canSeeList: true },
   }
 
+  test('interactionCreateSchema requires a CRM parent when entityId is omitted', () => {
+    expect(interactionCreateSchema.safeParse(basePayload).success).toBe(false)
+  })
+
+  test('interactionCreateSchema rejects an explicit null CRM parent', () => {
+    expect(interactionCreateSchema.safeParse({ ...basePayload, entityId: null }).success).toBe(false)
+  })
+
   test('interactionCreateSchema preserves all extended fields', () => {
     const parsed = interactionCreateSchema.parse({ ...basePayload, entityId })
     expect(parsed.durationMinutes).toBe(45)
