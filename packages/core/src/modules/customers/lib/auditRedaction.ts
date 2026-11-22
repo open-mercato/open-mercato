@@ -100,7 +100,7 @@ function collectInteractionIds(entries: ReadonlyArray<RedactableAuditEntryRef>):
  * embedded interactions a `customers.person`/`customers.company` entry
  * names) about to be redacted, for one audit-log read. Fails CLOSED on any
  * error: an empty context (and an empty live-authority map) yields the
- * strict owner-only, "no live record" redaction, never a leak, so a DB
+ * strict "no live record" redaction, never a leak, so a DB
  * hiccup here can only over-redact.
  */
 export async function loadCustomerAuditRedactionContext(
@@ -127,45 +127,8 @@ export async function loadCustomerAuditRedactionContext(
   }
 }
 
-/**
- * Conservative historical fallback: the strictest possible authority. Used
- * whenever a live row cannot be resolved — the stored snapshot's own
- * `visibility`, `channelId`, and parent `entityId` may all be stale (a later
- * revocation, a moved mailbox, a re-linked parent), so NONE of them may be
- * trusted. `entityId: null` specifically means no conversation-share grant
- * can ever apply here — "a historical parent grant existed" is not proof of
- * CURRENT access (see `resolveInteractionAuthority`). Only the stored author
- * id survives into the fallback: authorship never changes, so an author can
- * always see their own historical content regardless of what else is
- * unverifiable.
- */
-function conservativeInteractionAuthority(storedAuthorUserId: string | null): LiveInteractionAuthority {
-  return { visibility: 'private', authorUserId: storedAuthorUserId, channelId: null, entityId: null }
-}
-
-/**
- * Resolves the authority to decide visibility for ONE historical interaction
- * representation: the CURRENT live row when it resolves, else the
- * conservative fallback above.
- *
- * `interactionId` is the snapshot's OWN id when present, falling back to the
- * enclosing audit entry's `resourceId` (both name the same interaction) when
- * the snapshot itself carries no id — there is no circumstance where neither
- * identifies the interaction for a real `customers.interaction` audit entry,
- * but defensively, if both are absent, the fallback still applies rather than
- * trusting unverifiable stored data.
- *
- * When a live row DOES resolve, its `authorUserId` is used exactly as
- * stored there — including `null` — and never backfilled from the
- * snapshot's historical author: `customers.interactions.update` lets the
- * existing author transfer ownership to someone else, so the stored author
- * is not a safe stand-in for "no current author" or for a now-different
- * one. The historical author only survives into the CONSERVATIVE fallback,
- * where there is no live row at all to contradict it.
- */
 function resolveInteractionAuthority(
   interactionId: string | null,
-  storedAuthorUserId: string | null,
   ctx: CustomerAuditRedactionContext,
 ): LiveInteractionAuthority {
   const live = interactionId ? ctx.liveInteractionsById.get(interactionId) : undefined
@@ -177,7 +140,7 @@ function resolveInteractionAuthority(
       entityId: live.entityId,
     }
   }
-  return conservativeInteractionAuthority(storedAuthorUserId)
+  return { visibility: 'private', authorUserId: null, channelId: null, entityId: null }
 }
 
 function redactRecordFields(record: Record<string, unknown>): Record<string, unknown> {
@@ -197,10 +160,7 @@ function isHiddenEmailInteraction(
   if (interactionType !== 'email') return false
   const ownId = typeof interaction.id === 'string' && interaction.id ? interaction.id : null
   const interactionId = ownId ?? fallbackInteractionId
-  const storedAuthorUserId = typeof interaction.authorUserId === 'string' ? interaction.authorUserId : null
-  // The stored snapshot's `visibility`/`channelId`/parent never factor in here —
-  // only the resolved CURRENT authority does. See `resolveInteractionAuthority`.
-  const authority = resolveInteractionAuthority(interactionId, storedAuthorUserId, ctx)
+  const authority = resolveInteractionAuthority(interactionId, ctx)
   return isEmailHiddenFrom({
     interactionType,
     visibility: authority.visibility,

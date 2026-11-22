@@ -3861,6 +3861,22 @@ async function applyQuoteLineResults(params: {
   }
 }
 
+async function queueCreatedLineIndexes(
+  dataEngine: DataEngine,
+  lines: Array<SalesOrderLine | SalesQuoteLine>,
+  entityType: string,
+): Promise<void> {
+  for (const line of lines) {
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "created",
+      entity: line,
+      identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+      indexer: { entityType },
+    });
+  }
+}
+
 async function replaceQuoteLines(
   em: EntityManager,
   quote: SalesQuote,
@@ -3868,7 +3884,8 @@ async function replaceQuoteLines(
   lineInputs: QuoteLineCreateInput[],
   omnibusService: CatalogOmnibusService | null = null,
   replay?: DocumentCreateReplay,
-): Promise<SalesQuoteLine[]> {
+): Promise<{ createdLines: SalesQuoteLine[]; linesWithCustomFields: SalesQuoteLine[] }> {
+  const linesWithCustomFields: SalesQuoteLine[] = [];
   if (replay && replay.lines.length !== calculation.lines.length) {
     throw badRequest("[internal] sales document redo line count mismatch");
   }
@@ -3894,9 +3911,9 @@ async function replaceQuoteLines(
     );
     const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null);
     const lineEntity = em.create(SalesQuoteLine, {
+      id: replay?.lines[index].id ?? randomUUID(),
       quote,
       ...entityInput,
-      ...(replay ? { id: replay.lines[index].id } : {}),
       status: statusValue,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -3905,19 +3922,16 @@ async function replaceQuoteLines(
     else if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
     createdLines.push(lineEntity);
     em.persist(lineEntity);
-    const rawCustomFields = (sourceLine as any).customFields;
-    if (rawCustomFields !== undefined && rawCustomFields !== null) {
-      const customValues =
-        rawCustomFields && typeof rawCustomFields === "object"
-          ? (rawCustomFields as Record<string, unknown>)
-          : {};
+    const { customFields } = sourceLine;
+    if (customFields && Object.keys(customFields).length > 0) {
       await setRecordCustomFields(em, {
         entityId: E.sales.sales_quote_line,
         recordId: lineEntity.id,
         organizationId: quote.organizationId,
         tenantId: quote.tenantId,
-        values: normalizeCustomFieldValues(customValues),
+        values: normalizeCustomFieldValues(customFields),
       });
+      linesWithCustomFields.push(lineEntity);
     }
   }
   if (omnibusService && snapshotLines.length) {
@@ -3925,7 +3939,7 @@ async function replaceQuoteLines(
       em: em.fork(), service: omnibusService, lines: snapshotLines, document: quote, documentKind: "quote",
     });
   }
-  return createdLines;
+  return { createdLines, linesWithCustomFields };
 }
 
 async function replaceQuoteAdjustments(
@@ -4013,7 +4027,8 @@ async function replaceOrderLines(
   lineInputs: OrderLineCreateInput[],
   omnibusService: CatalogOmnibusService | null = null,
   replay?: DocumentCreateReplay,
-): Promise<SalesOrderLine[]> {
+): Promise<{ createdLines: SalesOrderLine[]; linesWithCustomFields: SalesOrderLine[] }> {
+  const linesWithCustomFields: SalesOrderLine[] = [];
   if (replay && replay.lines.length !== calculation.lines.length) {
     throw badRequest("[internal] sales document redo line count mismatch");
   }
@@ -4039,9 +4054,9 @@ async function replaceOrderLines(
     );
     const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null);
     const lineEntity = em.create(SalesOrderLine, {
+      id: replay?.lines[index].id ?? randomUUID(),
       order,
       ...entityInput,
-      ...(replay ? { id: replay.lines[index].id } : {}),
       reservedQuantity: "0",
       fulfilledQuantity: "0",
       invoicedQuantity: "0",
@@ -4054,19 +4069,16 @@ async function replaceOrderLines(
     else if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
     createdLines.push(lineEntity);
     em.persist(lineEntity);
-    const rawCustomFields = (sourceLine as any).customFields;
-    if (rawCustomFields !== undefined && rawCustomFields !== null) {
-      const customValues =
-        rawCustomFields && typeof rawCustomFields === "object"
-          ? (rawCustomFields as Record<string, unknown>)
-          : {};
+    const { customFields } = sourceLine;
+    if (customFields && Object.keys(customFields).length > 0) {
       await setRecordCustomFields(em, {
         entityId: E.sales.sales_order_line,
         recordId: lineEntity.id,
         organizationId: order.organizationId,
         tenantId: order.tenantId,
-        values: normalizeCustomFieldValues(customValues),
+        values: normalizeCustomFieldValues(customFields),
       });
+      linesWithCustomFields.push(lineEntity);
     }
   }
   if (omnibusService && snapshotLines.length) {
@@ -4074,7 +4086,7 @@ async function replaceOrderLines(
       em: em.fork(), service: omnibusService, lines: snapshotLines, document: order, documentKind: "order",
     });
   }
-  return createdLines;
+  return { createdLines, linesWithCustomFields };
 }
 
 async function replaceOrderAdjustments(
@@ -5787,6 +5799,7 @@ const createQuoteCommand: CommandHandler<
     } catch {
       eventBus = null;
     }
+    let linesWithCustomFields: SalesQuoteLine[] = [];
     // Persist the quote header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built quote committed (#2336).
@@ -5796,14 +5809,14 @@ const createQuoteCommand: CommandHandler<
       [
         async () => {
           em.persist(quote);
-          createdLines = await replaceQuoteLines(
+          ({ createdLines, linesWithCustomFields } = await replaceQuoteLines(
             em,
             quote,
             calculation,
             normalizedLineInputs,
             resolveOmnibusService(ctx),
             replay,
-          );
+          ));
           await replaceQuoteAdjustments(
             em,
             quote,
@@ -5879,6 +5892,7 @@ const createQuoteCommand: CommandHandler<
 
     // Emit CRUD side effects to trigger workflow event listeners
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await queueCreatedLineIndexes(dataEngine, linesWithCustomFields, E.sales.sales_quote_line);
     await emitCrudSideEffects({
       dataEngine,
       action: "created",
@@ -7244,6 +7258,7 @@ const createOrderCommand: CommandHandler<
     } catch {
       eventBus = null;
     }
+    let linesWithCustomFields: SalesOrderLine[] = [];
     // Persist the order header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built order committed (#2336).
@@ -7253,14 +7268,14 @@ const createOrderCommand: CommandHandler<
       [
         async () => {
           em.persist(order);
-          createdLines = await replaceOrderLines(
+          ({ createdLines, linesWithCustomFields } = await replaceOrderLines(
             em,
             order,
             calculation,
             modedLineInputs,
             resolveOmnibusService(ctx),
             replay,
-          );
+          ));
           await replaceOrderAdjustments(
             em,
             order,
@@ -7336,6 +7351,7 @@ const createOrderCommand: CommandHandler<
 
     // Emit CRUD side effects to trigger workflow event listeners
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await queueCreatedLineIndexes(dataEngine, linesWithCustomFields, E.sales.sales_order_line);
     await emitCrudSideEffects({
       dataEngine,
       action: "created",

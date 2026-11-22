@@ -3,6 +3,7 @@ import { asValue, createContainer, InjectionMode } from 'awilix'
 import { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands/types'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { registerCommandInterceptors } from '@open-mercato/shared/lib/commands/command-interceptor-store'
 import { CatalogProductPrice } from '../../../catalog/data/entities'
 import { omnibusConfigSchema, type OmnibusBlock } from '../../../catalog/lib/omnibusTypes'
@@ -110,11 +111,16 @@ function makeEm(lineIds: string[] = []): TestEm {
   const em: TestEm = {
     rows, trace,
     fork: (): TestEm => em,
-    create: (entity: unknown, data: Row) => ({
-      deletedAt: null, createdAt: new Date(), updatedAt: new Date(), ...data,
-      id: data.id ?? (['SalesOrderLine', 'SalesQuoteLine'].includes(entityName(entity)) ? undefined : randomUUID()),
-      __entity: entityName(entity),
-    }),
+    create: (entity: unknown, data: Row) => {
+      const name = entityName(entity)
+      const isDocumentLine = name === 'SalesOrderLine' || name === 'SalesQuoteLine'
+      const fixedId = isDocumentLine && nextLineId < lineIds.length ? lineIds[nextLineId++] : undefined
+      return {
+        deletedAt: null, createdAt: new Date(), updatedAt: new Date(), ...data,
+        id: fixedId ?? data.id ?? (isDocumentLine ? undefined : randomUUID()),
+        __entity: name,
+      }
+    },
     persist: (row: Row) => {
       const name = String(row.__entity)
       const stored = rows.get(name) ?? []
@@ -133,9 +139,7 @@ function makeEm(lineIds: string[] = []): TestEm {
     clear: () => undefined,
     flush: async () => {
       for (const stored of rows.values()) for (const row of stored) {
-        if (row.id === undefined || row.id === null) row.id = ['SalesOrderLine', 'SalesQuoteLine'].includes(String(row.__entity))
-          ? lineIds[nextLineId++] ?? randomUUID()
-          : randomUUID()
+        if (row.id === undefined || row.id === null) row.id = randomUUID()
       }
       trace.push('flush')
     },
@@ -231,6 +235,27 @@ describe.each(['order', 'quote'] as const)('sales %s create through command bus'
     expect(actionLogService.log).not.toHaveBeenCalled()
     expect(logs).toHaveLength(1)
   }
+
+  it('writes and indexes replayed line custom fields under the original snapshot ID', async () => {
+    const { bus, ctx, em, logs, service } = harness()
+    const createInput = { ...input, lines: [{ ...input.lines[0], customFields: { reference: 'imported' } }] }
+    await bus.execute(commandId, { input: createInput, ctx })
+    const [original] = em.rows.get(lineEntity) ?? []
+    await bus.undo(logs[0].undoToken, ctx)
+    jest.clearAllMocks()
+    service.getConfig.mockResolvedValue(omnibusConfigSchema.parse({ enabled: false }))
+
+    await bus.execute(commandId, { input: createInput, ctx, redoLogEntry: logs[0] })
+
+    expect(em.rows.get(lineEntity)).toEqual([expect.objectContaining({ id: original.id, ...frozen })])
+    expect(setRecordCustomFields).toHaveBeenCalledWith(em, expect.objectContaining({
+      recordId: original.id, organizationId, tenantId, values: { reference: 'imported' },
+    }))
+    expect(emitCrudSideEffects).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'created', identifiers: { id: original.id, organizationId, tenantId },
+      entity: expect.objectContaining({ omnibusReferenceGross: frozen.omnibusReferenceGross }),
+    }))
+  })
 
   it.each(['disabled', 'history changed', 'legacy log'] as const)('restores original IDs and six frozen fields after undo and %s', async (change) => {
     const { em, ctx, bus, service, logs, actionLogService } = harness()
