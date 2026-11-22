@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { Client } from 'pg'
+import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
+import type { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
+import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import type { EventBus } from '@open-mercato/events/types'
+import type { IngestPhoneCallInput } from '../../data/validators'
+import type { IngestPhoneCallResult } from '../../commands/calls'
 
 /**
  * Seeds phone calls straight into Postgres.
@@ -73,6 +79,10 @@ export type SeedPhoneCallInput = {
   recordingUrl?: string | null
 }
 
+type PhoneCallFixtureScope = ReturnType<typeof getTokenScope>
+
+export const phoneCallEntityType = 'phone_calls:phone_call'
+
 export async function seedPhoneCalls(inputs: SeedPhoneCallInput[]): Promise<string[]> {
   if (!inputs.length) return []
   return withClient(async (client) => {
@@ -103,6 +113,56 @@ export async function seedPhoneCalls(inputs: SeedPhoneCallInput[]): Promise<stri
     }
     return ids
   })
+}
+
+async function createPhoneCallFixtureContainer() {
+  const appRoot = path.resolve(process.env.OM_TEST_APP_ROOT?.trim() || 'apps/mercato')
+  const { bootstrapFromAppRoot } = await importFromAppRuntime<
+    typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+  >('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+  const { createRequestContainer } = await importFromAppRuntime<
+    typeof import('@open-mercato/shared/lib/di/container')
+  >('@open-mercato/shared/lib/di/container')
+  await bootstrapFromAppRoot(appRoot)
+  return createRequestContainer()
+}
+
+export async function ingestPhoneCallFixture(
+  scope: PhoneCallFixtureScope,
+  input: Omit<IngestPhoneCallInput, 'tenantId' | 'organizationId'>,
+): Promise<IngestPhoneCallResult> {
+  const container = await createPhoneCallFixtureContainer()
+  const commandBus = container.resolve<CommandBus>('commandBus')
+  const { tenantId, organizationId, userId } = scope
+  const result = await commandBus.execute<IngestPhoneCallInput, IngestPhoneCallResult>('phone_calls.call.ingest', {
+    input: { ...input, tenantId, organizationId },
+    ctx: {
+      container,
+      auth: { sub: userId, tenantId, orgId: organizationId, isSuperAdmin: false },
+      organizationScope: {
+        selectedId: organizationId,
+        filterIds: [organizationId],
+        allowedIds: [organizationId],
+        tenantId,
+      },
+      selectedOrganizationId: organizationId,
+      organizationIds: [organizationId],
+    },
+  })
+  return result.result
+}
+
+export async function deleteIngestedPhoneCallFixture(scope: PhoneCallFixtureScope, id: string | null): Promise<void> {
+  if (!id) return
+  const { tenantId, organizationId } = scope
+  await withClient(async (client) => {
+    await client.query('delete from phone_calls where id = $1 and tenant_id = $2 and organization_id = $3', [id, tenantId, organizationId])
+  })
+
+  const container = await createPhoneCallFixtureContainer()
+  await container.resolve<EventBus>('eventBus').emitEvent('query_index.delete_one', {
+    entityType: phoneCallEntityType, recordId: id, tenantId, organizationId, suppressCoverage: true,
+  }, { rethrowHandlerErrors: true })
 }
 
 export async function deletePhoneCallsIfExist(ids: Array<string | null>): Promise<void> {

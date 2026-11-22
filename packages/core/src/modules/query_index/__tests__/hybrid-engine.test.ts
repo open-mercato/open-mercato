@@ -2306,11 +2306,11 @@ describe('HybridQueryEngine like/ilike routing default (#5383, #5803)', () => {
     else process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = originalFlag
   })
 
-  const buildEngine = () => {
+  const buildEngine = (baseTable = 'todos') => {
     const db = createFakeKysely({
-      baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 10, customFieldKeys: {},
+      baseTable, hasIndexAny: true, baseCount: 10, indexCount: 10, customFieldKeys: {},
     })
-    const em = buildEm(db)
+    const em = buildEmWithOrmMetadata(db, { PhoneCall: 'phone_calls', Todo: 'todos' })
     const readEncryptedFieldNames = jest.fn().mockResolvedValue([])
     const engine = new HybridQueryEngine(
       em,
@@ -2363,6 +2363,25 @@ describe('HybridQueryEngine like/ilike routing default (#5383, #5803)', () => {
 
     expect(readEncryptedFieldNames).toHaveBeenCalledWith(
       'example:todo', 't1', null, { ignoreRuntimeHealth: true },
+    )
+  })
+
+  test('phone list search resolves the encryption map with the global flag unset', async () => {
+    const { engine, readEncryptedFieldNames } = buildEngine('phone_calls')
+
+    await engine.query('phone_calls:phone_call', {
+      fields: ['id'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters: { $or: [
+        { external_call_id: { $ilike: '%provider-ref%' } },
+        { external_conversation_id: { $ilike: '%provider-ref%' } },
+        { provider_key: { $ilike: '%provider-ref%' } },
+      ] },
+    })
+
+    expect(readEncryptedFieldNames).toHaveBeenCalledWith(
+      'phone_calls:phone_call', 't1', null, { ignoreRuntimeHealth: true },
     )
   })
 })

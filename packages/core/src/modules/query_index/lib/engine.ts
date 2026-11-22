@@ -80,6 +80,7 @@ function resolveEntityTableName(em: EntityManager, entity: string): string {
 }
 
 const logger = createLogger('query_index').child({ component: 'engine' })
+const phoneCallLiteralSearchFields = ['external_call_id', 'external_conversation_id', 'provider_key']
 
 function customDocumentValue(row: Record<string, unknown>, field: string): unknown {
   const bare = field.replace(/^cf[:_]/, '')
@@ -336,6 +337,7 @@ type SearchRuntime = {
   organizationScope?: { ids: string[]; includeNull: boolean } | null
   tenantId?: string | null
   searchSources?: SearchTokenSource[]
+  literalSearchFields?: ReadonlySet<string>
   /**
    * Base-column fields whose stored value is ciphertext, so a like/ilike on them can only be
    * answered via search tokens. A plaintext column keeps exact SQL ILIKE instead: the token
@@ -716,13 +718,11 @@ export class HybridQueryEngine implements QueryEngine {
         ? await this.searchAvailability().anySourceHasTokens(searchSources, opts.tenantId ?? null, orgScope)
         : false
       const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }
-      if (
-        searchRuntime.enabled &&
-        searchConfig.useIlikeForNonEncryptedFields === true &&
+      const usePlaintextColumnSearch = searchConfig.useIlikeForNonEncryptedFields === true &&
         sourceSearchFilters.some((filter) => !String(filter.field).startsWith('cf:'))
-      ) {
-        // Gated on OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default false per #5383; set it
-        // to true to opt into the #5803 fix ahead of that follow-up).
+      const usePhoneCallLiteralSearch = entity === 'phone_calls:phone_call' &&
+        sourceSearchFilters.some((filter) => filter.orGroup && phoneCallLiteralSearchFields.includes(filter.field))
+      if (searchRuntime.enabled && (usePlaintextColumnSearch || usePhoneCallLiteralSearch)) {
         // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while
         // the KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
         // `organizationId: null` is deliberate, not an omission: the service then unions in every
@@ -730,11 +730,12 @@ export class HybridQueryEngine implements QueryEngine {
         // fails safe. Passing the request's org instead would silently break encrypted-column
         // search for orgs without their own map. The service caches that union (#5949), and the
         // TTL cache in `resolveEncryptedLikeFieldSet` keeps even the lookup off the request path.
+        let encryptedFields: Set<string> | null = null
         try {
           const encryptionService = this.getEncryptionService()
           const readEncryptedFieldNames = encryptionService?.getEncryptedFieldNames?.bind(encryptionService)
           if (readEncryptedFieldNames) {
-            searchRuntime.encryptedFields = await resolveEncryptedLikeFieldSet(
+            encryptedFields = await resolveEncryptedLikeFieldSet(
               () => readEncryptedFieldNames(
                 entity as EntityId,
                 opts.tenantId ?? null,
@@ -744,14 +745,9 @@ export class HybridQueryEngine implements QueryEngine {
               String(entity),
               opts.tenantId ?? null,
             )
-          } else if (isTenantDataEncryptionEnabled()) {
-            // Encryption is on but the service is unreachable (a swallowed DI failure looks
-            // exactly like "no service"): treat the map as UNKNOWN and keep the token rewrite,
-            // rather than guessing "plaintext" and running ILIKE against ciphertext.
-            searchRuntime.encryptedFields = null
-          } else {
+          } else if (!isTenantDataEncryptionEnabled()) {
             // Encryption disabled: nothing is ciphertext at rest, exact ILIKE is always right.
-            searchRuntime.encryptedFields = new Set()
+            encryptedFields = new Set()
           }
         } catch (err) {
           // The fallback is safe (the old rewrite-everything behavior), but taking it silently
@@ -760,7 +756,13 @@ export class HybridQueryEngine implements QueryEngine {
             entity: String(entity),
             error: err instanceof Error ? err.message : String(err),
           })
-          searchRuntime.encryptedFields = null
+        }
+        if (usePlaintextColumnSearch) {
+          searchRuntime.encryptedFields = encryptedFields
+        } else if (encryptedFields) {
+          searchRuntime.literalSearchFields = new Set(
+            phoneCallLiteralSearchFields.filter((field) => !isEncryptedLikeField(encryptedFields, field)),
+          )
         }
       }
       const ciphertextSearchWarnings: CiphertextSearchWarning[] = []
@@ -2229,6 +2231,9 @@ export class HybridQueryEngine implements QueryEngine {
     if (!baseField) {
       // Doc-based filter via `ei` alias — returned as EXISTS where possible
       return this.buildIndexDocFilterExpression(eb, 'ei', entity, fieldName, filter.op, filter.value, 'b.id', searchRuntime)
+    }
+    if (isSearchFilterOp(filter.op) && searchRuntime.literalSearchFields?.has(baseField)) {
+      return this.buildColumnFilterExpression(eb, qualify(baseField), filter.op, filter.value)
     }
     // For like/ilike with active search-tokens, route through hashed-token EXISTS subquery
     // so encrypted-at-rest columns can still be searched. Plaintext base columns keep exact

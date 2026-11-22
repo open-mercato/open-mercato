@@ -1,25 +1,11 @@
-import path from 'node:path'
 import { randomInt } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
-import { deletePhoneCallsIfExist } from './helpers/phoneCallsFixtures'
-
-const APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
-  ? path.resolve(process.env.OM_TEST_APP_ROOT.trim())
-  : path.resolve(process.cwd(), 'apps/mercato')
-
-// Spelled out rather than imported from `commands/calls`: that module pulls in the ORM entity
-// classes, and no integration spec in this repository loads those - the decorators do not survive
-// the test process's transform. The id is the command's published contract, so a rename that
-// forgot this test would fail it loudly at the bus.
-const INGEST_COMMAND_ID = 'phone_calls.call.ingest'
+import { deletePhoneCallsIfExist, ingestPhoneCallFixture } from './helpers/phoneCallsFixtures'
 
 type CallRow = { external_call_id?: string | null }
 type ListBody = { items?: CallRow[] }
-type IngestResult = { phoneCallId: string; created: boolean }
 
 /**
  * TC-PHONE-HUB-006 — an ingest makes the cached call list stale, and the list route notices.
@@ -72,51 +58,17 @@ test.describe('TC-PHONE-HUB-006: ingest invalidates the cached calls list', () =
       expect(cached.cache, 'the repeated query must be served from the cache').toBe('hit')
       expect(cached.ids).toEqual([])
 
-      const { bootstrapFromAppRoot } = await importFromAppRuntime<
-        typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
-      >('@open-mercato/shared/lib/bootstrap/dynamicLoader')
-      const { createRequestContainer } = await importFromAppRuntime<
-        typeof import('@open-mercato/shared/lib/di/container')
-      >('@open-mercato/shared/lib/di/container')
-      await bootstrapFromAppRoot(APP_ROOT)
-      const container = await createRequestContainer()
-      const commandBus = container.resolve('commandBus') as CommandBus
-
-      const executed = await commandBus.execute<Record<string, unknown>, IngestResult>(
-        INGEST_COMMAND_ID,
-        {
-          input: {
-            organizationId: scope.organizationId,
-            tenantId: scope.tenantId,
-            providerKey,
-            externalCallId,
-            direction: 'inbound',
-            status: 'completed',
-            participants: [],
-            startedAt: new Date('2026-03-10T09:00:00Z'),
-            rawPayload: { source: 'TC-PHONE-HUB-006' },
-          },
-          ctx: {
-            container,
-            auth: {
-              sub: scope.userId,
-              tenantId: scope.tenantId,
-              orgId: scope.organizationId,
-              isSuperAdmin: false,
-            },
-            organizationScope: {
-              selectedId: scope.organizationId,
-              filterIds: [scope.organizationId],
-              allowedIds: [scope.organizationId],
-              tenantId: scope.tenantId,
-            },
-            selectedOrganizationId: scope.organizationId,
-            organizationIds: [scope.organizationId],
-          },
-        },
-      )
-      ingestedId = executed.result.phoneCallId
-      expect(executed.result.created, 'the marker is run-unique, so this is an insert').toBe(true)
+      const ingested = await ingestPhoneCallFixture(scope, {
+        providerKey,
+        externalCallId,
+        direction: 'inbound',
+        status: 'completed',
+        participants: [],
+        startedAt: new Date('2026-03-10T09:00:00Z'),
+        rawPayload: { source: 'TC-PHONE-HUB-006' },
+      })
+      ingestedId = ingested.phoneCallId
+      expect(ingested.created, 'the marker is run-unique, so this is an insert').toBe(true)
 
       const afterIngest = await read(request)
       expect(afterIngest.cache, 'the ingest must have dropped the cached page').toBe('miss')
