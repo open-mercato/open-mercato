@@ -1,5 +1,190 @@
 # Upgrade Notes
 
+## Query index metadata cached across requests (#2967)
+
+The query index engine no longer re-reads table metadata and custom-field definitions
+on every request:
+
+- Base-table column maps are cached per process for `OM_QUERY_INDEX_COLUMN_CACHE_MS`
+  (default 300000 ms; `0` disables it). A column missing from a cached map is always
+  re-checked, so a tenant, organization or soft-delete column added by a migration
+  takes effect immediately. A dropped or newly added non-scoping column is picked up
+  when the entry expires.
+- Custom-field definitions and sort kinds are cached in the DI `cache` service for
+  `QUERY_INDEX_CF_KEYS_CACHE_MS` (default 300000 ms; `0` keeps the old per-request
+  behavior). Definition writes through the definitions API, batch, restore,
+  `install-from-ce` and the Akeneo importer invalidate them immediately for the
+  writer's tenant. Definitions written by seeds or CLI commands, global definitions
+  edited from another tenant, and other instances when `CACHE_STRATEGY=memory` can
+  take up to the TTL to appear in list queries. Use `CACHE_STRATEGY=redis` in
+  multi-instance deployments, or lower the TTL, to converge sooner.
+
+No configuration, database, route, event or DI-key change is required.
+
+## Optional process DI root (#8989)
+
+`OM_PROCESS_CONTAINER_ROOT=on` enables generation-owned registration/bootstrap with isolated caller scopes. It defaults to off pending workload qualification. Existing `createRequestContainer()` calls retain separate EntityManagers and mutation boundaries. No schema migration is required.
+
+Custom module/app registrars continue through the legacy builder unless explicitly audited and marked with `defineProcessDiRegistrar`. Use `asScopedService` for factories that need the resolving caller; never capture a process root as the request container. Module DI overrides and custom event buses also select the legacy builder to preserve registration and subscriber ordering. See the request lifecycle documentation for setup hooks, counters and explicit event-context boundaries.
+
+## Backend API documentation permission (#3810)
+
+`/backend/docs` now requires `api_docs.view`. Staff without that feature lose the
+backend resource page and its navigation entry; public `/docs/api` and JSON/Markdown
+exports keep their current policy. Existing tenants: run
+`yarn mercato auth sync-role-acls` for default admins, or explicitly grant the
+feature to intended custom roles. Superadministrator access is preserved. Clients
+that link to the backend page must allow for permission denial. No database
+migration, environment change, or startup-command change is required.
+
+## Deal loss reasons seeded by customers (#8801)
+
+`customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.
+
+`backfillDealLossReasonDictionary` and `BackfillDealLossReasonDictionaryResult` exported from `sales/lib/dictionaries` are deprecated (removal no earlier than 0.12.0); import them from `@open-mercato/core/modules/customers/lib/dealLossReasons`.
+
+## Notification mark-all-read follows the bell scope (#9244)
+
+`PUT /api/notifications/mark-all-read` now marks exactly the unread in-app
+notifications visible to the authenticated recipient in the selected tenant.
+With an organization selected, this includes its visible child organizations and
+tenant-wide notifications. With no organization selected and restricted organization
+access, notifications outside the visible organizations stay unread. The returned
+`count` and `notifications.read` events follow that same set. Direct
+`NotificationService.markAllAsRead` callers supplying only `organizationId` retain
+their existing behavior. No request or response fields change; no data migration
+is required. Integrations that expected a different bulk scope should use explicit
+per-notification actions for their intended set.
+
+## Entity translation authorization and field registration (#9139)
+
+`GET /api/translations/:entityType/:entityId` now requires the target record's view
+permission. PUT and DELETE require its manage permission. All three operations
+also require their existing translation feature and a live target in the
+effective tenant and organization. Unregistered entity types and unregistered
+PUT field keys return 400. Missing permissions return 403. Missing targets
+return 404. Stored keys outside the registration are omitted from reads, lists,
+and view exports.
+
+**Clients** should register each translated text field in the module's `translations.ts`
+and regenerate the application. Request translation operations for existing
+records using a caller with the corresponding target permission. Pass the
+registered entity type as the fourth argument to `applyLocalizedContent`.
+
+**Operators** should review legitimate translation roles and grant the matching target
+view or manage permissions where appropriate. Review existing translation rows
+for values entered before the permission checks, including values on fields
+that are still valid. Remove or replace suspect content through authorized
+translation operations. Rows for unregistered or missing targets require
+operator cleanup. No schema migration is required.
+
+## SSO configuration and SCIM authority (#9014)
+
+**Operators:** deploy the additive `sso_configs.authorization_user_id` migration
+and `sessions.sso_provenance` migrations before application code. Existing SSO configurations have no trusted author and
+must be reviewed and saved by an authorized human administrator before SSO
+authentication or provisioning resumes. Review the issuer, credentials, domains,
+and complete role mappings. Each mapped role name must match exactly one live
+role in the tenant (case-insensitive): a mapping to a missing or ambiguous role
+now blocks saving the configuration and denies every SSO sign-in and SCIM
+operation through it, instead of being skipped. Revoke and replace old SCIM
+tokens: their creator must now be known and retain `sso.scim.manage`. Keep password break-glass access
+available while performing this rollout. Disabling/deleting an unsafe config
+remains available without reauthorization.
+
+SSO role grants and existing-account links now require the config author's current
+grant authority; SCIM mutations also require the token creator's authority. Author
+deletion/demotion or a target's later elevation can therefore block sign-in and
+provisioning. Audit historical SSO grants, identities, direct ACLs, and sessions
+and revoke unauthorized access; the fix does not automatically repair past
+compromise. New SSO sessions stop authorizing access and refresh when their
+configuration changes or loses authority. Users should sign in again after an
+authorized administrator resolves the issue. Revoke suspect pre-upgrade sessions
+explicitly because they lack configuration provenance. Rolling back application
+code reintroduces the vulnerability.
+
+**Clients and module authors:** HTTP payloads, URLs, and response schemas are
+unchanged. Pass the authenticated `actorUserId` to direct config/token service
+calls, retain the injected authorization service, and handle 403 authorization
+errors through existing error handling. Provenance is server-managed; do not
+accept it from request bodies. Legacy acceptance cannot be bridged safely because
+it retains the escalation path. A named human maintainer must approve the
+emergency compatibility waiver before merge; automated review cannot grant it.
+
+[Specification](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
+
+
+## `sync_akeneo` no longer requires `sales` (#9211)
+
+`sync_akeneo` now declares `requires: ['integrations', 'data_sync', 'catalog', 'progress']`.
+`sales` is an optional peer: with it disabled, product import still runs and skips
+channel-bound offers and prices, logging the `sync_akeneo.sales_channels_unavailable`
+warning. `progress`, which import jobs already used, is now an explicit requirement; it was
+previously enabled transitively through `sales` → `customers`. Apps that pass
+`yarn generate` today are not newly rejected, and no action is needed unless your app
+relied on `sync_akeneo` to force `sales` (and its `customers` chain) on. No API, schema
+or configuration change. See
+[module dependencies](apps/docs/docs/architecture/module-dependencies.mdx).
+
+## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
+
+The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
+`PipelineStepper` and replaced the Won / Lost buttons with a "Close deal" menu under the header
+actions. The inputs that fed the old presentation stay accepted and are marked `@deprecated`:
+
+- `DealDetailHeader` `stageOptions`, `currentStageId`, `onStageChange`, `isStageSaving`: when a
+  caller passes `stageOptions` together with `onStageChange` for an open deal, the header still
+  renders a stage menu (`StageSelectMenu`) in its action cluster, disabled while the form is dirty
+  or saving. The built-in page no longer passes them; it passes `onStageChange` and
+  `stageChangeDisabled` to `PipelineStepper` instead.
+- `PipelineStepper.footer`: still rendered under the stage strip, separated by a rule, with and
+  without stages. The built-in page renders closure controls through
+  `DealDetailHeader.secondaryActions`.
+- `DealClosureActionBar.embedded`: accepted and ignored. The bar is a popover trigger and draws no
+  card, so there is nothing to embed.
+- `CollapsibleGroupProps.fieldCount` (`@open-mercato/ui/backend/crud/CollapsibleGroup`): accepted
+  and ignored; the group title no longer shows the "N fields" counter.
+
+Below the `sm` breakpoint `PipelineStepper` now shows a "Move stage" menu next to the current
+stage, so narrow screens keep the quick stage change the header dropdown used to provide.
+
+All of these stay for at least one minor release after 0.10.0 and are tracked in
+`.ai/specs/2026-04-06-crm-detail-pages-ux-enhancements.md`. No database migration is required.
+
+## CRM preset enables the scheduler (#8804)
+
+New apps scaffolded with `create-mercato-app --preset crm` now enable the
+`scheduler` module. Without it, `communication_channels` registers no polling
+schedules, so connected IMAP and Gmail mailboxes received new mail only after a
+manual "Poll now", and Gmail push watches were never renewed. With the default
+`QUEUE_STRATEGY=local`, `mercato server dev` and `mercato server start` start the
+scheduler automatically once the module is enabled (`AUTO_SPAWN_SCHEDULER`
+defaults to on), so new apps need no extra step.
+
+**Existing `crm` apps:** add `{ id: 'scheduler', from: '@open-mercato/scheduler' }`
+to `src/modules.ts` (the package is already a template dependency), then run
+`yarn generate` and `yarn db:migrate` for the scheduler tables. The schedules are
+registered when defaults are seeded or an organization is created, so
+organizations that already exist need them seeded once:
+
+```bash
+yarn mercato seed:defaults --module communication_channels
+yarn mercato seed:defaults --module integrations
+yarn mercato seed:defaults --module ai_assistant
+yarn mercato auth sync-role-acls
+```
+
+Each command is idempotent. The `integrations` and `ai_assistant` runs register
+the integration health probes and the AI assistant cleanup jobs, which those
+modules also skip without a scheduler. `auth sync-role-acls` grants the
+scheduler's default role features (`scheduler.*` for admins,
+`scheduler.jobs.view` for employees) to existing tenants, which `seed:defaults`
+does not do for the built-in roles. The profile page "My communication channels"
+now warns when a connected channel relies on polling but no scheduler is enabled
+or the organization's poll schedule is missing or disabled, and
+`GET /api/communication_channels/me/channels` returns an additive
+`automaticSyncEnabled` boolean that drives that warning.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.
@@ -117,6 +302,24 @@ where tenant_id = '<tenant>' and code = '<code>';
 The earlier active state is unknown, so check `is_active` after restoring. The SQL
 bypasses cache invalidation: clear the CRUD/API cache (or restart the app)
 afterwards. No migration is needed.
+
+## Module events dispatch per request (#2963)
+
+Module emitters (`createModuleEvents().emit`) now run inline subscribers against
+the DI container built for the current API request or queue job, instead of the
+container built most recently anywhere in the process. Before this fix, a
+subscriber's `ctx.resolve('em')` (or `dataEngine`, `tenantEncryptionService`, …)
+could return another concurrent request's services. Within one request nothing
+changes: the latest container built during that request is used, as before.
+
+The API dispatcher (`app/api/[...slug]/route.ts`) and the per-job worker handler
+now open a request scope via `runInRequestScope` from
+`@open-mercato/shared/lib/di/request-scope`. **Standalone apps** that keep a
+customized copy of the catch-all API route should wrap their request handling in
+`runInRequestScope(() => …)` the same way. Without it, emits fall back to the
+global bus exactly as before. Code outside a scope (CLI commands, scheduler timers,
+RSC pages) is unchanged. No configuration, database, route, event or DI-key change
+is needed.
 
 ## Event-triggered workflow execution identity (#9137)
 
@@ -882,6 +1085,12 @@ A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
 
+### Cart line contention returns retryable 503 (#8072)
+
+`POST /api/cart/current/lines` and `POST /api/cart/current/lines/bulk` release pooled connections while waiting for the existing cart transaction lock. If contention lasts for the 15-second wait budget, they now return `503` with `code: "cart_busy"`, a localized `error`, `Retry-After: 1` and `Cache-Control: no-store`. This response is issued only after an unsuccessful pre-mutation lock attempt has rolled back; the requested line add/bulk-add mutation phases did not run and no successful idempotency response was recorded. Existing preflight cart activity/reactivation or context-triggered repricing may already have persisted; normal optimistic-lock checks still apply to a retry.
+
+**Client action:** wait at least one second and retry the same body and `Idempotency-Key`. Do not apply this safe-retry rule to unrelated `500` responses or uncertain commit outcomes. Successful responses, request schemas and database structure are unchanged; no operator migration is required. See [Cart API](apps/docs/docs/api/cart.mdx) and the [cart specification](.ai/specs/2026-08-14-cart-module.md).
+
 ### Custom-record POST rejects existing UUIDs (#7815)
 
 `POST /api/entities/records` now returns HTTP 409 (`custom_entity_record_exists`)
@@ -895,6 +1104,12 @@ Internal `DataEngine.createCustomEntityRecord` callers retain upserts by default
 the new optional `createOnly` flag selects conflict-on-existing creation. No
 operator configuration or database migration is needed. See the
 [locking coverage spec](.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md#custom-record-creation--7815).
+
+### Workflow list pagination bounds (#7534)
+
+Workflow definitions, instances, instance events and global events now reject invalid pagination with HTTP 400. Page sizes are integers from 1 to 100; offsets are integers from 0 to 100,000 (including the offset derived from global-events `page`/`pageSize`). Defaults and response fields are unchanged. Existing task, work-inbox, portal-task, step, would-do and failure-queue lists retain their size clamps and fallback behavior for malformed or negative inputs, but return HTTP 400 when the normalized requested offset exceeds 100,000 rather than returning a different page. The same offset validation applies to `POST /api/workflows/work-inbox/next` before selecting or claiming a task.
+
+**Client action:** split requests larger than 100 into pages, send whole nonnegative offsets, and narrow filters before reaching 100,000. Handle 400 responses for out-of-range offsets on every listed route, including Work Inbox claim-next. The seven fallback/clamping routes return the stable `WORKFLOW_LIST_OFFSET_EXCEEDED` error string; the four strict list endpoints return validation errors and also reject malformed pagination. **Operator action:** deploy the updated application; no database migration or new configuration is required. Definitions now fetch a small DB window around the requested page instead of materializing its entire prefix. Definitions also use consistent UTF-8 byte ordering (`COLLATE "C"` in PostgreSQL): uppercase names precede lowercase names and accented names follow ASCII. This replaces the mixed database/Node locale ordering, so case/accent positions can change; use server-provided ordering across pages.
 
 ### Inbound webhook receipt deduplication includes verified scope (#7830)
 
@@ -1805,7 +2020,7 @@ relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
 Spec: [`.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`](.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md). Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Exposure, audit and mutation modes".
 
-**`tools/list` on `mercato ai_assistant mcp:serve-http` is ACL-filtered.** It used to list every registered tool and check ACL only on `tools/call`. It now lists only the tools that pass the new exposure config (`OM_MCP_TOOL_ALLOWLIST`, `OM_MCP_TOOL_DENYLIST`, `OM_MCP_AGENT_TOOLS`, `--tools`, `--exclude-tools`, `--no-agent-tools`) **and** the list principal's ACL: the session user when the request carries `x-om-session-token`, otherwise the server API key's ACL. A server key with no features now lists only `context_whoami`. **Action:** clients that discover tools with a featureless server key should send `x-om-session-token: <sess_…>` (the same token they pass as `_sessionToken`), or grant the key the roles they need. Check the effective set with `yarn mercato ai_assistant mcp:list-tools --as-api-key <secret>`.
+**`tools/list` on `mercato ai_assistant mcp:serve-http` is ACL-filtered.** It used to list every registered tool and check ACL only on `tools/call`. It now lists only the tools that pass the new exposure config (`OM_MCP_TOOL_ALLOWLIST`, `OM_MCP_TOOL_DENYLIST`, `OM_MCP_AGENT_TOOLS`, `--tools`, `--exclude-tools`, `--no-agent-tools`) **and** the list principal's ACL: the session user when the request carries `x-om-session-token`, otherwise the server API key's ACL. A server key with no features now lists only `context_whoami`. **Action:** OpenCode does not send `x-om-session-token` (its MCP config carries only `x-api-key`), so the web chat relies on the server key's roles: the key must carry roles. The key provisioned by `mercato ai_assistant mcp:ensure-api-key` copies its owner's roles and needs no change; if you set `MCP_SERVER_API_KEY` by hand to a key with no roles, grant it the roles the chat needs. Custom clients that discover tools with a featureless server key can instead send `x-om-session-token: <sess_…>` (the same token they pass as `_sessionToken`). Check the effective set with `yarn mercato ai_assistant mcp:list-tools --as-api-key <secret>`.
 
 **Pending AI actions are scoped to their owner.** Before this release `GET /api/ai_assistant/ai/actions/:id`, `/confirm` and `/cancel` checked only `ai_assistant.view` plus tenant/organization, so any user in the same tenant and organization with that feature could read, confirm, or cancel another user's pending action. Now chat rows (`channel = 'agent'`) are reachable only by the user who created them, and MCP / `/tools/execute` rows (`channel = 'mcp' | 'tools-api'`) by their creator or a user holding the new `ai_assistant.pending_actions.approve` feature. Everyone else gets `404 pending_action_not_found`. **Action:** none for the chat UI (users only ever act on their own rows); custom integrations that confirmed other users' actions through these routes must act as the creator.
 
@@ -2069,6 +2284,31 @@ because a bad window never produced a rule; it only deleted existing hours.
 
 Existing data is not repaired: hours already lost through this path are not restored by the
 upgrade and have to be re-entered through the editor or the API. No database migration is needed.
+
+### `GET` time-project employees now enforces project membership (#8885)
+
+`GET /api/staff/timesheets/time-projects/{id}/employees` only required the global
+`staff.timesheets.projects.view` feature. A staff member holding that feature, but not an
+active member of the project in the URL and without `staff.timesheets.projects.manage`, could
+read that project's membership roster — roles, status, assignment start/end dates — the same
+way the sibling `time-projects` list route already prevents for the project itself.
+
+The route now resolves the caller's project access the same way (`resolveFeatureAccess` +
+`resolveProjectAccess` + `assertProjectAccess` from `lib/time-tracking/{featureAccess,access}.ts`)
+and denies a non-member with the same non-enumerable `404 { "error": "...", "reason":
+"no_project_access" }` the project-list route answers for a project the caller cannot see — so
+the response cannot be used to tell "exists but forbidden" apart from "doesn't exist." A caller
+with `staff.timesheets.projects.manage` is unaffected. Neither `?timeProjectId=` on the query
+string nor an advanced-filter condition on `time_project_id`
+(`?filter[conditions][0][field]=time_project_id...`) can override the URL's project id — the
+latter is consumed via `consumeAdvancedFilterState`/`mergeAdvancedFilterTree` and AND-combined
+with the route's own scope, the same pattern `devices`/`customers.people` already use, so it can
+only narrow the result, never redirect or widen it onto another project.
+
+**Action for integrators:** a caller that was relying on this endpoint to read a project it is
+not a member of (and does not manage) now gets `404` instead of `200`. This was always a bug —
+treat it as the fix it is, not as a behavior to route around. No route path, request shape, or
+response schema changed for an authorized caller.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
@@ -5838,6 +6078,10 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
+
+### Access-log overload admission
+
+The new access-log backlog cap reserves capacity across tenants: one tenant can occupy at most half of `AUDIT_LOGS_MAX_PENDING` (rounded down), shared across its organizations. Values below 2 fall back to 256. Global saturation can still drop best-effort audit writes. Existing retention sweeps no longer hold unrelated writers open; `flushAccessLog()` still drains rotation during shutdown.
 
 
 ## Setup service isolation and remote database acknowledgement

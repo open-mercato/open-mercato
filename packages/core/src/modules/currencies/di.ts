@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import { asFunction } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
@@ -42,3 +43,5 @@ export function register(container: AppContainer) {
       .proxy(),
   })
 }
+
+defineProcessDiRegistrar(register)

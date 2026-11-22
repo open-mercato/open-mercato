@@ -96,7 +96,7 @@ const tagLabelSchema = z.string().trim().min(1).max(100)
 const offerBaseSchema = z.object({
   channelId: uuid(),
   title: z.string().trim().min(1).max(255),
-  description: z.string().trim().max(4000).optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   defaultMediaId: uuid().optional().nullable(),
   defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
   metadata: metadataSchema,
@@ -193,7 +193,7 @@ function productUomCrossFieldRefinement(
 const productBaseSchema = scoped.extend({
   title: z.string().trim().min(1).max(255),
   subtitle: z.string().trim().max(255).nullable().optional(),
-  description: z.string().trim().max(4000).optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   sku: skuSchema.nullable().optional(),
   handle: handleSchema.optional(),
   taxRateId: uuid().nullable().optional(),
@@ -445,7 +445,7 @@ export const variantUpdateSchema = z
 export const optionSchemaTemplateCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   code: slugSchema.optional(),
-  description: z.string().trim().max(4000).optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   schema: optionSchema,
   metadata: metadataSchema,
   isActive: z.boolean().optional(),
@@ -549,7 +549,7 @@ export const priceUpdateSchema = z
 export const categoryCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   slug: slugSchema.optional().nullable(),
-  description: z.string().trim().max(2000).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
   parentId: uuid().optional().nullable(),
   isActive: z.boolean().optional(),
 })
