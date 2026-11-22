@@ -46,8 +46,8 @@ PR: #10386
 
 ### Phase 2: Calendar scheduling
 
-- [ ] 2.1 Show advisory editor and picker hints
-- [ ] 2.2 Show conflict markers across Calendar views
+- [x] 2.1 Show advisory editor and picker hints — b54e944bb4
+- [x] 2.2 Show conflict markers across Calendar views — b54e944bb4
 
 ### Phase 3: Staff scheduling and verification
 
