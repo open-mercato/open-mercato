@@ -190,6 +190,7 @@ export async function GET(req: Request) {
     if (!period) {
       return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
     }
+    filter.organizationId = period.organizationId
     filter.operationDate = { $gte: period.startDate, $lte: period.endDate }
   }
 

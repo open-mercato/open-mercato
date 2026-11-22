@@ -215,6 +215,23 @@ test.describe('TC-GL-003: GET routes honor the selected organization, not the ca
       const journalEntryIds = journalEntriesBody.items.map((item) => item.id);
       expect(journalEntryIds, 'org B journal-entries list should include org B\'s entry').toContain(journalEntryBId);
       expect(journalEntryIds, 'org B journal-entries list must not include org A\'s entry').not.toContain(journalEntryAId);
+      const allOrganizationsHeaders = {
+        Cookie: `om_selected_tenant=${encodeURIComponent(tenantId)}; om_selected_org=__all__`,
+      };
+      const allJournalEntries = await apiRequest(request, 'GET', '/api/ledger/journal-entries', {
+        token: superadminToken, headers: allOrganizationsHeaders,
+      });
+      expect(allJournalEntries.status()).toBe(200);
+      const allJournalBody = await readJsonSafe<{ items: Array<{ id: string }> }>(allJournalEntries);
+      expect(allJournalBody?.items.map(({ id }) => id)).toEqual(expect.arrayContaining([journalEntryAId, journalEntryBId]));
+
+      const namedPeriod = await apiRequest(request, 'GET', `/api/ledger/journal-entries?periodId=${fiscalPeriodBId}`, {
+        token: superadminToken, headers: allOrganizationsHeaders,
+      });
+      expect(namedPeriod.status()).toBe(200);
+      const namedPeriodBody = await readJsonSafe<{ items: Array<{ id: string }> }>(namedPeriod);
+      expect(namedPeriodBody?.items.map(({ id }) => id)).toEqual([journalEntryBId]);
+
       const userEmail = `qa-gl-003-${stamp}@example.com`;
       const userPassword = `Test-${stamp}!`;
       userId = await createUserFixture(request, superadminToken, {
