@@ -30,7 +30,7 @@ import { CUSTOMER_INTERACTION_ENTITY_ID } from '../../lib/interactionCompatibili
 import { applyEmailVisibilityFilter } from '../../lib/visibilityFilter'
 import { listGrantsForViewer, listSharedChannelIds } from '../../lib/conversationShares'
 import { matchesDecryptedSearch, resolveEncryptedSearchMaxRows, resolveEncryptedSortPage } from './encryptedSortPage'
-import { applyDecryptedFields } from './decryptedFields'
+import { createDecryptedFieldsOverlay } from './decryptedFields'
 import { resolveEncryptedFieldsAcrossOrganizations } from './encryptedScopeFields'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -702,7 +702,7 @@ export async function GET(req: Request) {
         : Promise.resolve([]),
       (async () => {
         const byOrganization = new Map<string, readonly string[]>()
-        if (interactionIds.length === 0 || !encryptionService?.getEncryptedFieldNames || pageOrganizationIds.length === 0) {
+        if (pageOrganizationIds.length === 0 || !encryptionService?.getEncryptedFieldNames || !encryptionService.isEnabled()) {
           return byOrganization
         }
         await Promise.all(pageOrganizationIds.map(async (organizationId) => {
@@ -726,6 +726,7 @@ export async function GET(req: Request) {
     const interactionRecordMap = new Map<string, CustomerInteraction>(
       (interactionRecords as CustomerInteraction[]).map((record) => [record.id, record]),
     )
+    const applyDecryptedFields = createDecryptedFieldsOverlay(encryptedFieldsByOrganization)
 
     const baseItems = pageRows.map((row) => applyDecryptedFields({
       id: row.id,
@@ -744,6 +745,7 @@ export async function GET(req: Request) {
       appearanceIcon: row.appearance_icon ?? null,
       appearanceColor: row.appearance_color ?? null,
       source: row.source ?? null,
+      // Legacy alias for durationMinutes. The integer column cannot hold ciphertext.
       duration: row.duration_minutes ?? null,
       durationMinutes: row.duration_minutes ?? null,
       timezone: row.timezone ?? null,
@@ -766,7 +768,7 @@ export async function GET(req: Request) {
       authorEmail: row.author_user_id ? userMap.get(interactionUserKey({ tenantId: row.tenant_id, organizationId: row.organization_id }, row.author_user_id))?.email ?? null : null,
       dealTitle: row.deal_id ? dealMap.get(row.deal_id) ?? null : null,
       customValues: normalizeCustomFieldResponse(customFieldValues[row.id]) ?? null,
-    }, interactionRecordMap.get(row.id), encryptedFieldsByOrganization.get(row.organization_id) ?? []))
+    }, interactionRecordMap.get(row.id), row.organization_id))
 
     const enricherContext = await buildEnricherContext(
       container,
