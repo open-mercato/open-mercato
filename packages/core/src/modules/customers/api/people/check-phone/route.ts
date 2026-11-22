@@ -4,7 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerEntity } from '../../../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
@@ -16,6 +16,8 @@ import {
   normalizePhoneLookupDigits,
   personPhoneHashCandidates,
 } from '../../../lib/personPhoneLookup'
+
+const INDEXED_MATCH_PAGE_SIZE = 50
 
 const querySchema = z.object({
   digits: z
@@ -65,14 +67,12 @@ export async function GET(req: Request) {
   }
 
   const organizationIds = Array.from(allowedOrgIds)
-  const where: FilterQuery<CustomerEntity> = {
-    kind: 'person',
+  const where = {
+    kind: 'person' as const,
     deletedAt: null,
     primaryPhone: { $ne: null },
     organizationId: { $in: organizationIds },
-  }
-  if (auth.tenantId) {
-    where.tenantId = auth.tenantId
+    ...(auth.tenantId ? { tenantId: auth.tenantId } : {}),
   }
   const fields = ['id', 'displayName', 'primaryPhone', 'tenantId', 'organizationId'] as const
   const decryptScope = {
@@ -84,13 +84,25 @@ export async function GET(req: Request) {
   const matchesDigits = (candidate: Pick<CustomerEntity, 'primaryPhone'>) =>
     normalizePhoneLookupDigits(candidate.primaryPhone) === digits
 
-  if (hashes.length > 0) {
-    const indexed = await findWithDecryption(
-      em, CustomerEntity, { ...where, primaryPhoneDigitsHash: { $in: hashes } }, { fields }, decryptScope,
-    )
-    const match = indexed.find(matchesDigits)
-    if (match) return respondWithMatch(match)
+  async function findIndexedMatch() {
+    if (hashes.length === 0) return undefined
+    let lastId: string | undefined
+    for (;;) {
+      const indexed = await findWithDecryption(
+        em,
+        CustomerEntity,
+        { ...where, primaryPhoneDigitsHash: { $in: hashes }, ...(lastId ? { id: { $gt: lastId } } : {}) },
+        { fields, orderBy: { id: 'ASC' }, limit: INDEXED_MATCH_PAGE_SIZE },
+        decryptScope,
+      )
+      const match = indexed.find(matchesDigits)
+      if (match || indexed.length < INDEXED_MATCH_PAGE_SIZE) return match
+      lastId = indexed[indexed.length - 1].id
+    }
   }
+
+  const indexedMatch = await findIndexedMatch()
+  if (indexedMatch) return respondWithMatch(indexedMatch)
 
   const fallbackWhere = hasPersonPhoneLookupPepper() ? { ...where, primaryPhoneDigitsHash: null } : where
   if (!isTenantDataEncryptionEnabled()) {
@@ -101,13 +113,13 @@ export async function GET(req: Request) {
       .andWhere("regexp_replace(person.primary_phone, '\\D', '', 'g') = ?", [digits])
       .limit(1)
       .getSingleResult()
-    return respondWithMatch(person && matchesDigits(person) ? person : undefined)
+    return respondWithMatch(person && matchesDigits(person) ? person : await findIndexedMatch())
   }
 
   const legacy = await findWithDecryption(
     em, CustomerEntity, fallbackWhere, { limit: MATCH_CANDIDATE_LIMIT, orderBy: { createdAt: 'DESC' }, fields }, decryptScope,
   )
-  return respondWithMatch(legacy.find(matchesDigits))
+  return respondWithMatch(legacy.find(matchesDigits) ?? await findIndexedMatch())
 }
 
 const phoneCheckSuccessSchema = z.object({

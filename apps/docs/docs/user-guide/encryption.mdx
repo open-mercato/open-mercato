@@ -220,7 +220,7 @@ The command uses the existing data-encryption keys to read encrypted sources and
 
 ### Backfilling CRM person phone lookup
 
-After applying the Customers schema migration, run the application backfill for each tenant and organization with existing contacts. Use the same lookup pepper and tenant encryption keys as the application.
+After applying the Customers schema migrations, run the application backfill for each tenant and organization with existing contacts. Use the same lookup pepper and tenant encryption keys as the application.
 
 ```bash
 yarn mercato customers phone-digests:backfill --tenant <tenant-uuid> --org <organization-uuid> --dry-run

@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto'
+import type { Migration } from '@mikro-orm/migrations'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Kysely, PostgresDialect } from 'kysely'
-import { Pool } from 'pg'
+import { Client, Pool } from 'pg'
 import { encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
 import { backfillPersonPhoneDigests } from '../backfillPersonPhoneDigests'
 import { hashPersonPhoneDigits } from '../personPhoneLookup'
+import { Migration20261122040000_customers } from '../../migrations/Migration20261122040000_customers'
+import { Migration20261122040100_customers } from '../../migrations/Migration20261122040100_customers'
 
 const databaseUrl = process.env.OM_CUSTOMERS_PHONE_PG_URL
 const postgres = databaseUrl ? describe : describe.skip
@@ -25,6 +28,26 @@ postgres('CRM phone digest backfill on PostgreSQL', () => {
   const tenantId = randomUUID()
   const organizationId = randomUUID()
 
+  async function migrate(direction: 'up' | 'down') {
+    const migrations = [Migration20261122040000_customers, Migration20261122040100_customers]
+    if (direction === 'down') migrations.reverse()
+    const client = new Client({ connectionString: databaseUrl, options: `-c search_path=${schema}` })
+    await client.connect()
+    try {
+      for (const migrationClass of migrations) {
+        const statements: string[] = []
+        const migration = Object.create(migrationClass.prototype) as Migration
+        Object.defineProperty(migration, 'addSql', { value: (statement: string) => statements.push(statement) })
+        await migration[direction]()
+        if (migration.isTransactional()) await client.query('begin')
+        for (const statement of statements) await client.query(statement)
+        if (migration.isTransactional()) await client.query('commit')
+      }
+    } finally {
+      await client.end()
+    }
+  }
+
   beforeAll(async () => {
     poolDb = new Kysely({ dialect: new PostgresDialect({ pool: new Pool({ connectionString: databaseUrl }) }) })
     await poolDb.schema.createSchema(schema).execute()
@@ -35,8 +58,8 @@ postgres('CRM phone digest backfill on PostgreSQL', () => {
       .addColumn('organization_id', 'uuid', (column) => column.notNull())
       .addColumn('kind', 'text', (column) => column.notNull())
       .addColumn('primary_phone', 'text')
-      .addColumn('primary_phone_digits_hash', 'text')
       .execute()
+    await migrate('up')
   })
 
   afterAll(async () => {
@@ -114,6 +137,11 @@ postgres('CRM phone digest backfill on PostgreSQL', () => {
     expect((await read(concurrent.id)).primary_phone_digits_hash).toBe(hashPersonPhoneDigits('+1 415 555 0199', organizationId))
     expect(await backfillPersonPhoneDigests(em, encryption, { ...scope, dryRun: false })).toMatchObject({
       needsUpdate: 0, updated: 0, unreadable: 1, conflicted: 0,
+    })
+
+    await migrate('down')
+    expect(await read(encrypted.id)).toEqual({
+      id: encrypted.id, tenant_id: tenantId, organization_id: organizationId, kind: 'person', primary_phone: readable,
     })
   })
 })

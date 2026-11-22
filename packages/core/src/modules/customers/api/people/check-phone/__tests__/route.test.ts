@@ -185,7 +185,7 @@ describe('customers people check-phone route', () => {
         organizationId: { $in: ['org-1'] },
         primaryPhoneDigitsHash: { $in: [hash] },
       }),
-      expect.not.objectContaining({ limit: expect.any(Number) }),
+      expect.objectContaining({ limit: 50, orderBy: { id: 'ASC' } }),
       expect.anything(),
     )
   })
@@ -202,6 +202,36 @@ describe('customers people check-phone route', () => {
     expect(mockFindWithDecryption).toHaveBeenNthCalledWith(
       2, expect.anything(), expect.anything(), expect.objectContaining({ primaryPhoneDigitsHash: null }),
       expect.objectContaining({ limit: 500 }), expect.anything(),
+    )
+  })
+
+  it('rechecks the index when a backfill indexes a contact between the initial lookup and legacy scan', async () => {
+    process.env.LOOKUP_HASH_PEPPER = 'active-test-secret'
+    mockFindWithDecryption
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'backfilled', primaryPhone: '14155550148', displayName: 'Backfilled Person' }])
+
+    expect(await (await GET(requestFor('14155550148'))).json()).toEqual({
+      match: { id: 'backfilled', displayName: 'Backfilled Person' },
+    })
+    expect(mockFindWithDecryption).toHaveBeenCalledTimes(3)
+    expect(mockFindWithDecryption.mock.calls[2][2]).toEqual(mockFindWithDecryption.mock.calls[0][2])
+  })
+
+  it('pages indexed candidates until a verified phone is found', async () => {
+    process.env.LOOKUP_HASH_PEPPER = 'active-test-secret'
+    const stale = Array.from({ length: 50 }, (_, index) => ({ id: `stale-${index}`, primaryPhone: '5555' }))
+    mockFindWithDecryption
+      .mockResolvedValueOnce(stale)
+      .mockResolvedValueOnce([{ id: 'current', primaryPhone: '14155550148', displayName: 'Current Person' }])
+
+    expect(await (await GET(requestFor('14155550148'))).json()).toEqual({
+      match: { id: 'current', displayName: 'Current Person' },
+    })
+    expect(mockFindWithDecryption).toHaveBeenNthCalledWith(
+      2, expect.anything(), expect.anything(), expect.objectContaining({ id: { $gt: 'stale-49' } }),
+      expect.objectContaining({ limit: 50, orderBy: { id: 'ASC' } }), expect.anything(),
     )
   })
 

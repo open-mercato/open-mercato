@@ -3153,20 +3153,29 @@ const interactionsBackfill: ModuleCli = {
 const phoneDigestBackfill: ModuleCli = {
   command: 'phone-digests:backfill',
   async run(rest) {
-    const args = parseArgs(rest)
-    const scope = z.object({ tenantId: z.uuid(), organizationId: z.uuid() }).safeParse({
-      tenantId: args.tenant,
-      organizationId: args.org,
-    })
-    if (!scope.success) {
+    const options = z.strictObject({
+      tenant: z.uuid(),
+      org: z.uuid(),
+      'dry-run': z.string().optional(),
+    }).safeParse(parseArgs(rest))
+    if (!options.success) {
       throw new Error('[internal] Usage: mercato customers phone-digests:backfill --tenant <uuid> --org <uuid> [--dry-run]')
+    }
+
+    const dryRunToken = options.data['dry-run']
+    const dryRun = dryRunToken === undefined ? false : parseBooleanToken(dryRunToken)
+    if (dryRun === null) {
+      throw new Error('[internal] Invalid value for --dry-run. Use true or false')
     }
 
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
-    const dryRun = parseBooleanToken(args['dry-run']) === true
     const encryption = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
-    const stats = await backfillPersonPhoneDigests(em, encryption, { ...scope.data, dryRun })
+    const stats = await backfillPersonPhoneDigests(em, encryption, {
+      tenantId: options.data.tenant,
+      organizationId: options.data.org,
+      dryRun,
+    })
     console.log('[phone-digests:backfill]', { dryRun, ...stats })
   },
 }
