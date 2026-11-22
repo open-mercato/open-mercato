@@ -63,9 +63,10 @@ function computeDealTrend(deals: DealSummary[]): KpiTrend | undefined {
 
 type CompanyKpiBarProps = {
   data: CompanyOverview
+  canViewDeals?: boolean
 }
 
-export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
+export function CompanyKpiBar({ data, canViewDeals = true }: CompanyKpiBarProps) {
   const t = useT()
   const locale = useLocale()
 
@@ -124,6 +125,7 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
   const kpiTiles = React.useMemo(() => [
     {
       id: 'activeDeals',
+      requiresDealsAccess: true,
       title: t('customers.companies.dashboard.kpi.activeDeals', 'ACTIVE DEALS'),
       value: activeDealsValue,
       trend: dealTrend,
@@ -139,6 +141,7 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
     },
     {
       id: 'ltv',
+      requiresDealsAccess: true,
       title: t('customers.companies.dashboard.kpi.ltv', 'CUSTOMER VALUE (LTV)'),
       value: ltvValue,
       formatValue: ltvValue !== null ? (v: number) => formatCurrency(v, dealCurrency, locale) : undefined,
@@ -155,13 +158,17 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
           ? `< 1 ${t('customers.companies.dashboard.kpi.year', 'year')}`
           : `${v} ${v === 1 ? t('customers.companies.dashboard.kpi.year', 'year') : t('customers.companies.dashboard.kpi.years', 'years')}`
         : undefined,
-      comparisonLabel: clientTenureYears !== null
-        ? `${data.kpis?.completedDealsCount ?? data.deals.filter((d) => isWonDealStatus(d.status)).length} ${t('customers.companies.dashboard.kpi.completedDeals', 'completed deals')}`
-        : t('customers.companies.dashboard.kpi.noInteractions', 'No interactions yet'),
+      comparisonLabel: clientTenureYears === null
+        ? t('customers.companies.dashboard.kpi.noInteractions', 'No interactions yet')
+        : canViewDeals
+          ? `${data.kpis?.completedDealsCount ?? data.deals.filter((d) => isWonDealStatus(d.status)).length} ${t('customers.companies.dashboard.kpi.completedDeals', 'completed deals')}`
+          : undefined,
     },
-  ], [t, locale, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis])
+  ], [t, locale, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis, canViewDeals])
 
-  const visibleTiles = kpiTiles.filter((tile) => !hiddenTiles.has(tile.id))
+  const availableTiles = kpiTiles.filter((tile) => canViewDeals || !tile.requiresDealsAccess)
+  const visibleTiles = availableTiles.filter((tile) => !hiddenTiles.has(tile.id))
+  const hiddenTileCount = availableTiles.length - visibleTiles.length
 
   return (
     <div className="space-y-2">
@@ -188,10 +195,10 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
           </div>
         ))}
       </div>
-      {hiddenTiles.size > 0 && (
+      {hiddenTileCount > 0 && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            {t('customers.companies.dashboard.hiddenTiles', '{{count}} tiles hidden', { count: hiddenTiles.size })}
+            {t('customers.companies.dashboard.hiddenTiles', '{{count}} tiles hidden', { count: hiddenTileCount })}
           </span>
           <Button
             type="button"

@@ -23,6 +23,7 @@ jest.mock('@open-mercato/shared/lib/crud/cache', () => {
 })
 
 const mockGetAuthFromRequest = jest.fn()
+const mockGetGrantedFeatures = jest.fn(async () => ['customers.*', 'example.*'])
 const mockResolveOrganizationScopeForRequest = jest.fn()
 const mockResolveCustomerInteractionFeatureFlags = jest.fn()
 const mockLoadCustomFieldValues = jest.fn()
@@ -40,6 +41,10 @@ const mockEm = {
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
+<<<<<<< HEAD
+=======
+    if (token === 'rbacService') return { getGrantedFeatures: mockGetGrantedFeatures }
+>>>>>>> e3ebfc0705 (fix(customers): enforce related view permissions on CRM details (#10204))
     return null
   }),
 }
@@ -119,8 +124,8 @@ function buildCompany() {
   }
 }
 
-function makeRequest() {
-  return new Request(`http://localhost/api/customers/companies/${COMPANY_ID}`)
+function makeRequest(search = '') {
+  return new Request(`http://localhost/api/customers/companies/${COMPANY_ID}${search}`)
 }
 
 describe('GET /api/customers/companies/[id] — detail cache (#3664)', () => {
@@ -203,6 +208,7 @@ describe('GET /api/customers/companies/[id] — detail cache (#3664)', () => {
     expect(lookupKey).toContain('filter:org-1')
     expect(lookupKey).toContain('super:0')
     expect(lookupKey).toContain('viewer:user-1')
+    expect(lookupKey).toMatch(/^customers:companies:detail:v2\|/)
     expect(lookupKey).toContain('mode:legacy')
 
     expect(storeOptions.ttl).toBe(60_000)
@@ -218,6 +224,69 @@ describe('GET /api/customers/companies/[id] — detail cache (#3664)', () => {
       ]),
     )
     expect(storeOptions.tags).toHaveLength(7)
+  })
+
+  it.each([false, true])('skips restricted related reads when unified interactions are %s', async (unified) => {
+    mockGetGrantedFeatures.mockResolvedValueOnce(['customers.companies.view'])
+    mockResolveCustomerInteractionFeatureFlags.mockResolvedValue({ unified })
+    mockFindOneWithDecryption.mockReset().mockResolvedValueOnce({
+      ...buildCompany(),
+      nextInteractionAt: new Date('2026-01-01T00:00:00Z'),
+      nextInteractionName: 'Scheduled follow-up',
+      nextInteractionRefId: 'follow-up',
+    }).mockResolvedValue(null)
+    mockEm.count.mockResolvedValue(7)
+    const { GET } = await import('../route')
+
+    const response = await GET(makeRequest('?include=addresses,notes,activities,interactions,tasks,deals,people'), {
+      params: { id: COMPANY_ID },
+    })
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toMatchObject({
+      company: { id: COMPANY_ID, nextInteractionAt: null, nextInteractionName: null, nextInteractionRefId: null },
+      addresses: [], comments: [], activities: [], interactions: [], todos: [], deals: [],
+      people: [], kpis: {},
+      counts: { addresses: 0, comments: 0, activities: 0, interactions: 0, todos: 0, deals: 0 },
+    })
+    expect(body).not.toHaveProperty('plannedActivitiesPreview')
+    expect(mockEm.count).not.toHaveBeenCalled()
+    const relatedEntities = [
+      'CustomerAddress', 'CustomerComment', 'CustomerActivity', 'CustomerInteraction',
+      'CustomerTodoLink', 'CustomerDealCompanyLink', 'CustomerDealPersonLink',
+    ]
+    const loadedEntities = mockFindWithDecryption.mock.calls.map(([, entity]) => entity.name)
+    expect(loadedEntities.filter((entity) => relatedEntities.includes(entity))).toEqual([])
+  })
+
+  it('does not reuse cached summaries after related-record permissions are revoked', async () => {
+    cacheEnabled = true
+    const stored = new Map<string, unknown>()
+    mockCache.get.mockImplementation(async (key: string) => stored.get(key))
+    mockCache.set.mockImplementation(async (key: string, payload: unknown) => stored.set(key, payload))
+    mockFindOneWithDecryption.mockReset().mockResolvedValueOnce(buildCompany()).mockResolvedValue(null)
+    const { GET } = await import('../route')
+
+    const authorized = await GET(makeRequest(), { params: { id: COMPANY_ID } })
+    expect(authorized.status).toBe(200)
+    expect(await authorized.json()).toHaveProperty('plannedActivitiesPreview')
+
+    mockGetGrantedFeatures.mockResolvedValueOnce(['customers.companies.view'])
+    mockFindOneWithDecryption.mockResolvedValueOnce(buildCompany())
+    mockEm.count.mockClear()
+
+    const restricted = await GET(makeRequest(), { params: { id: COMPANY_ID } })
+    expect(restricted.status).toBe(200)
+    const body = await restricted.json()
+    expect(body).not.toHaveProperty('plannedActivitiesPreview')
+    expect(body.counts).toMatchObject({
+      activities: 0, addresses: 0, comments: 0, deals: 0, interactions: 0, todos: 0,
+    })
+    expect(body.kpis).toEqual({})
+    expect(body.counts.people).toBe(0)
+    expect(mockEm.count).not.toHaveBeenCalled()
+    expect(mockCache.get.mock.calls[0][0]).not.toBe(mockCache.get.mock.calls[1][0])
   })
 
   it('serves the cached payload and skips the detail sweeps on a cache hit', async () => {
