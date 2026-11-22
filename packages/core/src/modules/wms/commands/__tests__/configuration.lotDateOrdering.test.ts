@@ -89,12 +89,12 @@ describe('wms.lots.update — date ordering against stored dates', () => {
     const { record, em, ctx } = createLotStore(orderedDates())
     const before = { ...record }
 
-    const error = await updateHandler()
-      .execute({ id: LOT_ID, ...patch }, ctx)
-      .then(() => null, (err: unknown) => err)
+    const execution = updateHandler().execute({ id: LOT_ID, ...patch }, ctx)
 
-    expect(error).toBeInstanceOf(z.ZodError)
-    expect((error as z.ZodError).issues.map((issue) => issue.path[0])).toContain(issuePath)
+    await expect(execution).rejects.toBeInstanceOf(z.ZodError)
+    await expect(execution).rejects.toMatchObject({
+      issues: expect.arrayContaining([expect.objectContaining({ path: [issuePath] })]),
+    })
     expect(record).toEqual(before)
     expect(em.flush).not.toHaveBeenCalled()
   })

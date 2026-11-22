@@ -18,7 +18,7 @@ export const integrationMeta = {
 }
 
 type LotListResponse = {
-  items?: Array<{ id?: string; manufactured_at?: string | null; best_before_at?: string | null; expires_at?: string | null }>
+  items?: Array<{ id?: string; expires_at?: string | null }>
 }
 
 type ValidationErrorBody = {
@@ -53,13 +53,14 @@ test.describe('TC-WMS-036: Lot update keeps date ordering against the stored dat
     const conflictingExpiresAt = daysFromNow(-60)
     const validExpiresAt = daysFromNow(90)
 
-    const readLot = async () => {
+    const readExpiresAt = async () => {
       const response = await apiRequest(request, 'GET', `/api/wms/lots?ids=${lotId}&page=1&pageSize=1`, {
         token: adminToken,
       })
       expect(response.status()).toBe(200)
       const body = await readJsonSafe<LotListResponse>(response)
-      return body?.items?.find((item) => item.id === lotId) ?? null
+      const storedExpiresAt = body?.items?.find((item) => item.id === lotId)?.expires_at
+      return storedExpiresAt ? new Date(storedExpiresAt).toISOString() : null
     }
 
     try {
@@ -91,8 +92,7 @@ test.describe('TC-WMS-036: Lot update keeps date ordering against the stored dat
       const rejectedBody = await readJsonSafe<ValidationErrorBody>(rejected)
       expect(rejectedBody?.details?.some((issue) => issue.path?.[0] === 'expiresAt')).toBe(true)
 
-      const unchanged = await readLot()
-      expect(unchanged?.expires_at && new Date(unchanged.expires_at).toISOString()).toBe(expiresAt)
+      expect(await readExpiresAt()).toBe(expiresAt)
 
       const accepted = await apiRequest(request, 'PUT', '/api/wms/lots', {
         token: adminToken,
@@ -100,8 +100,7 @@ test.describe('TC-WMS-036: Lot update keeps date ordering against the stored dat
       })
       expect(accepted.status()).toBe(200)
 
-      const updated = await readLot()
-      expect(updated?.expires_at && new Date(updated.expires_at).toISOString()).toBe(validExpiresAt)
+      expect(await readExpiresAt()).toBe(validExpiresAt)
     } finally {
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/lots', lotId)
       await deleteCatalogProductIfExists(request, adminToken, productId)
