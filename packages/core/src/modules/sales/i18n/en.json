@@ -1531,6 +1531,6 @@
   "sales.widgets.newQuotes.settings.last30d": "Last 30 days",
   "sales.widgets.newQuotes.settings.last7d": "Last 7 days",
   "sales.widgets.newQuotes.settings.pageSize": "Number of Quotes",
-  "sales.workflows.commands.orders.update": "Update sales order",
-  "sales.workflow.actionNotAllowed": "Cannot create this document in the current order state. Confirm the order, check its shipments and returned quantities, then try again."
+  "sales.workflow.actionNotAllowed": "Cannot create this document in the current order state. Confirm the order, check its shipments and returned quantities, then try again.",
+  "sales.workflows.commands.orders.update": "Update sales order"
 }

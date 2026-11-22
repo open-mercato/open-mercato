@@ -1,0 +1,55 @@
+---
+title: Sales document workflow guards
+---
+
+Sales can check an order's lifecycle state before creating a return, shipment, or invoice linked to that order. Enable this policy with `OM_SALES_DOCUMENT_WORKFLOW_GUARDS=on` in every server or worker process that executes sales commands. It defaults to **off**, preserving existing integrations and custom workflows.
+
+The default policy uses dictionary **values**, never translated labels or status IDs:
+
+| Action | Allowed order values |
+| --- | --- |
+| Create return | `approved`, `confirmed`, `in_fulfillment`, `fulfilled` |
+| Create shipment | `approved`, `confirmed`, `in_fulfillment`, `fulfilled` |
+| Create order-linked invoice | `confirmed`, `in_fulfillment`, `fulfilled` |
+
+When enabled, only `shipped`, `in_transit`, and `delivered` shipments contribute to the quantity available for a new return. Existing quantity limits and previous returns still apply. A fully returned order cannot receive a new shipment. Standalone invoices without an `orderId` remain available.
+
+A refused action returns HTTP 409 with `code: sales_document_workflow_restricted`, its `action` (`return`, `shipment`, or `invoice`), and a translated error. The server checks the scoped order while holding its write lock, before writing the new document. Existing forms display that error. The buttons remain available because a tenant's replacement policy can differ from the default.
+
+## Custom status values
+
+Before enabling enforcement for a custom workflow, replace the scoped `salesDocumentWorkflowPolicy` service in your module's DI registration. Its `getPolicy` method receives `{ tenantId, organizationId, status }` for the scoped order and may return its policy asynchronously. Use this scope when loading tenant-specific rules.
+
+```ts
+import { asFunction } from 'awilix'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+
+export function register(container: AppContainer) {
+  container.register({
+    salesDocumentWorkflowPolicy: asFunction(() => ({
+      getPolicy: () => ({
+        allowedOrderStatuses: {
+          return: ['customer_accepted'],
+          shipment: ['ready_to_dispatch', 'customer_accepted'],
+          invoice: ['customer_accepted'],
+        },
+        returnableShipmentStatuses: ['delivered_to_customer'],
+      }),
+    })).scoped(),
+  })
+}
+```
+
+An empty allowed array blocks that action. An absent or invalid enabled policy fails closed. Status comparisons trim whitespace, lowercase values, and normalize spaces or hyphens to underscores. Register the replacement after the sales module.
+
+Disabling the environment setting restores the previous creation rules without rewriting any documents. Historical undo and restoration are unchanged. No new permission, entity, migration, or HTTP route is introduced.
+
+## Integration coverage
+
+Run `TC-SALES-058-document-workflow-guards` through the integration CLI in both activation modes. For the enabled run:
+
+```sh
+OM_SALES_DOCUMENT_WORKFLOW_GUARDS=on yarn mercato test:integration TC-SALES-058-document-workflow-guards
+```
+
+The CLI must launch an app with the same flag value as its test process. Use a fresh managed ephemeral environment when changing this server setting. The test creates and cleans up its own orders, shipments, returns and invoices, and creates missing canonical status entries when needed.

@@ -1531,6 +1531,6 @@
   "sales.widgets.newQuotes.settings.last30d": "지난 30일",
   "sales.widgets.newQuotes.settings.last7d": "지난 7일",
   "sales.widgets.newQuotes.settings.pageSize": "견적 수",
-  "sales.workflows.commands.orders.update": "Update sales order",
-  "sales.workflow.actionNotAllowed": "현재 주문 상태에서는 이 문서를 만들 수 없습니다. 주문을 확인하고 배송 및 반품 수량을 검토한 후 다시 시도하세요."
+  "sales.workflow.actionNotAllowed": "현재 주문 상태에서는 이 문서를 만들 수 없습니다. 주문을 확인하고 배송 및 반품 수량을 검토한 후 다시 시도하세요.",
+  "sales.workflows.commands.orders.update": "Update sales order"
 }

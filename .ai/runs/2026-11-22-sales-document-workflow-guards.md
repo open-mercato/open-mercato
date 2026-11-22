@@ -44,5 +44,5 @@ Custom status codes need policy mapping before activation. Keep activation off b
 
 ### Phase 3: coverage and delivery
 
-- [ ] 3.1 Integration tests and activation documentation
+- [x] 3.1 Integration tests and activation documentation
 - [ ] 3.2 Validation, independent review and ready implementation PR
