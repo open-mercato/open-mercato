@@ -3740,7 +3740,7 @@ function DataTableImpl<T extends RowData>({
   const allRows = table.getRowModel().rows
   const hasRowActionsColumn = Boolean(rowActions || injectedRowActions.length > 0)
   const measuredHeaderWidthsRef = React.useRef<Map<string, number>>(new Map())
-  const canMeasureHeaders = !isLoading
+  const canMeasureHeaders = !isLoading && !isInitializingColumns
   const visibleColumnSignature = table.getVisibleLeafColumns().map((column) => column.id).join('|')
   React.useLayoutEffect(() => {
     if (!canMeasureHeaders || !tableScrollEl) return
