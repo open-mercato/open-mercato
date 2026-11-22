@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -51,7 +52,7 @@ test.describe('TC-STAFF-058: leave-request single-date patch keeps the range ord
     const token = await getAuthToken(request, 'admin')
     let memberId: string | null = null
     let leaveRequestId: string | null = null
-    const offset = 500 + Math.floor(Math.random() * 2000)
+    const offset = randomInt(500, 2500)
     const startDate = dayKey(offset + 10)
     const endDate = dayKey(offset + 20)
 
