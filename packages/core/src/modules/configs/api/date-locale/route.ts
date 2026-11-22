@@ -59,7 +59,7 @@ type RouteContext = {
   organizationId: string | null
   actorId: string
   userId: string | null
-  translate: (key: string, fallback?: string) => string
+  translate: Awaited<ReturnType<typeof resolveTranslations>>['translate']
 }
 
 async function resolveRouteContext(req: Request): Promise<RouteContext> {
@@ -192,7 +192,21 @@ function invalidSettingsResponse(issues: z.ZodError['issues'], translate: RouteC
   const fieldErrors: Record<string, string> = {}
   for (const issue of issues) {
     const field = typeof issue.path[0] === 'string' ? issue.path[0] : 'form'
-    fieldErrors[field] ??= translate(issue.message, issue.message)
+    if (fieldErrors[field] !== undefined) continue
+
+    if (issue.code === 'unrecognized_keys') {
+      fieldErrors[field] = translate('configs.dateLocale.errors.unknownFields', 'Unknown settings: {fields}.', {
+        fields: issue.keys.join(', '),
+      })
+    } else if (field === 'firstDayOfWeek') {
+      fieldErrors[field] = translate('configs.dateLocale.errors.firstDayOfWeek', 'Choose a day of the week or use the locale default.')
+    } else if (issue.code === 'invalid_type') {
+      fieldErrors[field] = field === 'form'
+        ? translate('configs.dateLocale.errors.invalid', 'Some settings are invalid.')
+        : translate('configs.dateLocale.errors.expectedText', 'Enter a text value.')
+    } else {
+      fieldErrors[field] = translate(issue.message, issue.message)
+    }
   }
   return NextResponse.json(
     { error: translate('configs.dateLocale.errors.invalid', 'Some settings are invalid.'), fieldErrors },
