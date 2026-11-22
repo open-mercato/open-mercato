@@ -18,11 +18,13 @@ The attachment move must check both scope and the expected compose owner again w
 
 ## Progress
 
+PR: #10367
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Composer and delivery
 
-- [ ] 1.1 Characterize the current mailbox payload rejection
+- [x] 1.1 Characterize the current mailbox payload rejection — e4ba27b61f
 - [ ] 1.2 Carry the composer payload through atomic mailbox compose and provider validation
 - [ ] 1.3 Verify the composer payload and run the validation gate
 
