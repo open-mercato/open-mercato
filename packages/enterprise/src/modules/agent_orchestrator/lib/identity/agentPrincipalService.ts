@@ -1,8 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
-import { lockAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import {
+  executionPrincipalRoleName,
+  provisionExecutionPrincipal,
+} from '@open-mercato/core/modules/auth/lib/executionPrincipal'
+import { Role, User } from '@open-mercato/core/modules/auth/data/entities'
 import {
   provisionAgentPrincipalSchema,
   type ProvisionAgentPrincipalInput,
@@ -25,22 +28,7 @@ export type ResolvedAgentPrincipal = {
   interactiveLoginDisabled: boolean
 }
 
-/**
- * Deterministic, internal-only email for an agent `User`. Not a deliverable
- * mailbox — agents never receive mail and never log in interactively. Keyed by
- * the agent definition id + organization so it is stable across re-provisioning
- * (idempotency) and unique per org. The `.agent.internal` TLD is reserved/non-
- * routable so it can never collide with a real human's address.
- */
-function buildAgentUserEmail(agentDefinitionId: string, organizationId: string): string {
-  const slug = agentDefinitionId.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
-  return `agent+${slug}+${organizationId}@agent.internal`
-}
-
-/** Deterministic, tenant-scoped role name for an agent's least-privilege role. */
-function buildAgentRoleName(agentDefinitionId: string): string {
-  return `agent:${agentDefinitionId}`
-}
+const AGENT_PRINCIPAL_NAME_PREFIX = 'agent'
 
 function resolveEm(container: AwilixContainer): EntityManager {
   return (container.resolve('em') as EntityManager).fork()
@@ -49,22 +37,24 @@ function resolveEm(container: AwilixContainer): EntityManager {
 /**
  * Provisions — idempotently — an `AgentPrincipal`: a non-interactive `auth.User`
  * (`kind='agent'`) and a scoped, least-privilege `auth.Role`, so the agent is a
- * first-class principal attributed identically to a human on every write (agent
- * identity & on-behalf-of spec, Wave 4 Phase 1).
+ * first-class principal attributed identically to a human on every write.
  *
- * Internal-agent attribution: the returned `userId` is the concrete actor id the
- * Phase-2 `runAs` wrapper stamps on each `ActionLog`.
+ * The User / Role / RoleAcl / UserRole find-or-create steps delegate to core's
+ * `provisionExecutionPrincipal` keyed by the bare agent definition id with the
+ * `agent` name prefix and `mergeFeatures: true`, which reproduces the historical
+ * email (`agent+<slug>+<orgId>@agent.internal`) and role name
+ * (`agent:<agentDefinitionId>`) byte-for-byte, so already provisioned rows keep
+ * their identity. Re-provisioning only ever widens the role ACL here; the
+ * declarative path (`syncAgentPrincipals`) is the one that narrows. A live
+ * principal whose role is not the historical `agent:<agentDefinitionId>` role
+ * (a declaratively provisioned one) is returned untouched, so this path can
+ * never widen a declared ACL.
  *
- * Non-interactive enforcement: the agent `User` is created with
- * `passwordHash = null` and `isConfirmed = false`, so the interactive
- * password/SSO login flow has no credential to verify against — it is a property
- * of the principal, not a special-case block. External token flows are Phase 3
- * (`credentialMode='oauth_client'`) and are NOT provisioned here.
- *
- * Idempotency: keyed on `(organizationId, agentDefinitionId)` over live rows
- * (partial unique index). A second call resolves and returns the same principal,
- * creating no duplicate `User`/`Role`/`AgentPrincipal` rows. Tenant-scoped: every
- * lookup and write pins both `tenantId` and `organizationId`.
+ * Non-interactive enforcement: the agent `User` has `passwordHash = null` and
+ * `isConfirmed = false`, so the interactive login flow has no credential to
+ * verify against. Idempotency: keyed on `(organizationId, agentDefinitionId)`
+ * over live `AgentPrincipal` rows; every lookup and write pins both `tenantId`
+ * and `organizationId`.
  */
 export async function provisionAgentPrincipal(
   container: AwilixContainer,
@@ -72,155 +62,73 @@ export async function provisionAgentPrincipal(
   input: ProvisionAgentPrincipalInput,
 ): Promise<ResolvedAgentPrincipal> {
   const parsed = provisionAgentPrincipalSchema.parse(input)
-  const em = resolveEm(container)
   const { tenantId, organizationId } = scope
+  const em = resolveEm(container)
+  const legacyRoleName = executionPrincipalRoleName(parsed.agentDefinitionId, AGENT_PRINCIPAL_NAME_PREFIX)
 
-  const auth = (await import(
-    '@open-mercato/core/modules/auth/data/entities'
-  )) as typeof import('@open-mercato/core/modules/auth/data/entities')
+  const existing = await findOneWithDecryption(
+    em,
+    AgentPrincipal,
+    { tenantId, organizationId, agentDefinitionId: parsed.agentDefinitionId, deletedAt: null },
+    {},
+    { tenantId, organizationId },
+  )
+  const existingRole = existing
+    ? await findOneWithDecryption(em, Role, { id: existing.roleId, tenantId }, {}, { tenantId, organizationId: null })
+    : null
+  const ownedElsewhere = Boolean(existing && existingRole?.name !== legacyRoleName)
 
-  return em.transactional(async (tem) => {
-    const existingPrincipal = await tem.findOne(AgentPrincipal, {
-      organizationId,
-      agentDefinitionId: parsed.agentDefinitionId,
-      deletedAt: null,
-    })
-
-    // ── Scoped, least-privilege role (find-or-create, idempotent) ─────────────
-    const roleName = buildAgentRoleName(parsed.agentDefinitionId)
-    let role = await findOneWithDecryption(
-      tem,
-      auth.Role,
-      { name: roleName, tenantId },
-      {},
-      { tenantId, organizationId: null },
-    )
-    if (!role) {
-      role = tem.create(auth.Role, { name: roleName, tenantId, minActiveHolders: 0, createdAt: new Date() })
-      tem.persist(role)
-      await tem.flush()
-    }
-
-    // ── Non-interactive agent User (find-or-create, idempotent) ───────────────
-    const agentEmail = buildAgentUserEmail(parsed.agentDefinitionId, organizationId)
-    let user = existingPrincipal
-      ? await findOneWithDecryption(
-          tem,
-          auth.User,
-          { id: existingPrincipal.userId },
-          {},
-          { tenantId, organizationId },
-        )
-      : await findOneWithDecryption(
-          tem,
-          auth.User,
-          { emailHash: computeEmailHash(agentEmail), tenantId, deletedAt: null },
-          {},
-          { tenantId, organizationId },
-        )
-
-    if (!user) {
-      user = tem.create(auth.User, {
-        email: agentEmail,
-        emailHash: computeEmailHash(agentEmail),
-        // No interactive credential: a null passwordHash + unconfirmed account
-        // means the password/SSO login flow has nothing to authenticate against.
-        passwordHash: null,
-        isConfirmed: false,
+  const provisioned = ownedElsewhere
+    ? null
+    : await provisionExecutionPrincipal(container, scope, {
+        principalKey: parsed.agentDefinitionId,
+        displayName: parsed.displayName ?? parsed.agentDefinitionId,
+        features: parsed.roleFeatures,
         kind: 'agent',
-        name: parsed.displayName ?? parsed.agentDefinitionId,
-        tenantId,
-        organizationId,
-        createdAt: new Date(),
+        namePrefix: AGENT_PRINCIPAL_NAME_PREFIX,
+        mergeFeatures: true,
       })
-      tem.persist(user)
-      await tem.flush()
-    } else if (user.kind !== 'agent') {
-      // Defensive: an existing row resolved by the deterministic agent email must
-      // be an agent principal. Never silently repurpose a human/service row.
-      throw new Error('[internal] resolved a non-agent User for an agent principal')
-    }
 
-    await lockAuthorizationState(tem, {
-      userIds: [String(user.id)],
-      roleIds: [String(role.id)],
+  const userId = existing?.userId ?? provisioned?.userId
+  const user = userId
+    ? await findOneWithDecryption(em, User, { id: userId, tenantId }, {}, { tenantId, organizationId })
+    : null
+  if (!user || user.kind !== 'agent') {
+    throw new Error('[internal] resolved a non-agent User for an agent principal')
+  }
+
+  let principal = existing
+  if (!principal && provisioned) {
+    principal = em.create(AgentPrincipal, {
+      tenantId,
+      organizationId,
+      userId: provisioned.userId,
+      agentDefinitionId: parsed.agentDefinitionId,
+      roleId: provisioned.roleId,
+      credentialMode: parsed.credentialMode,
+      enabled: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
+    em.persist(principal)
+    await em.flush()
+  }
+  if (!principal) {
+    throw new Error('[internal] agent principal could not be provisioned')
+  }
 
-    // The scoped role's ACL grants the agent's least-privilege features (merged
-    // idempotently on re-provision), never super-admin.
-    const existingAcl = await findOneWithDecryption(
-      tem,
-      auth.RoleAcl,
-      { role, tenantId },
-      {},
-      { tenantId, organizationId: null },
-    )
-    if (!existingAcl) {
-      tem.persist(
-        tem.create(auth.RoleAcl, {
-          role,
-          tenantId,
-          featuresJson: parsed.roleFeatures,
-          isSuperAdmin: false,
-          organizationsJson: [organizationId],
-          createdAt: new Date(),
-        }),
-      )
-      await tem.flush()
-    } else {
-      const current = Array.isArray(existingAcl.featuresJson) ? existingAcl.featuresJson : []
-      const merged = Array.from(new Set([...current, ...parsed.roleFeatures]))
-      if (merged.length !== current.length) {
-        existingAcl.featuresJson = merged
-        tem.persist(existingAcl)
-        await tem.flush()
-      }
-    }
-
-    // Link the agent User to its scoped role (idempotent).
-    const existingLink = await findOneWithDecryption(
-      tem,
-      auth.UserRole,
-      { user, role },
-      {},
-      { tenantId, organizationId: null },
-    )
-    if (!existingLink) {
-      tem.persist(tem.create(auth.UserRole, { user, role, createdAt: new Date() }))
-      await tem.flush()
-    }
-
-    // ── AgentPrincipal row (find-or-create, idempotent) ───────────────────────
-    let principal = existingPrincipal
-    if (!principal) {
-      principal = tem.create(AgentPrincipal, {
-        tenantId,
-        organizationId,
-        userId: user.id,
-        agentDefinitionId: parsed.agentDefinitionId,
-        roleId: role.id,
-        credentialMode: parsed.credentialMode,
-        enabled: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      tem.persist(principal)
-      await tem.flush()
-    }
-
-    return {
-      principal,
-      userId: principal.userId,
-      roleId: principal.roleId,
-      interactiveLoginDisabled: !user.passwordHash && user.isConfirmed === false,
-    }
-  })
+  return {
+    principal,
+    userId: principal.userId,
+    roleId: principal.roleId,
+    interactiveLoginDisabled: !user.passwordHash && user.isConfirmed === false,
+  }
 }
 
 /**
  * Resolves the agent principal for `(organizationId, agentDefinitionId)` without
  * provisioning. Returns null when the agent has not been provisioned yet (or was
- * soft-deleted). Org-scoped — never returns another tenant's row.
+ * soft-deleted or disabled). Tenant- and org-scoped — never returns another tenant's row.
  */
 export async function resolveAgentPrincipal(
   container: AwilixContainer,
@@ -229,8 +137,10 @@ export async function resolveAgentPrincipal(
 ): Promise<AgentPrincipal | null> {
   const em = resolveEm(container)
   return em.findOne(AgentPrincipal, {
+    tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     agentDefinitionId,
+    enabled: true,
     deletedAt: null,
   })
 }

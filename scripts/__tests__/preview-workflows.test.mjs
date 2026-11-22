@@ -110,7 +110,9 @@ test('npm snapshot credentials are isolated behind the preview environment', () 
     'NPM_PREVIEW_TOKEN',
   ])
   assert.equal(workflow.jobs['resolve-pr'].env, undefined)
-  assert.equal(workflow.jobs['standalone-integration'].env, undefined)
+  assert.deepEqual(workflow.jobs['standalone-integration'].env, {
+    NPM_PROPAGATION_VERSION: '${{ needs.snapshot.outputs.snapshot_version }}',
+  })
 })
 
 test('npm snapshot approval rejects self approval and fails closed before PR checkout', async () => {
@@ -162,6 +164,35 @@ test('published standalone lanes verify the disabled baseline before activating 
     assertStandaloneExampleActivationLane(readText(workflowPath))
   }
 })
+
+test('published standalone test processes drain queues when app workers are disabled', () => {
+  for (const workflowPath of [snapshotWorkflowPath, npmSnapshotPreviewWorkflowPath]) {
+    const workflow = parse(readText(workflowPath))
+    const steps = workflow.jobs['standalone-integration'].steps
+    const configure = steps.find((step) => step.name === 'Configure standalone app environment')
+    const integration = steps.find((step) => step.name === 'Run integration tests')
+
+    assert.match(configure.run, /^AUTO_SPAWN_WORKERS=false$/m, workflowPath)
+    assert.equal(integration.env.AUTO_SPAWN_WORKERS, 'false', workflowPath)
+    assert.equal(integration.env.OM_TEST_APP_ROOT, '/tmp/standalone-app', workflowPath)
+  }
+})
+
+for (const workflowPath of [snapshotWorkflowPath, npmSnapshotPreviewWorkflowPath]) {
+  test(`${path.basename(workflowPath)} marks the standalone test process as isolated`, () => {
+    const workflow = parse(readText(workflowPath))
+    const standalone = workflow.jobs['standalone-integration']
+    const configure = standalone.steps.find((step) => step.name === 'Configure standalone app environment')
+    const integration = standalone.steps.find((step) => step.name === 'Run integration tests')
+
+    assert.equal(standalone.services.postgres.env.POSTGRES_DB, 'mercato_test')
+    assert.match(configure.run, /^OM_INTEGRATION_TEST=true$/m)
+    assert.equal(integration.env.OM_INTEGRATION_TEST, 'true')
+    assert.equal(integration.env.OM_TEST_APP_ROOT, '/tmp/standalone-app')
+    assert.ok(configure.run.includes(`DATABASE_URL=${integration.env.DATABASE_URL}`))
+    assert.equal(new URL(integration.env.DATABASE_URL).pathname, '/mercato_test')
+  })
+}
 
 test('develop snapshot standalone initialization replaces the scaffold database URL', () => {
   const workflow = readText(snapshotWorkflowPath)

@@ -176,11 +176,20 @@ export function AddressEditor<C = unknown>({
     isPrimary: value.isPrimary ?? false,
   }
 
+  // Tracks the latest merged draft outside of props so two field edits dispatched in the same
+  // render batch (e.g. a Radix Select commit immediately followed by typing into another field)
+  // always merge onto each other instead of two independent `{ ...current, [key]: value }` snapshots
+  // racing for `onChange` — the caller only keeps the last one, silently dropping the other's edit.
+  const currentRef = React.useRef(current)
+  currentRef.current = current
+
   const update = React.useCallback(
     (key: keyof AddressEditorDraft, nextValue: string | boolean) => {
-      onChange({ ...current, [key]: nextValue })
+      const next = { ...currentRef.current, [key]: nextValue }
+      currentRef.current = next
+      onChange(next)
     },
-    [current, onChange],
+    [onChange],
   )
 
   const filteredCountryOptions = React.useMemo(() => {
@@ -247,14 +256,14 @@ export function AddressEditor<C = unknown>({
           disabled={disabled}
           aria-invalid={errors.name ? 'true' : undefined}
         />
-        <div className="flex gap-2">
+        <div className="flex min-w-0 gap-2">
           <Select
             value={current.purpose || undefined}
             onValueChange={(next) => update('purpose', next ?? '')}
             disabled={disabled}
           >
             <SelectTrigger
-              className={errors.purpose ? 'border-destructive' : undefined}
+              className={cn('min-w-0 flex-1', errors.purpose && 'border-status-error-border')}
               aria-invalid={errors.purpose ? 'true' : undefined}
             >
               <SelectValue

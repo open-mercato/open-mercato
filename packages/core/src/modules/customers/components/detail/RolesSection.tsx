@@ -15,8 +15,17 @@ import type { DictionaryEntryOption } from '@open-mercato/core/modules/dictionar
 import { RoleAssignmentRow, type RoleAssignment } from './RoleAssignmentRow'
 import { AssignRoleDialog } from './AssignRoleDialog'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customers')
+
+function reportRoleMutationError(error: unknown, code: string) {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'customers', code })
+  } catch (reportingError) {
+    logger.warn('Failed to report role mutation error', { err: reportingError })
+  }
+}
 
 interface RolesSectionProps {
   entityType: 'company' | 'person'
@@ -29,18 +38,34 @@ type GuardedMutationRunner = <T,>(
   mutationPayload?: Record<string, unknown>,
 ) => Promise<T>
 
-export function RolesSection({ entityType, entityId, entityName }: RolesSectionProps) {
-  const t = useT()
+export function RolesSection(props: RolesSectionProps) {
   const { payload } = useBackendChrome()
-  const canManageRoleTypes = React.useMemo(
-    () => hasFeature(payload?.grantedFeatures ?? [], 'customers.settings.manage'),
-    [payload?.grantedFeatures],
+  const features = payload?.grantedFeatures ?? []
+  if (!hasFeature(features, 'customers.roles.view')) return null
+
+  return (
+    <RolesSectionContent
+      {...props}
+      canReadRoleTypes={hasFeature(features, 'customers.people.view')}
+      canManageRoleTypes={hasFeature(features, 'customers.settings.manage')}
+    />
   )
+}
+
+function RolesSectionContent({
+  entityType,
+  entityId,
+  entityName,
+  canReadRoleTypes,
+  canManageRoleTypes,
+}: RolesSectionProps & { canReadRoleTypes: boolean; canManageRoleTypes: boolean }) {
+  const t = useT()
   const [roles, setRoles] = React.useState<RoleAssignment[]>([])
   const [roleTypes, setRoleTypes] = React.useState<DictionaryEntryOption[]>([])
   const [loading, setLoading] = React.useState(true)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [initialRoleType, setInitialRoleType] = React.useState<string | null>(null)
+  const [editingAssignment, setEditingAssignment] = React.useState<RoleAssignment | null>(null)
   const hasConfiguredRoleTypes = roleTypes.length > 0
 
   const basePath = entityType === 'company' ? 'companies' : 'people'
@@ -99,6 +124,11 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
   }, [loadRoles])
 
   React.useEffect(() => {
+    if (!canReadRoleTypes) {
+      setRoleTypes([])
+      return
+    }
+
     let active = true
 
     readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
@@ -135,24 +165,58 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
     return () => {
       active = false
     }
-  }, [])
+  }, [canReadRoleTypes])
 
   const assignedRoleTypes = React.useMemo(
     () => new Set(roles.map((role) => role.roleType)),
     [roles],
   )
 
+  const unassignedRoleTypes = React.useMemo(
+    () => roleTypes.filter((roleType) => !assignedRoleTypes.has(roleType.value)),
+    [assignedRoleTypes, roleTypes],
+  )
+
   const handleDialogAssign = React.useCallback(async (roleType: string, userId: string) => {
-    await runMutationWithContext(
-      () =>
-        apiCallOrThrow(`/api/customers/${basePath}/${entityId}/roles`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ roleType, userId }),
-        }),
-      { roleType, userId },
-    )
+    try {
+      await runMutationWithContext(
+        () =>
+          apiCallOrThrow(`/api/customers/${basePath}/${entityId}/roles`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ roleType, userId }),
+          }),
+        { roleType, userId },
+      )
+    } catch (error) {
+      logger.error('customers.roles.assign failed', { err: error })
+      reportRoleMutationError(error, 'customers.role_assign_failed')
+      flash(t('customers.roles.assignError', 'Failed to assign role'), 'error')
+      throw error
+    }
     flash(t('customers.roles.assigned', 'Role assigned'), 'success')
+    await loadRoles()
+  }, [basePath, entityId, loadRoles, runMutationWithContext, t])
+
+  const handleDialogReassign = React.useCallback(async (assignmentId: string, userId: string) => {
+    try {
+      await runMutationWithContext(
+        () =>
+          // optimistic-lock-exempt: role assignment add/remove
+          apiCallOrThrow(`/api/customers/${basePath}/${entityId}/roles?roleId=${assignmentId}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ userId }),
+          }),
+        { roleId: assignmentId, userId },
+      )
+    } catch (error) {
+      logger.error('customers.roles.update failed', { err: error })
+      reportRoleMutationError(error, 'customers.role_reassign_failed')
+      flash(t('customers.roles.updateFailed', 'Failed to update role assignment.'), 'error')
+      throw error
+    }
+    flash(t('customers.roles.reassigned', 'Assignee changed'), 'success')
     await loadRoles()
   }, [basePath, entityId, loadRoles, runMutationWithContext, t])
 
@@ -182,9 +246,16 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
 
   const openDialog = React.useCallback((roleType?: string | null) => {
     if (!hasConfiguredRoleTypes) return
+    setEditingAssignment(null)
     setInitialRoleType(roleType ?? null)
     setDialogOpen(true)
   }, [hasConfiguredRoleTypes])
+
+  const openReassignDialog = React.useCallback((assignment: RoleAssignment) => {
+    setEditingAssignment(assignment)
+    setInitialRoleType(assignment.roleType)
+    setDialogOpen(true)
+  }, [])
 
   if (loading) {
     return (
@@ -221,17 +292,19 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
           className="grid items-start gap-4"
           style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 18rem), 1fr))' }}
         >
-          {cards.map((entry) =>
-            entry.role ? (
+          {cards.map((entry) => {
+            const assignment = entry.role
+            return assignment ? (
               <RoleAssignmentRow
-                key={entry.role.id}
-                role={entry.role}
+                key={assignment.id}
+                role={assignment}
                 roleTypeLabel={entry.roleTypeLabel}
                 runMutationWithContext={runMutationWithContext}
                 entityType={entityType}
                 entityId={entityId}
                 onRemoved={loadRoles}
                 onUpdated={loadRoles}
+                onChangeUser={() => openReassignDialog(assignment)}
               />
             ) : (
               <div key={entry.roleType} className="flex h-full min-w-0 flex-col rounded-xl border border-dashed bg-muted/20 p-4">
@@ -254,8 +327,8 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
                   {t('customers.roles.choosePerson', 'Choose person')}
                 </Button>
               </div>
-            ),
-          )}
+            )
+          })}
         </div>
       ) : hasConfiguredRoleTypes ? (
         <EmptyState
@@ -294,15 +367,17 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
       )}
 
       {hasConfiguredRoleTypes ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => openDialog(null)}
-        >
-          <Plus className="mr-1 size-3.5" />
-          {t('customers.roles.addRole', 'Add role')}
-        </Button>
+        unassignedRoleTypes.length > 0 ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => openDialog(null)}
+          >
+            <Plus className="mr-1 size-3.5" />
+            {t('customers.roles.assignRole', 'Assign role')}
+          </Button>
+        ) : null
       ) : (
         <Button asChild type="button" variant="ghost" size="sm">
           <Link href="/backend/config/customers">
@@ -316,8 +391,11 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
         onClose={() => {
           setDialogOpen(false)
           setInitialRoleType(null)
+          setEditingAssignment(null)
         }}
         onAssign={handleDialogAssign}
+        onReassign={handleDialogReassign}
+        editingAssignment={editingAssignment}
         roleTypes={roleTypes}
         entityName={
           entityName && entityName.trim().length

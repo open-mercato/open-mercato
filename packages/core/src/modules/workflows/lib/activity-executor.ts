@@ -10,6 +10,7 @@
  * Functional API (no classes) following Open Mercato conventions.
  */
 
+import type { InvokeAgentCallSettings } from '../data/activity-config-schemas'
 import { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
@@ -62,7 +63,7 @@ import './activity-registry-bootstrap'
 import { bindActivityExecutor } from './activity-types'
 import { getActivityType } from './activity-registry'
 import { logWorkflowEvent } from './event-logger'
-import { calculateWaitDelayMs, parseDuration } from './duration'
+import { MAX_INLINE_WAIT_MS, assertInProcessWaitDelay, calculateWaitDelayMs, parseDuration } from './duration'
 
 export { calculateWaitDelayMs } from './duration'
 import { resolveActivityTimeoutMs } from './activityTimeoutFields'
@@ -76,6 +77,8 @@ export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateParams } from '@open-mercato/shared/lib/i18n/context'
+
+import { assertTrustedEventTriggerIdentity } from './event-trigger-identity'
 
 const logger = createLogger('workflows')
 
@@ -382,7 +385,7 @@ export async function enqueueActivity(
     workflowContext,
     stepContext,
     retryPolicy: activity.retryPolicy,
-    timeoutMs: activity.timeoutMs,
+    timeoutMs: resolveActivityTimeoutMs(activity),
     tenantId: workflowInstance.tenantId,
     organizationId: workflowInstance.organizationId,
     userId: context.userId,
@@ -577,6 +580,8 @@ export async function executeActivity(
   activity: ActivityDefinition,
   context: ActivityContext
 ): Promise<ActivityExecutionResult> {
+  assertTrustedEventTriggerIdentity(context.workflowInstance)
+
   const retryPolicy = activity.retryPolicy || {
     maxAttempts: 1,
     initialIntervalMs: 0,
@@ -621,6 +626,7 @@ export async function executeActivity(
       // it would only re-log the same refusal N times before reaching the same
       // answer.
       if (isDryRunRefusal(error)) break
+      if (error instanceof CallApiRefusalError) break
 
       // Log activity retry attempt with context
       if (attempt < retryPolicy.maxAttempts - 1) {
@@ -683,6 +689,31 @@ export async function executeActivity(
   }
 }
 
+export interface ExecuteActivitiesOptions {
+  /**
+   * Hand a synchronous activity with a long `enqueueDelayMs` (a WAIT over
+   * `MAX_INLINE_WAIT_MS`) to the activity queue instead of sleeping in-process.
+   * Only the transition's LAST activity qualifies, so nothing authored after the
+   * wait can run before it elapses. Only callers that park on an `async` result
+   * (the transition handler) may opt in — a caller that does not would let the
+   * run move on without waiting at all.
+   */
+  queueLongInlineWaits?: boolean
+}
+
+function isLongInlineWait(activity: ActivityDefinition, context: ActivityContext): boolean {
+  const entry = getActivityType(activity.activityType)
+  if (!entry?.enqueueDelayMs || entry.async.capable === false) return false
+  try {
+    const delayMs = entry.enqueueDelayMs(
+      interpolateActivityConfig(activity.config, context, activity.activityType, activity.activityName)
+    )
+    return delayMs !== null && delayMs > MAX_INLINE_WAIT_MS
+  } catch {
+    return false
+  }
+}
+
 /**
  * Execute multiple activities in sequence
  * Supports both synchronous and asynchronous (queued) execution
@@ -697,7 +728,8 @@ export async function executeActivities(
   em: EntityManager,
   container: AwilixContainer,
   activities: ActivityDefinition[],
-  context: ActivityContext
+  context: ActivityContext,
+  options: ExecuteActivitiesOptions = {}
 ): Promise<ActivityExecutionResult[]> {
   const results: ActivityExecutionResult[] = []
 
@@ -709,9 +741,15 @@ export async function executeActivities(
 
   for (let i = 0; i < activities.length; i++) {
     const activity = activities[i]
+    const isLastActivity = i === activities.length - 1
+    const queueAsLongWait =
+      !activity.async &&
+      options.queueLongInlineWaits === true &&
+      isLastActivity &&
+      isLongInlineWait(activity, context)
 
     // Check if activity should run async
-    if (activity.async && !forceSynchronous) {
+    if ((activity.async || queueAsLongWait) && !forceSynchronous) {
       // Enqueue for background execution
       const jobId = await enqueueActivity(em, activity, context)
 
@@ -851,6 +889,7 @@ async function executeActivityByType(
     em: em as PostgreSqlEntityManager,
     container,
     signal,
+    timeoutMs: resolveActivityTimeoutMs(activity),
   })
 }
 
@@ -1037,6 +1076,8 @@ export async function executeUpdateEntity(
   container: AwilixContainer,
   signal?: AbortSignal
 ): Promise<any> {
+  assertTrustedEventTriggerIdentity(context.workflowInstance)
+
   const { commandId, input, statusDictionary } = config
 
   if (!commandId) {
@@ -1130,6 +1171,7 @@ export async function executeUpdateEntity(
     organizationIds: context.workflowInstance.organizationId
       ? [context.workflowInstance.organizationId]
       : null,
+    ...(await withWorkflowAuditCorrelation(context, container)),
   }
 
   // Execute the command. A timeout AbortSignal refuses a start (throwIfAborted
@@ -1153,6 +1195,81 @@ export async function executeUpdateEntity(
     result,
     logEntryId: logEntry?.id,
   }
+}
+
+function readCorrelationValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+type ProposalVerificationBridgeLike = {
+  verifyProposalForInstance?: (args: {
+    proposalId: string
+    workflowInstanceId: string
+    tenantId: string
+    organizationId: string
+  }) => Promise<boolean>
+}
+
+const CORRELATION_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The workflow context is user-writable (task completion merges form data, admins
+ * can PATCH it), so a proposal id read from it is stamped only after the optional
+ * agent_orchestrator peer confirms the proposal belongs to this very instance.
+ * An absent peer, a failed lookup or a mismatch drops the id; the write proceeds.
+ */
+async function isProposalOfInstance(
+  container: AwilixContainer,
+  context: ActivityContext,
+  proposalId: string,
+  workflowInstanceId: string,
+): Promise<boolean> {
+  const tenantId = context.workflowInstance?.tenantId
+  const organizationId = context.workflowInstance?.organizationId
+  if (!tenantId || !organizationId) return false
+  if (!CORRELATION_UUID_PATTERN.test(proposalId) || !CORRELATION_UUID_PATTERN.test(workflowInstanceId)) return false
+  let bridge: ProposalVerificationBridgeLike | undefined
+  try {
+    bridge = container.resolve<ProposalVerificationBridgeLike>('agentWorkflowBridge')
+  } catch {
+    return false
+  }
+  if (!bridge || typeof bridge.verifyProposalForInstance !== 'function') return false
+  try {
+    return (await bridge.verifyProposalForInstance({ proposalId, workflowInstanceId, tenantId, organizationId })) === true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Correlation ids stamped on the action log of a workflow-driven write: the
+ * instance always, and the agent proposal whose verdict the run is carrying out
+ * when the context holds one (`proposalId` from a human dispose, `agentProposalId`
+ * from the inline resolution path) and it is verified to belong to this instance.
+ */
+async function buildWorkflowAuditCorrelation(
+  context: ActivityContext,
+  container: AwilixContainer,
+): Promise<Record<string, string>> {
+  const correlation: Record<string, string> = {}
+  const workflowInstanceId = readCorrelationValue(context.workflowInstance?.id)
+  if (workflowInstanceId) correlation.workflowInstanceId = workflowInstanceId
+  const workflowContext = context.workflowContext ?? {}
+  const proposalId =
+    readCorrelationValue(workflowContext.proposalId) ?? readCorrelationValue(workflowContext.agentProposalId)
+  if (proposalId && workflowInstanceId && (await isProposalOfInstance(container, context, proposalId, workflowInstanceId))) {
+    correlation.proposalId = proposalId
+  }
+  return correlation
+}
+
+async function withWorkflowAuditCorrelation(
+  context: ActivityContext,
+  container: AwilixContainer,
+): Promise<{ auditCorrelation?: Record<string, string> }> {
+  const auditCorrelation = await buildWorkflowAuditCorrelation(context, container)
+  return Object.keys(auditCorrelation).length > 0 ? { auditCorrelation } : {}
 }
 
 /**
@@ -1215,6 +1332,38 @@ export type CallWebhookDeps = {
   allowPrivate?: boolean
   fetchImpl?: typeof fetch
   signal?: AbortSignal
+  timeoutMs?: number
+}
+
+const WEBHOOK_TIMEOUT_MS = 30_000
+const WEBHOOK_MAX_RESPONSE_BYTES = 1024 * 1024
+
+async function readWebhookResponse(response: Response, signal: AbortSignal): Promise<string> {
+  const declaredLength = Number(response.headers.get('content-length'))
+  if (declaredLength > WEBHOOK_MAX_RESPONSE_BYTES) {
+    throw new Error(`[internal] CALL_WEBHOOK response exceeds ${WEBHOOK_MAX_RESPONSE_BYTES} bytes`)
+  }
+  if (!response.body) return ''
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  try {
+    for (;;) {
+      throwIfAborted(signal)
+      const { done, value } = await raceAbortable(reader.read(), signal)
+      if (done) break
+      totalBytes += value.byteLength
+      if (totalBytes > WEBHOOK_MAX_RESPONSE_BYTES) {
+        throw new Error(`[internal] CALL_WEBHOOK response exceeds ${WEBHOOK_MAX_RESPONSE_BYTES} bytes`)
+      }
+      chunks.push(value)
+    }
+    return new TextDecoder().decode(Buffer.concat(chunks, totalBytes))
+  } finally {
+    void reader.cancel().catch(() => undefined)
+    reader.releaseLock()
+  }
 }
 
 export async function executeCallWebhook(
@@ -1234,67 +1383,65 @@ export async function executeCallWebhook(
 
   const allowPrivate = deps.allowPrivate ?? isAllowPrivateWorkflowWebhookUrlsEnabled()
 
-  let response: Response
-  try {
-    response = await safeOutboundFetch(
-      url,
-      {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
+  return executeWithTimeout(async (deadlineSignal) => {
+    const signal = deps.signal
+      ? AbortSignal.any([deadlineSignal, deps.signal])
+      : deadlineSignal
+    throwIfAborted(signal)
+
+    let response: Response | undefined
+    try {
+      response = await raceAbortable(safeOutboundFetch(
+        url,
+        {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            ...headers,
+          },
+          body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
+          redirect: 'manual',
+          signal,
         },
-        body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
-        redirect: 'manual',
-        signal: deps.signal,
-      },
-      {
-        subject: 'Workflow webhook URL',
-        allowPrivate,
-        lookupHost: deps.lookupHost,
-        fetchImpl: deps.fetchImpl,
-      },
-    )
-  } catch (error) {
-    if (error instanceof UnsafeOutboundUrlError) {
-      throw new Error(
-        `CALL_WEBHOOK rejected unsafe URL (reason=${error.reason}): ${error.message}`
-      )
+        {
+          subject: 'Workflow webhook URL',
+          allowPrivate,
+          lookupHost: deps.lookupHost,
+          fetchImpl: deps.fetchImpl,
+        },
+      ), signal)
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location')
+        throw new Error(
+          `CALL_WEBHOOK refused to follow redirect ${response.status} to ${
+            location ?? '(no Location header)'
+          }`
+        )
+      }
+
+      const text = await readWebhookResponse(response, signal)
+      const contentType = response.headers.get('content-type')
+      const result: unknown = contentType?.includes('application/json') ? JSON.parse(text) : text
+
+      if (!response.ok) {
+        throw new Error(
+          `Webhook request failed with status ${response.status}: ${JSON.stringify(result)}`
+        )
+      }
+
+      return { status: response.status, statusText: response.statusText, result }
+    } catch (error) {
+      if (error instanceof UnsafeOutboundUrlError) {
+        throw new Error(
+          `CALL_WEBHOOK rejected unsafe URL (reason=${error.reason}): ${error.message}`
+        )
+      }
+      throw error
+    } finally {
+      void response?.body?.cancel().catch(() => undefined)
     }
-    throw error
-  }
-
-  if (response.status >= 300 && response.status < 400) {
-    const location = response.headers.get('location')
-    throw new Error(
-      `CALL_WEBHOOK refused to follow redirect ${response.status} to ${
-        location ?? '(no Location header)'
-      }`
-    )
-  }
-
-  // Parse response
-  let result: any
-  const contentType = response.headers.get('content-type')
-
-  if (contentType && contentType.includes('application/json')) {
-    result = await response.json()
-  } else {
-    result = await response.text()
-  }
-
-  // Check for HTTP errors
-  if (!response.ok) {
-    throw new Error(
-      `Webhook request failed with status ${response.status}: ${JSON.stringify(result)}`
-    )
-  }
-
-  return {
-    status: response.status,
-    statusText: response.statusText,
-    result,
-  }
+  }, deps.timeoutMs && deps.timeoutMs > 0 ? deps.timeoutMs : WEBHOOK_TIMEOUT_MS)
 }
 
 /**
@@ -1358,7 +1505,7 @@ export async function executeFunction(
  *   this handler returns immediately when called from the worker
  */
 export async function executeWait(config: any): Promise<any> {
-  const durationMs = calculateWaitDelayMs(config)
+  const durationMs = assertInProcessWaitDelay(calculateWaitDelayMs(config))
 
   // In sync mode, actually sleep for the duration
   // In async mode (called from worker), the delay already happened via queue scheduling
@@ -1439,6 +1586,8 @@ type AgentWorkflowBridgeLike = {
       // proposal this step raises, and by when. Absent means the unassigned
       // task the disposition service raised before the section existed.
       review?: AgentDispositionReview
+      // Optional per-call model settings (invokeAgentConfigSchema.callSettings).
+      callSettings?: InvokeAgentCallSettings
     }
   }) => Promise<
     | { kind: 'research'; data: unknown }
@@ -1475,7 +1624,7 @@ export async function executeInvokeAgent(
       .join('; ')
     throw new Error(`INVOKE_AGENT config invalid: ${issues}`)
   }
-  const { agentId, input, onResult, outputMapping, subject, review } = parsed.data
+  const { agentId, input, onResult, outputMapping, subject, review, callSettings } = parsed.data
 
   // The Review section is resolved HERE, against the context the step ran with,
   // for the same reason a USER_TASK's assignment is resolved at creation rather
@@ -1536,6 +1685,7 @@ export async function executeInvokeAgent(
         ...(context.stepInstanceId ? { invocationId: context.stepInstanceId } : {}),
         ...(subject ? { subject } : {}),
         ...(dispositionReview ? { review: dispositionReview } : {}),
+        ...(callSettings ? { callSettings } : {}),
       },
     })
     if (outcome.kind === 'research') {
@@ -1584,6 +1734,7 @@ export async function executeInvokeAgent(
     ...(outputMapping ? { outputMapping } : {}),
     ...(subject ? { subject } : {}),
     ...(dispositionReview ? { review: dispositionReview } : {}),
+    ...(callSettings ? { callSettings } : {}),
     tenantId: context.workflowInstance.tenantId,
     organizationId: context.workflowInstance.organizationId,
     userId: effectiveUserId,
@@ -1615,6 +1766,8 @@ export async function executeCallApi(
   container: AwilixContainer,
   signal?: AbortSignal
 ): Promise<any> {
+  assertTrustedEventTriggerIdentity(context.workflowInstance)
+
   // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, allowlisted {{env.*}}, {{now}})
   const interpolatedConfig = interpolateActivityConfig(config, context, 'CALL_API')
 
@@ -1831,6 +1984,8 @@ export async function resolveCallApiRoleIds(
   em: any,
   instance: CallApiInstanceLike
 ): Promise<string[]> {
+  assertTrustedEventTriggerIdentity(instance)
+
   if (!instance.definitionId) return []
 
   const scope = { tenantId: instance.tenantId, organizationId: instance.organizationId }
@@ -1885,6 +2040,8 @@ export async function resolveWorkflowPrincipalUserId(
   em: any,
   instance: CallApiInstanceLike
 ): Promise<string | null> {
+  assertTrustedEventTriggerIdentity(instance)
+
   const definition = await loadInstanceDefinition(em, instance)
 
   // 0. A declared execution grant outranks both — the run acts as its own
@@ -1903,9 +2060,11 @@ export async function resolveWorkflowPrincipalUserId(
 const CALL_API_MAX_REDIRECTS = 3
 const CALL_API_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
+class CallApiRefusalError extends Error {}
+
 async function createCallApiError(key: string, fallback: string, params?: TranslateParams): Promise<Error> {
   const { translate } = await resolveTranslations()
-  return new Error(translate(key, fallback, params))
+  return new CallApiRefusalError(translate(key, fallback, params))
 }
 
 function createAppUrlNotHttpError(appUrl: string): Promise<Error> {
@@ -1937,11 +2096,8 @@ async function resolveCallApiUrl(endpoint: string): Promise<URL> {
     target = endpoint.startsWith('/')
       ? new URL(`${appUrl.replace(/\/+$/, '')}${endpoint}`)
       : new URL(endpoint)
-  } catch (error) {
-    if (error instanceof TypeError) {
-      throw new Error(`Invalid endpoint URL: ${endpoint}`)
-    }
-    throw error
+  } catch {
+    throw new CallApiRefusalError(`Invalid endpoint URL: ${endpoint}`)
   }
 
   if (appUrlObj.protocol !== 'http:' && appUrlObj.protocol !== 'https:') {
@@ -1967,7 +2123,7 @@ async function resolveCallApiUrl(endpoint: string): Promise<URL> {
 
   const apiPathPrefix = `${appUrlObj.pathname.replace(/\/+$/, '')}/api/`
   if (!target.pathname.startsWith(apiPathPrefix)) {
-    throw new Error(`CALL_API only supports /api/* paths, got: ${endpoint}`)
+    throw new CallApiRefusalError(`CALL_API only supports /api/* paths, got: ${endpoint}`)
   }
 
   return target
@@ -2001,7 +2157,7 @@ async function fetchCallApiWithGuardedRedirects(
     const location = response.headers.get('location')
     const refuse = async () => {
       const { translate } = await resolveTranslations()
-      return new Error(
+      return new CallApiRefusalError(
         translate(
           'workflows.errors.callApi.redirectRefused',
           'CALL_API refused to follow redirect {status} to {location}',

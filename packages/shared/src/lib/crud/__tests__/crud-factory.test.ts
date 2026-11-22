@@ -12,7 +12,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ t: mockTranslate, translate: mockTranslate }),
 }))
 
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import {
@@ -37,6 +37,8 @@ import {
   resetTelemetryRuntime,
   type TelemetryRuntime,
 } from '@open-mercato/shared/lib/telemetry/runtime'
+import { normalizeFilters } from '@open-mercato/shared/lib/query/join-utils'
+import type { QueryOptions } from '@open-mercato/shared/lib/query/types'
 import { z } from 'zod'
 import { NotFoundError as MikroOrmNotFoundError, ValidationError as MikroOrmValidationError } from '@mikro-orm/core'
 
@@ -67,6 +69,9 @@ let crudMutationGuardService: { validateMutation: jest.Mock; afterMutationSucces
 let mockOrganizationScopeOverride: MockOrganizationScope | null
 
 const em = {
+  getMetadata: jest.fn<{
+    find: (entityName: string) => { properties: Record<string, { fieldNames: string[] }> }
+  } | undefined, []>(),
   transactional: async (cb: () => any) => {
     const snapshot = Object.fromEntries(Object.entries(db).map(([key, value]) => [key, { ...value }]))
     try {
@@ -455,6 +460,82 @@ describe('CRUD Factory', () => {
     })
   })
 
+  describe('advanced filters preserve buildFilters security predicates (#9016)', () => {
+    const nilId = '00000000-0000-0000-0000-000000000000'
+    const rows = [
+      { id: 'allowed-1', member_id: 'member-1', title: 'A' },
+      { id: 'allowed-2', member_id: 'member-2', title: 'B' },
+      { id: 'forbidden', member_id: 'outsider', title: 'A' },
+    ]
+
+    const matches = (row: Record<string, unknown>, filters: ReturnType<typeof normalizeFilters>) => {
+      const matchesLeaf = (filter: (typeof filters)[number]) => {
+        const value = row[filter.field]
+        if (filter.op === 'eq') return value === filter.value
+        if (filter.op === 'ne') return value !== null && value !== filter.value
+        if (filter.op === 'exists') return (value !== null && value !== undefined) === filter.value
+        throw new Error('[internal] Unexpected filter operator in security regression')
+      }
+      const groups = new Map<string, typeof filters>()
+      for (const filter of filters) {
+        if (!filter.orGroup) continue
+        const group = groups.get(filter.orGroup) ?? []
+        group.push(filter)
+        groups.set(filter.orGroup, group)
+      }
+      return filters.filter((filter) => !filter.orGroup).every(matchesLeaf)
+        && (groups.size === 0 || [...groups.values()].some((group) => group.every(matchesLeaf)))
+    }
+
+    it.each([
+      { name: 'member equality', server: { member_id: 'member-1' }, field: 'member_id', op: 'is_not_empty', expected: ['allowed-1'] },
+      { name: 'member operator', server: { member_id: { $eq: 'member-1' } }, field: 'member_id', op: 'is_not', value: 'nobody', expected: ['allowed-1'] },
+      { name: 'deny-all id', server: { id: nilId }, field: 'id', op: 'is_not_empty', expected: [] },
+      { name: 'deny-all id operator', server: { id: { $eq: nilId } }, field: 'id', op: 'is_not', value: nilId, expected: [] },
+      { name: 'conflicting member', server: { member_id: 'member-1' }, field: 'member_id', op: 'is', value: 'outsider', expected: [] },
+      { name: 'non-overlapping filter', server: { member_id: 'member-1' }, field: 'title', op: 'is', value: 'A', expected: ['allowed-1'] },
+      { name: 'client OR against direct member', server: { member_id: 'member-1' }, field: 'member_id', op: 'is_not_empty', or: true, expected: ['allowed-1'] },
+      { name: 'overlapping OR cross product', server: { $or: [{ member_id: 'member-1' }, { member_id: 'member-2' }] }, field: 'member_id', op: 'is_not_empty', or: true, expected: ['allowed-1', 'allowed-2'] },
+    ])('GET intersects $name with client predicates through query normalization', async (scenario) => {
+      const secureRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema.passthrough(),
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'member_id'],
+          buildFilters: () => scenario.server,
+        },
+      })
+      queryEngine.query.mockImplementationOnce(async (_entityId: string, options: QueryOptions) => {
+        expect(options.tenantId).toBe(defaultTenantId)
+        const filters = normalizeFilters(options.filters)
+        expect(filters.length).toBeGreaterThan(0)
+        const items = rows.filter((row) => matches(row, filters)).map((row) => ({
+          ...row, is_done: false, organization_id: defaultOrganizationId, tenant_id: defaultTenantId,
+        }))
+        return { items, total: items.length }
+      })
+      const params = new URLSearchParams({
+        'filter[conditions][0][field]': scenario.field,
+        'filter[conditions][0][op]': scenario.op,
+      })
+      if (scenario.value) params.set('filter[conditions][0][value]', scenario.value)
+      if (scenario.or) {
+        params.set('filter[logic]', 'or')
+        params.set('filter[conditions][1][field]', 'member_id')
+        params.set('filter[conditions][1][op]', 'is')
+        params.set('filter[conditions][1][value]', 'outsider')
+      }
+      const response = await secureRoute.GET(new Request(`http://x/api/example/todos?${params}`))
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual(scenario.expected)
+      expect(body.total).toBe(scenario.expected.length)
+    })
+  })
+
   describe('repeated query parameters (#5548)', () => {
     const makeFilterRoute = () => {
       const seen: { status?: string | string[]; search?: string | string[] }[] = []
@@ -731,6 +812,52 @@ describe('CRUD Factory', () => {
     expect(body.items[0]?.id).toBe(first.id)
   })
 
+  it('GET ORM fallback translates column names inside logical filters', async () => {
+    const repository = em.getRepository(Todo)
+    const find = jest.fn(repository.find)
+    em.getMetadata.mockReturnValueOnce({
+      find: () => ({
+        properties: {
+          isDone: { fieldNames: ['is_done'] },
+          member: { fieldNames: ['member_id'] },
+        },
+      }),
+    })
+    const getRepository = jest.spyOn(em, 'getRepository').mockReturnValueOnce({ ...repository, find })
+    try {
+      const route = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+        list: {
+          schema: querySchema.passthrough(),
+          fields: ['id', 'is_done'],
+          buildFilters: () => ({
+            $or: [{ member_id: 'first' }, { $not: { member_id: 'second' } }],
+          }),
+        },
+      })
+      const params = new URLSearchParams({
+        'filter[conditions][0][field]': 'is_done',
+        'filter[conditions][0][op]': 'is',
+        'filter[conditions][0][value]': 'true',
+      })
+
+      const response = await route.GET(new Request(`http://x/api/example/todos?${params}`))
+
+      expect(response.status).toBe(200)
+      expect(find).toHaveBeenCalledWith(expect.objectContaining({
+        tenantId: defaultTenantId,
+        organizationId: defaultOrganizationId,
+        $and: [
+          { $or: [{ member: 'first' }, { $not: { member: 'second' } }] },
+          { isDone: { $eq: 'true' } },
+        ],
+      }))
+    } finally {
+      getRepository.mockRestore()
+    }
+  })
+
   it('GET ORM fallback keeps automatic tenant/org scoping by default', async () => {
     const fallbackRoute = makeCrudRoute({
       metadata: { GET: { requireAuth: true } },
@@ -787,6 +914,41 @@ describe('CRUD Factory', () => {
     expect(ids).toContain(mine.id)
     expect(ids).toContain(otherOrg.id)
     expect(ids).toContain(otherTenant.id)
+  })
+
+  it('GET ORM fallback still applies buildFilters scope on a full export when omitAutomaticTenantOrgScope is set', async () => {
+    // Regression test for #7806 — the ORM-fallback counterpart of the query-engine
+    // case covered elsewhere in this file: a full export must not drop the route's
+    // own scope just because it owns visibility itself via omitAutomaticTenantOrgScope.
+    const scopedBuildFilters = jest.fn((_query: z.infer<typeof querySchema>, ctx: CrudCtx) => ({
+      organizationId: ctx.auth?.orgId ?? null,
+    }))
+    const fallbackRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      list: {
+        schema: querySchema,
+        omitAutomaticTenantOrgScope: true,
+        buildFilters: scopedBuildFilters,
+      },
+    })
+
+    const mine = em.create(Todo, { title: 'Mine', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
+    mine.id = '550e8400-e29b-41d4-a716-446655440033'
+    await em.persist(mine).flush()
+    const other = em.create(Todo, { title: 'Other', organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', tenantId: defaultTenantId }) as Rec
+    other.id = '550e8400-e29b-41d4-a716-446655440034'
+    await em.persist(other).flush()
+
+    const res = await fallbackRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full'))
+    expect(res.status).toBe(200)
+
+    expect(scopedBuildFilters).toHaveBeenCalledWith({}, expect.objectContaining({
+      auth: expect.objectContaining({ orgId: defaultOrganizationId }),
+    }))
+    const text = await res.text()
+    expect(text).toContain(mine.id)
+    expect(text).not.toContain(other.id)
   })
 
   it('GET resolves function-form CSV headers and rows per request', async () => {
@@ -882,6 +1044,43 @@ describe('CRUD Factory', () => {
       'Organization Id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       'Tenant Id': '123e4567-e89b-12d3-a456-426614174000',
     })
+  })
+
+  it('GET still applies buildFilters scope on a full export when omitAutomaticTenantOrgScope is set', async () => {
+    // Regression test for #7806: a full export used to drop straight to `{}` as
+    // baseFilters, skipping buildFilters entirely. For a route that owns its own
+    // scope via omitAutomaticTenantOrgScope, neither the query engine nor the ORM
+    // fallback add a tenant/org predicate of their own, so that leaked every
+    // tenant's rows on `exportScope=full`.
+    const scopedBuildFilters = jest.fn((_query: z.infer<typeof querySchema>, ctx: CrudCtx) => ({
+      tenant_id: { $eq: ctx.auth?.tenantId ?? null },
+    }))
+    const scopedRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      list: {
+        schema: querySchema,
+        entityId: 'example.todo',
+        fields: ['id', 'title', 'is_done'],
+        sortFieldMap: { id: 'id' },
+        omitAutomaticTenantOrgScope: true,
+        buildFilters: scopedBuildFilters,
+        transformItem: (item: Record<string, unknown>) => ({ id: item.id, title: item.title }),
+      },
+    })
+
+    const res = await scopedRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full'))
+    expect(res.status).toBe(200)
+
+    // buildFilters runs with an empty query — the caller's own UI filters are
+    // dropped on a full export — but still receives the real ctx, so its scope
+    // predicate (derived from ctx.auth.tenantId here) is preserved.
+    expect(scopedBuildFilters).toHaveBeenCalledWith({}, expect.objectContaining({
+      auth: expect.objectContaining({ tenantId: '123e4567-e89b-12d3-a456-426614174000' }),
+    }))
+    const lastQueryCall = queryEngine.query.mock.calls.at(-1)
+    expect(lastQueryCall?.[1]?.filters).toEqual({ tenant_id: { $eq: '123e4567-e89b-12d3-a456-426614174000' } })
   })
 
   describe('afterList hook ordering on the export paths', () => {
@@ -1735,6 +1934,85 @@ describe('CRUD Factory', () => {
     await expect(res.json()).resolves.toEqual({
       error: 'A conflicting record already exists.',
       conflictingId: 'todo-9',
+    })
+  })
+
+  describe('generic error bodies follow the request locale', () => {
+    const germanErrors: Record<string, string> = {
+      'errors.invalid_input': 'Ungültige Eingabe',
+      'api.errors.databaseUnavailable': 'Dienst vorübergehend nicht verfügbar',
+      'api.errors.foreignKeyViolation': 'Der Datensatz wird noch von anderen Daten referenziert oder verweist auf einen nicht vorhandenen Datensatz',
+      'api.errors.internal': 'Interner Serverfehler',
+      'api.errors.internalMessage': 'Etwas ist schiefgelaufen. Bitte versuchen Sie es später erneut.',
+    }
+
+    beforeEach(() => {
+      mockTranslate.mockImplementation((key: string, fallback?: string) => germanErrors[key] ?? fallback ?? key)
+    })
+
+    afterEach(() => {
+      mockTranslate.mockImplementation((key: string, fallback?: string) => fallback ?? key)
+    })
+
+    it('translates the 400 validation error', async () => {
+      const res = await interceptorErrorRoute().POST(new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify({ title: '' }),
+        headers: { 'content-type': 'application/json' },
+      }))
+
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      expect(body.error).toBe('Ungültige Eingabe')
+      expect(Array.isArray(body.details)).toBe(true)
+      expect(mockTranslate).toHaveBeenCalledWith('errors.invalid_input', 'Invalid input')
+    })
+
+    it('translates the 503 transient database error', async () => {
+      commandBus.execute.mockRejectedValue(Object.assign(new Error('sorry, too many clients already'), { code: '53300' }))
+
+      const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+      expect(res.status).toBe(503)
+      await expect(res.json()).resolves.toEqual({
+        error: 'Dienst vorübergehend nicht verfügbar',
+        code: 'DATABASE_UNAVAILABLE',
+        requestId: expect.any(String),
+      })
+      expect(mockTranslate).toHaveBeenCalledWith('api.errors.databaseUnavailable', 'Service temporarily unavailable')
+    })
+
+    it('translates the 409 foreign key violation', async () => {
+      commandBus.execute.mockRejectedValue(Object.assign(new Error('violates foreign key constraint'), { code: '23503' }))
+
+      const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+      expect(res.status).toBe(409)
+      await expect(res.json()).resolves.toEqual({
+        error: 'Der Datensatz wird noch von anderen Daten referenziert oder verweist auf einen nicht vorhandenen Datensatz',
+        code: 'FOREIGN_KEY_VIOLATION',
+        requestId: expect.any(String),
+      })
+      expect(mockTranslate).toHaveBeenCalledWith(
+        'api.errors.foreignKeyViolation',
+        'The record is still referenced by other data, or references a record that does not exist',
+      )
+    })
+
+    it('translates the generic 500 error and message', async () => {
+      commandBus.execute.mockRejectedValue(new Error('boom'))
+
+      const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+      expect(res.status).toBe(500)
+      await expect(res.json()).resolves.toEqual({
+        error: 'Interner Serverfehler',
+        message: 'Etwas ist schiefgelaufen. Bitte versuchen Sie es später erneut.',
+        requestId: expect.any(String),
+        code: 'INTERNAL_ERROR',
+      })
+      expect(mockTranslate).toHaveBeenCalledWith('api.errors.internal', 'Internal server error')
+      expect(mockTranslate).toHaveBeenCalledWith('api.errors.internalMessage', 'Something went wrong. Please try again later.')
     })
   })
 

@@ -29,6 +29,7 @@ function runView(overrides: Partial<ScorerRunView> = {}): ScorerRunView {
     toolCalls: [],
     stepCount: 0,
     disposition: null,
+    guardrailChecks: [],
     ...overrides,
   }
 }

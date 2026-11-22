@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
-import { isVisible, isDateRequired, isTimeRequired, getFieldLabel } from './fieldConfig'
+import { isDateRequired, isTimeRequired, getFieldLabel } from './fieldConfig'
 import { USER_TIMEZONE } from '../../../lib/localDay'
 
 function parseIsoDate(value: string): Date | null {
@@ -95,10 +95,10 @@ export function DateTimeFields({
 
   if (!visible.has('date')) return null
 
-  const showStartTime = isVisible(activityType, 'startTime')
-  const showDuration = isVisible(activityType, 'duration')
-  const showAllDay = isVisible(activityType, 'allDay')
-  const showRecurrence = isVisible(activityType, 'recurrence')
+  const showStartTime = visible.has('startTime')
+  const showDuration = visible.has('duration')
+  const showAllDay = visible.has('allDay')
+  const showRecurrence = visible.has('recurrence')
 
   const dateRequired = isDateRequired(activityType)
   const timeRequired = isTimeRequired(activityType)
@@ -200,14 +200,12 @@ export function DateTimeFields({
             <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="rounded" />
             {t('customers.schedule.allDay', 'All day')}
           </label>
-          <span className="text-muted-foreground">&middot;</span>
           <span className="flex items-center gap-1.5">
             <Globe className="size-3.5" />
             {USER_TIMEZONE} (GMT{new Date().getTimezoneOffset() <= 0 ? '+' : '-'}{String(Math.abs(Math.floor(new Date().getTimezoneOffset() / 60))).padStart(1, '0')})
           </span>
           {showRecurrence && (
             <>
-              <span className="text-muted-foreground">&middot;</span>
               <Button
                 type="button"
                 variant="ghost"

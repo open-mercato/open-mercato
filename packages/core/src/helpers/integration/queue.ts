@@ -35,6 +35,7 @@ function drainQueueInAppProcess(queueName: string, options: Required<DrainQueueO
         OM_INTEGRATION_APP_ROOT: options.appRoot,
         OM_INTEGRATION_QUEUE_NAME: queueName,
         OM_INTEGRATION_QUEUE_JOB_LIMIT: String(options.jobLimit),
+        OM_CACHE_SAFETY_ALWAYS_CONSISTENT: 'true',
         QUEUE_BASE_DIR: process.env.QUEUE_BASE_DIR?.trim() || path.resolve(options.appRoot, '.mercato/queue'),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -94,12 +95,12 @@ export async function drainIntegrationQueue(queueName: string, options: DrainQue
     appRoot: resolveAppRoot(options.appRoot),
     jobLimit: options.jobLimit ?? DEFAULT_JOB_LIMIT,
   }
-  if (process.env.OM_TEST_APP_ROOT?.trim()) {
-    return drainQueueInAppProcess(queueName, resolved)
-  }
   const managed = parseBooleanToken(process.env.AUTO_SPAWN_WORKERS)
     ?? parseBooleanToken(process.env.OM_AUTO_SPAWN_WORKERS)
     ?? true
   if (managed) return waitForManagedQueue(queueName, resolved)
+  if (process.env.OM_TEST_APP_ROOT?.trim()) {
+    return drainQueueInAppProcess(queueName, resolved)
+  }
   return drainQueueInCurrentProcess(queueName, resolved)
 }

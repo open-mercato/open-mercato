@@ -272,4 +272,34 @@ describe('wms inventory balance bucket creation', () => {
     ])
     expect(source.quantityOnHand).toBe('6')
   })
+
+  it('moves a serial unit into a destination bucket that keeps that serial', async () => {
+    const calls: string[] = []
+    const em = createEm(calls)
+    const source = { ...buildBalance('balance-serial', LOCATION_ID, '1'), serialNumber: 'S1' }
+    findOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === Warehouse) return { id: WAREHOUSE_ID, tenantId: TENANT, organizationId: ORG }
+      if (entity === WarehouseLocation) {
+        return { id: where.id, tenantId: TENANT, organizationId: ORG, warehouse: { id: WAREHOUSE_ID } }
+      }
+      if (entity === InventoryBalance) {
+        calls.push(`find-balance:${String(where.location)}:${String(where.serialNumber)}`)
+        if (where.location === LOCATION_ID && where.serialNumber === 'S1') return source
+        return null
+      }
+      if (entity === InventoryMovement) return null
+      return null
+    })
+
+    await commandRegistry.get('wms.inventory.move')!.execute!(
+      { ...moveInput(1), serialNumber: 'S1' },
+      createCtx(em) as never,
+    )
+
+    expect(calls[0]).toBe(`find-balance:${LOCATION_ID}:S1`)
+    expect(calls).not.toContain(`find-balance:${LOCATION_ID}:null`)
+    const created = em.trx.create.mock.calls.find((call) => call[0] === InventoryBalance)
+    expect(created?.[1]).toEqual(expect.objectContaining({ serialNumber: 'S1' }))
+    expect(source.quantityOnHand).toBe('0')
+  })
 })

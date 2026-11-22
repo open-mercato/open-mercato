@@ -42,7 +42,8 @@ packages:
 server:
   keepAliveTimeout: 60
 
-max_body_size: 50mb
+# npm publishes tarballs base64-encoded inside JSON; allow headroom for core.
+max_body_size: 200mb
 
 middlewares:
   audit:

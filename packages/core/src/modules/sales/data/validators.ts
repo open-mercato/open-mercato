@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { amountComparisonTolerance, withDecimalCaps, resolveExactDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 import {
   createDictionaryEntrySchema,
   updateDictionaryEntrySchema,
@@ -8,6 +9,8 @@ import { REFERENCE_UNIT_CODES } from '@open-mercato/shared/lib/units/unitCodes'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 
 export const SALES_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
+
+export const SALES_AMOUNT_INVALID_MESSAGE_KEY = 'sales.errors.amount_invalid'
 
 const optionalPhoneField = (max = 50) =>
   z
@@ -55,11 +58,12 @@ const currencyCode = z
   .trim()
   .regex(/^[A-Z]{3}$/, 'currency code must be a three-letter ISO code')
 
-const decimal = (opts?: { min?: number; max?: number; message?: string }) => {
+const decimal = (opts?: { min?: number; max?: number; message?: string; intMessage?: string }) => {
   let schema = z.coerce.number()
   if (typeof opts?.min === 'number') schema = schema.min(opts.min)
   if (typeof opts?.max === 'number') schema = schema.max(opts.max, opts.message)
-  return schema
+  if (opts?.intMessage) schema = schema.int(opts.intMessage)
+  return withDecimalCaps(schema, SALES_AMOUNT_INVALID_MESSAGE_KEY)
 }
 
 const MAX_QUANTITY = 999_999_999
@@ -329,6 +333,8 @@ const lineKindSchema = z.enum(['product', 'service', 'shipping', 'discount', 'ad
 
 const adjustmentKindSchema = z.string().trim().min(1).max(150)
 
+export const amountsModeSchema = z.enum(['computed', 'external'])
+
 const linePricingSchema = z.object({
   quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
   quantityUnit: z.string().trim().max(25).optional(),
@@ -348,6 +354,9 @@ const linePricingSchema = z.object({
   taxAmount: decimal({ min: 0 }).optional(),
   totalNetAmount: decimal({ min: 0 }).optional(),
   totalGrossAmount: decimal({ min: 0 }).optional(),
+  // Omitted inherits the document's mode; defaulting to `computed` would make an
+  // external order mixed. Order lines only — quote commands reject it.
+  amountsMode: amountsModeSchema.optional(),
 })
 
 const uomSnapshotSchema = z.object({
@@ -407,6 +416,77 @@ export const orderLineUpdateSchema = z
     id: uuid(),
   })
   .merge(orderLineCreateSchema.partial())
+
+/**
+ * Translation keys for the bulk-line schema refusals. The schema runs outside a
+ * request, so it cannot translate; it tags each issue with its key in `params`
+ * and the HTTP boundary resolves it. The English text stays here as the
+ * fallback and as the message a non-HTTP caller sees.
+ */
+export const SALES_ORDER_LINE_BULK_ISSUE_KEYS = {
+  empty: 'sales.documents.items.bulk.errorEmptyBatch',
+  duplicate: 'sales.documents.items.bulk.errorDuplicateId',
+  upsertDeleteConflict: 'sales.documents.items.bulk.errorUpsertDeleteConflict',
+} as const
+
+export const SALES_ORDER_LINE_BULK_EMPTY_MESSAGE =
+  'Provide at least one line to upsert or delete.'
+export const SALES_ORDER_LINE_BULK_DUPLICATE_MESSAGE =
+  'The same line id appears more than once in lines.'
+export const SALES_ORDER_LINE_BULK_UPSERT_DELETE_CONFLICT_MESSAGE =
+  'A line id cannot be upserted and deleted in the same request.'
+
+/**
+ * One entry of a bulk line write. Identical to what the per-line upsert accepts,
+ * minus the scope and parent keys the envelope already carries: `id` present
+ * updates that line, `id` absent appends a new one.
+ */
+export const orderLineBulkUpsertEntrySchema = orderLineCreateSchema
+  .omit({ organizationId: true, tenantId: true, orderId: true })
+  .extend({ id: uuid().optional() })
+
+export const orderLineBulkUpsertSchema = scoped
+  .extend({
+    orderId: uuid(),
+    orderTotals: z.lazy(() => orderHeaderTotalsSchema).optional(),
+    lines: z.array(orderLineBulkUpsertEntrySchema).default([]),
+    deleteIds: z.array(uuid()).default([]),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.lines.length && !value.deleteIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['lines'],
+        message: SALES_ORDER_LINE_BULK_EMPTY_MESSAGE,
+        params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.empty },
+      })
+    }
+    const seen = new Set<string>()
+    value.lines.forEach((line, index) => {
+      if (!line.id) return
+      if (seen.has(line.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['lines', index, 'id'],
+          message: SALES_ORDER_LINE_BULK_DUPLICATE_MESSAGE,
+          params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.duplicate },
+        })
+        return
+      }
+      seen.add(line.id)
+    })
+    value.deleteIds.forEach((id, index) => {
+      if (!seen.has(id)) return
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['deleteIds', index],
+        message: SALES_ORDER_LINE_BULK_UPSERT_DELETE_CONFLICT_MESSAGE,
+        params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.upsertDeleteConflict },
+      })
+    })
+  })
+
+export type OrderLineBulkUpsertInput = z.infer<typeof orderLineBulkUpsertSchema>
 
 export const quoteLineCreateSchema = scoped.extend({
   quoteId: uuid(),
@@ -549,9 +629,14 @@ export const RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE =
 export type ReturnAdjustmentRemainingCheck = {
   kind?: string | null
   amountNet?: number | null
+  amountNetExact?: string | null
   amountGross?: number | null
+  amountGrossExact?: string | null
   remainingNet: number
+  remainingNetExact?: string | null
   remainingGross: number
+  remainingGrossExact?: string | null
+  amountDecimalPlaces?: number
 }
 
 export type ReturnAdjustmentRemainingIssue = {
@@ -561,19 +646,24 @@ export type ReturnAdjustmentRemainingIssue = {
 
 // Inclusive: abs(amount) === remaining is allowed. Tiny epsilon absorbs
 // floating-point rounding from upstream tax/rate adjustments.
-const RETURN_REMAINING_EPSILON = 0.005
+function exactOrZero(exact: unknown, legacy: unknown) {
+  return toDecimal(resolveExactDecimal(exact, typeof legacy === 'number' ? legacy : null) ?? '0')
+}
 
 export const validateReturnAdjustmentWithinRemaining = (
   value: ReturnAdjustmentRemainingCheck
 ): ReturnAdjustmentRemainingIssue[] => {
   if (value.kind !== 'return') return []
-  const absNet = typeof value.amountNet === 'number' ? Math.abs(value.amountNet) : 0
-  const absGross = typeof value.amountGross === 'number' ? Math.abs(value.amountGross) : 0
+  const tolerance = amountComparisonTolerance(value.amountDecimalPlaces)
+  const absNet = exactOrZero(value.amountNetExact, value.amountNet).abs()
+  const absGross = exactOrZero(value.amountGrossExact, value.amountGross).abs()
+  const remainingNet = exactOrZero(value.remainingNetExact, value.remainingNet)
+  const remainingGross = exactOrZero(value.remainingGrossExact, value.remainingGross)
   const issues: ReturnAdjustmentRemainingIssue[] = []
-  if (absGross > value.remainingGross + RETURN_REMAINING_EPSILON) {
+  if (absGross.gt(remainingGross.plus(tolerance))) {
     issues.push({ path: 'amountGross', message: RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE })
   }
-  if (absNet > value.remainingNet + RETURN_REMAINING_EPSILON) {
+  if (absNet.gt(remainingNet.plus(tolerance))) {
     issues.push({ path: 'amountNet', message: RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE })
   }
   return issues
@@ -672,6 +762,10 @@ const orderTotalsSchema = z.object({
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
 
+// `lineItemCount` is core's count of the rows it persisted, not one of the amounts
+// a caller owns; asserting it could make a document disagree with its own lines.
+export const orderHeaderTotalsSchema = orderTotalsSchema.omit({ lineItemCount: true })
+
 const quoteTotalsSchema = z.object({
   subtotalNetAmount: decimal({ min: 0 }).optional(),
   subtotalGrossAmount: decimal({ min: 0 }).optional(),
@@ -728,6 +822,7 @@ export const orderCreateSchema = scoped.extend({
     .min(1, SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY),
   adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   tags: z.array(uuid()).optional(),
+  totalsMode: amountsModeSchema.optional(),
   ...orderTotalsSchema.shape,
   ...orderPaymentLedgerShape,
 })
@@ -840,7 +935,12 @@ export const shipmentCreateSchema = scoped.extend({
     .array(
       z.object({
         orderLineId: uuid(),
-        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).int('Quantity must be a whole number.'),
+        quantity: decimal({
+          min: 0,
+          max: MAX_QUANTITY,
+          message: 'Quantity is too large.',
+          intMessage: 'Quantity must be a whole number.',
+        }),
         metadata,
       })
     )
@@ -1123,9 +1223,14 @@ export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>
 export type InvoiceUpdateInput = z.infer<typeof invoiceUpdateSchema>
 export type CreditMemoCreateInput = z.infer<typeof creditMemoCreateSchema>
 export type CreditMemoUpdateInput = z.infer<typeof creditMemoUpdateSchema>
+export const QUOTE_SEND_CC_LIMIT = 10
+
+export const quoteSendCcAddressSchema = z.string().trim().email()
+
 export const quoteSendSchema = z.object({
   quoteId: z.string().uuid(),
   validForDays: z.coerce.number().int().min(1).max(365).default(14),
+  cc: z.array(quoteSendCcAddressSchema).max(QUOTE_SEND_CC_LIMIT).default([]),
 })
 
 export const quoteAcceptSchema = z.object({

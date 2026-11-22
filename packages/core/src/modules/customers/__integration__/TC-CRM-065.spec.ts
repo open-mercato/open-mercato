@@ -101,7 +101,13 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
 
       const selectAllCheckbox = page.getByRole('checkbox', { name: 'Select all', exact: true });
       await expect(selectAllCheckbox).toBeVisible();
-      await selectAllCheckbox.check();
+
+      for (const name of [`${prefix} Free0`, `${prefix} Free1`, `${prefix} Blocked`]) {
+        const row = page.getByRole('row').filter({
+          has: page.getByRole('link', { name, exact: true }),
+        });
+        await row.getByRole('checkbox').check();
+      }
       await expect(page.getByRole('checkbox', { name: 'Select row', exact: true, checked: true })).toHaveCount(3);
       await expect(page.getByText('3 selected', { exact: true })).toBeVisible();
 
@@ -125,7 +131,7 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
             const listResponse = await apiRequest(
               request,
               'GET',
-              `/api/customers/people?search=${encodeURIComponent(prefix)}&pageSize=20`,
+              `/api/customers/people?ids=${encodeURIComponent([blockedId, ...deletableIds].join(','))}&pageSize=20`,
               { token: token! },
             );
             if (!listResponse.ok()) return null;

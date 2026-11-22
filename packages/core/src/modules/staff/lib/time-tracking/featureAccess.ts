@@ -1,4 +1,5 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('staff').child({ component: 'time-tracking/featureAccess' })
 
@@ -78,6 +79,7 @@ export async function resolveFeatureAccess(
     rbac = container.resolve('rbacService') as RbacServiceLike | undefined
   } catch (err) {
     logger.warn('rbacService could not be resolved; denying', { err, userId, required })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.feature_access_rbac_unavailable' })
     return { ...DENIED }
   }
   if (!rbac?.userHasAllFeatures) {
@@ -90,6 +92,7 @@ export async function resolveFeatureAccess(
     allowed = (await rbac.userHasAllFeatures(userId, [...required], scope)) === true
   } catch (err) {
     logger.warn('feature check failed; denying', { err, userId, required })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.feature_access_check_failed' })
     return { ...DENIED }
   }
 
@@ -108,6 +111,7 @@ export async function resolveFeatureAccess(
       resolved = true
     } catch (err) {
       logger.warn('grant list could not be read; feature decision still stands', { err, userId })
+      getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.feature_access_grant_list_failed' })
     }
   }
 

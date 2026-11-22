@@ -1,4 +1,6 @@
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import type { Metadata } from 'next'
+import { headers } from 'next/headers'
 import './globals.css'
 import '@/lib/i18n/register-dictionary-loader'
 import { AppProviders } from '@/components/AppProviders'
@@ -18,11 +20,14 @@ export const metadata: Metadata = {
   },
 }
 
-export default async function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+type RootLayoutProps = Readonly<{ children: React.ReactNode }>
+
+export default async function RootLayout(props: RootLayoutProps) {
+  return runInOwnedRequestScope(() => renderRootLayout(props))
+}
+
+async function renderRootLayout({ children }: RootLayoutProps) {
+  const nonce = (await headers()).get('x-nonce') ?? undefined
   // Resolved server-side (the tenant's Settings selection needs a container and
   // the app registry) and handed to the client provider, which can read neither.
   const supportedLocales = await resolveSupportedLocalesForRequest()
@@ -40,8 +45,8 @@ export default async function RootLayout({
         ))}
       </head>
       <body className="antialiased" suppressHydrationWarning data-gramm="false">
-        <script id="om-theme-init" dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-        <AppProviders locale={locale} dict={dict} localeLocked={localeLocked} supportedLocales={supportedLocales} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
+        <script id="om-theme-init" nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <AppProviders nonce={nonce} locale={locale} dict={dict} localeLocked={localeLocked} supportedLocales={supportedLocales} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
           {devRuntime.enabled ? <DevRuntimeReporter /> : null}
           {devRuntime.bannerEnabled ? <DevRuntimeDiagnosticsBanner /> : null}
           {children}

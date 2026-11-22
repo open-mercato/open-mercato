@@ -1,10 +1,14 @@
+import { spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import path from 'node:path'
+import { PassThrough } from 'node:stream'
 import { createQueue, getQueuePendingProbe } from '@open-mercato/queue'
 import { drainIntegrationQueue } from '../queue'
 
 const mockDrainQueue = jest.fn()
 const mockRunnerLoaded = jest.fn()
 
+jest.mock('node:child_process', () => ({ spawn: jest.fn() }))
 jest.mock('@open-mercato/queue', () => ({ createQueue: jest.fn(), getQueuePendingProbe: jest.fn() }))
 jest.mock('../queue-runner', () => {
   mockRunnerLoaded()
@@ -15,6 +19,18 @@ type Counts = { waiting: number; active: number; completed: number; failed: numb
 
 function counts(overrides: Partial<Counts> = {}): Counts {
   return { waiting: 0, active: 0, completed: 0, failed: 0, ...overrides }
+}
+
+function createDrainChild(processed: number) {
+  const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough }
+  child.stdout = new PassThrough()
+  child.stderr = new PassThrough()
+  process.nextTick(() => {
+    child.stdout.end(`${JSON.stringify({ processed })}\n`)
+    child.stderr.end()
+    child.emit('close', 0)
+  })
+  return child
 }
 
 describe('drainIntegrationQueue', () => {
@@ -49,12 +65,64 @@ describe('drainIntegrationQueue', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
+  it('observes the managed worker in a standalone app without spawning a competing consumer', async () => {
+    process.env.OM_TEST_APP_ROOT = path.resolve(process.cwd(), 'standalone-app')
+    getJobCounts.mockResolvedValueOnce(counts({ waiting: 1, completed: 2 }))
+      .mockResolvedValue(counts({ completed: 3 }))
+    jest.mocked(getQueuePendingProbe)
+      .mockResolvedValueOnce({ queueName: 'events', strategy: 'local', ready: 1, active: 0, delayedFuture: 0, error: false })
+      .mockResolvedValueOnce({ queueName: 'events', strategy: 'local', ready: 0, active: 0, delayedFuture: 0, error: false })
+
+    await expect(drainIntegrationQueue('events')).resolves.toBe(1)
+
+    expect(spawn).not.toHaveBeenCalled()
+    expect(mockDrainQueue).not.toHaveBeenCalled()
+    expect(createQueue).toHaveBeenCalledWith('events', 'local', { baseDir: '/tmp/integration-queue-test' })
+  })
+
+  it('drains a standalone app in its own process when automatic workers are disabled through the alias', async () => {
+    const appRoot = path.resolve(process.cwd(), 'standalone-app')
+    process.env.OM_TEST_APP_ROOT = appRoot
+    process.env.OM_AUTO_SPAWN_WORKERS = 'false'
+    jest.mocked(spawn).mockReturnValue(createDrainChild(4) as never)
+
+    await expect(drainIntegrationQueue('events', { jobLimit: 7 })).resolves.toBe(4)
+
+    expect(spawn).toHaveBeenCalledTimes(1)
+    expect(spawn).toHaveBeenCalledWith(
+      process.execPath,
+      [expect.stringContaining('queue-runner')],
+      expect.objectContaining({
+        cwd: appRoot,
+        env: expect.objectContaining({
+          OM_INTEGRATION_APP_ROOT: appRoot,
+          OM_INTEGRATION_QUEUE_NAME: 'events',
+          OM_INTEGRATION_QUEUE_JOB_LIMIT: '7',
+        }),
+      }),
+    )
+    expect(mockDrainQueue).not.toHaveBeenCalled()
+    expect(createQueue).not.toHaveBeenCalled()
+  })
+
   it('returns completed failures for callers to inspect instead of rejecting expected failed jobs', async () => {
     getJobCounts.mockResolvedValueOnce(counts({ waiting: 1, failed: 2 }))
       .mockResolvedValue(counts({ failed: 3 }))
     await expect(drainIntegrationQueue('events')).resolves.toBe(1)
     expect(close).toHaveBeenCalledTimes(1)
     expect(mockDrainQueue).not.toHaveBeenCalled()
+  })
+
+  it('finishes derived projection writes before a standalone drain child exits without changing the parent mode', async () => {
+    process.env.OM_TEST_APP_ROOT = path.resolve(process.cwd(), 'standalone-app')
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+    process.env.OM_CACHE_SAFETY_ALWAYS_CONSISTENT = 'false'
+    jest.mocked(spawn).mockReturnValue(createDrainChild(1) as never)
+
+    await expect(drainIntegrationQueue('attachments-document-structure')).resolves.toBe(1)
+
+    expect(jest.mocked(spawn).mock.calls[0]?.[2]?.env?.OM_CACHE_SAFETY_ALWAYS_CONSISTENT).toBe('true')
+    expect(process.env.OM_CACHE_SAFETY_ALWAYS_CONSISTENT).toBe('false')
   })
 
   it('does not wait for scheduled future jobs that an explicit drain would leave queued', async () => {

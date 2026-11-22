@@ -10,6 +10,7 @@ import {
 import type { InteractionRecord } from './interactionCompatibility'
 import {
   CUSTOMER_INTERACTION_TASK_SOURCE,
+  CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
   resolveExampleIntegrationHref,
 } from './interactionCompatibility'
@@ -18,12 +19,40 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
 
+export async function countCustomerTodos(
+  em: EntityManager,
+  scope: { entityId: string; tenantId: string; organizationId: string },
+  unified: boolean,
+): Promise<number> {
+  const entityScope = {
+    entity: scope.entityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  }
+  if (unified) {
+    return em.count(CustomerInteraction, { ...entityScope, interactionType: 'task', deletedAt: null })
+  }
+
+  const adapterScope = {
+    ...entityScope,
+    interactionType: 'task',
+    source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+  }
+  const adapterIds = em.createQueryBuilder(CustomerInteraction).select('id').where(adapterScope)
+  const [legacyCount, adapterCount] = await Promise.all([
+    em.count(CustomerTodoLink, { ...entityScope, todoId: { $nin: adapterIds } }),
+    em.count(CustomerInteraction, { ...adapterScope, deletedAt: null }),
+  ])
+  return legacyCount + adapterCount
+}
+
 export type CustomerTodoRow = {
   id: string
   todoId: string
   todoSource: string
   todoTitle: string | null
   todoIsDone: boolean | null
+  todoStatus?: string | null
   todoPriority?: number | null
   todoSeverity?: string | null
   todoDescription?: string | null
@@ -634,6 +663,7 @@ export function mapInteractionRecordToTodoRow(
         : CUSTOMER_INTERACTION_TASK_SOURCE,
     todoTitle: interaction.title ?? null,
     todoIsDone: interaction.status === 'done',
+    todoStatus: interaction.status,
     todoPriority: interaction.priority ?? null,
     todoSeverity:
       typeof customValues.severity === 'string' && customValues.severity.trim().length > 0

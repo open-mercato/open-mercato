@@ -133,12 +133,20 @@ function translateFiltersForOrm(
       }
     }
     if (columnToProperty.size === 0) return filters
-    const translated: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(filters)) {
-      const mappedKey = columnToProperty.get(key) ?? key
-      translated[mappedKey] = value
+    const translateNode = (node: unknown): unknown => {
+      if (node === null || typeof node !== 'object' || Array.isArray(node)) return node
+      return translateWhere(node as Record<string, unknown>)
     }
-    return translated
+    const translateWhere = (where: Record<string, unknown>): Record<string, unknown> =>
+      Object.fromEntries(Object.entries(where).map(([key, value]) => {
+        if ((key === '$and' || key === '$or') && Array.isArray(value)) {
+          return [key, value.map(translateNode)]
+        }
+        if (key === '$not') return [key, translateNode(value)]
+        return [columnToProperty.get(key) ?? key, value]
+      }))
+
+    return translateWhere(filters)
   } catch {
     return filters
   }
@@ -659,7 +667,10 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
   if (interceptorRejection) {
     return json(interceptorRejection.body, { status: interceptorRejection.status })
   }
-  if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
+  const { translate } = await resolveTranslations()
+  if (err instanceof z.ZodError) {
+    return json({ error: translate('errors.invalid_input', 'Invalid input'), details: err.issues }, { status: 400 })
+  }
   if (isTransientDbError(err)) {
     // Transient DB unavailability (pool exhausted, `max_connections` reached, DB
     // restarting) is retryable — surface a 503 with a Retry-After hint instead of
@@ -671,7 +682,7 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
       requestId,
     })
     return json(
-      { error: 'Service temporarily unavailable', code: 'DATABASE_UNAVAILABLE', requestId },
+      { error: translate('api.errors.databaseUnavailable', 'Service temporarily unavailable'), code: 'DATABASE_UNAVAILABLE', requestId },
       { status: 503, headers: { 'Retry-After': '2', 'x-request-id': requestId } },
     )
   }
@@ -697,7 +708,10 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
     })
     return json(
       {
-        error: 'The record is still referenced by other data, or references a record that does not exist',
+        error: translate(
+          'api.errors.foreignKeyViolation',
+          'The record is still referenced by other data, or references a record that does not exist',
+        ),
         code: 'FOREIGN_KEY_VIOLATION',
         requestId,
       },
@@ -721,8 +735,8 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
     attributes: { requestId, errorName, code, pgCode: pgSqlState ?? undefined },
   })
   const body: Record<string, unknown> = {
-    error: 'Internal server error',
-    message: 'Something went wrong. Please try again later.',
+    error: translate('api.errors.internal', 'Internal server error'),
+    message: translate('api.errors.internalMessage', 'Something went wrong. Please try again later.'),
     requestId,
     code,
   }
@@ -1054,6 +1068,7 @@ function buildCrudCacheKey(
   request: Request,
   ctx: CrudCtx,
   enricherSignature = '',
+  localizesEntities = false,
 ): string {
   const url = new URL(request.url)
   const scopeIds = collectScopeOrganizationIds(ctx)
@@ -1076,6 +1091,9 @@ function buildCrudCacheKey(
     `user:${normalizeTagSegment((ctx.auth?.keyId ?? ctx.auth?.sub) ?? null)}`,
     `query:${serializeSearchParams(url.searchParams)}`,
   ]
+  if (Array.from(url.searchParams.keys()).some((key) => key.startsWith('filter['))) {
+    segments.push('advancedFilters:intersection-v1')
+  }
   // The cached list payload already embeds enricher output (enrichment runs before
   // the cache store), so the cache key MUST partition by the set of enrichers a
   // request's entitlements actually select. Two callers in the same tenant/org
@@ -1086,6 +1104,7 @@ function buildCrudCacheKey(
   if (enricherSignature) {
     segments.push(`enrichers:${normalizeTagSegment(enricherSignature)}`)
   }
+  if (localizesEntities) segments.push('localization:registered-fields-v1')
   return segments.join('|')
 }
 
@@ -1702,6 +1721,18 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const exportFullRequested = exportRequested && (exportScope === 'full' || parseBooleanToken((queryParams as any).full) === true)
       profiler.mark('export_configured', { exportRequested, exportFullRequested })
 
+      // A full export still owes the route's own visibility predicate. Routes with
+      // `omitAutomaticTenantOrgScope` own their entire scope inside `buildFilters` — the
+      // query engine/ORM fallback add no tenant/org predicate of their own for them — so
+      // dropping to `{}` here would leak every tenant's rows (#7806). Re-run `buildFilters`
+      // with an empty query so only its scope branches apply, not the caller's UI filters.
+      const resolveFullExportBaseFilters = async () => {
+        if (opts.list?.omitAutomaticTenantOrgScope && opts.list.buildFilters) {
+          return opts.list.buildFilters({} as TList, ctx)
+        }
+        return {} as Where<Record<string, unknown>>
+      }
+
       const cacheEnabled =
         isCrudCacheEnabled() && !exportRequested && !opts.list?.disableListCache
       const cacheTimerStart = cacheEnabled && isCrudCacheDebugEnabled()
@@ -1709,7 +1740,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         : null
       const cache = cacheEnabled ? resolveCrudCache(ctx.container) : null
       const enricherCachePlan = cacheEnabled ? await resolveListCachePlan(ctx) : NO_ENRICHER_CACHE_PLAN
-      const cacheKey = cacheEnabled ? buildCrudCacheKey(resourceKind, request, ctx, enricherCachePlan.signature) : null
+      const cacheKey = cacheEnabled
+        ? buildCrudCacheKey(resourceKind, request, ctx, enricherCachePlan.signature, Boolean(opts.list?.entityId))
+        : null
       let cacheStatus: 'hit' | 'miss' = 'miss'
       let cachedValue: CrudCacheStoredValue | null = null
 
@@ -1913,7 +1946,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           ? { page: 1, pageSize: exportPageSize }
           : { page: requestedPage, pageSize: requestedPageSize }
         const baseFilters = exportFullRequested
-          ? ({} as Where<any>)
+          ? await resolveFullExportBaseFilters()
           : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
         const filters = exportFullRequested
           ? baseFilters
@@ -2219,7 +2252,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return response
       }
       const fallbackBaseFilters = exportFullRequested
-        ? ({} as Where<any>)
+        ? await resolveFullExportBaseFilters()
         : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
       const fallbackFilters = exportFullRequested
         ? fallbackBaseFilters

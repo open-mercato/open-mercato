@@ -29,6 +29,8 @@ import {
   readRowString,
   type ApiRow,
 } from './timeEntryDialogState'
+import { addDecimals, decimalToNumber, decimalToString, resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
+import type { TimeEntryTotals } from '../timesheets/timeEntryTotals'
 
 /** The shared refusal code every write path answers when an entry is frozen in a report. */
 export const TIME_ENTRY_LOCKED_CODE = 'time_entry_locked'
@@ -50,6 +52,7 @@ export type TimeEntryListRow = {
   roundedMinutes: number | null
   isBillable: boolean
   cost: number | null
+  costExact?: string | null
   currencyCode: string | null
   rateOverrideAmount: number | null
   isLocked: boolean
@@ -97,6 +100,7 @@ export function toTimeEntryListRow(
     roundedMinutes: readRowNumber(row, 'rounded_minutes', 'roundedMinutes'),
     isBillable: readRowBoolean(row, true, 'is_billable', 'isBillable'),
     cost: readRowNumber(row, 'cost'),
+    costExact: readRowString(row, 'costExact'),
     currencyCode: readRowString(row, 'currencyCode', 'rate_currency_code', 'rateCurrencyCode'),
     rateOverrideAmount: readRowNumber(row, 'rate_override_amount', 'rateOverrideAmount'),
     isLocked: readRowBoolean(row, false, 'isLocked', 'is_locked'),
@@ -109,6 +113,7 @@ export function toTimeEntryListRow(
 export type MoneySubtotal = {
   currencyCode: string | null
   amount: number
+  amountExact?: string
 }
 
 export type TimeEntriesSummary = {
@@ -132,16 +137,50 @@ export function summarizeTimeEntries(rows: readonly TimeEntryListRow[]): TimeEnt
   for (const row of rows) {
     totalMinutes += Number.isFinite(row.durationMinutes) ? row.durationMinutes : 0
     if (row.cost === null || !Number.isFinite(row.cost)) continue
+    const cost = resolveExactDecimal(row.costExact, row.cost) ?? '0'
     const key = row.currencyCode ?? ''
-    const current = byCurrency.get(key)
-    if (current) current.amount += row.cost
-    else byCurrency.set(key, { currencyCode: row.currencyCode ?? null, amount: row.cost })
+    const amountExact = decimalToString(addDecimals(byCurrency.get(key)?.amountExact ?? '0', cost))
+    byCurrency.set(key, { currencyCode: row.currencyCode ?? null, amount: decimalToNumber(amountExact), amountExact })
   }
   return {
     visibleCount: rows.length,
     totalMinutes,
     money: Array.from(byCurrency.values()),
   }
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/**
+ * Reads the list API's optional `totals` (sent for `includeTotals=true`). Anything
+ * malformed reads as `null`, which keeps the footer on the page-only sums rather
+ * than showing a whole-set figure it cannot trust.
+ */
+export function readTimeEntryTotals(value: unknown): TimeEntryTotals | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  const entryCount = readFiniteNumber(raw.entryCount)
+  const durationMinutes = readFiniteNumber(raw.durationMinutes)
+  const roundedMinutes = readFiniteNumber(raw.roundedMinutes)
+  if (entryCount === null || durationMinutes === null || roundedMinutes === null) return null
+  const totals: TimeEntryTotals = { entryCount, durationMinutes, roundedMinutes }
+  if (Array.isArray(raw.money)) {
+    totals.money = raw.money.flatMap((item) => {
+      if (!item || typeof item !== 'object') return []
+      const amount = readFiniteNumber((item as Record<string, unknown>).amount)
+      if (amount === null) return []
+      const code = (item as Record<string, unknown>).currencyCode
+      const amountExact = resolveExactDecimal((item as Record<string, unknown>).amountExact, amount)
+      return [{
+        currencyCode: typeof code === 'string' && code.length > 0 ? code : null,
+        amount,
+        ...(amountExact !== null ? { amountExact } : {}),
+      }]
+    })
+  }
+  return totals
 }
 
 type ErrorBag = Record<string, unknown>

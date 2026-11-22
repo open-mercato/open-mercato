@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
@@ -18,6 +19,34 @@ function readPackageDoc(relativePath: string): string {
 function readWorkspace(relativePath: string): string {
   return fs.readFileSync(path.join(workspaceRoot, relativePath), 'utf8')
 }
+
+test('Markdown language customization routes to a readable props-transform example and exact host contracts', () => {
+  const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
+    id: string
+    owner: { path: string }
+    context: { required: string[]; sourceReferenceIds?: string[]; exampleRoots?: Array<{ allowedCapabilityIds: string[] }> }
+    requiredDecisions: string[]
+  }>
+  const scenario = cases.find((entry) => entry.id === 'OMH-243')
+  assert.ok(scenario)
+  const owner = '.ai/skills/om-system-extension/references/extension-branches.md'
+  assert.equal(scenario.owner.path, owner)
+  assert.ok(scenario.context.required.includes(owner))
+  assert.ok(scenario.context.required.includes('.ai/guides/framework-extension-points.md'))
+  assert.ok(scenario.context.exampleRoots?.some((root) => root.allowedCapabilityIds.includes('umes.component-replacement')))
+  for (const relativePath of ['src/backend/inputs/MarkdownField.tsx', 'src/backend/markdown/codeBlockLanguages.ts']) {
+    assert.ok(scenario.context.sourceReferenceIds?.includes(`om-system-extension/extension-branches:node_modules/@open-mercato/ui/${relativePath}`))
+  }
+  for (const decision of ['markdown-props-transform', 'language-patch-composition', 'preserve-stored-language-tags', 'translated-language-labels']) {
+    assert.ok(scenario.requiredDecisions.includes(decision), `missing Markdown decision ${decision}`)
+  }
+  const branches = read('shared/ai/skills/om-system-extension/references/extension-branches.md')
+  assert.match(branches, /section:ui\.inputs\.MarkdownField/)
+  assert.match(branches, /codeBlockLanguages/)
+  assert.match(branches, /labelKey/)
+  assert.doesNotMatch(branches, /wrapper.*mode only|propsTransform.*have \*\*no\*\* canonical example/)
+  assert.doesNotMatch(read('shared/ai/skills/om-system-extension/SKILL.md'), /propsTransform.*have no example/)
+})
 
 test('standalone discovery catalog covers every public module contribution family', () => {
   const catalog = read('shared/ai/skills/om-module-scaffold/references/discovery-surface-catalog.md')
@@ -205,7 +234,7 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
   assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
 })
 
-test('the 240-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 243-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -217,12 +246,12 @@ test('the 240-case catalog routes audited installed-module, runtime, and AI/prov
     frameworkContext?: Array<{ module?: string; package?: string; query: string }>
     source?: { paths?: string[] }
   }>
-  assert.equal(cases.length, 240)
+  assert.equal(cases.length, 243)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth/index.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
     'OMH-015': { contexts: ['.ai/guides/modules/content/index.md'], decisions: ['static-content-page', 'localized-copy', 'ssr-friendly-content'] },
-    'OMH-039': { contexts: ['.ai/guides/modules/communication_channels/index.md', '.ai/guides/modules/channel_gmail/index.md', '.ai/guides/modules/channel_imap/index.md', '.ai/guides/modules/channel_resend/index.md', '.ai/guides/modules/channel_ses/index.md'], decisions: ['email-provider-kind', 'channel-adapter-contract', 'structured-logger-redaction'] },
+    'OMH-039': { contexts: ['.ai/guides/modules/communication_channels/index.md', '.ai/guides/modules/channel_gmail/index.md', '.ai/guides/modules/channel_imap/index.md', '.ai/guides/modules/channel_resend/index.md', '.ai/guides/modules/channel_ses/index.md', '.ai/guides/modules/channel_smtp/index.md'], decisions: ['email-provider-kind', 'channel-adapter-contract', 'structured-logger-redaction'] },
     'OMH-052': { contexts: ['.ai/guides/modules/attachments/index.md'], decisions: ['attachment-scope-both-or-neither', 'check-attachment-access'] },
     'OMH-087': { contexts: ['.ai/guides/ai-workflows.md', '.ai/guides/modules/api_keys/index.md', '.ai/guides/modules/configs/index.md', '.ai/guides/modules/dictionaries/index.md', '.ai/guides/modules/gateway_stripe/index.md', '.ai/guides/modules/perspectives/index.md', '.ai/guides/modules/resources/index.md', '.ai/guides/modules/sync_akeneo/index.md', '.ai/guides/modules/sync_excel/index.md', '.ai/guides/modules/dashboards/index.md', '.ai/guides/modules/notifications/index.md', '.ai/guides/modules/messages/index.md', '.ai/guides/modules/inbox_ops/index.md', '.ai/guides/modules/ai_assistant/index.md'], decisions: ['mfa-and-sudo-contributions', 'dashboard-notification-message-inbox-surfaces', 'typed-tool-versus-mcp', 'mcp-opencode-code-mode', 'mcp-two-tier-auth'] },
     'OMH-026': { contexts: ['.ai/guides/extensions.md'], decisions: ['facts-first-target', 'bound-crud-form-host', 'correlated-roundtrip'] },
@@ -598,4 +627,10 @@ test('scope guidance preserves explicit tenant-wide host contracts without widen
   assert.match(read('guides/ai-workflows.md'), /organizationId: null/)
   assert.match(worker?.prompt ?? '', /tenant-wide scheduler worker/)
   assert.ok(worker?.requiredDecisions.includes('organization-data-isolation'))
+})
+
+
+test('offline eval native CI owner and catalog regression passes', () => {
+  const result = spawnSync(process.execPath, ['--test', fileURLToPath(new URL('./agent-offline-eval-harness.test.mjs', import.meta.url))], { encoding: 'utf8', timeout: 30000 })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
 })

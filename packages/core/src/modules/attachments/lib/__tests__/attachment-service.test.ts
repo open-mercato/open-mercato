@@ -1,8 +1,15 @@
+import type { AwilixContainer } from 'awilix'
+import { createAttachmentAccessContext, type AttachmentAccessContext } from '../access-runner'
+import { registerAttachmentAccessResolvers } from '../access-registry'
+import type { AttachmentAccessDecision, AttachmentAccessInput } from '../access-types'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { DefaultAttachmentService } from '../attachment-service'
+import { attachmentCrudEvents, attachmentCrudIndexer } from '../crud'
+import { clearAttachmentThumbnailCache } from '../thumbnailCache'
+import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from '../documentStructure/purge'
 import type { StorageDriverFactory } from '../drivers'
 import type { AttachmentQuotaService } from '../quota-service'
 import { ScopedAttachmentUploadService } from '../scoped-upload-service'
@@ -38,9 +45,18 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 
 jest.mock('../ocrQueue', () => ({ requestOcrProcessing: jest.fn(async () => undefined) }))
 
+jest.mock('../thumbnailCache', () => ({ clearAttachmentThumbnailCache: jest.fn(async () => undefined) }))
+
+jest.mock('../documentStructure/purge', () => ({
+  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 0, sectionCount: 0, indexedSectionIds: [] })),
+  enqueuePurgedSectionSearchDelete: jest.fn(async () => undefined),
+}))
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: async (em: { findOne: (...args: unknown[]) => unknown }, ...args: unknown[]) =>
     em.findOne(...args),
+  findWithDecryption: async (em: { find: (...args: unknown[]) => unknown }, ...args: unknown[]) =>
+    em.find(...args),
 }))
 
 const scopedAuth = {
@@ -101,9 +117,13 @@ function createHarness(options: {
   withoutScopedUpload?: boolean
   /** Ids of the attachment rows the storage-reference lock finds for the stored object. */
   storageReferenceIds?: string[]
+  dataEngine?: { markOrmEntityChange: jest.Mock; flushOrmEntityChanges: jest.Mock } | null
+  /** Rows a batched lookup can find; defaults to the single `attachment`. */
+  attachments?: Attachment[]
 } = {}) {
   const selectedPartition = options.partition ?? partition()
   const selectedAttachment = options.attachment === undefined ? attachment() : options.attachment
+  const attachmentRows = options.attachments ?? (selectedAttachment ? [selectedAttachment] : [])
   const driver = {
     key: 'test',
     store: jest.fn(async () => {
@@ -138,6 +158,16 @@ function createHarness(options: {
       if (options.unscopedAttachmentLookup) return selectedAttachment
       return matchesScopedWhere(selectedAttachment, where) ? selectedAttachment : null
     }),
+    find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+      if (entity === AttachmentPartition) {
+        const codes = (where.code as { $in: string[] }).$in
+        return codes.includes(selectedPartition.code) ? [selectedPartition] : []
+      }
+      if (entity !== Attachment) return []
+      const { id, ...scope } = where
+      const ids = (id as { $in: string[] }).$in
+      return attachmentRows.filter((row) => ids.includes(row.id) && matchesScopedWhere(row, scope))
+    }),
     getKysely: () => db,
     create: jest.fn((_entity: unknown, data: unknown) => data),
     persist: jest.fn(),
@@ -160,7 +190,13 @@ function createHarness(options: {
       return attachment({ fileName: 'stored.txt', mimeType: 'text/plain', fileSize: 4 })
     }),
   }
-  const service = new DefaultAttachmentService(em, factory, () => (options.withoutScopedUpload ? null : scopedUpload))
+  const service = new DefaultAttachmentService(
+    em,
+    factory,
+    () => (options.withoutScopedUpload ? null : scopedUpload),
+    null,
+    () => (options.dataEngine ?? null) as never,
+  )
   return { service, em, driver, factory, scopedUpload, lockedStorageReferences, lockQuery: query.forUpdate }
 }
 
@@ -226,6 +262,19 @@ function createInput(overrides: Record<string, unknown> = {}) {
 
 async function expectStatus(promise: Promise<unknown>, status: number) {
   await expect(promise).rejects.toMatchObject<Partial<CrudHttpError>>({ status })
+}
+
+beforeEach(() => {
+  jest.mocked(purgeDocumentStructure).mockClear()
+  jest.mocked(enqueuePurgedSectionSearchDelete).mockClear()
+})
+
+function purgeWithIndexedSections(sectionIds: string[]) {
+  jest.mocked(purgeDocumentStructure).mockResolvedValueOnce({
+    extractionCount: 1,
+    sectionCount: sectionIds.length,
+    indexedSectionIds: sectionIds,
+  })
 }
 
 describe('DefaultAttachmentService', () => {
@@ -460,6 +509,122 @@ describe('DefaultAttachmentService', () => {
     expect(factory.resolveForPartition).not.toHaveBeenCalled()
   })
 
+  it('describes a readable attachment without reading its bytes', async () => {
+    const { service, factory } = createHarness()
+
+    await expect(service.describeScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    })).resolves.toEqual({
+      id: 'attachment-1',
+      fileName: 'file.txt',
+      mimeType: 'text/plain',
+      fileSize: 4,
+      partitionCode: 'privateAttachments',
+    })
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('applies the readScoped checks when describing an attachment', async () => {
+    const foreign = createHarness({ attachment: attachment({ tenantId: 'tenant-2', organizationId: 'org-2' }) })
+    await expectStatus(foreign.service.describeScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    }), 404)
+
+    const otherOwner = createHarness()
+    await expectStatus(otherOwner.service.describeScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-2' },
+    }), 404)
+
+    const publicPartition = createHarness({ partition: partition({ isPublic: true }) })
+    await expectStatus(publicPartition.service.describeScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      requirePrivatePartition: true,
+    }), 403)
+  })
+
+  it('describes several attachments with one query for the rows and one for their partitions', async () => {
+    const { service, em, factory } = createHarness({
+      attachments: [
+        attachment(),
+        attachment({ id: 'attachment-2', fileName: 'invoice.pdf', mimeType: 'application/pdf', fileSize: 9 }),
+      ],
+    })
+
+    await expect(service.describeManyScoped({
+      auth: scopedAuth,
+      items: [
+        { attachmentId: 'attachment-2', expectedOwner: { entityId: 'documents:document', recordId: 'document-1' } },
+        { attachmentId: 'attachment-1', expectedOwner: { entityId: 'documents:document', recordId: 'document-1' } },
+      ],
+    })).resolves.toEqual([
+      { id: 'attachment-2', fileName: 'invoice.pdf', mimeType: 'application/pdf', fileSize: 9, partitionCode: 'privateAttachments' },
+      { id: 'attachment-1', fileName: 'file.txt', mimeType: 'text/plain', fileSize: 4, partitionCode: 'privateAttachments' },
+    ])
+    expect(em.find).toHaveBeenCalledTimes(2)
+    expect(em.find).toHaveBeenCalledWith(
+      Attachment,
+      { id: { $in: ['attachment-2', 'attachment-1'] }, tenantId: 'tenant-1', organizationId: 'org-1' },
+      undefined,
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('applies the describeScoped checks to every item of a batch', async () => {
+    const owner = { entityId: 'documents:document', recordId: 'document-1' }
+    const foreign = createHarness({
+      attachments: [attachment(), attachment({ id: 'attachment-2', tenantId: 'tenant-2', organizationId: 'org-2' })],
+    })
+    await expectStatus(foreign.service.describeManyScoped({
+      auth: scopedAuth,
+      items: [{ attachmentId: 'attachment-1', expectedOwner: owner }, { attachmentId: 'attachment-2', expectedOwner: owner }],
+    }), 404)
+
+    const otherOwner = createHarness({ attachments: [attachment(), attachment({ id: 'attachment-2', recordId: 'document-2' })] })
+    await expectStatus(otherOwner.service.describeManyScoped({
+      auth: scopedAuth,
+      items: [{ attachmentId: 'attachment-1', expectedOwner: owner }, { attachmentId: 'attachment-2', expectedOwner: owner }],
+    }), 404)
+
+    const publicPartition = createHarness({ partition: partition({ isPublic: true }) })
+    await expectStatus(publicPartition.service.describeManyScoped({
+      auth: scopedAuth,
+      items: [{ attachmentId: 'attachment-1', expectedOwner: owner, requirePrivatePartition: true }],
+    }), 403)
+  })
+
+  it('resolves the access context once per batch', async () => {
+    const { em, factory } = createHarness({
+      attachments: [attachment(), attachment({ id: 'attachment-2' })],
+    })
+    const resolveAccessContext = jest.fn(() => undefined as unknown as AttachmentAccessContext)
+    const service = new DefaultAttachmentService(em, factory, () => null, resolveAccessContext)
+    const owner = { entityId: 'documents:document', recordId: 'document-1' }
+
+    await service.describeManyScoped({
+      auth: scopedAuth,
+      items: [{ attachmentId: 'attachment-1', expectedOwner: owner }, { attachmentId: 'attachment-2', expectedOwner: owner }],
+    })
+
+    expect(resolveAccessContext).toHaveBeenCalledTimes(1)
+  })
+
+  it('describes an empty batch without querying', async () => {
+    const { service, em } = createHarness()
+
+    await expect(service.describeManyScoped({ auth: scopedAuth, items: [] })).resolves.toEqual([])
+    expect(em.find).not.toHaveBeenCalled()
+  })
+
   it('maps storage read failures to a not-found response', async () => {
     const { service } = createHarness({ readError: new Error('provider unavailable') })
 
@@ -522,6 +687,14 @@ describe('DefaultAttachmentService', () => {
     expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'attachment-1' }))
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(em.flush.mock.invocationCallOrder[0]).toBeLessThan(driver.delete.mock.invocationCallOrder[0])
+    expect(purgeDocumentStructure).toHaveBeenCalledWith(
+      em,
+      { attachmentId: 'attachment-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      { flush: false },
+    )
+    expect(jest.mocked(purgeDocumentStructure).mock.invocationCallOrder[0]).toBeLessThan(
+      em.flush.mock.invocationCallOrder[0],
+    )
   })
 
   it('keeps provider bytes another attachment row still references', async () => {
@@ -543,7 +716,7 @@ describe('DefaultAttachmentService', () => {
     expect(driver.delete).not.toHaveBeenCalled()
   })
 
-  it('returns no deferred provider cleanup while another row references the bytes', async () => {
+  it('keeps provider bytes in the deferred cleanup while another row references them', async () => {
     const { service, driver, em, lockQuery } = createHarness({
       storageReferenceIds: ['attachment-1', 'attachment-copy'],
     })
@@ -561,7 +734,8 @@ describe('DefaultAttachmentService', () => {
 
     expect(lockQuery).toHaveBeenCalledTimes(1)
     expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'attachment-1' }))
-    expect(cleanup).toBeUndefined()
+    expect(cleanup).toEqual(expect.any(Function))
+    await cleanup()
     expect(driver.delete).not.toHaveBeenCalled()
   })
 
@@ -602,6 +776,7 @@ describe('DefaultAttachmentService', () => {
 
     expect(driver.delete).not.toHaveBeenCalled()
     expect(em.remove).not.toHaveBeenCalled()
+    expect(purgeDocumentStructure).not.toHaveBeenCalled()
   })
 
   // `expectedAssignment` is a required field, but this service is resolved
@@ -646,6 +821,11 @@ describe('DefaultAttachmentService', () => {
         expectedAssignment: { type: 'documents:document', id: 'document-1' },
       }, { em, flush: false })
       expect(driver.delete).not.toHaveBeenCalled()
+      expect(purgeDocumentStructure).toHaveBeenCalledWith(
+        em,
+        { attachmentId: 'attachment-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+        { flush: false },
+      )
     }], { transaction: true, label: 'attachments.release' })
 
     expect(em.commit).toHaveBeenCalledTimes(1)
@@ -698,7 +878,8 @@ describe('DefaultAttachmentService', () => {
     expect(lockQuery).not.toHaveBeenCalled()
     expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'attachment-1' }))
     expect(em.flush).not.toHaveBeenCalled()
-    expect(cleanup).toBeUndefined()
+    expect(cleanup).toEqual(expect.any(Function))
+    await cleanup!()
     expect(driver.delete).not.toHaveBeenCalled()
   })
 
@@ -737,5 +918,208 @@ describe('DefaultAttachmentService', () => {
 
     expect(em.remove).not.toHaveBeenCalled()
     expect(driver.delete).not.toHaveBeenCalled()
+  })
+  it('queues section search cleanup only after its own release transaction commits', async () => {
+    const { service, driver, em } = createHarness()
+    purgeWithIndexedSections(['section-1', 'section-2'])
+
+    await service.releaseScoped({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      expectedAssignment: { type: 'documents:document', id: 'document-1' },
+    })
+
+    expect(enqueuePurgedSectionSearchDelete).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+      ['section-1', 'section-2'],
+    )
+    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(
+      jest.mocked(enqueuePurgedSectionSearchDelete).mock.invocationCallOrder[0],
+    )
+    expect(driver.delete).toHaveBeenCalledTimes(1)
+  })
+
+  it('queues section search cleanup from the deferred callback after the owning transaction commits', async () => {
+    const { service, driver, em } = createHarness({
+      storageReferenceIds: ['attachment-1', 'attachment-copy'],
+    })
+    purgeWithIndexedSections(['section-1'])
+    let cleanup: (() => Promise<void>) | void = undefined
+
+    await withAtomicFlush(em, [async () => {
+      cleanup = await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false })
+    }], { transaction: true, label: 'attachments.release' })
+
+    expect(enqueuePurgedSectionSearchDelete).not.toHaveBeenCalled()
+    expect(cleanup).toEqual(expect.any(Function))
+    await cleanup!()
+    expect(enqueuePurgedSectionSearchDelete).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+      ['section-1'],
+    )
+    expect(driver.delete).not.toHaveBeenCalled()
+  })
+
+  it('never queues section search cleanup when the owning transaction rolls back', async () => {
+    const { service, em } = createHarness()
+    purgeWithIndexedSections(['section-1'])
+
+    await expect(withAtomicFlush(em, [
+      async () => { await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false }) },
+      () => { throw new Error('later document mutation failed') },
+    ], { transaction: true, label: 'attachments.release' })).rejects.toThrow('later document mutation failed')
+
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(enqueuePurgedSectionSearchDelete).not.toHaveBeenCalled()
+  })
+
+  it('emits the attachment deleted CRUD side effect once after its own release commits', async () => {
+    const dataEngine = { markOrmEntityChange: jest.fn(), flushOrmEntityChanges: jest.fn(async () => undefined) }
+    const { service, em } = createHarness({ dataEngine })
+
+    await service.releaseScoped({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      expectedAssignment: { type: 'documents:document', id: 'document-1' },
+    })
+
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledTimes(1)
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'deleted',
+      entity: expect.objectContaining({ id: 'attachment-1' }),
+      identifiers: { id: 'attachment-1', organizationId: 'org-1', tenantId: 'tenant-1' },
+      events: attachmentCrudEvents,
+      indexer: attachmentCrudIndexer,
+    }))
+    expect(dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(
+      dataEngine.markOrmEntityChange.mock.invocationCallOrder[0],
+    )
+    expect(clearAttachmentThumbnailCache).toHaveBeenCalledWith('privateAttachments', 'attachment-1')
+  })
+
+  it('emits the attachment deleted CRUD side effect only from the deferred cleanup after commit', async () => {
+    const dataEngine = { markOrmEntityChange: jest.fn(), flushOrmEntityChanges: jest.fn(async () => undefined) }
+    const { service, em, driver } = createHarness({ dataEngine })
+    let cleanup: (() => Promise<void>) | void = undefined
+
+    await withAtomicFlush(em, [async () => {
+      cleanup = await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false })
+    }], { transaction: true, label: 'attachments.release' })
+
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+    await cleanup!()
+    expect(driver.delete).toHaveBeenCalledTimes(1)
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledTimes(1)
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({ action: 'deleted' }))
+    expect(dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+  })
+
+  it('never emits the attachment deleted side effect when the owning transaction rolls back', async () => {
+    const dataEngine = { markOrmEntityChange: jest.fn(), flushOrmEntityChanges: jest.fn(async () => undefined) }
+    const { service, em } = createHarness({ dataEngine })
+
+    await expect(withAtomicFlush(em, [
+      async () => { await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false }) },
+      () => { throw new Error('later document mutation failed') },
+    ], { transaction: true, label: 'attachments.release' })).rejects.toThrow('later document mutation failed')
+
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+})
+
+describe('DefaultAttachmentService owner policy boundary', () => {
+  const resolverId = 'documents.service-test'
+  const resolveOwner = jest.fn(async (_input: AttachmentAccessInput): Promise<AttachmentAccessDecision> => (
+    { ok: false, status: 404, reason: 'document_not_found' }
+  ))
+  const auth = { ...scopedAuth, sub: 'user-1' }
+  const readInput = {
+    attachmentId: 'attachment-1', auth,
+    expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    expectedAssignment: { type: 'documents:document', id: 'document-1' },
+  }
+
+  function harness(withContext = true) {
+    const base = createHarness({ partition: partition({
+      accessResolverRequirements: [{ resolverId, targetEntity: 'documents:document' }],
+    }) })
+    const container = { resolve: () => ({
+      loadAcl: async () => ({ isSuperAdmin: false, organizations: null }),
+      getEffectiveFeatures: async () => ['documents.view'],
+    }) } as unknown as AwilixContainer
+    const service = new DefaultAttachmentService(base.em, base.factory, null,
+      withContext ? () => createAttachmentAccessContext(container) : null)
+    return { ...base, service }
+  }
+
+  beforeEach(() => {
+    resolveOwner.mockReset()
+    resolveOwner.mockResolvedValue({ ok: false, status: 404, reason: 'document_not_found' })
+    registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [{
+      id: resolverId, targetPartition: '*', targetEntity: 'documents:document', resolve: resolveOwner,
+    }] }])
+  })
+  afterEach(() => registerAttachmentAccessResolvers([]))
+
+  it('denies an otherwise correctly scoped and linked read before storage', async () => {
+    const { service, factory, driver } = harness()
+    await expectStatus(service.readScoped(readInput), 404)
+    expect(resolveOwner).toHaveBeenCalledWith(expect.objectContaining({ action: 'read' }))
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+    expect(driver.read).not.toHaveBeenCalled()
+  })
+
+  it.each(['missing-context', 'missing-provider'])('fails closed with %s for a protected read', async (failure) => {
+    if (failure === 'missing-provider') registerAttachmentAccessResolvers([])
+    const { service, factory, driver } = harness(failure !== 'missing-context')
+    await expectStatus(service.readScoped(readInput), 403)
+    expect(resolveOwner).not.toHaveBeenCalled()
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+    expect(driver.read).not.toHaveBeenCalled()
+  })
+
+  it('serves an allowed read and still enforces the caller expected owner and assignment', async () => {
+    resolveOwner.mockResolvedValue({ ok: true })
+    const { service, driver } = harness()
+    await expect(service.readScoped(readInput)).resolves.toMatchObject({ buffer: Buffer.from('file') })
+    expect(resolveOwner).toHaveBeenCalledTimes(1)
+    expect(driver.read).toHaveBeenCalledTimes(1)
+    driver.read.mockClear()
+    await expectStatus(service.readScoped({ ...readInput,
+      expectedOwner: { entityId: 'documents:document', recordId: 'another-document' },
+    }), 404)
+    await expectStatus(service.readScoped({ ...readInput,
+      expectedAssignment: { type: 'documents:document', id: 'another-document' },
+    }), 404)
+    expect(driver.read).not.toHaveBeenCalled()
   })
 })

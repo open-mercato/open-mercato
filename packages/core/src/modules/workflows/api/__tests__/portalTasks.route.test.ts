@@ -222,6 +222,16 @@ describe('the list', () => {
     expect(body.tasks).toEqual([])
   })
 
+  test('orders by createdAt then id so offset pages stay stable on equal timestamps', async () => {
+    await runList('?page=2')
+
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      UserTask,
+      expect.anything(),
+      expect.objectContaining({ orderBy: { createdAt: 'DESC', id: 'DESC' } }),
+    )
+  })
+
   test('caps the page size at 100 however large the request asks for', async () => {
     await runList('?pageSize=5000')
 
@@ -230,6 +240,31 @@ describe('the list', () => {
       expect.anything(),
       expect.objectContaining({ limit: 100 }),
     )
+  })
+
+  test.each([
+    { page: 3335, pageSize: 30 },
+    { page: 1002, pageSize: 100 },
+    { page: 100002, pageSize: 1 },
+    { page: 999999999, pageSize: 30 },
+  ])('rejects an excessive derived offset for page $page / size $pageSize', async ({ page, pageSize }) => {
+    const response = await runList(`?page=${page}&pageSize=${pageSize}`)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ ok: false, error: 'WORKFLOW_LIST_OFFSET_EXCEEDED' })
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('accepts the maximum derived offset without changing the requested page', async () => {
+    const response = await runList('?page=1001&pageSize=100')
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      UserTask,
+      expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORG_ID }),
+      expect.objectContaining({ limit: 100, offset: 100000 }),
+    )
+    expect(body.pagination).toMatchObject({ page: 1001, pageSize: 100 })
   })
 })
 
@@ -321,6 +356,25 @@ describe('completion', () => {
 
     expect((await runComplete()).status).toBe(404)
     expect(completeUserTask).not.toHaveBeenCalled()
+  })
+
+  test('a task whose run is closed collapses into the standard 404 refusal', async () => {
+    taskRow = null
+    const missing = await runComplete()
+    const missingBody = await missing.json()
+
+    taskRow = makeTask()
+    completeUserTask.mockRejectedValue(
+      Object.assign(new Error('Workflow is no longer active'), { code: 'WORKFLOW_NOT_ACTIVE' }),
+    )
+
+    const response = await runComplete({ formData: { confirmed: true } })
+
+    expect(completeUserTask).toHaveBeenCalledTimes(1)
+    expect(response.status).toBe(404)
+    expect(missing.status).toBe(404)
+    // Byte-identical to a nonexistent id: no code, no hint that the run ended.
+    expect(await response.json()).toEqual(missingBody)
   })
 
   test('a malformed body is a 400 before any lookup', async () => {

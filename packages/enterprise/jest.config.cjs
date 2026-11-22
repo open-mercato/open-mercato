@@ -8,6 +8,8 @@ module.exports = {
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
+    '^#generated/entities\\.ids\\.generated$': '<rootDir>/../core/jest.mocks/entities.ids.generated.js',
+    '^@open-mercato/ai-assistant/(.*)$': '<rootDir>/../ai-assistant/src/$1',
     '^@open-mercato/enterprise/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/cache$': '<rootDir>/../cache/src/index.ts',
     '^@open-mercato/cache/(.*)$': '<rootDir>/../cache/src/$1',
@@ -31,7 +33,7 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm|kysely|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema|@tanstack/react-table|@tanstack/table-core|@tanstack/react-store|@tanstack/store)/)',
+    'node_modules/(?!(sanitize-html|htmlparser2|domhandler|domutils|dom-serializer|domelementtype|entities|@mikro-orm|kysely|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema|@tanstack/react-table|@tanstack/table-core|@tanstack/react-store|@tanstack/store)/)',
   ],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,

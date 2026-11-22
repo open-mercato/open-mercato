@@ -160,6 +160,30 @@ describe('the grid keeps its look (W3)', () => {
     })
     expect(firstCell().value).toBe('1.25')
   })
+
+  // The sticky Project column is `z-10`, the same as the app top bar
+  // (`z-sticky`); without an isolated stacking context around the grid it
+  // painted over the top bar while the page scrolled (#7414).
+  it('confines the sticky Project column to the grid stacking context', () => {
+    renderGrid()
+    const scrollWrapper = screen.getByRole('table').parentElement
+    expect(scrollWrapper?.classList.contains('isolate')).toBe(true)
+    expect(scrollWrapper?.classList.contains('overflow-x-auto')).toBe(true)
+  })
+
+  // On a 390 px phone the week grid was squeezed to the card width, leaving
+  // ~19 px day columns under 64 px hour inputs (#9946). The week table keeps a
+  // minimum width so it scrolls inside the card instead.
+  it('keeps a minimum width on the week grid so it scrolls instead of squeezing the day columns', () => {
+    renderGrid()
+    expect(screen.getByRole('table').classList.contains('min-w-4xl')).toBe(true)
+  })
+
+  it('leaves the dense month grid to its fixed column widths', () => {
+    const monthDays = Array.from({ length: 30 }, (_, index) => `2026-07-${String(index + 1).padStart(2, '0')}`)
+    renderGrid({ days: monthDays })
+    expect(screen.getByRole('table').classList.contains('min-w-4xl')).toBe(false)
+  })
 })
 
 describe('the cells now use the shared parser', () => {
