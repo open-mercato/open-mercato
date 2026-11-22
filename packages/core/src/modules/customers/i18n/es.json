@@ -1825,6 +1825,7 @@
   "customers.errors.failed_to_delete_role": "No se pudo eliminar el rol",
   "customers.errors.failed_to_load_roles": "No se pudieron cargar los roles",
   "customers.errors.failed_to_update_role": "No se pudo actualizar el rol",
+  "customers.errors.interaction_email_parent_required": "El correo electrónico debe estar vinculado a una persona o empresa.",
   "customers.errors.interaction_required": "Se requiere el ID de la interaccion",
   "customers.errors.internal": "Error interno del servidor",
   "customers.errors.internalError": "Error interno del servidor",

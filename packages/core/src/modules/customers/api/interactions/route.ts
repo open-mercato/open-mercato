@@ -168,7 +168,7 @@ export { POST, PUT, DELETE }
 
 type InteractionListRow = {
   id: string
-  entity_id: string
+  entity_id: string | null
   deal_id: string | null
   interaction_type: string
   title: string | null

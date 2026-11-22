@@ -1,4 +1,5 @@
 import {
+  INTERACTION_EMAIL_PARENT_REQUIRED_MESSAGE_KEY,
   interactionCreateSchema,
   interactionUpdateSchema,
 } from '../validators'
@@ -46,12 +47,27 @@ describe('interaction validators — extended scheduling fields', () => {
     guestPermissions: { canInviteOthers: true, canModify: false, canSeeList: true },
   }
 
-  test('interactionCreateSchema requires a CRM parent when entityId is omitted', () => {
-    expect(interactionCreateSchema.safeParse(basePayload).success).toBe(false)
+  test('interactionCreateSchema accepts an omitted CRM parent for a native activity', () => {
+    expect(interactionCreateSchema.parse(basePayload).entityId).toBeUndefined()
   })
 
-  test('interactionCreateSchema rejects an explicit null CRM parent', () => {
-    expect(interactionCreateSchema.safeParse({ ...basePayload, entityId: null }).success).toBe(false)
+  test('interactionCreateSchema accepts an explicit null CRM parent for a native activity', () => {
+    expect(interactionCreateSchema.parse({ ...basePayload, entityId: null }).entityId).toBeNull()
+  })
+
+  test.each([undefined, null])('interactionCreateSchema requires a CRM parent for email when entityId is %s', (missingEntityId) => {
+    const result = interactionCreateSchema.safeParse({
+      tenantId,
+      organizationId: orgId,
+      interactionType: 'email',
+      entityId: missingEntityId,
+    })
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({
+        path: ['entityId'],
+        message: INTERACTION_EMAIL_PARENT_REQUIRED_MESSAGE_KEY,
+      }),
+    ])
   })
 
   test('interactionCreateSchema preserves all extended fields', () => {
@@ -165,15 +181,15 @@ describe('interaction validators — extended scheduling fields', () => {
     ).toThrow()
   })
 
-  test('interactionUpdateSchema rejects a null entityId because the relation is required', () => {
-    expect(() =>
-      interactionUpdateSchema.parse({
-        id: interactionId,
-        tenantId,
-        organizationId: orgId,
-        entityId: null,
-      }),
-    ).toThrow()
+  test('interactionUpdateSchema accepts a null entityId to clear the primary CRM link', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      entityId: null,
+    })
+    expect(parsed.entityId).toBeNull()
+    expect(parsed.dealId).toBeUndefined()
   })
 
   test('interactionUpdateSchema rejects invalid linked entity type', () => {

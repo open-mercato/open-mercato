@@ -1825,6 +1825,7 @@
   "customers.errors.failed_to_delete_role": "Nie udało się usunąć roli",
   "customers.errors.failed_to_load_roles": "Nie udało się załadować ról",
   "customers.errors.failed_to_update_role": "Nie udało się zaktualizować roli",
+  "customers.errors.interaction_email_parent_required": "Wiadomość e-mail musi być powiązana z osobą lub firmą.",
   "customers.errors.interaction_required": "Wymagany identyfikator interakcji",
   "customers.errors.internal": "Wewnętrzny błąd serwera",
   "customers.errors.internalError": "Wewnętrzny błąd serwera",

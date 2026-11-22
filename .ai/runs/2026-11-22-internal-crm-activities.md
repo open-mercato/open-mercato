@@ -30,11 +30,13 @@ An unlinked row must always use an authorized tenant and organization. Email nee
 
 ## Progress
 
+PR: #10405
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Scoped native interactions
 
-- [ ] 1.1 Characterize current linked creation, canonical null rejection, and CRM projection updates
+- [x] 1.1 Characterize current linked creation, canonical null rejection, and CRM projection updates — 609190425e
 - [ ] 1.2 Add nullable persistence and scoped interaction lifecycle and reads
 
 ### Phase 2: Calendar and Tasks

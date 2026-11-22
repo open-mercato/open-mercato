@@ -1825,6 +1825,7 @@
   "customers.errors.failed_to_delete_role": "Failed to delete role",
   "customers.errors.failed_to_load_roles": "Failed to load roles",
   "customers.errors.failed_to_update_role": "Failed to update role",
+  "customers.errors.interaction_email_parent_required": "An email must be linked to a person or company.",
   "customers.errors.interaction_required": "Interaction id is required",
   "customers.errors.internal": "Internal server error",
   "customers.errors.internalError": "Internal server error",

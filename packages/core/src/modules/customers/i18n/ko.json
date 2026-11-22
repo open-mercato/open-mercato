@@ -1825,6 +1825,7 @@
   "customers.errors.failed_to_delete_role": "역할을 삭제하지 못했습니다",
   "customers.errors.failed_to_load_roles": "역할을 불러오지 못했습니다",
   "customers.errors.failed_to_update_role": "역할을 업데이트하지 못했습니다",
+  "customers.errors.interaction_email_parent_required": "이메일은 개인 또는 회사에 연결해야 합니다.",
   "customers.errors.interaction_required": "상호작용 ID가 필요합니다",
   "customers.errors.internal": "내부 서버 오류",
   "customers.errors.internalError": "내부 서버 오류",

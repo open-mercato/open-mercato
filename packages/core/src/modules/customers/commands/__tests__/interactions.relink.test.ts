@@ -15,6 +15,7 @@ import '@open-mercato/core/modules/customers/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { CustomerDeal, CustomerEntity, CustomerInteraction } from '../../data/entities'
 import { registerCoreInjectionTables, registerCoreInjectionWidgets, registerEnabledModuleIds } from '@open-mercato/shared/modules/widgets/injection-loader'
 
@@ -73,7 +74,7 @@ function createEntity(id: string, kind: string, organizationId = ORG_ID): Custom
   } as unknown as CustomerEntity
 }
 
-function createInteraction(entity: CustomerEntity): CustomerInteraction {
+function createInteraction(entity: CustomerEntity | null): CustomerInteraction {
   return {
     id: INTERACTION_ID,
     organizationId: ORG_ID,
@@ -110,7 +111,7 @@ function createInteraction(entity: CustomerEntity): CustomerInteraction {
   } as unknown as CustomerInteraction
 }
 
-function createHarness(interaction: CustomerInteraction, entities: CustomerEntity[]) {
+function createHarness(interaction: CustomerInteraction | null, entities: CustomerEntity[], organizationExists = true) {
   const emitCalls: EmitCall[] = []
   const recomputedEntityIds: string[] = []
 
@@ -130,11 +131,16 @@ function createHarness(interaction: CustomerInteraction, entities: CustomerEntit
     }),
   }
 
+  const persist = jest.fn()
   const em: Record<string, unknown> = {
     getKysely: jest.fn(() => trackingKysely),
     findOne: jest.fn(async (ctor: unknown, where: Record<string, unknown>) => {
       if (ctor === CustomerInteraction) {
-        return where.id === interaction.id ? interaction : null
+        return where.id === interaction?.id ? interaction : null
+      }
+      if (ctor === Organization) {
+        return organizationExists && where.id === ORG_ID && where.tenant === TENANT_ID &&
+          where.deletedAt === null && where.isActive === true ? { id: ORG_ID } : null
       }
       if (ctor === CustomerEntity) {
         return (
@@ -156,7 +162,7 @@ function createHarness(interaction: CustomerInteraction, entities: CustomerEntit
     find: jest.fn(async () => []),
     nativeDelete: jest.fn(async () => {}),
     create: jest.fn((ctor: unknown, payload: Record<string, unknown>) => ({ __entity: ctor, ...payload })),
-    persist: jest.fn(() => {}),
+    persist,
     flush: jest.fn(async () => {}),
     transactional: jest.fn(async (fn: (inner: unknown) => Promise<unknown>) => fn(em)),
     begin: jest.fn(async () => {}),
@@ -206,7 +212,7 @@ function createHarness(interaction: CustomerInteraction, entities: CustomerEntit
     request: undefined,
   } as unknown as CommandRuntimeContext
 
-  return { ctx, emitCalls, recomputedEntityIds }
+  return { ctx, emitCalls, recomputedEntityIds, persist }
 }
 
 function nextInteractionTargets(emitCalls: EmitCall[]): string[] {
@@ -215,16 +221,16 @@ function nextInteractionTargets(emitCalls: EmitCall[]): string[] {
     .map((call) => String(call.payload.entityId))
 }
 
+function handler(action = 'update'): CommandHandler {
+  const found = commandRegistry.get(`customers.interactions.${action}`) as CommandHandler
+  expect(found).toBeDefined()
+  return found
+}
+
 describe('customers.interactions.update — re-linking to a different CRM record (#5938)', () => {
   afterEach(() => {
     jest.clearAllMocks()
   })
-
-  function handler(): CommandHandler {
-    const found = commandRegistry.get('customers.interactions.update') as CommandHandler
-    expect(found).toBeDefined()
-    return found
-  }
 
   it('re-attaches the interaction to the requested person', async () => {
     const current = createEntity(CURRENT_ENTITY_ID, 'company')
@@ -315,14 +321,14 @@ describe('customers.interactions.update — re-linking to a different CRM record
   })
 
   describe('undo', () => {
-    function buildSnapshot(entityId: string): Record<string, unknown> {
+    function buildSnapshot(entityId: string | null): Record<string, unknown> {
       return {
         interaction: {
           id: INTERACTION_ID,
           organizationId: ORG_ID,
           tenantId: TENANT_ID,
           entityId,
-          entityKind: 'company',
+          entityKind: entityId ? 'company' : null,
           dealId: null,
           interactionType: 'task',
           title: 'Follow up',
@@ -377,6 +383,26 @@ describe('customers.interactions.update — re-linking to a different CRM record
       expect(nextInteractionTargets(emitCalls).sort()).toEqual([CURRENT_ENTITY_ID, TARGET_ENTITY_ID].sort())
     })
 
+    it.each([null, CURRENT_ENTITY_ID])('restores the former CRM link %s and refreshes the involved parent', async (formerId) => {
+      const parent = createEntity(CURRENT_ENTITY_ID, 'company')
+      const interaction = createInteraction(formerId ? null : parent)
+      const { ctx, emitCalls, recomputedEntityIds } = createHarness(interaction, [parent])
+      const logEntry = {
+        commandPayload: {
+          undo: {
+            before: buildSnapshot(formerId),
+            after: buildSnapshot(formerId ? null : CURRENT_ENTITY_ID),
+          },
+        },
+      }
+
+      await handler().undo!({ input: {}, ctx, logEntry: logEntry as never })
+
+      expect(interaction.entity).toBe(formerId ? parent : null)
+      expect(recomputedEntityIds).toEqual([CURRENT_ENTITY_ID])
+      expect(nextInteractionTargets(emitCalls)).toEqual([CURRENT_ENTITY_ID])
+    })
+
     it('recomputes only the original entity when the interaction was never re-linked', async () => {
       const current = createEntity(CURRENT_ENTITY_ID, 'company')
       const interaction = createInteraction(current)
@@ -396,5 +422,108 @@ describe('customers.interactions.update — re-linking to a different CRM record
       expect(recomputedEntityIds).toEqual([CURRENT_ENTITY_ID])
       expect(nextInteractionTargets(emitCalls)).toEqual([CURRENT_ENTITY_ID])
     })
+  })
+})
+
+describe('native interactions without a CRM parent', () => {
+  const scope = { tenantId: TENANT_ID, organizationId: ORG_ID }
+
+  it('creates in an active organization without updating a CRM projection', async () => {
+    const { ctx, emitCalls, persist, recomputedEntityIds } = createHarness(null, [])
+    await expect(handler('create').execute!({
+      ...scope,
+      id: INTERACTION_ID,
+      interactionType: 'task',
+      title: 'Internal task',
+    }, ctx)).resolves.toEqual({ interactionId: INTERACTION_ID, entityId: null })
+
+    expect(persist).toHaveBeenCalledWith(expect.objectContaining({ ...scope, entity: null }))
+    expect(recomputedEntityIds).toEqual([])
+    expect(nextInteractionTargets(emitCalls)).toEqual([])
+  })
+
+  it('rejects parentless creation when the target organization cannot be used', async () => {
+    const { ctx, persist } = createHarness(null, [], false)
+    await expect(handler('create').execute!({
+      ...scope, id: INTERACTION_ID, interactionType: 'task',
+    }, ctx)).rejects.toMatchObject({ status: 403 })
+    expect(persist).not.toHaveBeenCalled()
+  })
+
+  it('attaches a CRM parent to a previously internal activity', async () => {
+    const target = createEntity(TARGET_ENTITY_ID, 'person')
+    const interaction = createInteraction(null)
+    const { ctx, emitCalls, recomputedEntityIds } = createHarness(interaction, [target])
+    await handler().execute!({ id: INTERACTION_ID, ...scope, entityId: TARGET_ENTITY_ID }, ctx)
+
+    expect(interaction.entity).toBe(target)
+    expect(recomputedEntityIds).toEqual([TARGET_ENTITY_ID])
+    expect(nextInteractionTargets(emitCalls)).toEqual([TARGET_ENTITY_ID])
+  })
+
+  it('clears the CRM parent and refreshes only its projection while preserving an existing deal', async () => {
+    const parent = createEntity(CURRENT_ENTITY_ID, 'company')
+    const interaction = createInteraction(parent)
+    interaction.dealId = DEAL_ENTITY_ID
+    const { ctx, emitCalls, recomputedEntityIds } = createHarness(interaction, [parent])
+    await handler().execute!({ id: INTERACTION_ID, ...scope, entityId: null }, ctx)
+
+    expect(interaction.entity).toBeNull()
+    expect(interaction.dealId).toBe(DEAL_ENTITY_ID)
+    expect(recomputedEntityIds).toEqual([CURRENT_ENTITY_ID])
+    expect(nextInteractionTargets(emitCalls)).toEqual([CURRENT_ENTITY_ID])
+  })
+
+  it.each(['email', 'task'])('rejects a parentless email state when updating a %s', async (existingType) => {
+    const parent = createEntity(CURRENT_ENTITY_ID, 'company')
+    const interaction = createInteraction(existingType === 'email' ? parent : null)
+    interaction.interactionType = existingType
+    const { ctx } = createHarness(interaction, [parent])
+    await expect(handler().execute!({
+      id: INTERACTION_ID, ...scope, entityId: null, interactionType: 'email',
+    }, ctx)).rejects.toMatchObject({
+      status: 400, body: { fieldErrors: { entityId: 'An email must be linked to a person or company.' } },
+    })
+    expect(interaction.entity).toBe(existingType === 'email' ? parent : null)
+  })
+
+  it.each([
+    ['complete', 'done', 'completed'],
+    ['cancel', 'canceled', 'canceled'],
+  ])('can %s an unlinked activity and publishes its lifecycle event', async (action, status, event) => {
+    const interaction = createInteraction(null)
+    const { ctx, emitCalls, recomputedEntityIds } = createHarness(interaction, [])
+    await handler(action).execute!({ id: INTERACTION_ID }, ctx)
+
+    expect(interaction.status).toBe(status)
+    expect(emitCalls).toContainEqual(expect.objectContaining({
+      event: `customers.interaction.${event}`,
+      payload: expect.objectContaining({ id: INTERACTION_ID, entityId: null }),
+    }))
+    expect(recomputedEntityIds).toEqual([])
+    expect(nextInteractionTargets(emitCalls)).toEqual([])
+  })
+
+  it('deletes an unlinked activity without updating a CRM projection', async () => {
+    const interaction = createInteraction(null)
+    const { ctx, emitCalls, recomputedEntityIds } = createHarness(interaction, [])
+    await handler('delete').execute!({ id: INTERACTION_ID }, ctx)
+    expect(interaction.deletedAt).toBeInstanceOf(Date)
+    expect(recomputedEntityIds).toEqual([])
+    expect(nextInteractionTargets(emitCalls)).toEqual([])
+  })
+
+  it('can recreate an unlinked activity from its snapshot on redo', async () => {
+    const existing = createInteraction(null)
+    const existingHarness = createHarness(existing, [])
+    const command = handler('create')
+    const snapshot = await command.captureAfter!({}, { interactionId: INTERACTION_ID }, existingHarness.ctx)
+    const { ctx, emitCalls, persist } = createHarness(null, [])
+
+    await expect(command.redo!({
+      input: {}, ctx, logEntry: { snapshotAfter: snapshot } as never,
+    })).resolves.toEqual({ interactionId: INTERACTION_ID, entityId: null })
+    expect(persist).toHaveBeenCalledWith(expect.objectContaining({ id: INTERACTION_ID, entity: null }))
+    expect(nextInteractionTargets(emitCalls)).toEqual([])
   })
 })

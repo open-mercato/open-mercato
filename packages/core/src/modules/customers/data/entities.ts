@@ -723,8 +723,8 @@ export class CustomerInteraction {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 
-  @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
-  entity!: CustomerEntity
+  @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id', nullable: true, deleteRule: 'no action' })
+  entity?: CustomerEntity | null
 }
 
 @Entity({ tableName: 'customer_comments' })

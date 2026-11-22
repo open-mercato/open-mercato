@@ -1825,6 +1825,7 @@
   "customers.errors.failed_to_delete_role": "Rolle konnte nicht gelöscht werden",
   "customers.errors.failed_to_load_roles": "Rollen konnten nicht geladen werden",
   "customers.errors.failed_to_update_role": "Rolle konnte nicht aktualisiert werden",
+  "customers.errors.interaction_email_parent_required": "E-Mails müssen mit einer Person oder Firma verknüpft sein.",
   "customers.errors.interaction_required": "Interaction-ID ist erforderlich",
   "customers.errors.internal": "Interner Serverfehler",
   "customers.errors.internalError": "Interner Serverfehler",
