@@ -584,3 +584,9 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## Fullapp development agent authentication (2026-11-22, #9116)
+
+The development Compose configuration changes optional `OPENCODE_PASSWORD` to required, anonymous direct OpenCode clients to HTTP Basic authentication, and default published service bindings to loopback. Keeping anonymous agent access as a bridge retains the exposure. Clients configure Basic credentials as `opencode`; operators generate a password, recreate app and agent together on rotation, and explicitly control remote publication with `INFRA_BIND_HOST`. Production and hybrid startup are unchanged. See the fullapp security sections in `.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md` and `UPGRADE_NOTES.md`.
+
+Emergency steps 1–3 waiver: **pending named human maintainer acceptance for this release backport**. The merged origin's automation-only approval does not supply that acceptance. Protected personal QA must verify refusal, authorized client access and rotation on the final release head.

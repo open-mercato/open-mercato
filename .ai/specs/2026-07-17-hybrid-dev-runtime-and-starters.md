@@ -77,34 +77,20 @@ Follow-ups (out of scope here): mirror `starters/` into `packages/create-app/tem
 
 The canonical fullapp dev compose, its root compatibility copy and the standalone template publish ports on `${INFRA_BIND_HOST:-127.0.0.1}`. They require an operator-generated `OPENCODE_PASSWORD` before startup and pass it as native server `OPENCODE_SERVER_PASSWORD` and existing app-client `OPENCODE_PASSWORD`; the healthcheck uses Basic authentication as `opencode`. Explicit password configuration uses the existing client/server protocol and avoids a new secret-distribution service. Operators must recreate both consumers after rotation. Production and hybrid stacks are unchanged.
 
+### Release compatibility and rollout for #9116
+
+`OPENCODE_PASSWORD` changes from optional to required for the fullapp development stacks. Existing anonymous direct OpenCode clients must configure HTTP Basic authentication as `opencode`; existing remote development access requires an explicit `INFRA_BIND_HOST`. Operators generate the password before startup, recreate the app and OpenCode together after rotation, and restrict every deliberately exposed service. Production and hybrid stacks are unchanged. Rollback restores unauthenticated development access and must not be used on an exposed host.
+
+Keeping anonymous OpenCode access as a compatibility bridge preserves the development agent exposure. The emergency exception to deprecation steps 1–3 therefore requires a named human maintainer's explicit acceptance before this release backport can merge. The merged origin used an automation-only policy; its automatic review is not that acceptance or protected personal QA. See `UPGRADE_NOTES.md` and `BACKWARD_COMPATIBILITY.md`.
+
 ## Integration coverage
 
-<<<<<<< HEAD
-- `scripts/__tests__/dev-mcp.test.mjs` — flag/env parsing, port/key-path resolution, backoff policy, output classifiers (node:test, `yarn test:scripts`).
-- Existing compose-path guards updated: `gitattributes-lf-enforcement`, `prod-compose-node-options`, `fullapp-compose-app-allowed-origins`.
-- Manual QA paths: hybrid install loop on a fresh clone (`install.sh` / `install.bat`); `yarn infra:up` + `yarn dev` → MCP `/health`, OpenCode `/mcp` shows `open-mercato: connected`, Cmd+K chat round-trips; fullapp regression `yarn docker:dev:up`; Windows enterprise launcher end-to-end incl. standalone self-download from the new raw URL; `.ai/qa/scenarios/TC-DOCKER-001..008` updated to the new commands.
-=======
 - `scripts/__tests__/fullapp-dev-agent-security.test.mjs` — native auth wiring, authenticated healthcheck, compose startup refusal without credentials and matching resolved credentials/loopback bindings across canonical, compatibility and standalone files. `OM_TEST_OPENCODE_AUTH=1` additionally runs the pinned image with no network and verifies HTTP 401 without/corrupt credentials and HTTP 200 with the configured Basic credentials. `compose-loopback-ports.test.mjs` also covers all fullapp dev publications.
 
-- `scripts/__tests__/dev-mcp.test.mjs` — flag/env parsing, port/key-path resolution, backoff policy, output classifiers, cold-start health shape, trusted-peer/user-key admission, untrusted well-formed-key rejection before wake/queue (including spoofed forwarded headers), bounded queue, SSE/disconnect and timeout (node:test, `yarn test:scripts`).
-- `scripts/__tests__/dev-session-guard.test.mjs` — atomic conflict, managed-child re-entry, deterministic competing stale recoveries, dead acquisition-gate recovery, stale recovery, symlink identity, surviving-child ownership, no-side-effect rejection, entry-point ordering, and standalone parity.
-- `scripts/__tests__/dev-docker-availability.test.mjs` — selected MCP endpoint reaches the compose recreation environment across repeated endpoint transitions while explicit external configuration remains authoritative.
+- `scripts/__tests__/dev-mcp.test.mjs` — flag/env parsing, port/key-path resolution, backoff policy, output classifiers (node:test, `yarn test:scripts`).
 - Existing compose-path guards updated: `gitattributes-lf-enforcement`, `prod-compose-node-options`, `fullapp-compose-app-allowed-origins`.
 - Manual QA paths: hybrid install loop on a fresh clone (`install.sh` / `install.bat`); `yarn infra:up` + `yarn dev` → MCP `/health`, OpenCode `/mcp` shows `open-mercato: connected`, Cmd+K chat round-trips; fullapp regression `yarn docker:dev:up`; Windows enterprise launcher end-to-end incl. standalone self-download from the new raw URL; `.ai/qa/scenarios/TC-DOCKER-001..008` updated to the new commands.
 
 ## Changelog
 
-- 2026-11-06: Interactive recovery now also offers to stop a live verified session (active runner, setup owner, occupied endpoint) and to discard locks left by exited or reused PIDs; both `yarn setup` entry points use the recovery helper.
-
-- 2026-11-05: Fix Ctrl+C descendant cleanup and add explicit interactive recovery for verified orphaned workspace sessions; retain descendants through graceful/forced shutdown and preserve active-session exclusion.
-
-- 2026-10-27: Coordinated issues #8044 and #8046: added bounded managed-MCP port fallback and endpoint propagation, current-child readiness, OpenCode compose recreation, and canonical workspace session ownership with stale recovery. The feasibility decision is prevention rather than incomplete multi-session isolation.
-
-- 2026-10-28: Re-review repairs: serialize dev-session ownership transitions and make abandoned acquisition-gate recovery generation-safe; refresh OpenCode after each managed endpoint transition; cover IPv4/IPv6 occupancy, competing stale recovery, and repeated endpoint changes.
-
-- 2026-11-03: `yarn dev` starts the MCP server lazily behind a launcher-owned proxy (#8339): shape-compatible `/health` (`tools: 0`, additive `lazy: true`) until the server runs, an `x-api-key` format/known-key gate before waking, a 16-request cold-start queue (`429` beyond, 60 s wait), and `OM_DEV_MCP_LAZY=0` for the eager start.
-
-- 2026-11-04: Close the remaining #8339 cold-start boundary: unknown formatted keys require loopback or an explicitly trusted socket peer (`OM_DEV_MCP_TRUSTED_PEERS`); managed-key clients remain supported from all peers. Add HTTP regressions for rejection without wake or queue occupation, trusted user-key forwarding, and invalid trust entries.
-
-- 2026-11-17: Harden fullapp development publications and wire existing OpenCode Basic auth; require documented operator password configuration (#9116).
->>>>>>> e5ea897100 (fix(docker): authenticate and restrict development agent services (#9116) (#9731))
+- 2026-11-22: Backport fullapp development agent authentication and loopback publications to v0.9; retain the release coverage and upgrade history.
