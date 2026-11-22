@@ -34,7 +34,10 @@ test('TC-SALES-9812: offers Sent only on quotes and saves an available order sta
 
     const main = page.getByRole('main')
     const statusCard = main.getByRole('button', { name: /^Status .+ Edit$/ })
-    const statusPicker = main.getByRole('link', { name: 'Manage statuses', exact: true }).locator('..').getByRole('combobox')
+    const statusPicker = main
+      .getByRole('link', { name: 'Manage statuses', exact: true })
+      .locator('../..')
+      .getByRole('combobox')
     const menu = page.getByRole('listbox')
     const sent = menu.getByRole('option', { name: 'Sent', exact: true })
     const allowedStatus = menu.getByRole('option', { name: changedStatus.label, exact: true })
