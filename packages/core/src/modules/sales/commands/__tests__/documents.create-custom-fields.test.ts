@@ -186,7 +186,7 @@ describe('sales document create commands — customFields (GSM-296)', () => {
       customFields: { inspection_required: inspectionRequired },
     }))
 
-    await getHandler(commandId).execute(buildInput({ lines }), ctx)
+    await getHandler(commandId).execute(buildInput({ lines: [...lines, line] }), ctx)
 
     const writes = customFieldWritesFor(entityId)
     expect(writes).toHaveLength(lines.length)
@@ -198,8 +198,17 @@ describe('sales document create commands — customFields (GSM-296)', () => {
         organizationId: TEST_ORG_ID,
         values: item.customFields,
       })
-      expect(persist).toHaveBeenCalledWith(expect.objectContaining({ name: item.name, id: write.recordId }))
+      const persistedLine = expect.objectContaining({ name: item.name, id: write.recordId })
+      expect(persist).toHaveBeenCalledWith(persistedLine)
+      expect(emitCrudSideEffects).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'created',
+        entity: persistedLine,
+        identifiers: { id: write.recordId, tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID },
+        indexer: { entityType: entityId },
+      }))
     }
+    const indexedLines = emitCrudSideEffects.mock.calls.filter(([change]) => change.indexer?.entityType === entityId)
+    expect(indexedLines).toHaveLength(lines.length)
     expect(writes[0].recordId).not.toBe(writes[1].recordId)
   })
 
