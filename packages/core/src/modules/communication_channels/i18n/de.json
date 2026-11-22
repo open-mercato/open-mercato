@@ -1,4 +1,9 @@
 {
+  "communication_channels.profile.connect.setupRequired": "Hinterlegen Sie die OAuth-Client-ID und das Secret, bevor Sie ein Postfach verbinden.",
+  "communication_channels.profile.connect.openProviderSetup": "Anbieterkonfiguration öffnen",
+  "communication_channels.profile.connect.checkingSetup": "Anbieterkonfiguration wird geprüft…",
+  "communication_channels.profile.connect.setupUnavailable": "Die Anbieterkonfiguration konnte nicht geprüft werden.",
+  "communication_channels.profile.connect.retrySetup": "Erneut versuchen",
   "communication_channels.setup.configureProviders": "Anbieter konfigurieren",
   "communication_channels.setup.connectMailbox": "Mein Postfach verbinden",
   "communication_channels.setup.emptyTitle": "Noch keine gemeinsamen Kanäle",

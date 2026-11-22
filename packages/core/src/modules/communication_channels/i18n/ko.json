@@ -1,4 +1,9 @@
 {
+  "communication_channels.profile.connect.setupRequired": "메일함을 연결하기 전에 OAuth 클라이언트 ID와 시크릿을 추가하세요.",
+  "communication_channels.profile.connect.openProviderSetup": "제공업체 설정 열기",
+  "communication_channels.profile.connect.checkingSetup": "제공업체 설정 확인 중…",
+  "communication_channels.profile.connect.setupUnavailable": "제공업체 설정을 확인할 수 없습니다.",
+  "communication_channels.profile.connect.retrySetup": "다시 시도",
   "communication_channels.setup.configureProviders": "제공업체 설정",
   "communication_channels.setup.connectMailbox": "내 메일함 연결",
   "communication_channels.setup.emptyTitle": "아직 공유 채널이 없습니다",

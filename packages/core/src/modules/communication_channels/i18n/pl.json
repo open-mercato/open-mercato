@@ -1,4 +1,9 @@
 {
+  "communication_channels.profile.connect.setupRequired": "Dodaj identyfikator i sekret klienta OAuth przed połączeniem skrzynki.",
+  "communication_channels.profile.connect.openProviderSetup": "Otwórz konfigurację dostawcy",
+  "communication_channels.profile.connect.checkingSetup": "Sprawdzanie konfiguracji dostawcy…",
+  "communication_channels.profile.connect.setupUnavailable": "Nie udało się sprawdzić konfiguracji dostawcy.",
+  "communication_channels.profile.connect.retrySetup": "Spróbuj ponownie",
   "communication_channels.setup.configureProviders": "Skonfiguruj dostawców",
   "communication_channels.setup.connectMailbox": "Połącz moją skrzynkę",
   "communication_channels.setup.emptyTitle": "Brak kanałów współdzielonych",
