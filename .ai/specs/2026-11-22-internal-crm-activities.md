@@ -29,6 +29,7 @@ Nextcloud Calendar creates events in a selected calendar and treats attendee det
 - The create, update, complete, cancel, delete, and replay handlers accept a persisted null parent. Preserve activity indexing, lifecycle notifications and events, and optimistic version enforcement. Changes to a relationship recalculate and publish next-interaction updates for every distinct involved non-null parent, including on undo and redo. Treat the before and after entity links independently: update without an `entityId` keeps the stored value.
 - A native non-email activity with neither link belongs to the organization and can appear in the Calendar and global Tasks under their existing filters. An entity-scoped read or direct deal-filtered read only returns rows matching the requested CRM link. Existing organization, user, visibility, and pagination filters apply before the result is returned. Unified legacy list adapters handle canonical rows without a parent. Compatibility mode continues returning its existing legacy and bridge records, and does not gain a new source of native records.
 - Keep the linked-email contract across create, update, and replay. Reject an email with a missing primary parent, a request to detach a linked email, and a type change to email on an unlinked row. Existing email grants, deduplication and linked historical reads use their current paths.
+- Update the standalone example app's Visit availability interceptor and transactional booking guard to use the same verified tenant and organization as the canonical create command for parentless visits. Linked creates continue to resolve their scope through the CRM parent. Reject missing or unauthorized scope before availability checks, and keep the preflight and transactional overlap checks in force for both paths.
 - Check direct consumers of the entity and replay/event payloads, including the standalone app's example customer sync mapping. Make null handling explicit before dereferencing and preserve existing linked mappings. Deal and customer profile forms remain contextual and continue populating their CRM relationships.
 
 ## Data model
@@ -95,6 +96,7 @@ Frozen by: `packages/core/src/modules/customers/__integration__/TC-CRM-088-inter
 
 - Extend the canonical schema and command tests for omitted and null create/update, scoped or invalid ids, linked and deal-only activities, email restrictions, old snapshots, complete/cancel/delete and undo/redo, projection refreshes, and interaction lifecycle delivery.
 - Exercise canonical POST, PUT and GET end to end with a self-created person/company and two isolated organization contexts. Test organization and tenant visibility, scope checks for supplied ids, scoped-list exclusion, stale PUT and DELETE, and current-version deletion. Cover Complete and Cancel on unlinked rows and verify scoped Counts, Conflicts, Tasks, and legacy read adapters include or exclude those rows as specified for each mode. Use unique fixtures and tear down by id.
+- Extend the standalone example app's Visit coverage in `TC-EXAMPLE-018`. Create a parentless visit in an available slot, reject an overlapping parentless visit under the existing conflict policy, and reject missing or unauthorized organization scope. Keep the existing linked-visit scenarios and exercise the transactional guard with concurrent parentless bookings.
 - Extend the Calendar browser coverage around `TC-CAL-005`. Create an internal meeting with the Related to picker empty, reopen it, attach and clear a self-created CRM record, and verify the same activity persists. Verify an unlinked task in global Tasks and exclusion from the CRM profile. Preserve the existing linked, deal, and recurrence scenarios.
 
 ## Risks and impact review
@@ -129,3 +131,4 @@ Uses the Customers API, transaction and command lifecycle and existing Calendar/
 ## Changelog
 
 - 2026-11-22 — Initial proposal for issue #5935.
+- 2026-11-22 — Clarified scope resolution and availability coverage for parentless visits in the standalone example app.
