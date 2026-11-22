@@ -25,7 +25,7 @@ Phone data requires keyed hashing and successful verification under the existing
 
 ### Phase 1: Characterization and writes
 
-- [ ] 1.1 Characterize the bounded encrypted lookup
+- [x] 1.1 Characterize the bounded encrypted lookup — 44db0f199f
 - [ ] 1.2 Add scoped digest storage and write maintenance
 
 ### Phase 2: Lookup and rollout
