@@ -293,7 +293,13 @@ export const metadata = {
 
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> | { slug: string } }) {
   try {
+    const resolvedParams = await params
     const container = await createRequestContainer()
+    let linkLookup: Promise<CheckoutLink | null> | undefined
+    const loadLink = () => linkLookup ??= findOneWithDecryption(container.resolve('em'), CheckoutLink, {
+      slug: resolvedParams.slug,
+      deletedAt: null,
+    })
     // Fail-closed: this endpoint creates payment sessions that can charge cards.
     const rateLimitResponse = await enforceCheckoutRateLimit({
       req,
@@ -302,9 +308,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       namespace: 'checkout-submit',
       errorMessage: 'Too many payment attempts. Please try again later.',
       posture: 'fail-closed',
+      resolveResource: async () => {
+        const link = await loadLink()
+        return link && isCheckoutLinkPublic(link.status) ? link : null
+      },
     })
     if (rateLimitResponse) return rateLimitResponse
-    const resolvedParams = await params
 
     const allowedOrigins = buildAllowedOrigins()
     if (allowedOrigins.length > 0) {
@@ -344,10 +353,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const em = container.resolve('em')
     const commandBus = container.resolve('commandBus') as CommandBus
     const paymentGatewayService = container.resolve('paymentGatewayService') as PaymentGatewayService
-    const link = await findOneWithDecryption(em, CheckoutLink, {
-      slug: resolvedParams.slug,
-      deletedAt: null,
-    })
+    const link = await loadLink()
     if (!link) {
       return NextResponse.json({ error: 'Payment link not found' }, { status: 404 })
     }

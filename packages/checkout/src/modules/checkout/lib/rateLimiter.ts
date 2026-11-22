@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
@@ -11,6 +12,20 @@ import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/serv
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 
 const logger = createLogger('checkout')
+
+type CheckoutQuotaResource = {
+  id: string
+  tenantId: string
+  organizationId: string
+}
+
+function buildResourceQuotaKey(namespace: string, resource: CheckoutQuotaResource | null): string {
+  if (!resource) return `${namespace}:${RATE_LIMIT_FALLBACK_KEY}`
+  const digest = createHash('sha256')
+    .update(JSON.stringify([resource.tenantId, resource.organizationId, resource.id]))
+    .digest('hex')
+  return `${namespace}:link:${digest}`
+}
 
 export function buildCheckoutRateLimitKey(
   req: Request,
@@ -69,8 +84,9 @@ export async function enforceCheckoutRateLimit(options: {
   namespace: string
   errorMessage: string
   posture: CheckoutRateLimitPosture
+  resolveResource?: () => Promise<CheckoutQuotaResource | null>
 }): Promise<NextResponse | null> {
-  const { req, container, config, namespace, errorMessage, posture } = options
+  const { req, container, config, namespace, errorMessage, posture, resolveResource } = options
   const rateLimiter = resolveOptionalRateLimiter(container)
   if (!rateLimiter) {
     logger.error('Rate limiter service is not registered — check RATE_LIMIT_* configuration; checkout rate limiting is not enforced', {
@@ -80,8 +96,10 @@ export async function enforceCheckoutRateLimit(options: {
     return null
   }
 
+  const clientIp = getClientIp(req, rateLimiter.trustProxyDepth)
+  const resource = clientIp ? null : await resolveResource?.() ?? null
+  const key = clientIp ? `${namespace}:${clientIp}` : buildResourceQuotaKey(namespace, resource)
   try {
-    const key = buildCheckoutRateLimitKey(req, rateLimiter, namespace)
     return await checkRateLimit(rateLimiter, config, key, errorMessage, {
       failClosed: posture === 'fail-closed',
     })

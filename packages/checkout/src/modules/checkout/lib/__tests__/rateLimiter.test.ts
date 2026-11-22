@@ -2,6 +2,9 @@ import type { RateLimitResult } from '@open-mercato/shared/lib/ratelimit/types'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import {
   buildCheckoutRateLimitKey,
+  checkoutPasswordRateLimitConfig,
+  checkoutPublicViewRateLimitConfig,
+  checkoutStatusRateLimitConfig,
   checkoutSubmitRateLimitConfig,
   enforceCheckoutRateLimit,
 } from '../rateLimiter'
@@ -66,11 +69,11 @@ describe('enforceCheckoutRateLimit', () => {
     consumedPoints: 11,
   }
 
-  function makeContainer(consume: jest.Mock | null) {
+  function makeContainer(consume: jest.Mock | null, trustProxyDepth = 0) {
     return {
       hasRegistration: (name: string) => name !== 'rateLimiterService' || consume !== null,
       resolve: (name: string) => {
-        if (name === 'rateLimiterService' && consume) return { trustProxyDepth: 0, consume }
+        if (name === 'rateLimiterService' && consume) return { trustProxyDepth, consume }
         throw new Error(`Unknown dependency: ${name}`)
       },
     }
@@ -91,6 +94,86 @@ describe('enforceCheckoutRateLimit', () => {
       posture,
     })
   }
+
+  it.each([
+    ['checkout-public-view', checkoutPublicViewRateLimitConfig, 'fail-open'],
+    ['checkout-status', checkoutStatusRateLimitConfig, 'fail-open'],
+    ['checkout-submit', checkoutSubmitRateLimitConfig, 'fail-closed'],
+    ['checkout-password', checkoutPasswordRateLimitConfig, 'fail-closed'],
+  ] as const)('isolates fallback resource decisions for %s', async (namespace, config, posture) => {
+    const consume = jest.fn().mockResolvedValue(allowedResult)
+    const resource = { tenantId: 'tenant-a', organizationId: 'org-a', id: 'link-a' }
+    const check = (slug: string, forwarded: string, resolvedResource: typeof resource | null) => (
+      enforceCheckoutRateLimit({
+        req: new Request(`https://merchant.example/api/checkout/pay/${slug}`, {
+          headers: { 'x-forwarded-for': forwarded },
+        }),
+        container: makeContainer(consume),
+        config,
+        namespace,
+        errorMessage: 'Rate limited',
+        posture,
+        resolveResource: async () => resolvedResource,
+      })
+    )
+
+    await check('link-a-slug', '203.0.113.10', resource)
+    const resourceKey = consume.mock.calls[0][0]
+    expect(resourceKey).toMatch(new RegExp(`^${namespace}:link:[a-f0-9]{64}$`))
+    consume.mockImplementation(async (key) => key === resourceKey ? rejectedResult : allowedResult)
+
+    const rejected = await check('link-a-slug', '203.0.113.11', resource)
+    expect(rejected?.status).toBe(429)
+    expect(rejected?.headers.get('Retry-After')).toBe('30')
+    expect(await rejected?.json()).toEqual({ error: 'Rate limited' })
+    expect(await check('link-b-slug', '203.0.113.10', { ...resource, tenantId: 'tenant-b', id: 'link-b' }))
+      .toBeNull()
+    await check('unresolved-slug-a', '203.0.113.10', null)
+    await check('unresolved-slug-b', '203.0.113.11', null)
+
+    expect(consume.mock.calls.slice(-2).map(([key]) => key)).toEqual([
+      `${namespace}:global`,
+      `${namespace}:global`,
+    ])
+  })
+
+  it.each([
+    [1, '203.0.113.10'],
+    [2, '203.0.113.10, 192.0.2.5'],
+  ])('uses the trusted IP without a resource lookup at proxy depth %i', async (depth, forwarded) => {
+    const consume = jest.fn().mockResolvedValue(allowedResult)
+    const resolveResource = jest.fn()
+    await enforceCheckoutRateLimit({
+      req: new Request('https://merchant.example', { headers: { 'x-forwarded-for': forwarded } }),
+      container: makeContainer(consume, depth),
+      config: checkoutSubmitRateLimitConfig,
+      namespace: 'checkout-submit',
+      errorMessage: 'Rate limited',
+      posture: 'fail-closed',
+      resolveResource,
+    })
+    expect(resolveResource).not.toHaveBeenCalled()
+    expect(consume.mock.calls[0][0]).toBe('checkout-submit:203.0.113.10')
+  })
+
+  it.each([
+    [undefined],
+    ['203.0.113.10'],
+  ])('uses the link bucket when a two-proxy chain is missing or incomplete (%j)', async (forwarded) => {
+    const consume = jest.fn().mockResolvedValue(allowedResult)
+    const resolveResource = jest.fn().mockResolvedValue({ tenantId: 'tenant-a', organizationId: 'org-a', id: 'link-a' })
+    await enforceCheckoutRateLimit({
+      req: new Request('https://merchant.example', { headers: forwarded ? { 'x-forwarded-for': forwarded } : undefined }),
+      container: makeContainer(consume, 2),
+      config: checkoutSubmitRateLimitConfig,
+      namespace: 'checkout-submit',
+      errorMessage: 'Rate limited',
+      posture: 'fail-closed',
+      resolveResource,
+    })
+    expect(resolveResource).toHaveBeenCalledTimes(1)
+    expect(consume.mock.calls[0][0]).toMatch(/^checkout-submit:link:[a-f0-9]{64}$/)
+  })
 
   it('rejects with 503 when the limiter reports a degraded decision and the endpoint fails closed', async () => {
     const consume = jest.fn().mockResolvedValue(degradedResult)
