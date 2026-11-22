@@ -1,4 +1,6 @@
 {
+  "entities.customFieldText.customers:customer_person_profile.marketing_birth_date.description": "Se usa en campañas de cumpleaños. Solo se comparan el mes y el día. Si no se conoce el año, se puede indicar uno aproximado.",
+  "entities.customFieldText.customers:customer_person_profile.marketing_birth_date.label": "Fecha de nacimiento",
   "marketing_automation.action.addStep": "Añadir paso",
   "marketing_automation.action.addToVariant": "Añadir pasos aquí",
   "marketing_automation.action.addTrigger": "Añadir disparador",

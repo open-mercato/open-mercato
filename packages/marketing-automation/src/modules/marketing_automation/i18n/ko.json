@@ -1,4 +1,6 @@
 {
+  "entities.customFieldText.customers:customer_person_profile.marketing_birth_date.description": "생일 캠페인에 사용됩니다. 월과 일만 비교하므로 연도를 모르면 대략적으로 입력할 수 있습니다.",
+  "entities.customFieldText.customers:customer_person_profile.marketing_birth_date.label": "생년월일",
   "marketing_automation.action.addStep": "단계 추가",
   "marketing_automation.action.addToVariant": "여기에 단계 추가",
   "marketing_automation.action.addTrigger": "트리거 추가",

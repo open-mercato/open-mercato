@@ -1,4 +1,6 @@
 {
+  "entities.customFieldText.customers:customer_person_profile.marketing_birth_date.description": "Używana w kampaniach urodzinowych. Liczą się tylko miesiąc i dzień, więc jeśli rok jest nieznany, można podać przybliżony.",
+  "entities.customFieldText.customers:customer_person_profile.marketing_birth_date.label": "Data urodzenia",
   "marketing_automation.action.addStep": "Dodaj krok",
   "marketing_automation.action.addToVariant": "Dodawaj kroki tutaj",
   "marketing_automation.action.addTrigger": "Dodaj wyzwalacz",

@@ -1,4 +1,6 @@
 {
+  "entities.customFieldText.customers:customer_person_profile.marketing_birth_date.description": "Used by birthday campaigns. Only the month and day are matched, so a year nobody knows can be left approximate.",
+  "entities.customFieldText.customers:customer_person_profile.marketing_birth_date.label": "Birth date",
   "marketing_automation.action.addStep": "Add step",
   "marketing_automation.action.addToVariant": "Add steps here",
   "marketing_automation.action.addTrigger": "Add trigger",

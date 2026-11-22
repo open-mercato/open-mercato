@@ -1,4 +1,6 @@
 {
+  "entities.customFieldText.customers:customer_person_profile.marketing_birth_date.description": "Wird für Geburtstagskampagnen verwendet. Nur Monat und Tag werden abgeglichen. Ist das Jahr unbekannt, kann es geschätzt werden.",
+  "entities.customFieldText.customers:customer_person_profile.marketing_birth_date.label": "Geburtsdatum",
   "marketing_automation.action.addStep": "Schritt hinzufügen",
   "marketing_automation.action.addToVariant": "Schritte hier hinzufügen",
   "marketing_automation.action.addTrigger": "Auslöser hinzufügen",
