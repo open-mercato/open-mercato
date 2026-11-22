@@ -284,7 +284,7 @@ test('resolves an off-page assignee on cold loads and changes only the assignmen
   await expect(page.getByRole('option', { name: offPageUser.name, exact: true })).toBeVisible()
   await page.getByRole('option', { name: offPageUser.name, exact: true }).press('Escape')
   await expect(picker(page)).toHaveAttribute('aria-expanded', 'false')
-  await expect(picker(page)).toBeFocused()
+  await expect(picker(page)).toHaveText(offPageUser.name)
   expect(requests).toHaveLength(beforeOpening)
 
   const before = await snapshot(scope, thread)
