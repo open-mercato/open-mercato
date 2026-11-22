@@ -1,4 +1,8 @@
 {
+  "communication_channels.setup.configureProviders": "Skonfiguruj dostawców",
+  "communication_channels.setup.connectMailbox": "Połącz moją skrzynkę",
+  "communication_channels.setup.emptyTitle": "Brak kanałów współdzielonych",
+  "communication_channels.setup.emptyDescription": "Ta strona pokazuje kanały współdzielone w obszarze roboczym.",
   "communication_channels.channel.providers.gmail": "Gmail",
   "communication_channels.channel.providers.imap": "IMAP",
   "communication_channels.channel.providers.slack": "Slack",

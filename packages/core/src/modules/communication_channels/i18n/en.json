@@ -1,4 +1,8 @@
 {
+  "communication_channels.setup.configureProviders": "Configure providers",
+  "communication_channels.setup.connectMailbox": "Connect my mailbox",
+  "communication_channels.setup.emptyTitle": "No shared channels yet",
+  "communication_channels.setup.emptyDescription": "This page lists channels shared across the workspace.",
   "communication_channels.channel.providers.gmail": "Gmail",
   "communication_channels.channel.providers.imap": "IMAP",
   "communication_channels.channel.providers.slack": "Slack",

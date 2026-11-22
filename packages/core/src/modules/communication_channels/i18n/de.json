@@ -1,4 +1,8 @@
 {
+  "communication_channels.setup.configureProviders": "Anbieter konfigurieren",
+  "communication_channels.setup.connectMailbox": "Mein Postfach verbinden",
+  "communication_channels.setup.emptyTitle": "Noch keine gemeinsamen Kanäle",
+  "communication_channels.setup.emptyDescription": "Diese Seite zeigt die gemeinsam genutzten Kanäle des Arbeitsbereichs.",
   "communication_channels.channel.providers.gmail": "Gmail",
   "communication_channels.channel.providers.imap": "IMAP",
   "communication_channels.channel.providers.slack": "Slack",
