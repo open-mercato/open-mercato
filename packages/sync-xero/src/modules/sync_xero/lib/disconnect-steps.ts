@@ -3,6 +3,7 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
+import { emitIntegrationsEvent } from '@open-mercato/core/modules/integrations/events'
 import { XERO_INTEGRATION_ID } from './constants'
 import { readGuardedPayload } from './guarded-payload'
 import type { XeroScope } from './owner'
@@ -23,10 +24,20 @@ const MANAGE_FEATURE = 'integrations.manage'
 const followUpGuardPayloadSchema = z.object({ isEnabled: z.boolean().optional(), removeClientCredentials: z.boolean() })
 
 type HealthRunner = { runHealthCheck(integrationId: string, scope: XeroScope): Promise<unknown> }
-type StateWriter = { upsert(integrationId: string, input: { isEnabled: boolean }, scope: XeroScope): Promise<unknown> }
+type StateWriter = {
+  upsert(integrationId: string, input: { isEnabled: boolean }, scope: XeroScope): Promise<{ isEnabled: boolean; reauthRequired: boolean }>
+}
 
 function reportStepFailure(error: unknown, step: keyof DisconnectSteps): void {
   getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code: `sync_xero.disconnect_${step}_failed` })
+}
+
+async function emitStepEvent(step: keyof DisconnectSteps, emit: () => Promise<void>): Promise<void> {
+  try {
+    await emit()
+  } catch (error) {
+    getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code: `sync_xero.disconnect_${step}_event_failed` })
+  }
 }
 
 async function runStep(step: keyof DisconnectSteps, action: () => Promise<void>): Promise<DisconnectStepOutcome> {
@@ -45,7 +56,7 @@ async function runStep(step: keyof DisconnectSteps, action: () => Promise<void>)
  * Client ID and Secret on request while keeping every other credential value. A guard's
  * transformation may skip a step; one that adds a step the admin did not ask for or may not run,
  * or no longer validates, fails both steps like a block. A failed step never undoes the erase; it
- * is reported.
+ * is reported. A step that ran emits the same `integrations.*` event as the core route doing that write.
  */
 export async function runDisconnectSteps(input: {
   container: AppContainer
@@ -105,7 +116,15 @@ export async function runDisconnectSteps(input: {
 
   const disable: DisconnectStepOutcome = mayDisable && guarded.isEnabled === false
     ? await runStep('disable', async () => {
-        await container.resolve<StateWriter>('integrationStateService').upsert(XERO_INTEGRATION_ID, { isEnabled: false }, scope)
+        const state = await container.resolve<StateWriter>('integrationStateService').upsert(XERO_INTEGRATION_ID, { isEnabled: false }, scope)
+        await emitStepEvent('disable', () => emitIntegrationsEvent('integrations.state.updated', {
+          integrationId: XERO_INTEGRATION_ID,
+          isEnabled: state.isEnabled,
+          reauthRequired: state.reauthRequired,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          userId,
+        }))
       })
     : withoutDisable
   const removeClientCredentials: DisconnectStepOutcome = guarded.removeClientCredentials
@@ -113,6 +132,12 @@ export async function runDisconnectSteps(input: {
         const credentialsService = container.resolve<CredentialsService>('integrationCredentialsService')
         const current = (await credentialsService.getRaw(XERO_INTEGRATION_ID, scope)) ?? {}
         await credentialsService.save(XERO_INTEGRATION_ID, { ...current, clientId: '', clientSecret: '' }, scope)
+        await emitStepEvent('removeClientCredentials', () => emitIntegrationsEvent('integrations.credentials.updated', {
+          integrationId: XERO_INTEGRATION_ID,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          userId,
+        }))
       })
     : 'skipped'
   if (disable === 'ok' || removeClientCredentials === 'ok') await guard.runAfterSuccess()

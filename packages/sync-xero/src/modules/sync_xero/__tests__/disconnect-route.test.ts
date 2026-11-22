@@ -8,6 +8,7 @@ import { createFakeContainer } from './support/fakeContainer'
 const mockCreateRequestContainer = jest.fn()
 const mockResolveOrganizationScope = jest.fn()
 const mockReportError = jest.fn()
+const mockEmitIntegrationsEvent = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
@@ -19,6 +20,10 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
+}))
+
+jest.mock('@open-mercato/core/modules/integrations/events', () => ({
+  emitIntegrationsEvent: (...args: unknown[]) => mockEmitIntegrationsEvent(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -118,7 +123,8 @@ beforeEach(() => {
   rbacFailure = null
   credentials = { clientId: 'client-1', clientSecret: 'secret-1', weeklyFullResync: true }
   runHealthCheck.mockResolvedValue({ status: 'unhealthy' })
-  upsertState.mockResolvedValue({ isEnabled: false })
+  upsertState.mockResolvedValue({ isEnabled: false, reauthRequired: false })
+  mockEmitIntegrationsEvent.mockResolvedValue(undefined)
   saveCredentials.mockResolvedValue(undefined)
   currentAuth = { sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID }
   mockCreateRequestContainer.mockImplementation(async () => buildContainer())
@@ -163,6 +169,10 @@ describe('POST /api/sync_xero/disconnect', () => {
     expect(runHealthCheck).toHaveBeenCalledWith('sync_xero', SCOPE)
     expect(upsertState).toHaveBeenCalledWith('sync_xero', { isEnabled: false }, SCOPE)
     expect(saveCredentials).not.toHaveBeenCalled()
+    expect(mockEmitIntegrationsEvent.mock.calls).toEqual([[
+      'integrations.state.updated',
+      { integrationId: 'sync_xero', isEnabled: false, reauthRequired: false, tenantId: TENANT_ID, organizationId: ORG_ID, userId: USER_ID },
+    ]])
   })
 
   it('answers the core 409 for a stale revision and changes nothing', async () => {
@@ -220,12 +230,27 @@ describe('POST /api/sync_xero/disconnect', () => {
     const body = await json(await disconnect(request({ removeClientCredentials: true }, currentRevision())))
     expect(body).toMatchObject({ erased: true, steps: { healthCheck: 'failed', disable: 'failed', removeClientCredentials: 'failed' } })
     expect(grants.state.status).toBe('none')
+    expect(mockEmitIntegrationsEvent).not.toHaveBeenCalled()
+  })
+
+  it('keeps a written step ok and reports it when its integrations event cannot be emitted', async () => {
+    mockEmitIntegrationsEvent.mockRejectedValue(new Error('[internal] bus down'))
+    const body = await json(await disconnect(request({ removeClientCredentials: true }, currentRevision())))
+    expect(body.steps).toEqual({ healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'ok' })
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), { module: 'sync_xero', code: 'sync_xero.disconnect_disable_event_failed' })
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), { module: 'sync_xero', code: 'sync_xero.disconnect_removeClientCredentials_event_failed' })
   })
 
   it('removes only the Client ID and Secret, keeping the other credential values', async () => {
     const body = await json(await disconnect(request({ removeClientCredentials: true }, currentRevision())))
     expect(body.steps).toEqual({ healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'ok' })
     expect(saveCredentials).toHaveBeenCalledWith('sync_xero', { clientId: '', clientSecret: '', weeklyFullResync: true }, SCOPE)
+    expect(mockEmitIntegrationsEvent).toHaveBeenCalledWith('integrations.credentials.updated', {
+      integrationId: 'sync_xero',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      userId: USER_ID,
+    })
   })
 
   it('reports the disable step as failed, not skipped, when the permission check itself fails', async () => {

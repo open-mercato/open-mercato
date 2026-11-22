@@ -52,7 +52,7 @@ export const XERO_RUN_MESSAGES: Record<XeroQuietEndCode | XeroRunFailureCode, st
   'xero.client_misconfigured': 'Xero rejected the client; check the Client ID and Secret on the Credentials tab.',
   'xero.scope_insufficient': 'The Xero connection lacks a required permission; reconnect on the Xero tab and allow it.',
   'xero.organisation_not_authorised': 'The Xero Organisation is no longer part of the connection; reconnect and select it.',
-  'xero.claim_lock_unavailable': 'Another Xero import held the Company lock too long; the next run resumes from the last saved position.',
+  'xero.claim_lock_unavailable': 'The Company claim lock could not be obtained or confirmed; the next run resumes from the last saved position.',
   'xero.test_fakes_unavailable': 'The Xero test fakes of this organization are not running.',
 }
 
