@@ -510,7 +510,7 @@
   <div class="notes">
     <div class="note"><b>1</b><span>Available days carry a dot as well as a tint, so availability does not depend on colour alone. Today has an outline ring and <code>aria-current="date"</code>. Days from the previous month fill the first row. Weekends, fully booked days and days past the 60-day horizon are disabled; month navigation stops at the horizon.</span></div>
     <div class="note"><b>2</b><span>Times show in the visitor's browser timezone. The 12h / 24h switch defaults to the visitor's locale (24h for en-GB / pl, 12h for en-US) and is remembered in the browser. Busy reasons are never exposed.</span></div>
-    <div class="note"><b>3</b><span>Page language: the page renders in the visitor's browser language (<code>Accept-Language</code>) when the app has that locale, otherwise in the tenant's default. The footer switch changes it; the chosen language is also the one used for the booker's e-mails.</span></div>
+    <div class="note"><b>3</b><span>Page language: the page renders in the visitor's browser language (<code>Accept-Language</code>) when the app has that locale, otherwise in the default locale. The footer switch changes it; the chosen language is also the one used for the booker's e-mails.</span></div>
     <div class="note"><b>4</b><span>The location line appears only when Anna entered one. Without it, nothing is shown: the system never promises a video link. Below 1024px the slot list stacks under the calendar.</span></div>
   </div>
 </section>
@@ -680,7 +680,7 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>The .ics download is the same file attached to the e-mail (METHOD:REQUEST, UTC times, stable UID).</span></div>
-    <div class="note"><b>2</b><span>Reminder: one e-mail to the booker 24 hours before the start. A meeting confirmed less than 24 hours before its start gets none (its confirmation is recent), and the reminder line on this card is then hidden. It carries the manage link and is skipped if the meeting was cancelled or moved. The owner gets no reminder from this feature; the CRM calendar already handles that.</span></div>
+    <div class="note"><b>2</b><span>Reminder: one e-mail to the booker 24 hours before the start. A meeting confirmed less than 24 hours before its start gets none (its confirmation is recent), and the reminder line on this card is then hidden. It carries the manage link; it is not sent for a cancelled meeting, and a moved meeting is reminded for its new time. The owner gets no reminder from this feature; the CRM calendar already handles that.</span></div>
   </div>
 </section>
 
@@ -760,7 +760,7 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>The empty state replaces the slot column; every day is disabled and month navigation still works up to the horizon. Days are disabled, not hidden, so the visitor can see it is a full calendar and not a broken page.</span></div>
-    <div class="note"><b>2</b><span>The unavailable page is the same 404 for an unknown slug, a disabled page, an inactive owner and an ambiguous link, so nothing about the owner leaks. No backend chrome, no search, no owner name.</span></div>
+    <div class="note"><b>2</b><span>The unavailable page is the same 404 for an unknown slug, a disabled page, an inactive owner and a link whose org slug belongs to another organization, so nothing about the owner leaks. No backend chrome, no search, no owner name.</span></div>
   </div>
 </section>
 
