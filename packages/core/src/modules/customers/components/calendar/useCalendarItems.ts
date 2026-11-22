@@ -17,28 +17,29 @@ export const MAX_WINDOW_ITEMS = 500
 
 type FetchInteractionWindowOptions = {
   recurrenceMasters?: boolean
+  maxItems?: number
 }
 
 /**
  * Cursor-follows `/api/customers/interactions` across the given window (already
- * padded by the caller) up to `MAX_WINDOW_ITEMS`. Shared by the grid data hook
- * and the editor's conflict probe so both see the exact same candidate set.
+ * padded by the caller) up to the candidate budget. The grid and the editor
+ * conflict probe share this fetch path.
  */
 export async function fetchInteractionWindow(
   window: CalendarRange,
   signal?: AbortSignal,
   options: FetchInteractionWindowOptions = {},
 ): Promise<{ payloads: CalendarInteractionPayload[]; truncated: boolean }> {
+  const { maxItems = MAX_WINDOW_ITEMS, recurrenceMasters } = options
   const collected: CalendarInteractionPayload[] = []
   let cursor: string | undefined
-  let truncated = false
   do {
     const params = new URLSearchParams({
       from: window.from.toISOString(),
       to: window.to.toISOString(),
       limit: String(PAGE_LIMIT),
     })
-    if (options.recurrenceMasters) params.set('recurrenceMasters', 'true')
+    if (recurrenceMasters) params.set('recurrenceMasters', 'true')
     if (cursor) params.set('cursor', cursor)
     const call = await apiCall<{ items?: unknown[]; nextCursor?: string }>(
       `/api/customers/interactions?${params.toString()}`,
@@ -51,17 +52,17 @@ export async function fetchInteractionWindow(
       if (parsed.success) collected.push(parsed.data)
     }
     cursor = typeof call.result?.nextCursor === 'string' ? call.result.nextCursor : undefined
-    if (cursor && collected.length >= MAX_WINDOW_ITEMS) {
-      truncated = true
-      cursor = undefined
-    }
-  } while (cursor)
-  return { payloads: collected.slice(0, MAX_WINDOW_ITEMS), truncated }
+  } while (cursor && collected.length < maxItems)
+  return {
+    payloads: collected.slice(0, maxItems),
+    truncated: Boolean(cursor) || collected.length > maxItems,
+  }
 }
 
 export function mergeInteractionPayloads(
   windowPayloads: CalendarInteractionPayload[],
   recurringPayloads: CalendarInteractionPayload[],
+  maxItems = MAX_WINDOW_ITEMS,
 ): { payloads: CalendarInteractionPayload[]; truncated: boolean } {
   const windowById = new Map(windowPayloads.map((payload) => [payload.id, payload]))
   const byId = new Map<string, CalendarInteractionPayload>()
@@ -73,20 +74,21 @@ export function mergeInteractionPayloads(
   }
   const payloads = Array.from(byId.values())
   return {
-    payloads: payloads.slice(0, MAX_WINDOW_ITEMS),
-    truncated: payloads.length > MAX_WINDOW_ITEMS,
+    payloads: payloads.slice(0, maxItems),
+    truncated: payloads.length > maxItems,
   }
 }
 
 export async function fetchCalendarCandidates(
   window: CalendarRange,
   signal?: AbortSignal,
+  maxItems = MAX_WINDOW_ITEMS,
 ): Promise<{ payloads: CalendarInteractionPayload[]; truncated: boolean }> {
   const [windowResult, recurringResult] = await Promise.all([
-    fetchInteractionWindow(window, signal),
-    fetchInteractionWindow(window, signal, { recurrenceMasters: true }),
+    fetchInteractionWindow(window, signal, { maxItems }),
+    fetchInteractionWindow(window, signal, { maxItems, recurrenceMasters: true }),
   ])
-  const merged = mergeInteractionPayloads(windowResult.payloads, recurringResult.payloads)
+  const merged = mergeInteractionPayloads(windowResult.payloads, recurringResult.payloads, maxItems)
   return {
     payloads: merged.payloads,
     truncated: windowResult.truncated || recurringResult.truncated || merged.truncated,
@@ -100,6 +102,10 @@ type ActivityTypeDictionaryEntry = {
   icon?: unknown
 }
 
+export type UseCalendarItemsOptions = {
+  maxItems?: number
+}
+
 export type UseCalendarItemsResult = {
   items: CalendarItem[]
   isLoading: boolean
@@ -111,7 +117,10 @@ export type UseCalendarItemsResult = {
   refetch: () => void
 }
 
-export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
+export function useCalendarItems(
+  range: CalendarRange,
+  { maxItems = MAX_WINDOW_ITEMS }: UseCalendarItemsOptions = {},
+): UseCalendarItemsResult {
   const [payloads, setPayloads] = React.useState<CalendarInteractionPayload[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -123,6 +132,7 @@ export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
 
   const fromTime = range.from.getTime()
   const toTime = range.to.getTime()
+  const itemLimit = Number.isSafeInteger(maxItems) && maxItems > 0 ? maxItems : MAX_WINDOW_ITEMS
 
   React.useEffect(() => {
     const controller = new AbortController()
@@ -167,7 +177,7 @@ export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
       setError(null)
       try {
         const fetchWindow = getFetchWindow({ from: new Date(fromTime), to: new Date(toTime) })
-        const result = await fetchCalendarCandidates(fetchWindow, controller.signal)
+        const result = await fetchCalendarCandidates(fetchWindow, controller.signal, itemLimit)
         if (cancelled) return
         setPayloads(result.payloads)
         setTruncated(result.truncated)
@@ -185,7 +195,7 @@ export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
       cancelled = true
       controller.abort()
     }
-  }, [fromTime, toTime, reloadToken])
+  }, [fromTime, toTime, itemLimit, reloadToken])
 
   const items = React.useMemo(() => {
     const expansionWindow = getFetchWindow({ from: new Date(fromTime), to: new Date(toTime) })
