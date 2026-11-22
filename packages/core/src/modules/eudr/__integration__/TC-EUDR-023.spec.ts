@@ -72,6 +72,8 @@ test.describe('TC-EUDR-023: Evidence submission single-date harvest range update
         data: { id: submissionId, harvestFrom: '2024-09-01T00:00:00.000Z' },
       })
       expect(invertedFromResponse.status(), 'harvestFrom-only update after stored harvestTo should return 400').toBe(400)
+      const invertedFromBody = await readJsonSafe<{ error?: string }>(invertedFromResponse)
+      expect(invertedFromBody?.error).toBe(invertedToBody?.error)
 
       const unchanged = await readSubmissionById(request, token, submissionId)
       expect(unchanged?.harvestFrom?.slice(0, 10)).toBe('2024-01-01')

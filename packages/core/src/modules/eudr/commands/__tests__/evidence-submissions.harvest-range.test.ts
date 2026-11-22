@@ -33,6 +33,7 @@ const RECORD_ID = '11111111-1111-4111-8111-111111111111'
 const TENANT_ID = '22222222-2222-4222-8222-222222222222'
 const ORGANIZATION_ID = '33333333-3333-4333-8333-333333333333'
 const SUPPLIER_ID = '44444444-4444-4444-8444-444444444444'
+const USER_ID = '55555555-5555-4555-8555-555555555555'
 
 function harness(harvestFrom: string | null, harvestTo: string | null) {
   const record = {
@@ -72,7 +73,7 @@ function harness(harvestFrom: string | null, harvestTo: string | null) {
       if (name === 'em') return em
       throw new Error(`[internal] Unexpected dependency ${name}`)
     } },
-    auth: { sub: RECORD_ID, tenantId: TENANT_ID, orgId: ORGANIZATION_ID },
+    auth: { sub: USER_ID, tenantId: TENANT_ID, orgId: ORGANIZATION_ID },
     selectedOrganizationId: ORGANIZATION_ID,
     organizationIds: [ORGANIZATION_ID],
   } as unknown as CommandRuntimeContext
