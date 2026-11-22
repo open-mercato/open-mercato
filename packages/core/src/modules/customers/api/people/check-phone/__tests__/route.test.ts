@@ -1,5 +1,8 @@
 /** @jest-environment node */
 
+import { encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
+import { hashPersonPhoneDigits } from '../../../../lib/personPhoneLookup'
+
 const mockFindWithDecryption = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockResolveOrganizationScopeForRequest = jest.fn()
@@ -15,6 +18,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/toggles', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/encryption/toggles'),
   isTenantDataEncryptionEnabled: (...args: unknown[]) =>
     mockIsTenantDataEncryptionEnabled(...args),
 }))
@@ -49,6 +53,13 @@ describe('customers people check-phone route', () => {
   })
 
   beforeEach(() => {
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      LOOKUP_HASH_PEPPER: undefined,
+      LOOKUP_HASH_OLD_PEPPER: undefined,
+      TENANT_DATA_ENCRYPTION_KEY: undefined,
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: undefined,
+    })
     mockFindWithDecryption.mockReset()
     mockGetAuthFromRequest.mockReset()
     mockResolveOrganizationScopeForRequest.mockReset()
@@ -73,6 +84,8 @@ describe('customers people check-phone route', () => {
       filterIds: ['org-1'],
     })
   })
+
+  afterEach(() => jest.restoreAllMocks())
 
   function useFastPathMatch(fastMatch: Record<string, unknown>) {
     mockIsTenantDataEncryptionEnabled.mockReturnValue(false)
@@ -147,20 +160,91 @@ describe('customers people check-phone route', () => {
     )
   })
 
-  it('misses an encrypted contact beyond the newest 500 candidates', async () => {
+  it('matches an indexed encrypted contact beyond the newest 500 candidates', async () => {
+    process.env.LOOKUP_HASH_PEPPER = 'active-test-secret'
+    const hash = hashPersonPhoneDigits('14155550148', 'org-1')
     const newer = Array.from({ length: 500 }, () => ({ primaryPhone: '+1 212 555 0100' }))
     const older = { id: 'older-person', displayName: 'Older Person', primaryPhone: '+1 415 555 0148' }
     mockFindWithDecryption.mockImplementation(
-      async (_em, _entity, _where, options) => [...newer, older].slice(0, options.limit),
+      async (_em, _entity, where, options) => where.primaryPhoneDigitsHash?.$in?.includes(hash)
+        ? [older]
+        : [...newer, older].slice(0, options.limit),
     )
 
     const response = await GET(requestFor('14155550148'))
 
-    expect(await response.json()).toEqual({ match: null })
+    expect(await response.json()).toEqual({ match: { id: 'older-person', displayName: 'Older Person' } })
+    expect(mockFindWithDecryption).toHaveBeenCalledTimes(1)
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        kind: 'person',
+        deletedAt: null,
+        tenantId: 'tenant-1',
+        organizationId: { $in: ['org-1'] },
+        primaryPhoneDigitsHash: { $in: [hash] },
+      }),
+      expect.not.objectContaining({ limit: expect.any(Number) }),
+      expect.anything(),
+    )
+  })
+
+  it('rejects a stale hit and checks only unindexed rows with an active lookup secret', async () => {
+    process.env.LOOKUP_HASH_PEPPER = 'active-test-secret'
+    mockFindWithDecryption
+      .mockResolvedValueOnce([{ id: 'stale', primaryPhone: '5555' }])
+      .mockResolvedValueOnce([{ id: 'legacy', primaryPhone: '14155550148', displayName: 'Legacy Person' }])
+
+    expect(await (await GET(requestFor('14155550148'))).json()).toEqual({
+      match: { id: 'legacy', displayName: 'Legacy Person' },
+    })
+    expect(mockFindWithDecryption).toHaveBeenNthCalledWith(
+      2, expect.anything(), expect.anything(), expect.objectContaining({ primaryPhoneDigitsHash: null }),
+      expect.objectContaining({ limit: 500 }), expect.anything(),
+    )
+  })
+
+  it('includes the previous pepper for each permitted organization', async () => {
+    process.env.LOOKUP_HASH_PEPPER = 'previous-test-secret'
+    const oldOrgOne = hashPersonPhoneDigits('14155550148', 'org-1')
+    const oldOrgTwo = hashPersonPhoneDigits('14155550148', 'org-2')
+    process.env.LOOKUP_HASH_OLD_PEPPER = process.env.LOOKUP_HASH_PEPPER
+    process.env.LOOKUP_HASH_PEPPER = 'active-test-secret'
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({ selectedId: 'org-1', filterIds: ['org-2'] })
+    mockFindWithDecryption.mockResolvedValueOnce([{ id: 'person', primaryPhone: '14155550148', displayName: 'Person' }])
+
+    expect(await (await GET(requestFor('14155550148'))).json()).toEqual({
+      match: { id: 'person', displayName: 'Person' },
+    })
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        organizationId: { $in: ['org-1', 'org-2'] },
+        primaryPhoneDigitsHash: { $in: expect.arrayContaining([oldOrgOne, oldOrgTwo]) },
+      }),
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  it('does not return an unreadable display name for a verified phone', async () => {
+    const displayName = encryptWithAesGcm('Private Name', generateDek()).raw
+    const primaryPhone = encryptWithAesGcm('14155550148', generateDek()).raw
+    mockFindWithDecryption.mockResolvedValueOnce([
+      { id: 'unreadable', primaryPhone, displayName },
+      { id: 'person', primaryPhone: '14155550148', displayName },
+    ])
+
+    expect(await (await GET(requestFor('14155550148'))).json()).toEqual({
+      match: { id: 'person', displayName: null },
+    })
+    expect(mockFindWithDecryption.mock.calls[0][2]).not.toHaveProperty('primaryPhoneDigitsHash')
   })
 
   it('runs the SQL fast path only when tenant data encryption is disabled', async () => {
-    const em = useFastPathMatch({ id: 'person-9', displayName: 'Grace Hopper' })
+    const em = useFastPathMatch({ id: 'person-9', displayName: 'Grace Hopper', primaryPhone: '14155550148' })
 
     const response = await GET(requestFor('14155550148'))
 

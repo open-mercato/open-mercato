@@ -1,6 +1,6 @@
 import {
   hashForLookup,
-  isEncryptedPayloadShape,
+  looksLikeEncryptedPayload,
   lookupHashCandidates,
 } from '@open-mercato/shared/lib/encryption/aes'
 
@@ -11,7 +11,7 @@ function phoneLookupContext(organizationId: string): string {
 }
 
 export function normalizePhoneLookupDigits(phone: string | null | undefined): string {
-  return phone && !isEncryptedPayloadShape(phone) ? phone.replace(/\D/g, '') : ''
+  return phone && !looksLikeEncryptedPayload(phone) ? phone.replace(/\D/g, '') : ''
 }
 
 export function hashPersonPhoneDigits(phone: string | null | undefined, organizationId: string): string | null {
