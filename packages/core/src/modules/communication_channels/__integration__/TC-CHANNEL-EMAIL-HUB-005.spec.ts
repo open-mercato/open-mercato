@@ -110,9 +110,9 @@ async function composeEmail(
 }
 
 async function drainEmailQueues(): Promise<void> {
-  await drainIntegrationQueue('events')
-  await drainIntegrationQueue('communication-channels-outbound')
-  await drainIntegrationQueue('events')
+  await test.step('Drain events before outbound email', () => drainIntegrationQueue('events'))
+  await test.step('Drain outbound email', () => drainIntegrationQueue('communication-channels-outbound'))
+  await test.step('Drain outbound email events', () => drainIntegrationQueue('events'))
 }
 
 async function readExternalMessage(messageId: string, scope: { tenantId: string; organizationId: string }) {
