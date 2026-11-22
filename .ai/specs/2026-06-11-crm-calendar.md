@@ -101,8 +101,8 @@ Data flow is read-mostly; the only writes go through the existing interactions A
 ### List interactions for a range
 - `GET /api/customers/interactions?from=<iso>&to=<iso>&limit=100[&cursor=…][&interactionType=…][&status=…]`
 - `from` is sent padded by −1 day to catch items spanning midnight into the range.
-- Client follows `nextCursor` (response shape `{ items, nextCursor }`) until exhausted or a hard cap of **500 items** per window (then a non-blocking notice "Showing first 500 items for this range" — see Risks).
-- In parallel, the calendar sends the same window with `recurrenceMasters=true`. This opt-in mode returns rows where `recurrence_rule IS NOT NULL`, `coalesce(occurred_at, scheduled_at, created_at) <= to`, and `recurrence_end IS NULL OR recurrence_end >= from`. The shared client helper merges both pages by interaction id before recurrence expansion, keeps the regular window copy when a master appears in both responses, and orders recurring candidates first so a saturated regular window cannot discard every master from the combined 500-item budget.
+- Client follows `nextCursor` (response shape `{ items, nextCursor }`) until exhausted or it reaches the host’s candidate budget. The built-in calendar uses **500 items** and displays a non-blocking notice when the result is truncated.
+- In parallel, the calendar sends the same window with `recurrenceMasters=true`. This opt-in mode returns rows where `recurrence_rule IS NOT NULL`, `coalesce(occurred_at, scheduled_at, created_at) <= to`, and `recurrence_end IS NULL OR recurrence_end >= from`. The shared client helper merges both pages by interaction id before recurrence expansion, keeps the regular window copy when a master appears in both responses, and orders recurring candidates first so a saturated regular window cannot discard every master from the combined candidate budget.
 - **Toolbar search is client-side** over the loaded window: interaction `title`/`body` are encrypted at rest (tenant encryption defaults ON), so the route's server-side `?search=` ILIKE cannot match them (documented in the route); list payloads arrive decrypted, making client filtering both correct and cheap.
 - Relevant response fields consumed: listed in Data Models (already returned today, incl. `updatedAt` for locking).
 ### Create / edit
@@ -315,10 +315,10 @@ Self-contained Playwright specs in `packages/core/src/modules/customers/__integr
 
 ### Risk Register
 #### Large ranges exceed the fetch cap
-- **Scenario**: A month window holds > 500 interactions; cursor-following stops at the cap and some items are not rendered.
+- **Scenario**: A month window holds more interactions than the host’s budget. Cursor following stops at the budget and some items are not rendered.
 - **Severity**: Medium
 - **Affected area**: Month view completeness for very active tenants.
-- **Mitigation**: Hard cap with an explicit on-page notice ("Showing first 500…"), counts labelled accordingly; recurring candidates are placed before regular-only payloads in the combined cap while duplicate ids still keep the regular-window representation, so a saturated regular page cannot erase the overlay entirely. Week/day windows are normally far below the cap.
+- **Mitigation**: The built-in calendar uses 500 with an explicit on-page notice when truncated. Custom hosts can pass `useCalendarItems(range, { maxItems: 2000 })` and use `truncated` for their own notice. Counts are labelled accordingly, and recurring candidates are placed before regular-only payloads in the combined cap while duplicate ids still keep the regular-window representation, so a saturated regular page cannot erase the overlay entirely. Week/day windows are normally far below the cap.
 - **Residual risk**: Month pill counts may undercount for extreme tenants — acceptable for v1; server aggregation endpoint listed as future work.
 #### Recurrence expansion mismatch
 - **Scenario**: Client RRULE expansion disagrees with future server-side expectations (e.g. complex BYDAY rules unsupported).
@@ -328,8 +328,8 @@ Self-contained Playwright specs in `packages/core/src/modules/customers/__integr
 #### Recurring-master overlay query
 - **Scenario**: A recurring master predates the visible range, so a plain `from`/`to` read cannot provide the row needed for client-side expansion.
 - **Severity**: Medium
-- **Mitigation**: `fetchCalendarCandidates` performs two parallel, opt-in cursor-followed reads for both the grid and editor conflict probe, using the same effective-date anchor, deduplicating by id, and applying the combined 500-item cap and truncation notice. The two-call shape is deliberately retained instead of adding an `OR` mode to the established list contract: it keeps default consumers byte-for-byte unchanged and makes each branch independently testable.
-- **Accepted scale/cost**: The recurrence overlay is a partial scan under existing tenant/organization/deleted scoping because no recurrence-specific index is added in this no-schema-change PR. The operational assumption is fewer than 500 recurrence-bearing masters per organization; each branch remains capped at five 100-row pages and the client expands only inside the padded visible window. A logical lookback bound cannot be added without hiding valid never-ending series whose master is old.
+- **Mitigation**: `fetchCalendarCandidates` performs two parallel, opt-in cursor-followed reads for both the grid and editor conflict probe, using the same effective-date anchor, deduplicating by id, and applying the same budget to the combined result, and reporting truncation. The two-call shape is deliberately retained instead of adding an `OR` mode to the established list contract: it keeps default consumers byte-for-byte unchanged and makes each branch independently testable.
+- **Accepted scale/cost**: The recurrence overlay is a partial scan under existing tenant/organization/deleted scoping because no recurrence-specific index is added in this no-schema-change PR. The operational assumption is fewer than 500 recurrence-bearing masters per organization; each branch follows up to five 100-row pages at the default budget when all payloads are valid. The client expands only inside the padded visible window. A logical lookback bound cannot be added without hiding valid never-ending series whose master is old.
 - **Residual risk**: Rules bounded only by `COUNT` or an RRULE `UNTIL` may be fetched after their final occurrence because SQL intentionally avoids parsing RRULE text. If recurrence-bearing rows approach the 500-row assumption or route latency regresses, add a partial expression index on tenant, organization, and the effective-date coalesce in a schema-focused follow-up; until then the extra read and possible stale master expansion are accepted and observable through the truncation notice.
 #### Mockup-data ambiguities mis-resolved
 - **Scenario**: An adaptation (7-day week, CTA naming, presets) contradicts the designer's intent.
@@ -393,6 +393,10 @@ None.
 - [x] Phase 7 — 2026-06-13 Figma revision: Customization modal (`1788:3701`) + week-view states (`1786:2934`) — peek popover, inline conflict badge, drag-to-create, enriched empty state, four wired preference toggles; new unit tests (preferences, grid) green; TC-CAL-007/008 added; preview-verified (settings modal, 5-day-week default, peek + selected ring, conflict badges)
 
 ## Changelog
+
+### 2026-11-22 — Issue #8644: configurable calendar window limit
+
+- Calendar hosts can set a positive safe integer `maxItems`. The built-in calendar keeps its 500-item budget and notice. Both cursor streams and the deduplicated result use the effective budget.
 ### 2026-11-16 — Issue #9620: full event title on hover
 - Time-grid event blocks (day and week views) carry a native `title` with the full event title and time range, the same text as their accessible name. Hovering a block whose title is cut by a narrow overlap column now shows it without opening the event. Callers can override it through the block's `title` prop.
 
