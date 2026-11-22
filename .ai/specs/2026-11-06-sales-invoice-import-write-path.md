@@ -43,7 +43,7 @@
   - Q2 is guidance, not a check. The API keeps `orderId` optional, because requiring it would narrow the request schema. The Xero App Spec recognizes an imported invoice by a `SyncExternalIdMapping` row with `internalEntityType='sales.invoice'`, written after the invoice commits.
   - An invoice without an order takes no Open Mercato payments, because `sales.payments.create` requires an order (`commands/payments.ts:467`). An imported invoice is therefore a mirror whose paid and outstanding amounts come from the source. Changing that is for #7202 and the Xero App Spec.
   - Credit memos are not covered. Importing credit notes needs its own decision.
-  - One exception to amounts as sent remains: `deriveLineNetFromGross` rewrites a line with a net of 0 and a positive gross (see [Risks](#risk-register)).
+  - One exception to amounts as sent remains: `deriveExactLineNetFromGross` rewrites a line with a net of 0 and a positive gross (see [Risks](#risk-register)).
 
   Phase 2 records both answers as one line under **Always** in `sales/AGENTS.md` that points to this spec; if Q2 is declined, the line keeps only its first half. The agent instruction budget (`yarn agents:check-budget`) lets that chain only shrink, so this section and [Negative amounts](#negative-amounts-phase-2) carry the full rule.
 - **Rejected: synthetic orders.** One order per imported invoice, with external totals (`totals_mode='external'`), would fit the amounts, but each would be an order nobody placed: it takes a number from the order sequence and shows in order lists and the new-orders dashboard widget. One order per source organization does not work either, because the customer lives on the order and one ledger bills many customers.
@@ -53,7 +53,7 @@ Phase 1 does not depend on the answers. Phases 2 and 3 need Q1 confirmed before 
 
 ## Overview
 
-`SalesInvoice` is the record an accounting integration writes when it mirrors invoices issued elsewhere. The amounts are the source system's, so Open Mercato stores them as sent and does not recompute them. The one exception is a line with a net of 0 and a positive gross, which `deriveLineNetFromGross` rewrites (see [Risks](#risk-register)). The first consumer is `@open-mercato/sync-xero`, whose Phase 2 imports Xero sales invoices (`ACCREC`). The Xero App Spec makes this work a hard prerequisite of that phase and uses no workaround. Its Phase 1, Contacts into Companies (#7337), does not depend on it.
+`SalesInvoice` is the record an accounting integration writes when it mirrors invoices issued elsewhere. The amounts are the source system's, so Open Mercato stores them as sent and does not recompute them. The one exception is a line with a net of 0 and a positive gross, which `deriveExactLineNetFromGross` rewrites (see [Risks](#risk-register)). The first consumer is `@open-mercato/sync-xero`, whose Phase 2 imports Xero sales invoices (`ACCREC`). The Xero App Spec makes this work a hard prerequisite of that phase and uses no workaround. Its Phase 1, Contacts into Companies (#7337), does not depend on it.
 
 > **Market Reference:** Odoo and ERPNext both allow a negative line on an ordinary sales invoice and both refuse a negative document total, sending the user to a credit note: Odoo with [“You cannot validate an invoice with a negative total amount”](https://www.odoo.com/forum/help-1/how-to-correct-when-wrong-product-shipped-164697), and ERPNext by [keeping negative amounts for a return invoice](https://docs.frappe.io/erpnext/credit-note.md) and [rejecting a negative grand total otherwise](https://discuss.frappe.io/t/sales-invoice-with-negative-grand-total/80890). **Adopted:** negative lines, and a gross total that stays ≥ 0 with `SalesCreditMemo` as the home for negative documents. **Rejected:** ERPNext's return-invoice flag, because Open Mercato already has a separate credit memo entity. The Odoo and ERPNext evidence is partly forum posts about older versions.
 
@@ -194,7 +194,7 @@ Undo entries written before deployment already carry `customFields`, because `lo
 
 - Allow negative `unitPriceNet`, `unitPriceGross`, `taxAmount`, `totalNetAmount` and `totalGrossAmount` on invoice lines. Keep `quantity` and `discountAmount` ≥ 0.
 - A line with any of those five fields below 0 must send both `totalNetAmount` and `totalGrossAmount`.
-- On such a line, a net ≤ 0 with a positive gross is rejected, because `deriveLineNetFromGross` rewrites that state (`commands/shared.ts:135`), and that function stays unchanged. These lines are rejected today, so this narrows nothing.
+- On such a line, a net ≤ 0 with a positive gross is rejected, because `deriveExactLineNetFromGross` rewrites that state (`deriveLineNetFromGross` at the anchor, `commands/shared.ts:135`), and that function stays unchanged. These lines are rejected today, so this narrows nothing.
 - The negative-line rule sits on the `lines` array, not on the line object: under zod 4 a refined object throws on `.partial()` and `.pick()`, so the exported line object stays unrefined.
 - Allow negative `taxTotalAmount`, `subtotalNetAmount` and `grandTotalNetAmount` in the header.
 
@@ -503,7 +503,7 @@ The blast radius is limited to invoices. A large replacement holds one row lock 
 - **Residual risk**: Line search is incomplete until the next reindex.
 
 #### A line with a net of 0 and a positive gross is rewritten
-- **Scenario**: A source system sends a tax-only line. `deriveLineNetFromGross` replaces its net of 0, so the stored line differs from the source.
+- **Scenario**: A source system sends a tax-only line. `deriveExactLineNetFromGross` replaces its net of 0, so the stored line differs from the source.
 - **Severity**: Low
 - **Affected area**: Exact mirroring required by the Xero App Spec
 - **Mitigation**: Rejecting such a line would narrow the schema, and changing the function affects every document, so neither is done here.

@@ -25,6 +25,8 @@ import {
   SalesPaymentAllocation,
 } from '../../data/entities'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
+import { invoiceUpdateInputSchema } from '../../data/validators'
+import { withExactInvoiceInput } from '../../lib/exactAmountFields'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -741,6 +743,34 @@ describe('sales invoice write path (#7336)', () => {
           indexer: { entityType: E.sales.sales_invoice_line },
         }),
       )
+    })
+
+    it('keeps every digit of replacement line and header amounts the route parsed into numbers', async () => {
+      const state = baseState()
+      const { ctx } = makeCtx(makeFakeEm(state))
+      const longAmount = '1234567890.123456789012345'
+      const longNegative = '-0.123456789012345678'
+      const body = {
+        ...updateScope,
+        replaceLines: true,
+        lines: [
+          { quantity: 1, currencyCode: 'EUR', unitPriceNet: longAmount, totalNetAmount: longAmount, totalGrossAmount: longAmount },
+          { quantity: 1, currencyCode: 'EUR', kind: 'discount', totalNetAmount: longNegative, totalGrossAmount: longNegative },
+        ],
+        subtotalNetAmount: longAmount,
+        subtotalGrossAmount: longAmount,
+        taxTotalAmount: 0,
+        grandTotalNetAmount: longAmount,
+        grandTotalGrossAmount: longAmount,
+      }
+      const routeInput = withExactInvoiceInput(invoiceUpdateInputSchema.parse(body), body)
+      expect(typeof routeInput.grandTotalGrossAmount).toBe('number')
+
+      await runUpdate(routeInput as Row, ctx)
+
+      expect(state.lines[0]).toMatchObject({ unitPriceNet: longAmount, totalNetAmount: longAmount, totalGrossAmount: longAmount })
+      expect(state.lines[1]).toMatchObject({ totalNetAmount: longNegative, totalGrossAmount: longNegative })
+      expect(state.invoice).toMatchObject({ subtotalNetAmount: longAmount, grandTotalGrossAmount: longAmount })
     })
 
     it('stores a replacement line with a net of 0 and a positive gross the same way as create', async () => {
