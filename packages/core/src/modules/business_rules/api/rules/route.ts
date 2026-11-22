@@ -419,8 +419,8 @@ export async function PUT(req: Request) {
     parsed.data.effectiveFrom !== undefined ? parsed.data.effectiveFrom : rule.effectiveFrom,
     parsed.data.effectiveTo !== undefined ? parsed.data.effectiveTo : rule.effectiveTo,
   )) {
-    const message = t('business_rules.rules.form.errors.effectiveToBeforeFrom')
-    return NextResponse.json({ error: `Validation failed: effectiveTo: ${message}` }, { status: 400 })
+    const details = `effectiveTo: ${t('business_rules.rules.form.errors.effectiveToBeforeFrom')}`
+    return NextResponse.json({ error: t('business_rules.errors.validationFailedWithDetails', { details }) }, { status: 400 })
   }
 
   const touchesOpenMercatoCall = hasOpenMercatoCallAction(parsed.data.successActions)
