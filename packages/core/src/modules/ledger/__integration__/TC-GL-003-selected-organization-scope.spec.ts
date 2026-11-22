@@ -3,9 +3,12 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   createOrganizationFixture,
+  createUserFixture,
   deleteOrganizationIfExists,
+  deleteUserIfExists,
 } from '@open-mercato/core/helpers/integration/authFixtures';
-import { deleteGeneralEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
+import { deleteGeneralEntityIfExists, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
   createCurrencyFixture,
   generateUniqueCurrencyCode,
@@ -15,6 +18,7 @@ import {
   createFiscalPeriodFixture,
   createAccountTypeFixture,
   createAccountFixture,
+  seedAccountGroupInDb,
   seedJournalEntryInDb,
 } from '@open-mercato/core/helpers/integration/ledgerFixtures';
 
@@ -69,12 +73,14 @@ test.describe('TC-GL-003: GET routes honor the selected organization, not the ca
     const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = randomUUID();
 
+    let userId: string | null = null;
     let tenantId: string | null = null;
     let orgAId: string | null = null;
     let orgBId: string | null = null;
     let currencyId: string | null = null;
     let accountTypeAId: string | null = null;
     let accountTypeBId: string | null = null;
+    const groupIds: string[] = [];
     let accountAId: string | null = null;
     let accountBId: string | null = null;
     let fiscalPeriodAId: string | null = null;
@@ -139,7 +145,7 @@ test.describe('TC-GL-003: GET routes honor the selected organization, not the ca
       fiscalPeriodBId = await createFiscalPeriodFixture(
         request,
         superadminToken,
-        { organizationId: orgBId, tenantId, startDate: '2033-02-01', endDate: '2033-02-28' },
+        { organizationId: orgBId, tenantId, startDate: '2033-01-01', endDate: '2033-01-31' },
         { headers: headersB },
       );
 
@@ -158,7 +164,7 @@ test.describe('TC-GL-003: GET routes honor the selected organization, not the ca
         organizationId: orgBId,
         tenantId,
         currencyId,
-        operationDate: '2033-02-15',
+        operationDate: '2033-01-16',
         description: `QA TC-GL-003 entry B ${stamp}`,
         lines: [
           { accountId: accountBId, debit: '50.00', credit: '0.00' },
@@ -209,7 +215,69 @@ test.describe('TC-GL-003: GET routes honor the selected organization, not the ca
       const journalEntryIds = journalEntriesBody.items.map((item) => item.id);
       expect(journalEntryIds, 'org B journal-entries list should include org B\'s entry').toContain(journalEntryBId);
       expect(journalEntryIds, 'org B journal-entries list must not include org A\'s entry').not.toContain(journalEntryAId);
+      const userEmail = `qa-gl-003-${stamp}@example.com`;
+      const userPassword = `Test-${stamp}!`;
+      userId = await createUserFixture(request, superadminToken, {
+        email: userEmail,
+        password: userPassword,
+        organizationId: orgAId,
+        roles: [],
+      });
+      const aclUpdate = await apiRequest(request, 'PUT', '/api/auth/users/acl', {
+        token: superadminToken,
+        data: {
+          userId,
+          tenantId,
+          organizations: [orgBId],
+          features: ['ledger.accounts.view', 'ledger.periods.view', 'ledger.entries.view'],
+        },
+      });
+      expect(aclUpdate.status()).toBe(200);
+      expect(await readJsonSafe(aclUpdate)).toMatchObject({ ok: true });
+      const restrictedToken = await getAuthToken(request, userEmail, userPassword);
+      expect(getTokenContext(restrictedToken)).toMatchObject({ tenantId, organizationId: orgAId });
+      const groupAId = await seedAccountGroupInDb({ tenantId, organizationId: orgAId, code: '4', name: 'QA Group A' });
+      groupIds.push(groupAId);
+      const groupBId = await seedAccountGroupInDb({ tenantId, organizationId: orgBId, code: '4', name: 'QA Group B' });
+      groupIds.push(groupBId);
+      const recordScopes = [
+        { resource: 'account-groups', excluded: groupAId, allowed: groupBId },
+        { resource: 'account-types', excluded: accountTypeAId, allowed: accountTypeBId },
+        { resource: 'accounts', excluded: accountAId, allowed: accountBId },
+        { resource: 'fiscal-periods', excluded: fiscalPeriodAId, allowed: fiscalPeriodBId },
+        { resource: 'journal-entries', excluded: journalEntryAId, allowed: journalEntryBId },
+      ];
+      for (const { resource, excluded, allowed } of recordScopes) {
+        const list = await apiRequest(request, 'GET', `/api/ledger/${resource}`, { token: restrictedToken });
+        expect(list.status(), resource).toBe(200);
+        const listBody = await readJsonSafe<{ items: Array<{ id: string }> }>(list);
+        expect(listBody?.items.map(({ id }) => id)).toEqual([allowed]);
+
+        const detail = await apiRequest(request, 'GET', `/api/ledger/${resource}?id=${excluded}`, {
+          token: restrictedToken,
+        });
+        expect(detail.status()).toBe(200);
+        expect(await readJsonSafe(detail)).toMatchObject({ items: [], total: 0 });
+      }
+
+      const periodFilter = await apiRequest(request, 'GET', `/api/ledger/journal-entries?periodId=${fiscalPeriodAId}`, {
+        token: restrictedToken,
+      });
+      expect(periodFilter.status()).toBe(200);
+      expect(await readJsonSafe(periodFilter)).toMatchObject({ items: [], total: 0 });
+
+      const authorizedFilters = await apiRequest(
+        request, 'GET', `/api/ledger/journal-entries?periodId=${fiscalPeriodBId}&accountId=${accountBId}`,
+        { token: restrictedToken },
+      );
+      expect(authorizedFilters.status()).toBe(200);
+      const filtered = await readJsonSafe<{ items: Array<{ id: string }> }>(authorizedFilters);
+      expect(filtered?.items.map(({ id }) => id)).toEqual([journalEntryBId]);
     } finally {
+      if (groupIds.length) {
+        await withClient((client) => client.query('delete from ledger_account_groups where id = any($1::uuid[])', [groupIds]));
+      }
+      await deleteUserIfExists(request, superadminToken, userId);
       // JournalEntry and FiscalPeriod ship no DELETE route (append-only by
       // design — see `seedJournalEntryInDb`'s doc comment); the seeded rows
       // are left behind, scoped to org A/B and the tenant, which are deleted
