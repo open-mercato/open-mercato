@@ -31,6 +31,6 @@ Phone data requires keyed hashing and successful verification under the existing
 ### Phase 2: Lookup and rollout
 
 - [x] 2.1 Query and verify indexed candidates — 17449ba464
-- [ ] 2.2 Backfill historical phone digests and document rollout
+- [x] 2.2 Backfill historical phone digests and document rollout — a72d24a605
 - [ ] 2.3 Verify the API and run the validation gate
 - [ ] 2.4 Archive the phone lookup capability
