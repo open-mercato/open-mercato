@@ -47,8 +47,8 @@ export type SubscriberContext = {
    * unless the emit came through the global bus outside any request or job). The
    * emitter and every other inline subscriber share it, so a `.register()` made
    * there outlives the handler for the rest of that request. Queued delivery hands
-   * the job's own per-job container, the only scope where overriding registrations
-   * is safe without affecting anyone else.
+   * the same job container to every subscriber of the event. Those subscribers run
+   * concurrently. Change a registration only if the change is safe for the entire job.
    */
   container?: ScopedResolveContainer
 }
