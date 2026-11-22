@@ -23,6 +23,9 @@ function resolverExpressions(file) {
     if (ts.isCallExpression(node) && /^(?:ruleEngine\.)?resolveBusinessRule(?:DiscoveryCache|RbacService)$/.test(node.expression.getText(source))) {
       expressions.push(node.arguments[0].getText(source))
     }
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'createScopedBus') {
+      expressions.push(node.arguments[0].getText(source))
+    }
     if (ts.isPropertyAssignment(node) && node.name.getText(source) === 'resolve' && node.initializer.getText(source).includes('container.resolve')) {
       expressions.push(node.initializer.getText(source))
     }
@@ -38,15 +41,16 @@ function typeErrors(expressions) {
     import type { AwilixContainer } from 'awilix'
     interface Container {
       resolve: {
-        <Key extends keyof { value: string }>(this: void, name: Key): { value: string }[Key]
-        <Value>(this: void, name: string | symbol): Value
+        <Key extends keyof { value: string }>(this: void, name: Key, options?: { allowUnregistered?: boolean }): { value: string }[Key]
+        <Value>(this: void, name: string | symbol, options?: { allowUnregistered?: boolean }): Value
       }
     }
     declare const container: Container
+    declare const caller: Container
     declare const ctx: { container: Container }
     declare const installed: AwilixContainer
     ${expressions.map((expression, index) => `const resolver${index}: <Value = unknown>(name: string) => Value = ${expression}`).join('\n')}
-    ${expressions.map((expression, index) => `const installedResolver${index}: <Value = unknown>(name: string) => Value = ${expression.replaceAll('ctx.container', 'installed').replaceAll('container', 'installed')}`).join('\n')}
+    ${expressions.map((expression, index) => `const installedResolver${index}: <Value = unknown>(name: string) => Value = ${expression.replaceAll('ctx.container', 'installed').replace(/\b(?:caller|container)\b/g, 'installed')}`).join('\n')}
   `
   const options = { strict: true, noEmit: true, skipLibCheck: true, types: [], target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext }
   const host = ts.createCompilerHost(options)
@@ -78,7 +82,7 @@ for (const [file, count] of consumers) {
     try {
       for (const expression of resolverExpressions(file)) {
         const script = ts.transpileModule(`(${expression})`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
-        const resolve = vm.runInNewContext(script, { container, ctx: { container } })
+        const resolve = vm.runInNewContext(script, { container, caller: container, ctx: { container } })
         assert.equal(resolve('value'), 'child')
         assert.equal(resolve('service'), container.resolve('service'))
         assert.deepEqual(resolve('service'), { value: 'child' })
