@@ -399,7 +399,8 @@ All validators live in `data/validators.ts`:
 - `locationCreateSchema`: validate hierarchy (`parent_id` must belong to same warehouse), capacity constraints (`capacity_units` / `capacity_weight` non-negative when provided)
 - `inventoryAdjustSchema`: `reason` required, `delta` must be non-zero
 - `reservationCreateSchema`: `quantity` must be positive, must not exceed `quantity_available` in target buckets
-- `lotCreateSchema`: `expires_at >= best_before_at >= manufactured_at` when dates are provided; lot updates that patch any date enforce the same order on the stored dates merged with the patched ones
+- `lotCreateSchema`: `expires_at >= best_before_at >= manufactured_at` when dates are provided
+- `wms.lots.update`: when any date is patched, checks the stored dates merged with the patched ones in the same order as create (`inventoryLotDateOrderingSchema`)
 - `movementCreateSchema`: enforce valid `type` and `reference_type` combinations
 - `cycleCountCreateSchema`: `countedQuantity` and `reason` required; used by `POST /api/wms/inventory/cycle-count` / `cycleCountReconcile`
 
