@@ -207,7 +207,7 @@ const EditorBody = React.memo(function EditorBody({
     [update],
   )
   const deal = React.useMemo(
-    () => form.dealId && form.dealLabel ? { id: form.dealId, label: form.dealLabel } : null,
+    () => form.dealId ? { id: form.dealId, label: form.dealLabel } : null,
     [form.dealId, form.dealLabel],
   )
   const capabilities = React.useMemo(() => ({ resourcesEnabled, staffEnabled }), [resourcesEnabled, staffEnabled])
@@ -490,7 +490,7 @@ export function CalendarEventEditor({
       if (!form.title.trim()) {
         fieldErrors.title = t('customers.calendar.editor.validation.titleRequired', 'Title is required')
       }
-      if (!form.relatedTo) {
+      if ((selectedKey === 'email' || (isEdit && initialTypeKey === 'email')) && !form.relatedTo) {
         fieldErrors.relatedTo = t('customers.calendar.editor.validation.relatedToRequired', 'Select a person or company to link this event')
       }
       if (!fieldErrors.ends && !fieldErrors.startTime && !fieldErrors.date && config.hasEnd && !form.allDay && computeDurationMinutes(form) === null) {

@@ -120,6 +120,47 @@ describe('CalendarEventEditor catalog host', () => {
     })
   })
 
+  it('submits a meeting with no related record', async () => {
+    catalogState = { status: 'ready', items: [meetingType] }
+    renderWithProviders(<CalendarEventEditor open mode="create" onOpenChange={() => {}} onSaved={() => {}} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save event' })).not.toBeDisabled())
+    const props = crudPropsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
+    const submit = props.onSubmit as (values: Record<string, unknown>) => Promise<void>
+    await act(async () => {
+      await submit({ ...(props.initialValues as Record<string, unknown>), title: 'Internal standup' })
+    })
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith('/api/customers/interactions', expect.objectContaining({ method: 'POST' }))
+    expect(JSON.parse(apiCallOrThrowMock.mock.calls[0]?.[1].body)).toMatchObject({
+      title: 'Internal standup',
+      entityId: null,
+      dealId: null,
+    })
+  })
+
+  it('still requires a related record for email', async () => {
+    const email = calendarEventTypes.find((type) => type.key === 'email')!
+    catalogState = { status: 'ready', items: [{ ...meetingType, ...email }] }
+    renderWithProviders(<CalendarEventEditor open mode="create" onOpenChange={() => {}} onSaved={() => {}} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save event' })).not.toBeDisabled())
+    const props = crudPropsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
+    const submit = props.onSubmit as (values: Record<string, unknown>) => Promise<void>
+    await expect(submit({ ...(props.initialValues as Record<string, unknown>), title: 'Customer email' })).rejects.toMatchObject({
+      fieldErrors: { relatedTo: 'Select a person or company to link this event' },
+    })
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+  })
+
+  it('clears a deal from a meeting without a primary CRM record', async () => {
+    renderGroups = true
+    catalogState = { status: 'ready', items: [meetingType] }
+    const item = buildCalendarItem({ dealId: 'deal-1' })
+    renderWithProviders(<CalendarEventEditor open mode="edit" item={item} onOpenChange={() => {}} onSaved={() => {}} />)
+    const clear = await screen.findByRole('button', { name: 'Clear related record' })
+    fireEvent.click(clear)
+    expect(groupSetValueMock).toHaveBeenCalledWith('dealId', null)
+    expect(clear).not.toBeInTheDocument()
+  })
+
   it('uses configured behavior for a mixed-case stored key and preserves that key on save', async () => {
     const note = calendarEventTypes.find((type) => type.key === 'note')!
     catalogState = { status: 'ready', items: [{ ...visitType, key: 'site visit', behavior: { ...note.behavior, customFieldsetIds: ['visit_details'] } }] }
