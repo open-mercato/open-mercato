@@ -1,10 +1,5 @@
-<<<<<<< HEAD
-=======
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { resolveCustomerDetailView } from '../../../lib/detailViewAccess'
-import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
->>>>>>> e3ebfc0705 (fix(customers): enforce related view permissions on CRM details (#10204))
 import { NextResponse } from 'next/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -33,6 +28,7 @@ import {
   resolveCompanyCustomFieldRouting,
   mergeCompanyCustomFieldValues,
 } from '../../../lib/customFieldRouting'
+import { resolveCustomerDetailView } from '../../../lib/detailViewAccess'
 import { isOpenInteractionStatus, TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import { isOpenDealStatus, isWonDealStatus } from '../../../lib/dealStatus'
 import {
@@ -868,34 +864,24 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       tenantId: company.tenantId,
       deletedAt: null,
       ...emailVisibilityFilter,
-<<<<<<< HEAD
-    }),
-    interactionFlags.unified
-      ? em.count(CustomerInteraction, {
+    }) : 0,
+    view.interactions
+      ? (interactionFlags.unified
+        ? em.count(CustomerInteraction, {
           entity: company.id,
           organizationId: company.organizationId,
           tenantId: company.tenantId,
           deletedAt: null,
           interactionType: 'task',
         })
-      : em.count(CustomerTodoLink, {
+        : em.count(CustomerTodoLink, {
           entity: company.id,
           organizationId: company.organizationId,
           tenantId: company.tenantId,
-        }),
-    includeComments
-      ? Promise.resolve(comments.length)
-      : em.count(CustomerComment, {
-=======
-    }) : 0,
-    view.interactions ? countCustomerTodos(em, {
-      entityId: company.id,
-      organizationId: company.organizationId,
-      tenantId: company.tenantId,
-    }, interactionFlags.unified) : 0,
+        }))
+      : 0,
     view.activities && !includeComments
       ? em.count(CustomerComment, {
->>>>>>> e3ebfc0705 (fix(customers): enforce related view permissions on CRM details (#10204))
           entity: company.id,
           organizationId: company.organizationId,
           tenantId: company.tenantId,

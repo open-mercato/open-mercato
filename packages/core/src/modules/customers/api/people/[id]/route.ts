@@ -1,10 +1,5 @@
-<<<<<<< HEAD
-=======
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { resolveCustomerDetailView } from '../../../lib/detailViewAccess'
-import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
->>>>>>> e3ebfc0705 (fix(customers): enforce related view permissions on CRM details (#10204))
 import { NextResponse } from 'next/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -30,6 +25,7 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '#generated/entities.ids.generated'
 import { mergePersonCustomFieldValues, resolvePersonCustomFieldRouting } from '../../../lib/customFieldRouting'
+import { resolveCustomerDetailView } from '../../../lib/detailViewAccess'
 import { isOpenInteractionStatus, TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
@@ -873,34 +869,24 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         tenantId: person.tenantId,
         deletedAt: null,
         ...emailVisibilityFilter,
-<<<<<<< HEAD
-      }),
-      interactionFlags.unified
-        ? em.count(CustomerInteraction, {
+      }) : 0,
+      view.interactions
+        ? (interactionFlags.unified
+          ? em.count(CustomerInteraction, {
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,
             deletedAt: null,
             interactionType: 'task',
           })
-        : em.count(CustomerTodoLink, {
+          : em.count(CustomerTodoLink, {
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,
-          }),
-      includeAddresses
-        ? Promise.resolve(addresses.length)
-        : em.count(CustomerAddress, {
-=======
-      }) : 0,
-      view.interactions ? countCustomerTodos(em, {
-        entityId: person.id,
-        organizationId: person.organizationId,
-        tenantId: person.tenantId,
-      }, interactionFlags.unified) : 0,
+          }))
+        : 0,
       view.activities && !includeAddresses
         ? em.count(CustomerAddress, {
->>>>>>> e3ebfc0705 (fix(customers): enforce related view permissions on CRM details (#10204))
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,

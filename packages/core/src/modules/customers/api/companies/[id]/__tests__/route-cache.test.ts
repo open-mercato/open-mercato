@@ -41,10 +41,7 @@ const mockEm = {
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
-<<<<<<< HEAD
-=======
     if (token === 'rbacService') return { getGrantedFeatures: mockGetGrantedFeatures }
->>>>>>> e3ebfc0705 (fix(customers): enforce related view permissions on CRM details (#10204))
     return null
   }),
 }
