@@ -1,4 +1,5 @@
-import { asValue } from 'awilix'
+import { asFunction, asValue } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { defineProcessDiRegistrar, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
 import { getRequestScopeContainer, runInRequestScope } from '@open-mercato/shared/lib/di/request-scope'
@@ -17,6 +18,7 @@ import { sendAsUser } from './lib/send-as-user'
 import { isSystemEmailTransportConfigured, sendSystemEmail } from './lib/system-email'
 import { resolveChannelTypeSafely } from './lib/resolve-channel-type'
 import { resolveChannelThreadAccessSafely } from './lib/channel-thread-access'
+import { createChannelFolderCursorStore } from './lib/channel-folder-cursor-store'
 
 function registerLegacy(container: AppContainer) {
   // Test-only: register the network-free stub channel adapter when
@@ -47,6 +49,7 @@ function registerServices(container: AppContainer) {
     // the auth-less webhook route resolves the same registry as DI consumers.
     // See lib/adapter-registry-singleton.ts.
     channelAdapterRegistry: asValue(getChannelAdapterRegistry()),
+    channelFolderCursorStore: asFunction(({ em }: { em: EntityManager }) => createChannelFolderCursorStore(em)).scoped(),
 
     // In-process send-as-user facade. Cross-module callers (e.g. the customers
     // compose route) resolve this instead of making an HTTP self-call.

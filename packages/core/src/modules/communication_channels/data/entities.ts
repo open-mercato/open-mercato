@@ -1,5 +1,5 @@
 import { OptionalProps } from '@mikro-orm/core'
-import { Check, Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Check, Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 /**
  * Hub entities for the Communication Channels module.
@@ -201,6 +201,28 @@ export class CommunicationChannel {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'communication_channel_folder_cursors' })
+@Unique({ name: 'communication_channel_folder_cursors_channel_folder_uq', properties: ['channelId', 'folderId'] })
+export class CommunicationChannelFolderCursor {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CommunicationChannel, { fieldName: 'channel_id', deleteRule: 'cascade', mapToPk: true })
+  channelId!: string
+
+  @Property({ name: 'folder_id', type: 'text', collation: 'C' })
+  folderId!: string
+
+  @Property({ type: 'text' })
+  cursor!: string
+
+  @Property({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  version!: string
+
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()' })
+  updatedAt!: Date
 }
 
 // ── ExternalConversation ──────────────────────────────────────
