@@ -1098,6 +1098,25 @@ describe('DefaultAttachmentService owner policy boundary', () => {
     expect(driver.read).not.toHaveBeenCalled()
   })
 
+  it('leaves the attachment with its owner when read is allowed and reassignment is denied', async () => {
+    resolveOwner.mockImplementation(async ({ action }) =>
+      action === 'read' ? { ok: true } : { ok: false, status: 403, reason: 'reassign_denied' },
+    )
+    const { service, em } = harness()
+    await expect(service.describeScoped(readInput)).resolves.toMatchObject({ id: readInput.attachmentId })
+
+    await expectStatus(withAtomicFlush(em, [async () => {
+      await service.reassignScopedAttachments({
+        auth,
+        attachmentIds: [readInput.attachmentId],
+        expectedOwner: readInput.expectedOwner,
+        destination: { entityId: 'messages:message', recordId: 'sent-message' },
+      }, em)
+    }], { transaction: true }), 403)
+    await expect(service.describeScoped(readInput)).resolves.toMatchObject({ id: readInput.attachmentId })
+    expect(resolveOwner).toHaveBeenCalledWith(expect.objectContaining({ action: 'reassign' }))
+  })
+
   it.each(['missing-context', 'missing-provider'])('fails closed with %s for a protected read', async (failure) => {
     if (failure === 'missing-provider') registerAttachmentAccessResolvers([])
     const { service, factory, driver } = harness(failure !== 'missing-context')

@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { MESSAGE_COMPOSER_UPLOAD_PREFIX } from '@open-mercato/shared/modules/messages/compose-payload'
 import { flash } from '../FlashMessages'
 import { apiCall, withScopedApiRequestHeaders } from '../utils/apiCall'
 import { buildOptimisticLockHeader } from '../utils/optimisticLock'
@@ -67,7 +68,7 @@ function createTemporaryAttachmentRecordId(): string {
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-  return `messages-composer:${randomPart}`
+  return `${MESSAGE_COMPOSER_UPLOAD_PREFIX}${randomPart}`
 }
 
 export type UseMessageComposeParams = MessageComposerProps
@@ -530,6 +531,7 @@ export function useMessageCompose({
 
   const composeSendOperation = useComposeSendOperation({
     senderChannelId: effectiveSenderChannelId,
+    attachmentRecordId,
     t,
     messageType,
     createableMessageTypes,

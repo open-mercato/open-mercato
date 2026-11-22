@@ -1,7 +1,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import {
+  isMessageComposerUploadRecordId,
+  type MailboxComposePayload,
+  type MailboxComposeTransaction,
+} from '@open-mercato/shared/modules/messages/compose-payload'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -14,9 +20,11 @@ import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
 import { htmlToText } from './email-mime'
 import type { ChannelAdapterRegistry } from './registry'
 import {
+  OUTBOUND_ATTACHMENTS_MAX_COUNT,
   OUTBOUND_ATTACHMENTS_METADATA_KEY,
   omitOutboundAttachments,
   parseOutboundAttachmentRefs,
+  resolveAttachmentService,
   validateOutboundAttachments,
   type OutboundAttachmentRef,
   type StoredOutboundAttachment,
@@ -74,6 +82,7 @@ export type SendAsUserInput = {
    * the adapter. Only the refs are stored; the bytes are read at delivery.
    */
   attachments?: OutboundAttachmentRef[]
+  composerPayload?: MailboxComposePayload
 }
 
 export type SendAsUserResult =
@@ -155,7 +164,22 @@ export async function sendAsUser(
   }
 
   // Re-parsed for the same reason as `to`: DI callers skip the route's schema.
-  const attachmentRefs = input.attachments === undefined ? [] : parseOutboundAttachmentRefs(input.attachments)
+  const uploads = input.composerPayload?.uploads
+  let requestedAttachments = input.attachments
+  if (uploads) {
+    const { recordId } = uploads
+    if (requestedAttachments?.length || !isMessageComposerUploadRecordId(recordId)) {
+      return unavailableComposerAttachment()
+    }
+    const owner = { entityId: 'attachments:library', recordId }
+    const ids = uploads.attachmentIds?.length
+      ? uploads.attachmentIds
+      : await listComposerAttachmentIds(container, owner, actor)
+    if (!ids.length) return unavailableComposerAttachment()
+    requestedAttachments = ids.map((attachmentId) => ({ kind: 'attachment', attachmentId, owner }))
+  }
+
+  const attachmentRefs = requestedAttachments === undefined ? [] : parseOutboundAttachmentRefs(requestedAttachments)
   if (!attachmentRefs) {
     return { ok: false, status: 422, error: '[internal] attachments must be attachment references' }
   }
@@ -199,45 +223,44 @@ export async function sendAsUser(
     priority: 'normal' as const,
     sendViaEmail: false,
     parentMessageId: input.parentMessageId,
+    ...(input.composerPayload?.objects?.length
+      ? {
+          objects: input.composerPayload.objects,
+          mailboxComposeMessageType: input.composerPayload.messageType ?? 'default',
+        }
+      : {}),
+    ...(uploads
+      ? {
+          mailboxComposeUpload: {
+            recordId: uploads.recordId,
+            attachmentIds: storedAttachments.map((attachment) => attachment.attachmentId),
+          },
+        }
+      : {}),
     isDraft: false,
     tenantId,
     organizationId,
     userId: actor.userId,
   }
-  let result
-  try {
-    result = await commandBus.execute<typeof composeInput, { id: string; threadId: string | null }>(
+  type ComposedMessage = { messageId: string; threadId: string }
+  const compose = async (): Promise<ComposedMessage> => {
+    const context: CommandRuntimeContext & MailboxComposeTransaction = {
+      container,
+      auth: actor.auth as never,
+      organizationScope: null,
+      selectedOrganizationId: organizationId,
+      organizationIds: organizationId ? [organizationId] : null,
+      ...(input.composerPayload ? { persistMailboxDelivery: persistOutboundLink } : {}),
+    }
+    const execution = await commandBus.execute<typeof composeInput, { id: string; threadId: string | null }>(
       'messages.messages.compose',
       {
         input: composeInput,
-        ctx: {
-          container,
-          auth: actor.auth as never,
-          organizationScope: null,
-          selectedOrganizationId: organizationId,
-          organizationIds: organizationId ? [organizationId] : null,
-        },
+        ctx: context,
       },
     )
-  } catch (err) {
-    if (isCrudHttpError(err)) {
-      return {
-        ok: false,
-        status: err.status,
-        error: typeof err.body.error === 'string' ? err.body.error : err.message,
-        ...('headers' in err && err.headers instanceof Headers
-          ? { headers: Object.fromEntries(err.headers.entries()) }
-          : {}),
-      }
-    }
-    logger.error('communication_channels send-as-user compose failed', { err })
-    getTelemetryRuntime()?.reportError(err, { module: 'communication_channels', code: 'communication_channels.compose_failed' })
-    return { ok: false, status: 500, error: '[internal] compose failed' }
+    return { messageId: execution.result.id, threadId: execution.result.threadId ?? execution.result.id }
   }
-
-  const messageId = result.result.id
-  const messageThreadId = result.result.threadId ?? messageId
-  const externalThreadRef = buildOutboundConversationRef(messageThreadId)
 
   // Persist the conversation, thread mapping, and channel link as one unit. The
   // conversation's id is DB-generated (`gen_random_uuid()`), so it must be
@@ -245,7 +268,17 @@ export async function sendAsUser(
   // rather than `withAtomicFlush` (single trailing flush). `em.transactional`
   // wraps the whole sequence so a mid-way failure rolls back all three writes
   // instead of leaving an orphaned conversation row.
-  await em.transactional(async () => {
+  const persistOutboundLink = async (
+    em: EntityManager,
+    { messageId, threadId: messageThreadId }: ComposedMessage,
+  ) => {
+    const externalThreadRef = buildOutboundConversationRef(messageThreadId)
+    const outgoingAttachments = uploads
+      ? storedAttachments.map((attachment) => ({
+          ...attachment,
+          owner: { entityId: 'messages:message', recordId: messageId },
+        }))
+      : storedAttachments
     // A reply belongs to the conversation its parent lives in on this channel.
     // One logical thread can map to several provider conversations on the same
     // channel, so the thread alone cannot pick the right one.
@@ -376,18 +409,38 @@ export async function sendAsUser(
         subject: input.subject,
         inReplyTo: input.inReplyTo ?? null,
         references: input.references ?? [],
-        ...(storedAttachments.length ? { [OUTBOUND_ATTACHMENTS_METADATA_KEY]: storedAttachments } : {}),
+        ...(outgoingAttachments.length ? { [OUTBOUND_ATTACHMENTS_METADATA_KEY]: outgoingAttachments } : {}),
       },
       tenantId,
       organizationId,
     })
     em.persist(channelLink)
     await em.flush()
-  })
+  }
+
+  let composed: ComposedMessage
+  try {
+    composed = await compose()
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return {
+        ok: false,
+        status: err.status,
+        error: typeof err.body.error === 'string' ? err.body.error : err.message,
+        ...('headers' in err && err.headers instanceof Headers
+          ? { headers: Object.fromEntries(err.headers.entries()) }
+          : {}),
+      }
+    }
+    logger.error('communication_channels send-as-user compose failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'communication_channels', code: 'communication_channels.compose_failed' })
+    return { ok: false, status: 500, error: '[internal] compose failed' }
+  }
+  if (!input.composerPayload) await em.transactional(() => persistOutboundLink(em, composed))
 
   const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
   const deliveryJob: OutboundDeliveryPayload = {
-    messageId,
+    messageId: composed.messageId,
     scope: dscope,
     attempt: 1,
   }
@@ -395,10 +448,42 @@ export async function sendAsUser(
 
   return {
     ok: true,
-    messageId,
-    threadId: messageThreadId,
+    ...composed,
     channelId: channel.id,
     providerKey: channel.providerKey,
+  }
+}
+
+async function unavailableComposerAttachment(): Promise<SendAsUserResult> {
+  const { t } = await resolveTranslations()
+  return {
+    ok: false,
+    status: 422,
+    code: 'attachment_not_found',
+    error: t('communication_channels.errors.attachments.notFound', 'One of the attached files is not available.'),
+  }
+}
+
+async function listComposerAttachmentIds(
+  container: AppContainer,
+  expectedOwner: { entityId: string; recordId: string },
+  actor: SendAsUserActor,
+): Promise<string[]> {
+  const service = resolveAttachmentService(container)
+  try {
+    return await service?.listScopedOwnerAttachmentIds?.({
+      auth: {
+        sub: actor.userId,
+        userId: actor.userId,
+        tenantId: actor.tenantId,
+        orgId: actor.organizationId,
+      },
+      expectedOwner,
+      limit: OUTBOUND_ATTACHMENTS_MAX_COUNT + 1,
+    }) ?? []
+  } catch (error) {
+    if (isCrudHttpError(error) && [401, 403, 404].includes(error.status)) return []
+    throw error
   }
 }
 

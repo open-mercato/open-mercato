@@ -1,4 +1,5 @@
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isMessageComposerUploadRecordId, type MailboxComposePayload } from '@open-mercato/shared/modules/messages/compose-payload'
 import { renderMarkdownEmailBody } from './markdownEmailBody'
 
 /**
@@ -42,6 +43,7 @@ type SendAsUserService = (
     body: { plain?: string; html?: string; bodyFormat?: 'text' | 'markdown' }
     parentMessageId?: string
     channelMetadata?: Record<string, unknown>
+    composerPayload?: MailboxComposePayload
   },
 ) => Promise<SendAsUserResult>
 
@@ -61,6 +63,7 @@ export function tryResolveSendAsUserService(
 export type ComposeSenderRequest = {
   senderChannelId?: string
   visibility?: string | null
+  type?: string
   externalEmail?: string
   subject?: string
   body?: string
@@ -69,7 +72,7 @@ export type ComposeSenderRequest = {
   parentMessageId?: string
   attachmentIds?: string[]
   attachmentRecordId?: string
-  objects?: unknown[]
+  objects?: MailboxComposePayload['objects']
 }
 
 /** Whether this compose asked to be routed through one of the caller's mailboxes. */
@@ -126,21 +129,14 @@ export async function delegateComposeToSender(
       ),
     )
   }
-  // `SendAsUserInput.attachments` takes files by owning record, but the
-  // composer has not decided which owner its uploads carry on this path or
-  // whether a mailbox send re-parents them to the message (#6261). Until it
-  // does, refusing is the only honest answer — accepting would drop the files
-  // after the message had already been sent.
-  if (
-    (input.attachmentIds?.length ?? 0) > 0 ||
-    (input.objects?.length ?? 0) > 0 ||
-    input.attachmentRecordId
-  ) {
+  const hasAttachments = Boolean(input.attachmentIds?.length || input.attachmentRecordId)
+  const uploadRecordId = input.attachmentRecordId
+  if (hasAttachments && (!uploadRecordId || !isMessageComposerUploadRecordId(uploadRecordId))) {
     return fail(
       422,
       t(
-        'messages.errors.senderPayloadUnsupported',
-        'Sending from your own mailbox does not support attachments or linked records yet.',
+        'communication_channels.errors.attachments.notFound',
+        'One of the attached files is not available.',
       ),
     )
   }
@@ -167,6 +163,15 @@ export async function delegateComposeToSender(
       subject: input.subject ?? '',
       body: await buildSenderBody(input.body ?? '', input.bodyFormat),
       parentMessageId: input.parentMessageId,
+      ...(hasAttachments || input.objects?.length
+        ? {
+            composerPayload: {
+              messageType: input.type,
+              objects: input.objects,
+              uploads: uploadRecordId ? { recordId: uploadRecordId, attachmentIds: input.attachmentIds } : undefined,
+            },
+          }
+        : {}),
     },
   )
 

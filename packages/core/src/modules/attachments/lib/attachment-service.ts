@@ -1,5 +1,7 @@
 import { evaluateAttachmentAccess, type AttachmentAccessContext } from './access-runner'
 import { throwAttachmentAccessError } from './access-errors'
+import { assertAttachmentOwnerAccess } from './access-query'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -172,6 +174,19 @@ export type DescribeManyScopedAttachmentsInput = {
   items: Array<Omit<DescribeScopedAttachmentInput, 'auth'>>
 }
 
+type ListScopedOwnerAttachmentIdsInput = {
+  auth: NonNullable<AuthContext>
+  expectedOwner: AttachmentOwner
+  limit: number
+}
+
+type ReassignScopedAttachmentsInput = {
+  auth: NonNullable<AuthContext>
+  attachmentIds: string[]
+  expectedOwner: AttachmentOwner
+  destination: AttachmentOwner
+}
+
 export type ReleaseScopedAttachmentInput = {
   attachmentId: string
   tenantId: string
@@ -210,6 +225,8 @@ export interface AttachmentService {
    * first item's refusal, as a loop over `describeScoped` would.
    */
   describeManyScoped?(input: DescribeManyScopedAttachmentsInput): Promise<DescribedScopedAttachment[]>
+  listScopedOwnerAttachmentIds?(input: ListScopedOwnerAttachmentIdsInput): Promise<string[]>
+  reassignScopedAttachments?(input: ReassignScopedAttachmentsInput, em: EntityManager): Promise<boolean>
   /**
    * Permanently deletes an attachment row and its stored object once no other row references it,
    * then emits `attachments.attachment.deleted` (with its query-index side effect) after commit.
@@ -438,6 +455,52 @@ export class DefaultAttachmentService implements AttachmentService {
 
   async describeScoped(input: DescribeScopedAttachmentInput): Promise<DescribedScopedAttachment> {
     return toDescribedScopedAttachment(await this.findReadableScoped(input))
+  }
+
+  async listScopedOwnerAttachmentIds(input: ListScopedOwnerAttachmentIdsInput): Promise<string[]> {
+    const { auth, expectedOwner } = input
+    if (!auth.tenantId || !auth.orgId) return throwAttachmentAccessError(403)
+    const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+    const limit = Number.isSafeInteger(input.limit) ? Math.max(1, Math.min(input.limit, 100)) : 100
+    const attachments = await findWithDecryption(
+      this.em,
+      Attachment,
+      { ...expectedOwner, ...scope },
+      { fields: ['id'], orderBy: { id: 'asc' }, limit },
+      scope,
+    )
+    const described = await this.describeManyScoped({
+      auth,
+      items: attachments.map(({ id: attachmentId }) => ({ attachmentId, expectedOwner })),
+    })
+    return described.map(({ id }) => id)
+  }
+
+  async reassignScopedAttachments(input: ReassignScopedAttachmentsInput, em: EntityManager): Promise<boolean> {
+    if (!em.isInTransaction()) throw new Error('[internal] Reassigning attachments requires a transaction')
+    const { auth, attachmentIds, expectedOwner, destination } = input
+    if (!auth.tenantId || !auth.orgId) return throwAttachmentAccessError(403)
+    const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+    const attachments = await findWithDecryption(
+      em,
+      Attachment,
+      { id: { $in: attachmentIds }, ...expectedOwner, ...scope },
+      { orderBy: { id: 'asc' }, lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      scope,
+    )
+    if (attachments.length !== attachmentIds.length) return false
+
+    const context = this.resolveAccessContext?.()
+    for (const attachment of attachments) {
+      await assertAttachmentOwnerAccess({ em, context, auth, attachment, action: 'reassign', persistProtection: true })
+      await assertAttachmentOwnerAccess({ em, context, auth, attachment: { ...attachment, ...destination }, action: 'reassign' })
+    }
+    for (const attachment of attachments) {
+      attachment.entityId = destination.entityId
+      attachment.recordId = destination.recordId
+    }
+    await em.flush()
+    return true
   }
 
   async describeManyScoped(input: DescribeManyScopedAttachmentsInput): Promise<DescribedScopedAttachment[]> {
