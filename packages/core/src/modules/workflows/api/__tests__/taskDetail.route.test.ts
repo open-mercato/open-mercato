@@ -195,7 +195,7 @@ describe('GET /api/workflows/tasks/[id] — disclosure', () => {
     expect(mockEm.findOne).not.toHaveBeenCalled()
   })
 
-  test('any canonical uuid spelling still reaches the lookup', async () => {
+  test('an uppercase uuid still reaches the lookup', async () => {
     setTask(makeTask())
 
     const response = await runDetail(TASK_ID.toUpperCase())
