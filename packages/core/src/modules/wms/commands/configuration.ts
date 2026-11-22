@@ -59,6 +59,7 @@ import {
 } from '../data/entities'
 import {
   inventoryLotCreateSchema,
+  inventoryLotDateOrderingSchema,
   inventoryLotUpdateSchema,
   productInventoryProfileCreateSchema,
   productInventoryProfileUpdateSchema,
@@ -1840,6 +1841,13 @@ const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId
     const parsed = inventoryLotUpdateSchema.parse(rawInput ?? {})
     const em = resolveEm(ctx)
     const lot = await loadLot(em, ctx, parsed.id)
+    if (parsed.manufacturedAt !== undefined || parsed.bestBeforeAt !== undefined || parsed.expiresAt !== undefined) {
+      inventoryLotDateOrderingSchema.parse({
+        manufacturedAt: parsed.manufacturedAt ?? lot.manufacturedAt ?? undefined,
+        bestBeforeAt: parsed.bestBeforeAt ?? lot.bestBeforeAt ?? undefined,
+        expiresAt: parsed.expiresAt ?? lot.expiresAt ?? undefined,
+      })
+    }
     const nextVariantId = parsed.catalogVariantId ?? lot.catalogVariantId
     const nextLotNumber = parsed.lotNumber ?? lot.lotNumber
     if (

@@ -166,6 +166,14 @@ const enforceLotDateOrdering = (
 
 export const inventoryLotCreateSchema = inventoryLotBaseSchema.superRefine(enforceLotDateOrdering)
 
+export const inventoryLotDateOrderingSchema = z
+  .object({
+    manufacturedAt: z.date().optional(),
+    bestBeforeAt: z.date().optional(),
+    expiresAt: z.date().optional(),
+  })
+  .superRefine(enforceLotDateOrdering)
+
 export const inventoryLotUpdateSchema = z
   .object({
     id: uuid(),
