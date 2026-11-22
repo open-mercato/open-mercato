@@ -26,8 +26,14 @@ Run ee871019-6028-4fa6-bfee-738691b64bbe resumed PR #10286 after the operator re
 
 Runner: local (no running compose app). Ten focused snapshot-status Jest cases, 48 CI workflow script cases and five catalog-checker cases pass. The catalog check reproduced the failure before the metadata correction. The configured eight-command validation sequence is running in order with `TMPDIR=/tmp` to avoid the cockpit temporary directory's Unix socket path limit; normal hooks remain enabled.
 
+Run 2cca8c48-78e5-431a-8750-b465fea6b068 continues this same PR after explicit operator instruction to finish autonomously. Cockpit verifies previous owner ee871019 and its child are stopped. The abandoned exact-SHA claim was recovered under the force-recovery procedure, documented on the PR; no active work was displaced.
+
+Current main 1092d0207f also failed integration shard 12 in [run 45030852346](https://github.com/open-mercato/open-mercato/actions/runs/45030852346/job/137244259795). Read-only trace analysis found TC-SALES-9594 opened its payment menu before organization-switcher initialization completed; the ensuing scope render closed the menu. The same test passed in the earlier PR run with unchanged application code. Await the unique fixture organization's ready button in each locale before payment interaction, preserving every keyboard, translation, tenant-isolation, permission and stale-write assertion — e062f75b19.
+
+The first local unit gate reached a cockpit-only Unix socket path limit because Turbo stripped the short TMPDIR override. The affected bootstrap tests pass with TMPDIR, TMP and TEMP set to /tmp and TURBO_ENV_MODE=loose; repeat the full unit gate with these environment settings. No application or test infrastructure change is required for this local environment issue.
+
 ## Delegation
-Subtask 1: read-only audit of latest main CI failures; no edits or external mutations. The previous run's completed snapshot diagnosis is retained as evidence.
+Subtask 1: read-only audit 491d4717 completed; its report and CI trace evidence were checked against the source. Its branch has no changes to merge. The previous run's completed snapshot diagnosis is retained as evidence.
 Subtask 2: final independent review after implementation and validation; read-only, no merging.
 Coupled implementation, regression tests, PR state, and validation remain in the parent.
 
