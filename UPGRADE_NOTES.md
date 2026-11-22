@@ -1,5 +1,17 @@
 # Upgrade Notes
 
+## Internal CRM Calendar activities (#5935)
+
+Non-email activities can now exist without a primary CRM record. Check
+`CustomerInteraction.entity` and `entityId` in interaction lifecycle payloads
+before dereferencing a CRM parent. Unlinked rows report null, and linked rows
+continue to return their existing CRM identifier.
+
+Apply the Customers migration and upgrade all application and worker instances
+before creating unlinked activities. To roll back the migration, first link or
+export and remove every row with a null `entity_id`. The rollback refuses to
+restore the required constraint while any unlinked row remains.
+
 ## Fullapp development agent authentication (#9116)
 
 Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibility copy, or the standalone `docker-compose.fullapp.dev.yml`, generate a strong `OPENCODE_PASSWORD` (for example, `openssl rand -hex 32`) and export it or save it in the compose `.env`. Missing or empty passwords now stop startup. The same value configures native OpenCode server authentication and the existing app client. Direct OpenCode clients must send HTTP Basic credentials with username `opencode`; healthchecks authenticate automatically. Recreate the app and OpenCode services together after changing the password.

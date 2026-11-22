@@ -724,7 +724,7 @@ export class CustomerInteraction {
   deletedAt?: Date | null
 
   @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id', nullable: true, deleteRule: 'no action' })
-  entity?: CustomerEntity | null
+  entity!: CustomerEntity | null
 }
 
 @Entity({ tableName: 'customer_comments' })
