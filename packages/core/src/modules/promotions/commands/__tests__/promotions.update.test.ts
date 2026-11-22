@@ -7,6 +7,7 @@
 // style as `commands/__tests__/codes.crud.test.ts`.
 
 import { randomUUID } from 'crypto'
+import { ZodError } from 'zod'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { Promotion } from '../../data/entities'
 import { updatePromotionCommand } from '../promotions'
@@ -155,5 +156,103 @@ describe('promotions.promotion.update command', () => {
 
     expect(promotion.active).toBe(false)
     expect(promotion.tags).toEqual([])
+  })
+
+  describe('validates the merged record (stored values + patch) with the create-time rules', () => {
+    async function expectRejected(run: () => Promise<unknown>, path: string, message: string) {
+      const error = await run().then(() => null, (err: unknown) => err)
+      expect(error).toBeInstanceOf(ZodError)
+      expect((error as ZodError).issues).toEqual([
+        expect.objectContaining({ code: 'custom', path: [path], message }),
+      ])
+    }
+
+    it('rejects an endsAt-only patch that lands before the stored startsAt', async () => {
+      const { em, tables } = createFakeEm()
+      const startsAt = new Date('2026-12-10T00:00:00.000Z')
+      const promotion = seedPromotion(tables, { startsAt })
+      const dataEngine = { markOrmEntityChange: jest.fn() }
+      const ctx = fakeCtx(em, dataEngine)
+
+      await expectRejected(
+        () => updatePromotionCommand.execute({ id: promotion.id, endsAt: '2026-12-01' } as any, ctx),
+        'endsAt',
+        'startsAt must be before or equal to endsAt',
+      )
+      expect(promotion.endsAt).toBeNull()
+      expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+    })
+
+    it('rejects a startsAt-only patch that lands after the stored endsAt', async () => {
+      const { em, tables } = createFakeEm()
+      const promotion = seedPromotion(tables, { endsAt: new Date('2026-12-01T23:59:59.999Z') })
+      const ctx = fakeCtx(em, { markOrmEntityChange: jest.fn() })
+
+      await expectRejected(
+        () => updatePromotionCommand.execute({ id: promotion.id, startsAt: '2026-12-10' } as any, ctx),
+        'endsAt',
+        'startsAt must be before or equal to endsAt',
+      )
+      expect(promotion.startsAt).toBeNull()
+    })
+
+    it('rejects clearing budgetCurrency while the stored maxBudget stays set', async () => {
+      const { em, tables } = createFakeEm()
+      const promotion = seedPromotion(tables, { maxBudget: '100.00', budgetCurrency: 'USD' })
+      const ctx = fakeCtx(em, { markOrmEntityChange: jest.fn() })
+
+      await expectRejected(
+        () => updatePromotionCommand.execute({ id: promotion.id, budgetCurrency: null } as any, ctx),
+        'budgetCurrency',
+        'budgetCurrency is required when maxBudget is set',
+      )
+      expect(promotion.budgetCurrency).toBe('USD')
+    })
+
+    it('rejects setting maxBudget alone when no budgetCurrency is stored', async () => {
+      const { em, tables } = createFakeEm()
+      const promotion = seedPromotion(tables)
+      const ctx = fakeCtx(em, { markOrmEntityChange: jest.fn() })
+
+      await expectRejected(
+        () => updatePromotionCommand.execute({ id: promotion.id, maxBudget: '50' } as any, ctx),
+        'budgetCurrency',
+        'budgetCurrency is required when maxBudget is set',
+      )
+      expect(promotion.maxBudget).toBeNull()
+    })
+
+    it('accepts valid partial window and budget updates against the stored values', async () => {
+      const { em, tables } = createFakeEm()
+      const promotion = seedPromotion(tables, {
+        startsAt: new Date('2026-12-10T00:00:00.000Z'),
+        maxBudget: '100.00',
+        budgetCurrency: 'USD',
+      })
+      const ctx = fakeCtx(em, { markOrmEntityChange: jest.fn() })
+
+      await updatePromotionCommand.execute({ id: promotion.id, endsAt: '2026-12-20' } as any, ctx)
+      await updatePromotionCommand.execute({ id: promotion.id, maxBudget: null, budgetCurrency: null } as any, ctx)
+
+      expect((promotion.endsAt as Date).toISOString()).toBe('2026-12-20T23:59:59.999Z')
+      expect(promotion.maxBudget).toBeNull()
+      expect(promotion.budgetCurrency).toBeNull()
+    })
+
+    it('keeps the active toggle working on a record whose stored window/budget is already inconsistent', async () => {
+      const { em, tables } = createFakeEm()
+      const promotion = seedPromotion(tables, {
+        active: true,
+        startsAt: new Date('2026-12-10T00:00:00.000Z'),
+        endsAt: new Date('2026-12-01T23:59:59.999Z'),
+        maxBudget: '100.00',
+        budgetCurrency: null,
+      })
+      const ctx = fakeCtx(em, { markOrmEntityChange: jest.fn() })
+
+      await updatePromotionCommand.execute({ id: promotion.id, active: false } as any, ctx)
+
+      expect(promotion.active).toBe(false)
+    })
   })
 })
