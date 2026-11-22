@@ -460,7 +460,9 @@ export function ScheduleActivityDialog({
       // dialog has no entity picker, so an edit must never silently re-link (#6050).
       const payloadEntityId = isSaveEdit && editData?.entityId ? editData.entityId : entityId
       const hiddenFieldValue = keepsCustomType && isSaveEdit ? undefined : null
-      const preservesSchedule = keepsCustomType && isSaveEdit && !visibleFields.has('date')
+      const preservesSchedule = isSaveEdit && !visibleFields.has('date')
+        && (keepsCustomType || state.activityType === editData?.interactionType)
+      const preservesVisibility = isSaveEdit && state.visibility === (editData?.visibility ?? 'team')
       const payload = {
         ...(isSaveEdit ? { id: editData!.id } : {}),
         entityId: payloadEntityId,
@@ -495,7 +497,7 @@ export function ScheduleActivityDialog({
           ? state.linkedEntities.map((e) => ({ id: e.id, type: e.type, label: e.label }))
           : null,
         reminderMinutes: visibleFields.has('reminder') ? state.reminderMinutes : hiddenFieldValue,
-        visibility: visibleFields.has('visibility') ? state.visibility : hiddenFieldValue,
+        visibility: preservesVisibility ? undefined : visibleFields.has('visibility') ? state.visibility : hiddenFieldValue,
         ...(Object.keys(customValues).length > 0 ? { customValues } : {}),
       }
       await runGuardedMutation(

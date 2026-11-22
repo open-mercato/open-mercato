@@ -474,6 +474,51 @@ describe('ScheduleActivityDialog', () => {
     expect(screen.getByText('Update activity')).toBeInTheDocument()
   })
 
+  it('preserves a completed historical note schedule and visibility on a title-only edit', async () => {
+    mockUseRealScheduleState = true
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="person-1"
+        entityType="person"
+        editData={{
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          interactionType: 'note',
+          title: 'Historical note',
+          status: 'done',
+          scheduledAt: null,
+          occurredAt: '2026-11-10T13:00:00.000Z',
+          visibility: null,
+          body: 'Keep this body',
+        }}
+      />,
+    )
+    fireEvent.change(screen.getByDisplayValue('Historical note'), { target: { value: 'Renamed historical note' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
+    const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0][1].body) as Record<string, unknown>
+    expect(payload).toMatchObject({ title: 'Renamed historical note', body: 'Keep this body' })
+    for (const field of ['scheduledAt', 'date', 'time', 'visibility', 'occurredAt', 'status']) {
+      expect(payload).not.toHaveProperty(field)
+    }
+  })
+
+  it('persists an intentional visibility change on an existing note', async () => {
+    mockScheduleState = createScheduleState({ activityType: 'note', title: 'Historical note', visibility: 'private' })
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="person-1"
+        entityType="person"
+        editData={{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', interactionType: 'note', visibility: null }}
+      />,
+    )
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
+    const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0][1].body) as Record<string, unknown>
+    expect(payload.visibility).toBe('private')
+  })
+
   describe('undated backlog task (regression #5941)', () => {
     function lastSavedPayload() {
       const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
