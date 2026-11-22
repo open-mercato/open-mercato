@@ -55,7 +55,8 @@ write time.
   partial-null scope and accepts both fully-scoped and fully-global rows. The
   attachments upload route (`api/route.ts`) already guards its creation site.
 - **MUST gate every attachment read through `checkAttachmentAccess`** (`lib/access.ts`)
-  so tenant scoping and partition visibility are enforced consistently.
+  so tenant scoping and partition visibility are enforced consistently. The
+  owner-scoped exception is documented below.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.
@@ -71,6 +72,7 @@ write time.
   into a refusal (422); never catch the pipeline's other errors into a 4xx, which
   would hide I/O or memory faults as missing images. See
   `.ai/specs/2026-10-06-attachments-owner-scoped-reads.md`.
+- Document section search records MUST be written only through `section-search` queue jobs and the entity's `shouldIndex` gate (live extraction + opted-in partition); purge, supersede and partition toggle-off enqueue the matching deletes.
 
 ## Never
 
@@ -81,7 +83,7 @@ write time.
 - **Never read or expose attachment rows without `checkAttachmentAccess`** — bypassing
   it reintroduces the cross-tenant fail-open class. The one sanctioned exception is
   `readScopedForOwner`, which replaces the principal with a mandatory owner +
-  tenant + organization + partition match.
+  tenant + organization + partition match and refuses resolver-protected rows.
 - Never call `readScopedForOwner` from an attachments HTTP route, and never pass it
   an attachment id or owner taken straight from request input.
 

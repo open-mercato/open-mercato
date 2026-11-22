@@ -76,12 +76,13 @@ Behaviour, in order:
    returned row's scope pair is re-checked (defence in depth against a regressed filter).
 4. The partition must be global or owned by exactly that tenant and organization. A row whose
    partition carries an access-resolver requirement matching the row's owner entity or any of its
-   assignments, or whose owner or assignment matches a registered resolver declaration, is a 404:
+   assignments, or whose owner or assignment matches a registered resolver declaration for the
+   partition, is a 404 regardless of its action list:
    a principal-free read cannot evaluate a resolver, so it refuses rather than serves. Unreadable
    requirement data fails closed the same way.
 5. Partition code, owner (`entityId` + `recordId`) and, when given, assignment are enforced by the
-   same private helper `readScoped` now uses (`serveOwnedAttachment`). That helper also reads the
-   bytes and decides inline versus download exactly as `readScoped` does.
+   same private check used by `readScoped` and the metadata-only describe methods. Byte reads
+   share the same inline and download disposition handling.
 6. With `rendition`, the attachment must be an inline-safe raster image (otherwise 404, before the
    storage driver is touched). The bytes then go through `renderImageRendition`, the raster pipeline
    now shared with `GET /api/attachments/image/{id}`: the per-size thumbnail cache, magic-byte and
@@ -90,10 +91,11 @@ Behaviour, in order:
    file with a valid header) is a 422 (`Image could not be rendered`). Only Sharp's decode errors
    count: `isUndecodableImageError` matches a libvips loader error (`vipspng:`, `VipsJpeg:`,
    `gifload_buffer:`, …) or Sharp's input error on the message's first line, and not memory
-   exhaustion. Every other failure — thumbnail-cache or storage I/O, memory, encoding — is logged,
-   reported (`attachments.image_rendition_failed`) and rethrown, so the caller answers it as a 500
-   rather than hiding an operational fault as a missing logo. Vector
-   input never reaches Sharp.
+   exhaustion. A missing local file or provider object is a 404. A missing thumbnail falls back to
+   the source. Other cache-read or storage I/O errors, metadata resource failures and encoding
+   failures are logged, reported with `attachments.image_rendition_failed` and returned as 500.
+   Cache writes happen in the background and a write failure is reported separately without
+   changing the response. Vector input never reaches Sharp.
 
 Every refusal after step 1 is a 404, with two exceptions: a refusal from the rendition pipeline
 keeps its status (400, 413 or 422, step 6), and a row whose partition has no `AttachmentPartition`
@@ -135,7 +137,7 @@ resolver another module declared. The implemented rule:
 - `readScopedForOwner` refuses — 404, like every other owner-scoped refusal — a row whose partition
   carries a durable access-resolver requirement (`accessResolverRequirements`) matching the row's
   owner entity or any of its assignments, or whose owner or assignments match a registered resolver
-  declaration for the partition. It does not run the resolver with an anonymous subject: the
+  declaration for the partition, regardless of its actions. It does not run a resolver with an anonymous subject: the
   resolver contract's subjects are authenticated, and refusing is simpler than defining anonymous
   policy. Requirement data that cannot be parsed fails closed the same way.
 - A module that wants to publish files of a resolver-protected owner type must not rely on
@@ -231,7 +233,7 @@ staff keep the resized image-route preview.
 | Logo uploaded to a non-default partition | Low | UX | the partition is the attachments module's default for the owner entity, the one the upload route uses when no partition is named; the editor never names one. A logo uploaded with an explicit `partitionCode`, or after an operator maps checkout entities to another default, is a 404 rather than served from an unexpected partition | Re-upload through the editor |
 | `readScopedForOwner` bypasses an access resolver | Medium | data exposure | classified as a trusted, request-facing boundary in both specs; it refuses (404) a row whose partition requirement or owner declaration matches a resolver, without running the resolver anonymously, and fails closed on unreadable requirement data; pinned by a unit test with a requirement-bearing partition | A requirement declared only per-request (outside the partition row and the registry) would not be seen; the shipped #6829 contract declares both durably |
 | Corrupt logo | Low | availability | a file Sharp cannot decode is a 422 from the service and a 404 from the route | — |
-| An operational fault hidden as a missing logo | Low | operability | only Sharp decode errors become 422; cache, storage, memory and encoder failures are logged, reported and answered 500 | A new libvips loader message format would be answered 500 until the classifier learns it, which fails loud, not silent |
+| An operational fault hidden as a missing logo | Low | operability | only Sharp decode errors become 422; cache reads, storage I/O, memory and encoder failures are logged, reported and answered 500 | A new libvips loader message format would be answered 500 until the classifier learns it, which fails loud, not silent |
 
 ## Migration & Backward Compatibility
 
@@ -291,8 +293,10 @@ raster rendition and refuses any non-raster content type, which a test pins.
     dimension, an encoder (`pngsave`) error and a generic error.
 - `core: lib/__tests__/imageRendition.failure.test.ts`, with Sharp mocked: a `toBuffer` rejection
   that is out of memory, `Insufficient memory`, the maximum dimension or a generic encoder error is
-  rethrown and reported; a `vipspng` decode error is a 422 and is not reported. Replacing the
-  classifier with a blanket catch fails four of these cases.
+  rethrown and reported. A `vipspng` decode error yields 422. The metadata tests distinguish
+  content and pixel-limit refusals from resource failures. Cache fixtures exercise missing and
+  inaccessible files through the real cache helper and verify reporting for background write
+  failures.
 - `core: api/__tests__/image.route.anonymous.test.ts` — with the real `checkAttachmentAccess`, an
   anonymous request for a tenant-scoped image is a 401 on a private and on a public partition and
   never reaches Sharp: the reason the old `logoPreviewUrl` could not work.
@@ -329,6 +333,22 @@ raster rendition and refuses any non-raster content type, which a test pins.
   - a template logo inherited by a link loads;
   - a link pointing at another link's logo is a 404;
   - an unpublished link's logo is a 404.
+
+
+  The production Chromium cases also check the actual rendered link and template logos, including
+  their 640 × 240 dimensions, missing-logo states, preview URL propagation, and preview refusals
+  for a narrow-role user, a different organization, and a different tenant.
+
+The logo route was measured against disposable PostgreSQL with background workers disabled.
+Each row shows the result for three identical warmed HTTP requests. The counts include request
+authentication and ACL checks and exclude fixture setup and measurement markers.
+
+| Request | HTTP status | SQL statements per request |
+|---|---:|---:|
+| Preview an uploaded logo with an authorized session | 200 | 19 SELECTs |
+| Read the published logo anonymously | 200 | 5 SELECTs |
+| Preview an unknown link with an authorized session | 404 | 16 SELECTs |
+| Request a preview without a session | 401 | 0 |
 
   The test sends `status: 'active'` together with `logoAttachmentId` when it sets a link's logo.
   `updateLinkSchema` is `checkoutContentSchema.partial()`, and under zod 4 `.partial()` still

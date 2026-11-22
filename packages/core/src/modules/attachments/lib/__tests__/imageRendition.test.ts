@@ -26,7 +26,8 @@ jest.mock('../thumbnailCache', () => ({
   writeThumbnailCache: jest.fn(async () => undefined),
 }))
 
-import { isUndecodableImageError, renderImageRendition } from '../imageRendition'
+import { renderImageRendition } from '../imageRendition'
+import { isUndecodableImageError } from '../imageSafety'
 
 const attachment = { id: '7f1c2a9e-5b3d-4e8f-9a1b-2c3d4e5f6a7b', partitionCode: 'privateAttachments', mimeType: 'image/png' }
 const size = { width: 640, height: 240, cropType: 'contain' as const }

@@ -30,8 +30,8 @@ export function DecisionMakersFooter({ names, suggestion, onSendInvitation }: De
           </p>
           <p className="break-words text-sm font-medium">
             {t('customers.people.decisionMakers.count', '{count} key people', { count: names.length })}:
-            {' '}{visibleNames.join(' \u00b7 ')}
-            {hiddenCount > 0 ? ` \u00b7 +${hiddenCount} ${t('customers.people.decisionMakers.more', 'more')}` : ''}
+            {' '}{visibleNames.join(', ')}
+            {hiddenCount > 0 ? `, +${hiddenCount} ${t('customers.people.decisionMakers.more', 'more')}` : ''}
           </p>
           {suggestion && (
             <p className="text-xs text-muted-foreground mt-0.5">{suggestion}</p>

@@ -4,6 +4,8 @@ import type { AttachmentOwner, AttachmentService, ReadScopedAttachmentResult } f
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CheckoutLink } from '../../../../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../../../../lib/constants'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
@@ -32,14 +34,17 @@ function isRasterLogo(logo: ReadScopedAttachmentResult): boolean {
   return logo.contentDisposition.startsWith('inline') && RASTER_LOGO_TYPES.has(contentType)
 }
 
-function resolveOwnerScopedReader(container: { resolve: (name: string) => unknown }): OwnerScopedReader | null {
+function resolveOwnerScopedReader(
+  container: Awaited<ReturnType<typeof createRequestContainer>>,
+): OwnerScopedReader | null {
+  if (!container.hasRegistration('attachmentService')) return null
   try {
-    const candidate = container.resolve('attachmentService') as Partial<AttachmentService> | null
-    if (candidate && typeof candidate.readScopedForOwner === 'function') return candidate as OwnerScopedReader
-  } catch {
-    return null
+    const service = container.resolve<AttachmentService | undefined>('attachmentService')
+    return typeof service?.readScopedForOwner === 'function' ? service as OwnerScopedReader : null
+  } catch (error) {
+    reportTelemetryError(error, { module: 'checkout', code: 'checkout.logo_service_resolution_failed' })
+    throw new Error('[internal] Could not resolve the attachment service', { cause: error })
   }
-  return null
 }
 
 async function readLogo(
@@ -94,23 +99,30 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   try {
     const resolvedParams = await params
     const previewRequested = new URL(req.url).searchParams.get('preview') === 'true'
-    const container = await createRequestContainer()
+    const previewContext = previewRequested ? await requirePreviewContext(req) : null
+    const container = previewContext?.container ?? await createRequestContainer()
     if (!previewRequested) {
+      const { t } = await resolveTranslations()
       const rateLimitResponse = await enforceCheckoutRateLimit({
         req,
         container,
         config: checkoutPublicViewRateLimitConfig,
         namespace: 'checkout-public-logo',
-        errorMessage: 'Too many checkout page requests. Please try again later.',
+        errorMessage: t('checkout.payPage.errors.tooManyRequests'),
         posture: 'fail-open',
       })
       if (rateLimitResponse) return rateLimitResponse
     }
-    const previewScope = previewRequested ? (await requirePreviewContext(req)).auth : null
-    const em = container.resolve('em')
-    const link = await findOneWithDecryption(em, CheckoutLink, previewScope
-      ? { slug: resolvedParams.slug, deletedAt: null, tenantId: previewScope.tenantId, organizationId: previewScope.orgId }
-      : { slug: resolvedParams.slug, deletedAt: null })
+    const em = previewContext?.em ?? container.resolve('em')
+    const previewScope = previewContext ? {
+      tenantId: previewContext.auth.tenantId,
+      organizationId: previewContext.auth.orgId,
+    } : undefined
+    const link = await findOneWithDecryption(em, CheckoutLink, {
+      slug: resolvedParams.slug,
+      deletedAt: null,
+      ...previewScope,
+    }, undefined, previewScope)
     if (!link || (!previewRequested && !isCheckoutLinkPublic(link.status))) return notFound()
     const passwordVerified = previewRequested || !link.passwordHash || verifyCheckoutAccessToken(readCheckoutAccessCookie(req), link.slug, {
       linkId: link.id,
@@ -153,6 +165,7 @@ export const openApi = {
       }),
       errors: [
         { status: 401, description: 'A preview request without the checkout preview context' },
+        { status: 403, description: 'An authenticated preview request without checkout view access' },
         { status: 404, description: 'The link is not published, is locked, or has no servable logo' },
         { status: 429, description: 'Too many checkout page requests', schema: rateLimitErrorSchema },
         { status: 500, description: 'The logo could not be read or rendered' },

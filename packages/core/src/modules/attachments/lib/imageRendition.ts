@@ -3,28 +3,10 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { ImageCropType } from './imageUrls'
-import { MAX_IMAGE_SOURCE_PIXELS, validateImageDimensions, validateImageMagicBytes } from './imageSafety'
+import { isUndecodableImageError, MAX_IMAGE_SOURCE_PIXELS, validateImageDimensions, validateImageMagicBytes } from './imageSafety'
 import { buildThumbnailCacheKey, readThumbnailCache, writeThumbnailCache } from './thumbnailCache'
 
 const logger = createLogger('attachments').child({ component: 'image-rendition' })
-
-const UNDECODABLE_IMAGE_ERROR =
-  /^(?:Input (?:buffer|file) (?:has corrupt header|contains unsupported image format)|(?:vips|lib)?(?:png|spng|jpe?g|gif|webp|heif|avif|tiff?)(?!\w*save)\w*:|Vips(?:Jpeg|Png|Gif|Webp|Heif|Tiff|ForeignLoad\w*)\b|\w+load(?:_buffer|_source)?:)/i
-const RESOURCE_ERROR = /out of memory|insufficient memory|cannot allocate|memory allocation|maximum supported image dimension/i
-
-/**
- * True for Sharp's report that the stored bytes cannot be decoded: a libvips
- * loader error (`vipspng:`, `VipsJpeg:`, `gifload_buffer:`, …) or Sharp's own
- * input error, named on the first line of the message. Memory exhaustion
- * (including libjpeg's `Insufficient memory`), the JPEG encoder's maximum
- * dimension, I/O and other encoder errors are operational failures, not a
- * property of the file.
- */
-export function isUndecodableImageError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-  const firstLine = error.message.split('\n', 1)[0] ?? ''
-  return UNDECODABLE_IMAGE_ERROR.test(firstLine) && !RESOURCE_ERROR.test(error.message)
-}
 
 export type ImageRenditionSize = {
   width?: number
@@ -40,6 +22,7 @@ type ImageRenditionInput = {
   attachment: { id: string; partitionCode: string; mimeType: string | null | undefined }
   readSource: () => Promise<Buffer>
   size: ImageRenditionSize
+  strictInputErrors?: boolean
 }
 
 /**
@@ -49,10 +32,10 @@ type ImageRenditionInput = {
  * attachment is an inline-safe raster image; vector input never reaches Sharp.
  *
  * Refusals are results: a file that fails the checks keeps their status, and
- * one Sharp cannot decode (`isUndecodableImageError`) is a 422. Every other
- * failure — cache or storage I/O, memory, encoding — is logged, reported and
- * rethrown for the caller to answer as a server error; an HTTP error the
- * caller's `readSource` raises passes through untouched.
+ * one Sharp cannot decode at render time is a 422. Owner-scoped renditions
+ * opt into propagating operational thumbnail-cache read and metadata failures.
+ * Unhandled failures are logged, reported and rethrown; an HTTP error from
+ * `readSource` passes through. Cache writes are best effort.
  */
 export async function renderImageRendition(input: ImageRenditionInput): Promise<ImageRenditionResult> {
   try {
@@ -66,10 +49,10 @@ export async function renderImageRendition(input: ImageRenditionInput): Promise<
 }
 
 async function renderCheckedImage(input: ImageRenditionInput): Promise<ImageRenditionResult> {
-  const { attachment, size } = input
+  const { attachment, size, strictInputErrors } = input
   const cacheKey = buildThumbnailCacheKey(size.width, size.height, size.cropType)
   if (cacheKey) {
-    const cached = await readThumbnailCache(attachment.partitionCode, attachment.id, cacheKey)
+    const cached = await readThumbnailCache(attachment.partitionCode, attachment.id, cacheKey, { strictInputErrors })
     if (cached) return { ok: true, buffer: cached }
   }
   const source = await input.readSource()
@@ -77,7 +60,7 @@ async function renderCheckedImage(input: ImageRenditionInput): Promise<ImageRend
   if (!magicBytesValidation.ok) {
     return { ok: false, status: magicBytesValidation.status, error: magicBytesValidation.error }
   }
-  const dimensionsValidation = await validateImageDimensions(source)
+  const dimensionsValidation = await validateImageDimensions(source, { strictInputErrors })
   if (!dimensionsValidation.ok) {
     return { ok: false, status: dimensionsValidation.status, error: dimensionsValidation.error }
   }
@@ -106,6 +89,7 @@ async function renderCheckedImage(input: ImageRenditionInput): Promise<ImageRend
   if (cacheKey) {
     void writeThumbnailCache(attachment.partitionCode, attachment.id, cacheKey, buffer).catch((cacheError) => {
       logger.error('Thumbnail cache write failed', { err: cacheError })
+      getTelemetryRuntime()?.reportError(cacheError, { module: 'attachments', code: 'attachments.thumbnail_cache_write_failed' })
     })
   }
   return { ok: true, buffer }

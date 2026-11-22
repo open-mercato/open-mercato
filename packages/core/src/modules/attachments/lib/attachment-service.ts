@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Attachment, AttachmentPartition } from '../data/entities'
@@ -13,7 +13,6 @@ import { assertAttachmentScopeInvariant, checkAttachmentAccess } from './access'
 import {
   collectAttachmentAccessTargets,
   getAttachmentAccessRegistry,
-  matchesAttachmentAccessResolver,
   matchesAttachmentAccessSelector,
   matchesAttachmentAccessTargets,
 } from './access-registry'
@@ -43,6 +42,11 @@ import {
   resolveAttachmentMaxBytes,
   resolveAttachmentMultipartMaxBytes,
 } from './upload-limits'
+import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from './documentStructure/purge'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { attachmentCrudEvents, attachmentCrudIndexer } from './crud'
+import { clearAttachmentThumbnailCache } from './thumbnailCache'
 
 const logger = createLogger('attachments').child({ component: 'attachment-service' })
 
@@ -173,9 +177,8 @@ export type ReadScopedAttachmentResult = {
  * caller's tenant and organization at the database boundary and the row must
  * belong to `expectedOwner` in `expectedPartitionCode`. Resolve the attachment
  * id and the owner from the module's own records, never from request input.
- * This is a trusted, request-facing boundary: when attachment access resolvers
- * ship (#6726), it must refuse rows a resolver requirement protects rather than
- * serve them (see `.ai/specs/2026-10-06-attachments-owner-scoped-reads.md`).
+ * The method refuses any row covered by an access-resolver requirement or
+ * declaration (see `.ai/specs/2026-10-06-attachments-owner-scoped-reads.md`).
  */
 export type ReadScopedAttachmentForOwnerInput = {
   attachmentId: string
@@ -198,6 +201,21 @@ export type ReadScopedAttachmentForOwnerInput = {
    * have renditions; anything else is a 404.
    */
   rendition?: ImageRenditionSize
+}
+
+export type DescribeScopedAttachmentInput = Omit<ReadScopedAttachmentInput, 'forceDownload'>
+
+export type DescribedScopedAttachment = {
+  id: string
+  fileName: string
+  mimeType: string
+  fileSize: number
+  partitionCode: string
+}
+
+export type DescribeManyScopedAttachmentsInput = {
+  auth: NonNullable<AuthContext>
+  items: Array<Omit<DescribeScopedAttachmentInput, 'auth'>>
 }
 
 export type ReleaseScopedAttachmentInput = {
@@ -227,10 +245,26 @@ export interface AttachmentService {
   readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult>
   readScopedForOwner?(input: ReadScopedAttachmentForOwnerInput): Promise<ReadScopedAttachmentResult>
   /**
-   * Permanently deletes an attachment row and its stored object once no other row references it.
+   * Runs every check `readScoped` runs and returns the attachment's metadata
+   * without reading its bytes, so a caller can validate a file before it is
+   * read later (for example at delivery time).
+   */
+  describeScoped?(input: DescribeScopedAttachmentInput): Promise<DescribedScopedAttachment>
+  /**
+   * `describeScoped` for several attachments of one actor: the rows and their
+   * partitions load in one query each, then every item gets the same checks,
+   * in order. Resolves to one result per item, in input order; throws the
+   * first item's refusal, as a loop over `describeScoped` would.
+   */
+  describeManyScoped?(input: DescribeManyScopedAttachmentsInput): Promise<DescribedScopedAttachment[]>
+  /**
+   * Permanently deletes an attachment row and its stored object once no other row references it,
+   * then emits `attachments.attachment.deleted` (with its query-index side effect) after commit.
    *
    * With `{ flush: false }` call it inside your own transaction and run the returned cleanup after
-   * commit; `undefined` means another row still references the stored object.
+   * commit; it deletes the stored object when no other row references it, queues removal of the
+   * purged sections' search records, clears cached thumbnails and emits the delete event. Always
+   * invoke a returned cleanup; `undefined` means there is nothing left to clean up.
    *
    * @deprecated Calling it with `{ flush: false }` outside a transaction. It still works for one
    * minor version but logs a warning, and its reference check is not locked, so two racing releases
@@ -271,8 +305,46 @@ async function readRequestBodyWithinLimit(request: Request, maxBytes: number): P
 }
 
 
+function toDescribedScopedAttachment(attachment: Attachment): DescribedScopedAttachment {
+  return {
+    id: attachment.id,
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType || 'application/octet-stream',
+    fileSize: attachment.fileSize,
+    partitionCode: attachment.partitionCode,
+  }
+}
+
 function assignmentMatches(candidate: AttachmentAssignment, expected: AttachmentAssignment): boolean {
   return candidate.type === expected.type && candidate.id === expected.id
+}
+
+function assertScopedAttachmentOwner(
+  attachment: Attachment,
+  input: Pick<ReadScopedAttachmentInput, 'expectedOwner' | 'expectedAssignment' | 'expectedPartitionCode'>,
+): void {
+  if (input.expectedPartitionCode && attachment.partitionCode !== input.expectedPartitionCode) {
+    throw new CrudHttpError(404, { error: 'Attachment not found' })
+  }
+  if (
+    attachment.entityId !== input.expectedOwner.entityId ||
+    attachment.recordId !== input.expectedOwner.recordId
+  ) {
+    throw new CrudHttpError(404, { error: 'Attachment not found' })
+  }
+  const { expectedAssignment } = input
+  if (expectedAssignment) {
+    const assignments = readAttachmentMetadata(attachment.storageMetadata).assignments ?? []
+    if (!assignments.some((candidate) => assignmentMatches(candidate, expectedAssignment))) {
+      throw new CrudHttpError(404, { error: 'Attachment not found' })
+    }
+  }
+}
+
+function isMissingStorageObject(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  return ('code' in error && error.code === 'ENOENT')
+    || ('name' in error && error.name === 'NoSuchKey')
 }
 
 function partitionMatchesScope(
@@ -305,7 +377,10 @@ function requiresOwnerAccessResolver(attachment: Attachment, partition: Attachme
     )),
   ]
   if (requirements.some((requirement) => matchesAttachmentAccessTargets(requirement.targetEntity, targets))) return true
-  return registry.resolvers.some((resolver) => matchesAttachmentAccessResolver(resolver, partition.code, targets, 'read'))
+  return registry.resolvers.some((resolver) => (
+    matchesAttachmentAccessSelector(resolver.targetPartition, partition.code)
+    && matchesAttachmentAccessTargets(resolver.targetEntity ?? '*', targets)
+  ))
 }
 
 export class DefaultAttachmentService implements AttachmentService {
@@ -322,7 +397,27 @@ export class DefaultAttachmentService implements AttachmentService {
     private readonly storageDriverFactory: StorageDriverFactory,
     private readonly resolveScopedUploadService?: (() => ScopedAttachmentUploadService | null) | null,
     private readonly resolveAccessContext?: (() => AttachmentAccessContext) | null,
+    private readonly resolveDataEngine?: (() => DataEngine | null) | null,
   ) {}
+
+  private async emitReleasedSideEffects(attachment: Attachment): Promise<void> {
+    await clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id)
+    const dataEngine = this.resolveDataEngine?.() ?? null
+    if (!dataEngine) return
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: attachment,
+      identifiers: {
+        id: attachment.id,
+        organizationId: attachment.organizationId ?? null,
+        tenantId: attachment.tenantId ?? null,
+      },
+      events: attachmentCrudEvents,
+      indexer: attachmentCrudIndexer,
+    })
+    await dataEngine.flushOrmEntityChanges()
+  }
 
   validateUpload(input: {
     contentLength?: string | null
@@ -414,6 +509,51 @@ export class DefaultAttachmentService implements AttachmentService {
   }
 
   async readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult> {
+    const attachment = await this.findReadableScoped(input)
+    return this.serveAttachment(attachment, { forceDownload: input.forceDownload })
+  }
+
+  async describeScoped(input: DescribeScopedAttachmentInput): Promise<DescribedScopedAttachment> {
+    return toDescribedScopedAttachment(await this.findReadableScoped(input))
+  }
+
+  async describeManyScoped(input: DescribeManyScopedAttachmentsInput): Promise<DescribedScopedAttachment[]> {
+    if (input.items.length === 0) return []
+    const { auth } = input
+    const decryptionScope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+    const attachmentIds = [...new Set(input.items.map((item) => item.attachmentId))]
+    const attachments = await findWithDecryption(
+      this.em,
+      Attachment,
+      {
+        id: { $in: attachmentIds },
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+      },
+      undefined,
+      decryptionScope,
+    )
+    const attachmentsById = new Map(attachments.map((attachment) => [attachment.id, attachment]))
+    const partitionCodes = [...new Set(attachments.map((attachment) => attachment.partitionCode))]
+    const partitions = partitionCodes.length
+      ? await findWithDecryption(this.em, AttachmentPartition, { code: { $in: partitionCodes } }, undefined, decryptionScope)
+      : []
+    const partitionsByCode = new Map(partitions.map((partition) => [partition.code, partition]))
+
+    const accessContext = this.resolveAccessContext?.()
+    const described: DescribedScopedAttachment[] = []
+    for (const item of input.items) {
+      const attachment = attachmentsById.get(item.attachmentId)
+      if (!attachment) throw new CrudHttpError(404, { error: 'Attachment not found' })
+      const partition = partitionsByCode.get(attachment.partitionCode)
+      if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
+      await this.assertReadableScoped({ ...item, auth }, attachment, partition, accessContext)
+      described.push(toDescribedScopedAttachment(attachment))
+    }
+    return described
+  }
+
+  private async findReadableScoped(input: DescribeScopedAttachmentInput): Promise<Attachment> {
     // Scope the lookup at the database boundary so a foreign-tenant row is
     // never materialized, then keep checkAttachmentAccess below as defense in
     // depth. This service only ever stores fully scoped rows, so global rows
@@ -440,10 +580,19 @@ export class DefaultAttachmentService implements AttachmentService {
       { tenantId: input.auth.tenantId, organizationId: input.auth.orgId },
     )
     if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
+    await this.assertReadableScoped(input, attachment, partition, this.resolveAccessContext?.())
+    return attachment
+  }
 
+  private async assertReadableScoped(
+    input: DescribeScopedAttachmentInput,
+    attachment: Attachment,
+    partition: AttachmentPartition,
+    accessContext: AttachmentAccessContext | undefined,
+  ): Promise<void> {
     const access = await evaluateAttachmentAccess({
       auth: input.auth, attachment, partition, action: 'read',
-      context: this.resolveAccessContext?.(), requireAuthForPublic: true,
+      context: accessContext, requireAuthForPublic: true,
     })
     if (!access.ok) await throwAttachmentAccessError(access.status)
     if (!partitionMatchesScope(partition, input.auth.tenantId, input.auth.orgId)) {
@@ -452,7 +601,7 @@ export class DefaultAttachmentService implements AttachmentService {
     if (input.requirePrivatePartition && partition.isPublic) {
       throw new CrudHttpError(403, { error: 'Attachment partition is not accessible for this resource' })
     }
-    return this.serveOwnedAttachment(attachment, input)
+    assertScopedAttachmentOwner(attachment, input)
   }
 
   async readScopedForOwner(input: ReadScopedAttachmentForOwnerInput): Promise<ReadScopedAttachmentResult> {
@@ -494,35 +643,14 @@ export class DefaultAttachmentService implements AttachmentService {
     if (requiresOwnerAccessResolver(attachment, partition)) {
       throw new CrudHttpError(404, { error: 'Attachment not found' })
     }
-    return this.serveOwnedAttachment(attachment, { ...input, expectedPartitionCode: partitionCode })
+    assertScopedAttachmentOwner(attachment, { ...input, expectedPartitionCode: partitionCode })
+    return this.serveAttachment(attachment, input)
   }
 
-  private async serveOwnedAttachment(
+  private async serveAttachment(
     attachment: Attachment,
-    input: {
-      expectedOwner: AttachmentOwner
-      expectedAssignment?: AttachmentAssignment
-      expectedPartitionCode?: string
-      forceDownload?: boolean
-      rendition?: ImageRenditionSize
-    },
+    input: { forceDownload?: boolean; rendition?: ImageRenditionSize },
   ): Promise<ReadScopedAttachmentResult> {
-    if (input.expectedPartitionCode && attachment.partitionCode !== input.expectedPartitionCode) {
-      throw new CrudHttpError(404, { error: 'Attachment not found' })
-    }
-    if (
-      attachment.entityId !== input.expectedOwner.entityId ||
-      attachment.recordId !== input.expectedOwner.recordId
-    ) {
-      throw new CrudHttpError(404, { error: 'Attachment not found' })
-    }
-    if (input.expectedAssignment) {
-      const assignments = readAttachmentMetadata(attachment.storageMetadata).assignments ?? []
-      if (!assignments.some((candidate) => assignmentMatches(candidate, input.expectedAssignment!))) {
-        throw new CrudHttpError(404, { error: 'Attachment not found' })
-      }
-    }
-
     if (input.rendition && (input.forceDownload || !canRenderInlineAttachment(attachment.mimeType))) {
       throw new CrudHttpError(404, { error: 'Attachment not found' })
     }
@@ -534,7 +662,8 @@ export class DefaultAttachmentService implements AttachmentService {
     const readStoredBytes = async () => {
       try {
         return await driver.read(attachment.partitionCode, attachment.storagePath)
-      } catch {
+      } catch (error) {
+        if (input.rendition && !isMissingStorageObject(error)) throw error
         throw new CrudHttpError(404, { error: 'File not available' })
       }
     }
@@ -544,6 +673,7 @@ export class DefaultAttachmentService implements AttachmentService {
         attachment,
         readSource: async () => (await readStoredBytes()).buffer,
         size: input.rendition,
+        strictInputErrors: true,
       })
       if (!rendered.ok) throw new CrudHttpError(rendered.status, { error: rendered.error })
       return {
@@ -641,11 +771,22 @@ export class DefaultAttachmentService implements AttachmentService {
         : await lockAttachmentStorageReferences(em, attachment)
       const removal = resolveAttachmentStorageRelease(referenceIds, attachment.id)
       if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })
+      const purge = await purgeDocumentStructure(
+        em,
+        { attachmentId: attachment.id, tenantId: input.tenantId, organizationId: input.organizationId },
+        { flush: false },
+      )
       em.remove(attachment)
-      return removal.releaseStorage ? deleteProviderBytes : undefined
+      const { indexedSectionIds } = purge
+      return async () => {
+        if (indexedSectionIds.length > 0) await enqueuePurgedSectionSearchDelete(scope, indexedSectionIds)
+        if (removal.releaseStorage) await deleteProviderBytes()
+        await this.emitReleasedSideEffects(attachment)
+      }
     }
     const removal = await removeAttachmentRecord(em, attachment)
     if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })
     if (removal.releaseStorage) await deleteProviderBytes()
+    await this.emitReleasedSideEffects(attachment)
   }
 }

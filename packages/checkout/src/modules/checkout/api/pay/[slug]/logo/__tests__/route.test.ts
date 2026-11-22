@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { enforceCheckoutRateLimit } from '../../../../../lib/rateLimiter'
 import { verifyCheckoutAccessToken } from '../../../../../lib/utils'
 import { requirePreviewContext } from '../../../../helpers'
@@ -19,6 +21,15 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
+  reportTelemetryError: jest.fn(),
 }))
 
 jest.mock('../../../../../lib/rateLimiter', () => ({
@@ -76,7 +87,15 @@ function linkStoredIn(tenantId: string, organizationId: string, overrides: Recor
 }
 
 function previewContext(tenantId: string, orgId: string) {
-  return { auth: { tenantId, orgId, sub: 'user-1' }, container: {}, em: {} }
+  const em = {}
+  return {
+    auth: { tenantId, orgId, sub: 'user-1' },
+    container: {
+      hasRegistration: (name: string) => name === 'attachmentService',
+      resolve: jest.fn(() => ({ readScopedForOwner })),
+    },
+    em,
+  }
 }
 
 function logoRequest(query = '', headers: Record<string, string> = {}) {
@@ -90,10 +109,12 @@ describe('GET /api/checkout/pay/[slug]/logo', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     jest.mocked(enforceCheckoutRateLimit).mockResolvedValue(null)
+    jest.mocked(resolveTranslations).mockResolvedValue({ t: (key: string) => key } as never)
     jest.mocked(verifyCheckoutAccessToken).mockReturnValue(false)
     jest.mocked(findOneWithDecryption).mockResolvedValue(link() as never)
     readScopedForOwner.mockResolvedValue(servedLogo())
     jest.mocked(createRequestContainer).mockResolvedValue({
+      hasRegistration: (name: string) => name === 'attachmentService',
       resolve: (name: string) => {
         if (name === 'em') return {}
         if (name === 'attachmentService') return { readScopedForOwner }
@@ -243,24 +264,34 @@ describe('GET /api/checkout/pay/[slug]/logo', () => {
     expect(response.status).toBe(500)
   })
 
-  it('returns the rate limiter response when the visitor is throttled', async () => {
-    jest.mocked(enforceCheckoutRateLimit).mockResolvedValue(
-      NextResponse.json({ error: 'Too many requests' }, { status: 429 }),
+  it('returns the localized rate limiter response when the visitor is throttled', async () => {
+    const message = 'Zbyt wiele żądań dotyczących strony płatności. Spróbuj ponownie później.'
+    const translate = jest.fn(() => message)
+    jest.mocked(resolveTranslations).mockResolvedValue({ t: translate } as never)
+    jest.mocked(enforceCheckoutRateLimit).mockImplementation(async ({ errorMessage }) =>
+      NextResponse.json({ error: errorMessage }, { status: 429, headers: { 'Retry-After': '60' } }),
     )
 
     const response = await logoRequest()
 
     expect(response.status).toBe(429)
+    expect(await response.json()).toEqual({ error: message })
+    expect(response.headers.get('Retry-After')).toBe('60')
+    expect(translate).toHaveBeenCalledWith('checkout.payPage.errors.tooManyRequests')
     expect(readScopedForOwner).not.toHaveBeenCalled()
   })
 
   it('requires the preview context for a preview of an unpublished link', async () => {
     jest.mocked(findOneWithDecryption).mockResolvedValue(link({ status: 'draft' }) as never)
-    jest.mocked(requirePreviewContext).mockResolvedValue(previewContext(TENANT_ID, ORGANIZATION_ID) as never)
+    const context = previewContext(TENANT_ID, ORGANIZATION_ID)
+    jest.mocked(requirePreviewContext).mockResolvedValue(context as never)
 
     const response = await logoRequest('?preview=true')
 
     expect(requirePreviewContext).toHaveBeenCalled()
+    expect(createRequestContainer).not.toHaveBeenCalled()
+    expect(jest.mocked(findOneWithDecryption).mock.calls[0]![0]).toBe(context.em)
+    expect(context.container.resolve).toHaveBeenCalledWith('attachmentService')
     expect(enforceCheckoutRateLimit).not.toHaveBeenCalled()
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('private, no-store')
@@ -314,11 +345,42 @@ describe('GET /api/checkout/pay/[slug]/logo', () => {
 
   it('returns 404 when the attachments service offers no owner-scoped reads', async () => {
     jest.mocked(createRequestContainer).mockResolvedValue({
+      hasRegistration: () => true,
       resolve: (name: string) => (name === 'em' ? {} : { readScoped: jest.fn() }),
     } as never)
 
     const response = await logoRequest()
 
     expect(response.status).toBe(404)
+  })
+
+  it('returns 404 without resolving an unregistered attachment service', async () => {
+    const resolve = jest.fn()
+    jest.mocked(createRequestContainer).mockResolvedValue({
+      hasRegistration: () => false,
+      resolve,
+    } as never)
+
+    expect((await logoRequest()).status).toBe(404)
+    expect(resolve).toHaveBeenCalledTimes(1)
+    expect(resolve).toHaveBeenCalledWith('em')
+    expect(reportTelemetryError).not.toHaveBeenCalled()
+  })
+
+  it('reports a failure constructing a registered attachment service and returns 500', async () => {
+    const error = new CrudHttpError(404, { error: '[internal] attachment service construction failed' })
+    jest.mocked(createRequestContainer).mockResolvedValue({
+      hasRegistration: () => true,
+      resolve: (name: string) => {
+        if (name === 'em') return {}
+        throw error
+      },
+    } as never)
+
+    expect((await logoRequest()).status).toBe(500)
+    expect(reportTelemetryError).toHaveBeenCalledWith(error, {
+      module: 'checkout',
+      code: 'checkout.logo_service_resolution_failed',
+    })
   })
 })

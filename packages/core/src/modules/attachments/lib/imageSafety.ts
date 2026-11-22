@@ -3,6 +3,16 @@ import sharp, { type Metadata } from 'sharp'
 export const MAX_IMAGE_SOURCE_BYTES = 25 * 1024 * 1024
 export const MAX_IMAGE_SOURCE_PIXELS = 40_000_000
 
+const UNDECODABLE_IMAGE_ERROR =
+  /^(?:Input (?:buffer|file) (?:has corrupt header|contains unsupported image format)|(?:vips|lib)?(?:png|spng|jpe?g|gif|webp|heif|avif|tiff?)(?!\w*save)\w*:|Vips(?:Jpeg|Png|Gif|Webp|Heif|Tiff|ForeignLoad\w*)\b|\w+load(?:_buffer|_source)?:)/i
+const RESOURCE_ERROR = /out of memory|insufficient memory|not enough memory|(?:cannot|unable to|failed to) allocate|memory allocation|maximum supported image dimension/i
+
+export function isUndecodableImageError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const firstLine = error.message.split('\n', 1)[0] ?? ''
+  return UNDECODABLE_IMAGE_ERROR.test(firstLine) && !RESOURCE_ERROR.test(error.message)
+}
+
 const allowedImageMimeTypes = new Set([
   'image/jpeg',
   'image/png',
@@ -91,14 +101,23 @@ export function validateImageMagicBytes(buffer: Buffer, declaredMimeType: string
   return { ok: true, mimeType: detectedMimeType }
 }
 
-export async function validateImageDimensions(buffer: Buffer): Promise<ImageSafetyResult> {
+export async function validateImageDimensions(
+  buffer: Buffer,
+  options?: { strictInputErrors?: boolean },
+): Promise<ImageSafetyResult> {
   let metadata: Metadata
   try {
     metadata = await sharp(buffer, {
       failOn: 'error',
       limitInputPixels: MAX_IMAGE_SOURCE_PIXELS,
     }).metadata()
-  } catch {
+  } catch (error) {
+    if (options?.strictInputErrors) {
+      if (error instanceof Error && error.message === 'Input image exceeds pixel limit') {
+        return { ok: false, status: 413, error: 'Image exceeds pixel limit' }
+      }
+      if (!isUndecodableImageError(error)) throw error
+    }
     return { ok: false, status: 400, error: 'Invalid image content' }
   }
 

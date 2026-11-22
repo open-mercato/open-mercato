@@ -128,8 +128,17 @@ test.describe('TC-CAT-032: Price create validation', () => {
       const commaRes = await postPrice(request, priceKindId, { unitPriceGross: '99,9999' })
       expect(commaRes.status(), 'comma-formatted amount must be rejected').toBe(400)
 
-      const tooLongRes = await postPrice(request, priceKindId, { unitPriceGross: '1000000000000' })
-      expect(tooLongRes.status(), 'amount with >12 integer digits must be rejected').toBe(400)
+      const exponentRes = await postPrice(request, priceKindId, { unitPriceGross: '1e-100000000' })
+      expect(exponentRes.status(), 'amount with a huge exponent must be rejected').toBe(400)
+
+      const tooLargeRes = await postPrice(request, priceKindId, { unitPriceGross: '1'.repeat(301) })
+      expect(tooLargeRes.status(), 'amount with more than 300 integer digits must be rejected').toBe(400)
+
+      const tooLongRes = await postPrice(request, priceKindId, { unitPriceGross: `0.${'1'.repeat(1001)}` })
+      expect(tooLongRes.status(), 'amount with more than 1000 significant digits must be rejected').toBe(400)
+
+      const tooLargeNumberRes = await postPrice(request, priceKindId, { unitPriceGross: 1e301 })
+      expect(tooLargeNumberRes.status(), 'numeric amount of 1e300 or more must be rejected').toBe(400)
     } finally {
       await deleteByQueryId(request, token, '/api/catalog/price-kinds', priceKindId)
     }
