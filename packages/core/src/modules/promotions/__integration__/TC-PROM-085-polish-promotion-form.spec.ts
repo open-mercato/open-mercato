@@ -26,7 +26,7 @@ async function loginInPolish(page: Page) {
 }
 
 function dateTrigger(page: Page, field: string) {
-  return page.getByRole('group', { name: field, exact: true }).getByRole('button');
+  return page.getByRole('button', { name: field, exact: true });
 }
 
 async function chooseDate(page: Page, field: string, day: string) {
