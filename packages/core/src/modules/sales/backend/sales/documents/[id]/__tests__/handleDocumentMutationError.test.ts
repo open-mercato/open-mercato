@@ -23,7 +23,7 @@ describe('handleDocumentMutationError', () => {
     mockSurfaceRecordConflict.mockReset()
   })
 
-  it('surfaces the conflict, refreshes, and returns true for an optimistic-lock 409', () => {
+  it('surfaces the conflict without refreshing until the user explicitly requests it', () => {
     mockSurfaceRecordConflict.mockReturnValue(true)
     const refresh = jest.fn()
     const err = new Error('optimistic_lock_conflict')
@@ -33,6 +33,8 @@ describe('handleDocumentMutationError', () => {
     expect(handled).toBe(true)
     expect(mockSurfaceRecordConflict).toHaveBeenCalledTimes(1)
     expect(mockSurfaceRecordConflict).toHaveBeenCalledWith(err, t, { onRefresh: refresh })
+    expect(refresh).not.toHaveBeenCalled()
+    mockSurfaceRecordConflict.mock.calls[0][2].onRefresh()
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 
@@ -79,6 +81,8 @@ describe('handleQuoteActionError', () => {
     mockSurfaceRecordConflict.mockReturnValue(true)
     const refresh = jest.fn()
     handleQuoteActionError(new Error('record_modified'), t, refresh, 'Action failed')
+    expect(refresh).not.toHaveBeenCalled()
+    mockSurfaceRecordConflict.mock.calls[0][2].onRefresh()
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(mockFlash).not.toHaveBeenCalled()
   })
