@@ -6,6 +6,7 @@ import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helper
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { deleteStaffEntityIfExists } from '@open-mercato/core/helpers/integration/staffFixtures'
+import { skipIfUndoTestsDisabled, undoOk } from '@open-mercato/core/helpers/integration/undoHarness'
 
 export const integrationMeta = { dependsOnModules: ['staff', 'planner', 'customers'] }
 
@@ -16,6 +17,7 @@ const peoplePath = '/api/customers/people'
 
 test('TC-STAFF-4316: leave review shows overlapping appointments and keeps approval available without CRM context', async ({ page, request }) => {
   test.slow()
+  skipIfUndoTestsDisabled()
   const token = await getAuthToken(request, 'admin')
   const { organizationId } = getTokenScope(token)
   const stamp = randomUUID().slice(0, 8)
@@ -31,7 +33,14 @@ test('TC-STAFF-4316: leave review shows overlapping appointments and keeps appro
     let memberId: string | null = null
     let leaveId: string | null = null
     let personId: string | null = null
+    let approvalUndoToken: string | null = null
     const interactionIds: string[] = []
+    const expectLeaveStatus = async (status: 'pending' | 'approved') => {
+      const result = await apiRequest(request, 'GET', `${leavePath}?ids=${leaveId}`, { token })
+      expect(result.status()).toBe(200)
+      const body = await readJsonSafe<{ items: Array<{ id: string; status: string }> }>(result)
+      expect(body?.items).toEqual([expect.objectContaining({ id: leaveId, status })])
+    }
     try {
       staffUserId = await createUserFixture(provisionRequest, root, {
         email: `leave-review-${stamp}@example.com`, password: `Qa-${stamp}Date!987`, name: memberName, organizationId, roles: [],
@@ -80,12 +89,29 @@ test('TC-STAFF-4316: leave review shows overlapping appointments and keeps appro
       await expect(scheduledEvents.getByText('Scheduled events are unavailable.', { exact: true })).toBeVisible()
       await expect(scheduledEvents.getByText(overlapTitle, { exact: true })).toHaveCount(0)
       await expect(approve).toBeEnabled()
+
+      const [approved] = await Promise.all([
+        page.waitForResponse((response) => new URL(response.url()).pathname === `${leavePath}/accept` && response.request().method() === 'POST'),
+        approve.click(),
+      ])
+      expect(approved.status()).toBe(200)
+      const header = await approved.headerValue('x-om-operation')
+      const operation = header ? JSON.parse(decodeURIComponent(header.replace(/^omop:/, ''))) as { undoToken?: unknown } : null
+      approvalUndoToken = expectId(operation?.undoToken, 'The approval response includes an undo token')
+      await expectLeaveStatus('approved')
     } finally {
-      for (const interactionId of interactionIds) await deleteEntityIfExists(request, token, interactionsPath, interactionId)
-      await deleteEntityIfExists(request, token, peoplePath, personId)
-      await deleteStaffEntityIfExists(request, token, leavePath, leaveId)
-      await deleteStaffEntityIfExists(request, token, membersPath, memberId)
-      await deleteUserIfExists(provisionRequest, root, staffUserId)
+      try {
+        if (approvalUndoToken) {
+          await undoOk(request, token, approvalUndoToken, 'leave approval with unavailable CRM context')
+          await expectLeaveStatus('pending')
+        }
+      } finally {
+        for (const interactionId of interactionIds) await deleteEntityIfExists(request, token, interactionsPath, interactionId)
+        await deleteEntityIfExists(request, token, peoplePath, personId)
+        await deleteStaffEntityIfExists(request, token, leavePath, leaveId)
+        await deleteStaffEntityIfExists(request, token, membersPath, memberId)
+        await deleteUserIfExists(provisionRequest, root, staffUserId)
+      }
     }
   })
 })

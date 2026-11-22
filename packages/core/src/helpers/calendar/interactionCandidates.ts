@@ -147,7 +147,7 @@ export async function fetchScopedCalendarAppointments({
       const candidates = await fetchCalendarCandidates(range, signal, scope)
       truncated ||= candidates.truncated
       for (const payload of candidates.payloads) {
-        if (payload.status === 'canceled' || !payload.scheduledAt) continue
+        if (payload.status === 'canceled' || (!payload.scheduledAt && payload.status !== 'planned')) continue
         const timing = projectCalendarInteractionTiming(payload)
         if (!timing || timing.start >= timing.end) continue
 

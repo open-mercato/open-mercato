@@ -37,6 +37,7 @@ it('scopes both candidate paths, expands older masters and keeps only half-open 
       appointment('at-end', '2026-05-11T18:00:00.000Z'),
       appointment('during', '2026-05-11T11:00:00.000Z', { status: 'done' }),
       appointment('canceled', '2026-05-11T14:00:00.000Z', { status: 'canceled' }),
+      appointment('planned-occurred', '', { scheduledAt: null, occurredAt: '2026-05-11T13:00:00.000Z' }),
       appointment('log', '', { scheduledAt: null, occurredAt: '2026-05-11T15:00:00.000Z', status: 'done' }),
     ],
   })
@@ -44,7 +45,7 @@ it('scopes both candidate paths, expands older masters and keeps only half-open 
 
   const result = await load('2026-05-11T10:00:00Z', '2026-05-11T18:00:00Z', controller.signal)
 
-  expect(result?.items.map(({ id }) => id)).toEqual(['during', 'series:1'])
+  expect(result?.items.map(({ id }) => id)).toEqual(['during', 'series:1', 'planned-occurred'])
   expect(result?.truncated).toBe(false)
   expect(apiCallMock.mock.calls.map(([url, init]) => {
     const query = new URL(String(url), 'http://localhost').searchParams
