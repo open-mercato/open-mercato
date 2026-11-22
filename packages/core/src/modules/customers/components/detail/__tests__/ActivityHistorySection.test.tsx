@@ -22,6 +22,16 @@ jest.mock('../ActivityCard', () => ({
   ActivityCard: ({ activity }: { activity: { title: string } }) => <div>{activity.title}</div>,
 }))
 
+function interactionsRequest(): Promise<URLSearchParams> {
+  return waitFor(() => {
+    const call = readApiResultOrThrowMock.mock.calls.find(
+      ([url]) => typeof url === 'string' && url.startsWith('/api/customers/interactions?'),
+    )
+    expect(call).toBeDefined()
+    return new URL(call?.[0], 'http://localhost').searchParams
+  })
+}
+
 describe('ActivityHistorySection', () => {
   beforeEach(() => {
     jest.useFakeTimers().setSystemTime(new Date('2026-04-16T12:00:00.000Z'))
@@ -52,23 +62,13 @@ describe('ActivityHistorySection', () => {
       await Promise.resolve()
     })
 
-    let interactionsCall: string | undefined
-    await waitFor(() => {
-      interactionsCall = readApiResultOrThrowMock.mock.calls.find(
-        ([url]) => typeof url === 'string' && url.startsWith('/api/customers/interactions?'),
-      )?.[0] as string | undefined
-      expect(interactionsCall).toBeDefined()
-    })
+    const params = await interactionsRequest()
+    const from = params.get('from')
 
-    expect(interactionsCall).toBeDefined()
-
-    const url = new URL(interactionsCall ?? '', 'http://localhost')
-    const from = url.searchParams.get('from')
-
-    expect(url.searchParams.get('entityId')).toBe('company-123')
-    expect(url.searchParams.get('status')).toBeNull()
-    expect(url.searchParams.get('excludeInteractionType')).toBe('task')
-    expect(url.searchParams.get('type')).toBeNull()
+    expect(params.get('entityId')).toBe('company-123')
+    expect(params.get('status')).toBeNull()
+    expect(params.get('excludeInteractionType')).toBe('task')
+    expect(params.get('type')).toBeNull()
     expect(from).not.toBeNull()
 
     const rangeStart = new Date(from ?? '')
@@ -77,6 +77,34 @@ describe('ActivityHistorySection', () => {
 
     expect(diffDays).toBeGreaterThanOrEqual(89)
     expect(diffDays).toBeLessThanOrEqual(91)
+  })
+
+  it('hides the configured type instead when overridden', async () => {
+    renderWithProviders(<ActivityHistorySection entityId="company-123" excludeInteractionType="note" />)
+    expect((await interactionsRequest()).get('excludeInteractionType')).toBe('note')
+  })
+
+  it.each([null, ''])('disables exclusion when the prop is %p', async (excludeInteractionType) => {
+    renderWithProviders(<ActivityHistorySection entityId="company-123" excludeInteractionType={excludeInteractionType} />)
+    expect((await interactionsRequest()).has('excludeInteractionType')).toBe(false)
+  })
+
+  it('lifts the exclusion while the configured type filter is active', async () => {
+    renderWithProviders(<ActivityHistorySection entityId="company-123" excludeInteractionType="note" />)
+    expect((await interactionsRequest()).get('excludeInteractionType')).toBe('note')
+    const chip = screen.getByRole('button', { name: /^Note\b/ })
+
+    readApiResultOrThrowMock.mockClear()
+    fireEvent.click(chip)
+    const filteredParams = await interactionsRequest()
+    expect(filteredParams.get('type')).toBe('note')
+    expect(filteredParams.has('excludeInteractionType')).toBe(false)
+
+    readApiResultOrThrowMock.mockClear()
+    fireEvent.click(chip)
+    const resetParams = await interactionsRequest()
+    expect(resetParams.has('type')).toBe(false)
+    expect(resetParams.get('excludeInteractionType')).toBe('note')
   })
 
   it('fetches legacy fallback pages in parallel rather than one at a time', async () => {

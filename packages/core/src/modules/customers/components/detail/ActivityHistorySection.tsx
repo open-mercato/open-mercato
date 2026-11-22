@@ -35,7 +35,7 @@ type ActivityHistorySectionProps = {
   /** Optional guarded-mutation runner so per-row mutations route through the parent's
    * `useGuardedMutation` and emit retry-last-mutation context. */
   runMutation?: GuardedMutationRunner
-  /** Interaction type hidden from the history by default ('task' unless overridden); pass null to show every type. */
+  /** Interaction type hidden from the history by default ('task'). Pass null or an empty string to disable the exclusion. */
   excludeInteractionType?: string | null
 }
 
@@ -253,14 +253,15 @@ export function ActivityHistorySection({
       let firstPageHasMore = false
       let pagesLoaded = 0
 
-      const excludedFilterActive = excludeInteractionType ? activeTypes.includes(excludeInteractionType) : true
       do {
         const params = new URLSearchParams({
           entityId,
           limit: String(pageSize),
           from: rangeStart,
         })
-        if (excludeInteractionType && !excludedFilterActive) params.set('excludeInteractionType', excludeInteractionType)
+        if (excludeInteractionType && !activeTypes.includes(excludeInteractionType)) {
+          params.set('excludeInteractionType', excludeInteractionType)
+        }
         if (activeTypes.length > 0) params.set('type', activeTypes.join(','))
         if (search) params.set('search', search)
         if (sortMode === 'recent') {
