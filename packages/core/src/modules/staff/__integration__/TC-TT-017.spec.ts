@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createTestCustomer, createTestTimeProject, type TestCustomerFixture, type TestTimeProjectFixture } from './fixtures'
+import { forbiddenHttpStatusPattern } from './statusPatterns'
 
 export const integrationMeta = {
   dependsOnModules: ['customers'],
@@ -101,7 +102,7 @@ test.describe('TC-TT-017: No access to a project', () => {
 
         // Not a 403 dump and not a stack trace.
         const body = page.locator('body')
-        await expect(body).not.toContainText('403')
+        await expect(body).not.toContainText(forbiddenHttpStatusPattern)
         await expect(body).not.toContainText('Forbidden')
         await expect(body).not.toContainText(/at .*\(.*:\d+:\d+\)/)
         await expect(body).not.toContainText('Application error')
