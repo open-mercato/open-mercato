@@ -14,8 +14,10 @@ import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helper
 import { deleteStaffEntityIfExists } from '@open-mercato/core/helpers/integration/staffFixtures'
 import {
   INTERACTIONS_PATH,
+  createInteractionFixture,
+  gridBlockName,
   listInteractionsInWindow,
-  localTimeAt,
+  mondayWeekRange,
   waitForCalendarLoaded,
 } from './helpers/calendarFixtures'
 
@@ -33,6 +35,9 @@ test('TC-CAL-6683: calendar managers can select and save a staff attendee', asyn
   const title = `${search} Meeting`
   const email = `calendar-${suffix}@example.com`
   const password = `Qa!${randomUUID()}`
+  const week = mondayWeekRange(new Date())
+  const scheduledAt = new Date(week.from)
+  scheduledAt.setHours(9)
   let roleId: string | null = null
   let userId: string | null = null
   let memberId: string | null = null
@@ -69,50 +74,58 @@ test('TC-CAL-6683: calendar managers can select and save a staff attendee', asyn
       lastName: 'Customer',
       displayName: customerName,
     })
+    interactionId = await createInteractionFixture(request, adminToken, {
+      entityId: personId,
+      interactionType: 'meeting',
+      title,
+      scheduledAt,
+      durationMinutes: 30,
+      ownerUserId: userId,
+    })
 
     await acknowledgeGlobalNotices(page)
     const signedIn = await page.request.post('/api/auth/login', { form: { email, password } })
     expect(signedIn.status()).toBe(200)
     await page.goto('/backend/calendar')
     await waitForCalendarLoaded(page)
-    await page.getByRole('button', { name: 'New event', exact: true }).click()
+    await page.getByRole('button', { name: gridBlockName(title) }).click()
+    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    const editor = page.getByRole('dialog', { name: 'Edit event' })
+    await expect(editor.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(title)
+    await expect(editor.getByRole('button', { name: 'Related to', exact: true })).toContainText(customerName)
 
-    const editor = page.getByRole('dialog')
-    await editor.getByRole('group', { name: 'Event type' })
-      .getByRole('button', { name: 'Meeting', exact: true }).click()
-    await editor.getByRole('textbox', { name: 'Title', exact: true }).fill(title)
-    await editor.getByRole('button', { name: 'Related to', exact: true }).click()
-    await editor.getByRole('textbox', { name: 'Search people or companies…' }).fill(customerName)
-    await editor.getByRole('listbox', { name: 'Related to', exact: true })
-      .getByRole('option', { name: new RegExp(suffix) }).click()
-
+    const attendeeSearch = editor.getByRole('combobox', { name: 'Attendees', exact: true })
+    await attendeeSearch.click()
+    await expect(attendeeSearch).toHaveAttribute('aria-expanded', 'true')
     const staffLookup = page.waitForResponse((response) => {
       const url = new URL(response.url())
       return response.request().method() === 'GET'
         && url.pathname === `${TEAM_MEMBERS_PATH}/assignable`
         && url.searchParams.get('search') === search
     })
-    await editor.getByRole('combobox', { name: 'Attendees', exact: true }).fill(search)
+    await attendeeSearch.fill(search)
     expect((await staffLookup).status(), 'Calendar managers should be able to load assignable staff').toBe(200)
 
     const attendees = editor.getByRole('listbox', { name: 'Attendees', exact: true })
     await expect(attendees.getByRole('option', { name: new RegExp(customerName) })).toBeVisible()
-    await attendees.getByRole('option', { name: new RegExp(staffName) }).click()
+    const staffOption = attendees.getByRole('option', { name: new RegExp(staffName) })
+    await expect(staffOption).toBeVisible()
+    if (process.env.PW_CAPTURE_SCREENSHOTS === '1') {
+      await test.info().attach('staff-and-customer-picker', { body: await attendees.screenshot(), contentType: 'image/png' })
+    }
+    await staffOption.click()
     await expect(editor.getByRole('button', { name: `Remove ${staffName}`, exact: true })).toBeVisible()
 
-    const created = page.waitForResponse((response) =>
-      new URL(response.url()).pathname === INTERACTIONS_PATH && response.request().method() === 'POST',
+    const updated = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === INTERACTIONS_PATH && response.request().method() === 'PUT',
     )
     await editor.getByRole('button', { name: 'Save event', exact: true }).click()
-    const saved = await created
-    expect(saved.status()).toBe(201)
-    interactionId = expectId((await saved.json() as { id?: string }).id, 'Event creation should return an id')
+    expect((await updated).status()).toBe(200)
     await expect(editor).toBeHidden()
 
     const items = await listInteractionsInWindow(request, adminToken, {
       entityId: personId,
-      from: localTimeAt(-1, 0),
-      to: localTimeAt(2, 0),
+      ...week,
     })
     expect(items.find((item) => item.id === interactionId)?.participants).toEqual([
       expect.objectContaining({ userId, name: staffName, status: 'pending' }),
