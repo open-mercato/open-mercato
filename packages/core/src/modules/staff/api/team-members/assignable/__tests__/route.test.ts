@@ -4,6 +4,16 @@ const mockFindWithDecryption = jest.fn()
 const mockResolveCustomersRequestContext = jest.fn()
 const mockResolveAuthActorId = jest.fn(() => 'user-actor')
 const mockUserHasAllFeatures = jest.fn()
+const mockResolveFeatureOrganizationAccess = jest.fn()
+const mockResolveFeatureCheckContext = jest.fn()
+
+function resolveTestService(token: string) {
+  if (token !== 'rbacService') return null
+  return {
+    userHasAllFeatures: mockUserHasAllFeatures,
+    resolveFeatureOrganizationAccess: mockResolveFeatureOrganizationAccess,
+  }
+}
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn((...args: unknown[]) => mockFindWithDecryption(...args)),
@@ -13,6 +23,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => ({
     translate: (_key: string, fallback: string) => fallback,
   })),
+}))
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveFeatureCheckContext: (...args: unknown[]) => mockResolveFeatureCheckContext(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/customers/lib/interactionRequestContext', () => ({
@@ -29,13 +43,10 @@ describe('staff assignable team-members route', () => {
     mockResolveAuthActorId.mockReset()
     mockResolveAuthActorId.mockReturnValue('user-actor')
     mockUserHasAllFeatures.mockReset()
+    mockResolveFeatureOrganizationAccess.mockReset()
+    mockResolveFeatureCheckContext.mockReset()
     mockResolveCustomersRequestContext.mockResolvedValue({
-      container: {
-        resolve: (token: string) => {
-          if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
-          return null
-        },
-      },
+      container: { resolve: resolveTestService },
       em: {},
       auth: {
         sub: 'user-actor',
@@ -86,7 +97,7 @@ describe('staff assignable team-members route', () => {
     expect(response.status).toBe(200)
     expect(mockUserHasAllFeatures).toHaveBeenCalledWith(
       'user-actor',
-      ['customers.roles.manage'],
+      ['customers.roles.view', 'customers.roles.manage'],
       { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
     const [, , memberWhere] = mockFindWithDecryption.mock.calls[0]
@@ -133,15 +144,32 @@ describe('staff assignable team-members route', () => {
     expect(mockUserHasAllFeatures).toHaveBeenNthCalledWith(
       2,
       'user-actor',
-      ['customers.activities.manage'],
+      ['customers.roles.view', 'customers.activities.manage'],
       { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
   })
 
-  it('returns 403 when the user cannot manage customer roles or activities', async () => {
-    mockUserHasAllFeatures
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(false)
+  it('allows a calendar manager to load staff without customer role permissions', async () => {
+    mockUserHasAllFeatures.mockImplementation(async (_actor, features: string[]) =>
+      features.every((feature) => feature === 'customers.interactions.manage'),
+    )
+    mockFindWithDecryption.mockResolvedValueOnce([])
+
+    const { GET } = await import('../route')
+    const response = await GET(new Request('http://localhost/api/staff/team-members/assignable'))
+
+    expect(response.status).toBe(200)
+    expect(mockUserHasAllFeatures).toHaveBeenCalledWith(
+      'user-actor',
+      ['customers.interactions.manage'],
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+  })
+
+  it('returns 403 when the user can only view customer roles and calendar interactions', async () => {
+    mockUserHasAllFeatures.mockImplementation(async (_actor, features: string[]) =>
+      features.every((feature) => ['customers.roles.view', 'customers.interactions.view'].includes(feature)),
+    )
 
     const { GET } = await import('../route')
     const response = await GET(new Request('http://localhost/api/staff/team-members/assignable'))
@@ -151,22 +179,18 @@ describe('staff assignable team-members route', () => {
     expect(body).toMatchObject({
       error: 'Insufficient permissions to load assignable staff.',
     })
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
   })
 
   it('aggregates tenant-wide staff under the "All organizations" scope (no organizationId filter)', async () => {
     mockResolveCustomersRequestContext.mockResolvedValueOnce({
-      container: {
-        resolve: (token: string) => {
-          if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
-          return null
-        },
-      },
+      container: { resolve: resolveTestService },
       em: {},
       auth: { sub: 'user-actor', tenantId: 'tenant-1', orgId: null },
       scope: { selectedId: null, filterIds: null, allowedIds: null, tenantId: 'tenant-1' },
       selectedOrganizationId: null,
     })
-    mockUserHasAllFeatures.mockResolvedValueOnce(true)
+    mockResolveFeatureOrganizationAccess.mockResolvedValueOnce({ unrestricted: true })
     mockFindWithDecryption
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
@@ -177,10 +201,10 @@ describe('staff assignable team-members route', () => {
 
     expect(response.status).toBe(200)
     // Tenant-wide feature check: no concrete organization is required.
-    expect(mockUserHasAllFeatures).toHaveBeenCalledWith(
+    expect(mockResolveFeatureOrganizationAccess).toHaveBeenCalledWith(
       'user-actor',
-      ['customers.roles.manage'],
-      { tenantId: 'tenant-1', organizationId: null },
+      ['customers.interactions.manage'],
+      { tenantId: 'tenant-1' },
     )
     // Query must stay tenant-scoped but must NOT pin a single organization.
     const [, , memberWhere] = mockFindWithDecryption.mock.calls[0]
@@ -190,5 +214,41 @@ describe('staff assignable team-members route', () => {
       isActive: true,
     })
     expect(memberWhere).not.toHaveProperty('organizationId')
+  })
+
+  it('combines the existing All organizations role roster with the scoped calendar roster', async () => {
+    const visibleIds = ['org-1', 'org-2', 'org-3', 'org-4']
+    mockResolveCustomersRequestContext.mockResolvedValueOnce({
+      container: { resolve: resolveTestService },
+      em: {},
+      auth: { sub: 'user-actor', tenantId: 'tenant-1', orgId: 'org-1' },
+      scope: { selectedId: null, filterIds: visibleIds, allowedIds: visibleIds, tenantId: 'tenant-1' },
+    })
+    mockResolveFeatureOrganizationAccess.mockResolvedValueOnce({ unrestricted: false, filterOrganizationIds: () => ['org-2'] })
+    mockResolveFeatureCheckContext.mockResolvedValueOnce({
+      organizationId: 'org-1',
+      scope: { selectedId: null, filterIds: ['org-1', 'org-3'], allowedIds: ['org-1', 'org-3'], tenantId: 'tenant-1' },
+    })
+    mockUserHasAllFeatures.mockImplementation(async (_actor, features: string[], scope: { organizationId: string }) =>
+      scope.organizationId === 'org-1'
+      && features.every((feature) => ['customers.roles.view', 'customers.roles.manage'].includes(feature)),
+    )
+    mockFindWithDecryption
+      .mockResolvedValueOnce(visibleIds.map((id) => ({ id })))
+      .mockResolvedValueOnce([])
+
+    const { GET } = await import('../route')
+    const response = await GET(new Request('http://localhost/api/staff/team-members/assignable'))
+
+    expect(response.status).toBe(200)
+    expect(mockResolveFeatureCheckContext).toHaveBeenCalledWith(
+      expect.objectContaining({ requiredFeatures: ['customers.roles.view'] }),
+    )
+    expect(mockFindWithDecryption.mock.calls[0][2]).toEqual({
+      tenant: 'tenant-1', deletedAt: null, id: { $in: visibleIds },
+    })
+    expect(mockFindWithDecryption.mock.calls[1][2]).toEqual({
+      tenantId: 'tenant-1', organizationId: { $in: ['org-1', 'org-2', 'org-3'] }, deletedAt: null, isActive: true,
+    })
   })
 })

@@ -112,7 +112,7 @@ Data flow is read-mostly; the only writes go through the existing interactions A
 - `CalendarEventEditor` uses the same `fetchCalendarCandidates` range read and recurrence expansion as the grid, then applies `findEditorConflictItems` for its candidate-vs-existing warning. The older `/api/customers/interactions/conflicts` endpoint remains unchanged for `ScheduleActivityDialog`.
 ### Supporting reads
 - Activity-type dictionary: same endpoint/hook the detail pages use for `activity-types` (labels + colors for tabs/pills/legend).
-- Participant/owner names for avatars: `participants[].name` (stored) with `/api/staff/team-members/assignable` (existing `fetchAssignableStaffMembers`) only inside the dialog's participant picker — the grid renders avatars from stored participant names (no N+1 lookups).
+- Participant/owner names for avatars: the grid uses stored `participants[].name`. The dialog's participant picker combines customer people and active staff linked to auth users from `/api/staff/team-members/assignable`. If Staff is disabled, the picker uses customer people. A failed lookup shows a load error alongside any results from the other source.
 
 ## Internationalization (i18n)
 All new strings under `customers.calendar.*` in `packages/core/src/modules/customers/i18n/{en,de,es,pl}.json`. Key groups: `nav` (sidebar/breadcrumb), `header` (title formats, subtitle counts — ICU-style plurals via existing t() params), `toolbar` (today, presets, search placeholder, filter), `tabs`, `views` (day/week/month/agenda), `grid` (allDay lane, more count), `cards` (join, seeConflict, cancelled, conflictedCount, daysLater), `agenda` (today/tomorrow markers, eventsCount), `dialog` (field labels, validation), `shortcuts` (legend + help dialog), `footer.timezone`, `empty` states, `errors`. No hardcoded user-facing strings; internal throws prefixed `[internal]`.
@@ -227,6 +227,7 @@ None. No env vars, no settings.
 - **Seeds**: additive `event` entry in `activity-types` dictionary defaults (skipped when present).
 - **BC surfaces** (per `BACKWARD_COMPATIBILITY.md` categories): no type/signature/import-path/event-id/spot-id/DB/DI/CLI changes. Additive only: new backend page route `/backend/calendar` (new surface), new i18n keys, new module-internal components, and the optional `recurrenceMasters` query field on the existing interactions list API. Omitting the field preserves the previous SQL filters and response shape byte-for-byte. Existing `MiniWeekCalendar`/detail pages remain untouched.
 - **RBAC**: page gated by existing `customers.interactions.view`; dialog mutations already gated by `customers.interactions.manage` server-side (CTA hidden without it via existing feature-check helpers).
+- **Assignable staff**: the existing roster route also accepts `customers.interactions.manage` in the authorized tenant and organization scope. It retains the legacy `customers.roles.view` plus `customers.roles.manage` or `customers.activities.manage` authorization paths and the same response schema.
 
 ## Implementation Plan
 Reference implementations: page+meta `backend/customer-tasks/page.{tsx,meta.ts}`; screen composition `backend/customers/deals/page.tsx`; data calls `apiCall`; appearance colors: activity timeline components.
@@ -393,6 +394,10 @@ None.
 - [x] Phase 7 — 2026-06-13 Figma revision: Customization modal (`1788:3701`) + week-view states (`1786:2934`) — peek popover, inline conflict badge, drag-to-create, enriched empty state, four wired preference toggles; new unit tests (preferences, grid) green; TC-CAL-007/008 added; preview-verified (settings modal, 5-day-week default, peek + selected ring, conflict badges)
 
 ## Changelog
+
+### 2026-11-22 — Issue #6683: assignable staff in the event editor
+
+- Calendar managers can find and save staff attendees without customer role-management permissions. All-organizations reads filter staff by the caller's organization grants. The browser regression covers mixed staff and customer results and verifies that the selected staff participant persists after save.
 ### 2026-11-16 — Issue #9620: full event title on hover
 - Time-grid event blocks (day and week views) carry a native `title` with the full event title and time range, the same text as their accessible name. Hovering a block whose title is cut by a narrow overlap column now shows it without opening the event. Callers can override it through the block's `title` prop.
 

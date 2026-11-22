@@ -235,7 +235,7 @@ async function fetchAssignableUsersFallback(
 
 export async function fetchAssignableStaffMembersPage(
   query: string,
-  options?: { page?: number; pageSize?: number; activeOrgId?: string | null; signal?: AbortSignal },
+  options?: { page?: number; pageSize?: number; activeOrgId?: string | null; signal?: AbortSignal; staffOnly?: boolean },
 ): Promise<AssignableStaffMembersPage> {
   const page = options?.page ?? 1
   const pageSize = options?.pageSize ?? 24
@@ -251,10 +251,12 @@ export async function fetchAssignableStaffMembersPage(
   try {
     data = await readApiResultOrThrow<AssignableStaffResponse>(
       `/api/staff/team-members/assignable?${params.toString()}`,
-      options?.signal ? { signal: options.signal } : undefined,
+      options?.staffOnly
+        ? { signal: options.signal, headers: { 'x-om-forbidden-redirect': '0' } }
+        : options?.signal ? { signal: options.signal } : undefined,
     )
   } catch (error) {
-    if (isAssignableEndpointMissing(error)) {
+    if (!options?.staffOnly && isAssignableEndpointMissing(error)) {
       return fetchAssignableUsersFallback(query, {
         page,
         pageSize,
@@ -288,7 +290,7 @@ export async function fetchAssignableStaffMembersPage(
 
 export async function fetchAssignableStaffMembers(
   query: string,
-  options?: { pageSize?: number; activeOrgId?: string | null; signal?: AbortSignal },
+  options?: { pageSize?: number; activeOrgId?: string | null; signal?: AbortSignal; staffOnly?: boolean },
 ): Promise<AssignableStaffMember[]> {
   const result = await fetchAssignableStaffMembersPage(query, options)
   return result.items

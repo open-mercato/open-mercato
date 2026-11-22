@@ -4,9 +4,11 @@ import * as React from 'react'
 import { z } from 'zod'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
 import type { EditorParticipant } from '../../../lib/calendar/editorPayload'
 import { composeAccessibleName } from '../../../lib/calendar/labels'
 import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
@@ -48,15 +50,18 @@ export function PeopleField({
   const [open, setOpen] = React.useState(false)
   const [options, setOptions] = React.useState<PersonOption[]>([])
   const [loading, setLoading] = React.useState(false)
+  const [staffLoadFailed, setStaffLoadFailed] = React.useState(false)
+  const [customerLoadFailed, setCustomerLoadFailed] = React.useState(false)
   const close = React.useCallback(() => setOpen(false), [])
   const rootRef = useDropdownDismiss(open, close)
 
   React.useEffect(() => {
     if (!open) return
     const controller = new AbortController()
-    let cancelled = false
+    setLoading(true)
+    setStaffLoadFailed(false)
+    setCustomerLoadFailed(false)
     const timer = window.setTimeout(async () => {
-      setLoading(true)
       try {
         const results = await searchPeopleOptions(query.trim(), {
           includeCustomers,
@@ -64,16 +69,21 @@ export function PeopleField({
           activeOrgId,
           signal: controller.signal,
         })
-        if (cancelled) return
-        setOptions(results)
-      } catch {
-        if (!cancelled) setOptions([])
+        if (controller.signal.aborted) return
+        setOptions(results.options)
+        setStaffLoadFailed(results.staffLoadFailed)
+        setCustomerLoadFailed(results.customerLoadFailed)
+      } catch (error) {
+        if (controller.signal.aborted) return
+        getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.calendar_people_lookup_failed' })
+        setOptions([])
+        setStaffLoadFailed(includeStaff)
+        setCustomerLoadFailed(includeCustomers)
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!controller.signal.aborted) setLoading(false)
       }
     }, 250)
     return () => {
-      cancelled = true
       controller.abort()
       window.clearTimeout(timer)
     }
@@ -154,73 +164,81 @@ export function PeopleField({
         />
       </div>
       {open ? (
-        <div role="listbox" aria-label={ariaLabel} className={DROPDOWN_PANEL_CLASS}>
-          {loading ? (
-            <p className="px-2 py-3 text-center text-xs text-muted-foreground">
-              {t('customers.calendar.editor.searching', 'Searching…')}
-            </p>
+        <div className={DROPDOWN_PANEL_CLASS}>
+          {!loading && staffLoadFailed ? (
+            <ErrorMessage label={t('customers.assignableStaff.loadError')} />
           ) : null}
-          {!loading && visibleOptions.length === 0 && !guestEmail ? (
-            <p className="px-2 py-3 text-center text-xs text-muted-foreground">
-              {t('customers.calendar.editor.noResults', 'No results')}
-            </p>
+          {!loading && customerLoadFailed ? (
+            <ErrorMessage label={t('customers.people.list.error.load')} />
           ) : null}
-          {!loading && guestEmail ? (
-            <Button
-              type="button"
-              variant="ghost"
-              role="option"
-              aria-selected={false}
-              aria-label={guestLabel}
-              title={guestLabel}
-              onClick={() => {
-                const participant: EditorParticipant = { name: guestEmail, email: guestEmail, isCustomer: false }
-                onChange([...value, participant])
-                setQuery('')
-              }}
-              className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground"
-            >
-              <Avatar size="xs" label={guestEmail} />
-              <span className="min-w-0 flex-1 truncate">{guestLabel}</span>
-              {guestBadge}
-            </Button>
-          ) : null}
-          {!loading
-            ? visibleOptions.map((option) => (
-                <Button
-                  key={`${option.isCustomer ? 'customer' : 'staff'}:${option.userId}`}
-                  type="button"
-                  variant="ghost"
-                  role="option"
-                  aria-selected={false}
-                  aria-label={composeAccessibleName([
-                    option.name,
-                    option.email,
-                    option.isCustomer ? t('customers.calendar.editor.customerBadge', 'Customer') : null,
-                  ])}
-                  title={composeAccessibleName([option.name, option.email])}
-                  onClick={() => {
-                    const participant: EditorParticipant = {
-                      userId: option.userId,
-                      name: option.name,
-                      email: option.email ?? undefined,
-                      isCustomer: option.isCustomer,
-                    }
-                    onChange(mode === 'single' ? [participant] : [...value, participant])
-                    setQuery('')
-                    if (mode === 'single') setOpen(false)
-                  }}
-                  className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground"
-                >
-                  <Avatar size="xs" label={option.name} />
-                  <span className="min-w-0 flex-1 truncate">
-                    {option.name}
-                    {option.email ? <span className="ml-1.5 text-xs text-muted-foreground">{option.email}</span> : null}
-                  </span>
-                  {option.isCustomer ? customerBadge : null}
-                </Button>
-              ))
-            : null}
+          <div role="listbox" aria-label={ariaLabel}>
+            {loading ? (
+              <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+                {t('customers.calendar.editor.searching', 'Searching…')}
+              </p>
+            ) : null}
+            {!loading && !staffLoadFailed && !customerLoadFailed && visibleOptions.length === 0 && !guestEmail ? (
+              <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+                {t('customers.calendar.editor.noResults', 'No results')}
+              </p>
+            ) : null}
+            {!loading && guestEmail ? (
+              <Button
+                type="button"
+                variant="ghost"
+                role="option"
+                aria-selected={false}
+                aria-label={guestLabel}
+                title={guestLabel}
+                onClick={() => {
+                  const participant: EditorParticipant = { name: guestEmail, email: guestEmail, isCustomer: false }
+                  onChange([...value, participant])
+                  setQuery('')
+                }}
+                className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground"
+              >
+                <Avatar size="xs" label={guestEmail} />
+                <span className="min-w-0 flex-1 truncate">{guestLabel}</span>
+                {guestBadge}
+              </Button>
+            ) : null}
+            {!loading
+              ? visibleOptions.map((option) => (
+                  <Button
+                    key={`${option.isCustomer ? 'customer' : 'staff'}:${option.userId}`}
+                    type="button"
+                    variant="ghost"
+                    role="option"
+                    aria-selected={false}
+                    aria-label={composeAccessibleName([
+                      option.name,
+                      option.email,
+                      option.isCustomer ? t('customers.calendar.editor.customerBadge', 'Customer') : null,
+                    ])}
+                    title={composeAccessibleName([option.name, option.email])}
+                    onClick={() => {
+                      const participant: EditorParticipant = {
+                        userId: option.userId,
+                        name: option.name,
+                        email: option.email ?? undefined,
+                        isCustomer: option.isCustomer,
+                      }
+                      onChange(mode === 'single' ? [participant] : [...value, participant])
+                      setQuery('')
+                      if (mode === 'single') setOpen(false)
+                    }}
+                    className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground"
+                  >
+                    <Avatar size="xs" label={option.name} />
+                    <span className="min-w-0 flex-1 truncate">
+                      {option.name}
+                      {option.email ? <span className="ml-1.5 text-xs text-muted-foreground">{option.email}</span> : null}
+                    </span>
+                    {option.isCustomer ? customerBadge : null}
+                  </Button>
+                ))
+              : null}
+          </div>
         </div>
       ) : null}
     </div>

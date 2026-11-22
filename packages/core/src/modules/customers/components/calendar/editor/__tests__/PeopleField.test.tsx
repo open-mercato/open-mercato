@@ -5,11 +5,14 @@ import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { PeopleField } from '../PeopleField'
+import { searchPeopleOptions } from '../lookups'
 import type { EditorParticipant } from '../../../../lib/calendar/editorPayload'
 
 jest.mock('../lookups', () => ({
-  searchPeopleOptions: jest.fn().mockResolvedValue([]),
+  searchPeopleOptions: jest.fn(),
 }))
+
+const staffLoadError = 'Unable to load team members. Check your permissions and try again.'
 
 function renderField(value: EditorParticipant[], onChange: jest.Mock, mode: 'multi' | 'single' = 'multi') {
   return renderWithProviders(
@@ -21,6 +24,7 @@ function renderField(value: EditorParticipant[], onChange: jest.Mock, mode: 'mul
       onChange={onChange}
       includeCustomers
     />,
+    { dict: { 'customers.assignableStaff.loadError': staffLoadError } },
   )
 }
 
@@ -33,6 +37,33 @@ async function typeQuery(text: string) {
 }
 
 describe('PeopleField', () => {
+  beforeEach(() => {
+    jest.mocked(searchPeopleOptions).mockReset().mockResolvedValue({ options: [], staffLoadFailed: false, customerLoadFailed: false })
+  })
+
+  it('announces a staff lookup failure while keeping the customer options selectable', async () => {
+    const customer = { userId: 'customer-id', name: 'Customer contact', email: null, isCustomer: true }
+    jest.mocked(searchPeopleOptions).mockResolvedValue({ options: [customer], staffLoadFailed: true, customerLoadFailed: false })
+    const onChange = jest.fn()
+    renderField([], onChange)
+
+    await typeQuery('Customer')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(staffLoadError)
+    fireEvent.click(screen.getByRole('option', { name: /Customer contact/ }))
+    expect(onChange).toHaveBeenCalledWith([{ ...customer, email: undefined }])
+  })
+
+  it('shows the staff lookup failure instead of No results for an unavailable roster', async () => {
+    jest.mocked(searchPeopleOptions).mockResolvedValue({ options: [], staffLoadFailed: true, customerLoadFailed: false })
+    renderField([], jest.fn())
+
+    await typeQuery('Staff')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(staffLoadError)
+    expect(screen.queryByText('No results')).toBeNull()
+  })
+
   it('removes the clicked guest chip by position when multiple guests have no userId', async () => {
     const guestOne: EditorParticipant = { name: 'Guest One', email: 'guest-one@example.org', isCustomer: false }
     const guestTwo: EditorParticipant = { name: 'Guest Two', email: 'guest-two@example.org', isCustomer: false }
