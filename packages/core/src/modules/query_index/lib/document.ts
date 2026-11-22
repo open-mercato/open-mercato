@@ -19,6 +19,16 @@ export type IndexCustomFieldValue = {
 
 export const AGGREGATE_SEARCH_FIELD = 'search_text'
 
+export function omitCustomerPhoneLookupField(doc: Record<string, unknown>, entityType: string | null | undefined): void {
+  if (
+    entityType === 'customers:customer_entity'
+    || entityType === 'customers:customer_person_profile'
+    || entityType === 'customers:customer_company_profile'
+  ) {
+    delete doc.primary_phone_digits_hash
+  }
+}
+
 /**
  * Controls which fields may contribute text to the `search_text` aggregate.
  *
@@ -149,6 +159,7 @@ export function buildIndexDocument(
   for (const [key, value] of Object.entries(baseRow)) {
     doc[key] = value
   }
+  omitCustomerPhoneLookupField(doc, options.entityType)
 
   const scopeOrg = normalizeScopeValue(scope.organizationId ?? null)
   const scopeTenant = normalizeScopeValue(scope.tenantId ?? null)

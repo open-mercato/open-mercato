@@ -1,6 +1,6 @@
 import { buildIndexDoc, upsertIndexRow, markDeleted, reindexSearchTokensForRecord } from '../../query_index/lib/indexer'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
-import type { AggregateSearchOptions } from '../lib/document'
+import { buildIndexDocument, type AggregateSearchOptions } from '../lib/document'
 import { registerSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 
 jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
@@ -160,6 +160,24 @@ describe('Indexer', () => {
     expect(doc!['cf:tags']).toEqual(['a', 'b'])
     expect(doc!.search_text).toContain('A')
     expect(doc!.search_text).toContain('b')
+  })
+
+  test('customer document builders keep the phone digest private', async () => {
+    const digest = 'v2:private-lookup'
+    const row = { id: '1', display_name: 'Name', primary_phone_digits_hash: digest }
+    const fake = createFakeKysely({ baseTable: 'customer_entities', baseRows: [row], cfValues: [] })
+    const em = { getKysely: () => fake.db } as unknown as Parameters<typeof buildIndexDoc>[0]
+
+    const incremental = await buildIndexDoc(em, {
+      entityType: 'customers:customer_entity',
+      recordId: '1',
+    })
+    expect(incremental).toMatchObject({ id: '1', search_text: 'Name' })
+    expect(incremental).not.toHaveProperty('primary_phone_digits_hash')
+
+    const batch = buildIndexDocument(row, [], {}, { entityType: 'customers:customer_person_profile' })
+    expect(batch).toMatchObject({ id: '1', search_text: 'Name' })
+    expect(batch).not.toHaveProperty('primary_phone_digits_hash')
   })
 
   test('buildIndexDoc preserves a singleton value as an array for multi custom fields', async () => {

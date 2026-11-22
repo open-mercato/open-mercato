@@ -16,7 +16,7 @@ import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
-import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
+import { attachAggregateSearchField, omitCustomerPhoneLookupField, rebuildAggregateSearchField } from './document'
 import { applyIndexDocEnrichers } from './doc-enrichers'
 import {
   createSearchTokenGateQueryEngine,
@@ -87,6 +87,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   for (const source of docSources) {
     for (const [k, v] of Object.entries(source)) doc[k] = v
   }
+  omitCustomerPhoneLookupField(doc, params.entityType)
 
   // Attach custom fields under flat keys 'cf:<key>'
   let cfQuery = db

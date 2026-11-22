@@ -34,6 +34,7 @@ import {
   CustomerTag,
 } from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
+import { hashPersonPhoneDigits } from './lib/personPhoneLookup'
 import { recomputeNextInteraction } from './lib/interactionProjection'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
@@ -2095,6 +2096,7 @@ async function seedCustomerStressTest(
     owner_user_id: string | null
     primary_email: string | null
     primary_phone: string | null
+    primary_phone_digits_hash?: string | null
     status: string | null
     lifecycle_stage: string | null
     source: string | null
@@ -2372,6 +2374,7 @@ async function seedCustomerStressTest(
     const email = `${emailHandle}.${sequence}@${STRESS_TEST_EMAIL_DOMAIN}`
     const timezone = randomChoice(STRESS_TEST_TIMEZONES)
     const personEntityId = randomUUID()
+    const primaryPhone = buildPhone(sequence)
     const personEntityRow: CustomerEntityRow = {
       id: personEntityId,
       organization_id: organizationId,
@@ -2381,7 +2384,8 @@ async function seedCustomerStressTest(
       description: `Stress test contact #${sequence}`,
       owner_user_id: null,
       primary_email: email,
-      primary_phone: buildPhone(sequence),
+      primary_phone: primaryPhone,
+      primary_phone_digits_hash: hashPersonPhoneDigits(primaryPhone, organizationId),
       status: companyRecord.status,
       lifecycle_stage: companyRecord.lifecycleStage,
       source: companyRecord.source,
