@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import * as React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { InventoryBalancesSection, InventoryReservationsSection, InventoryMovementsSection } from '../WmsInventoryConsolePage'
+import WmsInventoryConsolePage, { InventoryReservationsSection, InventoryMovementsSection } from '../WmsInventoryConsolePage'
 import type { WmsInventoryMutationAccess } from '../useWmsInventoryMutationAccess'
 
 const mockReplace = jest.fn()
@@ -13,7 +13,7 @@ const mockDispatchMutationError = jest.fn()
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: mockReplace, refresh: jest.fn() }),
-  usePathname: () => '/backend/wms/inventory',
+  usePathname: () => window.location.pathname,
   useSearchParams: () => new URLSearchParams(window.location.search),
 }))
 
@@ -65,6 +65,20 @@ jest.mock('next/link', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
+jest.mock('@open-mercato/ui/backend/Page', () => ({
+  Page: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  PageBody: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+}))
+jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({ ComboboxInput: () => null }))
+jest.mock('../InventoryOperationsSection', () => ({ InventoryOperationsSection: () => null }))
+jest.mock('../useWmsInventoryMutationAccess', () => ({ useWmsInventoryMutationAccess: () => access }))
+jest.mock('../inventoryMutationLoaders', () => ({
+  loadCatalogVariantOptions: jest.fn(async () => []),
+  loadWarehouseOptions: jest.fn(async () => []),
+  resolveCatalogVariantLabel: jest.fn(async () => ''),
+  resolveWarehouseLabel: jest.fn(async () => ''),
+}))
+
 const access: WmsInventoryMutationAccess = {
   loading: false,
   organizationId: 'org-1',
@@ -91,14 +105,6 @@ jest.mock('../MoveInventoryDialog', () => ({ MoveInventoryDialog: () => null }))
 jest.mock('../ReceiveInventoryDialog', () => ({ ReceiveInventoryDialog: () => null }))
 jest.mock('../ReleaseReservationDialog', () => ({ ReleaseReservationDialog: () => null }))
 
-function InventorySections() {
-  return <>
-    <InventoryBalancesSection access={access} />
-    <InventoryReservationsSection access={access} />
-    <InventoryMovementsSection />
-  </>
-}
-
 describe('inventory console search isolation', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -106,7 +112,7 @@ describe('inventory console search isolation', () => {
   })
 
   it('keeps the three section searches independent of a shared URL search parameter', () => {
-    render(<InventorySections />)
+    render(<WmsInventoryConsolePage />)
     const balances = screen.getByRole('textbox', { name: 'Search balances' })
     const reservations = screen.getByRole('textbox', { name: 'Search reservations' })
     const movements = screen.getByRole('textbox', { name: 'Search movement ledger' })
@@ -125,5 +131,17 @@ describe('inventory console search isolation', () => {
     expect(movements).toHaveValue('')
     expect(mockReplace).not.toHaveBeenCalled()
     expect(window.location.search).toBe('?warehouseId=warehouse-1&search=ATLAS')
+  })
+
+  it.each([
+    { pathname: '/backend/wms/reservations', searchLabel: 'Search reservations', page: () => <InventoryReservationsSection access={access} /> },
+    { pathname: '/backend/wms/movements', searchLabel: 'Search movement ledger', page: () => <InventoryMovementsSection /> },
+  ])('preserves the standalone $pathname search permalink', ({ pathname, searchLabel, page }) => {
+    window.history.replaceState(null, '', `${pathname}?warehouseId=warehouse-1&search=ATLAS`)
+    render(page())
+    const search = screen.getByRole('textbox', { name: searchLabel })
+    expect(search).toHaveValue('ATLAS')
+    fireEvent.change(search, { target: { value: 'BETA' } })
+    expect(mockReplace).toHaveBeenCalledWith(`${pathname}?warehouseId=warehouse-1&search=BETA`, { scroll: false })
   })
 })
