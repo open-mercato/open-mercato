@@ -63,7 +63,10 @@ export function calendarStaffAvailabilityCandidates(
 }
 
 export function staffAvailabilityUserIds(userIds: readonly string[]): string[] {
-  return [...new Set(userIds.filter((userId) => uuidSchema.safeParse(userId).success).map((userId) => userId.toLowerCase()))].sort()
+  const validIds = userIds
+    .filter((userId) => uuidSchema.safeParse(userId).success)
+    .map((userId) => userId.toLowerCase())
+  return [...new Set(validIds)].sort((left, right) => left.localeCompare(right))
 }
 
 export function getStaffAvailabilityWindows(
