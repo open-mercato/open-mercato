@@ -8,11 +8,13 @@ Phase 1 adds feature-gated navigation and an optional marketplace category filte
 
 ## Progress
 
+PR: #10365
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Setup navigation
 
-- [ ] 1.1 Gate shared channel links and accept the initial marketplace category
+- [x] 1.1 Gate shared channel links and accept the initial marketplace category — 8d7d5e015d
 
 ### Phase 2: OAuth readiness
 
