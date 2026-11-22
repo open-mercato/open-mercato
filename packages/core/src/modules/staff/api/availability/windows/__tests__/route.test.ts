@@ -138,3 +138,29 @@ it('omits members whose assigned rule set is missing in their own organization',
   expect(response.status).toBe(200)
   expect(await response.json()).toEqual({ items: [] })
 })
+
+it('withholds self-read reason text when the user has multiple staff profiles in the same organization', async () => {
+  const duplicateMemberId = randomUUID()
+  mockFeatures.mockImplementation(async (_userId: string, [feature]: string[]) => ({
+    filterOrganizationIds: (organizations: Array<{ id: string }>) => organizations
+      .filter((organization) => ['customers.interactions.view', 'staff.my_leave_requests.view'].includes(feature)
+        && organization.id === organizationId)
+      .map((organization) => organization.id),
+  }))
+  mockFind
+    .mockResolvedValueOnce([{ id: organizationId }])
+    .mockResolvedValueOnce([
+      { id: memberId, organizationId, userId },
+      { id: duplicateMemberId, organizationId, userId },
+    ])
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([{
+      member: { id: duplicateMemberId }, startDate: new Date('2026-03-08'), endDate: new Date('2026-03-08'),
+      status: 'pending', timezone: 'UTC', organizationId, unavailabilityReasonValue: 'Private reason',
+    }])
+  const response = await GET(request(), { auth: { ...auth, sub: userId } })
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({
+    items: [{ userId, organizationId, windows: [{ start: '2026-03-08T00:00:00.000Z', end: '2026-03-09T00:00:00.000Z', kind: 'tentative' }] }],
+  })
+})

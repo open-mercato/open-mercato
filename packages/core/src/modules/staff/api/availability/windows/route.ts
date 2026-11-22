@@ -147,7 +147,7 @@ export async function GET(request: Request, context?: { auth?: AuthContext }) {
     const verifiedRuleSets = new Set(ruleSets.map((ruleSet) => inOrganization(ruleSet.organizationId, ruleSet.id)))
     const ruleSetsBySubject = groupBySubject(rules.filter((rule) => rule.subjectType === 'ruleset'), (rule) => rule.subjectId)
     const rulesByMember = groupBySubject(rules.filter((rule) => rule.subjectType === 'member'), (rule) => rule.subjectId)
-    const leavesByMember = groupBySubject(leaves, (leave) => leave.member.id)
+    const leavesByMember = groupBySubject(leaves, (leave) => typeof leave.member === 'string' ? leave.member : leave.member.id)
     const planner = container.resolve<PlannerAvailabilityService>('plannerAvailabilityService')
     const items: StaffWindowsItem[] = []
 
@@ -169,7 +169,7 @@ export async function GET(request: Request, context?: { auth?: AuthContext }) {
           leaveRequests: leavesByMember.get(memberKey) ?? [],
           canReadPlannerReasons: plannerReasons.has(memberOrganizationId),
           canReadLeaveReasons: leaveReasons.has(memberOrganizationId)
-            || (userId === auth.sub && ownLeaveReasons.has(memberOrganizationId)),
+            || (group.length === 1 && userId === auth.sub && ownLeaveReasons.has(memberOrganizationId)),
         })
       })
       items.push({ userId, organizationId: memberOrganizationId, windows: mergeStaffAvailabilityWindows(windows) })
