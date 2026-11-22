@@ -12,6 +12,17 @@ export const SALES_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPho
 
 export const SALES_AMOUNT_INVALID_MESSAGE_KEY = 'sales.errors.amount_invalid'
 
+const workflowStatusValuesSchema = z.array(z.string().trim().min(1).max(120)).max(100)
+
+export const salesDocumentWorkflowPolicySchema = z.object({
+  allowedOrderStatuses: z.object({
+    return: workflowStatusValuesSchema,
+    shipment: workflowStatusValuesSchema,
+    invoice: workflowStatusValuesSchema,
+  }),
+  returnableShipmentStatuses: workflowStatusValuesSchema,
+})
+
 const optionalPhoneField = (max = 50) =>
   z
     .string()

@@ -22,6 +22,7 @@ import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
 import { mapOrderLineEntityToSnapshot } from '../lib/lineSnapshots'
 import { loadShippedQuantityByLine } from '../lib/shipments/snapshots'
+import { enforceSalesDocumentWorkflowPolicy } from '../lib/documentWorkflowPolicy'
 import { computeAvailableReturnQuantity } from '../lib/returnQuantity'
 import {
   returnCreateSchema,
@@ -692,6 +693,8 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
       }
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
 
+      const workflowPolicy = await enforceSalesDocumentWorkflowPolicy(ctx, order, 'return')
+
       const orderLines = await findWithDecryption(
         tx,
         SalesOrderLine,
@@ -704,7 +707,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
       const shippedByLine = await loadShippedQuantityByLine(tx, order.id, {
         tenantId: input.tenantId,
         organizationId: input.organizationId,
-      })
+      }, workflowPolicy?.returnableShipmentStatuses)
 
       requested.forEach(({ orderLineId, quantity }) => {
         const line = lineMap.get(orderLineId)

@@ -34,13 +34,13 @@ Custom status codes need policy mapping before activation. Keep activation off b
 
 ### Phase 1: shared policy
 
-- [ ] 1.1 Add policy, activation, schema, locales and policy regressions
-- [ ] 1.2 Filter eligible return shipment quantities
+- [x] 1.1 Add policy, activation, schema, locales and policy regressions
+- [x] 1.2 Filter eligible return shipment quantities
 
 ### Phase 2: command integration
 
-- [ ] 2.1 Enforce return and shipment creation
-- [ ] 2.2 Enforce linked invoice creation
+- [x] 2.1 Enforce return and shipment creation
+- [x] 2.2 Enforce linked invoice creation
 
 ### Phase 3: coverage and delivery
 

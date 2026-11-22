@@ -11,6 +11,7 @@ import { DefaultTaxCalculationService } from './services/taxCalculationService'
 import { SalesDocumentNumberGenerator } from './services/salesDocumentNumberGenerator'
 import { DefaultSalesOrderService } from './services/salesOrderService'
 import { createSalesPaymentOrderTotalResolver } from './services/paymentOrderTotalResolver'
+import { createSalesDocumentWorkflowPolicy } from './lib/documentWorkflowPolicy'
 import {
   SalesOrder,
   SalesOrderLine,
@@ -133,6 +134,7 @@ registerOptimisticLockReaders({
 
 export function register(container: AppContainer) {
   container.register({
+    salesDocumentWorkflowPolicy: asFunction(createSalesDocumentWorkflowPolicy).scoped(),
     salesCalculationService: asFunction((cradle: AppCradle) => {
       const precisionContainer = { resolve: <T,>(name: string) => (cradle as unknown as Record<string, T>)[name] }
       return new DefaultSalesCalculationService(cradle.eventBus ?? null, (lookup) =>

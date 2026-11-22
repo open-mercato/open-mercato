@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { SalesOrderLine, SalesShipment, SalesShipmentItem } from '../../data/entities'
 import type { ShipmentItemSnapshot } from './types'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { normalizeWorkflowStatus } from '../documentWorkflowPolicy'
 
 const cloneJson = <T>(value: T): T => {
   if (value === null || value === undefined) return value
@@ -140,14 +141,19 @@ export const loadShippedQuantityByLine = async (
   em: EntityManager,
   orderId: string,
   scope: { tenantId: string; organizationId: string },
+  allowedShipmentStatuses?: readonly string[],
 ): Promise<Map<string, number>> => {
-  const shipments = await findWithDecryption(
+  const allShipments = await findWithDecryption(
     em,
     SalesShipment,
     { order: orderId, deletedAt: null },
     {},
     scope,
   )
+  const allowedStatuses = allowedShipmentStatuses?.map(normalizeWorkflowStatus)
+  const shipments = allowedStatuses
+    ? allShipments.filter((shipment) => allowedStatuses.includes(normalizeWorkflowStatus(shipment.status)))
+    : allShipments
   const shippedByLine = new Map<string, number>()
   if (!shipments.length) return shippedByLine
   const items = await findWithDecryption(

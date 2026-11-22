@@ -1,6 +1,7 @@
 // @ts-nocheck
 
 import { randomUUID } from "crypto";
+import { enforceSalesDocumentWorkflowPolicy, isSalesDocumentWorkflowGuardEnabled, withSalesDocumentWorkflowTransaction } from "../lib/documentWorkflowPolicy";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { registerCommand } from "@open-mercato/shared/lib/commands";
@@ -10324,123 +10325,127 @@ const createInvoiceCommand: CommandHandler<
     ensureOrganizationScope(ctx, parsed.organizationId);
     ensureTenantScope(ctx, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const status = await resolveDictionaryEntryValue(
-      em,
-      parsed.statusEntryId ?? null,
-      { tenantId: parsed.tenantId },
-    );
-
-    // Validate orderId belongs to same org/tenant
-    if (parsed.orderId) {
-      const orderExists = await findOneWithDecryption(
+    const invoice = await withSalesDocumentWorkflowTransaction(em, async (em) => {
+      const status = await resolveDictionaryEntryValue(
         em,
-        SalesOrder,
-        {
-          id: parsed.orderId,
-          organizationId: parsed.organizationId,
-          tenantId: parsed.tenantId,
-          deletedAt: null,
-        },
-        {},
-        {
-          tenantId: parsed.tenantId,
-          organizationId: parsed.organizationId,
-        },
+        parsed.statusEntryId ?? null,
+        { tenantId: parsed.tenantId },
       );
-      if (!orderExists) {
-        throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
+
+      // Validate orderId belongs to same org/tenant
+      if (parsed.orderId) {
+        const orderExists = await findOneWithDecryption(
+          em,
+          SalesOrder,
+          {
+            id: parsed.orderId,
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+            deletedAt: null,
+          },
+          isSalesDocumentWorkflowGuardEnabled() ? { lockMode: LockMode.PESSIMISTIC_WRITE } : {},
+          {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+          },
+        );
+        if (!orderExists) {
+          throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
+        }
+        await enforceSalesDocumentWorkflowPolicy(ctx, orderExists, "invoice");
       }
-    }
 
-    const invoiceId = randomUUID();
-    const invoice = em.create(SalesInvoice, {
-      id: invoiceId,
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      invoiceNumber: ensuredInvoiceNumber,
-      orderId: parsed.orderId ?? null,
-      statusEntryId: parsed.statusEntryId ?? null,
-      status,
-      issueDate: parsed.issueDate ?? new Date(),
-      dueDate: parsed.dueDate ?? null,
-      currencyCode: parsed.currencyCode,
-      subtotalNetAmount: exactAmountString(parsed.subtotalNetAmountExact, parsed.subtotalNetAmount ?? 0),
-      subtotalGrossAmount: exactAmountString(parsed.subtotalGrossAmountExact, parsed.subtotalGrossAmount ?? 0),
-      discountTotalAmount: exactAmountString(parsed.discountTotalAmountExact, parsed.discountTotalAmount ?? 0),
-      taxTotalAmount: exactAmountString(parsed.taxTotalAmountExact, parsed.taxTotalAmount ?? 0),
-      grandTotalNetAmount: exactAmountString(parsed.grandTotalNetAmountExact, parsed.grandTotalNetAmount ?? 0),
-      grandTotalGrossAmount: exactAmountString(parsed.grandTotalGrossAmountExact, parsed.grandTotalGrossAmount ?? 0),
-      paidTotalAmount: exactAmountString(parsed.paidTotalAmountExact, parsed.paidTotalAmount ?? 0),
-      outstandingAmount: exactAmountString(parsed.outstandingAmountExact, parsed.outstandingAmount ?? 0),
-      metadata: parsed.metadata ?? null,
-      customFieldSetId: parsed.customFieldSetId ?? null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+      const invoiceId = randomUUID();
+      const invoice = em.create(SalesInvoice, {
+        id: invoiceId,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        invoiceNumber: ensuredInvoiceNumber,
+        orderId: parsed.orderId ?? null,
+        statusEntryId: parsed.statusEntryId ?? null,
+        status,
+        issueDate: parsed.issueDate ?? new Date(),
+        dueDate: parsed.dueDate ?? null,
+        currencyCode: parsed.currencyCode,
+        subtotalNetAmount: exactAmountString(parsed.subtotalNetAmountExact, parsed.subtotalNetAmount ?? 0),
+        subtotalGrossAmount: exactAmountString(parsed.subtotalGrossAmountExact, parsed.subtotalGrossAmount ?? 0),
+        discountTotalAmount: exactAmountString(parsed.discountTotalAmountExact, parsed.discountTotalAmount ?? 0),
+        taxTotalAmount: exactAmountString(parsed.taxTotalAmountExact, parsed.taxTotalAmount ?? 0),
+        grandTotalNetAmount: exactAmountString(parsed.grandTotalNetAmountExact, parsed.grandTotalNetAmount ?? 0),
+        grandTotalGrossAmount: exactAmountString(parsed.grandTotalGrossAmountExact, parsed.grandTotalGrossAmount ?? 0),
+        paidTotalAmount: exactAmountString(parsed.paidTotalAmountExact, parsed.paidTotalAmount ?? 0),
+        outstandingAmount: exactAmountString(parsed.outstandingAmountExact, parsed.outstandingAmount ?? 0),
+        metadata: parsed.metadata ?? null,
+        customFieldSetId: parsed.customFieldSetId ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
 
-    // Header + lines + custom-field writes must commit atomically.
-    // setRecordCustomFields flushes mid-build, so without a transaction a
-    // partial write could persist the header without its lines/custom fields.
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          em.persist(invoice);
+      // Header + lines + custom-field writes must commit atomically.
+      // setRecordCustomFields flushes mid-build, so without a transaction a
+      // partial write could persist the header without its lines/custom fields.
+      await withAtomicFlush(
+        em,
+        [
+          async () => {
+            em.persist(invoice);
 
-          if (parsed.lines?.length) {
-            for (let i = 0; i < parsed.lines.length; i++) {
-              const line = withExactAmounts(
-                parsed.lines[i],
-                rawListItem(rawInput, "lines", i),
-                LINE_EXACT_AMOUNT_FIELDS,
-              );
-              em.persist(
-                em.create(SalesInvoiceLine, {
-                  id: randomUUID(),
-                  invoice,
-                  orderLineId: line.orderLineId ?? null,
-                  organizationId: parsed.organizationId,
-                  tenantId: parsed.tenantId,
-                  lineNumber: line.lineNumber ?? i + 1,
-                  kind: line.kind ?? "product",
-                  name: line.name ?? null,
-                  sku: line.sku ?? null,
-                  description: line.description ?? null,
-                  quantity: toNumericString(line.quantity ?? 0),
-                  quantityUnit: line.quantityUnit ?? null,
-                  normalizedQuantity: toNumericString(line.normalizedQuantity ?? 0),
-                  normalizedUnit: line.normalizedUnit ?? null,
-                  uomSnapshot: line.uomSnapshot ?? null,
-                  currencyCode: line.currencyCode ?? parsed.currencyCode,
-                  unitPriceNet: exactAmountString(line.unitPriceNetExact, line.unitPriceNet ?? 0),
-                  unitPriceGross: exactAmountString(line.unitPriceGrossExact, line.unitPriceGross ?? 0),
-                  discountAmount: exactAmountString(line.discountAmountExact, line.discountAmount ?? 0),
-                  discountPercent: toNumericString(line.discountPercent ?? 0),
-                  taxRate: toNumericString(line.taxRate ?? 0),
-                  taxAmount: exactAmountString(line.taxAmountExact, line.taxAmount ?? 0),
-                  totalNetAmount: deriveExactLineNetFromGross(exactAmountString(line.totalNetAmountExact, line.totalNetAmount ?? 0), exactAmountString(line.totalGrossAmountExact, line.totalGrossAmount ?? 0), line.taxRate ?? 0),
-                  totalGrossAmount: exactAmountString(line.totalGrossAmountExact, line.totalGrossAmount ?? 0),
-                  metadata: line.metadata ?? null,
-                }),
-              );
+            if (parsed.lines?.length) {
+              for (let i = 0; i < parsed.lines.length; i++) {
+                const line = withExactAmounts(
+                  parsed.lines[i],
+                  rawListItem(rawInput, "lines", i),
+                  LINE_EXACT_AMOUNT_FIELDS,
+                );
+                em.persist(
+                  em.create(SalesInvoiceLine, {
+                    id: randomUUID(),
+                    invoice,
+                    orderLineId: line.orderLineId ?? null,
+                    organizationId: parsed.organizationId,
+                    tenantId: parsed.tenantId,
+                    lineNumber: line.lineNumber ?? i + 1,
+                    kind: line.kind ?? "product",
+                    name: line.name ?? null,
+                    sku: line.sku ?? null,
+                    description: line.description ?? null,
+                    quantity: toNumericString(line.quantity ?? 0),
+                    quantityUnit: line.quantityUnit ?? null,
+                    normalizedQuantity: toNumericString(line.normalizedQuantity ?? 0),
+                    normalizedUnit: line.normalizedUnit ?? null,
+                    uomSnapshot: line.uomSnapshot ?? null,
+                    currencyCode: line.currencyCode ?? parsed.currencyCode,
+                    unitPriceNet: exactAmountString(line.unitPriceNetExact, line.unitPriceNet ?? 0),
+                    unitPriceGross: exactAmountString(line.unitPriceGrossExact, line.unitPriceGross ?? 0),
+                    discountAmount: exactAmountString(line.discountAmountExact, line.discountAmount ?? 0),
+                    discountPercent: toNumericString(line.discountPercent ?? 0),
+                    taxRate: toNumericString(line.taxRate ?? 0),
+                    taxAmount: exactAmountString(line.taxAmountExact, line.taxAmount ?? 0),
+                    totalNetAmount: deriveExactLineNetFromGross(exactAmountString(line.totalNetAmountExact, line.totalNetAmount ?? 0), exactAmountString(line.totalGrossAmountExact, line.totalGrossAmount ?? 0), line.taxRate ?? 0),
+                    totalGrossAmount: exactAmountString(line.totalGrossAmountExact, line.totalGrossAmount ?? 0),
+                    metadata: line.metadata ?? null,
+                  }),
+                );
+              }
             }
-          }
 
-          if (parsed.customFieldSetId) {
-            await setRecordCustomFields(em, {
-              entityId: E.sales.sales_invoice,
-              recordId: invoiceId,
-              organizationId: parsed.organizationId,
-              tenantId: parsed.tenantId,
-              values: normalizeCustomFieldValues(
-                ((parsed as Record<string, unknown>).customFields as Record<string, unknown>) ?? {},
-              ),
-            });
-          }
-        },
-      ],
-      { transaction: true },
-    );
+            if (parsed.customFieldSetId) {
+              await setRecordCustomFields(em, {
+                entityId: E.sales.sales_invoice,
+                recordId: invoiceId,
+                organizationId: parsed.organizationId,
+                tenantId: parsed.tenantId,
+                values: normalizeCustomFieldValues(
+                  ((parsed as Record<string, unknown>).customFields as Record<string, unknown>) ?? {},
+                ),
+              });
+            }
+          },
+        ],
+        { transaction: true },
+      );
+      return invoice;
+    });
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitCrudSideEffects({
