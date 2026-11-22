@@ -214,7 +214,8 @@ The lookup pepper keys the hashes used for exact matches such as sign-in by emai
    yarn mercato entities rehash-lookups --tenantless
    ```
 
-4. Re-run the previews and check that they report zero rows to update. Verify email sign-in and remove `LOOKUP_HASH_OLD_PEPPER` from every instance.
+4. Run the [CRM person phone backfill](#backfilling-crm-person-phone-lookup) for each tenant and organization with indexed contacts.
+5. Re-run the previews and check that they report zero rows to update. Verify email sign-in and remove `LOOKUP_HASH_OLD_PEPPER` from every instance.
 
 The command uses the existing data-encryption keys to read encrypted sources and updates their existing hash columns in batches. It verifies each stored digest against a mapped source and the configured peppers, including legacy unkeyed digests. A preview reads the same rows without writing hashes or provisioning keys. If a source cannot be decrypted or verified, or a concurrent edit changes a row, resolve the error and re-run the same scope. Keep the previous pepper configured until every scope is complete. Coordinate any changes to encryption maps separately from the rehash.
 
