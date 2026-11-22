@@ -71,11 +71,11 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | Tier | Default? | Skills | What's inside |
 |------|----------|--------|---------------|
 | `core` | yes | 9 | Daily-driver skills installed by default. |
-| `automation` | opt-in | 1 | PR/issue automation skills. Opt-in; agent-driven workflows. |
+| `automation` | opt-in | 2 | PR/issue automation and experiment operation skills. Opt-in; agent-driven workflows. |
 | `analysis` | opt-in | 1 | Draft accessibility review (WCAG 2.2 AA). Opt-in. |
 | `migration` | opt-in | 5 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
-| external | always | 39 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
+| external | always | 39 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed using the exact `external.cliVersion` at the immutable `external.ref` (skip with `--no-external`). |
 
 Run `yarn install-skills --list` at any time to see tier definitions, current memberships, and which tiers are installed locally.
 
@@ -94,7 +94,7 @@ The App Spec and gap-analysis skills also install from the external collection o
 Skills install into **one canonical directory** — `.agents/skills/`, the cross-agent path the `skills` CLI treats as canonical and most coding agents read directly. The install script does two things on every run:
 
 1. Reads `.ai/skills/tiers.json` and creates one symlink per selected local skill: `.agents/skills/<name> -> ../../.ai/skills/<name>`.
-2. Installs the external collection with `npx -y skills add open-mercato/skills --skill '*'` into the same `.agents/skills/` directory, then runs `npx -y skills update --project` so re-runs refresh the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current). This step needs network access; when it fails the script warns and continues with local skills only.
+2. Installs the external collection using `npx -y skills@<external.cliVersion> add https://github.com/<external.source>/tree/<external.ref> --skill '*'` into the same `.agents/skills/` directory. Both pins live in `tiers.json`; reruns use the same CLI version and collection commit. Upgrades require a reviewed change to those pins. The validator rejects missing pins, version ranges, tags and branch names before invoking `npx`. This step needs network access; when it fails the script warns and continues with local skills only.
 
 ```bash
 yarn install-skills                              # core tier + external collection (default)
@@ -211,6 +211,7 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | Skill | When to use |
 |-------|-------------|
 | `om-auto-publish-pr` | Publish pkg.pr.new package previews for a same-repository Open Mercato PR by dispatching the Package Previews GitHub Actions workflow with gh. Use when a maintainer asks to publish, republish, or trigger a PR package preview. Does not publish npm snapshots. |
+| `om-run-harness-evals` | Run or inspect Open Mercato harness evaluations and monitor registered experiments with the local dashboard. Use for "run harness evals", "inspect experiment results", "compare eval runs", "uruchom ewaluacje harnessu", or "sprawdź wyniki eksperymentu". |
 
 ### external (open-mercato/skills)
 

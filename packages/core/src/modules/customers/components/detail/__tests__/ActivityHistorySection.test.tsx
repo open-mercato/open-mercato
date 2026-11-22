@@ -8,12 +8,18 @@ import { ActivityHistorySection } from '../ActivityHistorySection'
 
 const readApiResultOrThrowMock = jest.fn()
 
+let mockCanDeleteActivity = true
+
+jest.mock('../hooks/useActivityDeleteAccess', () => ({
+  useActivityDeleteAccess: () => () => mockCanDeleteActivity,
+}))
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
 }))
 
 jest.mock('../ActivityCard', () => ({
-  ActivityCard: () => null,
+  ActivityCard: ({ activity }: { activity: { title: string } }) => <div>{activity.title}</div>,
 }))
 
 describe('ActivityHistorySection', () => {
@@ -126,5 +132,28 @@ describe('ActivityHistorySection', () => {
     })
     // …but the two legacy page fetches must overlap (parallel), not run one-at-a-time.
     expect(legacyMaxInFlight).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('ActivityHistorySection unknown dates', () => {
+  beforeEach(() => {
+    readApiResultOrThrowMock.mockReset()
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => url.startsWith('/api/customers/interactions?') ? { items: [
+      { id: 'undated-a', title: 'Undated A', occurredAt: null, scheduledAt: null, createdAt: '2035-01-01T12:00:00.000Z', status: 'done' },
+      { id: 'dated', title: 'Dated', occurredAt: '2020-01-01T12:00:00.000Z', scheduledAt: null, createdAt: '2035-01-01T12:00:00.000Z', status: 'done' },
+      { id: 'undated-z', title: 'Undated Z', occurredAt: null, scheduledAt: null, createdAt: '2010-01-01T12:00:00.000Z', status: 'done' },
+    ] } : { result: {}, items: [] })
+  })
+
+  it('sorts undated company history last using ids and omits creation-year separators', async () => {
+    renderWithProviders(<ActivityHistorySection entityId="company-1" useCanonicalInteractions />)
+    await screen.findByText('Undated A')
+    const dated = screen.getByText('Dated')
+    const undatedZ = screen.getByText('Undated Z')
+    const undatedA = screen.getByText('Undated A')
+    expect(dated.compareDocumentPosition(undatedZ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(undatedZ.compareDocumentPosition(undatedA) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByText('2035')).not.toBeInTheDocument()
+    expect(screen.queryByText('2010')).not.toBeInTheDocument()
   })
 })

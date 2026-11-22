@@ -6,6 +6,7 @@ import {
   formatEntryClockRange,
   isEntryLockedError,
   readCopyDayTargetConflict,
+  readTimeEntryTotals,
   summarizeTimeEntries,
   toTimeEntryListRow,
   type TimeEntryListRow,
@@ -109,8 +110,8 @@ describe('summarizeTimeEntries', () => {
     expect(summary.money).toHaveLength(2)
     expect(summary.money).toEqual(
       expect.arrayContaining([
-        { currencyCode: 'PLN', amount: 905 },
-        { currencyCode: 'EUR', amount: 200 },
+        { currencyCode: 'PLN', amount: 905, amountExact: '905' },
+        { currencyCode: 'EUR', amount: 200, amountExact: '200' },
       ]),
     )
     expect(summary.money.some((entry) => entry.amount === 1105)).toBe(false)
@@ -168,5 +169,39 @@ describe('collectDirectoryIds', () => {
     ])
     expect(ids.taskIds).toEqual([TASK_ID])
     expect(ids.projectIds).toEqual([PROJECT_ID])
+  })
+})
+
+describe('readTimeEntryTotals', () => {
+  it('reads the whole-set totals of the list response', () => {
+    expect(
+      readTimeEntryTotals({
+        entryCount: 300,
+        durationMinutes: 18000,
+        roundedMinutes: 18015,
+        money: [{ currencyCode: 'PLN', amount: 4315.5 }, { currencyCode: '', amount: 10 }, { amount: 'x' }],
+      }),
+    ).toEqual({
+      entryCount: 300,
+      durationMinutes: 18000,
+      roundedMinutes: 18015,
+      money: [
+        { currencyCode: 'PLN', amount: 4315.5, amountExact: '4315.5' },
+        { currencyCode: null, amount: 10, amountExact: '10' },
+      ],
+    })
+  })
+
+  it('keeps money absent when the response carries none', () => {
+    expect(readTimeEntryTotals({ entryCount: 1, durationMinutes: 60, roundedMinutes: 60 })).toEqual({
+      entryCount: 1,
+      durationMinutes: 60,
+      roundedMinutes: 60,
+    })
+  })
+
+  it('reads a missing or malformed value as null so the footer falls back to the page', () => {
+    expect(readTimeEntryTotals(undefined)).toBeNull()
+    expect(readTimeEntryTotals({ entryCount: '3', durationMinutes: 1, roundedMinutes: 1 })).toBeNull()
   })
 })
