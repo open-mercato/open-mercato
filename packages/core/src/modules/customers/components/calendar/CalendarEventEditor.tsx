@@ -42,7 +42,9 @@ import type { CalendarItem } from './types'
 import { EDITOR_SCROLL_EVENT, Field } from './editor/inputs'
 import { SegmentGroup } from './editor/SegmentGroup'
 import { RelatedToField } from './editor/RelatedToField'
-import { useConflictProbe, useEditorLabelResolution } from './editor/hooks'
+import { resolveDraftConflictRange, useConflictProbe, useEditorLabelResolution } from './editor/hooks'
+import { useStaffAvailability } from './useStaffAvailability'
+import { findStaffAvailabilityConflicts, formatStaffAvailabilityConflict } from '../../lib/calendar/staffAvailability'
 import { EventTypePanel } from './editor/EventTypePanel'
 import { eventTypeConfig, eventTypeOptions, isSelectableEventType, selectedEventType, useEventTypeCatalog } from './editor/useEventTypeCatalog'
 import type { ScopedCalendarEventType } from '../../lib/calendar/eventTypeResolver'
@@ -183,6 +185,7 @@ const EditorBody = React.memo(function EditorBody({
   onSelectedTypeChange,
 }: EditorBodyProps) {
   const t = useT()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const form = formStateOfValues(values)
   const selectedType = form.category ?? form.kind
   const definition = selectedEventType(catalogItems, selectedType)
@@ -222,7 +225,44 @@ const EditorBody = React.memo(function EditorBody({
   // shares it — so the edited record never conflicts with itself.
   // Resources count toward a conflict only when the selected type can book them.
   const draftResources = resourcesEnabled && definition.behavior.fields.resources ? form.resources : NO_RESOURCES
-  const conflict = useConflictProbe(open, form, config, isEdit && item ? item.raw.id : null, draftOwnerUserId, conflictScope, currentUserId, draftResources)
+  const draftRange = React.useMemo(
+    () => resolveDraftConflictRange(form, config),
+    [form.date, form.timezone, form.startTime, form.endDate, form.endTime, form.allDay, config.hasAllDay, config.hasEnd], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  const conflict = useConflictProbe(open, form, config, isEdit && item ? item.raw.id : null, draftOwnerUserId, conflictScope, currentUserId, draftResources, draftRange)
+  const eventOrganization = item?.raw.organizationId
+  const organizationId = isEdit && typeof eventOrganization === 'string' ? eventOrganization : activeOrgId
+  const staffAvailabilityRequest = React.useMemo(() => open && draftRange && organizationId ? {
+    range: config.hasAllDay && form.allDay
+      ? { from: draftRange.from, to: new Date(draftRange.to.getTime() + 1) }
+      : draftRange,
+    organizationId,
+  } : null, [open, draftRange, organizationId, config.hasAllDay, form.allDay])
+  const draftPeople = new Map<string, string>()
+  if (draftOwnerUserId) {
+    draftPeople.set(draftOwnerUserId, draftOwnerUserId === form.assigneeUserId ? form.assigneeName ?? '' : '')
+  }
+  if (config.people && config.people !== 'assignee') {
+    for (const person of form.participants) {
+      if (person.userId && !person.isCustomer && !draftPeople.get(person.userId)) {
+        draftPeople.set(person.userId, person.name || person.email || '')
+      }
+    }
+  }
+  const staffAvailability = useStaffAvailability({
+    userIds: [...draftPeople.keys()],
+    range: form.status === 'canceled' ? null : staffAvailabilityRequest?.range ?? null,
+    organizationId,
+    debounceMs: 500,
+  })
+  const staffConflicts = staffAvailabilityRequest
+    ? findStaffAvailabilityConflicts(
+      staffAvailability,
+      staffAvailabilityRequest.range,
+      organizationId,
+      Array.from(draftPeople, ([userId, label]) => ({ userId, label })),
+    )
+    : []
 
   const typeOptions = React.useMemo(
     () => eventTypeOptions(catalogItems, selectedType, t),
@@ -246,10 +286,17 @@ const EditorBody = React.memo(function EditorBody({
 
   return (
     <div className="grid w-full grid-cols-1 items-start gap-4 lg:grid-cols-2 lg:gap-x-6">
-      {conflict ? (
+      {conflict || staffConflicts.length ? (
         <Alert status="warning" className="rounded-lg lg:col-span-2">
           <AlertTitle>{t('customers.calendar.editor.conflictTitle', 'Calendar conflict')}</AlertTitle>
-          <AlertDescription>{conflict}</AlertDescription>
+          <AlertDescription className="space-y-1">
+            {conflict ? <p>{conflict}</p> : null}
+            {staffConflicts.map((staffConflict) => (
+              <p key={JSON.stringify([staffConflict.userId, staffConflict.kind, staffConflict.reason])}>
+                {formatStaffAvailabilityConflict(staffConflict, t)}
+              </p>
+            ))}
+          </AlertDescription>
         </Alert>
       ) : null}
       {!catalogReady ? (
@@ -302,6 +349,7 @@ const EditorBody = React.memo(function EditorBody({
           errors={errors}
           disabled={saving}
           capabilities={capabilities}
+          staffAvailability={staffAvailabilityRequest}
           setValue={setValue}
         />
       </div>

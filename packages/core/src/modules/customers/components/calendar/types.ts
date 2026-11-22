@@ -85,6 +85,7 @@ export interface TimeGridProps {
   anchor: Date
   items: CalendarItem[]
   conflictIds: Set<string>
+  conflictDescriptions?: ReadonlyMap<string, string>
   showWeekends: boolean
   showConflicts: boolean
   aiSummaries: boolean
@@ -102,6 +103,7 @@ export interface TimeGridProps {
 }
 
 export interface MonthGridProps {
+  conflictDescriptions?: ReadonlyMap<string, string>
   anchor: Date
   items: CalendarItem[]
   onItemClick(item: CalendarItem): void
@@ -109,6 +111,7 @@ export interface MonthGridProps {
 }
 
 export interface AgendaListProps {
+  conflictDescriptions?: ReadonlyMap<string, string>
   anchor: Date
   horizonDays: number
   items: CalendarItem[]
