@@ -71,11 +71,12 @@ const TEST_ORG_ID = 'bbbbbbbb-bbbb-4bbb-abbb-bbbbbbbbbbbb'
 
 function buildHarness() {
   let inTransaction = false
+  const persist = jest.fn()
   let em: Record<string, unknown>
   em = {
     fork: () => em,
     create: (_entity: unknown, data: Record<string, unknown>) => ({ ...data }),
-    persist: () => undefined,
+    persist,
     find: async () => [],
     findOne: async () => null,
     nativeDelete: async () => 0,
@@ -111,7 +112,7 @@ function buildHarness() {
     organizationIds: [TEST_ORG_ID],
   }
 
-  return { ctx }
+  return { ctx, persist }
 }
 
 const line = {
@@ -173,6 +174,34 @@ describe('sales document create commands — customFields (GSM-296)', () => {
     expect(handler).toBeTruthy()
     return handler!
   }
+
+  it.each([
+    ['sales.orders.create', 'sales.sales_order_line'],
+    ['sales.quotes.create', 'sales.sales_quote_line'],
+  ])('%s writes each line’s custom fields under its persisted ID', async (commandId, entityId) => {
+    const { ctx, persist } = buildHarness()
+    const lines = [false, true].map((inspectionRequired) => ({
+      ...line,
+      name: inspectionRequired ? 'Inspected item' : 'Unchecked item',
+      customFields: { inspection_required: inspectionRequired },
+    }))
+
+    await getHandler(commandId).execute(buildInput({ lines }), ctx)
+
+    const writes = customFieldWritesFor(entityId)
+    expect(writes).toHaveLength(lines.length)
+    for (const [index, item] of lines.entries()) {
+      const write = writes[index]
+      expect(write).toMatchObject({
+        recordId: expect.any(String),
+        tenantId: TEST_TENANT_ID,
+        organizationId: TEST_ORG_ID,
+        values: item.customFields,
+      })
+      expect(persist).toHaveBeenCalledWith(expect.objectContaining({ name: item.name, id: write.recordId }))
+    }
+    expect(writes[0].recordId).not.toBe(writes[1].recordId)
+  })
 
   it('persists customFields supplied to sales.orders.create', async () => {
     const { ctx } = buildHarness()

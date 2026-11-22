@@ -3644,6 +3644,7 @@ async function replaceQuoteLines(
     );
     const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null);
     const lineEntity = em.create(SalesQuoteLine, {
+      id: randomUUID(),
       quote,
       ...entityInput,
       status: statusValue,
@@ -3772,6 +3773,7 @@ async function replaceOrderLines(
     );
     const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null);
     const lineEntity = em.create(SalesOrderLine, {
+      id: randomUUID(),
       order,
       ...entityInput,
       reservedQuantity: "0",

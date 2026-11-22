@@ -26,10 +26,11 @@ async function createDefinition(
   entityId: string,
   key: string,
   label: string,
+  kind: 'text' | 'boolean' = 'text',
 ): Promise<void> {
   const response = await apiRequest(request, 'POST', DEFINITIONS, {
     token,
-    data: { entityId, key, kind: 'text', label, formEditable: true, listVisible: true },
+    data: { entityId, key, kind, label, formEditable: true, listVisible: true },
   })
   expect(response.ok(), `custom field definition create failed (${response.status()})`).toBeTruthy()
 }
@@ -71,6 +72,44 @@ const seedLine = {
 }
 
 test.describe('TC-SALES-041: custom fields on sales document create', () => {
+  for (const kind of ['order', 'quote'] as const) {
+    test(`${kind} create preserves the checkbox value on each line`, async ({ request }) => {
+      const token = await getAuthToken(request, 'admin')
+      const documentPath = kind === 'order' ? ORDERS : QUOTES
+      const entityId = `sales:sales_${kind}_line`
+      const key = `inspection_required_${Date.now()}`
+      let documentId: string | null = null
+
+      await createDefinition(request, token, entityId, key, 'Inspection required', 'boolean')
+      try {
+        const createResponse = await apiRequest(request, 'POST', documentPath, {
+          token,
+          data: {
+            currencyCode: 'USD',
+            lines: [
+              { ...seedLine, name: 'Unchecked line', customFields: { [key]: false } },
+              { ...seedLine, name: 'Checked line', customFields: { [key]: true } },
+            ],
+          },
+        })
+        expect(createResponse.status()).toBe(201)
+        const created = await readJsonSafe<CreateResponse>(createResponse)
+        documentId = expectId(created?.id, `${kind} create response should contain an id`)
+
+        const linesResponse = await apiRequest(request, 'GET', `/api/sales/${kind}-lines?${kind}Id=${documentId}`, { token })
+        expect(linesResponse.status()).toBe(200)
+        const lines = await readJsonSafe<ListResponse>(linesResponse)
+        expect(lines?.items).toEqual(expect.arrayContaining([
+          expect.objectContaining({ name: 'Unchecked line', [`cf_${key}`]: false }),
+          expect.objectContaining({ name: 'Checked line', [`cf_${key}`]: true }),
+        ]))
+      } finally {
+        await deleteSalesEntityIfExists(request, token, documentPath, documentId)
+        await deleteDefinition(request, token, entityId, key)
+      }
+    })
+  }
+
   test('order create persists cf_ values without a follow-up update', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
