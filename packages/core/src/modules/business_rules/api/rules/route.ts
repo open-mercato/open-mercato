@@ -17,6 +17,7 @@ import {
   createLocalizedUpdateBusinessRuleSchema,
   businessRuleFilterSchema,
   ruleTypeSchema,
+  isEffectiveDateRangeInverted,
 } from '../../data/validators'
 import {
   invalidateBusinessRuleDiscoveryCache,
@@ -411,6 +412,15 @@ export async function PUT(req: Request) {
 
   if (!rule) {
     return NextResponse.json({ error: 'Rule not found' }, { status: 404 })
+  }
+
+  const patchesEffectiveWindow = parsed.data.effectiveFrom !== undefined || parsed.data.effectiveTo !== undefined
+  if (patchesEffectiveWindow && isEffectiveDateRangeInverted(
+    parsed.data.effectiveFrom !== undefined ? parsed.data.effectiveFrom : rule.effectiveFrom,
+    parsed.data.effectiveTo !== undefined ? parsed.data.effectiveTo : rule.effectiveTo,
+  )) {
+    const message = t('business_rules.rules.form.errors.effectiveToBeforeFrom')
+    return NextResponse.json({ error: `Validation failed: effectiveTo: ${message}` }, { status: 400 })
   }
 
   const touchesOpenMercatoCall = hasOpenMercatoCallAction(parsed.data.successActions)
