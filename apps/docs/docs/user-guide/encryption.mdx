@@ -218,6 +218,19 @@ The lookup pepper keys the hashes used for exact matches such as sign-in by emai
 
 The command uses the existing data-encryption keys to read encrypted sources and updates their existing hash columns in batches. It verifies each stored digest against a mapped source and the configured peppers, including legacy unkeyed digests. A preview reads the same rows without writing hashes or provisioning keys. If a source cannot be decrypted or verified, or a concurrent edit changes a row, resolve the error and re-run the same scope. Keep the previous pepper configured until every scope is complete. Coordinate any changes to encryption maps separately from the rehash.
 
+### Backfilling CRM person phone lookup
+
+After applying the Customers schema migration, run the application backfill for each tenant and organization with existing contacts. Use the same lookup pepper and tenant encryption keys as the application.
+
+```bash
+yarn mercato customers phone-digests:backfill --tenant <tenant-uuid> --org <organization-uuid> --dry-run
+yarn mercato customers phone-digests:backfill --tenant <tenant-uuid> --org <organization-uuid>
+```
+
+The dry run reports how many digests need updating. The write run stores digests for readable plaintext and encrypted phones and reports unreadable rows and concurrent edits. Resolve key or encryption-policy issues, then rerun to cover unreadable rows. Rerun after concurrent edits or after rotating the lookup pepper, while the application still accepts the previous pepper.
+
+The CRM phone check uses indexed matches as soon as they are available. Unindexed encrypted contacts are still subject to the compatibility scan limit until backfill completes.
+
 ## Backfilling system-scoped records
 
 Some records exist before any tenant does — a self-service onboarding request is created while the person filling the form still has no workspace. Those entities are encrypted under a **system-scoped** map (`keyScope: 'system'`) declared in module code rather than under a per-tenant map in the database, so `rotate-encryption-key` never sees them: it walks the `encryption_maps` table and skips every row without a tenant.

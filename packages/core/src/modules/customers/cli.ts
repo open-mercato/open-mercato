@@ -4,6 +4,7 @@ import { createRequestContainer, type AppContainer } from '@open-mercato/shared/
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
+import { z } from 'zod'
 import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
 import type { CacheStrategy } from '@open-mercato/cache/types'
@@ -14,6 +15,7 @@ import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { buildIndexDocument, type IndexCustomFieldValue } from '@open-mercato/core/modules/query_index/lib/document'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -34,6 +36,7 @@ import {
   CustomerTag,
 } from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
+import { backfillPersonPhoneDigests } from './lib/backfillPersonPhoneDigests'
 import { hashPersonPhoneDigits } from './lib/personPhoneLookup'
 import { recomputeNextInteraction } from './lib/interactionProjection'
 import {
@@ -3147,7 +3150,28 @@ const interactionsBackfill: ModuleCli = {
   },
 }
 
-const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, interactionsBackfill]
+const phoneDigestBackfill: ModuleCli = {
+  command: 'phone-digests:backfill',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const scope = z.object({ tenantId: z.uuid(), organizationId: z.uuid() }).safeParse({
+      tenantId: args.tenant,
+      organizationId: args.org,
+    })
+    if (!scope.success) {
+      throw new Error('[internal] Usage: mercato customers phone-digests:backfill --tenant <uuid> --org <uuid> [--dry-run]')
+    }
+
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    const dryRun = parseBooleanToken(args['dry-run']) === true
+    const encryption = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+    const stats = await backfillPersonPhoneDigests(em, encryption, { ...scope.data, dryRun })
+    console.log('[phone-digests:backfill]', { dryRun, ...stats })
+  },
+}
+
+const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, interactionsBackfill, phoneDigestBackfill]
 
 export default customersCliCommands
 export async function ensureCustomerCustomFieldDefinitions(
