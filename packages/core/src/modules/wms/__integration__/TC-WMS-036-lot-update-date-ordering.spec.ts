@@ -25,6 +25,14 @@ type ValidationErrorBody = {
   details?: Array<{ path?: Array<string | number> }>
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function daysFromNow(days: number): string {
+  const date = new Date(Date.now() + days * DAY_MS)
+  date.setUTCHours(0, 0, 0, 0)
+  return date.toISOString()
+}
+
 test.describe('TC-WMS-036: Lot update keeps date ordering against the stored dates', () => {
   test('a single-date patch that conflicts with the stored dates is rejected and nothing changes', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
@@ -39,6 +47,11 @@ test.describe('TC-WMS-036: Lot update keeps date ordering against the stored dat
 
     let productId: string | null = null
     let lotId: string | null = null
+    const manufacturedAt = daysFromNow(-30)
+    const bestBeforeAt = daysFromNow(60)
+    const expiresAt = daysFromNow(120)
+    const conflictingExpiresAt = daysFromNow(-60)
+    const validExpiresAt = daysFromNow(90)
 
     const readLot = async () => {
       const response = await apiRequest(request, 'GET', `/api/wms/lots?ids=${lotId}&page=1&pageSize=1`, {
@@ -65,30 +78,30 @@ test.describe('TC-WMS-036: Lot update keeps date ordering against the stored dat
         catalogVariantId: variantId,
         sku: `TCW36-V-${suffix}`,
         lotNumber: `TCW36-L-${suffix}`,
-        manufacturedAt: '2026-01-01T00:00:00.000Z',
-        bestBeforeAt: '2026-06-01T00:00:00.000Z',
-        expiresAt: '2026-12-01T00:00:00.000Z',
+        manufacturedAt,
+        bestBeforeAt,
+        expiresAt,
       })
 
       const rejected = await apiRequest(request, 'PUT', '/api/wms/lots', {
         token: adminToken,
-        data: { id: lotId, expiresAt: '2025-01-01T00:00:00.000Z' },
+        data: { id: lotId, expiresAt: conflictingExpiresAt },
       })
       expect(rejected.status()).toBe(400)
       const rejectedBody = await readJsonSafe<ValidationErrorBody>(rejected)
       expect(rejectedBody?.details?.some((issue) => issue.path?.[0] === 'expiresAt')).toBe(true)
 
       const unchanged = await readLot()
-      expect(unchanged?.expires_at && new Date(unchanged.expires_at).toISOString()).toBe('2026-12-01T00:00:00.000Z')
+      expect(unchanged?.expires_at && new Date(unchanged.expires_at).toISOString()).toBe(expiresAt)
 
       const accepted = await apiRequest(request, 'PUT', '/api/wms/lots', {
         token: adminToken,
-        data: { id: lotId, expiresAt: '2026-09-01T00:00:00.000Z' },
+        data: { id: lotId, expiresAt: validExpiresAt },
       })
       expect(accepted.status()).toBe(200)
 
       const updated = await readLot()
-      expect(updated?.expires_at && new Date(updated.expires_at).toISOString()).toBe('2026-09-01T00:00:00.000Z')
+      expect(updated?.expires_at && new Date(updated.expires_at).toISOString()).toBe(validExpiresAt)
     } finally {
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/lots', lotId)
       await deleteCatalogProductIfExists(request, adminToken, productId)

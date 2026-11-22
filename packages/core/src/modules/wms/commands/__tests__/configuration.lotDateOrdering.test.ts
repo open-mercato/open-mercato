@@ -9,7 +9,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
     locale: 'en',
     dict: {},
     t: (key: string) => key,
-    translate: (_key: string, fallback?: string) => fallback ?? _key,
+    translate: (key: string, fallback?: string) => fallback ?? key,
   }),
 }))
 
