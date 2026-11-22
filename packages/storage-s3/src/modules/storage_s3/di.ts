@@ -1,5 +1,7 @@
 import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { defineProcessDiRegistrar, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
+import { getRequestScopeContainer, runInRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import {
   registerExternalStorageDriver,
   registerStorageDriverValidator,
@@ -36,9 +38,9 @@ registerExternalStorageDriver('s3', (config: Record<string, unknown>) => {
   return new S3StorageDriver(config)
 })
 
-export function register(container: AppContainer) {
-  // Register the credential enhancer via DI so it can access the request-scoped
-  // integrationCredentialsService to inject marketplace credentials at upload time.
+function registerCredentialEnhancer(
+  resolveCredentials: (scope: { tenantId: string; organizationId: string }) => Promise<Record<string, unknown> | null>,
+) {
   registerExternalCredentialEnhancer('s3', async (config, scope) => {
     const scopedConfig = {
       ...config,
@@ -47,8 +49,7 @@ export function register(container: AppContainer) {
     }
     if (config.credentialsEnvPrefix || config.accessKeyId || config.authMode) return scopedConfig
     try {
-      const credsSvc = container.resolve('integrationCredentialsService') as IntegrationCredentialsService
-      const creds = await credsSvc.resolve('storage_s3', scope)
+      const creds = await resolveCredentials(scope)
       if (!creds) {
         logger.debug('No marketplace credentials found for scope', { tenantId: scope.tenantId, organizationId: scope.organizationId })
         return scopedConfig
@@ -69,7 +70,9 @@ export function register(container: AppContainer) {
       return scopedConfig
     }
   })
+}
 
+function registerServices(container: AppContainer) {
   container.register({
     s3HealthCheck: asValue(s3HealthCheck),
     storageS3QuotaRecoveryScheduler: asValue(scheduleStorageS3QuotaRecovery),
@@ -103,3 +106,29 @@ export function register(container: AppContainer) {
       .proxy(),
   })
 }
+
+
+function registerLegacy(container: AppContainer) {
+  registerCredentialEnhancer((scope) =>
+    container.resolve<IntegrationCredentialsService>('integrationCredentialsService').resolve('storage_s3', scope))
+  registerServices(container)
+}
+
+async function resolveCurrentCredentials(scope: { tenantId: string; organizationId: string }) {
+  const active = getRequestScopeContainer()
+  if (active) return active.resolve<IntegrationCredentialsService>('integrationCredentialsService').resolve('storage_s3', scope)
+  return runInRequestScope(async () => {
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    const caller = await createRequestContainer()
+    try {
+      return await caller.resolve<IntegrationCredentialsService>('integrationCredentialsService').resolve('storage_s3', scope)
+    } finally {
+      await caller.dispose()
+    }
+  })
+}
+
+export const register = defineProcessDiRegistrar((container: AppContainer) => {
+  registerServices(container)
+  registerProcessActivation(container, () => registerCredentialEnhancer(resolveCurrentCredentials))
+}, { legacy: registerLegacy })
