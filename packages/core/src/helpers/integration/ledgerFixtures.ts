@@ -94,7 +94,12 @@ export async function createAccountFixture(
   return expectId(body?.id, 'Ledger account creation response should include id');
 }
 
-export type SeedJournalEntryLine = { accountId: string; debit: string; credit: string };
+export type SeedJournalEntryLine = {
+  accountId: string;
+  debit: string;
+  credit: string;
+  originalCurrency?: { currencyId: string; exchangeRate: string; amountCurrency: string };
+};
 
 export type SeedJournalEntryInput = {
   organizationId: string;
@@ -179,10 +184,13 @@ export async function seedJournalEntryInDb(
           `insert into journal_entry_lines
              (id, organization_id, tenant_id, journal_entry_id, account_id, debit, credit,
               currency_id, exchange_rate, amount_currency, contractor_snapshot)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, 1, ($6::numeric + $7::numeric), null)`,
-          // Seeded as a base-currency line (rate 1, amount = debit + credit): callers pass the
-          // organization's base currency id as `currencyId`.
-          [randomUUID(), input.organizationId, input.tenantId, entryId, line.accountId, line.debit, line.credit, input.currencyId],
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, coalesce($10, $6::numeric + $7::numeric), null)`,
+          [
+            randomUUID(), input.organizationId, input.tenantId, entryId, line.accountId, line.debit, line.credit,
+            line.originalCurrency?.currencyId ?? input.currencyId,
+            line.originalCurrency?.exchangeRate ?? '1',
+            line.originalCurrency?.amountCurrency ?? null,
+          ],
         );
       }
       await opts.whileOpen?.();

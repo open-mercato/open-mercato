@@ -374,6 +374,14 @@ export class JournalEntry {
   name: 'journal_entry_lines_one_sided_chk',
   expression: `("debit" = 0 OR "credit" = 0) AND ("debit" > 0 OR "credit" > 0)`,
 })
+@Check({
+  name: 'journal_entry_lines_rate_positive_chk',
+  expression: `"exchange_rate" > 0`,
+})
+@Check({
+  name: 'journal_entry_lines_amount_currency_nonneg_chk',
+  expression: `"amount_currency" >= 0`,
+})
 export class JournalEntryLine {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

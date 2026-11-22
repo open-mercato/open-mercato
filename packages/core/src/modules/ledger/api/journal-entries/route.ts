@@ -77,6 +77,9 @@ type JournalEntryLineRow = {
   accountName: string | null
   debit: string
   credit: string
+  currencyId: string
+  exchangeRate: string
+  amountCurrency: string
 }
 
 type JournalEntryDetailRow = JournalEntryRow & { lines?: JournalEntryLineRow[] }
@@ -243,6 +246,9 @@ async function loadEntryLines(em: EntityManager, entry: JournalEntry): Promise<J
         accountName: account?.description ?? null,
         debit: String(line.debit),
         credit: String(line.credit),
+        currencyId: String(line.currencyId),
+        exchangeRate: String(line.exchangeRate),
+        amountCurrency: String(line.amountCurrency),
       }
     })
 }
@@ -273,6 +279,9 @@ const journalEntryLineSchema = z.object({
   accountName: z.string().nullable(),
   debit: z.string(),
   credit: z.string(),
+  currencyId: z.uuid(),
+  exchangeRate: z.string(),
+  amountCurrency: z.string(),
 })
 
 export const openApi = createLedgerCrudOpenApi({

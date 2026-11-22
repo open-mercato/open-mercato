@@ -58,6 +58,7 @@ test.describe('TC-GL-005: account numbering, frozen numbers, entry detail', () =
     let tenantId: string | null = null;
     let organizationId: string | null = null;
     let currencyId: string | null = null;
+    let foreignCurrencyId: string | null = null;
     let headers: Record<string, string> = {};
 
     try {
@@ -71,6 +72,13 @@ test.describe('TC-GL-005: account numbering, frozen numbers, entry detail', () =
       currencyId = await createCurrencyFixture(request, token, {
         code: generateUniqueCurrencyCode(),
         name: 'QA TC-GL-005 Currency',
+        organizationId,
+        tenantId,
+        headers,
+      });
+      foreignCurrencyId = await createCurrencyFixture(request, token, {
+        code: generateUniqueCurrencyCode(),
+        name: 'QA TC-GL-005 Foreign Currency',
         organizationId,
         tenantId,
         headers,
@@ -156,7 +164,12 @@ test.describe('TC-GL-005: account numbering, frozen numbers, entry detail', () =
         operationDate: '2032-03-10',
         lines: [
           { accountId: cashId, debit: '75.0000', credit: '0' },
-          { accountId: otherId, debit: '0', credit: '75.0000' },
+          {
+            accountId: otherId,
+            debit: '0',
+            credit: '75.0000',
+            originalCurrency: { currencyId: foreignCurrencyId, exchangeRate: '2.5', amountCurrency: '30' },
+          },
         ],
       });
 
@@ -177,18 +190,27 @@ test.describe('TC-GL-005: account numbering, frozen numbers, entry detail', () =
         request, 'GET', `/api/ledger/journal-entries?id=${encodeURIComponent(entryId)}`, { token, headers },
       );
       expect(detail.status(), 'GET ?id= should return 200').toBe(200);
-      const body = (await detail.json()) as {
-        items?: Array<{ id: string; lines?: Array<{ accountNumber: string; accountName: string | null; debit: string; credit: string }> }>;
-      };
-      const entry = (body.items ?? [])[0];
+      const body = await readJsonSafe<{ items?: Array<{ id: string; lines?: unknown[] }> }>(detail);
+      const entry = body?.items?.[0];
       expect(entry?.id).toBe(entryId);
       const lines = entry?.lines ?? [];
       expect(lines, 'detail should carry both posted lines').toHaveLength(2);
-      expect(lines[0].accountNumber, 'debit line first').toBe('402-01');
-      expect(Number(lines[0].debit)).toBe(75);
-      expect(lines[1].accountNumber).toBe('402-03');
-      expect(Number(lines[1].credit)).toBe(75);
+      expect(lines[0]).toMatchObject({
+        accountNumber: '402-01',
+        debit: '75.0000',
+        currencyId,
+        exchangeRate: '1.00000000',
+        amountCurrency: '75.0000',
+      });
+      expect(lines[1]).toMatchObject({
+        accountNumber: '402-03',
+        credit: '75.0000',
+        currencyId: foreignCurrencyId,
+        exchangeRate: '2.50000000',
+        amountCurrency: '30.0000',
+      });
     } finally {
+      await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', foreignCurrencyId, { headers });
       await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', currencyId, { headers }).catch(() => undefined);
       await deleteOrganizationIfExists(request, token, organizationId);
       await deleteGeneralEntityIfExists(request, token, '/api/directory/tenants', tenantId);
