@@ -5,6 +5,7 @@ import type {
   McpToolContext,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 import { emitCitations } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/citations'
+import { buildAttachmentAccessAuth } from './lib/access-rows'
 import { buildDocumentSectionHref } from './lib/documentStructure/sectionLink'
 import {
   ATTACHMENT_DOCUMENT_STRUCTURE_SERVICE_DI_KEY,
@@ -117,25 +118,24 @@ function emptyResult(
 }
 
 function buildToolAuth(ctx: McpToolContext, organizationId: string): AuthContext {
-  const apiKeyId = typeof ctx.apiKeyId === 'string' && ctx.apiKeyId.length > 0 ? ctx.apiKeyId : null
-  if (apiKeyId) {
-    return {
-      sub: `api_key:${apiKeyId}`,
-      isApiKey: true,
-      keyId: apiKeyId,
-      tenantId: ctx.tenantId,
-      orgId: organizationId,
-      features: [...ctx.userFeatures],
-      isSuperAdmin: ctx.isSuperAdmin === true,
-    }
-  }
+  const principalApiKeyId = ctx.principalApiKeyId || null
+  const requesterApiKeyId = typeof ctx.apiKeyId === 'string' && ctx.apiKeyId.length > 0 ? ctx.apiKeyId : null
+  const features = [...ctx.userFeatures]
+  const isSuperAdmin = ctx.isSuperAdmin === true
+  const auth = buildAttachmentAccessAuth({
+    tenantId: ctx.tenantId,
+    organizationId,
+    userId: ctx.userId,
+    apiKeyId: principalApiKeyId ?? requesterApiKeyId,
+    apiKeyUserId: principalApiKeyId ? ctx.apiKeyUserId : null,
+  })
+  if (auth) return { ...auth, features, isSuperAdmin }
   return {
-    sub: ctx.userId ?? TOOL_PRINCIPAL,
-    ...(ctx.userId ? { userId: ctx.userId } : {}),
+    sub: TOOL_PRINCIPAL,
     tenantId: ctx.tenantId,
     orgId: organizationId,
-    features: [...ctx.userFeatures],
-    isSuperAdmin: ctx.isSuperAdmin === true,
+    features,
+    isSuperAdmin,
   }
 }
 

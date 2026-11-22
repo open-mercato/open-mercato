@@ -158,6 +158,29 @@ describe('defineAgentTool', () => {
     )
   })
 
+  it('passes the key principal of the calling context to the nested agent run', async () => {
+    seedAgent()
+    await buildTool().handler(
+      { input: 'Review product 42' },
+      buildContext({ principalApiKeyId: 'key-1', apiKeyUserId: 'user-9' }),
+    )
+
+    expect(runAiAgentObjectMock.mock.calls[0][0].authContext).toMatchObject({
+      userId: 'user-1',
+      principalApiKeyId: 'key-1',
+      apiKeyUserId: 'user-9',
+    })
+  })
+
+  it('passes no key principal to the nested agent run for a caller without one', async () => {
+    seedAgent()
+    await buildTool().handler({ input: 'Review product 42' }, buildContext({ apiKeyUserId: 'user-9' }))
+
+    const authContext = runAiAgentObjectMock.mock.calls[0][0].authContext
+    expect(authContext).not.toHaveProperty('principalApiKeyId')
+    expect(authContext).not.toHaveProperty('apiKeyUserId')
+  })
+
   it('maps the in-process agent channel to the chat run channel and uses toPrompt', async () => {
     seedAgent()
     const tool = defineAgentTool({

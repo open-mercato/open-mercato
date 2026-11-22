@@ -214,6 +214,8 @@ async function runThroughAiAssistant<TInput>(
           tenantId: context.tenantId,
           organizationId: context.organizationId,
           userId,
+          ...(context.principalApiKeyId ? { principalApiKeyId: context.principalApiKeyId } : {}),
+          ...(context.principalApiKeyId && context.apiKeyUserId ? { apiKeyUserId: context.apiKeyUserId } : {}),
           features: context.userFeatures,
           isSuperAdmin: context.isSuperAdmin,
         },
