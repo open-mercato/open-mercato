@@ -44,6 +44,16 @@ test.describe('TC-BR-020: Rule PUT checks the effective window against the store
       expect(invertStart.status()).toBe(400)
       expect((await readJsonSafe<{ error?: string }>(invertStart))?.error).toContain('effectiveTo')
 
+      const invertStartPolish = await apiRequest(request, 'PUT', '/api/business_rules/rules', {
+        token,
+        data: { id: ruleId, effectiveFrom: '2026-03-01T00:00:00.000Z' },
+        headers: { 'Accept-Language': 'pl' },
+      })
+      expect(invertStartPolish.status()).toBe(400)
+      expect((await readJsonSafe<{ error?: string }>(invertStartPolish))?.error).toBe(
+        'Walidacja nie powiodła się: effectiveTo: Data „Obowiązuje Do” musi być późniejsza niż „Obowiązuje Od”',
+      )
+
       const invertEnd = await apiRequest(request, 'PUT', '/api/business_rules/rules', {
         token,
         data: { id: ruleId, effectiveTo: '2025-12-01T00:00:00.000Z' },
