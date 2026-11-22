@@ -23,6 +23,58 @@ function interaction(id: string, scheduledAt: string): CalendarInteractionPayloa
   }
 }
 
+const range = {
+  from: new Date('2026-08-03T00:00:00.000Z'),
+  to: new Date('2026-08-09T23:59:59.999Z'),
+}
+
+function windowInteractions(count: number): CalendarInteractionPayload[] {
+  return Array.from({ length: count }, (_, index) => ({
+    ...interaction(`window-${index}`, '2026-08-03T10:00:00.000Z'),
+    recurrenceRule: null,
+  }))
+}
+
+function mockCalendarPages(
+  windowItems: CalendarInteractionPayload[],
+  recurringItems: CalendarInteractionPayload[] = [],
+) {
+  apiCallMock.mockImplementation(async (url: string) => {
+    if (url === '/api/customers/dictionaries/activity-types') {
+      return { ok: true, status: 200, result: { items: [] } }
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const candidates = params.has('recurrenceMasters') ? recurringItems : windowItems
+    const offset = Number(params.get('cursor') ?? 0)
+    const end = offset + Number(params.get('limit'))
+    return {
+      ok: true,
+      status: 200,
+      result: {
+        items: candidates.slice(offset, end),
+        nextCursor: end < candidates.length ? String(end) : undefined,
+      },
+    }
+  })
+}
+
+describe('useCalendarItems window budget', () => {
+  beforeEach(() => {
+    apiCallMock.mockReset()
+  })
+
+  test('stops following cursors at the default limit and reports an incomplete window', async () => {
+    mockCalendarPages(windowInteractions(501))
+
+    const { result } = renderHook(() => useCalendarItems(range))
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.items).toHaveLength(500)
+    expect(result.current.truncated).toBe(true)
+    expect(apiCallMock.mock.calls.some(([url]) => String(url).includes('cursor=500'))).toBe(false)
+  })
+})
+
 describe('useCalendarItems recurring masters (#4735)', () => {
   beforeEach(() => {
     apiCallMock.mockReset()
