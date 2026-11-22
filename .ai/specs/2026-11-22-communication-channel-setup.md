@@ -53,7 +53,11 @@ Frozen by: packages/channel-gmail/src/modules/channel_gmail/__integration__/TC-C
 
 ## API Contracts
 
-GET /api/communication_channels/oauth/{provider}/status requires staff authentication and communication_channels.connect_user_channel. Validate the provider key and require an installed OAuth-capable adapter. Return a boolean configured for the OAuth client in the current tenant and organization, using the same tenant-level fallback and credential resolver as OAuth initiation. Return 400 for malformed keys and 404 for unavailable OAuth providers. The response carries no credential fields or mailbox identifiers and must not be cached.
+GET /api/communication_channels/oauth/{provider}/status requires staff authentication and communication_channels.connect_user_channel in the organization used for OAuth. Use the existing authenticated mailbox scope and its tenant fallback. Validate the provider key and require an installed OAuth-capable adapter. The success response contains only the configured boolean. Return 400 for malformed keys, 403 if the caller lacks the feature in the mailbox scope, 404 for unavailable OAuth providers, and 503 if the lookup could not determine readiness. The success response must not be cached.
+
+Status, initiation, and callback select the same OAuth client row. Check the organization row first and fall back to the tenant-wide row if the organization has no client ID. An organization row with a client ID selects that OAuth app. If it lacks a secret that the provider marks as required, treat it as incomplete and keep the organization selection. This prevents a partial organization configuration from silently authorizing with a different tenant-wide OAuth app.
+
+If the selected row is incomplete, status returns configured=false, initiation returns the existing 409 oauth_client_not_configured code, and callback redirects with the same code before exchanging any code. Callback uses the scope bound to the signed OAuth state. If a credential lookup throws and the fallback still does not identify the client, status reports a retryable failure.
 
 This route is additive. Existing OAuth URLs, payloads, authorization checks and cookie behavior remain compatible. No schema migration is needed. The marketplace's category query is an optional initial filter. Unknown values retain the marketplace default. Users can change or clear the initial filter.
 
@@ -86,6 +90,6 @@ The three pages remain client-rendered at their existing boundaries. The provide
 
 | Surface | Cases |
 | --- | --- |
-| Provider status and OAuth start | Exercise missing, partial and complete client credentials, disabled access, missing provider, scoped fallback and no secret values in the response. Verify the guarded start still responds with the authorization URL when configured. |
+| Provider status and OAuth start | Exercise missing, partial and complete client credentials, denied access, wrong organization, an unavailable provider and no secret values in the response. Verify the ready and partial initiation paths. Unit coverage also checks tenant fallback, incomplete organization selection and callback recovery before token exchange. |
 | Shared channels and Integrations | Open the empty list with appropriate grants, follow both actions, and verify the marketplace opens on Communication. Check that users without the relevant permission cannot see each link. |
 | Personal channels | Open Connect channel, confirm Gmail is disabled before setup, verify the setup link for managers and guidance for mailbox users, and check that an OAuth configuration failure leaves actionable feedback. Cover configured entry and recovery using self-contained fixtures without sending e-mail or exchanging Google tokens. |
