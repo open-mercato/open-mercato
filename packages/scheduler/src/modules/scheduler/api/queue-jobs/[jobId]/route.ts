@@ -6,6 +6,7 @@ import { getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redi
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('scheduler').child({ component: 'queue-jobs' })
 
@@ -136,8 +137,13 @@ export async function GET(
     })
   } catch (error: unknown) {
     logger.error('Error fetching job', { err: error })
+    try {
+      getTelemetryRuntime()?.reportError(error, { module: 'scheduler', code: 'scheduler.fetch_job_failed' })
+    } catch (telemetryError) {
+      logger.warn('Failed to report queue job error to telemetry', { err: telemetryError })
+    }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : translate('scheduler.error.fetch_job_failed', 'Failed to fetch job details') },
+      { error: translate('scheduler.error.fetch_job_failed', 'Failed to fetch job details') },
       { status: 500 }
     )
   }
