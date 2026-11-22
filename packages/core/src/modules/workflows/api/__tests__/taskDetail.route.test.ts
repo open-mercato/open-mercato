@@ -183,6 +183,27 @@ describe('GET /api/workflows/tasks/[id] — disclosure', () => {
     })
   })
 
+  test('a malformed id is the missing-task answer and never reaches the uuid column', async () => {
+    mockEm.findOne.mockImplementation(async () => {
+      throw Object.assign(new Error('invalid input syntax for type uuid: "not-a-uuid"'), { code: '22P02' })
+    })
+
+    expect(await bodyAndStatus(await runDetail('not-a-uuid'))).toEqual({
+      status: 404,
+      body: { error: 'Task not found' },
+    })
+    expect(mockEm.findOne).not.toHaveBeenCalled()
+  })
+
+  test('any canonical uuid spelling still reaches the lookup', async () => {
+    setTask(makeTask())
+
+    const response = await runDetail(TASK_ID.toUpperCase())
+
+    expect(response.status).toBe(200)
+    expect(mockEm.findOne).toHaveBeenCalledWith(UserTask, expect.objectContaining({ id: TASK_ID.toUpperCase() }))
+  })
+
   test('an entity refusal is a bare 404 for a caller who is merely assigned', async () => {
     withVisibility({
       acl: { features: ['workflows.tasks.view'] },
