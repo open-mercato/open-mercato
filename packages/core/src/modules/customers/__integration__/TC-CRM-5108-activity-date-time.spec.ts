@@ -92,7 +92,10 @@ test('logs a past meeting and plans future work from the same deal composer (#51
       await expect(dateTime).toHaveText('Now')
     }
 
-    await expect(page.getByText(historyText, { exact: true }).locator('xpath=self::*[not(ancestor::*[@id="inline-activity-composer-week-preview"])]')).toBeVisible()
+    const history = page.getByRole('heading', { name: /^Interaction history/ }).locator('../..')
+    await expect(history.getByText(historyText, { exact: true })).toBeVisible()
+    const futureHistoryRow = history.getByRole('button').filter({ hasText: plannedText })
+    await expect(futureHistoryRow.getByRole('button', { name: 'Mark done', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: new RegExp(`^${plannedText} `) })).toBeVisible()
     await expect(page.getByRole('button', { name: new RegExp(`^${taskText} `) })).toBeVisible()
     if (process.env.PW_CAPTURE_SCREENSHOTS === '1') {

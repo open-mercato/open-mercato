@@ -17,6 +17,6 @@ PR: #10407
 ### Phase 1: Unified composer
 
 - [x] 1.1 Characterize the existing save payload and refresh. — f2fc7d2e89
-- [ ] 1.2 Create logged and planned activities from one date and time.
-- [ ] 1.3 Verify the flow on person, company, and deal detail pages.
-- [ ] 1.4 Archive the creation requirement.
+- [x] 1.2 Create logged and planned activities from one date and time. — dd652045bf
+- [x] 1.3 Verify the flow on person, company, and deal detail pages. — 12 Chromium tests passed, with one previously skipped test.
+- [x] 1.4 Archive the creation requirement. — dd652045bf
