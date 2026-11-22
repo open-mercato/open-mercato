@@ -146,6 +146,7 @@ export default function DateLocaleSettingsPage() {
       {
         id: `${field.id}Mode`,
         type: 'select',
+        required: true,
         label: patternLabels[field.id],
         description: inheritedHint(field.id),
         options: [
@@ -180,6 +181,7 @@ export default function DateLocaleSettingsPage() {
       {
         id: 'locale',
         type: 'select',
+        required: true,
         label: t('configs.dateLocale.fields.locale', 'Formatting locale'),
         description: inheritedHint('locale'),
         options: [
@@ -206,6 +208,7 @@ export default function DateLocaleSettingsPage() {
       {
         id: 'firstDayOfWeek',
         type: 'select',
+        required: true,
         label: t('configs.dateLocale.fields.firstDayOfWeek', 'First day of the week'),
         description: data
           ? t('configs.dateLocale.weekStart.hint', 'Automatic uses the formatting locale’s week start, or Monday when no locale is set. Currently: {{value}}.', {
