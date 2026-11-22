@@ -44,3 +44,5 @@ Configured validation gate: build:packages, generate, build:packages, i18n:check
 - 2026-11-18: Implement tenant-scoped delivery configuration and trusted-origin enforcement for issue #9136; add regression and HTTP integration coverage.
 
 - 2026-11-18: Address inherited review findings with serialized optimistic locking, safe mailbox validation and a real default notification link.
+
+- 2026-11-22: Await the shared optional command-lock guard for versioned settings writes, keep the existing inbox URL out of generated sidebar navigation, and disclose validation refusals; named human compatibility and protected QA gates remain.

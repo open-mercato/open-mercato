@@ -65,7 +65,7 @@ function createSyncRunService(run: Record<string, unknown>): SyncRunService {
 function buildEngine(params: {
   run: Record<string, unknown>
   adapter: DataSyncAdapter
-  progressService: ProgressService
+  progressService: ProgressService | null
   syncRunService?: SyncRunService
 }) {
   mockGetDataSyncAdapter.mockReturnValue(params.adapter)
@@ -132,6 +132,28 @@ describe('data sync engine heartbeats and resumed progress counts (GSM-314)', ()
 
   afterEach(() => {
     jest.useRealTimers()
+  })
+
+  it('completes an import with an old progress job id after the progress module is disabled', async () => {
+    const syncRunService = createSyncRunService(baseImportRun)
+    const adapter = importAdapter(async function* () { yield importBatch(1) })
+    const engine = buildEngine({ run: baseImportRun, adapter, syncRunService, progressService: null })
+    await engine.runImport(baseImportRun.id, 100, createScope())
+    expect(syncRunService.markStatus).toHaveBeenCalledWith(baseImportRun.id, 'completed', createScope(), undefined)
+  })
+
+  it('stops before committing the next batch when the run row is cancelled without progress', async () => {
+    const run = { ...baseImportRun, progressJobId: null }
+    const syncRunService = createSyncRunService(run)
+    const adapter = importAdapter(async function* () {
+      yield { ...importBatch(1, 0), hasMore: true }
+      run.status = 'cancelled'
+      yield importBatch(1, 1)
+    })
+    const engine = buildEngine({ run, adapter, syncRunService, progressService: null })
+    await engine.runImport(run.id, 100, createScope())
+    expect(syncRunService.commitBatchProgress).toHaveBeenCalledTimes(1)
+    expect(syncRunService.markStatus).toHaveBeenCalledWith(run.id, 'cancelled', createScope(), undefined)
   })
 
   it('heartbeats every 15s while a batch is being produced and stops when the stream ends', async () => {

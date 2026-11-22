@@ -1,3 +1,4 @@
+import { compareDecimals, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import type { EnrichedEvaluateItem, EvaluationContext, NormalizedBenefit, UnitSelection } from './types'
 
 // Step 2.3a — `selectUnits(benefit, context)` (SPEC-055 §Evaluation Engine Data Flow Pass 3,
@@ -107,10 +108,10 @@ function buildIndexByItem(allItems: EnrichedEvaluateItem[]): Map<EnrichedEvaluat
 // byte-identical (TC-PROM-064).
 function compareLineCandidates(a: LineCandidate, b: LineCandidate, selector: QuantityCapSelector | null): number {
   if (selector === 'cheapest' || selector === 'nth') {
-    const priceDiff = Number(a.item.unitPriceNet) - Number(b.item.unitPriceNet)
+    const priceDiff = compareDecimals(parseDecimal(a.item.unitPriceNet) ?? 0, parseDecimal(b.item.unitPriceNet) ?? 0)
     if (priceDiff !== 0) return priceDiff
   } else if (selector === 'most_expensive') {
-    const priceDiff = Number(b.item.unitPriceNet) - Number(a.item.unitPriceNet)
+    const priceDiff = compareDecimals(parseDecimal(b.item.unitPriceNet) ?? 0, parseDecimal(a.item.unitPriceNet) ?? 0)
     if (priceDiff !== 0) return priceDiff
   } else {
     // `cart_order`, `all`, and the uncapped/no-selector default all preserve cart order.
@@ -203,10 +204,10 @@ function buildUnitCandidates(qualifyingItems: EnrichedEvaluateItem[], allItems: 
 
 function compareUnitCandidates(a: UnitCandidate, b: UnitCandidate, selector: QuantityCapSelector | null): number {
   if (selector === 'cheapest' || selector === 'nth') {
-    const priceDiff = Number(a.item.unitPriceNet) - Number(b.item.unitPriceNet)
+    const priceDiff = compareDecimals(parseDecimal(a.item.unitPriceNet) ?? 0, parseDecimal(b.item.unitPriceNet) ?? 0)
     if (priceDiff !== 0) return priceDiff
   } else if (selector === 'most_expensive') {
-    const priceDiff = Number(b.item.unitPriceNet) - Number(a.item.unitPriceNet)
+    const priceDiff = compareDecimals(parseDecimal(b.item.unitPriceNet) ?? 0, parseDecimal(a.item.unitPriceNet) ?? 0)
     if (priceDiff !== 0) return priceDiff
   } else {
     if (a.sourceIndex !== b.sourceIndex) return a.sourceIndex - b.sourceIndex

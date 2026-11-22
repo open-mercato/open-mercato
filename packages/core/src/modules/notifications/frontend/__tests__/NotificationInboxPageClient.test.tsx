@@ -24,7 +24,7 @@ jest.mock('@open-mercato/ui/backend/notifications', () => ({
 it('opens the existing notification panel on its authorized inbox route and closes back to the backend', () => {
   renderWithProviders(<NotificationInboxPageClient />)
   const props = panelMock.mock.calls[0][0] as NotificationPanelProps
-  expect(metadata).toMatchObject({ requireAuth: true, requireFeatures: ['notifications.view'] })
+  expect(metadata).toMatchObject({ requireAuth: true, requireFeatures: ['notifications.view'], navHidden: true })
   expect(props).toMatchObject({ open: true, notifications: [], onMarkAsRead: notifications.markAsRead, onExecuteAction: notifications.executeAction })
   props.onOpenChange(false)
   expect(pushMock).toHaveBeenCalledWith('/backend')

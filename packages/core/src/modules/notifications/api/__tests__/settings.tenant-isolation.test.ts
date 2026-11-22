@@ -1,3 +1,4 @@
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { ModuleConfig } from '../../../configs/data/entities'
 import { createModuleConfigService } from '../../../configs/lib/module-config-service'
 import { type NotificationDeliveryConfig, NOTIFICATIONS_DELIVERY_CONFIG_KEY, resolveNotificationDeliveryConfig, saveNotificationDeliveryConfig } from '../../lib/deliveryConfig'
@@ -10,6 +11,7 @@ const instanceConfig = {
   strategies: { email: { enabled: true, from: 'operator@example.com', replyTo: 'support@example.com' } },
 }
 let auth: { sub: string; tenantId: string | null; orgId: string | null; actorTenantId?: string; isSuperAdmin?: boolean } | null
+const guardEnforce = jest.fn(async (_input: unknown): Promise<void> => undefined)
 const rows = new Map<string | null, ModuleConfig>()
 const cache = new Map<string, unknown>()
 const repository = {
@@ -23,6 +25,7 @@ const em = {
 }
 const container = {
   resolve: <T,>(name: string): T => {
+    if (name === 'commandOptimisticLockGuardService') return { enforce: guardEnforce } as T
     if (name === 'moduleConfigService') return configService as T
     if (name === 'em') return em as T
     if (name === 'cache') return {
@@ -64,6 +67,7 @@ const readSettings = async () => {
 
 describe('notification settings route with the real scoped module config service and cache', () => {
   beforeEach(() => {
+    guardEnforce.mockReset().mockResolvedValue(undefined)
     rows.clear()
     cache.clear()
     repository.findOne.mockClear()
@@ -72,6 +76,20 @@ describe('notification settings route with the real scoped module config service
       tenantId: null, organizationId: null, createdAt: new Date(), updatedAt: new Date(),
     } as ModuleConfig)
     auth = { sub: 'admin-a', tenantId: tenantA, orgId: null }
+  })
+
+  it('awaits the optional command lock guard before persisting settings', async () => {
+    guardEnforce.mockRejectedValueOnce(new CrudHttpError(409, { error: 'Conflict', code: 'record_lock_conflict' }))
+
+    const response = await POST(request({ strategies: { email: { enabled: false } } }))
+
+    expect(response.status).toBe(409)
+    expect(guardEnforce).toHaveBeenCalledWith(expect.objectContaining({
+      resourceKind: 'notifications.settings',
+      resourceId: tenantA,
+    }))
+    expect(rows.has(tenantA)).toBe(false)
+    expect(rows.get(null)?.valueJson).toEqual(instanceConfig)
   })
 
   it('isolates tenant settings, cached defaults, senders and switches without mutating the instance fallback', async () => {

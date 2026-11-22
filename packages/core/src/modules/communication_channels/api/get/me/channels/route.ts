@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../../../../data/entities'
+import { isAutomaticSyncEnabledForOrganization } from '../../../../lib/automatic-sync'
 import { isHubPolledChannel } from '../../../../lib/polling-eligibility'
 import type { ChannelAdapterRegistry } from '../../../../lib/registry'
 
@@ -58,6 +59,11 @@ export async function GET(req: Request): Promise<Response> {
       serialize(channel, adapterRegistry),
     ),
     total: channels.length,
+    /** `false` when no scheduler polls this organization's channels, so mail arrives only on "Poll now" (#8804). */
+    automaticSyncEnabled: await isAutomaticSyncEnabledForOrganization(
+      container,
+      (auth as { orgId?: string | null }).orgId ?? null,
+    ),
   })
 }
 

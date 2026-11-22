@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createModuleConfigService, type ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
 import type { NotificationDeliveryConfigInput } from '../data/validators'
 import {
@@ -61,7 +61,7 @@ export async function saveVersionedNotificationDeliverySettings(
       resolve: <T,>(name: string): T => name === 'moduleConfigService' ? service as T : transactionContainer.resolve<T>(name),
     }
     const current = await readNotificationDeliverySettings(transactionResolver, tenantId)
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(transactionContainer, {
       resourceKind: 'notifications.settings',
       resourceId: tenantId,
       current: current.updatedAt,

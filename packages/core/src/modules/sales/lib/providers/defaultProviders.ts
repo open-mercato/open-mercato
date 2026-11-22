@@ -1,5 +1,17 @@
 import { z } from 'zod'
 import {
+  DEFAULT_AMOUNT_DECIMAL_PLACES,
+  FX_DECIMAL_PLACES,
+  decimalToNumber,
+  decimalToString,
+  divideDecimals,
+  nonNegativeDecimalStringSchema,
+  resolveExactDecimal,
+  roundDecimal,
+  toDecimal,
+  type DecimalValue,
+} from '@open-mercato/shared/lib/decimal'
+import {
   registerPaymentProvider,
   registerShippingProvider,
 } from './registry'
@@ -12,31 +24,45 @@ import type {
 
 let initialized = false
 
-function toNumber(value: unknown, fallback = 0): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) {
-    return Number(value)
+function exactOr(exact: unknown, legacy: unknown, fallback: DecimalValue): DecimalValue {
+  const resolved = resolveExactDecimal(exact, legacy)
+  return resolved === null ? fallback : toDecimal(resolved)
+}
+
+function percentOf(percent: number, value: DecimalValue): DecimalValue {
+  return divideDecimals(percent, 100, FX_DECIMAL_PLACES).times(value)
+}
+
+function nonNegative(value: DecimalValue): DecimalValue {
+  return value.lt(0) ? toDecimal(0) : value
+}
+
+function shippingAdjustmentAmounts(net: DecimalValue, gross: DecimalValue) {
+  return {
+    amountNet: decimalToNumber(net),
+    amountNetExact: decimalToString(net),
+    amountGross: decimalToNumber(gross),
+    amountGrossExact: decimalToString(gross),
   }
-  return fallback
 }
 
 function createSurchargeAdjustment(params: {
   providerKey: string
   label: string
   currencyCode: string
-  amount: number
+  amount: DecimalValue
+  decimalPlaces?: number
   metadata?: Record<string, unknown>
 }): ProviderAdjustmentResult {
-  const amount = Math.max(0, params.amount)
-  if (!Number.isFinite(amount) || amount <= 0) return { adjustments: [] }
+  const amount = roundDecimal(nonNegative(params.amount), params.decimalPlaces ?? DEFAULT_AMOUNT_DECIMAL_PLACES)
+  if (amount.lte(0)) return { adjustments: [] }
   return {
     adjustments: [
       {
         kind: 'surcharge',
         code: params.providerKey,
         label: params.label,
-        amountNet: amount,
-        amountGross: amount,
+        ...shippingAdjustmentAmounts(amount, amount),
         currencyCode: params.currencyCode,
         metadata: params.metadata ?? null,
       },
@@ -45,10 +71,18 @@ function createSurchargeAdjustment(params: {
   }
 }
 
+function nullToUndefined(value: unknown): unknown {
+  return value === null || value === '' ? undefined : value
+}
+
+function nullToZero(value: unknown): unknown {
+  return value === null || value === '' ? 0 : value
+}
+
 const cashOnDeliverySettings = z.object({
-  feeFlat: z.coerce.number().min(0).default(0),
+  feeFlat: z.preprocess(nullToZero, nonNegativeDecimalStringSchema).default('0'),
   feePercent: z.coerce.number().min(0).max(100).default(0),
-  maxOrderTotal: z.coerce.number().min(0).optional(),
+  maxOrderTotal: z.preprocess(nullToUndefined, nonNegativeDecimalStringSchema.optional()),
 })
 
 const stripeSettings = z.object({
@@ -56,7 +90,7 @@ const stripeSettings = z.object({
   secretKey: z.string().trim().min(1).max(200).optional(),
   webhookSecret: z.string().trim().max(200).optional(),
   applicationFeePercent: z.coerce.number().min(0).max(100).default(0),
-  applicationFeeFlat: z.coerce.number().min(0).default(0),
+  applicationFeeFlat: z.preprocess(nullToZero, nonNegativeDecimalStringSchema).default('0'),
   captureMethod: z.enum(['automatic', 'manual']).default('automatic'),
   successUrl: z.string().trim().max(400).optional(),
   cancelUrl: z.string().trim().max(400).optional(),
@@ -69,10 +103,10 @@ const flatRateSettings = z.object({
         id: z.string().optional(),
         name: z.string().trim().max(120).optional(),
         metric: z.enum(['item_count', 'weight', 'volume', 'subtotal']).default('item_count'),
-        min: z.coerce.number().min(0).default(0),
-        max: z.coerce.number().min(0).optional(),
-        amountNet: z.coerce.number().min(0),
-        amountGross: z.coerce.number().min(0).optional(),
+        min: z.preprocess(nullToZero, nonNegativeDecimalStringSchema).default('0'),
+        max: z.preprocess(nullToUndefined, nonNegativeDecimalStringSchema.optional()),
+        amountNet: z.preprocess(nullToZero, nonNegativeDecimalStringSchema),
+        amountGross: z.preprocess(nullToUndefined, nonNegativeDecimalStringSchema.optional()),
         currencyCode: z.string().trim().length(3).optional(),
       })
     )
@@ -85,13 +119,13 @@ function selectFlatRate(
   metrics: ShippingMetrics
 ) {
   for (const rate of settings.rates ?? []) {
-    let value = metrics.itemCount
-    if (rate.metric === 'subtotal') value = metrics.subtotalGross
-    if (rate.metric === 'weight') value = metrics.totalWeight
-    if (rate.metric === 'volume') value = metrics.totalVolume
-    const min = toNumber(rate.min, 0)
-    const max = rate.max === undefined || rate.max === null ? Number.POSITIVE_INFINITY : toNumber(rate.max, 0)
-    if (value >= min && value <= max) return rate
+    let value = toDecimal(metrics.itemCount)
+    if (rate.metric === 'subtotal') value = exactOr(metrics.subtotalGrossExact, metrics.subtotalGross, toDecimal(0))
+    if (rate.metric === 'weight') value = toDecimal(metrics.totalWeight)
+    if (rate.metric === 'volume') value = toDecimal(metrics.totalVolume)
+    const aboveMin = value.gte(toDecimal(rate.min ?? '0'))
+    const belowMax = rate.max === undefined || rate.max === null || value.lte(toDecimal(rate.max))
+    if (aboveMin && belowMax) return rate
   }
   return null
 }
@@ -125,13 +159,14 @@ const stripeProvider: PaymentProvider = {
     const parsed = stripeSettings.safeParse(settings ?? {})
     if (!parsed.success) return { adjustments: [] }
     const { applicationFeeFlat, applicationFeePercent } = parsed.data
-    const total = document.totals.grandTotalGrossAmount ?? 0
-    const amount = Math.max(0, applicationFeeFlat + (applicationFeePercent / 100) * Math.max(total, 0))
+    const total = exactOr(document.totals.grandTotalGrossAmountExact, document.totals.grandTotalGrossAmount, toDecimal(0))
+    const amount = toDecimal(applicationFeeFlat).plus(percentOf(applicationFeePercent, nonNegative(total)))
     return createSurchargeAdjustment({
       providerKey: 'stripe',
       label: 'Stripe processing fee',
       currencyCode: context.currencyCode,
       amount,
+      decimalPlaces: context.amountDecimalPlaces,
       metadata: parsed.data,
     })
   },
@@ -191,19 +226,19 @@ const paymentProviders: PaymentProvider[] = [
     },
     calculate: ({ document, context, settings }) => {
       const parsed = cashOnDeliverySettings.safeParse(settings ?? {})
-      const total = document.totals.grandTotalGrossAmount ?? 0
+      const total = exactOr(document.totals.grandTotalGrossAmountExact, document.totals.grandTotalGrossAmount, toDecimal(0))
       if (!parsed.success) return { adjustments: [] }
       const { feeFlat, feePercent, maxOrderTotal } = parsed.data
-      if (maxOrderTotal !== undefined && maxOrderTotal !== null && total > maxOrderTotal) {
+      if (maxOrderTotal !== undefined && maxOrderTotal !== null && total.gt(toDecimal(maxOrderTotal))) {
         return { adjustments: [] }
       }
-      const percentageFee = (feePercent / 100) * Math.max(total, 0)
-      const amount = percentageFee + feeFlat
+      const amount = percentOf(feePercent, nonNegative(total)).plus(toDecimal(feeFlat))
       return createSurchargeAdjustment({
         providerKey: 'cash-on-delivery',
         label: 'Cash on delivery fee',
         currencyCode: context.currencyCode,
         amount,
+        decimalPlaces: context.amountDecimalPlaces,
         metadata: { feeFlat, feePercent, maxOrderTotal },
       })
     },
@@ -234,8 +269,8 @@ const shippingProviders: ShippingProvider[] = [
     },
     calculate: ({ method, settings, document, metrics, context }) => {
       const parsed = flatRateSettings.safeParse(settings ?? {})
-      const baseNet = toNumber(method.baseRateNet, 0)
-      const baseGross = toNumber(method.baseRateGross, baseNet)
+      const baseNet = exactOr(method.baseRateNetExact, method.baseRateNet, toDecimal(0))
+      const baseGross = exactOr(method.baseRateGrossExact, method.baseRateGross, baseNet)
       if (!parsed.success) {
         return {
           adjustments: [
@@ -243,17 +278,16 @@ const shippingProviders: ShippingProvider[] = [
               kind: 'shipping' as const,
               code: method.code ?? 'shipping',
               label: method.name ?? 'Shipping',
-              amountNet: baseNet,
-              amountGross: baseGross,
+              ...shippingAdjustmentAmounts(baseNet, baseGross),
               currencyCode: method.currencyCode ?? context.currencyCode,
             },
           ],
         }
       }
       const selected = selectFlatRate(parsed.data, metrics)
-      const baseAdjustment = parsed.data.applyBaseRate !== false && (baseNet || baseGross)
-      const chosenNet = selected ? toNumber(selected.amountNet, baseNet) : baseNet
-      const chosenGross = selected ? toNumber(selected.amountGross, chosenNet) : baseGross
+      const baseAdjustment = parsed.data.applyBaseRate !== false && (!baseNet.eq(0) || !baseGross.eq(0))
+      const chosenNet = selected ? exactOr(selected.amountNet, undefined, baseNet) : baseNet
+      const chosenGross = selected ? exactOr(selected.amountGross, undefined, chosenNet) : baseGross
       const currency =
         selected?.currencyCode?.toUpperCase() ??
         method.currencyCode ??
@@ -264,8 +298,7 @@ const shippingProviders: ShippingProvider[] = [
           kind: 'shipping' as const,
           code: method.code ?? 'shipping',
           label: method.name ?? 'Shipping',
-          amountNet: baseNet,
-          amountGross: baseGross,
+          ...shippingAdjustmentAmounts(baseNet, baseGross),
           currencyCode: currency,
           metadata: { providerKey: 'flat-rate', rate: null },
         })
@@ -275,8 +308,7 @@ const shippingProviders: ShippingProvider[] = [
           kind: 'shipping' as const,
           code: selected.name ?? method.code ?? 'shipping',
           label: selected.name ?? 'Shipping',
-          amountNet: chosenNet,
-          amountGross: chosenGross,
+          ...shippingAdjustmentAmounts(chosenNet, chosenGross),
           currencyCode: currency,
           metadata: { providerKey: 'flat-rate', rate: selected },
         })
@@ -285,8 +317,7 @@ const shippingProviders: ShippingProvider[] = [
           kind: 'shipping' as const,
           code: method.code ?? 'shipping',
           label: method.name ?? 'Shipping',
-          amountNet: baseNet,
-          amountGross: baseGross,
+          ...shippingAdjustmentAmounts(baseNet, baseGross),
           currencyCode: currency,
           metadata: { providerKey: 'flat-rate', rate: null },
         })
