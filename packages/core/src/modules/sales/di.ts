@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import { asFunction, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
@@ -5,6 +6,7 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { OptimisticLockCurrentReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { DefaultSalesCalculationService } from './services/salesCalculationService'
+import { resolveCurrencyAmountDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 import { DefaultTaxCalculationService } from './services/taxCalculationService'
 import { SalesDocumentNumberGenerator } from './services/salesDocumentNumberGenerator'
 import { DefaultSalesOrderService } from './services/salesOrderService'
@@ -131,25 +133,28 @@ registerOptimisticLockReaders({
 
 export function register(container: AppContainer) {
   container.register({
-    salesCalculationService: asFunction(({ eventBus }: AppCradle) => {
-      return new DefaultSalesCalculationService(eventBus ?? null)
+    salesCalculationService: asFunction((cradle: AppCradle) => {
+      const precisionContainer = { resolve: <T,>(name: string) => (cradle as unknown as Record<string, T>)[name] }
+      return new DefaultSalesCalculationService(cradle.eventBus ?? null, (lookup) =>
+        resolveCurrencyAmountDecimalPlaces(precisionContainer, lookup),
+      )
     })
-      .singleton()
+      .scoped()
       .proxy(),
     taxCalculationService: asFunction(({ em, eventBus }: AppCradle) => {
       return new DefaultTaxCalculationService(em, eventBus ?? null)
     })
-      .singleton()
+      .scoped()
       .proxy(),
     salesDocumentNumberGenerator: asFunction(({ em }: AppCradle) => {
       return new SalesDocumentNumberGenerator(em)
     })
-      .singleton()
+      .scoped()
       .proxy(),
     salesOrderService: asFunction(({ em }: AppCradle) => {
       return new DefaultSalesOrderService(em)
     })
-      .singleton()
+      .scoped()
       .proxy(),
     // Authoritative amount-due lookup consumed by `payment_gateways` when it
     // reconciles a caller-supplied payment-session amount (#4488). Registering
@@ -191,3 +196,5 @@ export function register(container: AppContainer) {
   // hand-wired sales.order reader above already lives in the global store,
   // so this module no longer needs its own DI binding.
 }
+
+defineProcessDiRegistrar(register)

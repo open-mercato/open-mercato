@@ -20,6 +20,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import '@open-mercato/core/modules/customers/commands'
+import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
@@ -165,8 +166,16 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
     return active
   })
 
+  const lockQuery = {
+    selectFrom: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    forNoKeyUpdate: jest.fn().mockReturnThis(),
+    executeTakeFirst: jest.fn(async () => ({ id: person.id })),
+  }
   const em: any = {
     fork: jest.fn(),
+    getKysely: jest.fn(() => lockQuery),
     create: jest.fn((ctor: unknown, values: Record<string, unknown>) => {
       if (ctor !== CustomerPersonCompanyLink) throw new Error('Unexpected fixture entity')
       const id = typeof values.id === 'string' ? values.id : LINK_B_ID
@@ -530,6 +539,125 @@ describe('customers.personCompanyLinks undo — encryption re-baseline regressio
     expect(removedRow.isPrimary).toBe(false)
     expect(fixtures.linkRows.get(LINK_B_ID)!.isPrimary).toBe(true)
     expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
+  })
+
+  async function promoteAndLog(fixtures: Fixtures, linkId: string) {
+    const handler = commandRegistry.get('customers.personCompanyLinks.update') as CommandHandler
+    const input = { linkId, tenantId: TENANT_ID, organizationId: ORG_ID, isPrimary: true }
+    const ctx = makeCtx(fixtures.em)
+    const before = await handler.prepare!(input, ctx)
+    const result = await handler.execute(input, ctx)
+    const after = await handler.captureAfter!(input, result, ctx)
+    const log = await handler.buildLog!({ input, ctx, result, snapshots: { ...before, after } })
+
+    return () => handler.undo!({
+      logEntry: log as Parameters<NonNullable<CommandHandler['undo']>>[0]['logEntry'],
+      ctx,
+    })
+  }
+
+  it('update undo restores the former primary company and keeps both links', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+
+    const undo = await promoteAndLog(fixtures, LINK_B_ID)
+    const lockQuery = fixtures.em.getKysely.mock.results[0].value
+    expect(lockQuery.selectFrom).toHaveBeenCalledWith('customer_entities')
+    expect(lockQuery.where.mock.calls).toEqual([
+      ['id', '=', PERSON_ID],
+      ['kind', '=', 'person'],
+      ['tenant_id', '=', TENANT_ID],
+      ['organization_id', '=', ORG_ID],
+      ['deleted_at', 'is', null],
+    ])
+    const promotionProfileRead = mockFindOneWithDecryption.mock.calls.findIndex(
+      ([, entity]) => entity === CustomerPersonProfile,
+    )
+    expect(lockQuery.forNoKeyUpdate).toHaveBeenCalledTimes(1)
+    expect(lockQuery.executeTakeFirst.mock.invocationCallOrder[0])
+      .toBeLessThan(mockFindOneWithDecryption.mock.invocationCallOrder[promotionProfileRead])
+    expect(fixtures.linkRows.get(LINK_A_ID)?.isPrimary).toBe(false)
+    expect(fixtures.linkRows.get(LINK_B_ID)?.isPrimary).toBe(true)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
+
+    mockFindOneWithDecryption.mockClear()
+    await undo()
+    expect(lockQuery.forNoKeyUpdate).toHaveBeenCalledTimes(2)
+    expect(lockQuery.executeTakeFirst.mock.invocationCallOrder[1])
+      .toBeLessThan(mockFindOneWithDecryption.mock.invocationCallOrder[0])
+    expect(mockFindOneWithDecryption).toHaveBeenNthCalledWith(
+      2,
+      fixtures.em,
+      CustomerPersonCompanyLink,
+      { id: LINK_B_ID, person: PERSON_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: true, deletedAt: null })
+    expect(fixtures.linkRows.get(LINK_B_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it.each([
+    ['empty', null],
+    ['profile-only', COMPANY_A_ID],
+  ])('update undo restores the %s assignment when there was no primary link', async (_name, previousCompanyId) => {
+    const fixtures = makeFixtures(
+      [{ id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null }],
+      previousCompanyId,
+    )
+
+    const undo = await promoteAndLog(fixtures, LINK_B_ID)
+    await undo()
+
+    expect(fixtures.linkRows.get(LINK_B_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBe(previousCompanyId)
+  })
+
+  it('update undo preserves a newer primary selection', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+        { id: LINK_C_ID, companyId: COMPANY_C_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+
+    const undo = await promoteAndLog(fixtures, LINK_B_ID)
+    await promoteAndLog(fixtures, LINK_C_ID)
+    await undo()
+
+    expect(fixtures.linkRows.get(LINK_A_ID)?.isPrimary).toBe(false)
+    expect(fixtures.linkRows.get(LINK_B_ID)?.isPrimary).toBe(false)
+    expect(fixtures.linkRows.get(LINK_C_ID)?.isPrimary).toBe(true)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_C_ID)
+  })
+
+  it('update undo does not restore a removed company relationship', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+
+    const undo = await promoteAndLog(fixtures, LINK_B_ID)
+    const deletedAt = new Date('2026-06-02T00:00:00Z')
+    const removedLink = fixtures.links.find((link) => link.id === LINK_A_ID)!
+    removedLink.deletedAt = deletedAt
+    await fixtures.em.flush()
+    await undo()
+
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: false, deletedAt })
+    expect(fixtures.linkRows.get(LINK_B_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBeNull()
   })
 
   it('update undo restores the primary flag and the legacy profile company', async () => {

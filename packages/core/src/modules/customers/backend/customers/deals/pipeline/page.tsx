@@ -99,7 +99,7 @@ import {
   type AssignableStaffMember,
 } from '../../../../components/detail/assignableStaff'
 
-type PipelineRecord = { id: string; name: string; isDefault: boolean }
+type PipelineRecord = { id: string; name: string; isDefault: boolean; stageProbabilitiesEnabled?: boolean }
 
 type StageAggregateRow = {
   stageId: string
@@ -137,6 +137,7 @@ type PipelineStageRecord = {
   label: string
   order: number
   pipelineId: string
+  defaultProbability?: number | null
   // `color` is sourced from the `customer_dictionary_entries` row that backs each stage
   // (kind = 'pipeline_stage'). After the 2026-05-19 hex→tone migration this stores a
   // canonical tone identifier ('success', 'warning', etc.) rather than a hex string.
@@ -2563,6 +2564,12 @@ export default function DealsKanbanPage(): React.ReactElement {
     return pipelinesQuery.data?.find((pipeline) => pipeline.id === selectedPipelineId) ?? null
   }, [pipelinesQuery.data, selectedPipelineId])
 
+  const quickDealDefaultProbability = React.useMemo(() => {
+    if (!activePipeline?.stageProbabilitiesEnabled || !quickDealContext) return undefined
+    const stage = stagesQuery.data?.find((candidate) => candidate.id === quickDealContext.pipelineStageId)
+    return typeof stage?.defaultProbability === 'number' ? stage.defaultProbability : undefined
+  }, [activePipeline, quickDealContext, stagesQuery.data])
+
   const dragHint = translateWithFallback(
     t,
     'customers.deals.kanban.helper.dragHint',
@@ -2634,7 +2641,6 @@ export default function DealsKanbanPage(): React.ReactElement {
                   </span>
                   {boardSummary.baseCurrencyCode && boardSummary.totalInBaseCurrency > 0 ? (
                     <>
-                      <span aria-hidden="true">·</span>
                       <span className="flex items-baseline gap-1 font-semibold text-foreground">
                         {boardSummary.convertedAll ? null : (
                           <span className="text-muted-foreground" aria-hidden="true">
@@ -2990,6 +2996,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         currentUserId={currentUserId || undefined}
         currentUserLabel={currentUserLabel}
         companies={companiesQuery.data ?? []}
+        defaultProbability={quickDealDefaultProbability}
         currencies={
           currencyDictionary.data
             ? currencyDictionary.data.entries.map((entry) => ({

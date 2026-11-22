@@ -573,6 +573,22 @@
           "enumItems": [],
           "mappedType": "json"
         },
+        "correlation_keys": {
+          "name": "correlation_keys",
+          "type": "text[]",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "array"
+        },
         "source_key": {
           "name": "source_key",
           "type": "text",
@@ -688,6 +704,17 @@
           "keyName": "action_logs_changed_fields_idx",
           "columnNames": [
             "changed_fields"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "type": "gin"
+        },
+        {
+          "keyName": "action_logs_correlation_keys_idx",
+          "columnNames": [
+            "correlation_keys"
           ],
           "composite": false,
           "constraint": false,

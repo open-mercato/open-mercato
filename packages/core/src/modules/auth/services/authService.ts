@@ -1,6 +1,6 @@
 import { EntityManager, type RequiredEntityData } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
-import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
+import { User, Role, UserRole, Session, PasswordReset, type SessionSsoProvenance } from '@open-mercato/core/modules/auth/data/entities'
 import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -103,13 +103,14 @@ export class AuthService {
     em: EntityManager,
     user: User,
     expiresAt: Date,
+    ssoProvenance?: SessionSsoProvenance,
   ): Promise<{ session: Session; token: string }> {
     if (!(await isStaffTenantActive(em, user.tenantId))) {
       throw new Error('[internal] Tenant is not available for authentication')
     }
     const rawToken = generateAuthToken()
     const tokenHash = hashAuthToken(rawToken)
-    const session = em.create(Session, { user, token: tokenHash, expiresAt, createdAt: new Date() } as RequiredEntityData<Session>)
+    const session = em.create(Session, { user, token: tokenHash, expiresAt, createdAt: new Date(), ...(ssoProvenance ? { ssoProvenance } : {}) } as RequiredEntityData<Session>)
     await em.persist(session).flush()
     return { session, token: rawToken }
   }
@@ -134,14 +135,19 @@ export class AuthService {
     await this.em.nativeDelete(Session, { user: userId })
   }
 
+  async isSessionEligible(session: Session, _user: User): Promise<boolean> {
+    return session.ssoProvenance == null
+  }
+
   async refreshFromSessionToken(token: string) {
     const now = new Date()
     const hashedToken = hashAuthToken(token)
     const sess = await this.em.findOne(Session, { token: hashedToken })
-    if (!sess || sess.expiresAt <= now) return null
+    if (!sess || sess.deletedAt || sess.expiresAt <= now) return null
     const user = await findOneWithDecryption(this.em, User, { id: sess.user.id, deletedAt: null })
     if (!user) return null
     if (!(await isStaffTenantActive(this.em, user.tenantId))) return null
+    if (!(await this.isSessionEligible(sess, user))) return null
     const roles = await this.getUserRoles(user, user.tenantId ?? null)
     return { user, roles, session: sess }
   }
