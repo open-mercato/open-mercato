@@ -567,7 +567,8 @@ async function refreshInteractionProjections(
   scope: CustomerEntityScope,
 ): Promise<InteractionProjectionMutation[]> {
   const projections: InteractionProjectionMutation[] = []
-  const parentIds = [...new Set(entityIds.filter((id): id is string => Boolean(id)))].sort()
+  const parentIds = [...new Set(entityIds.filter((id): id is string => Boolean(id)))]
+    .sort((left, right) => left.localeCompare(right))
   for (const entityId of parentIds) {
     const projection = await refreshInteractionProjection(em, entityId, scope)
     if (projection) projections.push(projection)
