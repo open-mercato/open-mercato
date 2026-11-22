@@ -268,7 +268,7 @@ export const evidenceSubmissionUpdateSchema = rejectServerComputedFields(serverC
     .superRefine(validateHarvestRange),
 )
 
-type HarvestRange = { harvestFrom?: Date | null; harvestTo?: Date | null }
+type HarvestRange = Parameters<typeof validateHarvestRange>[0]
 
 const harvestRangeStateSchema = z.custom<HarvestRange>().superRefine(validateHarvestRange)
 

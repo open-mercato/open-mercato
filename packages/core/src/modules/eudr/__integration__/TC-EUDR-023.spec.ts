@@ -56,8 +56,8 @@ test.describe('TC-EUDR-023: Evidence submission single-date harvest range update
         data: { displayName: `TC-EUDR-023 Supplier ${stamp}` },
       })
       expect(supplierResponse.ok(), `create supplier failed: ${supplierResponse.status()}`).toBeTruthy()
-      const supplier = await readJsonSafe<{ id?: string; entityId?: string }>(supplierResponse)
-      supplierId = expectId(supplier?.id ?? supplier?.entityId, 'Supplier create response should include id')
+      const supplier = await readJsonSafe<{ id?: string }>(supplierResponse)
+      supplierId = expectId(supplier?.id, 'Supplier create response should include id')
 
       const createResponse = await apiRequest(request, 'POST', EVIDENCE_SUBMISSIONS_PATH, {
         token,

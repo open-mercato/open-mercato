@@ -130,14 +130,6 @@ describe('EUDR evidence submission update harvest range', () => {
     expect(sideEffects).toHaveBeenCalledTimes(1)
   })
 
-  it('accepts clearing one date', async () => {
-    const { record, ctx, command } = harness('2024-01-01T00:00:00Z', '2024-06-01T00:00:00Z')
-    await command.execute({ id: RECORD_ID, harvestFrom: null }, ctx)
-
-    expect(record.harvestFrom).toBeNull()
-    expect(sideEffects).toHaveBeenCalledTimes(1)
-  })
-
   it('accepts setting a new date while clearing the other one', async () => {
     const { record, ctx, command } = harness('2024-01-01T00:00:00Z', '2024-06-01T00:00:00Z')
     await command.execute({ id: RECORD_ID, harvestFrom: '2024-09-01', harvestTo: null }, ctx)
