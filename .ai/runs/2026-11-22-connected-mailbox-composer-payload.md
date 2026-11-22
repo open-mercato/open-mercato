@@ -30,4 +30,10 @@ PR: #10367
 
 ### Phase 2: Capability archive
 
-- [ ] 2.1 Record the achieved behavior in the capability spec
+- [x] 2.1 Record the achieved behavior in the capability spec — 1df354bf81
+
+## Validation evidence
+
+- The four mailbox integration cases passed. The test commit is `54189ed011`.
+- Browser verification and screenshots are in [the QA comment](https://github.com/open-mercato/open-mercato/pull/10367#issuecomment-7082336419).
+- Package builds, code generation, translations, type checking and app build passed. The full local test gate remains open because two create-app generated Jest tests fail in macOS containment on both this branch and upstream `1092d0207f`.
