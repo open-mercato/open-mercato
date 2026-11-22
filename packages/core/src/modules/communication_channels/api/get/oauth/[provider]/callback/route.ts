@@ -280,8 +280,8 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     }
   }
 
-  const displayName =
-    exchange.displayName ?? exchange.externalIdentifier ?? `${provider} channel`
+  const externalIdentifier = exchange.externalIdentifier ?? null
+  const displayName = exchange.displayName ?? externalIdentifier ?? `${provider} channel`
   // Fail-safe: if credentials persistence failed (no `credentialsRef` available),
   // create the channel in `requires_reauth` so workers don't poll a channel that
   // has no usable credentials. The user can re-run the OAuth flow to recover
@@ -294,10 +294,11 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
       adapter,
       providerKey: provider,
       displayName,
-      externalIdentifier: exchange.externalIdentifier ?? null,
+      externalIdentifier,
       credentialsRefId,
       userId: auth.sub as string,
       scope: { tenantId: statePayload.tenantId, organizationId: statePayload.organizationId ?? null },
+      adoptUnidentifiedChannel: Boolean(externalIdentifier),
     })
   } catch (err) {
     // Same mailbox already connected via another provider — don't create a second
