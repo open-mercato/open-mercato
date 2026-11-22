@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as SqlEntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveAttachmentScopePair } from '@open-mercato/core/modules/attachments/lib/scope'
 import type { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from './constants'
@@ -37,13 +38,20 @@ async function assertAttachmentsLinkable(
 async function moveAttachmentsToMessage(
   em: EntityManager,
   filter: Record<string, unknown>,
+  scope: { tenantId: string; organizationId: string | null },
   messageId: string,
   access: MessageAttachmentLinkAccess | undefined,
 ): Promise<void> {
   const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
   const { ATTACHMENT_ROW_WRITE_LOCK } = await import('@open-mercato/core/modules/attachments/lib/access-rows')
   const move = async (tx: EntityManager) => {
-    const attachments = await tx.find(Attachment, filter, ATTACHMENT_ROW_WRITE_LOCK)
+    const attachments = await findWithDecryption(
+      tx as unknown as SqlEntityManager,
+      Attachment,
+      filter,
+      ATTACHMENT_ROW_WRITE_LOCK,
+      scope,
+    )
     if (!attachments.length) return
     await assertAttachmentsLinkable(tx, attachments, messageId, access)
     for (const attachment of attachments) {
@@ -82,7 +90,7 @@ export async function linkAttachmentsToMessage(
     id: { $in: attachmentIds },
     tenantId,
     ...buildOrganizationScopeFilter(organizationId),
-  }, messageId, access)
+  }, { tenantId, organizationId }, messageId, access)
 }
 
 type MessageAttachmentRowsDatabase = {
@@ -259,7 +267,7 @@ export async function linkLibraryAttachmentsToMessage(
     recordId: sourceRecordId,
     tenantId,
     ...buildOrganizationScopeFilter(organizationId),
-  }, messageId, access)
+  }, { tenantId, organizationId }, messageId, access)
 }
 
 export async function copyAttachmentsForForward(

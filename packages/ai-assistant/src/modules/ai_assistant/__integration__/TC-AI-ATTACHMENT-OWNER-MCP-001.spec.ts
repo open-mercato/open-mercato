@@ -20,6 +20,8 @@ type ReadPayload = { found?: boolean; attachmentId?: string; id?: string }
 type ListPayload = { items?: Array<{ id: string }>; total?: number }
 type SectionsPayload = { status?: string }
 
+const SECTION_STATUSES_OF_A_VISIBLE_FILE = ['not_extracted', 'pending', 'processing', 'completed', 'partial', 'failed', 'skipped']
+
 /**
  * TC-AI-ATTACHMENT-OWNER-MCP-001: the HTTP MCP server (`mcp:serve-http`, run
  * as its own process against the app's database) evaluates owner access for
@@ -91,8 +93,8 @@ test('TC-AI-ATTACHMENT-OWNER-MCP-001: HTTP MCP session tokens apply attachment o
       expect(shared.found, 'the session token of the shared user reads the file').toBe(true)
       expect(shared.id).toBe(file)
       expect(await list('documents:document', document, recipientSession), 'the shared user lists the file').toEqual([file])
-      expect(await sectionsStatus(file, recipientSession), 'the shared user reaches the document structure')
-        .not.toBe('not_found')
+      expect(SECTION_STATUSES_OF_A_VISIBLE_FILE, 'the shared user reaches the document structure')
+        .toContain(await sectionsStatus(file, recipientSession))
 
       expect(await read(file, unsharedSession), 'the session token of a user without the share is refused')
         .toEqual({ found: false, attachmentId: file })
