@@ -220,7 +220,7 @@ The command uses the existing data-encryption keys to read encrypted sources and
 
 ## Backfilling CRM email and company domain lookup hashes
 
-Deploy the new application and workers across the installation before activating the rules or running the backfill. Older index workers can copy the new columns into query documents.
+Stop older index workers before deploying the new application, or pause tenant and organization provisioning until those workers are replaced. Provisioning seeds the new rules automatically. Wait for every index worker to run the new release before activating rules on existing organizations or running the backfill.
 
 Set a strong, stable `LOOKUP_HASH_PEPPER` on all app and CLI instances. A Vault-only installation needs this dedicated secret alongside the data-encryption keys provided by Vault. The encryption fallback key can also serve as the pepper. The digest is deterministic across tenants in one installation, so equal values can be correlated by someone with access to the hash columns. Application queries scope matches to one tenant and organization.
 

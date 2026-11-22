@@ -22,19 +22,21 @@ Rolling deployments require the schema before the new ORM metadata. Reconciliati
 
 ## Progress
 
+PR: #10302
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Schema and rollout
 
-- [ ] 1.1 Add lookup hash columns and migrate the schema
-- [ ] 1.2 Reconcile encryption rules and verify persisted writes
+- [x] 1.1 Add lookup hash columns and migrate the schema — 5d652dea6d
+- [x] 1.2 Reconcile encryption rules and verify persisted writes — 4439780e93
 
 ### Phase 2: Lookup readers
 
-- [ ] 2.1 Route person and company matching through the scoped indexes
-- [ ] 2.2 Verify encrypted inbound matching beyond the fallback bound
+- [x] 2.1 Route person and company matching through the scoped indexes — 02e3c951e4
+- [x] 2.2 Verify encrypted inbound matching beyond the fallback bound — 02e3c951e4
 
 ### Phase 3: Existing records and validation
 
-- [ ] 3.1 Backfill existing records and document rollout
-- [ ] 3.2 Run validation and review the implementation
+- [x] 3.1 Backfill existing records and document rollout — 8b67d39f7c
+- [x] 3.2 Run validation and review the implementation — 4439780e93
