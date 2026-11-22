@@ -50,6 +50,9 @@ describe('checkout admin list ordering', () => {
       offset: 10,
       limit: 10,
     })
-    expect(Object.keys(capturedOptions().orderBy as Record<string, unknown>)).toEqual(['createdAt', 'id'])
+    expect(Object.entries(capturedOptions().orderBy as Record<string, unknown>)).toEqual([
+      ['createdAt', 'desc'],
+      ['id', 'desc'],
+    ])
   })
 })
