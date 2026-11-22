@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver, type EntityManager } from '@mikro-orm/postgresql'
-import { asValue, createContainer } from 'awilix'
+import { asValue, createContainer, InjectionMode } from 'awilix'
 import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainers'
 import { CommunicationChannel, CommunicationChannelFolderCursor } from '../../data/entities'
 import { register } from '../../di'
@@ -15,6 +15,7 @@ const describePostgres = testDatabaseUrl || process.env.OM_PG_INTEGRATION === '1
 describePostgres('channel folder cursor storage against PostgreSQL', () => {
   let postgres: StartedTestContainer | undefined
   let orm: MikroORM<PostgreSqlDriver> | undefined
+  let createdSchema = false
   let em: EntityManager
   let channel: CommunicationChannel
   let store: ChannelFolderCursorStore
@@ -36,17 +37,23 @@ describePostgres('channel folder cursor storage against PostgreSQL', () => {
       entities: [CommunicationChannel, CommunicationChannelFolderCursor],
     })
     await orm.schema.create()
-    const container = createContainer()
-    container.register('em', asValue(orm.em.fork()))
+    createdSchema = true
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
     await register(container)
-    store = container.resolve<ChannelFolderCursorStore>('channelFolderCursorStore')
+    const scope = container.createScope()
+    scope.register('em', asValue(orm.em.fork()))
+    store = scope.resolve<ChannelFolderCursorStore>('channelFolderCursorStore')
   }, 120_000)
 
   afterAll(async () => {
     try {
-      await orm?.close(true)
+      if (testDatabaseUrl && createdSchema) await orm?.schema.drop()
     } finally {
-      await postgres?.stop()
+      try {
+        await orm?.close(true)
+      } finally {
+        await postgres?.stop()
+      }
     }
   }, 30_000)
 

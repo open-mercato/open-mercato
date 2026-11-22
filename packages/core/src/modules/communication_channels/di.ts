@@ -49,7 +49,7 @@ function registerServices(container: AppContainer) {
     // the auth-less webhook route resolves the same registry as DI consumers.
     // See lib/adapter-registry-singleton.ts.
     channelAdapterRegistry: asValue(getChannelAdapterRegistry()),
-    channelFolderCursorStore: asFunction(({ em }: { em: EntityManager }) => createChannelFolderCursorStore(em)).scoped(),
+    channelFolderCursorStore: asFunction(({ em }: { em: EntityManager }) => createChannelFolderCursorStore(em)).scoped().proxy(),
 
     // In-process send-as-user facade. Cross-module callers (e.g. the customers
     // compose route) resolve this instead of making an HTTP self-call.

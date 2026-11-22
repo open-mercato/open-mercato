@@ -596,7 +596,7 @@ Resolve `channelFolderCursorStore` from the worker's container when the host
 syncs folders independently of the channel poller. A checkpoint is scoped to
 one channel and a provider folder ID. Use a stable, case-sensitive ID and take
 the channel, tenant, and exact organization from the authorized job context.
-Pass `null` for the organization only for a tenant-wide channel.
+Pass `null` when the channel has no organization.
 
 ```ts
 import type { ChannelFolderCursorStore } from '@open-mercato/core/modules/communication_channels/lib/channel-folder-cursor-store'
