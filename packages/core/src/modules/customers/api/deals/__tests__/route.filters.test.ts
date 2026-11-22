@@ -1,9 +1,9 @@
 /** @jest-environment node */
 
-const mockFetchStuckDealIds = jest.fn()
+const mockFetchScopedStuckDealIds = jest.fn()
 
 jest.mock('../../../lib/stuckDeals', () => ({
-  fetchStuckDealIds: (...args: unknown[]) => mockFetchStuckDealIds(...args),
+  fetchScopedStuckDealIds: (...args: unknown[]) => mockFetchScopedStuckDealIds(...args),
 }))
 
 import { buildDealListFilters, dealListQuerySchema } from '../route'
@@ -45,8 +45,8 @@ function extractTreeWhere(calledFilters: Record<string, unknown>): Record<string
 
 describe('customers deals list filters', () => {
   beforeEach(() => {
-    mockFetchStuckDealIds.mockReset()
-    mockFetchStuckDealIds.mockResolvedValue([])
+    mockFetchScopedStuckDealIds.mockReset()
+    mockFetchScopedStuckDealIds.mockResolvedValue([])
   })
 
   it('parses explicit false booleans without applying stuck or overdue filters', async () => {
@@ -292,13 +292,68 @@ describe('customers deals list filters', () => {
   })
 
   it('isStuck without auth context is silently skipped (no throw, no filter)', async () => {
-    // The route's isStuck branch only runs when `ctx.auth.{tenantId,orgId}` are both strings.
-    // Calling without a ctx exercises the safety guard that the recent commit added —
-    // the previous code path used `ctx.auth.organizationId` which is always undefined and
-    // silently disabled the branch in production. We verify the no-ctx path is harmless.
     const parsed = dealListQuerySchema.parse({ isStuck: 'true' })
     const filters = await buildDealListFilters(parsed)
     expect(filters.id).toBeUndefined()
+  })
+
+  it('applies stuck filtering across the tenant when no organization is selected', async () => {
+    const stuckDeal = '66666666-6666-4666-8666-666666666666'
+    const { ctx, execute } = createDealFilterContext([])
+    ctx.auth = { ...ctx.auth!, orgId: null }
+    ctx.selectedOrganizationId = null
+    ctx.organizationIds = null
+    ctx.organizationScope = { selectedId: null, filterIds: null, allowedIds: null, tenantId }
+    mockFetchScopedStuckDealIds.mockResolvedValue([stuckDeal])
+
+    const filters = await buildDealListFilters(dealListQuerySchema.parse({ isStuck: 'true' }), ctx)
+
+    expect(filters.id).toEqual({ $in: [stuckDeal] })
+    expect(execute).not.toHaveBeenCalled()
+    expect(mockFetchScopedStuckDealIds).toHaveBeenCalledWith(expect.anything(), null, tenantId)
+  })
+
+  it('intersects attention and association matches within the allowed organizations', async () => {
+    const personId = '33333333-3333-4333-8333-333333333333'
+    const companyId = '44444444-4444-4444-8444-444444444444'
+    const otherOrganizationId = '55555555-5555-4555-8555-555555555555'
+    const attentionDeal = '66666666-6666-4666-8666-666666666666'
+    const unrelatedDeal = '77777777-7777-4777-8777-777777777777'
+    const { ctx, execute } = createDealFilterContext([])
+    ctx.auth = { ...ctx.auth!, orgId: null }
+    ctx.selectedOrganizationId = null
+    ctx.organizationIds = [organizationId, otherOrganizationId]
+    execute
+      .mockResolvedValueOnce([{ id: attentionDeal }, { id: unrelatedDeal }])
+      .mockResolvedValueOnce([{ id: attentionDeal }])
+
+    const filters = await buildDealListFilters(
+      dealListQuerySchema.parse({ needsAttention: 'true', personId, companyId }),
+      ctx,
+    )
+
+    expect(filters.id).toEqual({ $in: [attentionDeal] })
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute).toHaveBeenNthCalledWith(1, expect.stringContaining('expected_close_at < CURRENT_DATE'), [
+      organizationId, otherOrganizationId, tenantId,
+    ])
+    expect(execute).toHaveBeenNthCalledWith(2, expect.stringContaining('customer_deal_companies'), [
+      organizationId, otherOrganizationId, tenantId, personId, companyId,
+    ])
+    expect(mockFetchScopedStuckDealIds).toHaveBeenCalledWith(
+      expect.anything(), [organizationId, otherOrganizationId], tenantId,
+    )
+  })
+
+  it('matches no deals when organization access is empty', async () => {
+    const { ctx, execute } = createDealFilterContext([])
+    ctx.organizationIds = []
+
+    const filters = await buildDealListFilters(dealListQuerySchema.parse({ isStuck: 'true' }), ctx)
+
+    expect(filters.id).toEqual({ $eq: '00000000-0000-0000-0000-000000000000' })
+    expect(execute).not.toHaveBeenCalled()
+    expect(mockFetchScopedStuckDealIds).not.toHaveBeenCalled()
   })
 
   it('needsAttention=true unions overdue open deals with open stuck deals before pagination', async () => {
@@ -309,7 +364,7 @@ describe('customers deals list filters', () => {
     execute
       .mockResolvedValueOnce([{ id: overdueDeal }])
       .mockResolvedValueOnce([{ id: openStuckDeal }])
-    mockFetchStuckDealIds.mockResolvedValue([openStuckDeal, closedStuckDeal])
+    mockFetchScopedStuckDealIds.mockResolvedValue([openStuckDeal, closedStuckDeal])
 
     const parsed = dealListQuerySchema.parse({ needsAttention: 'true' })
     const filters = await buildDealListFilters(parsed, ctx)

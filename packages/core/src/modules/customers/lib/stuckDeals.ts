@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql } from 'kysely'
 import type { CustomerKysely } from './kysely'
 import { resolveKyselyClient } from './kysely'
 
@@ -7,7 +8,6 @@ import { resolveKyselyClient } from './kysely'
  * Tenants can override by writing a row into `customer_settings.stuck_threshold_days`.
  */
 export const STUCK_DEFAULT_THRESHOLD_DAYS = 14
-const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
  * Resolves the configured stuck-threshold for the tenant scope. Falls back to
@@ -43,46 +43,47 @@ export async function fetchStuckDealIds(
   organizationId: string,
   tenantId: string,
 ): Promise<string[]> {
+  return fetchScopedStuckDealIds(em, [organizationId], tenantId)
+}
+
+export async function fetchScopedStuckDealIds(
+  em: EntityManager,
+  organizationIds: string[] | null,
+  tenantId: string,
+): Promise<string[]> {
+  if (organizationIds?.length === 0) return []
   const db = resolveKyselyClient(em)
   if (!db) return []
 
-  const threshold = await fetchStuckThresholdDays(db, organizationId, tenantId)
-  const cutoff = new Date(Date.now() - threshold * DAY_MS)
-
-  const oldTransitionRows = await db
+  let transitions = db
     .selectFrom('customer_deal_stage_transitions')
-    .select(['deal_id'])
+    .select(['deal_id', 'organization_id'])
     .select((eb) => eb.fn.max('transitioned_at').as('last_transition'))
-    .where('organization_id', '=', organizationId)
     .where('tenant_id', '=', tenantId)
     .where('deleted_at', 'is', null)
-    .groupBy('deal_id')
-    .having((eb) => eb(eb.fn.max('transitioned_at'), '<', cutoff))
-    .execute()
+    .groupBy(['deal_id', 'organization_id'])
+  if (organizationIds) transitions = transitions.where('organization_id', 'in', organizationIds)
 
-  const transitionedDealIds = await db
-    .selectFrom('customer_deal_stage_transitions')
-    .select(['deal_id'])
-    .distinct()
-    .where('organization_id', '=', organizationId)
-    .where('tenant_id', '=', tenantId)
-    .where('deleted_at', 'is', null)
-    .execute()
-  const transitionedSet = new Set(transitionedDealIds.map((r) => r.deal_id))
+  let deals = db
+    .selectFrom('customer_deals as deal')
+    .leftJoin(transitions.as('stage'), (join) => join
+      .onRef('stage.deal_id', '=', 'deal.id')
+      .onRef('stage.organization_id', '=', 'deal.organization_id'))
+    .leftJoin('customer_settings as settings', (join) => join
+      .onRef('settings.organization_id', '=', 'deal.organization_id')
+      .onRef('settings.tenant_id', '=', 'deal.tenant_id'))
+    .select('deal.id')
+    .where('deal.tenant_id', '=', tenantId)
+    .where('deal.deleted_at', 'is', null)
+    .where(({ ref }) => sql<boolean>`
+      COALESCE(${ref('stage.last_transition')}, ${ref('deal.created_at')}) <
+        ${new Date()}::timestamptz - INTERVAL '24 hours' * CASE
+          WHEN ${ref('settings.stuck_threshold_days')} > 0 THEN ${ref('settings.stuck_threshold_days')}
+          ELSE ${STUCK_DEFAULT_THRESHOLD_DAYS}
+        END
+    `)
+  if (organizationIds) deals = deals.where('deal.organization_id', 'in', organizationIds)
 
-  const oldUntransitionedDeals = await db
-    .selectFrom('customer_deals')
-    .select(['id'])
-    .where('organization_id', '=', organizationId)
-    .where('tenant_id', '=', tenantId)
-    .where('deleted_at', 'is', null)
-    .where('created_at', '<', cutoff)
-    .execute()
-
-  const result = new Set<string>()
-  oldTransitionRows.forEach((row) => result.add(row.deal_id))
-  oldUntransitionedDeals.forEach((row) => {
-    if (!transitionedSet.has(row.id)) result.add(row.id)
-  })
-  return Array.from(result)
+  const rows = await deals.execute()
+  return rows.map((row) => row.id)
 }
