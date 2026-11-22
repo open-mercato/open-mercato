@@ -1,14 +1,22 @@
+<<<<<<< HEAD
 import { spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import path from 'node:path'
 import { PassThrough } from 'node:stream'
 import { createQueue, getQueuePendingProbe } from '@open-mercato/queue'
 import { drainIntegrationQueue } from '../queue'
+=======
+import path from 'node:path'
+import { createQueue, getQueuePendingProbe } from '@open-mercato/queue'
+>>>>>>> c85042167d (fix(ci): stabilize shared-mailbox queue drains (#9527) (#10315))
 
 const mockDrainQueue = jest.fn()
 const mockRunnerLoaded = jest.fn()
 
+<<<<<<< HEAD
 jest.mock('node:child_process', () => ({ spawn: jest.fn() }))
+=======
+>>>>>>> c85042167d (fix(ci): stabilize shared-mailbox queue drains (#9527) (#10315))
 jest.mock('@open-mercato/queue', () => ({ createQueue: jest.fn(), getQueuePendingProbe: jest.fn() }))
 jest.mock('../queue-runner', () => {
   mockRunnerLoaded()
@@ -21,6 +29,7 @@ function counts(overrides: Partial<Counts> = {}): Counts {
   return { waiting: 0, active: 0, completed: 0, failed: 0, ...overrides }
 }
 
+<<<<<<< HEAD
 function createDrainChild(processed: number) {
   const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough }
   child.stdout = new PassThrough()
@@ -37,14 +46,35 @@ describe('drainIntegrationQueue', () => {
   const originalEnvironment = { ...process.env }
   const getJobCounts = jest.fn<Promise<Counts>, []>()
   const close = jest.fn<Promise<void>, []>()
+=======
+describe('drainIntegrationQueue', () => {
+  const originalEnvironment = { ...process.env }
+  const queueBaseDir = path.resolve('/tmp/integration-queue-test')
+  const getJobCounts = jest.fn<Promise<Counts>, []>()
+  const close = jest.fn<Promise<void>, []>()
+  let drainIntegrationQueue: typeof import('../queue').drainIntegrationQueue
+  let loadedRunnerOnImport: boolean
+
+  beforeAll(async () => {
+    const queue = await import('../queue')
+    drainIntegrationQueue = queue.drainIntegrationQueue
+    loadedRunnerOnImport = mockRunnerLoaded.mock.calls.length > 0
+  })
+>>>>>>> c85042167d (fix(ci): stabilize shared-mailbox queue drains (#9527) (#10315))
 
   beforeEach(() => {
     jest.clearAllMocks()
     getJobCounts.mockReset()
     delete process.env.OM_TEST_APP_ROOT
+<<<<<<< HEAD
     delete process.env.AUTO_SPAWN_WORKERS
     delete process.env.OM_AUTO_SPAWN_WORKERS
     process.env.QUEUE_BASE_DIR = '/tmp/integration-queue-test'
+=======
+    process.env.AUTO_SPAWN_WORKERS = 'true'
+    delete process.env.OM_AUTO_SPAWN_WORKERS
+    process.env.QUEUE_BASE_DIR = queueBaseDir
+>>>>>>> c85042167d (fix(ci): stabilize shared-mailbox queue drains (#9527) (#10315))
     close.mockResolvedValue(undefined)
     jest.mocked(getQueuePendingProbe).mockReset().mockResolvedValue({ queueName: 'events', strategy: 'local', ready: 0, active: 0, delayedFuture: 0, error: false })
     jest.mocked(createQueue).mockReturnValue({ getJobCounts, close } as never)
@@ -60,6 +90,7 @@ describe('drainIntegrationQueue', () => {
       .mockResolvedValueOnce({ queueName: 'events', strategy: 'local', ready: 0, active: 1, delayedFuture: 0, error: false })
     await expect(drainIntegrationQueue('events')).resolves.toBe(1)
     expect(mockDrainQueue).not.toHaveBeenCalled()
+<<<<<<< HEAD
     expect(mockRunnerLoaded).not.toHaveBeenCalled()
     expect(createQueue).toHaveBeenCalledWith('events', 'local', { baseDir: '/tmp/integration-queue-test' })
     expect(close).toHaveBeenCalledTimes(1)
@@ -105,6 +136,14 @@ describe('drainIntegrationQueue', () => {
     expect(createQueue).not.toHaveBeenCalled()
   })
 
+=======
+    expect(loadedRunnerOnImport).toBe(false)
+    expect(mockRunnerLoaded).not.toHaveBeenCalled()
+    expect(createQueue).toHaveBeenCalledWith('events', 'local', { baseDir: queueBaseDir })
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+>>>>>>> c85042167d (fix(ci): stabilize shared-mailbox queue drains (#9527) (#10315))
   it('returns completed failures for callers to inspect instead of rejecting expected failed jobs', async () => {
     getJobCounts.mockResolvedValueOnce(counts({ waiting: 1, failed: 2 }))
       .mockResolvedValue(counts({ failed: 3 }))
@@ -113,6 +152,7 @@ describe('drainIntegrationQueue', () => {
     expect(mockDrainQueue).not.toHaveBeenCalled()
   })
 
+<<<<<<< HEAD
   it('finishes derived projection writes before a standalone drain child exits without changing the parent mode', async () => {
     process.env.OM_TEST_APP_ROOT = path.resolve(process.cwd(), 'standalone-app')
     process.env.AUTO_SPAWN_WORKERS = 'false'
@@ -125,6 +165,8 @@ describe('drainIntegrationQueue', () => {
     expect(process.env.OM_CACHE_SAFETY_ALWAYS_CONSISTENT).toBe('false')
   })
 
+=======
+>>>>>>> c85042167d (fix(ci): stabilize shared-mailbox queue drains (#9527) (#10315))
   it('does not wait for scheduled future jobs that an explicit drain would leave queued', async () => {
     getJobCounts.mockResolvedValue(counts({ waiting: 1 }))
     jest.mocked(getQueuePendingProbe).mockResolvedValue({
@@ -151,7 +193,20 @@ describe('drainIntegrationQueue', () => {
     expect(createQueue).not.toHaveBeenCalled()
   })
 
+<<<<<<< HEAD
   it('honors the automatic worker alias while the legacy setting takes precedence', async () => {
+=======
+  it('drains explicitly when the test process has no worker configuration', async () => {
+    delete process.env.AUTO_SPAWN_WORKERS
+    mockDrainQueue.mockResolvedValue(2)
+
+    await expect(drainIntegrationQueue('events')).resolves.toBe(2)
+    expect(createQueue).not.toHaveBeenCalled()
+  })
+
+  it('honors the automatic worker alias while the legacy setting takes precedence', async () => {
+    delete process.env.AUTO_SPAWN_WORKERS
+>>>>>>> c85042167d (fix(ci): stabilize shared-mailbox queue drains (#9527) (#10315))
     process.env.OM_AUTO_SPAWN_WORKERS = 'false'
     mockDrainQueue.mockResolvedValue(2)
     await expect(drainIntegrationQueue('events')).resolves.toBe(2)
