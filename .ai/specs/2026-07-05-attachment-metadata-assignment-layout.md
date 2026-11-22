@@ -236,6 +236,10 @@ Do not introduce hard-coded strings for labels, tooltips, errors, or button text
 - Backward compatibility is preserved because public exports, props, payload shapes, field IDs, translations, and routes remain unchanged.
 - Existing consumers benefit automatically after upgrading `@open-mercato/ui`.
 
+### Security follow-up (#10336)
+
+Library list GET, detail GET, and detail PATCH apply the caller's target read grants before enriching assignments. Supported built-in targets require the owning module's read feature and exact tenant and organization scope. Custom targets use the records API's classification and ACL checks. Automatic enrichment is omitted when a required scope or policy cannot be established. Clients can use saved label and link values or fall back to the assignment ID. No route, payload shape, or stored metadata changes. The enrichment helper accepts optional verified request authorization and returns an empty map without it. See [upgrade notes](../../UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336).
+
 ## Implementation Plan
 
 ### Phase 1: Contain Assignment Row Layout
