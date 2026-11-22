@@ -1048,6 +1048,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "domain_hash": {
+          "name": "domain_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "entity_id": {
           "name": "entity_id",
           "type": "uuid",
@@ -1220,6 +1237,18 @@
         }
       },
       "indexes": [
+        {
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "domain_hash"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "customer_companies_domain_hash_idx",
+          "primary": false,
+          "unique": false
+        },
         {
           "columnNames": [
             "entity_id"
@@ -3480,6 +3509,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "primary_email_hash": {
+          "name": "primary_email_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "primary_phone": {
           "name": "primary_phone",
           "type": "text",
@@ -3622,6 +3668,18 @@
           "keyName": "customer_entities_pkey",
           "primary": true,
           "unique": true
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "primary_email_hash"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "customer_entities_primary_email_hash_idx",
+          "primary": false,
+          "unique": false
         },
         {
           "columnNames": [],

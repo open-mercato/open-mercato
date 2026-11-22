@@ -8,6 +8,7 @@ export type CustomerEntityKind = 'person' | 'company'
 export type CustomerAddressFormat = 'line_first' | 'street_first'
 
 @Entity({ tableName: 'customer_entities' })
+@Index({ name: 'customer_entities_primary_email_hash_idx', properties: ['tenantId', 'organizationId', 'primaryEmailHash'] })
 @Index({ name: 'customer_entities_org_tenant_kind_idx', properties: ['organizationId', 'tenantId', 'kind'] })
 @Index({
   name: 'idx_ce_tenant_org_person_id',
@@ -30,7 +31,7 @@ export type CustomerAddressFormat = 'line_first' | 'street_first'
     `create index "idx_ce_tenant_person_id" on "customer_entities" ("tenant_id", "id") where deleted_at is null and kind = 'person'`,
 })
 export class CustomerEntity {
-  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'primaryEmailHash'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -55,6 +56,9 @@ export class CustomerEntity {
 
   @Property({ name: 'primary_email', type: 'text', nullable: true })
   primaryEmail?: string | null
+
+  @Property({ name: 'primary_email_hash', type: 'text', nullable: true, hidden: true })
+  primaryEmailHash: string | null = null
 
   @Property({ name: 'primary_phone', type: 'text', nullable: true })
   primaryPhone?: string | null
@@ -247,6 +251,7 @@ export class CustomerPersonCompanyLink {
 }
 
 @Entity({ tableName: 'customer_companies' })
+@Index({ name: 'customer_companies_domain_hash_idx', properties: ['tenantId', 'organizationId', 'domainHash'] })
 @Index({ name: 'customer_companies_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({
   name: 'idx_customer_companies_entity_id',
@@ -254,7 +259,7 @@ export class CustomerPersonCompanyLink {
     `create index "idx_customer_companies_entity_id" on "customer_companies" ("entity_id")`,
 })
 export class CustomerCompanyProfile {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'domainHash'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -273,6 +278,9 @@ export class CustomerCompanyProfile {
 
   @Property({ name: 'domain', type: 'text', nullable: true })
   domain?: string | null
+
+  @Property({ name: 'domain_hash', type: 'text', nullable: true, hidden: true })
+  domainHash: string | null = null
 
   @Property({ name: 'website_url', type: 'text', nullable: true })
   websiteUrl?: string | null
