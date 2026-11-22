@@ -3620,12 +3620,29 @@ async function applyQuoteLineResults(params: {
   }
 }
 
+async function queueCreatedLineIndexes(
+  dataEngine: DataEngine,
+  lines: Array<SalesOrderLine | SalesQuoteLine>,
+  entityType: string,
+): Promise<void> {
+  for (const line of lines) {
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "created",
+      entity: line,
+      identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+      indexer: { entityType },
+    });
+  }
+}
+
 async function replaceQuoteLines(
   em: EntityManager,
   quote: SalesQuote,
   calculation: SalesDocumentCalculationResult,
   lineInputs: QuoteLineCreateInput[],
-): Promise<void> {
+): Promise<SalesQuoteLine[]> {
+  const linesWithCustomFields: SalesQuoteLine[] = [];
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
@@ -3646,6 +3663,7 @@ async function replaceQuoteLines(
     );
     const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null);
     const lineEntity = em.create(SalesQuoteLine, {
+      id: randomUUID(),
       quote,
       ...entityInput,
       status: statusValue,
@@ -3653,21 +3671,19 @@ async function replaceQuoteLines(
       updatedAt: new Date(),
     });
     em.persist(lineEntity);
-    const rawCustomFields = (sourceLine as any).customFields;
-    if (rawCustomFields !== undefined && rawCustomFields !== null) {
-      const customValues =
-        rawCustomFields && typeof rawCustomFields === "object"
-          ? (rawCustomFields as Record<string, unknown>)
-          : {};
+    const { customFields } = sourceLine;
+    if (customFields && Object.keys(customFields).length > 0) {
       await setRecordCustomFields(em, {
         entityId: E.sales.sales_quote_line,
         recordId: lineEntity.id,
         organizationId: quote.organizationId,
         tenantId: quote.tenantId,
-        values: normalizeCustomFieldValues(customValues),
+        values: normalizeCustomFieldValues(customFields),
       });
+      linesWithCustomFields.push(lineEntity);
     }
   }
+  return linesWithCustomFields;
 }
 
 async function replaceQuoteAdjustments(
@@ -3753,7 +3769,8 @@ async function replaceOrderLines(
   order: SalesOrder,
   calculation: SalesDocumentCalculationResult,
   lineInputs: OrderLineCreateInput[],
-): Promise<void> {
+): Promise<SalesOrderLine[]> {
+  const linesWithCustomFields: SalesOrderLine[] = [];
   await em.nativeDelete(SalesOrderLine, { order: order.id });
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
@@ -3774,6 +3791,7 @@ async function replaceOrderLines(
     );
     const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null);
     const lineEntity = em.create(SalesOrderLine, {
+      id: randomUUID(),
       order,
       ...entityInput,
       reservedQuantity: "0",
@@ -3785,21 +3803,19 @@ async function replaceOrderLines(
       updatedAt: new Date(),
     });
     em.persist(lineEntity);
-    const rawCustomFields = (sourceLine as any).customFields;
-    if (rawCustomFields !== undefined && rawCustomFields !== null) {
-      const customValues =
-        rawCustomFields && typeof rawCustomFields === "object"
-          ? (rawCustomFields as Record<string, unknown>)
-          : {};
+    const { customFields } = sourceLine;
+    if (customFields && Object.keys(customFields).length > 0) {
       await setRecordCustomFields(em, {
         entityId: E.sales.sales_order_line,
         recordId: lineEntity.id,
         organizationId: order.organizationId,
         tenantId: order.tenantId,
-        values: normalizeCustomFieldValues(customValues),
+        values: normalizeCustomFieldValues(customFields),
       });
+      linesWithCustomFields.push(lineEntity);
     }
   }
+  return linesWithCustomFields;
 }
 
 async function replaceOrderAdjustments(
@@ -5498,6 +5514,7 @@ const createQuoteCommand: CommandHandler<
     } catch {
       eventBus = null;
     }
+    let linesWithCustomFields: SalesQuoteLine[] = [];
     // Persist the quote header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built quote committed (#2336).
@@ -5506,7 +5523,7 @@ const createQuoteCommand: CommandHandler<
       [
         async () => {
           em.persist(quote);
-          await replaceQuoteLines(em, quote, calculation, normalizedLineInputs);
+          linesWithCustomFields = await replaceQuoteLines(em, quote, calculation, normalizedLineInputs);
           await replaceQuoteAdjustments(
             em,
             quote,
@@ -5582,6 +5599,7 @@ const createQuoteCommand: CommandHandler<
 
     // Emit CRUD side effects to trigger workflow event listeners
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await queueCreatedLineIndexes(dataEngine, linesWithCustomFields, E.sales.sales_quote_line);
     await emitCrudSideEffects({
       dataEngine,
       action: "created",
@@ -6922,6 +6940,7 @@ const createOrderCommand: CommandHandler<
     } catch {
       eventBus = null;
     }
+    let linesWithCustomFields: SalesOrderLine[] = [];
     // Persist the order header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built order committed (#2336).
@@ -6930,7 +6949,7 @@ const createOrderCommand: CommandHandler<
       [
         async () => {
           em.persist(order);
-          await replaceOrderLines(em, order, calculation, modedLineInputs);
+          linesWithCustomFields = await replaceOrderLines(em, order, calculation, modedLineInputs);
           await replaceOrderAdjustments(
             em,
             order,
@@ -7006,6 +7025,7 @@ const createOrderCommand: CommandHandler<
 
     // Emit CRUD side effects to trigger workflow event listeners
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await queueCreatedLineIndexes(dataEngine, linesWithCustomFields, E.sales.sales_order_line);
     await emitCrudSideEffects({
       dataEngine,
       action: "created",

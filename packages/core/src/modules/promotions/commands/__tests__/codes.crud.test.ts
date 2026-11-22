@@ -6,6 +6,7 @@
 // by that suite's `useCode` coverage.
 
 import { randomUUID } from 'crypto'
+import { ZodError } from 'zod'
 import { LockMode } from '@mikro-orm/core'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -577,6 +578,81 @@ describe('promotions.code.update command', () => {
         inTransaction: true,
       },
     ])
+  })
+})
+
+describe('promotions.code.update merged-record validation (#7633 item 9)', () => {
+  async function expectRejected(run: () => Promise<unknown>, path: string, message: string) {
+    const error = await run().then(() => null, (err: unknown) => err)
+    expect(error).toBeInstanceOf(ZodError)
+    expect((error as ZodError).issues).toEqual([
+      expect.objectContaining({ code: 'custom', path: [path], message }),
+    ])
+  }
+
+  it('rejects switching usage to "multiple" while the stored usageAmount is null', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', usageAmount: null })
+    const dataEngine = fakeDataEngine()
+    const ctx = fakeCtx(em, { dataEngine })
+
+    await expectRejected(
+      () => updateCodeCommand.execute({ id: code.id, usage: 'multiple' } as any, ctx),
+      'usageAmount',
+      'usageAmount is required when usage is "multiple"',
+    )
+    expect(code.usage).toBe('single')
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  it('rejects clearing the code string of a stored static code', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { type: 'static', code: 'QAWIN1' })
+    const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
+
+    await expectRejected(
+      () => updateCodeCommand.execute({ id: code.id, code: null } as any, ctx),
+      'code',
+      'code is required for a static code',
+    )
+    expect(code.code).toBe('QAWIN1')
+  })
+
+  it('rejects clearing usageAmount of a stored "multiple" code', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'multiple', usageAmount: 5 })
+    const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
+
+    await expectRejected(
+      () => updateCodeCommand.execute({ id: code.id, usageAmount: null } as any, ctx),
+      'usageAmount',
+      'usageAmount is required when usage is "multiple"',
+    )
+    expect(code.usageAmount).toBe(5)
+  })
+
+  it('accepts valid partial updates that satisfy the merged shape', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'multiple', usageAmount: 5 })
+    const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
+
+    await updateCodeCommand.execute({ id: code.id, usageAmount: 3 } as any, ctx)
+    await updateCodeCommand.execute({ id: code.id, code: 'NEWCODE' } as any, ctx)
+    await updateCodeCommand.execute({ id: code.id, usage: 'unlimited', usageAmount: null } as any, ctx)
+
+    expect(code.usageAmount).toBeNull()
+    expect(code.usage).toBe('unlimited')
+    expect(code.code).toBe('NEWCODE')
+  })
+
+  it('keeps the active toggle working on a code whose stored shape is already inconsistent', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { type: 'static', code: null, usage: 'multiple', usageAmount: null, active: true })
+    const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
+
+    await updateCodeCommand.execute({ id: code.id, active: false } as any, ctx)
+
+    expect(code.active).toBe(false)
   })
 })
 

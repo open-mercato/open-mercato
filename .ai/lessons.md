@@ -46,6 +46,8 @@ This catalog indexes 196 focused lessons. Route the task first, then read only r
 - [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims,channel_discord,catalog,workflows; topic:testing,fixture-cleanup,fixture-setup,api-contracts,proposal-origin,error-handling
 - [Realtime detail refreshes must preserve drafts and reject stale responses](lessons/realtime-detail-refreshes-preserve-drafts-and-response-order.md) — area:backend-ui,testing; module:warranty_claims,ui,events; topic:events,realtime,request-ordering,testing,telemetry
 
+- [Bounded trackers need per-admission identity](lessons/bounded-trackers-need-per-admission-identity.md) — area:architecture,testing; module:shared,audit_logs; topic:concurrency,observability,testing,security,tenant-isolation
+
 ### architecture
 
 - [Bounded merged pagination needs a shared ordering](lessons/bounded-merged-pagination-needs-shared-ordering.md) — area:architecture,module-data,testing; module:workflows; topic:pagination,database-queries,sorting,pagination-boundaries
