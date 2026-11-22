@@ -9,7 +9,7 @@ Index normalized contact phone digits with the framework’s keyed lookup hash s
 
 ## Overview
 
-CRM staff use the existing person phone check during contact creation and editing. The operation compares ASCII digits after stripping formatting. It continues to use the existing CRM person-view permission and allowed organization scope.
+Authorized callers can check the primary phone of a CRM person through the existing check-phone endpoint. The operation compares ASCII digits after stripping formatting. It continues to use the existing CRM person-view permission and allowed organization scope.
 
 ## Problem Statement
 
@@ -49,7 +49,7 @@ Frozen by: `packages/core/src/modules/customers/api/people/check-phone/__tests__
 
 - A customer-owned helper normalizes phone digits and applies `hashForLookup` with a context containing the field and organization ID. Use only keyed `v2:` digests on writes and in `lookupHashCandidates` results. A missing active secret leaves new rows unindexed. The previous keyed pepper remains readable during rotation.
 - Customer entity lifecycle hooks derive the hash on person create and on a change set that includes the phone or changes its organization, before the framework encryption subscriber seals fields. This covers command writes, undo and redo, and ORM fixtures. Avoid rehashing unmodified or unloaded phone values. The stress-seed bulk writer bypasses ORM hooks and derives the hash explicitly for people, keeping it out of the search-index payload.
-- The route queries active and inactive nondeleted people under its existing scope by organization and digest. It decrypts candidates with the framework helper, confirms exact digits, and returns the existing match shape. Skip undecrypted phone envelopes and return a null name if a verified person's display name remains encrypted. A digest is only a candidate selector.
+- The route pages active and inactive nondeleted people under its existing scope by organization and digest. If the compatibility lookup misses, recheck the index to account for a backfill that indexed a row between reads. It decrypts candidates with the framework helper, confirms exact digits, and returns the existing match shape. Skip undecrypted phone envelopes and return a null name if a verified person's display name remains encrypted. A digest is only a candidate selector.
 - Keep the plaintext SQL path when encryption is off and the bounded compatibility scan for rows that can be read using the configured decryption policy. With an active lookup secret, restrict the compatibility paths to unindexed rows. Without an active lookup secret, retain the previous fallback scope across both indexed and unindexed rows. When the application explicitly disables decryption, previously encrypted values require re-enabling decryption with their keys.
 - The data migration runs with application secrets through a tenant- and organization-scoped backfill command. Page by ID, derive a digest from readable phone data, and use a conditional update against the observed stored phone and hash. This protects concurrent edits and avoids rewriting phone ciphertext, display names, or optimistic-lock timestamps. Report aggregate counts and unreadable rows without recording identifiers or phone data.
 
@@ -70,7 +70,7 @@ flowchart LR
 
 ## UI/UX
 
-The existing duplicate-phone control can report an older indexed contact. The release has no visual changes.
+This change applies to the check-phone API. The CRM forms use a separate duplicate-search path.
 
 ## Edge Cases and Failure Scenarios
 
@@ -81,7 +81,7 @@ The existing duplicate-phone control can report an older indexed contact. The re
 
 ## Migration & Backward Compatibility
 
-Apply the additive schema migration before deploying writers. Run the scoped backfill with the application's lookup pepper and decryption keys for environments with existing people. Existing rows remain readable during rollout where the compatibility scan can reach them. Confirm the reported unreadable count is zero before assuming full coverage. For pepper rotation, configure the previous pepper, rerun the backfill with the new pepper, then retire the previous one. Older application versions tolerate the additional nullable column. Rerun the backfill after rollback or a rolling deploy with older writers.
+Apply the additive schema migrations before deploying writers. The column is added in a short transaction, followed by a concurrent index build. Run the scoped backfill with the application's lookup pepper and decryption keys for environments with existing people. Existing rows remain readable during rollout where the compatibility scan can reach them. Confirm the reported unreadable count is zero before assuming full coverage. For pepper rotation, configure the previous pepper, rerun the backfill with the new pepper, then retire the previous one. Older application versions tolerate the additional nullable column. Rerun the backfill after rollback or a rolling deploy with older writers.
 
 ## Risks & Impact Review
 
@@ -90,7 +90,7 @@ Apply the additive schema migration before deploying writers. Run the scoped bac
 | High | Phone digits inferred from an unkeyed digest | Persist keyed digests only and bind their context to the organization | Identical values within one organization share a digest |
 | High | A stale digest returns a wrong record | Verify phone digits after decryption and enforce existing tenant and organization filters | Out-of-band updates can require reindexing |
 | Medium | Historical phone is missed before backfill | Keep compatibility paths and document per-scope rollout and retry | Older unindexed encrypted rows retain the existing bounded behavior |
-| Medium | Index creation contends with live writes | Use the migration conventions and schedule around table size | Operators must budget index creation time |
+| Medium | Index creation contends with live writes | Add the nullable column in a short transaction and build the index concurrently | Operators must budget index creation time |
 
 ## Resolved assumptions (autonomous defaults)
 
@@ -121,3 +121,4 @@ The design preserves the phone encryption map, uses existing decryption and keye
 ## Changelog
 
 - 2026-11-22. Proposed the CRM person phone blind index and historical backfill for #5515.
+- 2026-11-22. Clarified the API-only scope and the indexed rollout after implementation review.
