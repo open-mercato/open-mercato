@@ -168,6 +168,7 @@ export function DateTimeFields({
                 timeMissing ? 'border-status-error-border' : undefined,
               )}
               showNowButton
+              getNowValue={(now) => toScheduleWallTime(now).time}
               showClearButton={!timeRequired}
             />
             {timeMissing ? (

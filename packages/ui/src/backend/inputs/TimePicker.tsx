@@ -20,6 +20,7 @@ export type TimePickerProps = {
   className?: string
   minuteStep?: number
   showNowButton?: boolean
+  getNowValue?: (now: Date) => string
   showClearButton?: boolean
   /**
    * Clock convention for the trigger label and the slot list. Defaults to the one the active
@@ -30,8 +31,7 @@ export type TimePickerProps = {
   format?: TimeFormat
 }
 
-function currentHHMM(): string {
-  const now = new Date()
+function localHHMM(now: Date): string {
   const hour = String(now.getHours()).padStart(2, '0')
   const minute = String(now.getMinutes()).padStart(2, '0')
   return `${hour}:${minute}`
@@ -54,6 +54,7 @@ export function TimePicker({
   className,
   minuteStep = 30,
   showNowButton = true,
+  getNowValue = localHHMM,
   // Default changed 2026-05-11 from `true` → `false`: the new primitive's Cancel
   // button already exits the popover without committing, which is what users mean
   // by "Clear" in most flows. Pass `showClearButton={true}` to opt back in when
@@ -111,8 +112,8 @@ export function TimePicker({
     icon?: React.ReactNode
     rightText?: string
   }> = []
-  if (showNowButton) {
-    const nowValue = currentHHMM()
+  if (showNowButton && open) {
+    const nowValue = getNowValue(new Date())
     const { main: nowMain, suffix: nowSuffix } = formatTimePickerDisplay(nowValue, timeFormat)
     pinnedTopActions.push({
       label: nowText,

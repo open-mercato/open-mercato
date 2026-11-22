@@ -152,10 +152,13 @@ describe('DateTimeFields — pickers follow the app locale', () => {
   })
 })
 
-describe('DateTimeFields — zone hint', () => {
-  afterEach(() => setClientDateLocaleSettings(null))
+describe('DateTimeFields — display time zone', () => {
+  afterEach(() => {
+    setClientDateLocaleSettings(null)
+    jest.useRealTimers()
+  })
 
-  function renderMeetingFields() {
+  function renderMeetingFields(setStartTime = jest.fn()) {
     return renderWithProviders(
       <DateTimeFields
         visible={FIELD_VISIBILITY.meeting}
@@ -163,7 +166,7 @@ describe('DateTimeFields — zone hint', () => {
         date="2026-06-12"
         setDate={() => {}}
         startTime="10:00"
-        setStartTime={() => {}}
+        setStartTime={setStartTime}
         duration={30}
         setDuration={() => {}}
         allDay={false}
@@ -192,5 +195,24 @@ describe('DateTimeFields — zone hint', () => {
     setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone: 'America/Bogota' }, env: {} }))
     renderMeetingFields()
     expect(screen.getByText('America/Bogota (GMT-5)')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['Europe/Warsaw', '08:06 AM', '08:06'],
+    ['America/New_York', '02:06 AM', '02:06'],
+  ])('shows and applies Now in the %s display zone (#9908)', async (timeZone, label, time) => {
+    jest.useFakeTimers({ now: new Date('2026-11-19T07:06:00Z') })
+    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone }, env: {} }))
+    const setStartTime = jest.fn()
+    renderMeetingFields(setStartTime)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '10:00 AM' }))
+    })
+    const nowButton = screen.getByRole('button', { name: /^Now\b/ })
+    expect(nowButton).toHaveAccessibleName(`Now ${label}`)
+
+    fireEvent.click(nowButton)
+    expect(setStartTime).toHaveBeenCalledWith(time)
   })
 })
