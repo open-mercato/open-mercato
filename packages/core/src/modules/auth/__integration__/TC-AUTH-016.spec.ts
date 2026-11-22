@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { postForm } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures';
 import { DEFAULT_CREDENTIALS } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
@@ -13,6 +15,8 @@ import { DEFAULT_CREDENTIALS } from '@open-mercato/core/modules/core/__integrati
  * Each test uses a unique email to avoid cross-test compound key pollution.
  */
 test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
+  test.skip(process.env.OM_INTEGRATION_AUTH_RATE_LIMIT_FIXTURE === '1', 'Uses the default endpoint quotas');
+
   let forwardedIpSequence = randomInt(10_000);
   let authRateLimitingEnabled = true;
 
@@ -145,4 +149,35 @@ test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
     }, { headers: rateLimitHeaders });
     expect(postResetResponse.status()).not.toBe(429);
   });
+});
+
+test.describe('TC-AUTH-016: default proxy depth rate-limit fixture', () => {
+  test.skip(process.env.OM_INTEGRATION_AUTH_RATE_LIMIT_FIXTURE !== '1', 'Requires the dedicated auth rate-limit fixture');
+
+  for (const audience of ['staff', 'portal'] as const) {
+    test(`${audience} login enforces a separate quota for each identifier`, async ({ request }) => {
+      const tenantId = audience === 'portal'
+        ? getTokenContext(await getAuthToken(request, 'admin')).tenantId
+        : undefined;
+      const headers = { 'x-om-test-rate-limit': 'on' };
+      const login = (email: string) => {
+        const data = { email, password: 'fixture-password' };
+        return audience === 'staff'
+          ? postForm(request, '/api/auth/login', data, { headers })
+          : request.post('/api/customer_accounts/login', { data: { ...data, tenantId }, headers });
+      };
+
+      const identifier = `rate-limit-${randomUUID()}@test.invalid`;
+      expect((await login(identifier)).status()).toBe(401);
+      expect((await login(identifier)).status()).toBe(401);
+
+      const limited = await login(identifier);
+      expect(limited.status(), 'The dedicated fixture must enforce the two-attempt quota').toBe(429);
+      expect(limited.headers()['retry-after']).toMatch(/^[1-9]\d*$/);
+      expect(limited.headers()['x-ratelimit-limit']).toBe('2');
+      expect(limited.headers()['x-ratelimit-remaining']).toBe('0');
+
+      expect((await login(`rate-limit-${randomUUID()}@test.invalid`)).status()).toBe(401);
+    });
+  }
 });

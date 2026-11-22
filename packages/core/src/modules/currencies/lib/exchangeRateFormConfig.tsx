@@ -2,6 +2,9 @@ import type { CrudFormGroup, CrudFieldOption } from '@open-mercato/ui/backend/Cr
 import type { ApiCallResult } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { formatLocaleDecimalInput } from '@open-mercato/shared/lib/number'
+import { ExchangeRateInput, ExchangeRateMetadataList } from '../components/ExchangeRateFormFields'
+import { MIN_SIGNIFICANT_DIGITS, decimalToNumber, decimalToString, isDecimalInput, parseDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('currencies').child({ component: 'exchange-rate-form' })
 
@@ -45,7 +48,10 @@ export async function loadCurrencyOptions(
 export function exchangeRateGroups(
   t: (key: string) => string,
   loadOptions: (query?: string) => Promise<CrudFieldOption[]>,
+  metadata?: Record<string, unknown> | null,
 ): CrudFormGroup[] {
+  const rateLabel = t('exchangeRates.form.field.rate')
+  const hasMetadata = Boolean(metadata && Object.keys(metadata).length)
   return [
     {
       id: 'rate-details',
@@ -73,15 +79,14 @@ export function exchangeRateGroups(
         },
         {
           id: 'rate',
-          type: 'number',
-          label: t('exchangeRates.form.field.rate'),
-          placeholder: '1.00000000',
+          type: 'custom',
+          label: rateLabel,
           required: true,
-          description: t('exchangeRates.form.field.rateHelp'),
+          component: (props) => <ExchangeRateInput {...props} label={rateLabel} />,
         },
         {
           id: 'date',
-          type: 'datetime-local',
+          type: 'date',
           label: t('exchangeRates.form.field.date'),
           required: true,
           description: t('exchangeRates.form.field.dateHelp'),
@@ -118,15 +123,46 @@ export function exchangeRateGroups(
           type: 'checkbox',
           label: t('exchangeRates.form.field.isActive'),
         },
+        ...(hasMetadata
+          ? [
+              {
+                id: 'metadataDetails',
+                type: 'custom' as const,
+                label: t('exchangeRates.form.field.providerDetails'),
+                component: () => <ExchangeRateMetadataList metadata={metadata as Record<string, unknown>} />,
+              },
+            ]
+          : []),
       ],
     },
   ]
 }
 
+export type ValidatedExchangeRateForm = {
+  fromCode: string
+  toCode: string
+  /** Float copy of `rateExact`; prefer the exact field. */
+  rate: number
+  rateExact: string
+  date: Date
+  source: string
+}
+
+/** Input of {@link buildExchangeRatePayload}; the pre-exact shape (numeric `rate`, no metadata) is still accepted. */
+export type ExchangeRatePayloadInput = {
+  fromCode: string
+  toCode: string
+  rate: number
+  rateExact?: string
+  date: Date
+  source: string
+  metadata?: Record<string, unknown> | null
+}
+
 export function validateExchangeRateForm(
   values: Record<string, unknown>,
   t: (key: string) => string,
-): { fromCode: string; toCode: string; rate: number; date: Date; source: string } {
+): ValidatedExchangeRateForm {
   const fromCode = String(values.fromCurrencyCode || '').trim().toUpperCase()
   const toCode = String(values.toCurrencyCode || '').trim().toUpperCase()
 
@@ -148,20 +184,34 @@ export function validateExchangeRateForm(
     })
   }
 
-  const rate = parseFloat(String(values.rate || '0'))
-  if (isNaN(rate) || rate <= 0) {
+  const rawRate = typeof values.rate === 'number' || typeof values.rate === 'string' ? values.rate : ''
+  if (!isDecimalInput(rawRate) || !toDecimal(rawRate).gt(0)) {
     throw createCrudFormError(t('exchangeRates.form.errors.invalidRate'), {
       rate: t('exchangeRates.form.errors.invalidRate'),
     })
   }
 
-  const date = values.date ? new Date(String(values.date)) : null
+  // A bare `YYYY-MM-DD` (or a legacy `YYYY-MM-DDTHH:MM[...]` datetime-local
+  // value predating the UTC-midnight normalization) has no timezone
+  // designator, so `new Date(...)` would parse it in the SERVER's local
+  // timezone rather than UTC — a legacy "2026-10-30T11:00" on a server east
+  // of UTC can round-trip to 2026-10-29 once truncated to UTC midnight.
+  // Anchor directly on the calendar-date portion of the string so the result
+  // never depends on the server's local timezone.
+  const rawDate = values.date ? String(values.date) : ''
+  const dateOnlyMatch = rawDate.match(/^(\d{4}-\d{2}-\d{2})/)
+  const parsedDate = dateOnlyMatch
+    ? new Date(`${dateOnlyMatch[1]}T00:00:00.000Z`)
+    : (rawDate ? new Date(rawDate) : null)
 
-  if (!date || isNaN(date.getTime())) {
+  if (!parsedDate || isNaN(parsedDate.getTime())) {
     throw createCrudFormError(t('exchangeRates.form.errors.invalidDate'), {
       date: t('exchangeRates.form.errors.invalidDate'),
     })
   }
+
+  const date = new Date(parsedDate)
+  date.setUTCHours(0, 0, 0, 0)
 
   const source = String(values.source || '').trim()
   if (!source || source.length < 2) {
@@ -180,23 +230,33 @@ export function validateExchangeRateForm(
     })
   }
 
-  return { fromCode, toCode, rate, date, source }
+  const rateExact = decimalToString(rawRate)
+  return { fromCode, toCode, rate: decimalToNumber(rateExact), rateExact, date, source }
 }
 
-export function buildExchangeRatePayload(values: Record<string, unknown>, validated: {
-  fromCode: string
-  toCode: string
-  rate: number
-  date: Date
-  source: string
-}) {
+export function buildExchangeRatePayload(values: Record<string, unknown>, validated: ExchangeRatePayloadInput) {
   return {
     fromCurrencyCode: validated.fromCode,
     toCurrencyCode: validated.toCode,
-    rate: validated.rate.toFixed(8),
+    rate: validated.rateExact ?? decimalToString(validated.rate),
     date: validated.date.toISOString(),
     source: validated.source,
     type: values.type && values.type !== '' ? values.type : null,
+    ...(validated.metadata !== undefined ? { metadata: validated.metadata } : {}),
     isActive: values.isActive !== false,
   }
+}
+
+/** Rate for list display: at most 17 significant digits with the locale decimal separator; the raw value when it is not a decimal. */
+export function formatRateForDisplay(rate: string, locale?: string): string {
+  const parsed = parseDecimal(rate)
+  return parsed ? formatLocaleDecimalInput(parsed.prec(MIN_SIGNIFICANT_DIGITS), locale) : rate
+}
+
+/** Stored exchange-rate dates are UTC midnight; format the UTC calendar day so zones west of UTC do not show the previous day. */
+export function formatDateOnlyUtc(date: Date): string {
+  const year = date.getUTCFullYear()
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }

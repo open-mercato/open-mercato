@@ -10,6 +10,7 @@ jest.mock('../../lib/state-cookie', () => ({
   createFlowState: jest.fn(),
 }))
 jest.mock('../../events', () => ({ emitSsoEvent: jest.fn(async () => undefined) }))
+jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({ signJwt: jest.fn(() => 'signed-token') }))
 
 import { SsoService } from '../ssoService'
 import { SsoRolesRevokedError } from '../../lib/errors'
@@ -53,5 +54,47 @@ describe('SsoService role revocation on denied login', () => {
     await expect(service.handleOidcCallback({ state: 'flow-state' }, 'cookie', 'https://app/callback')).rejects.toBe(failure)
 
     expect(rbacService.invalidateUserCache).not.toHaveBeenCalled()
+  })
+
+  it('retains the provider config version through account and final session checks', async () => {
+    const originalVersion = new Date('2026-11-15T00:00:00.000Z')
+    const config = {
+      id: 'config-1', protocol: 'oidc', tenantId: null, organizationId: 'org-1',
+      clientSecretEnc: null, updatedAt: originalVersion,
+    }
+    findOneWithDecryption.mockResolvedValue(config)
+    const user = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', email: 'user@example.com' }
+    const accountLinkingService = { resolveUser: jest.fn(async () => ({ user, identity: { id: 'identity-1' } })) }
+    const authService = {
+      getUserRoles: jest.fn(async () => ['employee']),
+      updateLastLoginAt: jest.fn(),
+      createSession: jest.fn(async () => ({ session: { id: 'session-1' }, token: 'refresh-token' })),
+    }
+    const provider = {
+      handleCallback: jest.fn(async () => {
+        config.updatedAt = new Date(originalVersion.getTime() + 1)
+        return { subject: 'subject-1', email: user.email, emailVerified: true }
+      }),
+    }
+    const service = new SsoService(
+      {} as never,
+      { resolve: () => provider } as never,
+      accountLinkingService as never,
+      {} as never,
+      authService as never,
+      { invalidateUserCache: jest.fn() } as never,
+    )
+
+    await expect(service.handleOidcCallback({ state: 'flow-state' }, 'cookie', 'https://app/callback')).resolves.toMatchObject({
+      tenantId: 'tenant-1', token: 'signed-token',
+    })
+
+    expect(accountLinkingService.resolveUser).toHaveBeenCalledWith(config,
+      expect.objectContaining({ subject: 'subject-1' }), '', originalVersion.getTime())
+    expect(authService.createSession).toHaveBeenCalledWith(user, expect.any(Date), {
+      tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: config.id,
+      configUpdatedAt: originalVersion.getTime(),
+    })
+    expect(authService.getUserRoles).toHaveBeenCalledWith(user, 'tenant-1')
   })
 })
