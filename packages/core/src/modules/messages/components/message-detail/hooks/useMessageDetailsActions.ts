@@ -90,11 +90,27 @@ export function useMessageDetailsActions({
     contextId: 'messages-detail-actions',
   })
 
-  const retryDelete = React.useCallback(async () => {
-    const didDelete = await runDelete(retryLastMutation)
-    if (didDelete) onDeleted()
-    return didDelete
-  }, [onDeleted, retryLastMutation, runDelete])
+  const runGuardedDelete = React.useCallback(({
+    operation,
+    context,
+    mutationPayload,
+  }: {
+    operation: () => Promise<boolean>
+    context: Omit<MessageDetailMutationContext, 'retryLastMutation'>
+    mutationPayload: Record<string, unknown>
+  }) => {
+    const mutate = () => runMutation({
+      operation,
+      context: { ...context, retryLastMutation: retryDelete },
+      mutationPayload,
+    })
+    const retryDelete = async (): Promise<boolean> => {
+      const didDelete = await runDelete(mutate).catch(() => false)
+      if (didDelete) onDeleted()
+      return didDelete
+    }
+    return runDelete(mutate)
+  }, [onDeleted, runDelete, runMutation])
 
   const requestAndRefresh = React.useCallback(async (
     url: string,
@@ -137,7 +153,7 @@ export function useMessageDetailsActions({
   const handleDelete = React.useCallback(async () => {
     setUpdatingState(true)
     try {
-      await runDelete(() => runMutation({
+      await runGuardedDelete({
         // Carry the OSS optimistic-lock header so a stale tab cannot delete a
         // concurrently-changed message; throw a status-carrying error on failure
         // so the 409 conflict surfaces on the shared RecordConflictBanner.
@@ -159,9 +175,9 @@ export function useMessageDetailsActions({
             return true
           },
         ),
-        context: { resourceKind: 'message', messageId: id, action: 'delete', retryLastMutation: retryDelete },
+        context: { resourceKind: 'message', messageId: id, action: 'delete' },
         mutationPayload: { messageId: id, action: 'delete' },
-      }))
+      })
       flash(t('messages.flash.deleted', 'Message deleted.'), 'success')
       onDeleted()
     } catch (err) {
@@ -180,7 +196,7 @@ export function useMessageDetailsActions({
     } finally {
       setUpdatingState(false)
     }
-  }, [detail?.updatedAt, id, onDeleted, retryDelete, runDelete, runMutation, t])
+  }, [detail?.updatedAt, id, onDeleted, runGuardedDelete, t])
 
   const runConversationAction = React.useCallback(async (
     action: ConversationActionKind,
@@ -195,7 +211,7 @@ export function useMessageDetailsActions({
     setActiveConversationAction(action)
     const isDelete = action === 'deleteConversation'
     try {
-      const mutate = () => runMutation({
+      const mutation = {
         operation: async () => {
           const call = await apiCall<{ ok?: boolean; affectedCount?: number }>(options.url, { method: options.method })
           if (!call.ok) {
@@ -207,15 +223,14 @@ export function useMessageDetailsActions({
           return true
         },
         context: {
-          resourceKind: 'conversation',
+          resourceKind: 'conversation' as const,
           messageId: id,
           action,
-          retryLastMutation: isDelete ? retryDelete : retryLastMutation,
         },
         mutationPayload: { messageId: id, action, url: options.url, method: options.method },
-      })
-      if (isDelete) await runDelete(mutate)
-      else await mutate()
+      }
+      if (isDelete) await runGuardedDelete(mutation)
+      else await runMutation({ ...mutation, context: { ...mutation.context, retryLastMutation } })
 
       flash(options.successMessage, 'success')
 
@@ -239,7 +254,7 @@ export function useMessageDetailsActions({
     } finally {
       setActiveConversationAction(null)
     }
-  }, [id, refetchDetail, refreshDetailWithoutAutoMarkRead, retryDelete, retryLastMutation, runDelete, runMutation, t])
+  }, [id, refetchDetail, refreshDetailWithoutAutoMarkRead, retryLastMutation, runGuardedDelete, runMutation, t])
 
   const archiveConversation = React.useCallback(async (messageId?: string) => {
     const targetMessageId = messageId ?? id

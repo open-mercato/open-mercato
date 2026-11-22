@@ -163,22 +163,43 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
     expect(onDeleted).toHaveBeenCalledTimes(1)
   })
 
-  it.each(['handleDelete', 'deleteConversation'] as const)(
-    'pauses reads when retrying %s and navigates only on success',
-    async (action) => {
+  it.each([
+    { action: 'handleDelete', url: '/api/messages/message-1' },
+    { action: 'deleteConversation', url: '/api/messages/thread-message/conversation' },
+  ] as const)(
+    'retries only the original $action after another guarded write',
+    async ({ action, url }) => {
       const { result, onDeleted, runDelete } = setup()
-      mockRunMutation.mockRejectedValueOnce(new Error('Locked'))
-      mockRetryLastMutation.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+      let lastOperation: (() => Promise<unknown>) | undefined
+      mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => {
+        lastOperation = operation
+        return operation()
+      })
+      mockRetryLastMutation.mockImplementation(async () => {
+        if (!lastOperation) return false
+        return lastOperation().then(() => true, () => false)
+      })
+      mockApiCall.mockRejectedValueOnce(new Error('Locked'))
 
-      await act(async () => { await result.current[action]() })
-      const { retryLastMutation } = mockRunMutation.mock.calls[0][0].context
-      await expect(retryLastMutation()).resolves.toBe(false)
+      await act(async () => {
+        if (action === 'handleDelete') await result.current.handleDelete()
+        else await result.current.deleteConversation('thread-message')
+      })
+      const originalMutation = mockRunMutation.mock.calls[0][0]
+      const { retryLastMutation } = originalMutation.context
+      await act(async () => { await result.current.archiveConversation() })
+      expect(mockApiCall).toHaveBeenLastCalledWith('/api/messages/message-1/conversation/archive', { method: 'PUT' })
+      mockApiCall.mockClear()
+      mockApiCall.mockRejectedValueOnce(new Error('Still locked'))
+
+      await act(async () => { await expect(retryLastMutation()).resolves.toBe(false) })
       expect(onDeleted).not.toHaveBeenCalled()
 
-      await expect(retryLastMutation()).resolves.toBe(true)
+      await act(async () => { await expect(retryLastMutation()).resolves.toBe(true) })
+      expect(mockApiCall.mock.calls).toEqual([[url, { method: 'DELETE' }], [url, { method: 'DELETE' }]])
+      expect(mockRunMutation.mock.calls.slice(2)).toEqual([[originalMutation], [originalMutation]])
       expect(onDeleted).toHaveBeenCalledTimes(1)
       expect(runDelete).toHaveBeenCalledTimes(3)
-      expect(runDelete).toHaveBeenLastCalledWith(mockRetryLastMutation)
     },
   )
 
