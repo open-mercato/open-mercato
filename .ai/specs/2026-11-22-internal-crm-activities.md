@@ -108,7 +108,7 @@ Frozen by: `packages/core/src/modules/customers/__integration__/TC-CRM-088-inter
 
 ## Migration & backward compatibility
 
-Widen nullability for an existing foreign-key column. Keep the existing foreign key, indexes, paths, identifiers, and linked payloads. The main list response already documents a nullable `entityId`; consumers should use their already-declared null check before following the CRM link. The exported ORM relation becomes nullable because native records can be unlinked. Downstream code that dereferences it should narrow first. Rolling back the code after standalone rows exist requires first relinking or archiving those rows, so an automatic down migration must never silently discard or reassign records.
+Widen nullability for an existing foreign-key column. Keep the existing foreign key, indexes, paths, identifiers, and linked payloads. The main list response already documents a nullable `entityId`; consumers should use their already-declared null check before following the CRM link. The interaction create command result and the `customers.interaction.completed`, `customers.interaction.canceled`, and `customers.interaction.reverted` events keep the `entityId` key. Its value is null for an unlinked record and remains a UUID for linked records. Consumers can still use the event's interaction id. The exported ORM relation becomes nullable because native records can be unlinked. Downstream code that dereferences it should narrow first. Rolling back the code after standalone rows exist requires first relinking or archiving those rows, so an automatic down migration must never silently discard or reassign records.
 
 ## Final compliance report
 
