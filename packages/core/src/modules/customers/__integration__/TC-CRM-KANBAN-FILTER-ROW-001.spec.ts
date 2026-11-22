@@ -7,16 +7,22 @@ import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/g
 async function expectFiltersOnOneLine(page: Page, viewportWidth: number): Promise<void> {
   const group = page.getByRole('group', { name: 'Filter' })
   await expect(group).toBeVisible()
-  const chipTops = await group.getByRole('button').evaluateAll((nodes) =>
-    nodes.map((node) => Math.round(node.getBoundingClientRect().top)),
-  )
-  expect(chipTops.length, 'the filter group has chips').toBeGreaterThan(3)
-  expect(new Set(chipTops).size, `filters share one line at ${viewportWidth}px`).toBe(1)
-
   const sort = page.getByRole('button', { name: /^Sort/ }).first()
   await expect(sort).toBeInViewport({ ratio: 1 })
-  const sortBox = await sort.boundingBox()
-  expect(Math.round(sortBox?.y ?? -1), `sort sits on the filter line at ${viewportWidth}px`).toBe(chipTops[0])
+  expect(await group.getByRole('button').count(), 'the filter group has chips').toBeGreaterThan(3)
+
+  await expect
+    .poll(
+      async () => {
+        const chipTops = await group.getByRole('button').evaluateAll((nodes) =>
+          nodes.map((node) => Math.round(node.getBoundingClientRect().top)),
+        )
+        const sortTop = await sort.evaluate((node) => Math.round(node.getBoundingClientRect().top))
+        return new Set([...chipTops, sortTop]).size
+      },
+      { message: `filters and sort share one line at ${viewportWidth}px` },
+    )
+    .toBe(1)
 
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewportWidth)
 }
@@ -44,10 +50,14 @@ async function expectLastFilterReachable(page: Page, viewportWidth: number): Pro
   await page.keyboard.press('Escape')
   await expect(popover).toBeHidden()
 
-  await expect(async () => {
-    if (await scrollLeft.isVisible()) await scrollLeft.click()
-    await expect(scrollLeft).toBeHidden({ timeout: 1_500 })
-  }).toPass({ timeout: 20_000 })
+  const scrolledTo = await group.evaluate((node) => node.scrollLeft)
+  await scrollLeft.click()
+  await expect
+    .poll(() => group.evaluate((node) => node.scrollLeft), { message: `Scroll left moves the filters back at ${label}` })
+    .toBeLessThan(scrolledTo)
+
+  await group.evaluate((node) => node.scrollTo({ left: 0, behavior: 'instant' }))
+  await expect(scrollLeft, `the left arrow hides at the start of the row at ${label}`).toBeHidden()
 }
 
 /**
