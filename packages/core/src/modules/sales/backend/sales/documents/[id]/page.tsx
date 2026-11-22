@@ -962,6 +962,9 @@ export function handleDocumentMutationError(
   refresh: () => void,
 ): boolean {
   if (surfaceRecordConflict(err, t, { onRefresh: refresh })) {
+    if (err instanceof Error) {
+      err.message = t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.')
+    }
     return true
   }
   return false

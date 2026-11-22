@@ -89,6 +89,7 @@ test('a refused stale Sales inline save retains its draft and preserves the othe
       else await page.getByRole('button', { name: 'Save (⌘/Ctrl+Enter)', exact: true }).click()
       expect((await refused).status()).toBe(409)
       await expect(draft).toHaveValue('Retained first actor draft')
+      await expect(page.getByText('record_modified', { exact: true })).toHaveCount(0)
       expect(await readQuote(actorToken)).toEqual(changed)
     }
     await draft.press('Escape')
