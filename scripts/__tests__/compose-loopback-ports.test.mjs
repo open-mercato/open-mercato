@@ -18,6 +18,12 @@ const DEV_INFRA_COMPOSE_FILES = [
 
 const LOOPBACK_PREFIX = /^\$\{(?:INFRA_BIND_HOST|VERDACCIO_HOST):-127\.0\.0\.1\}:/
 
+const PRODUCTION_FULLAPP_COMPOSE_FILES = [
+  'starters/docker/compose.fullapp.yml',
+  'docker-compose.fullapp.yml',
+  'packages/create-app/template/docker-compose.fullapp.yml',
+]
+
 function publishedPortEntries(content) {
   const entries = []
   let inPorts = false
@@ -48,6 +54,17 @@ for (const file of DEV_INFRA_COMPOSE_FILES) {
     assert.ok(entries.length > 0, `${file} publishes no ports — the parser no longer matches the file`)
     const exposed = entries.filter((entry) => !LOOPBACK_PREFIX.test(entry))
     assert.deepEqual(exposed, [], `${file} publishes ports on all interfaces: ${exposed.join(', ')}`)
+  })
+}
+
+for (const file of PRODUCTION_FULLAPP_COMPOSE_FILES) {
+  test(`${file} publishes LocalStack on loopback with configurable host and port`, () => {
+    const content = fs.readFileSync(path.resolve(ROOT, file), 'utf8')
+    const localstack = content.match(/^  localstack:\r?\n(?:^ {4}.*\r?\n)*/m)
+    assert.ok(localstack, `${file} must define the LocalStack service`)
+    assert.deepEqual(publishedPortEntries(localstack[0]), [
+      '${INFRA_BIND_HOST:-127.0.0.1}:${LOCALSTACK_PORT:-4566}:4566',
+    ])
   })
 }
 
