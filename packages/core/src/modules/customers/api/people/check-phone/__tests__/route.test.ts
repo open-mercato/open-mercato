@@ -147,6 +147,18 @@ describe('customers people check-phone route', () => {
     )
   })
 
+  it('misses an encrypted contact beyond the newest 500 candidates', async () => {
+    const newer = Array.from({ length: 500 }, () => ({ primaryPhone: '+1 212 555 0100' }))
+    const older = { id: 'older-person', displayName: 'Older Person', primaryPhone: '+1 415 555 0148' }
+    mockFindWithDecryption.mockImplementation(
+      async (_em, _entity, _where, options) => [...newer, older].slice(0, options.limit),
+    )
+
+    const response = await GET(requestFor('14155550148'))
+
+    expect(await response.json()).toEqual({ match: null })
+  })
+
   it('runs the SQL fast path only when tenant data encryption is disabled', async () => {
     const em = useFastPathMatch({ id: 'person-9', displayName: 'Grace Hopper' })
 
