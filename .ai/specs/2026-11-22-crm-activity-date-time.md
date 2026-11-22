@@ -70,7 +70,7 @@ Use the existing scoped `POST /api/customers/interactions` interaction create co
 | Default, past, or equal | `done` | Submit or selected instant in ISO 8601 UTC | `null` |
 | Future | `planned` | `null` | Selected instant in ISO 8601 UTC |
 
-The existing route, response, ACL, organization scope, undo, and interaction events apply. A manual save recomputes status from the current clock. Retrying the same guarded operation reuses its already-classified payload. Stored status controls placement after creation. A planned record becoming overdue keeps its planned status until the existing completion flow runs.
+The existing route, response, ACL, organization scope, undo, and interaction events apply. A manual save recomputes status from the current clock. Retrying the same guarded operation reuses its already-classified payload. Planned activities continues to show records with planned status, including overdue records. A planned record keeps its status until the existing completion flow runs. The person, company, and deal timelines retain their existing filters and ordering, including planned rows where those filters include them.
 
 ## UI/UX
 
@@ -95,7 +95,7 @@ The Planned activities section remains the entry point to the full scheduling ed
 
 1. Characterize the existing composer POST and refresh behavior in its component test.
 2. Update the composer and its person, company, and deal hosts. Keep the existing detailed scheduling entry point, use localized strings, and update activity layout and picker assertions.
-3. Exercise a meeting from two days ago and a future call in the same composer using a non-UTC Playwright browser. Verify persisted timestamps through the interactions API and inspect history and Planned activities. Confirm all three hosts render the composer and preserve their record context. Open the detailed scheduling editor from an empty Planned activities list.
+3. Exercise a meeting from two days ago and a future call in the same composer using a non-UTC Playwright browser. Verify the status and both timestamp fields through the interactions API. Confirm the historical meeting appears in the timeline and the future call appears in Planned activities. With timeline filters that include the call, confirm it still appears in the timeline with planned status. Confirm all three hosts render the composer and preserve their record context. Open the detailed scheduling editor from an empty Planned activities list.
 4. Archive the Delta in `.ai/specs/capabilities/crm-activity-creation.md`.
 
 ## Final Compliance Report
@@ -106,4 +106,4 @@ The design reuses the current interaction command, guard, UI primitives, and sco
 
 | Date | Change |
 | --- | --- |
-| 2026-11-22 | Propose timestamp-driven CRM activity creation for #5108. |
+| 2026-11-22 | Propose timestamp-driven CRM activity creation for #5108 and specify how planned rows appear in the existing timeline. |
