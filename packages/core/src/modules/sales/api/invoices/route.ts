@@ -6,6 +6,7 @@ import { SalesInvoice } from '../../data/entities'
 import { invoiceCreateSchema, invoiceUpdateInputSchema, invoiceUpdateSchema } from '../../data/validators'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { withScopedPayload } from '../utils'
+import { withExactInvoiceInput } from '../../lib/exactAmountFields'
 import {
   createPagedListResponseSchema,
   createSalesCrudOpenApi,
@@ -108,7 +109,8 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        return invoiceCreateSchema.parse(withFoldedCustomFields(scoped))
+        const folded = withFoldedCustomFields(scoped)
+        return withExactInvoiceInput(invoiceCreateSchema.parse(folded), folded)
       },
     },
     update: {
@@ -117,7 +119,8 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        return invoiceUpdateInputSchema.parse(withFoldedCustomFields(scoped))
+        const folded = withFoldedCustomFields(scoped)
+        return withExactInvoiceInput(invoiceUpdateInputSchema.parse(folded), folded)
       },
     },
     delete: {
