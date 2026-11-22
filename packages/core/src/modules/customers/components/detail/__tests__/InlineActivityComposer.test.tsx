@@ -2,8 +2,9 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { act, fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { InlineActivityComposer } from '../InlineActivityComposer'
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
@@ -40,6 +41,42 @@ describe('InlineActivityComposer', () => {
     expect(textarea.rows).toBe(3)
     expect(textarea.className).toEqual(expect.stringContaining('min-h-[72px]'))
     expect(textarea.className).toEqual(expect.stringContaining('resize-none'))
+  })
+
+  it('logs the selected timestamp on the active customer and deal, then refreshes', async () => {
+    const onActivityCreated = jest.fn()
+    const runGuardedMutation = jest.fn(<Result,>(operation: () => Promise<Result>) => operation())
+    const { container } = renderWithProviders(
+      <InlineActivityComposer
+        entityType="company"
+        entityId="company-1"
+        dealId="deal-1"
+        onActivityCreated={onActivityCreated}
+        runGuardedMutation={runGuardedMutation}
+      />,
+    )
+
+    const selectedLocalTime = '2026-10-02T09:30'
+    const dateField = container.querySelector('input[type="datetime-local"]')!
+    fireEvent.change(dateField, { target: { value: selectedLocalTime } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Description' }), { target: { value: 'Renewal call' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save activity' }))
+
+    await waitFor(() => expect(onActivityCreated).toHaveBeenCalledTimes(1))
+    const payload = {
+      entityId: 'company-1',
+      dealId: 'deal-1',
+      interactionType: 'call',
+      body: 'Renewal call',
+      status: 'done',
+      occurredAt: new Date(selectedLocalTime).toISOString(),
+      scheduledAt: null,
+    }
+    expect(runGuardedMutation).toHaveBeenCalledWith(expect.any(Function), payload)
+    expect(apiCallOrThrow).toHaveBeenCalledWith('/api/customers/interactions', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }))
   })
 
   it('shows the MiniWeekCalendar by default (hideWeekPreview=false)', () => {
