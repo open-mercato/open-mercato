@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Staff login form size (#10334)
+
+`POST /api/auth/login` accepts URL-encoded and multipart forms up to 64 KiB,
+including form encoding overhead. Larger forms receive HTTP 413 with the existing
+JSON error shape. Standard login forms and successful responses are unchanged.
+
 ## Query index metadata cached across requests (#2967)
 
 The query index engine no longer re-reads table metadata and custom-field definitions

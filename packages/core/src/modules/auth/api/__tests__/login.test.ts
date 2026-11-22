@@ -90,6 +90,22 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     expect(response.headers.get('set-cookie')).toBeNull()
   })
 
+  test.each([
+    'application/x-www-form-urlencoded',
+    'multipart/form-data; boundary=login-form',
+  ])('rejects an over-limit declared %s form before authentication', async (contentType) => {
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': contentType, 'content-length': String(64 * 1024 + 1) },
+      body: '',
+    }))
+
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({ ok: false, error: expect.any(String) })
+    expect(containerMock.resolve).not.toHaveBeenCalled()
+    expect(authServiceMock.verifyPassword).not.toHaveBeenCalled()
+  })
+
   test('accepts application/x-www-form-urlencoded login payloads', async () => {
     const form = new URLSearchParams()
     form.set('email', 'user@example.com')
