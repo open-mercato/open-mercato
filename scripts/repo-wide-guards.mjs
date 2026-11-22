@@ -187,6 +187,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
         scans: 'live apps/mercato/src/modules/example sources — local-reference fact discovery, projection and source fingerprints (#4991)',
       },
+      {
+        path: 'src/lib/scaffold/__tests__/scaffold-ds-contract.test.ts',
+        scans: 'repo-root ESLint DS config and packages/eslint-plugin-ds — design-system compliance of generated CLI scaffold pages',
+      },
     ],
   },
   {
