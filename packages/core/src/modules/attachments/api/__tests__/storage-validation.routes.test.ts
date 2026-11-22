@@ -29,6 +29,10 @@ jest.mock('../../lib/thumbnailCache', () => ({
   writeThumbnailCache: jest.fn(async () => undefined),
 }))
 jest.mock('../../data/entities', () => ({ Attachment: class Attachment {}, AttachmentPartition: class AttachmentPartition {} }))
+jest.mock('../../lib/documentStructure/purge', () => ({
+  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 0, sectionCount: 0, indexedSectionIds: [] })),
+  enqueuePurgedSectionSearchDelete: jest.fn(async () => undefined),
+}))
 
 const attachment = {
   id: 'attachment-test', tenantId: 'tenant-test', organizationId: 'org-test',

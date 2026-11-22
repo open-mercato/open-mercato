@@ -174,6 +174,18 @@ describe('Workflow Instances API', () => {
       )
     })
 
+    test('orders by createdAt with an id tiebreak so tied rows page deterministically', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      await listInstances(new NextRequest('http://localhost/api/workflows/instances?limit=2&offset=2'))
+
+      expect(mockEm.findAndCount.mock.calls[0][2]).toEqual({
+        orderBy: { createdAt: 'DESC', id: 'DESC' },
+        limit: 2,
+        offset: 2,
+      })
+    })
+
     // Dry-run isolation (spec section 8.2): simulations are excluded from the
     // run list — and from anything counting off it — unless asked for by name.
     test('excludes dry runs from the list by default', async () => {
