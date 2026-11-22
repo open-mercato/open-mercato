@@ -51,7 +51,7 @@ Frozen by: `packages/core/src/modules/messages/lib/__tests__/composeSenderDelega
 
 1. The composer already lists its files under a temporary `attachments:library` record whose ID starts with `messages-composer:`. For a mailbox send, it includes that record ID with the IDs it listed. The messages module resolves the source as a temporary compose record in the current tenant and organization. A request supplying IDs must bind them to that record. For record-only requests, resolve its files using a bounded lookup and reject a set over the hub cap.
 2. The existing soft-optional `communicationChannelsSendAsUser` port receives ordinary scoped outbound attachment references and optional in-app compose context. The hub uses its existing adapter capability and attachment service checks. The messages compose command validates linked records against the original compose type while retaining the channel-qualified type of the persisted message.
-3. For the new composer payload, the hub opens a shared command transaction for the message, linked objects, attachment moves, conversation mapping and outbound link. Match each expected source owner, file ID, tenant and organization during the move. A mismatch or link-write failure rolls back the entire compose, leaving the upload available for retry. Emit message side effects after commit.
+3. The messages compose command owns the transaction. It reassigns the files through `attachmentService` and calls the hub link writer in the same transaction. Reassignment locks the scoped source rows and applies the configured reassign policy to both owners before updating any row. A refusal or link-write failure rolls back the compose, leaving the uploads available for retry. Command hooks and message events run after commit.
 4. The hub uses the new message ID as the owner of the sent-file refs. Enqueue after commit so the worker sees the link and final file owners. If enqueue fails, preserve the committed message and link for diagnosis and surface the existing send failure. The worker rechecks ownership, type and size on each attempt. Linked records stay in `MessageObject`.
 
 ## Data Models
@@ -61,7 +61,7 @@ Existing `MessageObject`, attachment owner fields and `MessageChannelLink.channe
 ## API Contracts
 
 - `POST /api/messages` already accepts `objects`, `attachmentIds`, `attachmentRecordId` and `senderChannelId`. A successful send still returns 201 with message ID and thread ID. Invalid compose attachment ownership and provider preflight errors use the existing sender field error response. Existing route guards, mailbox ownership, rate limits and reply parent authorization remain in force.
-- Extend the in-process send facade and the compose command with optional context for this workflow. Existing `POST /api/communication_channels/send-as-user` requests retain their existing references and no ownership transfer.
+- Extend the in-process send facade, compose command and attachment service with optional context and scoped owner operations. New mailbox-payload commands retain an audit entry with no replay token because replay cannot undo external delivery or reuse the moved upload. Existing `POST /api/communication_channels/send-as-user` requests retain their existing references and no ownership transfer.
 - Use the hub's existing count cap and each adapter's type and size capabilities. Adapters can advertise a lower count limit. Apply the same validation to uploaded files regardless of how the composer identified them.
 
 ## Migration & Backward Compatibility
@@ -90,7 +90,7 @@ The existing request fields become usable together on an explicitly chosen mailb
 
 - Extend `TC-CHANNEL-EMAIL-HUB-004.spec.ts` with an isolated linked CRM record, temporary upload and owned seeded mailbox. Send through `POST /api/messages` and verify the detail response, attachment ownership, outbound references and thread mapping. Use fixtures and clean them up.
 - Cover rejection when a file does not belong to the submitted compose record, and keep coverage for the plain platform path and the mailbox ownership boundary.
-- Use unit tests for the two provider paths' existing attachment delivery contract, the delegation payload, and the new reference owner and command validation behavior. Verify the composer submits both payload fields while keeping the current controls.
+- Use unit tests for the two provider paths' existing attachment delivery contract, the delegation payload, and the new reference owner and command validation behavior. Verify the composer submits both payload fields while keeping the current controls. Exercise a protected attachment with read access and a denied reassign action.
 
 ## Final Compliance Report
 
