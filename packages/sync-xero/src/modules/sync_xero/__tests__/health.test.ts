@@ -1,13 +1,7 @@
 /** @jest-environment node */
 import { createFakeGrantService, type FakeGrantService } from './support/fakeGrantService'
-import { createFakeContainer } from './support/fakeContainer'
 
-const mockCreateRequestContainer = jest.fn()
 const mockResolveEndpoints = jest.fn()
-
-jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
-}))
 
 jest.mock('../lib/endpoints', () => ({
   ...jest.requireActual('../lib/endpoints'),
@@ -15,7 +9,8 @@ jest.mock('../lib/endpoints', () => ({
 }))
 
 import { XeroTestFakesUnavailableError } from '../lib/endpoints'
-import { xeroHealthCheck } from '../lib/health'
+import { createXeroHealthCheck } from '../lib/health'
+import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import { createGrantPresenceCheck, resolveXeroRunOrigin } from '../lib/run-guard'
 import { integration } from '../integration'
 
@@ -27,6 +22,8 @@ const PROVIDER_DATA = {
 }
 
 let grants: FakeGrantService
+let xeroHealthCheck: ReturnType<typeof createXeroHealthCheck>
+const credentialsService = { resolve: async () => ({ clientId: 'c', clientSecret: 's' }) } as unknown as CredentialsService
 
 beforeEach(() => {
   grants = createFakeGrantService({ connected: true, providerData: PROVIDER_DATA })
@@ -37,19 +34,14 @@ beforeEach(() => {
     connections: 'https://api.xero.com/connections',
     accounting: 'https://api.xero.com/api.xro/2.0',
   })
-  mockCreateRequestContainer.mockReset().mockImplementation(async () =>
-    createFakeContainer({
-      integrationCredentialsService: { resolve: async () => ({ clientId: 'c', clientSecret: 's' }) },
-      integrationOAuthGrantService: grants.service,
-    }),
-  )
+  xeroHealthCheck = createXeroHealthCheck({ credentialsService, grantService: grants.service })
 })
 
 describe('xeroHealthCheck', () => {
-  it('is declared on the integration and opens its own request container', async () => {
+  it('is declared on the integration and resolves endpoints with the injected credentials service', async () => {
     expect(integration.healthCheck).toEqual({ service: 'xeroHealthCheck' })
     await xeroHealthCheck.check({ clientId: 'c' }, scope)
-    expect(mockCreateRequestContainer).toHaveBeenCalledTimes(1)
+    expect(mockResolveEndpoints).toHaveBeenCalledWith({ scope, credentialsService })
   })
 
   it('reports a connected grant with a chosen Organisation as healthy, without a token', async () => {

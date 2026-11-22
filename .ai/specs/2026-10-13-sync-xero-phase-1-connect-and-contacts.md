@@ -183,7 +183,7 @@ packages/sync-xero/
     __integration__/   TC-XERO-*.spec.ts, helpers/xeroTestFakes.ts, helpers/xeroSeamOrganization.ts
 ```
 
-`index.ts` declares `requires: ['integrations', 'data_sync', 'customers', 'entities']`. The `scheduler` module stays optional: without it, `saveSchedule` throws "Scheduler module is not available", and the tab shows that schedules cannot be created (§ Default schedules). `di.ts` calls `registerDataSyncAdapter(xeroContactsAdapter)` and registers `xeroHealthCheck` with `asValue`, as every provider does (`channel_gmail`, `gateway_tpay`). The health service resolves checks from the root container (`createHealthService(container, …)` in `integrations/di.ts`), so `check()` opens its own `createRequestContainer()` and resolves `integrationOAuthGrantService` there, never a root-scoped `em`. There is no `acl.ts`, no `setup.ts` and no `ce.ts`:
+`index.ts` declares `requires: ['integrations', 'data_sync', 'customers', 'entities']`. The `scheduler` module stays optional: without it, `saveSchedule` throws "Scheduler module is not available", and the tab shows that schedules cannot be created (§ Default schedules). `di.ts` is a process-safe registrar (`defineProcessDiRegistrar`, as `sync_akeneo` does): it publishes `registerDataSyncAdapter(xeroContactsAdapter)` on process activation and registers `xeroHealthCheck` as a scoped factory (`createXeroHealthCheck`, as `tillio` does). The health service is scoped (`asScopedService` in `integrations/di.ts`) and resolves checks in the caller's request container, so the check gets that scope's `integrationCredentialsService` and `integrationOAuthGrantService` and never opens a second container. There is no `acl.ts`, no `setup.ts` and no `ce.ts`:
 - features are reused (App Spec § 1.4, Access control);
 - there is no env preset (App Spec § 10 #18);
 - custom-field definitions are ensured at runtime (§ Design Decisions).
@@ -486,7 +486,7 @@ How the outcomes work:
 
 `xeroHealthCheck` is `{ check(credentials, scope) }`:
 0. When the seam marks the organization but its fakes are not running, return `{ status: 'unhealthy', details: { code: 'xero.test_fakes_unavailable' } }` (the check catches that error from `resolveXeroEndpoints`).
-1. Open a request container (`createRequestContainer()`) and resolve `integrationOAuthGrantService` from it. Then `inspection = inspectGrant(createXeroDescriptor(await resolveXeroEndpoints({ scope, credentialsService })), owner)`.
+1. Use the injected `integrationOAuthGrantService` and `integrationCredentialsService` of the request scope. Then `inspection = inspectGrant(createXeroDescriptor(await resolveXeroEndpoints({ scope, credentialsService })), owner)`.
 2. `health = mapInspectionToHealth(inspection)`.
 3. Only when `health.details.code` is `oauth.connected` and the grant has no External Account, the result becomes `{ status: 'degraded', details: { code: 'xero.account_pending' } }`. Every unhealthy or degraded code of the core mapping wins over Account pending.
 
