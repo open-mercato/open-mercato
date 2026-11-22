@@ -51,6 +51,6 @@ PR: #10386
 
 ### Phase 3: Staff scheduling and verification
 
-- [ ] 3.1 Show CRM events in Staff availability schedules
-- [ ] 3.2 Show overlapping CRM events in leave review
+- [x] 3.1 Show CRM events in Staff availability schedules — 5627d5f8b7
+- [x] 3.2 Show overlapping CRM events in leave review — 5627d5f8b7
 - [ ] 3.3 Archive capabilities and validate implementation
