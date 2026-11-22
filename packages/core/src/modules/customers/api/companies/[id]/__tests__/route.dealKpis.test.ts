@@ -12,6 +12,8 @@ const mockResolveCompanyCustomFieldRouting = jest.fn()
 const mockMergeCompanyCustomFieldValues = jest.fn()
 const mockFindWithDecryption = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
+const mockGetGrantedFeatures = jest.fn()
+const mockGetConfigRecord = jest.fn()
 
 const mockEm = {
   findOne: jest.fn(),
@@ -26,6 +28,8 @@ const mockEm = {
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
+    if (token === 'rbacService') return { getGrantedFeatures: mockGetGrantedFeatures }
+    if (token === 'moduleConfigService') return { getRecord: mockGetConfigRecord }
     return null
   }),
 }
@@ -157,6 +161,8 @@ describe('GET /api/customers/companies/[id] — deal KPI status vocabulary (#466
     mockEm.count.mockReset()
     mockEm.count.mockResolvedValue(0)
     mockContainer.resolve.mockClear()
+    mockGetGrantedFeatures.mockReset().mockResolvedValue(['customers.*'])
+    mockGetConfigRecord.mockReset().mockResolvedValue(null)
 
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
@@ -235,5 +241,41 @@ describe('GET /api/customers/companies/[id] — deal KPI status vocabulary (#466
     expect(kpis.activeDealsCount).toBe(1)
     expect(kpis.completedDealsCount).toBe(0)
     expect(kpis.ltvValue).toBeNull()
+  })
+
+  it('classifies company KPIs with the owning tenant vocabulary', async () => {
+    mockGetConfigRecord.mockResolvedValue({
+      source: 'tenant', tenantId: 'tenant-1',
+      value: { won: ['contract_signed'], lost: ['declined'], closed: ['archived'] },
+    })
+    mockCompany()
+    mockDealLinks([
+      { id: 'deal-won', status: 'contract_signed', valueAmount: '4000', valueCurrency: 'PLN' },
+      { id: 'deal-lost', status: 'declined', valueAmount: '2500', valueCurrency: 'PLN' },
+      { id: 'deal-open', status: 'negotiations', valueAmount: '700', valueCurrency: 'PLN' },
+    ])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.activeDealsCount).toBe(1)
+    expect(kpis.activeDealsValue).toBe(700)
+    expect(kpis.completedDealsCount).toBe(1)
+    expect(kpis.ltvValue).toBe(4000)
+    expect(mockGetConfigRecord).toHaveBeenCalledWith('customers', 'dealStatusVocabulary', { tenantId: 'tenant-1' })
+  })
+
+  it('omits deal KPIs and never loads deal links without deal viewing permission', async () => {
+    mockGetGrantedFeatures.mockResolvedValue(['customers.companies.view'])
+    mockCompany()
+    mockDealLinks([
+      { id: 'deal-won', status: 'win', valueAmount: '4000', valueCurrency: 'PLN' },
+    ])
+
+    const kpis = await fetchKpis()
+
+    for (const field of ['activeDealsCount', 'activeDealsValue', 'completedDealsCount', 'ltvValue', 'dealCurrency']) {
+      expect(kpis).not.toHaveProperty(field)
+    }
+    expect(mockFindWithDecryption.mock.calls.some((call) => call[1]?.name === 'CustomerDealCompanyLink')).toBe(false)
   })
 })

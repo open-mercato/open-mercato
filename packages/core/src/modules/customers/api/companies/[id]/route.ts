@@ -1,3 +1,5 @@
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveCustomerDetailView } from '../../../lib/detailViewAccess'
 import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
@@ -115,6 +117,7 @@ function buildCompanyDetailCacheKey(parts: {
   viewerUserId: string | null
   interactionMode: string
   includeTokens: string[]
+  cacheAccess: string
 }): string {
   const sortKeys = (values: string[]): string[] =>
     [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
@@ -122,7 +125,7 @@ function buildCompanyDetailCacheKey(parts: {
   const allowedIds = parts.allowedIds ? sortKeys(parts.allowedIds).join(',') : 'all'
   const includeTokens = sortKeys(parts.includeTokens).join(',')
   return [
-    'customers:companies:detail',
+    'customers:companies:detail:v2',
     `tenant:${parts.tenantId ?? 'null'}`,
     `org:${parts.organizationId ?? 'null'}`,
     `company:${parts.companyId}`,
@@ -133,22 +136,8 @@ function buildCompanyDetailCacheKey(parts: {
     `viewer:${parts.viewerUserId ?? 'null'}`,
     `mode:${parts.interactionMode}`,
     `include:${includeTokens}`,
+    `view:${parts.cacheAccess}`,
   ].join('|')
-}
-
-function parseIncludeParams(request: Request): Set<string> {
-  const url = new URL(request.url)
-  const raw = url.searchParams.getAll('include')
-  const tokens = new Set<string>()
-  raw.forEach((entry) => {
-    if (!entry) return
-    entry
-      .split(',')
-      .map((part) => part.trim().toLowerCase())
-      .filter((part) => part.length > 0)
-      .forEach((part) => tokens.add(part))
-  })
-  return tokens
 }
 
 function notFound(message: string) {
@@ -433,16 +422,6 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const parse = paramsSchema.safeParse({ id: ctx.params?.id })
   if (!parse.success) return NextResponse.json({ error: 'Invalid company id' }, { status: 400 })
 
-  const includeTokens = parseIncludeParams(_req)
-  const includeActivities = includeTokens.has('activities')
-  const includeAddresses = includeTokens.has('addresses')
-  const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
-  const includeDeals = includeTokens.has('deals')
-  const includeInteractions = includeTokens.has('interactions')
-  const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
-  const includePeople = includeTokens.has('people')
-  const plannedPreviewLimit = 5
-
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
   const em = (container.resolve('em') as EntityManager)
@@ -479,6 +458,18 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     tenantId: company.tenantId ?? auth.tenantId ?? null,
     organizationId: company.organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
   }
+
+  const { view, include, cacheAccess } = await resolveCustomerDetailView(
+    container.resolve<RbacService>('rbacService'), auth.sub, companyScope, _req,
+  )
+  const includeActivities = include.has('activities')
+  const includeAddresses = include.has('addresses')
+  const includeComments = include.has('comments')
+  const includeDeals = include.has('deals')
+  const includeInteractions = include.has('interactions')
+  const includeTodos = include.has('todos')
+  const includePeople = include.has('people')
+  const plannedPreviewLimit = 5
 
   // Per-user email privacy (CRM email integration): exclude private email
   // interactions owned by other users from every read path that returns
@@ -523,7 +514,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         isSuperAdmin: auth.isSuperAdmin === true,
         viewerUserId,
         interactionMode,
-        includeTokens: Array.from(includeTokens),
+        includeTokens: Array.from(include),
+        cacheAccess,
       })
     : null
   if (cache && cacheKey) {
@@ -643,8 +635,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       })
     : []
 
-  const plannedPreviewRows =
-    canonicalActiveInteractions.length > 0
+  const plannedPreviewRows = !view.interactions
+    ? []
+    : canonicalActiveInteractions.length > 0
       ? canonicalActiveInteractions
           .filter((interaction) => isOpenInteractionStatus(interaction.status) && interaction.interactionType !== 'task')
           .sort((left, right) => {
@@ -778,7 +771,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   }
 
   let deals: CustomerDeal[] = []
-  if (includeDeals) {
+  if (view.deals) {
     const dealLinks = await findWithDecryption(
       em,
       CustomerDealCompanyLink,
@@ -798,28 +791,6 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           deal.organizationId === company.organizationId,
       )
   }
-
-  const dealLinksForMetrics = includeDeals
-    ? deals
-    : (
-        await findWithDecryption(
-          em,
-          CustomerDealCompanyLink,
-          {
-            company: company.id,
-          },
-          { populate: ['deal'] },
-          companyScope,
-        )
-      )
-        .map((link) => (link.deal as CustomerDeal | string | null) ?? null)
-        .filter(
-          (deal): deal is CustomerDeal =>
-            !!deal &&
-            typeof deal !== 'string' &&
-            deal.tenantId === company.tenantId &&
-            deal.organizationId === company.organizationId,
-        )
 
   const peopleUnionScope = {
     tenantId: company.tenantId ?? auth.tenantId ?? null,
@@ -871,9 +842,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   // all independent of each other; dispatch them together rather than awaiting
   // each inline so the response counts/KPIs are assembled in one parallel round
   // instead of a waterfall (issue #3203).
-  const peopleCountQuery = includePeople
-    ? Promise.resolve(relatedPeople.length)
-    : countCompanyPeopleUnion(em, company)
+  const peopleCountQuery = view.people && !includePeople
+    ? countCompanyPeopleUnion(em, company)
+    : relatedPeople.length
   const [
     activityCount,
     interactionCount,
@@ -883,44 +854,43 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     peopleCount,
     kpiInteractionRows,
   ] = await Promise.all([
-    em.count(CustomerInteraction, {
+    view.activities ? em.count(CustomerInteraction, {
       entity: company.id,
       organizationId: company.organizationId,
       tenantId: company.tenantId,
       deletedAt: null,
       interactionType: { $ne: 'task' },
       ...emailVisibilityFilter,
-    }),
-    em.count(CustomerInteraction, {
+    }) : 0,
+    view.interactions ? em.count(CustomerInteraction, {
       entity: company.id,
       organizationId: company.organizationId,
       tenantId: company.tenantId,
       deletedAt: null,
       ...emailVisibilityFilter,
-    }),
-    countCustomerTodos(em, {
+    }) : 0,
+    view.interactions ? countCustomerTodos(em, {
       entityId: company.id,
       organizationId: company.organizationId,
       tenantId: company.tenantId,
-    }, interactionFlags.unified),
-    includeComments
-      ? Promise.resolve(comments.length)
-      : em.count(CustomerComment, {
+    }, interactionFlags.unified) : 0,
+    view.activities && !includeComments
+      ? em.count(CustomerComment, {
           entity: company.id,
           organizationId: company.organizationId,
           tenantId: company.tenantId,
-        }),
-    includeAddresses
-      ? Promise.resolve(addresses.length)
-      : em.count(CustomerAddress, {
+        })
+      : comments.length,
+    view.activities && !includeAddresses
+      ? em.count(CustomerAddress, {
           entity: company.id,
           organizationId: company.organizationId,
           tenantId: company.tenantId,
-        }),
+        })
+      : addresses.length,
     peopleCountQuery,
-    canonicalActiveInteractions.length
-      ? Promise.resolve(canonicalActiveInteractions)
-      : findWithDecryption(
+    view.interactions && !canonicalActiveInteractions.length
+      ? findWithDecryption(
           em,
           CustomerInteraction,
           {
@@ -934,8 +904,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             fields: ['id', 'occurredAt', 'scheduledAt', 'createdAt'],
             orderBy: { createdAt: 'DESC' },
           },
-          { tenantId: company.tenantId, organizationId: company.organizationId },
-        ),
+          companyScope,
+        )
+      : canonicalActiveInteractions,
   ])
   const activityTrend = computeActivityTrend(
     kpiInteractionRows
@@ -944,8 +915,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       .filter((value) => value.length > 0),
   )
   const { vocabulary } = await resolveDealStatusVocabulary(container, company.tenantId)
-  const activeDeals = dealLinksForMetrics.filter((deal) => isOpenDealStatus(deal.status, vocabulary))
-  const wonDeals = dealLinksForMetrics.filter((deal) => isWonDealStatus(deal.status, vocabulary))
+  const activeDeals = deals.filter((deal) => isOpenDealStatus(deal.status, vocabulary))
+  const wonDeals = deals.filter((deal) => isWonDealStatus(deal.status, vocabulary))
   const activeDealsValue = activeDeals.reduce((sum, deal) => sum + (parseDealAmount(deal.valueAmount) ?? 0), 0)
   const ltvValue = wonDeals.length
     ? wonDeals.reduce((sum, deal) => sum + (parseDealAmount(deal.valueAmount) ?? 0), 0)
@@ -957,21 +928,21 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     if (earliest === null) return time
     return Math.min(earliest, time)
   }, null)
-  const companyKpis: CompanyDetailKpiSummary = {
-    activeDealsCount: activeDeals.length,
-    activeDealsValue: activeDeals.length ? activeDealsValue : null,
-    dealCurrency:
-      activeDeals[0]?.valueCurrency ??
-      dealLinksForMetrics[0]?.valueCurrency ??
-      null,
-    activityCount,
-    activityTrend,
-    ltvValue,
-    completedDealsCount: wonDeals.length,
-    clientTenureYears:
-      earliestInteractionTime === null
+  const companyKpis: Partial<CompanyDetailKpiSummary> = {
+    ...(view.deals ? {
+      activeDealsCount: activeDeals.length,
+      activeDealsValue: activeDeals.length ? activeDealsValue : null,
+      dealCurrency: activeDeals[0]?.valueCurrency ?? deals[0]?.valueCurrency ?? null,
+      ltvValue,
+      completedDealsCount: wonDeals.length,
+    } : {}),
+    ...(view.activities ? { activityCount } : {}),
+    ...(view.interactions ? {
+      activityTrend,
+      clientTenureYears: earliestInteractionTime === null
         ? null
         : Math.floor((Date.now() - earliestInteractionTime) / (365.25 * 86_400_000)),
+    } : {}),
   }
   const counts = {
     tags: tagAssignments.length + labelAssignments.length,
@@ -979,7 +950,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     activities: activityCount,
     interactions: interactionCount,
     todos: todoCount,
-    deals: includeDeals ? deals.length : dealLinksForMetrics.length,
+    deals: deals.length,
     people: peopleCount,
     addresses: addressesCount,
   }
@@ -996,11 +967,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       status: company.status,
       lifecycleStage: company.lifecycleStage,
       source: company.source,
-      nextInteractionAt: company.nextInteractionAt ? company.nextInteractionAt.toISOString() : null,
-      nextInteractionName: company.nextInteractionName,
-      nextInteractionRefId: company.nextInteractionRefId,
-      nextInteractionIcon: company.nextInteractionIcon,
-      nextInteractionColor: company.nextInteractionColor,
+      nextInteractionAt: view.interactions && company.nextInteractionAt ? company.nextInteractionAt.toISOString() : null,
+      nextInteractionName: view.interactions ? company.nextInteractionName : null,
+      nextInteractionRefId: view.interactions ? company.nextInteractionRefId : null,
+      nextInteractionIcon: view.interactions ? company.nextInteractionIcon : null,
+      nextInteractionColor: view.interactions ? company.nextInteractionColor : null,
       organizationId: company.organizationId,
       tenantId: company.tenantId,
       isActive: company.isActive,
@@ -1186,7 +1157,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           linkedAt,
         }))
       : [],
-    plannedActivitiesPreview,
+    ...(view.interactions ? { plannedActivitiesPreview } : {}),
     counts,
     kpis: companyKpis,
     viewer: {
@@ -1408,7 +1379,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Fetch company with related data',
-      description: 'Returns a company customer record with optional related resources such as addresses, comments, activities, interactions, deals, todos, and linked people.',
+      description: 'Returns a company customer record with optional related resources such as addresses, comments, activities, interactions, deals, todos, and linked people. Related data is subject to the caller’s view permissions.',
       query: companyDetailQuerySchema,
       responses: [
         { status: 200, description: 'Company detail payload', schema: companyDetailResponseSchema },
