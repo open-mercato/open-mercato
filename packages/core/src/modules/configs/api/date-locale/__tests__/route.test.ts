@@ -26,6 +26,8 @@ const container = {
   }),
 }
 
+let validationLocale: 'en' | 'pl' | undefined
+
 let authValue: Record<string, unknown> | null = { tenantId, sub: userId, orgId: organizationId }
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -38,7 +40,11 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: jest.fn(async () => ({ translate: (key: string, fallback?: string) => fallback ?? key })),
+  resolveTranslations: jest.fn(async () => ({
+    translate: validationLocale
+      ? createFallbackTranslator(validationLocale === 'pl' ? polishMessages : englishMessages)
+      : (key: string, fallback?: string) => fallback ?? key,
+  })),
 }))
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
@@ -49,6 +55,9 @@ import { commandRegistry, type CommandRuntimeContext } from '@open-mercato/share
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import englishMessages from '../../../i18n/en.json'
+import polishMessages from '../../../i18n/pl.json'
 import { GET, PUT } from '../route'
 
 const guardValidateMock = jest.fn()
@@ -85,6 +94,7 @@ describe('configs date-locale route', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    validationLocale = undefined
     process.env = { ...originalEnv }
     delete process.env.OM_DEFAULT_TIMEZONE
     delete process.env.NEXT_PUBLIC_OM_DATE_FORMAT
@@ -157,6 +167,20 @@ describe('configs date-locale route', () => {
     expect(response.status).toBe(500)
     expect(await response.json()).toEqual({ error: 'Internal error' })
     expect(reportErrorMock).toHaveBeenCalledWith(failure, { module: 'configs', code: 'configs.date_locale.unexpected' })
+  })
+
+  it.each([
+    ['en', 'Some settings are invalid.', 'Unknown settings: foo.', 'Choose a day of the week or use the locale default.', 'Enter a text value.'],
+    ['pl', 'Niektóre ustawienia są nieprawidłowe.', 'Nieznane ustawienia: foo.', 'Wybierz dzień tygodnia lub użyj domyślnego dnia dla ustawień regionalnych.', 'Wpisz wartość tekstową.'],
+  ] as const)('localizes date-locale field errors in %s', async (locale, error, form, firstDayOfWeek, dateFormat) => {
+    validationLocale = locale
+    for (const invalidWeekday of ['x', -1, 7]) {
+      const response = await PUT(makePut({ foo: 1, firstDayOfWeek: invalidWeekday, dateFormat: false }))
+
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual({ error, fieldErrors: { form, firstDayOfWeek, dateFormat } })
+    }
+    expect(setValueMock).not.toHaveBeenCalled()
   })
 
   it('does not report expected client errors', async () => {
