@@ -23,7 +23,6 @@ import '@open-mercato/core/modules/customers/commands'
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { LockMode } from '@mikro-orm/core'
 import {
   CustomerEntity,
   CustomerPersonCompanyLink,
