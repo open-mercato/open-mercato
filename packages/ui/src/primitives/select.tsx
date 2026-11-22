@@ -7,17 +7,17 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 const selectTriggerVariants = cva(
-  'inline-flex w-full items-center justify-between gap-2 rounded-md border border-input bg-background shadow-xs transition-colors outline-none placeholder:text-muted-foreground hover:bg-muted/40 focus:outline-none focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground disabled:cursor-not-allowed disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled disabled:text-text-disabled disabled:data-[placeholder]:text-text-disabled disabled:[&_svg]:text-text-disabled aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:border-destructive data-[placeholder]:text-muted-foreground [&>span:not([data-slot=select-trigger-leading])]:line-clamp-1 [&>[data-slot=select-trigger-leading]+span]:min-w-0 [&>[data-slot=select-trigger-leading]+span]:flex-1 [&>[data-slot=select-trigger-leading]+span]:text-left [&_svg]:pointer-events-none [&_svg:not([class*=size-])]:size-4 [&_svg]:shrink-0',
+  'inline-flex w-full items-center justify-between gap-2 rounded-md border border-input bg-background shadow-xs transition-colors outline-none placeholder:text-muted-foreground focus:outline-none focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground disabled:cursor-not-allowed disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled disabled:text-text-disabled disabled:data-[placeholder]:text-text-disabled disabled:[&_svg]:text-text-disabled aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:border-destructive data-[placeholder]:text-muted-foreground [&>span:not([data-slot=select-trigger-leading])]:line-clamp-1 [&>[data-slot=select-trigger-leading]+span]:min-w-0 [&>[data-slot=select-trigger-leading]+span]:flex-1 [&>[data-slot=select-trigger-leading]+span]:text-left [&_svg]:pointer-events-none [&_svg:not([class*=size-])]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       size: {
-        32: 'h-8 pl-2 pr-1.5 text-base sm:text-sm [&_svg:not([class*=size-])]:size-5',
-        36: 'h-9 pl-2.5 pr-2 text-base sm:text-sm [&_svg:not([class*=size-])]:size-5',
-        40: 'h-10 rounded-lg pl-3 pr-2.5 text-base sm:text-sm [&_svg:not([class*=size-])]:size-5',
-        xs: 'h-7 px-2 text-base sm:text-xs',
-        sm: 'h-8 px-2.5 text-base sm:text-xs',
-        default: 'h-9 px-3 text-base sm:text-sm',
-        lg: 'h-10 px-3 text-base sm:text-sm',
+        32: 'h-8 pl-2 pr-1.5 text-sm [&_svg:not([class*=size-])]:size-5',
+        36: 'h-9 pl-2.5 pr-2 text-sm [&_svg:not([class*=size-])]:size-5',
+        40: 'h-10 rounded-lg pl-3 pr-2.5 text-sm [&_svg:not([class*=size-])]:size-5',
+        xs: 'h-7 px-2 text-xs',
+        sm: 'h-8 px-2.5 text-xs',
+        default: 'h-9 px-3 text-sm',
+        lg: 'h-10 px-3 text-sm',
       },
     },
     defaultVariants: {

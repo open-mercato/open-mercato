@@ -5,7 +5,6 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import enDict from '../../../i18n/en.json'
 import plDict from '../../../i18n/pl.json'
-
 import { ActivityCard } from '../ActivityCard'
 import type { InteractionSummary } from '../types'
 
@@ -108,14 +107,12 @@ describe('ActivityCard', () => {
     const activity = createActivity()
     renderWithProviders(<ActivityCard activity={activity} onOpen={onOpen} onDelete={onDelete} />)
 
-    // Destructive actions stay quiet by default: no standalone delete control on the card.
     expect(screen.queryByRole('button', { name: /Delete activity/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: /Delete activity/i }))
 
     await waitFor(() => expect(onDelete).toHaveBeenCalledWith(activity))
-    // The row itself is clickable; deleting must not also trigger the edit dialog.
     expect(onOpen).not.toHaveBeenCalled()
   })
 
@@ -157,5 +154,4 @@ it.each([
   expect(screen.getByText(label)).toBeInTheDocument()
   expect(screen.queryByText('2035')).not.toBeInTheDocument()
   expect(screen.queryByText(/12:34/)).not.toBeInTheDocument()
-
 })

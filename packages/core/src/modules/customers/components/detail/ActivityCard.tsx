@@ -1,13 +1,15 @@
 'use client'
 
 import * as React from 'react'
-import { Calendar, Check, ExternalLink, ListTodo, Mail, Phone, StickyNote, Users } from 'lucide-react'
+import { Calendar, Check, ExternalLink, ListTodo, Mail, Pencil, Phone, StickyNote, Trash2, Users } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
@@ -137,8 +139,6 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
   const isCanceled = isCanceledInteractionStatus(activity.status)
   const showExternalLink = Boolean(activity._integrations && Object.keys(activity._integrations).length > 0)
   const [markingDone, setMarkingDone] = React.useState(false)
-  // Re-entrancy guard only — a ref avoids a render pair per delete since
-  // nothing in the UI consumes the in-flight state.
   const deletingRef = React.useRef(false)
 
   const handleMarkDone = React.useCallback(async () => {
@@ -146,11 +146,13 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
     setMarkingDone(true)
     try {
       const operation = () =>
-        apiCallOrThrow('/api/customers/interactions/complete', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: activity.id, occurredAt: new Date().toISOString() }),
-        })
+        withScopedApiRequestHeaders(buildOptimisticLockHeader(activity.updatedAt ?? null), () =>
+          apiCallOrThrow('/api/customers/interactions/complete', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: activity.id, occurredAt: new Date().toISOString() }),
+          }),
+        )
       if (runMutation) {
         await runMutation(operation, {
           id: activity.id,
@@ -163,12 +165,16 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
       flash(t('customers.activities.actions.markDoneSuccess', 'Activity marked done'), 'success')
       onChanged?.()
     } catch (err) {
+      if (surfaceRecordConflict(err, t)) {
+        onChanged?.()
+        return
+      }
       logger.warn('Mark done failed', { component: 'ActivityCard', activityId: activity.id, err })
       flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
     } finally {
       setMarkingDone(false)
     }
-  }, [activity.id, markingDone, onChanged, runMutation, t])
+  }, [activity.id, activity.updatedAt, markingDone, onChanged, runMutation, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!onDelete || deletingRef.current) return
@@ -207,8 +213,8 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
       </div>
 
       <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-1 basis-40">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <h4
                 className={cn(
@@ -233,7 +239,7 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
             ) : null}
           </div>
 
-          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             {isOpenInteractionStatus(activity.status) ? (
               <Button
                 type="button"
@@ -253,13 +259,15 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
               <RowActions
                 items={[
                   ...(onOpen ? [{
-                    id: 'edit-activity',
+                    id: 'edit',
                     label: t('customers.timeline.edit', 'Edit'),
+                    icon: <Pencil />,
                     onSelect: () => onOpen(activity),
                   }] : []),
                   ...(onDelete ? [{
-                    id: 'delete-activity',
+                    id: 'delete',
                     label: t('customers.activities.actions.delete', 'Delete activity'),
+                    icon: <Trash2 />,
                     destructive: true,
                     onSelect: () => { void handleDelete() },
                   }] : []),
@@ -293,7 +301,6 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
           <span className="font-medium text-foreground">{actorLabel}</span>
           {target && direction ? (
             <>
-              <span>·</span>
               <span>{direction}</span>
               <span className="text-foreground">{target}</span>
             </>

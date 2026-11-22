@@ -89,7 +89,9 @@ describe('warranty claim state machine', () => {
       { lineStatus: 'received', credit_amount: '500', deleted_at: new Date() },
     ])).toEqual({
       totalClaimedAmount: 160,
+      totalClaimedAmountExact: '160',
       totalApprovedAmount: 50,
+      totalApprovedAmountExact: '50',
     })
   })
 
@@ -100,7 +102,9 @@ describe('warranty claim state machine', () => {
     for (const claimType of ['return', 'core_return']) {
       expect(computeHeaderRollups(lines, { claimType })).toEqual({
         totalClaimedAmount: 100,
+        totalClaimedAmountExact: '100',
         totalApprovedAmount: 105,
+        totalApprovedAmountExact: '105',
       })
     }
 
@@ -109,25 +113,38 @@ describe('warranty claim state machine', () => {
     for (const claimType of ['warranty', 'vendor_recovery']) {
       expect(computeHeaderRollups(lines, { claimType })).toEqual({
         totalClaimedAmount: 100,
+        totalClaimedAmountExact: '100',
         totalApprovedAmount: 100,
+        totalApprovedAmountExact: '100',
       })
     }
 
     // An omitted claimType keeps the pre-LINE-05 behavior for existing callers.
     expect(computeHeaderRollups(lines)).toEqual({
       totalClaimedAmount: 100,
+      totalClaimedAmountExact: '100',
       totalApprovedAmount: 105,
+      totalApprovedAmountExact: '105',
     })
   })
 
-  test('clamps negative approved line contributions and rounds float artifacts', () => {
+  test('keeps amounts beyond float precision exact', () => {
+    expect(computeHeaderRollups([
+      { lineStatus: 'approved', credit_amount: '0.000000000000000001' },
+      { lineStatus: 'approved', credit_amount: '123456789012345678901' },
+    ]).totalApprovedAmountExact).toBe('123456789012345678901.000000000000000001')
+  })
+
+  test('clamps negative approved line contributions and sums without float artifacts', () => {
     expect(computeHeaderRollups([
       { lineStatus: 'approved', credit_amount: '5', restocking_fee: '8' },
       { lineStatus: 'approved', credit_amount: '0.1' },
       { lineStatus: 'approved', credit_amount: '0.2' },
     ])).toEqual({
       totalClaimedAmount: 5.3,
+      totalClaimedAmountExact: '5.3',
       totalApprovedAmount: 0.3,
+      totalApprovedAmountExact: '0.3',
     })
   })
 })

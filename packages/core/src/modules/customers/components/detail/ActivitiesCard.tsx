@@ -31,7 +31,7 @@ interface ActivitiesCardProps {
   onEditActivity?: (activity: InteractionSummary) => void
   /**
    * Optional company name for the parent entity. When the planned activity has no `dealTitle`,
-   * the row subtitle falls back to "{type} · {company}" to mirror Figma 784:809.
+   * the row subtitle falls back to "{type}, {company}" to mirror Figma 784:809.
    */
   entityCompanyName?: string | null
 }
@@ -252,10 +252,8 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
         onClick={interactive ? () => onClick?.(activity) : undefined}
         disabled={!interactive}
         className={cn(
-          // The row surface spans exactly the card content width so its edges
-          // line up with the week strip; padding indents the content inside.
-          'flex w-full items-start gap-3 rounded-md px-3 py-3 text-left transition-colors',
-          interactive && 'cursor-pointer hover:bg-muted focus-visible:bg-muted focus-visible:outline-none',
+          'flex w-full items-start gap-[9px] pt-[8px] text-left transition-colors',
+          interactive ? 'cursor-pointer rounded-md hover:bg-accent/30 px-1' : 'px-1',
         )}
       >
         <div className="flex h-[44px] w-[43px] shrink-0 flex-col gap-[2px] pt-[2px]">
@@ -266,8 +264,8 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
             {validDate ? formatRelativeDay(date, t) : ''}
           </span>
         </div>
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-indigo/15">
-          <Icon className="size-4 text-accent-indigo" />
+        <div className="flex shrink-0 items-center justify-center rounded-full bg-muted border-4 border-background size-7">
+          <Icon className="size-4 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex flex-1 flex-col gap-[4px]">
           <span className="text-sm leading-5 tracking-[-0.084px] text-foreground">

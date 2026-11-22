@@ -19,6 +19,7 @@ import { PriceEditorOmnibusRow } from '../PriceEditorOmnibusRow'
 import type { PriceKindSummary, TaxRateSummary } from './productForm'
 import { formatTaxRateLabel } from './productForm'
 import type { OptionDefinition, VariantFormValues, VariantPriceDraft } from './variantForm'
+import { findInvalidVariantPriceKinds } from './variantForm'
 import { CATALOG_GTIN_TYPES } from '../../data/types'
 import { E } from '#generated/entities.ids.generated'
 
@@ -62,6 +63,7 @@ type VariantPricesSectionProps = {
   setValue: (id: string, value: unknown) => void
   priceKinds: PriceKindSummary[]
   taxRates: TaxRateSummary[]
+  errors?: Record<string, string>
   showHeader?: boolean
   embedded?: boolean
 }
@@ -86,7 +88,7 @@ export function VariantBuilder({
       <VariantOptionValuesSection values={values} setValue={setValue} optionDefinitions={optionDefinitions} />
       <VariantDimensionsSection values={values} setValue={setValue} />
       <VariantMetadataSection values={values} setValue={setValue} />
-      <VariantPricesSection values={values} setValue={setValue} priceKinds={priceKinds} taxRates={taxRates} />
+      <VariantPricesSection values={values} setValue={setValue} priceKinds={priceKinds} taxRates={taxRates} errors={errors} />
       <VariantMediaSection values={values} setValue={setValue} />
     </div>
   )
@@ -99,7 +101,7 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
       <div className="space-y-2">
         <Label className="flex items-center gap-1">
           {t('catalog.variants.form.nameLabel', 'Name')}
-          <span className="text-accent-indigo">*</span>
+          <span className="text-status-error-text">*</span>
         </Label>
         <Input
           value={values.name}
@@ -323,10 +325,13 @@ export function VariantPricesSection({
   setValue,
   priceKinds,
   taxRates,
+  errors = {},
   showHeader = true,
   embedded = false,
 }: VariantPricesSectionProps) {
   const t = useT()
+  const priceFieldId = React.useId()
+  const invalidPriceKinds = errors.prices ? findInvalidVariantPriceKinds(priceKinds, values.prices) : []
   const pricesRef = React.useRef(values.prices)
 
   React.useEffect(() => {
@@ -426,11 +431,13 @@ export function VariantPricesSection({
         {priceKinds.length ? (
           priceKinds.map((kind) => {
             const draft = values.prices?.[kind.id]
+            const inputId = `${priceFieldId}-${kind.id}`
+            const priceError = invalidPriceKinds.includes(kind.id) ? errors.prices : undefined
             return (
               <div key={kind.id} className="rounded bg-muted/50 p-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-semibold">{kind.title}</p>
+                    <Label htmlFor={inputId} className="text-sm font-semibold">{kind.title}</Label>
                     <p className="text-xs text-muted-foreground">
                       {kind.currencyCode
                         ? `${kind.currencyCode.toUpperCase()} • ${kind.displayMode === 'including-tax' ? t('catalog.priceKinds.form.displayMode.include', 'Including tax') : t('catalog.priceKinds.form.displayMode.exclude', 'Excluding tax')}`
@@ -439,12 +446,19 @@ export function VariantPricesSection({
                   </div>
                 </div>
                 <Input
+                  id={inputId}
                   className="mt-3"
+                  inputMode="decimal"
+                  aria-invalid={priceError ? true : undefined}
+                  aria-describedby={priceError ? `${inputId}-error` : undefined}
                   value={draft?.amount ?? ''}
                   onInput={(event) => updatePrice(kind.id, { amount: event.currentTarget.value })}
                   onChange={(event) => updatePrice(kind.id, { amount: event.target.value })}
                   placeholder="0.00"
                 />
+                {priceError ? (
+                  <p id={`${inputId}-error`} role="alert" className="mt-1 text-xs text-status-error-text">{priceError}</p>
+                ) : null}
                 {values.id && draft?.priceId ? (
                   <PriceEditorOmnibusRow
                     variantId={values.id}

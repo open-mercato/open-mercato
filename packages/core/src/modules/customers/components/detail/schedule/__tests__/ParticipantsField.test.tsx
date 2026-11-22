@@ -53,7 +53,7 @@ describe('ParticipantsField', () => {
     })
 
     await act(async () => {
-      fireEvent.focus(screen.getByPlaceholderText('Search team members...'))
+      fireEvent.click(screen.getByRole('button', { name: 'Add participant' }))
     })
 
     await waitFor(() =>
@@ -118,7 +118,7 @@ describe('ParticipantsField', () => {
       })
 
       await act(async () => { renderField() })
-      fireEvent.focus(screen.getByPlaceholderText('Search team members...'))
+      fireEvent.click(screen.getByRole('button', { name: 'Add participant' }))
 
       await waitFor(() => {
         expect(screen.getByText('Staff 1')).toBeInTheDocument()
@@ -137,7 +137,7 @@ describe('ParticipantsField', () => {
       })
 
       await act(async () => { renderField() })
-      fireEvent.focus(screen.getByPlaceholderText('Search team members...'))
+      fireEvent.click(screen.getByRole('button', { name: 'Add participant' }))
 
       await waitFor(() => {
         expect(screen.getByText('Staff 1')).toBeInTheDocument()
@@ -164,7 +164,7 @@ describe('ParticipantsField', () => {
         .mockResolvedValueOnce({ items: [], servedCount: 0, total: 20, page: 2, pageSize: 20 })
 
       await act(async () => { renderField() })
-      fireEvent.focus(screen.getByPlaceholderText('Search team members...'))
+      fireEvent.click(screen.getByRole('button', { name: 'Add participant' }))
 
       await waitFor(() => {
         expect(screen.getByText('Staff 1')).toBeInTheDocument()
@@ -191,7 +191,7 @@ describe('ParticipantsField', () => {
       })
 
       await act(async () => { renderField() })
-      fireEvent.focus(screen.getByPlaceholderText('Search team members...'))
+      fireEvent.click(screen.getByRole('button', { name: 'Add participant' }))
 
       await waitFor(() => {
         expect(screen.getByText('Staff 1')).toBeInTheDocument()

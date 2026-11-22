@@ -116,6 +116,7 @@ import { ProductUomSection } from "@open-mercato/core/modules/catalog/components
 import { ProductComplianceSection } from "@open-mercato/core/modules/catalog/components/products/ProductComplianceSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
 import {
+  applyProductMarkdownPreference,
   UNIT_PRICE_REFERENCE_UNITS,
   toTrimmedOrNull,
   parseNumericInput,
@@ -1717,7 +1718,7 @@ function ProductDetailsSection({
       <div className="space-y-2" data-crud-field-id="title">
         <Label className="flex items-center gap-1">
           {t("catalog.products.form.title", "Title")}
-          <span className="text-accent-indigo">*</span>
+          <span className="text-status-error-text">*</span>
         </Label>
         <Input
           value={values.title}
@@ -1737,7 +1738,7 @@ function ProductDetailsSection({
           <Label className="flex items-center gap-1">
             {t("catalog.products.form.description", "Description")}
             {requiredFieldIds?.has("description") ? (
-              <span className="text-accent-indigo">*</span>
+              <span className="text-status-error-text">*</span>
             ) : null}
           </Label>
           <Button
@@ -3203,8 +3204,10 @@ function extractUomFields(record: Record<string, unknown>) {
 function buildMetadataPayload(
   values: ProductFormValues,
 ): Record<string, unknown> {
-  const metadata = normalizeMetadata(values.metadata);
-  metadata.__useMarkdown = values.useMarkdown ?? false;
+  const metadata = applyProductMarkdownPreference(
+    normalizeMetadata(values.metadata),
+    values.useMarkdown,
+  );
   delete metadata.optionSchema;
   delete metadata.option_schema;
   delete metadata.dimensions;

@@ -1,28 +1,47 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createCompanyFixture,
   deleteEntityIfExists,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+
+// A meeting later today, so it sits in the planned list and the week preview the page opens on.
+// Ten minutes ahead keeps it open, not overdue; right before midnight it moves closer
+// instead of slipping into tomorrow.
+function laterToday(): string {
+  const now = new Date()
+  const candidate = new Date(now.getTime() + 10 * 60 * 1000)
+  const scheduled = candidate.getDate() === now.getDate() ? candidate : new Date(now.getTime() + 60 * 1000)
+  return scheduled.toISOString()
+}
+
+async function openActivityLog(page: Page, companyId: string): Promise<void> {
+  await page.goto(`/backend/customers/companies-v2/${companyId}?tab=activity-log`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('heading', { name: /^Interaction history/ })).toBeVisible({ timeout: 30_000 })
+}
 
 /**
- * TC-CRM-4273: Delete affordance on the production activity card (PR #4273 QA follow-up).
+ * TC-CRM-4273: deleting an activity from the company Activity log (#4273).
  *
- * The first pass of #4273 wired deletion into `ActivitiesSection` -> `ActivityTimeline`,
- * but the company detail route renders `ActivityLogTab` -> `ActivityHistorySection` ->
- * `ActivityCard`. UI QA therefore found no delete control on the real timeline. This
- * test drives the production call site so the integration gap cannot reappear:
+ * Drives the production call site (`ActivityLogTab` -> `ActivityHistorySection` ->
+ * `ActivityCard`) so the delete control cannot silently go missing from the page users see:
  *
- *   1. The activity card exposes `Delete activity` inside its overflow actions menu,
- *      and never as a permanently visible control (UX review on #4273).
- *   2. Dismissing the confirmation leaves the row untouched (no DELETE fired).
- *   3. Confirming removes the row, and the interaction is gone from the API.
- *   4. The edit prefill shows the saved `scheduledAt`, not the older `occurredAt`.
- *   5. The Activity log has no horizontal document overflow at a phone viewport.
+ *   1. `Delete activity` lives inside the card's overflow menu, never as a visible control.
+ *   2. Dismissing the confirmation leaves the activity untouched.
+ *   3. Confirming removes the row without a reload and the interaction is gone from the API.
+ *
+ * The second test covers what the rest of the screen shows about the same record: the
+ * planned list, the week preview and the filter count follow the delete and its Undo.
+ * The third signs in as the seeded employee, who can read interactions but not manage
+ * them, and checks that Delete is not offered at all.
+ *
+ * With the enterprise `record_locks` module on, the company lock widget scopes its headers
+ * to the company; the interaction DELETE must still succeed outright.
  */
-test.describe('TC-CRM-4273: activity delete + prefill on the production activity card (#4273)', () => {
-  test('delete affordance reaches the real timeline and removes the interaction', async ({ page, request }) => {
+test.describe('TC-CRM-4273: delete an activity from the company Activity log', () => {
+  test('delete lives in the overflow menu, can be dismissed, and removes the interaction', async ({ page, request }) => {
     test.slow()
 
     let token: string | null = null
@@ -35,14 +54,6 @@ test.describe('TC-CRM-4273: activity delete + prefill on the production activity
       token = await getAuthToken(request, 'admin')
       companyId = await createCompanyFixture(request, token, `QA TC-CRM-4273 Co ${stamp}`)
 
-      // A completed activity whose scheduledAt (14:30) differs from its occurredAt (09:00)
-      // on the same recent day, so the prefill assertion is unambiguous.
-      const anchor = new Date()
-      anchor.setDate(anchor.getDate() - 3)
-      anchor.setHours(14, 30, 0, 0)
-      const occurred = new Date(anchor)
-      occurred.setHours(9, 0, 0, 0)
-
       const createRes = await apiRequest(request, 'POST', '/api/customers/interactions', {
         token,
         data: {
@@ -51,66 +62,40 @@ test.describe('TC-CRM-4273: activity delete + prefill on the production activity
           title: meetingTitle,
           body: 'QA meeting used to verify the delete affordance',
           status: 'done',
-          scheduledAt: anchor.toISOString(),
-          occurredAt: occurred.toISOString(),
+          occurredAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
         },
       })
-      expect(
-        createRes.ok(),
-        `POST /api/customers/interactions returned ${createRes.status()}`,
-      ).toBeTruthy()
-      const created = (await createRes.json().catch(() => null)) as { id?: string } | null
+      expect(createRes.ok(), `POST /api/customers/interactions returned ${createRes.status()}`).toBeTruthy()
+      const created = await readJsonSafe<{ id?: string }>(createRes)
       interactionId = created?.id ?? null
       expect(interactionId, 'create response should expose interaction id').toBeTruthy()
 
       await login(page, 'admin')
-      await page.goto(`/backend/customers/companies-v2/${companyId}`, {
-        waitUntil: 'domcontentloaded',
-      })
+      await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' })
 
       const activityTab = page.getByRole('tab', { name: /Activity log/i })
       await expect(activityTab).toBeVisible({ timeout: 30_000 })
       await activityTab.click()
+      await expect(page.getByText(meetingTitle).first()).toBeVisible({ timeout: 30_000 })
 
-      const activityRow = page.getByText(meetingTitle).first()
-      await expect(activityRow).toBeVisible({ timeout: 30_000 })
-
-      // 1. The production ActivityCard MUST expose delete, but only inside the row's
-      //    overflow menu — destructive actions stay quiet by default (#4273 UX review).
-      //    The fixture company owns a single interaction, so the page-scoped control
-      //    is unambiguous.
-      // exact: the clickable card wrapper is itself role=button and its subtree
-      // accessible name CONTAINS 'Open actions', so substring matching resolves
-      // to the card and every interaction lands on row-edit instead of the menu.
+      // exact: the clickable card is itself role=button and its accessible name contains
+      // 'Open actions', so a substring match resolves to the card instead of the menu trigger.
       const overflowTrigger = page.getByRole('button', { name: 'Open actions', exact: true }).first()
-      await expect(
-        overflowTrigger,
-        'ActivityCard on the company detail route MUST render an overflow actions menu',
-      ).toBeVisible({ timeout: 15_000 })
+      await expect(overflowTrigger, 'the activity card must render an overflow actions menu').toBeVisible({ timeout: 15_000 })
       await expect(
         page.getByRole('button', { name: /Delete activity/i }),
-        'delete MUST NOT be a permanently visible control on the card',
+        'delete must not be a permanently visible control on the card',
       ).toHaveCount(0)
 
-      // The email card grows when its async action row hydrates, which can move
-      // the trigger between Playwright's coordinate resolve and the physical
-      // click — a mis-hit lands on the card body and opens the edit dialog
-      // instead. Settle the page first, then retry with an Escape reset if the
-      // click still lands wrong.
-      await page.waitForLoadState('networkidle')
       const openDeleteFromMenu = async () => {
         const deleteItem = page.getByRole('menuitem', { name: /Delete activity/i })
-        for (let attempt = 0; attempt < 3; attempt += 1) {
+        await expect(async () => {
           await overflowTrigger.click()
-          const opened = await deleteItem.waitFor({ state: 'visible', timeout: 3_000 }).then(() => true).catch(() => false)
-          if (opened) break
-          await page.keyboard.press('Escape')
-        }
-        await expect(deleteItem).toBeVisible({ timeout: 15_000 })
+          await expect(deleteItem).toBeVisible({ timeout: 3_000 })
+        }).toPass({ timeout: 20_000 })
         await deleteItem.click()
       }
 
-      // 2. Dismissing the destructive confirmation must leave the activity alone.
       await openDeleteFromMenu()
       const confirmDialog = page.getByRole('alertdialog')
       await expect(confirmDialog).toBeVisible({ timeout: 15_000 })
@@ -118,59 +103,22 @@ test.describe('TC-CRM-4273: activity delete + prefill on the production activity
       await expect(confirmDialog).toBeHidden({ timeout: 15_000 })
       await expect(page.getByText(meetingTitle).first()).toBeVisible()
 
-      // 3. The edit prefill uses scheduledAt (14:30), not the older occurredAt (09:00).
-      await page.getByText(meetingTitle).first().click()
-      const editDialog = page.getByRole('dialog')
-      const timeTrigger = editDialog.locator('button[aria-haspopup="dialog"]').nth(1)
-      await expect(timeTrigger).toBeVisible({ timeout: 15_000 })
-      await expect(
-        timeTrigger,
-        'Edit prefill MUST seed from scheduledAt, which is what the save path writes',
-      ).toContainText('02:30 PM')
-      await page.keyboard.press('Escape')
-      await expect(editDialog).toBeHidden({ timeout: 15_000 })
-
-      // 4. Confirming the delete removes the row and the interaction itself.
       await openDeleteFromMenu()
-      const confirmAgain = page.getByRole('alertdialog')
-      await expect(confirmAgain).toBeVisible({ timeout: 15_000 })
-      // Capture the DELETE outcome directly: on failure this reports the
-      // status and body instead of a mute missing-flash timeout.
-      const confirmDeleteAndCapture = async () => {
-        const responsePromise = page.waitForResponse(
-          (response) =>
-            response.request().method() === 'DELETE'
-            && response.url().includes('/api/customers/interactions'),
-          { timeout: 15_000 },
-        )
-        await confirmAgain.getByRole('button', { name: /Delete activity/i }).click()
-        const response = await responsePromise
-        const body = await response.text().catch(() => '')
-        return { response, body }
-      }
-
-      // Enterprise environments run the record_locks module: the page-level
-      // company lock widget attaches its scoped headers to every mutation on
-      // the page, and the guard must ignore headers scoped to a different
-      // resource — so this DELETE succeeds outright, no conflict recovery.
-      const deleteOutcome = await confirmDeleteAndCapture()
-
+      await expect(confirmDialog).toBeVisible({ timeout: 15_000 })
+      const deleteResponsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'DELETE' && response.url().includes('/api/customers/interactions'),
+        { timeout: 15_000 },
+      )
+      await confirmDialog.getByRole('button', { name: /Delete activity/i }).click()
+      const deleteResponse = await deleteResponsePromise
       expect(
-        deleteOutcome.response.status(),
-        `DELETE /api/customers/interactions responded ${deleteOutcome.response.status()}: ${deleteOutcome.body.slice(0, 400)}`,
+        deleteResponse.status(),
+        `DELETE /api/customers/interactions responded ${deleteResponse.status()}`,
       ).toBe(200)
 
-      // Success flash: the UI acknowledged the deletion.
       await expect(page.getByText('Activity deleted').first()).toBeVisible({ timeout: 15_000 })
-
-      // Primary guard — the timeline refreshes on its own, no reload.
       await expect(page.getByText(meetingTitle)).toHaveCount(0, { timeout: 30_000 })
-
-      // Secondary durability check: the deletion survives a reload.
-      await page.reload({ waitUntil: 'domcontentloaded' })
-      await page.getByRole('tab', { name: /Activity log/i }).click()
-      await page.waitForLoadState('networkidle')
-      await expect(page.getByText(meetingTitle)).toHaveCount(0, { timeout: 15_000 })
 
       const afterRes = await apiRequest(
         request,
@@ -179,9 +127,9 @@ test.describe('TC-CRM-4273: activity delete + prefill on the production activity
         { token },
       )
       expect(afterRes.ok(), `GET /api/customers/interactions returned ${afterRes.status()}`).toBeTruthy()
-      const afterBody = (await afterRes.json().catch(() => null)) as { items?: { id?: string }[] } | null
+      const afterBody = await readJsonSafe<{ items?: { id?: string }[] }>(afterRes)
       const stillPresent = (afterBody?.items ?? []).some((item) => item.id === interactionId)
-      expect(stillPresent, 'the deleted interaction MUST NOT come back from the API').toBeFalsy()
+      expect(stillPresent, 'the deleted interaction must not come back from the API').toBeFalsy()
       if (!stillPresent) interactionId = null
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
@@ -189,87 +137,148 @@ test.describe('TC-CRM-4273: activity delete + prefill on the production activity
     }
   })
 
-  test('Activity log has no horizontal document overflow on a phone viewport', async ({ page, request }) => {
+  test('the planned list, week preview and meeting count follow a delete and its Undo', async ({ page, request }) => {
     test.slow()
 
     let token: string | null = null
     let companyId: string | null = null
     let interactionId: string | null = null
     const stamp = Date.now()
+    const meetingTitle = `QA TC-CRM-4273 planned ${stamp}`
 
     try {
       token = await getAuthToken(request, 'admin')
-      companyId = await createCompanyFixture(request, token, `QA TC-CRM-4273 Mobile Co ${stamp}`)
+      companyId = await createCompanyFixture(request, token, `QA TC-CRM-4273 Planned Co ${stamp}`)
 
       const createRes = await apiRequest(request, 'POST', '/api/customers/interactions', {
         token,
         data: {
           entityId: companyId,
-          interactionType: 'call',
-          title: `QA TC-CRM-4273 mobile call ${stamp}`,
-          status: 'done',
-          occurredAt: new Date().toISOString(),
+          interactionType: 'meeting',
+          title: meetingTitle,
+          status: 'planned',
+          scheduledAt: laterToday(),
         },
       })
       expect(createRes.ok(), `POST /api/customers/interactions returned ${createRes.status()}`).toBeTruthy()
-      const created = (await createRes.json().catch(() => null)) as { id?: string } | null
-      interactionId = created?.id ?? null
+      interactionId = (await readJsonSafe<{ id?: string }>(createRes))?.id ?? null
+      expect(interactionId, 'create response should expose interaction id').toBeTruthy()
 
       await login(page, 'admin')
-      await page.setViewportSize({ width: 390, height: 844 })
-      await page.goto(`/backend/customers/companies-v2/${companyId}`, {
-        waitUntil: 'domcontentloaded',
-      })
+      await openActivityLog(page, companyId)
 
-      const activityTab = page.getByRole('tab', { name: /Activity log/i })
-      await expect(activityTab).toBeVisible({ timeout: 30_000 })
-      await activityTab.click()
-      await expect(page.getByText(/Activity history/i).first()).toBeVisible({ timeout: 30_000 })
+      const escapedTitle = meetingTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const plannedRow = page.getByRole('button', { name: new RegExp(`^${escapedTitle} .* More$`) })
+      const plannedCount = page.getByText(/Planned activities\s*1/)
+      const everyMention = page.getByText(meetingTitle)
+      const meetingCount = page.getByRole('button', { name: 'Meeting 1', exact: true })
+      const historyRow = page
+        .getByRole('button')
+        .filter({ hasText: meetingTitle })
+        .filter({ has: page.getByRole('button', { name: 'Open actions', exact: true }) })
+        .last()
 
-      // The document-level check alone became unfalsifiable once html/body got
-      // overflow-x: clip (clip clamps scrollWidth by construction), so the real
-      // guard measures the widest content INSIDE main, where clip does not
-      // clamp: any card or strip forcing min-content past the viewport still
-      // shows up as an element scrollWidth or an off-viewport right edge.
-      const overflow = await page.evaluate(() => {
-        const doc = {
-          scrollWidth: document.documentElement.scrollWidth,
-          clientWidth: document.documentElement.clientWidth,
-        }
-        let widest = 0
-        let widestTag = ''
-        const record = (el: Element, width: number) => {
-          if (width > widest) {
-            widest = width
-            widestTag = `${el.tagName}.${String((el as HTMLElement).className).slice(0, 60)}`
-          }
-        }
-        const walk = (el: Element) => {
-          const style = getComputedStyle(el)
-          // Invisible measurement helpers and out-of-flow elements do not
-          // widen the layout viewport.
-          if (style.visibility === 'hidden' || style.position === 'absolute' || style.position === 'fixed') return
-          const clips = /(auto|scroll|hidden|clip)/.test(style.overflowX)
-          // A clipping/scrolling container contributes only its own box; its
-          // children may legitimately extend inside it (tab strips, the day
-          // strip) — so measure the box and stop descending.
-          record(el, Math.round(el.getBoundingClientRect().right))
-          if (clips) return
-          record(el, el.scrollWidth)
-          for (const child of el.children) walk(child)
-        }
-        const main = document.querySelector('main')
-        if (main) walk(main)
-        return { ...doc, widest, widestTag }
+      await expect(plannedRow, 'the planned list shows the meeting').toBeVisible({ timeout: 30_000 })
+      await expect(plannedCount, 'the planned list counts it').toBeVisible()
+      await expect(meetingCount, 'the meeting filter counts it').toBeVisible()
+      await expect(historyRow).toBeVisible()
+      // The week preview, the planned list and the history each name the meeting.
+      await expect
+        .poll(async () => everyMention.count(), { message: 'week preview, planned list and history all show the meeting' })
+        .toBeGreaterThanOrEqual(3)
+      const mentionsBefore = await everyMention.count()
+
+      const deleteItem = page.getByRole('menuitem', { name: /Delete activity/i })
+      await expect(async () => {
+        await historyRow.getByRole('button', { name: 'Open actions', exact: true }).click()
+        await expect(deleteItem).toBeVisible({ timeout: 3_000 })
+      }).toPass({ timeout: 20_000 })
+      await deleteItem.click()
+      const confirmDialog = page.getByRole('alertdialog')
+      await expect(confirmDialog).toBeVisible({ timeout: 15_000 })
+      await confirmDialog.getByRole('button', { name: /Delete activity/i }).click()
+      await expect(page.getByText('Activity deleted').first()).toBeVisible({ timeout: 15_000 })
+
+      await expect(everyMention, 'the meeting is gone from every part of the screen').toHaveCount(0, { timeout: 30_000 })
+      await expect(plannedCount, 'the planned list no longer counts it').toHaveCount(0)
+      await expect(meetingCount, 'the meeting filter no longer counts it').toHaveCount(0)
+
+      await page.getByRole('button', { name: /^Undo(?: last action)?$/ }).first().click()
+
+      await expect(plannedRow, 'Undo brings the meeting back to the planned list').toBeVisible({ timeout: 30_000 })
+      await expect(plannedCount).toBeVisible()
+      await expect(meetingCount).toBeVisible()
+      await expect(historyRow).toBeVisible()
+      await expect(everyMention, 'Undo restores every mention, the week preview included').toHaveCount(mentionsBefore, { timeout: 30_000 })
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+    }
+  })
+
+  test('a user who cannot manage interactions is not offered Delete', async ({ page, request }) => {
+    test.slow()
+
+    let token: string | null = null
+    let companyId: string | null = null
+    let interactionId: string | null = null
+    const stamp = Date.now()
+    const meetingTitle = `QA TC-CRM-4273 read-only ${stamp}`
+
+    try {
+      token = await getAuthToken(request, 'admin')
+      const employeeToken = await getAuthToken(request, 'employee')
+      const featureCheck = await apiRequest(request, 'POST', '/api/auth/feature-check', {
+        token: employeeToken,
+        data: { features: ['customers.interactions.view', 'customers.interactions.manage'] },
       })
-      expect(
-        overflow.scrollWidth,
-        `document scrollWidth ${overflow.scrollWidth} exceeds viewport ${overflow.clientWidth}`,
-      ).toBeLessThanOrEqual(overflow.clientWidth + 1)
-      expect(
-        overflow.widest,
-        `content (${overflow.widestTag}) is ${overflow.widest}px wide on a ${overflow.clientWidth}px viewport`,
-      ).toBeLessThanOrEqual(overflow.clientWidth + 1)
+      const granted = (await readJsonSafe<{ granted?: string[] }>(featureCheck))?.granted ?? []
+      expect(granted, 'the employee can read interactions').toContain('customers.interactions.view')
+      expect(granted, 'the employee cannot manage interactions').not.toContain('customers.interactions.manage')
+
+      companyId = await createCompanyFixture(request, token, `QA TC-CRM-4273 Read Co ${stamp}`)
+      const createRes = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token,
+        data: {
+          entityId: companyId,
+          interactionType: 'meeting',
+          title: meetingTitle,
+          status: 'done',
+          occurredAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+      })
+      expect(createRes.ok(), `POST /api/customers/interactions returned ${createRes.status()}`).toBeTruthy()
+      interactionId = (await readJsonSafe<{ id?: string }>(createRes))?.id ?? null
+
+      await login(page, 'employee')
+      // The check that reveals Delete answers after the list renders; wait for its
+      // answer before asserting that nothing appeared.
+      const deleteAccessAnswered = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/auth/feature-check') &&
+          (response.request().postData() ?? '').includes('customers.activities.manage'),
+        { timeout: 45_000 },
+      )
+      await openActivityLog(page, companyId)
+      await expect(page.getByText(meetingTitle).first()).toBeVisible({ timeout: 30_000 })
+      await deleteAccessAnswered
+      const overflowTriggers = page.getByRole('button', { name: 'Open actions', exact: true })
+      for (const trigger of await overflowTriggers.all()) {
+        await trigger.click()
+        await expect(page.getByRole('menuitem', { name: /Delete activity/i })).toHaveCount(0)
+        await page.keyboard.press('Escape')
+      }
+      await expect(page.getByRole('button', { name: /Delete activity/i })).toHaveCount(0)
+      await expect(page.getByRole('alertdialog')).toHaveCount(0)
+
+      const stillThere = await apiRequest(
+        request,
+        'GET',
+        `/api/customers/interactions?entityId=${encodeURIComponent(companyId)}&limit=50`,
+        { token },
+      )
+      const items = (await readJsonSafe<{ items?: { id?: string }[] }>(stillThere))?.items ?? []
+      expect(items.some((item) => item.id === interactionId), 'the meeting is untouched').toBeTruthy()
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)

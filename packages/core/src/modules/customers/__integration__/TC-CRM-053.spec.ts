@@ -200,31 +200,22 @@ test.describe('TC-CRM-053: Activity validation — date/time required, phone val
       await expect(activityTab).toBeVisible({ timeout: 30_000 })
       await activityTab.click()
 
-      // Wait for the Activities card to mount under the tabpanel. The "Add new"
-      // CTA is the trigger for `ActivitiesAddNewMenu`.
-      const addNewTrigger = page.getByRole('button', { name: /^Add new$/ })
-      await expect(addNewTrigger).toBeVisible({ timeout: 30_000 })
-      await addNewTrigger.click()
-
-      // The popover lists Log call / New meeting / etc. Pick "Log call" so the
-      // dialog opens on the Call tab where both Date and Start Time render.
-      const logCallItem = page.getByRole('button', { name: /Log call/i }).first()
-      await expect(logCallItem).toBeVisible({ timeout: 15_000 })
-      await logCallItem.click()
+      // The shared activity layout (#7494) opens the Schedule dialog from the
+      // composer's "Schedule" action; pick the Call type inside the dialog so
+      // both Date and Start Time render.
+      const scheduleTrigger = page.getByRole('button', { name: /^Schedule$/ }).first()
+      await expect(scheduleTrigger).toBeVisible({ timeout: 30_000 })
+      await scheduleTrigger.click()
+      const callTab = page.getByRole('dialog').getByRole('button', { name: 'Call', exact: true })
+      await expect(callTab).toBeVisible({ timeout: 15_000 })
+      await callTab.click()
 
       // The DateTimeFields component renders required asterisks via a
       // DS-token span (`text-status-error-foreground`). On the Call tab both
       // Date and Start Time inputs render (so two markers appear).
-      // Required markers are accent-indigo per the DS decision in #5629
-      // (matching the Figma label spec), no longer status-error red. Scope to
-      // the two fields #1806 is about — other fields (Title) also carry
-      // markers now, so a page-wide class count would overmatch.
-      const dialog = page.getByRole('dialog')
-      const markerFor = (label: RegExp) =>
-        dialog.locator('label', { hasText: label }).locator('span[aria-hidden="true"].text-accent-indigo')
-      await expect(markerFor(/Date/).first()).toBeVisible({ timeout: 15_000 })
-      await expect(markerFor(/Date/)).toHaveCount(1)
-      await expect(markerFor(/Start/)).toHaveCount(1)
+      const requiredMarkers = page.locator('span[aria-hidden="true"].text-status-error-foreground')
+      await expect(requiredMarkers.first()).toBeVisible({ timeout: 15_000 })
+      await expect(requiredMarkers).toHaveCount(2)
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
@@ -251,13 +242,12 @@ test.describe('TC-CRM-053: Activity validation — date/time required, phone val
       await expect(activityTab).toBeVisible({ timeout: 30_000 })
       await activityTab.click()
 
-      const addNewTrigger = page.getByRole('button', { name: /^Add new$/ })
-      await expect(addNewTrigger).toBeVisible({ timeout: 30_000 })
-      await addNewTrigger.click()
-
-      const logCallItem = page.getByRole('button', { name: /Log call/i }).first()
-      await expect(logCallItem).toBeVisible({ timeout: 15_000 })
-      await logCallItem.click()
+      const scheduleTrigger = page.getByRole('button', { name: /^Schedule$/ }).first()
+      await expect(scheduleTrigger).toBeVisible({ timeout: 30_000 })
+      await scheduleTrigger.click()
+      const callTab = page.getByRole('dialog').getByRole('button', { name: 'Call', exact: true })
+      await expect(callTab).toBeVisible({ timeout: 15_000 })
+      await callTab.click()
 
       await page.getByPlaceholder('Activity title...').fill(`QA TC-CRM-053f call ${stamp}`)
       await page.getByLabel('Phone number').fill('not-a-phone')

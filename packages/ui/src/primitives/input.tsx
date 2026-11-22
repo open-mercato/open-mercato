@@ -3,7 +3,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 const inputWrapperVariants = cva(
-  'inline-flex w-full items-center gap-2 rounded-md border border-input bg-background shadow-xs transition-colors focus-within:outline-none focus-within:shadow-focus focus-within:border-foreground hover:bg-muted/40 has-[input:disabled]:bg-bg-disabled has-[input:disabled]:border-border-disabled has-[input:disabled]:shadow-none has-[input:disabled]:hover:bg-bg-disabled has-[input:disabled]:[&>svg]:text-text-disabled has-[input:disabled]:[&>span[aria-hidden=true]]:text-text-disabled has-[input[aria-invalid=true]]:border-destructive has-[input[aria-invalid=true]]:focus-within:border-destructive',
+  'inline-flex w-full items-center gap-2 rounded-md border border-input bg-background shadow-xs transition-colors focus-within:outline-none focus-within:shadow-focus focus-within:border-foreground has-[input:disabled]:bg-bg-disabled has-[input:disabled]:border-border-disabled has-[input:disabled]:shadow-none has-[input:disabled]:hover:bg-bg-disabled has-[input:disabled]:[&>svg]:text-text-disabled has-[input:disabled]:[&>span[aria-hidden=true]]:text-text-disabled has-[input[aria-invalid=true]]:border-destructive has-[input[aria-invalid=true]]:focus-within:border-destructive',
   {
     variants: {
       size: {
@@ -26,14 +26,12 @@ const inputElementVariants = cva(
   {
     variants: {
       size: {
-        // text-base below `sm` keeps iOS Safari from auto-zooming the page on
-        // focus (it zooms any input under 16px).
-        sm: 'text-base sm:text-xs',
-        default: 'text-base sm:text-sm',
-        lg: 'text-base sm:text-sm',
-        32: 'text-base sm:text-sm leading-5',
-        36: 'text-base sm:text-sm leading-5',
-        40: 'text-base sm:text-sm leading-5',
+        sm: 'text-sm',
+        default: 'text-sm',
+        lg: 'text-sm',
+        32: 'text-sm leading-5',
+        36: 'text-sm leading-5',
+        40: 'text-sm leading-5',
       },
     },
     defaultVariants: {

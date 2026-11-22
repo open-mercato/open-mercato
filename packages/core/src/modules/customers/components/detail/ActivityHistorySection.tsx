@@ -13,15 +13,12 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
-import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { createLogger } from '@open-mercato/shared/lib/logger'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { ActivityCard } from './ActivityCard'
-
-const logger = createLogger('customers')
+import { useActivityDelete } from './hooks/useActivityDelete'
+import { useInteractionUndoRefresh } from './hooks/useInteractionUndoRefresh'
+import { runActivityRefresh, type ActivityRefreshHandler } from './activityRefresh'
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -33,6 +30,8 @@ type ActivityHistorySectionProps = {
   useCanonicalInteractions?: boolean
   refreshKey?: number
   onEditActivity?: (activity: InteractionSummary) => void
+  /** Called after an activity in the history is changed, deleted or restored by undo, so the host can refresh the panels it owns (week strip, planned list, counters). */
+  onDataRefresh?: ActivityRefreshHandler
   /** Optional guarded-mutation runner so per-row mutations route through the parent's
    * `useGuardedMutation` and emit retry-last-mutation context. */
   runMutation?: GuardedMutationRunner
@@ -187,11 +186,11 @@ export function ActivityHistorySection({
   useCanonicalInteractions = false,
   refreshKey = 0,
   onEditActivity,
+  onDataRefresh,
   runMutation,
   excludeInteractionType = 'task',
 }: ActivityHistorySectionProps) {
   const t = useT()
-  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [searchInput, setSearchInput] = React.useState('')
   const [search, setSearch] = React.useState('')
   const [activeTypes, setActiveTypes] = React.useState<string[]>([])
@@ -205,9 +204,12 @@ export function ActivityHistorySection({
   const [loadedPages, setLoadedPages] = React.useState(1)
   const [localRefreshKey, setLocalRefreshKey] = React.useState(0)
   const historyRequestSeqRef = React.useRef(0)
-  const handleActivityChanged = React.useCallback(() => {
+  const handleActivityChanged = React.useCallback(async () => {
     setLocalRefreshKey((current) => current + 1)
-  }, [])
+    await runActivityRefresh(onDataRefresh, 'ActivityHistorySection')
+  }, [onDataRefresh])
+
+  useInteractionUndoRefresh(handleActivityChanged, 'ActivityHistorySection')
 
   React.useEffect(() => {
     const timeout = window.setTimeout(() => setSearch(searchInput.trim()), 300)
@@ -360,42 +362,11 @@ export function ActivityHistorySection({
     setLoadedPages((current) => current + 1)
   }, [])
 
-  const handleDelete = React.useCallback(async (activity: InteractionSummary) => {
-    const confirmed = await confirm({
-      title: t('customers.activities.actions.deleteConfirmTitle', 'Delete activity?'),
-      description: t(
-        'customers.activities.actions.deleteConfirmDescription',
-        'This permanently deletes the activity record, not just its entry on this timeline.',
-      ),
-      confirmText: t('customers.activities.actions.delete', 'Delete activity'),
-      cancelText: t('customers.activities.actions.deleteCancel', 'Cancel'),
-      variant: 'destructive',
-    })
-    if (!confirmed) return
-    try {
-      const operation = () =>
-        withScopedApiRequestHeaders(buildOptimisticLockHeader(activity.updatedAt), () =>
-          apiCallOrThrow('/api/customers/interactions', {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id: activity.id }),
-          }),
-        )
-      if (runMutation) {
-        await runMutation(operation, {
-          id: activity.id,
-          operation: 'deleteActivity',
-        })
-      } else {
-        await operation()
-      }
-      flash(t('customers.activities.actions.deleteSuccess', 'Activity deleted'), 'success')
-      handleActivityChanged()
-    } catch (err) {
-      logger.warn('Delete activity failed', { component: 'ActivityHistorySection', activityId: activity.id, err })
-      flash(t('customers.activities.actions.deleteError', 'Could not delete activity'), 'error')
-    }
-  }, [confirm, handleActivityChanged, runMutation, t])
+  const { deleteActivity, canDeleteActivity, ConfirmDialogElement } = useActivityDelete({
+    runMutation,
+    onAfterDelete: handleActivityChanged,
+    logContext: 'ActivityHistorySection',
+  })
 
   return (
     <div className="rounded-xl border bg-card">
@@ -407,7 +378,7 @@ export function ActivityHistorySection({
             {t('customers.activityLog.title', 'Activity history')}
           </h3>
           <p className="text-xs text-muted-foreground">
-            {t('customers.timeline.history.filtered', 'filtered: {{types}} · {{count}} results', {
+            {t('customers.timeline.history.filtered', 'filtered: {{types}}, {{count}} results', {
               types: filteredLabel,
               count: activities.length,
             })}
@@ -516,7 +487,7 @@ export function ActivityHistorySection({
                   {showYearSeparator ? (
                     <div className="flex items-center gap-3 py-1">
                       <div className="h-px flex-1 bg-border" />
-                      <span className="text-xs font-semibold text-muted-foreground">· {currentYear} ·</span>
+                      <span className="text-xs font-semibold text-muted-foreground">{currentYear}</span>
                       <div className="h-px flex-1 bg-border" />
                     </div>
                   ) : null}
@@ -524,7 +495,7 @@ export function ActivityHistorySection({
                     activity={activity}
                     onOpen={onEditActivity}
                     onChanged={handleActivityChanged}
-                    onDelete={handleDelete}
+                    onDelete={canDeleteActivity(activity) ? deleteActivity : undefined}
                     runMutation={runMutation}
                   />
                 </React.Fragment>

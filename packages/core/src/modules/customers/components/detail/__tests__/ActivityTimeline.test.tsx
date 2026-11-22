@@ -8,57 +8,6 @@ import plDict from '../../../i18n/pl.json'
 import { ActivityTimeline } from '../ActivityTimeline'
 import type { InteractionSummary } from '../types'
 
-jest.mock('../AiActionChips', () => ({
-  AiActionChips: () => null,
-}))
-
-const baseActivity: InteractionSummary = {
-  id: 'act-1',
-  interactionType: 'call',
-  title: 'Intro call',
-  body: null,
-  status: 'planned',
-  scheduledAt: '2026-07-24T14:30:00.000Z',
-  occurredAt: null,
-  priority: null,
-  authorUserId: null,
-  ownerUserId: null,
-  appearanceIcon: null,
-  appearanceColor: null,
-  source: 'interaction',
-  entityId: 'person-1',
-  dealId: null,
-  organizationId: null,
-  tenantId: null,
-  authorName: null,
-  authorEmail: null,
-  dealTitle: null,
-  customValues: null,
-  createdAt: '2026-07-01T10:00:00.000Z',
-  updatedAt: '2026-07-01T10:00:00.000Z',
-}
-
-describe('ActivityTimeline delete affordance', () => {
-  it('keeps delete inside the overflow menu and forwards the activity to onDelete', async () => {
-    const onDelete = jest.fn()
-    renderWithProviders(<ActivityTimeline activities={[baseActivity]} onDelete={onDelete} />)
-
-    expect(screen.queryByRole('menuitem', { name: 'Delete activity' })).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete activity' }))
-
-    await waitFor(() => {
-      expect(onDelete).toHaveBeenCalledWith(baseActivity)
-    })
-  })
-
-  it('does not render the overflow menu when onDelete is not provided', () => {
-    renderWithProviders(<ActivityTimeline activities={[baseActivity]} />)
-    expect(screen.queryByRole('button', { name: 'Open actions' })).toBeNull()
-  })
-})
-
 function createActivity(overrides: Partial<InteractionSummary> = {}): InteractionSummary {
   return {
     id: 'activity-1',
@@ -154,3 +103,71 @@ it.each([
   expect(screen.queryByText(/12:34/)).not.toBeInTheDocument()
 })
 
+describe('ActivityTimeline delete affordance', () => {
+  it('keeps delete inside the overflow menu and forwards the activity to onDelete', async () => {
+    const onDelete = jest.fn()
+    const onEdit = jest.fn()
+    const activity = createActivity({ interactionType: 'call', title: 'Intro call' })
+    renderWithProviders(<ActivityTimeline activities={[activity]} onEdit={onEdit} onDelete={onDelete} />)
+
+    expect(screen.queryByRole('menuitem', { name: 'Delete activity' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete activity' }))
+
+    await waitFor(() => {
+      expect(onDelete).toHaveBeenCalledWith(activity)
+    })
+    expect(onEdit).not.toHaveBeenCalled()
+  })
+
+  it('offers Edit in the same menu and opens the activity for editing', async () => {
+    const onEdit = jest.fn()
+    const activity = createActivity()
+    renderWithProviders(<ActivityTimeline activities={[activity]} onEdit={onEdit} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    expect(screen.queryByRole('menuitem', { name: 'Delete activity' })).toBeNull()
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }))
+
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    expect(onEdit).toHaveBeenCalledWith(activity)
+  })
+
+  it('leaves Delete out of the menu for a row the user may not delete, and keeps Edit', async () => {
+    const onDelete = jest.fn()
+    const onEdit = jest.fn()
+    const activity = createActivity({ status: 'done' })
+    renderWithProviders(
+      <ActivityTimeline activities={[activity]} onEdit={onEdit} onDelete={onDelete} canDelete={() => false} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    expect(await screen.findByRole('menuitem', { name: 'Edit' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'Delete activity' })).toBeNull()
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+
+  it('does not render the overflow menu when the row has no actions', () => {
+    renderWithProviders(<ActivityTimeline activities={[createActivity()]} />)
+    expect(screen.queryByRole('button', { name: 'Open actions' })).toBeNull()
+  })
+})
+
+describe('ActivityTimeline Mark done version', () => {
+  it('sends the version of the row as it is now, after a reload replaced it with a newer one', async () => {
+    const onMarkDone = jest.fn(async () => {})
+    const view = renderWithProviders(<ActivityTimeline activities={[createActivity()]} onMarkDone={onMarkDone} />)
+
+    view.rerender(
+      <ActivityTimeline
+        activities={[createActivity({ title: 'Send revised offer v2', updatedAt: '2026-04-11T12:00:00.000Z' })]}
+        onMarkDone={onMarkDone}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Mark done' }))
+
+    await waitFor(() => expect(onMarkDone).toHaveBeenCalledTimes(1))
+    expect(onMarkDone).toHaveBeenCalledWith('activity-1', '2026-04-11T12:00:00.000Z')
+  })
+})

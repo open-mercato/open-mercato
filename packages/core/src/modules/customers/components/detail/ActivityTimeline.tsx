@@ -1,11 +1,11 @@
 'use client'
 import * as React from 'react'
-import { Check, ListTodo, Phone, Mail, Users, StickyNote, User } from 'lucide-react'
+import { Check, ListTodo, Pencil, Phone, Mail, Trash2, Users, StickyNote, User } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { AiActionChips } from './AiActionChips'
 import type { InteractionSummary } from './types'
@@ -24,9 +24,10 @@ interface ActivityTimelineProps {
   onEdit?: (activity: InteractionSummary) => void
   onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
   onDelete?: (activity: InteractionSummary) => void | Promise<void>
+  canDelete?: (activity: InteractionSummary) => boolean
 }
 
-export function ActivityTimeline({ activities, onEdit, onMarkDone, onDelete }: ActivityTimelineProps) {
+export function ActivityTimeline({ activities, onEdit, onMarkDone, onDelete, canDelete }: ActivityTimelineProps) {
   const t = useT()
 
   if (activities.length === 0) {
@@ -63,7 +64,7 @@ export function ActivityTimeline({ activities, onEdit, onMarkDone, onDelete }: A
               withBorder={index < activities.length - 1}
               onEdit={onEdit}
               onMarkDone={onMarkDone}
-              onDelete={onDelete}
+              onDelete={!canDelete || canDelete(activity) ? onDelete : undefined}
             />
           </React.Fragment>
         )
@@ -94,8 +95,6 @@ function TimelineEntry({
   const isOpen = isOpenInteractionStatus(activity.status)
   const isCanceled = isCanceledInteractionStatus(activity.status)
   const [markingDone, setMarkingDone] = React.useState(false)
-  // Re-entrancy guard only — a ref avoids a render pair per delete since
-  // nothing in the UI consumes the in-flight state.
   const deletingRef = React.useRef(false)
 
   const handleMarkDone = React.useCallback(async (event: React.MouseEvent | React.KeyboardEvent) => {
@@ -107,7 +106,7 @@ function TimelineEntry({
     } finally {
       setMarkingDone(false)
     }
-  }, [activity.id, markingDone, onMarkDone])
+  }, [activity.id, activity.updatedAt, markingDone, onMarkDone])
 
   const handleDelete = React.useCallback(async () => {
     if (!onDelete || deletingRef.current) return
@@ -121,15 +120,15 @@ function TimelineEntry({
 
   return (
     <div
-      className={`py-2.5 ${withBorder ? 'border-b border-border/60' : ''} ${onEdit ? 'cursor-pointer hover:bg-accent/40 transition-colors' : ''}`}
+      className={`@container py-2.5 ${withBorder ? 'border-b border-border/60' : ''} ${onEdit ? 'cursor-pointer hover:bg-accent/40 transition-colors' : ''}`}
       onClick={() => onEdit?.(activity)}
       role={onEdit ? 'button' : undefined}
       tabIndex={onEdit ? 0 : undefined}
       onKeyDown={onEdit ? (e) => { if (e.key === 'Enter') onEdit(activity) } : undefined}
     >
-      <div className="grid items-start gap-3" style={{ gridTemplateColumns: '75px 32px 1fr' }}>
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5 @md:flex-nowrap">
         {/* Column 1: Date */}
-        <div className="shrink-0">
+        <div className="flex basis-full items-baseline gap-1.5 @md:block @md:w-19 @md:shrink-0 @md:basis-auto">
           <span className="block text-xs font-semibold leading-tight text-foreground">
             {dateStr ? formatRelativeDate(dateStr, t) : t('customers.timeline.date.unknown', 'Unknown date')}
           </span>
@@ -144,9 +143,9 @@ function TimelineEntry({
         </div>
 
         {/* Column 3: Content */}
-        <div className="min-w-0 space-y-1.5">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-start justify-end gap-2">
+            <div className="flex min-w-32 flex-1 flex-wrap items-center gap-1.5">
               <span
                 className={cn(
                   'block text-xs font-semibold leading-tight',
@@ -175,16 +174,23 @@ function TimelineEntry({
                   {t('customers.activities.actions.markDone', 'Mark done')}
                 </Button>
               ) : null}
-              {onDelete ? (
+              {onEdit || onDelete ? (
                 <div onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} role="presentation">
                   <RowActions
                     items={[
-                      {
-                        id: 'delete-activity',
+                      ...(onEdit ? [{
+                        id: 'edit',
+                        label: t('customers.timeline.edit', 'Edit'),
+                        icon: <Pencil />,
+                        onSelect: () => onEdit(activity),
+                      }] : []),
+                      ...(onDelete ? [{
+                        id: 'delete',
                         label: t('customers.activities.actions.delete', 'Delete activity'),
+                        icon: <Trash2 />,
                         destructive: true,
                         onSelect: () => { void handleDelete() },
-                      },
+                      }] : []),
                     ]}
                   />
                 </div>
