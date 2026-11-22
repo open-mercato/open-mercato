@@ -56,6 +56,14 @@ function sentBody(): unknown {
 }
 
 describe('recurring billing section', () => {
+  const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
+  beforeAll(() => {
+    if (originalScrollIntoView) return
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: jest.fn() })
+  })
+  afterAll(() => {
+    if (!originalScrollIntoView) Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+  })
   beforeEach(() => jest.clearAllMocks())
 
   it.each(['order', 'quote'] as const)('shows the %s schedule without editor controls for a viewer', (kind) => {
@@ -89,6 +97,32 @@ describe('recurring billing section', () => {
     expect(mockRunDocumentMutation).toHaveBeenCalledWith(expect.any(Function), { id: 'order-1', recurrence: null })
     expect(mockApiCallOrThrow.mock.calls[0][0]).toBe(kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes')
     expect(sentBody()).toEqual({ id: 'order-1', recurrence: null })
+  })
+
+  it('keeps the schedule draft while Escape closes the frequency list', async () => {
+    renderWithProviders(<RecurrenceSectionWidget context={{ kind: 'order' }} data={order} />, { dict: {} })
+    const trigger = screen.getByTestId('sales-recurrence-edit')
+    trigger.focus()
+    fireEvent.click(trigger)
+
+    const heading = await screen.findByRole('heading', { name: 'Recurring schedule' })
+    await waitFor(() => expect(heading).toHaveFocus())
+
+    const periodCount = screen.getByTestId('sales-recurrence-period-count')
+    fireEvent.change(periodCount, { target: { value: '7' } })
+    const frequency = screen.getByTestId('sales-recurrence-frequency')
+    fireEvent.keyDown(frequency, { key: 'ArrowDown' })
+    const listbox = await screen.findByRole('listbox')
+    fireEvent.keyDown(listbox, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(periodCount).toHaveValue(7)
+    await waitFor(() => expect(frequency).toHaveFocus())
+
+    fireEvent.keyDown(frequency, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await waitFor(() => expect(trigger).toHaveFocus())
+    expect(mockApiCallOrThrow).not.toHaveBeenCalled()
   })
 
   it('removes the schedule on Cmd+Enter while the Recurring switch still has focus', async () => {

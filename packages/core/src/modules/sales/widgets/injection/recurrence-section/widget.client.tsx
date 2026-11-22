@@ -10,7 +10,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@open-mercato/ui/primitives/dialog'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { emitSalesDocumentDataRefresh } from '../../../lib/frontend/documentDataEvents'
 import { useSalesDocumentMutation } from '../../../components/documents/useSalesDocumentMutation'
@@ -66,6 +66,7 @@ export default function RecurrenceSectionWidget({
   const locale = useLocale()
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
+  const dialogTitleRef = React.useRef<HTMLHeadingElement | null>(null)
   const kind = context?.kind === 'quote' ? 'quote' : 'order'
   const recurrence = data?.recurrence ?? null
   const locked = recurrence?.locked === true
@@ -133,7 +134,7 @@ export default function RecurrenceSectionWidget({
   )
 
   const submitForm = React.useCallback(() => dialogContentRef.current?.querySelector('form')?.requestSubmit(), [])
-  const handleKeyDown = useDialogKeyHandler({ onConfirm: submitForm, onCancel: () => setDialogOpen(false) })
+  const handleKeyDown = useDialogKeyHandler({ onConfirm: submitForm })
 
   if (!data?.id) return null
 
@@ -180,29 +181,41 @@ export default function RecurrenceSectionWidget({
         </p>
       )}
       {canEditSchedule ? (
-        <>
-          <Button type="button" variant="outline" onClick={() => setDialogOpen(true)} data-testid="sales-recurrence-edit">
-            {recurrence
-              ? t('sales.recurring.section.edit', 'Edit schedule')
-              : t('sales.recurring.section.setUp', 'Set up recurring billing')}
-          </Button>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogContent className="sm:max-w-2xl" onKeyDown={handleKeyDown} ref={dialogContentRef}>
-              <DialogHeader>
-                <DialogTitle>{t('sales.recurring.section.dialogTitle', 'Recurring schedule')}</DialogTitle>
-              </DialogHeader>
-              {initialValues ? (
-                <CrudForm<FormValues>
-                  embedded
-                  fields={fields}
-                  initialValues={initialValues}
-                  submitLabel={t('sales.recurring.section.save', 'Save schedule')}
-                  onSubmit={handleSubmit}
-                />
-              ) : null}
-            </DialogContent>
-          </Dialog>
-        </>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button type="button" variant="outline" data-testid="sales-recurrence-edit">
+              {recurrence
+                ? t('sales.recurring.section.edit', 'Edit schedule')
+                : t('sales.recurring.section.setUp', 'Set up recurring billing')}
+            </Button>
+          </DialogTrigger>
+          <DialogContent
+            className="sm:max-w-2xl"
+            onKeyDown={handleKeyDown}
+            onOpenAutoFocus={(event) => {
+              if (!dialogTitleRef.current) return
+              event.preventDefault()
+              dialogTitleRef.current.focus()
+            }}
+            ref={dialogContentRef}
+          >
+            <DialogHeader>
+              <DialogTitle ref={dialogTitleRef} tabIndex={-1}>
+                {t('sales.recurring.section.dialogTitle', 'Recurring schedule')}
+              </DialogTitle>
+            </DialogHeader>
+            {initialValues ? (
+              <CrudForm<FormValues>
+                embedded
+                disableInitialFocus
+                fields={fields}
+                initialValues={initialValues}
+                submitLabel={t('sales.recurring.section.save', 'Save schedule')}
+                onSubmit={handleSubmit}
+              />
+            ) : null}
+          </DialogContent>
+        </Dialog>
       ) : null}
     </div>
   )

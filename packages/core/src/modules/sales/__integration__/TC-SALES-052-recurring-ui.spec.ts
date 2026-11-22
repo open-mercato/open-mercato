@@ -155,8 +155,19 @@ test.describe('TC-SALES-052 recurring billing UI', () => {
 
       await page.getByTestId('sales-recurrence-edit').click()
       const dialog = page.getByRole('dialog')
+      await expect(dialog.getByRole('heading', { name: 'Recurring schedule' })).toBeFocused()
       const periodCount = dialog.getByTestId('sales-recurrence-period-count')
       await periodCount.fill('6')
+
+      const frequency = dialog.getByTestId('sales-recurrence-frequency')
+      await frequency.click()
+      const options = page.getByRole('listbox')
+      await expect(options).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(options).toBeHidden()
+      await expect(dialog).toBeVisible()
+      await expect(periodCount).toHaveValue('6')
+
       await expect(dialog.getByTestId('sales-recurrence-preview')).toContainText('Ends on')
       await periodCount.press('ControlOrMeta+Enter')
 
