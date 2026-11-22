@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteGeneralEntityIfExists, expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
@@ -24,6 +24,20 @@ async function readSubmissionById(
   expect(response.status(), `GET evidence submission by id should return 200: ${response.status()}`).toBe(200)
   const body = await readJsonSafe<{ items?: EvidenceSubmissionRow[] }>(response)
   return body?.items?.[0] ?? null
+}
+
+type ValidationErrorBody = {
+  error?: string
+  details?: Array<{ path?: unknown[]; message?: string }>
+}
+
+async function expectHarvestRangeRefusal(response: APIResponse, label: string): Promise<ValidationErrorBody | null> {
+  expect(response.status(), `${label} should return 400`).toBe(400)
+  const body = await readJsonSafe<ValidationErrorBody>(response)
+  expect(body?.details).toEqual([
+    expect.objectContaining({ path: ['harvestTo'], message: 'eudr.errors.harvestRange' }),
+  ])
+  return body
 }
 
 /**
@@ -58,22 +72,25 @@ test.describe('TC-EUDR-023: Evidence submission single-date harvest range update
       const created = await readJsonSafe<{ id?: string }>(createResponse)
       submissionId = expectId(created?.id, 'Evidence submission create response should include id')
 
+      const bothDatesResponse = await apiRequest(request, 'PUT', EVIDENCE_SUBMISSIONS_PATH, {
+        token,
+        data: { id: submissionId, harvestFrom: '2024-09-01T00:00:00.000Z', harvestTo: '2023-01-01T00:00:00.000Z' },
+      })
+      const bothDatesBody = await expectHarvestRangeRefusal(bothDatesResponse, 'inverted both-dates update')
+
       const invertedToResponse = await apiRequest(request, 'PUT', EVIDENCE_SUBMISSIONS_PATH, {
         token,
         data: { id: submissionId, harvestTo: '2023-01-01T00:00:00.000Z' },
       })
-      expect(invertedToResponse.status(), 'harvestTo-only update before stored harvestFrom should return 400').toBe(400)
-      const invertedToBody = await readJsonSafe<{ error?: string }>(invertedToResponse)
-      expect(typeof invertedToBody?.error === 'string' && invertedToBody.error.length > 0).toBe(true)
-      expect(invertedToBody?.error).not.toBe('eudr.errors.harvestRange')
+      const invertedToBody = await expectHarvestRangeRefusal(invertedToResponse, 'harvestTo-only update before stored harvestFrom')
+      expect(invertedToBody?.error).toBe(bothDatesBody?.error)
 
       const invertedFromResponse = await apiRequest(request, 'PUT', EVIDENCE_SUBMISSIONS_PATH, {
         token,
         data: { id: submissionId, harvestFrom: '2024-09-01T00:00:00.000Z' },
       })
-      expect(invertedFromResponse.status(), 'harvestFrom-only update after stored harvestTo should return 400').toBe(400)
-      const invertedFromBody = await readJsonSafe<{ error?: string }>(invertedFromResponse)
-      expect(invertedFromBody?.error).toBe(invertedToBody?.error)
+      const invertedFromBody = await expectHarvestRangeRefusal(invertedFromResponse, 'harvestFrom-only update after stored harvestTo')
+      expect(invertedFromBody?.error).toBe(bothDatesBody?.error)
 
       const unchanged = await readSubmissionById(request, token, submissionId)
       expect(unchanged?.harvestFrom?.slice(0, 10)).toBe('2024-01-01')

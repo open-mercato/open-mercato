@@ -268,6 +268,18 @@ export const evidenceSubmissionUpdateSchema = rejectServerComputedFields(serverC
     .superRefine(validateHarvestRange),
 )
 
+type HarvestRange = { harvestFrom?: Date | null; harvestTo?: Date | null }
+
+const harvestRangeStateSchema = z.custom<HarvestRange>().superRefine(validateHarvestRange)
+
+export function validateHarvestRangeAgainstStored(stored: HarvestRange, patch: HarvestRange): void {
+  if (patch.harvestFrom === undefined && patch.harvestTo === undefined) return
+  harvestRangeStateSchema.parse({
+    harvestFrom: patch.harvestFrom !== undefined ? patch.harvestFrom : stored.harvestFrom ?? null,
+    harvestTo: patch.harvestTo !== undefined ? patch.harvestTo : stored.harvestTo ?? null,
+  })
+}
+
 const riskCriteriaEntrySchema = z.object({
   answer: z.enum(EUDR_CRITERIA_ANSWERS),
   note: z.string().max(2000).optional().nullable(),

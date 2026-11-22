@@ -31,6 +31,7 @@ import { EudrEvidenceSubmission, EudrPlot } from '../data/entities'
 import {
   evidenceSubmissionCreateSchema,
   evidenceSubmissionUpdateSchema,
+  validateHarvestRangeAgainstStored,
   type EvidenceSubmissionCreateInput,
   type EvidenceSubmissionUpdateInput,
 } from '../data/validators'
@@ -294,15 +295,6 @@ function withoutCompleteness(snapshot: EvidenceSubmissionSnapshot): EvidenceSubm
   return { ...snapshot, completenessScore: 0, missingFields: [] }
 }
 
-function assertHarvestRangeAfterUpdate(record: EudrEvidenceSubmission, parsed: EvidenceSubmissionUpdateInput): void {
-  if (parsed.harvestFrom === undefined && parsed.harvestTo === undefined) return
-  const nextHarvestFrom = parsed.harvestFrom !== undefined ? parsed.harvestFrom : record.harvestFrom
-  const nextHarvestTo = parsed.harvestTo !== undefined ? parsed.harvestTo : record.harvestTo
-  if (nextHarvestFrom && nextHarvestTo && nextHarvestFrom > nextHarvestTo) {
-    throw new CrudHttpError(400, { error: 'eudr.errors.harvestRange' })
-  }
-}
-
 function applySubmissionUpdate(record: EudrEvidenceSubmission, parsed: EvidenceSubmissionUpdateInput): void {
   if (parsed.supplierEntityId !== undefined) record.supplierEntityId = parsed.supplierEntityId
   if (parsed.supplierSnapshot !== undefined) record.supplierSnapshot = parsed.supplierSnapshot ?? null
@@ -548,7 +540,7 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
         }),
         phases: [
           async () => {
-            assertHarvestRangeAfterUpdate(record, parsed)
+            validateHarvestRangeAgainstStored(record, parsed)
             const nextSupplierEntityId = parsed.supplierEntityId ?? record.supplierEntityId
             const nextPlotIds = parsed.plotIds !== undefined
               ? [...parsed.plotIds]

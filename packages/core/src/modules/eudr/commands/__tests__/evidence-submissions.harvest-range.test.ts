@@ -1,12 +1,11 @@
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { z } from 'zod'
 
 const sideEffects = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => ({
   loadCustomFieldSnapshot: jest.fn(async () => ({})),
-  buildCustomFieldResetMap: jest.fn(),
 }))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: async () => [],
@@ -62,10 +61,14 @@ function harness(harvestFrom: string | null, harvestTo: string | null) {
     updatedAt: new Date('2026-11-01T00:00:00Z'),
     deletedAt: null,
   }
+  const queryBuilder: Record<string, unknown> = {}
+  for (const method of ['selectFrom', 'select', 'where']) queryBuilder[method] = jest.fn(() => queryBuilder)
+  queryBuilder.executeTakeFirst = jest.fn(async () => ({ attachment_count: 0 }))
   const em = {
     fork: jest.fn(),
     transactional: jest.fn(async (work: (tx: unknown) => Promise<unknown>) => work(em)),
     findOne: jest.fn(async () => record),
+    getKysely: jest.fn(() => queryBuilder),
   }
   em.fork.mockReturnValue(em)
   const ctx = {
@@ -81,6 +84,15 @@ function harness(harvestFrom: string | null, harvestTo: string | null) {
   return { record, ctx, command }
 }
 
+function expectHarvestRangeIssue(error: unknown): void {
+  expect(error).toBeInstanceOf(z.ZodError)
+  if (error instanceof z.ZodError) {
+    expect(error.issues).toEqual([
+      expect.objectContaining({ path: ['harvestTo'], message: 'eudr.errors.harvestRange' }),
+    ])
+  }
+}
+
 async function captureError(run: () => Promise<unknown>): Promise<unknown> {
   return run().then(() => null, (caught: unknown) => caught)
 }
@@ -94,11 +106,7 @@ describe('EUDR evidence submission update harvest range', () => {
     const { record, ctx, command } = harness('2024-01-01T00:00:00Z', '2024-06-01T00:00:00Z')
     const error = await captureError(() => command.execute({ id: RECORD_ID, harvestTo: '2023-01-01' }, ctx))
 
-    expect(isCrudHttpError(error)).toBe(true)
-    if (isCrudHttpError(error)) {
-      expect(error.status).toBe(400)
-      expect(error.body).toEqual({ error: 'eudr.errors.harvestRange' })
-    }
+    expectHarvestRangeIssue(error)
     expect(record.harvestFrom?.toISOString()).toBe('2024-01-01T00:00:00.000Z')
     expect(record.harvestTo?.toISOString()).toBe('2024-06-01T00:00:00.000Z')
     expect(sideEffects).not.toHaveBeenCalled()
@@ -108,12 +116,9 @@ describe('EUDR evidence submission update harvest range', () => {
     const { record, ctx, command } = harness('2024-01-01T00:00:00Z', '2024-06-01T00:00:00Z')
     const error = await captureError(() => command.execute({ id: RECORD_ID, harvestFrom: '2024-09-01' }, ctx))
 
-    expect(isCrudHttpError(error)).toBe(true)
-    if (isCrudHttpError(error)) {
-      expect(error.status).toBe(400)
-      expect(error.body).toEqual({ error: 'eudr.errors.harvestRange' })
-    }
+    expectHarvestRangeIssue(error)
     expect(record.harvestFrom?.toISOString()).toBe('2024-01-01T00:00:00.000Z')
+    expect(record.harvestTo?.toISOString()).toBe('2024-06-01T00:00:00.000Z')
     expect(sideEffects).not.toHaveBeenCalled()
   })
 
