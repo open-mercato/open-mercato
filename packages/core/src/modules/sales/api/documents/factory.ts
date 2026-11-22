@@ -28,7 +28,6 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { isUuidListParam, parseIdsParam, splitIdListParam } from '@open-mercato/shared/lib/crud/ids'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { readDocumentEmail } from '../../lib/documentEmail'
-import { ensureDocumentNumberEditPermission } from '../../lib/documentNumberPermissions'
 
 type DocumentKind = 'order' | 'quote'
 
@@ -624,16 +623,6 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
           const { base, custom } = splitCustomFieldPayload(raw ?? {})
-          const numberValue =
-            binding.kind === 'order'
-              ? (base as Record<string, unknown>).orderNumber
-              : (base as Record<string, unknown>).quoteNumber
-          if (typeof numberValue === 'string') {
-            await ensureDocumentNumberEditPermission(ctx, {
-              tenantId: ctx.auth?.tenantId ?? null,
-              organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-            })
-          }
           const payload = Object.keys(custom).length ? { ...base, customFields: custom } : base
           return withExactDocumentInput(parseScopedCommandInput(documentUpdateSchema, payload, ctx, translate), payload)
         },
