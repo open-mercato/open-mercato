@@ -46,6 +46,12 @@ type SqlConnection = {
 // previously had no TTL and shadowed the KMS's own 15-minute expiry.
 const DEK_CACHE_TTL_MS = 15 * 60 * 1000
 
+const KEYED_CUSTOMER_HASH_FIELDS = new Map([
+  ['customers:customer_entity', ['primary_email_hash', 'primaryEmailHash']],
+  ['customers:customer_company_profile', ['domain_hash', 'domainHash']],
+])
+let warnedMissingCustomerLookupPepper = false
+
 function readScopeId(row: Record<string, unknown>, column: string, property: string): string | null {
   const value = row[column] ?? row[property]
   return value == null ? null : String(value).toLowerCase()
@@ -534,13 +540,17 @@ export class TenantDataEncryptionService {
   private encryptFields(
     obj: Record<string, unknown>,
     fields: EncryptedFieldRule[],
-    dek: TenantDek
+    dek: TenantDek,
+    keyedHashFields?: readonly string[],
   ): Record<string, unknown> {
     const clone: Record<string, unknown> = { ...obj }
     for (const rule of fields) {
       const key = findKey(clone, rule.field)
       if (!key) continue
       const value = clone[key]
+      const hashField = rule.hashField
+      const keyedOnly = !!hashField && keyedHashFields?.includes(hashField)
+      if (value === null && hashField && keyedOnly) clone[findKey(clone, hashField) ?? hashField] = null
       if (value === null || value === undefined) continue
       // Avoid double-encrypting payloads that genuinely decrypt under this DEK.
       // A forged ciphertext-shaped string fails this check and is encrypted as
@@ -559,9 +569,14 @@ export class TenantDataEncryptionService {
       const serialized = typeof value === 'string' ? value : JSON.stringify(value)
       const payload = encryptWithAesGcm(serialized, dek.key)
       clone[key] = payload.value
-      if (rule.hashField) {
-        const hashKey = findKey(clone, rule.hashField) ?? rule.hashField
-        clone[hashKey] = hashForLookup(serialized)
+      if (hashField) {
+        const hash = hashForLookup(serialized)
+        const missingPepper = keyedOnly && !hash.startsWith('v2:')
+        if (missingPepper && !warnedMissingCustomerLookupPepper) {
+          warnedMissingCustomerLookupPepper = true
+          logger.warn('CRM lookup hash writes paused. Configure LOOKUP_HASH_PEPPER.')
+        }
+        clone[findKey(clone, hashField) ?? hashField] = missingPepper ? null : hash
       }
     }
     return clone
@@ -636,7 +651,7 @@ export class TenantDataEncryptionService {
       return payload
     }
     debug('🔒 encrypt_entity', { entityId, tenantId, organizationId, fields: fields.length })
-    return this.encryptFields(payload, fields, dek)
+    return this.encryptFields(payload, fields, dek, KEYED_CUSTOMER_HASH_FIELDS.get(entityId))
   }
 
   async decryptEntityPayload(

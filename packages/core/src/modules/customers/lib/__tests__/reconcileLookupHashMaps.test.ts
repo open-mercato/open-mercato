@@ -82,6 +82,10 @@ it('adds hash rules to the persisted policies while preserving custom fields and
     expect(result[hashField]).toBe(hashForLookup(plaintext))
     expect(result[hashField]).toMatch(/^v2:/)
     expect(result[hashField]).not.toBe(hashForLookup(plaintext, `${entityId}:${field}`))
+    const cleared = await service.encryptEntityPayload(
+      entityId, { [field]: null, [hashField]: result[hashField] }, tenantId, organizationId,
+    )
+    expect(cleared[hashField]).toBeNull()
   }
 })
 
@@ -146,4 +150,30 @@ it('leaves a missing-pepper upgrade retryable without changing the map', async (
   await expect(reconcileLookupHashMaps({ execute } as unknown as EntityManager, tenantId, organizationId))
     .rejects.toThrow('Configure LOOKUP_HASH_PEPPER')
   expect(execute).toHaveBeenCalledTimes(1)
+})
+
+it('seals new CRM values without persisting unkeyed lookups on a keyless Vault configuration', async () => {
+  delete process.env.LOOKUP_HASH_PEPPER
+  delete process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+  delete process.env.TENANT_DATA_ENCRYPTION_KEY
+  const entityId = 'customers:customer_company_profile'
+  const em = {
+    execute: jest.fn().mockResolvedValue([{
+      entity_id: entityId,
+      tenant_id: tenantId,
+      organization_id: organizationId,
+      fields_json: [{ field: 'domain', hashField: 'domain_hash' }],
+    }]),
+  } as unknown as EntityManager
+  const service = new TenantDataEncryptionService(em, {
+    kms: {
+      isHealthy: () => true,
+      getTenantDek: async () => ({ tenantId, key, fetchedAt: Date.now() }),
+      createTenantDek: async () => null,
+    },
+  })
+
+  const result = await service.encryptEntityPayload(entityId, { domain: 'example.test' }, tenantId, organizationId)
+  expect(decryptWithAesGcm(String(result.domain), key)).toBe('example.test')
+  expect(result.domain_hash).toBeNull()
 })

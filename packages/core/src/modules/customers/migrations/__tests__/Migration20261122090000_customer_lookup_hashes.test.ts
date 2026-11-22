@@ -21,8 +21,11 @@ describe('customer lookup hash migration', () => {
     ])
   })
 
-  test('drops only the new indexes and columns on rollback', () => {
-    expect(collectSql('down')).toEqual([
+  test('removes the managed rules before dropping the new indexes and columns', () => {
+    const [reconcileSql, ...schemaSql] = collectSql('down')
+    expect(reconcileSql).toContain("rule - 'hashField'")
+    expect(reconcileSql).toContain("'customers.seed-email-domain-hash-encryption-map'")
+    expect(schemaSql).toEqual([
       'drop index "customer_companies_domain_hash_idx";',
       'alter table "customer_companies" drop column "domain_hash";',
       'drop index "customer_entities_primary_email_hash_idx";',

@@ -218,6 +218,25 @@ The lookup pepper keys the hashes used for exact matches such as sign-in by emai
 
 The command uses the existing data-encryption keys to read encrypted sources and updates their existing hash columns in batches. It verifies each stored digest against a mapped source and the configured peppers, including legacy unkeyed digests. A preview reads the same rows without writing hashes or provisioning keys. If a source cannot be decrypted or verified, or a concurrent edit changes a row, resolve the error and re-run the same scope. Keep the previous pepper configured until every scope is complete. Coordinate any changes to encryption maps separately from the rehash.
 
+## Backfilling CRM email and company domain lookup hashes
+
+Deploy the new application and workers across the installation before activating the rules or running the backfill. Older index workers can copy the new columns into query documents.
+
+Set a strong, stable `LOOKUP_HASH_PEPPER` on all app and CLI instances. A Vault-only installation needs this dedicated secret alongside the data-encryption keys provided by Vault. The encryption fallback key can also serve as the pepper. The digest is deterministic across tenants in one installation, so equal values can be correlated by someone with access to the hash columns. Application queries scope matches to one tenant and organization.
+
+After installing the new schema, run the **Enable encrypted customer lookups** upgrade action for each affected organization. This updates the active policy so subsequent writes include a keyed lookup hash. If upgrade actions are unavailable, edit the two existing policies in **Configuration → Encryption** and set `primary_email_hash` as the hash field for `primary_email` and `domain_hash` for `domain`. Keep the other field rules when saving the policies.
+
+Preview the hash backfill, then run it.
+
+~~~bash
+yarn mercato customers lookup-hashes:backfill --tenant-id <tenantId> --organization-id <organizationId> --dry-run
+yarn mercato customers lookup-hashes:backfill --tenant-id <tenantId> --organization-id <organizationId>
+~~~
+
+Omit `--organization-id` to process a tenant's organizations, or both scope flags to process all organizations. The command fills missing hashes for both encrypted and previously plaintext values without rewriting the source fields. Re-run it after an interruption. It skips fields without an active encryption rule and reports scopes that need reconciliation, a configured pepper, or a key to decrypt existing rows. Until policy reconciliation and the backfill finish, exact matching may fall back to scanning the newest 500 candidate rows. New CRM writes leave the lookup digest blank if no keyed pepper is available.
+
+For a rollback, stop the app and workers before reverting the migration. The rollback removes the two managed hash rules and their upgrade-action records before dropping the columns. Resume the older release after the rollback completes.
+
 ## Backfilling system-scoped records
 
 Some records exist before any tenant does — a self-service onboarding request is created while the person filling the form still has no workspace. Those entities are encrypted under a **system-scoped** map (`keyScope: 'system'`) declared in module code rather than under a per-tenant map in the database, so `rotate-encryption-key` never sees them: it walks the `encryption_maps` table and skips every row without a tenant.
