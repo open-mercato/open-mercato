@@ -821,7 +821,7 @@
                     <td><div class="cell-lines"><span>Jordan Doe</span><span class="t-hint">j.doe@example.com</span></div></td>
                     <td><span class="req-note">Pricing for 40 seats and moving over from our current CRM.</span></td>
                     <td class="num">Thu, 29 Oct, 13:40</td>
-                    <td><div class="cell-lines"><span class="badge badge-error" style="align-self:flex-start">2 h 10 min left</span><span class="t-hint">Overlaps Call: Q4 review</span></div></td>
+                    <td><div class="cell-lines"><span class="badge badge-error" style="align-self:flex-start">2 h 10 min left</span></div></td>
                     <td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end;flex-wrap:nowrap"><button class="btn btn-ghost btn-sm" data-goto="s11">Decline</button><button class="btn btn-outline btn-sm" data-goto="s10">Accept</button></div></td>
                   </tr>
                   <tr>
@@ -853,7 +853,7 @@
     <div class="note"><b>1</b><span>Removed: the four counter tiles (the pending count is already in the sidebar and on the tab), the status filter (duplicated the tabs), the Filters button, row selection and bulk Accept/Decline. Tabs are Pending, Upcoming and History.</span></div>
     <div class="note"><b>2</b><span><strong>Accept is one click.</strong> It creates a new CRM person for a new booker (or keeps the existing person for a reschedule), creates the meeting (the invitation is sent after the accept commits), then confirms the accepted meeting with a toast (screen 16). Only when the slot now overlaps something does a small dialog ask for confirmation (screen 10). Linking to an existing person stays a separate action afterwards (screen 17).</span></div>
     <div class="note"><b>3</b><span>The page has no primary button: Accept is a secondary (outline) button and Decline a ghost button, so the pending badge in the sidebar carries the emphasis. Every column that is not encrypted sorts on the server: Meeting, Requested and Respond by here, Status and Outcome on History. Booker, About and CRM person are encrypted, so they have no sort control on any tab; this is an accepted exception. The default is Respond by, soonest first.</span></div>
-    <div class="note"><b>4</b><span>"Respond by" turns into an error badge under 3 hours. The overlap hint names what the slot now overlaps. Users with <code>customers.booking.manage</code> also get an Owner column.</span></div>
+    <div class="note"><b>4</b><span>"Respond by" turns into an error badge under 3 hours. An overlap is shown only when accepting (screen 10). Users with <code>customers.booking.manage</code> also get an Owner column.</span></div>
   </div>
 </section>
 
@@ -1084,7 +1084,6 @@
           </div>
           <div class="cell-lines"><span style="font-size:0.875rem">Jordan Doe</span><span class="t-hint">j.doe@example.com</span></div>
           <span class="req-note">Pricing for 40 seats and moving over from our current CRM.</span>
-          <span class="t-hint" style="color:var(--status-warning-text)">Overlaps Call: Q4 review</span>
           <div class="req-acts"><button class="btn btn-ghost" data-goto="s11">Decline</button><button class="btn btn-outline" data-goto="s10">Accept</button></div>
         </div>
 
