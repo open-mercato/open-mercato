@@ -18,7 +18,7 @@ PR: #10365
 
 ### Phase 2: OAuth readiness
 
-- [ ] 2.1 Read scoped client configuration before enabling Gmail and show recovery guidance
+- [x] 2.1 Read scoped client configuration before enabling Gmail and show recovery guidance — e29acb4885
 
 ### Phase 3: Verification
 
