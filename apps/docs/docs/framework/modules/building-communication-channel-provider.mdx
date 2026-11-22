@@ -590,6 +590,32 @@ every write, **filter by `tenant_id` / `organization_id` and never by id alone**
 concurrent edit elsewhere in the blob is not clobbered, and drop a patch that would rewind a cursor —
 a late callback from a superseded connection must not overwrite fresher state.
 
+#### Checkpoint host-managed folder sync
+
+Resolve `channelFolderCursorStore` from the worker's container when the host
+syncs folders independently of the channel poller. A checkpoint is scoped to
+one channel and a provider folder ID. Use a stable, case-sensitive ID and take
+the channel, tenant, and exact organization from the authorized job context.
+Pass `null` for the organization only for a tenant-wide channel.
+
+```ts
+import type { ChannelFolderCursorStore } from '@open-mercato/core/modules/communication_channels/lib/channel-folder-cursor-store'
+
+const store = ctx.resolve<ChannelFolderCursorStore>('channelFolderCursorStore')
+const key = { channelId, tenantId, organizationId, folderId }
+const checkpoint = await store.read(key)
+const page = await fetchFolderPage(folderId, checkpoint?.cursor)
+
+await ingestFolderPage(page)
+const advanced = await store.advance(key, checkpoint?.version ?? null, page.nextCursor)
+```
+
+Advance after durable, idempotent ingestion. If `advance` returns `false`,
+reload the checkpoint before retrying. A competing worker may have moved it,
+or the channel may have become unavailable. Use only provider continuation
+state in the cursor and omit credentials and message content. Folder discovery,
+scheduling and provider calls remain the host worker's responsibility.
+
 ### 8. Integration manifest, health check and DI
 
 `integration.ts` is what the **Integrations** admin UI renders: title, description, credential
