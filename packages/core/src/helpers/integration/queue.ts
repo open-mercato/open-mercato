@@ -102,9 +102,5 @@ export async function drainIntegrationQueue(queueName: string, options: DrainQue
   if (process.env.OM_TEST_APP_ROOT?.trim()) {
     return drainQueueInAppProcess(queueName, resolved)
   }
-  const managed = parseBooleanToken(process.env.AUTO_SPAWN_WORKERS)
-    ?? parseBooleanToken(process.env.OM_AUTO_SPAWN_WORKERS)
-    ?? false
-  if (managed) return waitForManagedQueue(queueName, resolved)
   return drainQueueInCurrentProcess(queueName, resolved)
 }
