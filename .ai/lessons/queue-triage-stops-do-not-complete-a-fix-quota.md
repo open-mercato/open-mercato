@@ -8,3 +8,5 @@ topics: ["autofix", "triage", "completion"]
 # Queue triage stops do not complete a fix quota
 
 When a task asks for a number of fixes from an eligible queue, a missing implementation, existing fix PR, or unconfirmed defect only disqualifies that candidate. Continue selecting eligible replacements until the requested fixes are delivered or the eligible queue is exhausted. Respect active claims and keep the stop evidence; do not count a clean triage stop as a delivered fix. Check that candidate source exists on the assigned branch before spending a bounded worker slot.
+
+An existing implementation PR prevents a duplicate issue fix, but may still have unfinished repairs or validation. When the operator authorizes continuing that work, check the PR's own claims and holds and resume the existing PR through the continuation or PR-fix workflow. Match issue references in both PR titles and bodies. Preserve approval gates and distinguish a completed fix from triage-only evidence.

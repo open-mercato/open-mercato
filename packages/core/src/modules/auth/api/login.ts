@@ -18,6 +18,9 @@ import { getAppBaseUrl, isCrossSiteBrowserRequest } from '@open-mercato/shared/l
 import { handleAuthRouteError } from '@open-mercato/core/modules/auth/api/routeError'
 import { isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
+import { readBoundedRequestBytes, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
+
+const LOGIN_BODY_LIMIT_BYTES = 64 * 1024
 
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
   points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
@@ -51,8 +54,9 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
   const contentType = rawContentType.split(';')[0].trim().toLowerCase()
 
   try {
+    const bytes = await readBoundedRequestBytes(req, { maxBytes: LOGIN_BODY_LIMIT_BYTES })
     if (contentType === 'application/x-www-form-urlencoded') {
-      const body = await req.text()
+      const body = new TextDecoder().decode(bytes)
       const params = new URLSearchParams(body)
       const requireRoleRaw = String(params.get('requireRole') ?? params.get('role') ?? '').trim()
       return {
@@ -65,7 +69,9 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
       }
     }
 
-    const form = await req.formData()
+    const form = await new Response(new Uint8Array(bytes), {
+      headers: { 'content-type': rawContentType },
+    }).formData()
     const requireRoleRaw = String(form.get('requireRole') ?? form.get('role') ?? '').trim()
     return {
       email: String(form.get('email') ?? ''),
@@ -75,7 +81,8 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
       requiredRoles: requireRoleRaw ? parseRequiredRoles(requireRoleRaw) : [],
       redirectTo: String(form.get('redirect') ?? ''),
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) throw error
     return {
       email: '',
       password: '',
@@ -102,6 +109,9 @@ export async function POST(req: Request) {
   try {
     return await handleLoginRequest(req)
   } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return NextResponse.json({ ok: false, error: await resolveGenericLoginError() }, { status: 413 })
+    }
     return handleAuthRouteError(error, {
       scope: 'auth.login',
       message: await resolveGenericLoginError(),
@@ -310,6 +320,7 @@ const loginMethodDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed', schema: loginErrorSchema },
     { status: 401, description: 'Invalid credentials', schema: loginErrorSchema },
     { status: 403, description: 'User lacks required role, or the request was submitted cross-site', schema: loginErrorSchema },
+    { status: 413, description: 'Login form exceeds 64 KiB', schema: loginErrorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
   ],
 }

@@ -1075,7 +1075,34 @@ Playwright API-level tests verifying end-to-end rate limiting behavior:
 
 ---
 
+## Migration & Backward Compatibility — staff login body bound (#10334)
+
+The directly registered `POST /api/auth/login` bounds actual streamed input to
+64 KiB before decoding URL-encoded or multipart forms. Missing, malformed, or
+understated Content-Length cannot bypass the bound. Streamed overflow cancels
+the reader and returns 413 with the existing generic `{ ok: false, error }`
+shape before credential lookup, password verification, or session creation.
+Forms at or below the bound retain existing fields, CSRF checks, role/tenant
+hints, redirects, and identifier-based rate limiting.
+
+The STABLE HTTP route gains a size refusal for previously accepted oversized
+forms. A bridge accepting unbounded input would retain the allocation/parsing
+vulnerability. The Emergency Security Exception is requested for steps 1–3;
+named human maintainer acknowledgement remains required before merge.
+Clients must keep encoded forms, including multipart overhead, within 64 KiB
+and handle 413. Operators need no new startup option, configuration, schema
+migration, or cleanup. No deployment change is performed by this fix.
+
+Direct-handler regressions cover both encodings, absent/malformed/lying lengths,
+stream cancellation before exhaustion and authentication, accepted forms at
+65535/65536 bytes, and the existing successful and malformed login paths.
+
 ## Changelog
+
+### 2026-11-22 — Staff login body bound (#10334)
+
+- Documented the direct-route byte bound, cancellation and compatibility review;
+  added streamed-overflow and exact-limit regression coverage.
 
 ### Auth fallback isolation
 
