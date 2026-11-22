@@ -194,7 +194,7 @@ Undo entries written before deployment already carry `customFields`, because `lo
 
 - Allow negative `unitPriceNet`, `unitPriceGross`, `taxAmount`, `totalNetAmount` and `totalGrossAmount` on invoice lines. Keep `quantity` and `discountAmount` ≥ 0.
 - A line with any of those five fields below 0 must send both `totalNetAmount` and `totalGrossAmount`.
-- On such a line, a net ≤ 0 with a positive gross is rejected, because `deriveExactLineNetFromGross` rewrites that state (`deriveLineNetFromGross` at the anchor, `commands/shared.ts:135`), and that function stays unchanged. These lines are rejected today, so this narrows nothing.
+- On such a line, a net ≤ 0 with a positive gross is rejected, because `deriveExactLineNetFromGross` rewrites that state (`commands/shared.ts`), and that function stays unchanged. These lines are rejected today, so this narrows nothing.
 - The negative-line rule sits on the `lines` array, not on the line object: under zod 4 a refined object throws on `.partial()` and `.pick()`, so the exported line object stays unrefined.
 - Allow negative `taxTotalAmount`, `subtotalNetAmount` and `grandTotalNetAmount` in the header.
 
