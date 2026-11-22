@@ -73,9 +73,14 @@ test('TC-CHANNEL-EMAIL-033: OAuth readiness is scoped and exposes only configura
       .toEqual({ configured: false })
 
     const initiate = await request.post(oauthPath + '/gmail/initiate', { headers, data: {} })
-    expect(initiate.status()).toBe(200)
-    const authorize = await readJsonSafe<{ authorizeUrl?: string }>(initiate)
-    expect(authorize?.authorizeUrl).toMatch(/^https:\/\/accounts\.google\.com\//)
+    const authorize = await readJsonSafe<{ authorizeUrl?: string; code?: string }>(initiate)
+    if (process.env.OM_HUB_OAUTH_STATE_KEY ?? process.env.KMS_MASTER_KEY) {
+      expect(initiate.status()).toBe(200)
+      expect(authorize?.authorizeUrl).toMatch(/^https:\/\/accounts\.google\.com\//)
+    } else {
+      expect(initiate.status()).toBe(500)
+      expect(authorize?.code).toBe('missing_secret')
+    }
 
     roleId = await createRoleFixture(request, token, { name: 'mailbox-status-denied-' + randomUUID(), tenantId })
     await setRoleAclFeatures(request, token, {
