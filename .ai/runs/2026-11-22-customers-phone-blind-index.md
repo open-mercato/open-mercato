@@ -21,6 +21,8 @@ Phone data requires keyed hashing and successful verification under the existing
 
 ## Progress
 
+PR: #10299
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Characterization and writes
@@ -32,5 +34,9 @@ Phone data requires keyed hashing and successful verification under the existing
 
 - [x] 2.1 Query and verify indexed candidates — 17449ba464
 - [x] 2.2 Backfill historical phone digests and document rollout — a72d24a605
-- [ ] 2.3 Verify the API and run the validation gate
-- [ ] 2.4 Archive the phone lookup capability
+- [x] 2.3 Verify the API and run the validation gate — 33658f167f
+- [x] 2.4 Archive the phone lookup capability — 81e2906b8d
+
+## Verification
+
+The local package builds, generation, translation checks, typecheck, and app build passed. The workspace tests passed on Homebrew Node 24. The standalone scaffold suite passed separately on the official Node 24.18.0 distribution, which supports its nested macOS sandbox. TC-CRM-5515 passed in the managed ephemeral app.
