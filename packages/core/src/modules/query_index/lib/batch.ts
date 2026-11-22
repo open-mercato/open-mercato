@@ -1,7 +1,7 @@
 import { type Kysely, sql } from 'kysely'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
-import { buildIndexDocument, rebuildAggregateSearchField, type IndexCustomFieldValue } from './document'
+import { buildIndexDocument, omitCustomerLookupHashes, rebuildAggregateSearchField, type IndexCustomFieldValue } from './document'
 import { replaceSearchTokensForBatch, deleteSearchTokensForRecord, isSearchDebugEnabled } from './search-tokens'
 import { applyIndexDocEnrichers, type IndexDocEnrichmentTarget } from './doc-enrichers'
 import { passesSearchTokenIndexGates, resolveSearchTokenIndexGates } from './search-entity-policy'
@@ -294,7 +294,7 @@ export async function upsertIndexBatch(
     const recordId = built.recordId
     const scopeOrg = built.organizationId
     const scopeTenant = built.tenantId
-    let doc = built.doc
+    let doc = omitCustomerLookupHashes(built.doc, entityType)
     let tokenDoc: Record<string, unknown> = doc
     if (typeof options.encryptDoc === 'function') {
       try {
@@ -303,8 +303,8 @@ export async function upsertIndexBatch(
           tenantId: scopeTenant ?? null,
         })
         if (encrypted && typeof encrypted === 'object') {
-          doc = encrypted
-          tokenDoc = encrypted
+          doc = omitCustomerLookupHashes(encrypted, entityType)
+          tokenDoc = doc
         }
       } catch (encryptError) {
         // Falling through would write the plaintext document into entity_indexes,

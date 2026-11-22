@@ -16,7 +16,7 @@ import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
-import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
+import { attachAggregateSearchField, omitCustomerLookupHashes, rebuildAggregateSearchField } from './document'
 import { applyIndexDocEnrichers } from './doc-enrichers'
 import {
   createSearchTokenGateQueryEngine,
@@ -262,7 +262,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   // Kept outside the guard below: a failure while building the aggregate search field is a
   // bug in the aggregation or its configuration, and must surface instead of being mistaken
   // for an encryption failure and silently skipping encryption.
-  doc = attachAggregateSearchField(doc, { entityType: params.entityType })
+  doc = attachAggregateSearchField(omitCustomerLookupHashes(doc, params.entityType), { entityType: params.entityType })
 
   try {
     const encryption = resolveTenantEncryptionService(em as any)
@@ -290,7 +290,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     throw error
   }
 
-  return doc
+  return omitCustomerLookupHashes(doc, params.entityType)
 }
 
 export type UpsertIndexResult = {
@@ -488,7 +488,7 @@ export async function reindexSearchTokensForRecord(
   // rebuild and the token writer — that also makes the aggregate's blocklist filter and
   // the per-field one provably read the same snapshot, as the batch path already does.
   const searchConfig = resolveSearchConfig()
-  const searchDoc = rebuildAggregateSearchField(await tokenDoc, {
+  const searchDoc = rebuildAggregateSearchField(omitCustomerLookupHashes(await tokenDoc, args.entityType), {
     entityType: args.entityType,
     config: searchConfig,
   })

@@ -162,6 +162,28 @@ describe('Indexer', () => {
     expect(doc!.search_text).toContain('b')
   })
 
+  test('excludes CRM lookup digests from the document and aggregate, including values added by encryption', async () => {
+    const fake = createFakeKysely({
+      baseTable: 'customer_entities',
+      baseRows: [{ id: '1', display_name: 'Visible Name', primary_email_hash: 'persisted-digest' }],
+      cfValues: [],
+    })
+    const encryptEntityPayload = jest.fn(async (_entityId: string, payload: Record<string, unknown>) => ({
+      ...payload,
+      primary_email_hash: 'generated-digest',
+    }))
+    resolveEncryptionMock.mockReturnValue({ isEnabled: () => true, encryptEntityPayload })
+
+    const doc = await buildIndexDoc(
+      { getKysely: () => fake.db } as unknown as Parameters<typeof buildIndexDoc>[0],
+      { entityType: 'customers:customer_entity', recordId: '1', organizationId: 'org1', tenantId: 't1' },
+    )
+
+    expect(encryptEntityPayload).toHaveBeenCalled()
+    expect(doc).not.toHaveProperty('primary_email_hash')
+    expect(doc?.search_text).toBe('Visible Name')
+  })
+
   test('buildIndexDoc preserves a singleton value as an array for multi custom fields', async () => {
     const fake = createFakeKysely({
       baseTable: 'todos',

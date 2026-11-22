@@ -20,7 +20,8 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
     entityId: 'customers:customer_entity',
     fields: [
       { field: 'display_name' },
-      { field: 'primary_email' },
+      // Use findPeopleByAddresses for exact lookup. Existing scopes must reconcile this rule.
+      { field: 'primary_email', hashField: 'primary_email_hash' },
       { field: 'primary_phone' },
       { field: 'next_interaction_name' },
       { field: 'description' },
@@ -74,7 +75,8 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
     fields: [
       { field: 'legal_name' },
       { field: 'brand_name' },
-      { field: 'domain' },
+      // Use findCompaniesByDomains for exact lookup. Existing scopes must reconcile this rule.
+      { field: 'domain', hashField: 'domain_hash' },
       { field: 'website_url' },
       { field: 'industry' },
       { field: 'tax_id' },

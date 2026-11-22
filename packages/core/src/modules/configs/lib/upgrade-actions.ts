@@ -109,6 +109,29 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     },
   },
   {
+    id: 'customers.seed-email-domain-hash-encryption-map',
+    version: '0.11.0',
+    messageKey: 'customers.config.upgradeActions.emailDomainHashEncryptionMap.message',
+    ctaKey: 'customers.config.upgradeActions.emailDomainHashEncryptionMap.cta',
+    successKey: 'customers.config.upgradeActions.emailDomainHashEncryptionMap.success',
+    loadingKey: 'customers.config.upgradeActions.emailDomainHashEncryptionMap.loading',
+    requiredModules: ['customers'],
+    async run({ container, em, tenantId, organizationId, deferAfterCommit }) {
+      const [{ reconcileLookupHashMaps }, { invalidateEncryptionMapScopes }] = await Promise.all([
+        import('@open-mercato/core/modules/customers/lib/reconcileLookupHashMaps'),
+        import('@open-mercato/core/modules/entities/lib/encryption-maps'),
+      ])
+      const scopes = await reconcileLookupHashMaps(em, tenantId, organizationId)
+      const invalidate = async () => {
+        const service = container.resolve<Parameters<typeof invalidateEncryptionMapScopes>[0]>('tenantEncryptionService')
+        await invalidateEncryptionMapScopes(service, scopes)
+      }
+      if (scopes.length === 0) return
+      if (deferAfterCommit) deferAfterCommit(invalidate)
+      else await invalidate()
+    },
+  },
+  {
     id: 'customers.seed-interaction-statuses',
     version: '0.6.5',
     messageKey: 'customers.config.upgradeActions.interactionStatuses.message',
