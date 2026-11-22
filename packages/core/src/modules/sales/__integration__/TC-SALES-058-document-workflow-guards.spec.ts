@@ -56,12 +56,15 @@ async function withOrder(request: APIRequestContext, run: (context: {
     expect(typeof lineId).toBe('string')
     await run({ token, orderId, lineId: lineId as string, status, create, post })
   } finally {
+    const cleanupFailures: string[] = []
     for (const fixture of [...fixtures].reverse()) {
-      const response = await apiRequest(request, 'DELETE', fixture.path, {
+      const [result] = await Promise.allSettled([apiRequest(request, 'DELETE', fixture.path, {
         token, data: { id: fixture.id, ...(fixture.orderId ? { orderId: fixture.orderId } : {}) },
-      })
-      expect(response.status(), `cleanup ${fixture.path}/${fixture.id}`).toBe(200)
+      })])
+      if (result.status === 'rejected') cleanupFailures.push(`cleanup request failed: ${fixture.path}/${fixture.id}`)
+      else if (result.value.status() !== 200) cleanupFailures.push(`cleanup ${fixture.path}/${fixture.id}: HTTP ${result.value.status()}`)
     }
+    expect(cleanupFailures, 'All fixture teardown requests should succeed').toEqual([])
   }
 }
 
