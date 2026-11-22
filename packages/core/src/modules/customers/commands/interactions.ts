@@ -1067,7 +1067,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
           !customKeys.defined.has(key.toLowerCase()) || customKeys.allowed.has(key.toLowerCase())))
 
       const previousEntityId = interactionParentId(interaction.entity)
-      const entityId = parsed.entityId === undefined ? previousEntityId : parsed.entityId
+      const entityId = parsed.entityId === undefined ? previousEntityId : parsed.entityId?.toLowerCase() ?? null
       if (!entityId && (nextType === 'email' || interaction.interactionType === 'email')) {
         await requireEmailInteractionParent('email', entityId)
       }
@@ -1127,7 +1127,10 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         { ...sameTypeCustom, ...clearedCustom },
       )
 
-      const projections = await refreshInteractionProjections(trx, [entityId, previousEntityId], interaction)
+      const projections = await refreshInteractionProjections(trx, [
+        interactionParentId(interaction.entity),
+        previousEntityId,
+      ], interaction)
 
       return { interaction, projections }
     }, ctx.beforeTransactionalWrite, rawInput)

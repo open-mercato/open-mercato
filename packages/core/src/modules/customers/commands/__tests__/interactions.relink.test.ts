@@ -291,6 +291,21 @@ describe('customers.interactions.update — re-linking to a different CRM record
     expect(nextInteractionTargets(emitCalls)).toEqual([CURRENT_ENTITY_ID])
   })
 
+  it('uses the stored UUID for projections when the request uses uppercase', async () => {
+    const canonicalId = 'a1b2c3d4-1212-4121-8321-b1c2d3e4f509'
+    const current = createEntity(canonicalId, 'company')
+    const interaction = createInteraction(current)
+    const { ctx, emitCalls, recomputedEntityIds } = createHarness(interaction, [current])
+
+    await handler().execute!({
+      id: INTERACTION_ID, tenantId: TENANT_ID, organizationId: ORG_ID, entityId: canonicalId.toUpperCase(),
+    }, ctx)
+
+    expect(interaction.entity).toBe(current)
+    expect(recomputedEntityIds).toEqual([canonicalId])
+    expect(nextInteractionTargets(emitCalls)).toEqual([canonicalId])
+  })
+
   it('rejects an entity that belongs to another organization', async () => {
     const current = createEntity(CURRENT_ENTITY_ID, 'company')
     const foreign = createEntity(FOREIGN_ENTITY_ID, 'person', '77777777-7777-4777-8777-777777777777')
