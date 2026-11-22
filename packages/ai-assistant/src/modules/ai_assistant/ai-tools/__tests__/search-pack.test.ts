@@ -662,6 +662,40 @@ describe('search viewer for per-record visibility (PR #9648 B-8)', () => {
     expect(auth).not.toHaveProperty('userId')
   })
 
+  it('runs a session-key caller as the key together with its verified user', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = { ...makeCtx(), principalApiKeyId: 'session-key-1', apiKeyUserId: 'session-user-1' }
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup()))
+    await findTool('search.hybrid_search').handler({ q: 'clause' }, ctx as any)
+    const auth = (calls[0].options.viewer as { auth: Record<string, unknown> }).auth
+    expect(auth).toMatchObject({
+      sub: 'api_key:session-key-1',
+      isApiKey: true,
+      keyId: 'session-key-1',
+      userId: 'session-user-1',
+    })
+  })
+
+  it('runs a principal key without a verified user as the key alone', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = { ...makeCtx(), principalApiKeyId: 'key-2' }
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup()))
+    await findTool('search.hybrid_search').handler({ q: 'clause' }, ctx as any)
+    const auth = (calls[0].options.viewer as { auth: Record<string, unknown> }).auth
+    expect(auth).toMatchObject({ sub: 'api_key:key-2', isApiKey: true, keyId: 'key-2' })
+    expect(auth).not.toHaveProperty('userId')
+  })
+
+  it('runs a caller whose subject is an API key as that key', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = { ...makeCtx(), userId: 'api_key:key-3' }
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup()))
+    await findTool('search.hybrid_search').handler({ q: 'clause' }, ctx as any)
+    const auth = (calls[0].options.viewer as { auth: Record<string, unknown> }).auth
+    expect(auth).toMatchObject({ sub: 'api_key:key-3', isApiKey: true, keyId: 'key-3' })
+    expect(auth).not.toHaveProperty('userId')
+  })
+
   it('search.get_record_context passes the viewer', async () => {
     const { service, calls } = makeSearchService([])
     const ctx = makeCtx()

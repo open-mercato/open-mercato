@@ -81,8 +81,6 @@ export interface PendingActionAuthContext {
   tenantId: string
   organizationId: string | null
   userId: string
-  principalApiKeyId?: string
-  apiKeyUserId?: string
   userFeatures: string[]
   isSuperAdmin: boolean
   /**
@@ -408,8 +406,6 @@ export async function checkAttachmentScope(
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       userId: ctx.userId,
-      principalApiKeyId: ctx.principalApiKeyId,
-      apiKeyUserId: ctx.apiKeyUserId,
       isSuperAdmin: ctx.isSuperAdmin,
       container: ctx.container,
       em,
@@ -545,8 +541,6 @@ function toHandlerContext(ctx: PendingActionAuthContext): McpToolContext {
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId,
     userId: ctx.userId,
-    ...(ctx.principalApiKeyId ? { principalApiKeyId: ctx.principalApiKeyId } : {}),
-    ...(ctx.principalApiKeyId && ctx.apiKeyUserId ? { apiKeyUserId: ctx.apiKeyUserId } : {}),
     container: ctx.container as never,
     userFeatures: ctx.userFeatures,
     isSuperAdmin: ctx.isSuperAdmin,

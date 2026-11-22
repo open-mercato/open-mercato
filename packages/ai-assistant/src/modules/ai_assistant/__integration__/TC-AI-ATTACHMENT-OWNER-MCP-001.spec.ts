@@ -18,6 +18,7 @@ export const integrationMeta = { dependsOnModules: ['documents'] }
 
 type ReadPayload = { found?: boolean; attachmentId?: string; id?: string }
 type ListPayload = { items?: Array<{ id: string }>; total?: number }
+type SectionsPayload = { status?: string }
 
 /**
  * TC-AI-ATTACHMENT-OWNER-MCP-001: the HTTP MCP server (`mcp:serve-http`, run
@@ -28,7 +29,9 @@ type ListPayload = { items?: Array<{ id: string }>; total?: number }
  * document is shared with and refuse it to a user without the share, and after
  * the share is revoked; copies in another organization and another tenant are
  * refused to both. Without a session token the server key itself, a regular
- * key with the same role, is refused the document file. Every row is unchanged.
+ * key with the same role, is refused the document file.
+ * `attachments.get_document_sections` answers `not_found` to the same callers
+ * that are refused the file. Every row is unchanged.
  */
 test('TC-AI-ATTACHMENT-OWNER-MCP-001: HTTP MCP session tokens apply attachment owner access', async ({ request }) => {
   test.setTimeout(300_000)
@@ -76,19 +79,31 @@ test('TC-AI-ATTACHMENT-OWNER-MCP-001: HTTP MCP session tokens apply attachment o
         expect(outcome.isError, JSON.stringify(outcome.payload)).toBe(false)
         return ((outcome.payload as ListPayload).items ?? []).map((item) => item.id)
       }
+      const sectionsStatus = async (attachmentId: string, sessionToken?: string) => {
+        const outcome = await mcp.callTool(serverKey.secret, 'attachments.get_document_sections', {
+          attachmentId, includeText: false, ...(sessionToken ? { _sessionToken: sessionToken } : {}),
+        })
+        expect(outcome.isError, JSON.stringify(outcome.payload)).toBe(false)
+        return (outcome.payload as SectionsPayload).status
+      }
 
       const shared = await read(file, recipientSession)
       expect(shared.found, 'the session token of the shared user reads the file').toBe(true)
       expect(shared.id).toBe(file)
       expect(await list('documents:document', document, recipientSession), 'the shared user lists the file').toEqual([file])
+      expect(await sectionsStatus(file, recipientSession), 'the shared user reaches the document structure')
+        .not.toBe('not_found')
 
       expect(await read(file, unsharedSession), 'the session token of a user without the share is refused')
         .toEqual({ found: false, attachmentId: file })
       expect(await list('documents:document', document, unsharedSession), 'the user without the share lists nothing').toEqual([])
+      expect(await sectionsStatus(file, unsharedSession), 'the user without the share gets no document structure')
+        .toBe('not_found')
 
       expect(await read(file), 'the server key without a session token has no user share')
         .toEqual({ found: false, attachmentId: file })
       expect(await list('documents:document', document), 'the server key lists nothing').toEqual([])
+      expect(await sectionsStatus(file), 'the server key gets no document structure').toBe('not_found')
       expect((await read(libraryFile)).found, 'the server key still reads an unprotected library file').toBe(true)
 
       for (const session of [recipientSession, unsharedSession]) {
@@ -103,6 +118,8 @@ test('TC-AI-ATTACHMENT-OWNER-MCP-001: HTTP MCP session tokens apply attachment o
       expect(await read(file, recipientSession), 'the session token loses access with its user')
         .toEqual({ found: false, attachmentId: file })
       expect(await list('documents:document', document, recipientSession)).toEqual([])
+      expect(await sectionsStatus(file, recipientSession), 'the document structure is refused with the share')
+        .toBe('not_found')
 
       const after = await Promise.all(rowIds.map((id) => readAttachmentRowInDb(id)))
       expect(after, 'every row is unchanged').toEqual(before)

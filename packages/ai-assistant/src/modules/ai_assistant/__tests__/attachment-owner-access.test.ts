@@ -220,13 +220,6 @@ describe('pending-action recheck', () => {
     await expect(checkAttachmentScope(action, recheckCtx)).resolves.toMatchObject({ ok: false, status: 403, code: 'attachment_access_denied' })
   })
 
-  it('evaluates a key-authenticated confirmation as the key, with the verified user of a session key', async () => {
-    findWithDecryptionMock.mockResolvedValueOnce([plainRow])
-    denyIds()
-    await checkAttachmentScope(action, { ...recheckCtx, principalApiKeyId: 'key-1', apiKeyUserId: 'user-2' })
-    expect(buildAttachmentAccessAuthMock).toHaveBeenCalledWith(expect.objectContaining({ apiKeyId: 'key-1', apiKeyUserId: 'user-2' }))
-  })
-
   it('evaluates without a principal when no container is available, so only protected rows are denied', async () => {
     findWithDecryptionMock.mockResolvedValueOnce([protectedRow])
     denyIds('protected')

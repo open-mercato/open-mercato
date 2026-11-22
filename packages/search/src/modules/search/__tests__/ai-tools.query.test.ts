@@ -33,6 +33,8 @@ function makeCtx(overrides: {
   organizationId?: string | null
   orgScope?: { em: unknown; rbacService: unknown }
   apiKeyId?: string | null
+  principalApiKeyId?: string | null
+  apiKeyUserId?: string | null
 } = {}) {
   const mockSearch = jest.fn().mockResolvedValue([
     { entityId: 'catalog:product', recordId: 'c1', score: 0.8, source: 'fulltext', presenter: { title: 'Widget' } },
@@ -49,6 +51,8 @@ function makeCtx(overrides: {
     userFeatures: overrides.userFeatures ?? ['search.global', 'catalog.products.view'],
     isSuperAdmin: overrides.isSuperAdmin ?? false,
     apiKeyId: overrides.apiKeyId ?? null,
+    ...(overrides.principalApiKeyId ? { principalApiKeyId: overrides.principalApiKeyId } : {}),
+    ...(overrides.apiKeyUserId ? { apiKeyUserId: overrides.apiKeyUserId } : {}),
     container: {
       resolve: (name: string) => {
         if (name === 'searchIndexer') return searchIndexer
@@ -151,6 +155,35 @@ describe('search_query tool', () => {
 
       const viewer = mockSearch.mock.calls[0][1].viewer
       expect(viewer.auth).toMatchObject({ sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', tenantId: 'tenant-1' })
+      expect(viewer.auth).not.toHaveProperty('userId')
+    })
+
+    it('runs a session-key caller as the key together with its verified user', async () => {
+      const orgScope = makeOrgScopeResolver({ aclOrganizations: null })
+      const { ctx, mockSearch } = makeCtx({
+        orgScope,
+        principalApiKeyId: 'session-key-1',
+        apiKeyUserId: 'session-user-1',
+      })
+
+      await queryTool.handler({ query: 'widget' }, ctx)
+
+      expect(mockSearch.mock.calls[0][1].viewer.auth).toMatchObject({
+        sub: 'api_key:session-key-1',
+        isApiKey: true,
+        keyId: 'session-key-1',
+        userId: 'session-user-1',
+      })
+    })
+
+    it('ignores a verified user that comes without a key principal', async () => {
+      const orgScope = makeOrgScopeResolver({ aclOrganizations: null })
+      const { ctx, mockSearch } = makeCtx({ orgScope, apiKeyId: 'key-1', apiKeyUserId: 'session-user-1' })
+
+      await queryTool.handler({ query: 'widget' }, ctx)
+
+      const viewer = mockSearch.mock.calls[0][1].viewer
+      expect(viewer.auth).toMatchObject({ sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1' })
       expect(viewer.auth).not.toHaveProperty('userId')
     })
 

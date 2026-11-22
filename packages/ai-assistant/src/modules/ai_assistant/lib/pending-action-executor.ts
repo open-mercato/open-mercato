@@ -49,8 +49,6 @@ export interface PendingActionExecuteContext {
   tenantId: string
   organizationId: string | null
   userId: string
-  principalApiKeyId?: string
-  apiKeyUserId?: string
   userFeatures: string[]
   isSuperAdmin: boolean
   container: import('awilix').AwilixContainer
@@ -314,8 +312,6 @@ function toToolHandlerContext(
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId,
     userId: ctx.userId,
-    ...(ctx.principalApiKeyId ? { principalApiKeyId: ctx.principalApiKeyId } : {}),
-    ...(ctx.principalApiKeyId && ctx.apiKeyUserId ? { apiKeyUserId: ctx.apiKeyUserId } : {}),
     container: ctx.container,
     userFeatures: ctx.userFeatures,
     isSuperAdmin: ctx.isSuperAdmin,
