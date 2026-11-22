@@ -22,6 +22,7 @@ import { CustomerUserInvitation } from '@open-mercato/core/modules/customer_acco
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CancelInvitationResult } from '../../commands/invitations'
@@ -200,17 +201,25 @@ export async function POST(req: Request) {
 
   const customerInvitationService = container.resolve('customerInvitationService') as CustomerInvitationService
 
-  const { invitation, rawToken, rollbackState } = await customerInvitationService.createInvitation(
-    parsed.data.email,
-    { tenantId: auth.tenantId!, organizationId: auth.orgId! },
-    {
-      customerEntityId: resolvedCustomerEntityId,
-      personEntityId: parsed.data.personEntityId || null,
-      roleIds: parsed.data.roleIds,
-      invitedByUserId: resolveInvitedByUserId(auth),
-      displayName: parsed.data.displayName || null,
-    },
-  )
+  let created: Awaited<ReturnType<CustomerInvitationService['createInvitation']>>
+  try {
+    created = await customerInvitationService.createInvitation(
+      parsed.data.email,
+      { tenantId: auth.tenantId!, organizationId: auth.orgId! },
+      {
+        customerEntityId: resolvedCustomerEntityId,
+        personEntityId: parsed.data.personEntityId || null,
+        roleIds: parsed.data.roleIds,
+        invitedByUserId: resolveInvitedByUserId(auth),
+        displayName: parsed.data.displayName || null,
+      },
+    )
+  } catch (error) {
+    if (!isCrudHttpError(error)) throw error
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ ...translateCrudErrorBody(error.body, translate), ok: false }, { status: error.status })
+  }
+  const { invitation, rawToken, rollbackState } = created
 
   try {
     await sendCustomerInvitationEmail({
@@ -334,6 +343,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed', schema: errorSchema },
     { status: 401, description: 'Not authenticated', schema: errorSchema },
     { status: 403, description: 'Insufficient permissions', schema: errorSchema },
+    { status: 409, description: 'A pending invitation for this email is linked to another person', schema: errorSchema },
     { status: 429, description: 'Too many invitation requests', schema: rateLimitErrorSchema },
     { status: 502, description: 'Invitation email could not be sent', schema: errorSchema },
   ],

@@ -10,6 +10,7 @@ import {
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { conflict } from '@open-mercato/shared/lib/crud/errors'
 import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
 
 const BCRYPT_COST = 10
@@ -119,6 +120,12 @@ export class CustomerInvitationService {
       )
 
       if (existing && !existing.acceptedAt && !existing.cancelledAt && existing.expiresAt.getTime() > Date.now()) {
+        if (
+          existing.personEntityId && options.personEntityId
+          && existing.personEntityId.toLowerCase() !== options.personEntityId.toLowerCase()
+        ) {
+          throw conflict('customer_accounts.errors.invitationLinkedToAnotherPerson')
+        }
         const rollbackState: CustomerInvitationRollbackState = {
           email: existing.email,
           token: existing.token,
@@ -138,7 +145,7 @@ export class CustomerInvitationService {
         // page only ever know the company, so overwriting with null would strip an
         // invitation raised from a person card off that person's account-status card
         // and drop the personalization from the invitation email (#5499).
-        existing.personEntityId = options.personEntityId || existing.personEntityId || null
+        existing.personEntityId = existing.personEntityId || options.personEntityId || null
         existing.roleIdsJson = options.roleIds
         existing.invitedByUserId = options.invitedByUserId || null
         existing.invitedByCustomerUserId = options.invitedByCustomerUserId || null

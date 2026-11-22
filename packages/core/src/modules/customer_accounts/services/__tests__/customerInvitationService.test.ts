@@ -490,7 +490,12 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
     service = new CustomerInvitationService(mockEm as unknown as EntityManager)
   })
 
-  it('reuses an existing pending invitation instead of inserting a new row', async () => {
+  const personEntityId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+
+  it.each([
+    { existingPersonEntityId: null, requestedPersonEntityId: personEntityId },
+    { existingPersonEntityId: personEntityId, requestedPersonEntityId: personEntityId.toUpperCase() },
+  ])('reuses a pending invitation linked to $existingPersonEntityId', async ({ existingPersonEntityId, requestedPersonEntityId }) => {
     const existing = {
       id: 'inv-existing',
       email: 'old@example.com',
@@ -499,6 +504,7 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
       emailHash: 'email-hash',
       token: 'old-hashed-token',
       customerEntityId: null,
+      personEntityId: existingPersonEntityId,
       roleIdsJson: ['old-role'],
       invitedByUserId: null,
       invitedByCustomerUserId: null,
@@ -513,12 +519,11 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
       return null
     })
 
-    const personEntityId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
     const beforeExpiresAt = existing.expiresAt.getTime()
     const result = await service.createInvitation(
       ' New@Example.COM ',
       { tenantId, organizationId },
-      { roleIds, personEntityId, invitedByUserId: 'inviter-1', displayName: 'Refreshed Name' },
+      { roleIds, personEntityId: requestedPersonEntityId, invitedByUserId: 'inviter-1', displayName: 'Refreshed Name' },
     )
 
     expect(mockEm.create).not.toHaveBeenCalled()
@@ -554,6 +559,34 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
     expect(dedupeFinds[0][1].expiresAt).toHaveProperty('$gt')
     expect(dedupeFinds[0][2]).toMatchObject({ lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
     expect(mockEm.transactional).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a different person without changing the existing pending invitation', async () => {
+    const existing = {
+      id: 'inv-existing',
+      email: 'shared@example.com',
+      tenantId,
+      organizationId,
+      personEntityId,
+      token: 'original-hashed-token',
+      roleIdsJson: ['original-role'],
+      displayName: 'Original Recipient',
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+    }
+    const original = { ...existing }
+    ;(mockEm.findOne as jest.Mock).mockResolvedValue(existing)
+
+    await expect(service.createInvitation(
+      existing.email,
+      { tenantId, organizationId },
+      { roleIds, personEntityId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', displayName: 'Other Recipient' },
+    )).rejects.toMatchObject({ status: 409 })
+
+    expect(existing).toEqual(original)
+    expect(mockEm.create).not.toHaveBeenCalled()
+    expect(mockEm.flush).not.toHaveBeenCalled()
   })
 
   // #5499: re-inviting the same address from a surface that only knows the company

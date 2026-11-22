@@ -27,6 +27,7 @@ interface AccountStatusData {
 interface PendingInvitationData {
   id: string
   email: string
+  personEntityId: string | null
   expiresAt: string
 }
 
@@ -327,7 +328,9 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
       // address is the one identity every invitation carries, so match on it
       // before reporting "no account" for someone who was already invited (#5499).
       if (!personEmail) return null
-      return fetchPendingInvitation(`email=${encodeURIComponent(personEmail)}`)
+      const byEmail = await fetchPendingInvitation(`email=${encodeURIComponent(personEmail)}`)
+      if (byEmail?.personEntityId && byEmail.personEntityId.toLowerCase() !== personEntityId.toLowerCase()) return null
+      return byEmail
     },
     enabled: !!personEntityId && !isLoading && !accountReadFailed && !data && !isLoadingPerson && !personReadFailed,
   })

@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { NextResponse } from 'next/server'
+import { conflict } from '@open-mercato/shared/lib/crud/errors'
 import { hashToken } from '../../../lib/tokenGenerator'
 
 const mockCheckAuthRateLimit = jest.fn()
@@ -44,6 +45,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: () => 'A pending invitation for this email belongs to another person.' }),
 }))
 
 function makeInviteRequest(): Request {
@@ -104,6 +109,21 @@ describe('admin customer account user invite route', () => {
         invitedByUserId: staffUserId,
       }),
     )
+  })
+
+  it('returns a translated invitation conflict without sending email or rolling back', async () => {
+    mockCreateInvitation.mockRejectedValueOnce(conflict('customer_accounts.errors.invitationLinkedToAnotherPerson'))
+    const { POST } = await import('../users-invite')
+
+    const response = await POST(makeInviteRequest())
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'A pending invitation for this email belongs to another person.',
+    })
+    expect(mockSendCustomerInvitationEmail).not.toHaveBeenCalled()
+    expect(mockRollbackInvitation).not.toHaveBeenCalled()
   })
 
   it('stores null invitedByUserId for machine-only API keys', async () => {

@@ -104,6 +104,7 @@ describe('customer_accounts AccountStatusWidget loading transition (#5499)', () 
             items: [{
               id: 'invitation-orphan',
               email: ORPHAN_EMAIL,
+              personEntityId: null,
               expiresAt: '2026-06-18T12:00:00.000Z',
             }],
             total: 1,
@@ -166,5 +167,34 @@ describe('customer_accounts AccountStatusWidget loading transition (#5499)', () 
     expect(await screen.findByText('No portal account linked')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /invite to portal/i })).toBeEnabled()
     expect(screen.queryByText('Invitation pending')).not.toBeInTheDocument()
+  })
+
+  it('does not show another person’s invitation when the primary email is shared', async () => {
+    mockApiCall.mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('/api/customers/people/')) {
+        return { ok: true, result: { person: { primaryEmail: ORPHAN_EMAIL } } } as never
+      }
+      if (typeof url === 'string' && url.includes(`email=${encodeURIComponent(ORPHAN_EMAIL)}`)) {
+        return {
+          ok: true,
+          result: {
+            items: [{
+              id: 'invitation-other-person',
+              email: ORPHAN_EMAIL,
+              personEntityId: 'person-entity-2',
+              expiresAt: '2026-06-18T12:00:00.000Z',
+            }],
+          },
+        } as never
+      }
+      return { ok: true, result: { items: [] } } as never
+    })
+
+    renderWidget()
+
+    expect(await screen.findByText('No portal account linked')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /invite to portal/i })).toBeEnabled()
+    expect(screen.queryByText('Invitation pending')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /resend invitation|cancel invitation/i })).not.toBeInTheDocument()
   })
 })
