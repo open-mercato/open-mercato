@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -20,11 +20,11 @@ const statusHeaders = { 'Cache-Control': 'no-store' }
 
 type RouteContext = {
   params: Promise<{ provider: string }> | { provider: string }
-  auth?: AuthContext
+  auth: AuthContext
 }
 
-export async function GET(req: Request, context: RouteContext): Promise<Response> {
-  const auth = context.auth === undefined ? await getAuthFromRequest(req) : context.auth
+export async function GET(_req: Request, context: RouteContext): Promise<Response> {
+  const { auth } = context
   if (!auth?.sub || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

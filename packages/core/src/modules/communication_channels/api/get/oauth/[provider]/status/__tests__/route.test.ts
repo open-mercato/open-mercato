@@ -1,16 +1,11 @@
 import { GET, metadata } from '../route'
 
-const mockGetAuth = jest.fn()
 const mockResolveCredentials = jest.fn()
 const mockBuildOAuthUrl = jest.fn()
 const mockGetAdapter = jest.fn()
 const mockResolveService = jest.fn()
 const mockReportError = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
-
-jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: () => mockGetAuth(),
-}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({ resolve: mockResolveService }),
@@ -31,15 +26,16 @@ jest.mock('../../../../../../lib/adapter-registry-singleton', () => ({
 const tenantId = 'tenant-1'
 const organizationId = 'org-1'
 
-function requestStatus(provider = 'gmail') {
+const dispatcherAuth = { sub: 'user-1', tenantId, orgId: organizationId }
+
+function requestStatus(provider = 'gmail', auth: typeof dispatcherAuth | null = dispatcherAuth) {
   const req = new Request('https://app.example.test/api/communication_channels/oauth/gmail/status')
-  return GET(req, { params: Promise.resolve({ provider }) })
+  return GET(req, { params: Promise.resolve({ provider }), auth })
 }
 
 describe('GET OAuth provider setup status', () => {
   beforeEach(() => {
     jest.resetAllMocks()
-    mockGetAuth.mockResolvedValue({ sub: 'user-1', tenantId, orgId: organizationId })
     mockResolveCredentials.mockResolvedValue(null)
     mockUserHasAllFeatures.mockResolvedValue(true)
     mockResolveService.mockImplementation((token: string) => token === 'rbacService'
@@ -124,7 +120,6 @@ describe('GET OAuth provider setup status', () => {
     })
 
     expect(response.status).toBe(200)
-    expect(mockGetAuth).not.toHaveBeenCalled()
     expect(mockUserHasAllFeatures).toHaveBeenCalledWith(
       'dispatcher-user', ['communication_channels.connect_user_channel'], { tenantId, organizationId },
     )
@@ -154,13 +149,11 @@ describe('GET OAuth provider setup status', () => {
   })
 
   it('requires mailbox connection access and does not look up credentials for an anonymous caller', async () => {
-    mockGetAuth.mockResolvedValue(null)
-
     expect(metadata.GET).toEqual({
       requireAuth: true,
       requireFeatures: ['communication_channels.connect_user_channel'],
     })
-    expect((await requestStatus()).status).toBe(401)
+    expect((await requestStatus('gmail', null)).status).toBe(401)
     expect(mockGetAdapter).not.toHaveBeenCalled()
     expect(mockResolveService).not.toHaveBeenCalled()
   })

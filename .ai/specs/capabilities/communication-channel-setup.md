@@ -1,6 +1,6 @@
 # Communication channel setup
 
-Source: [Communication channel setup navigation](../2026-11-22-communication-channel-setup.md) and [issue #6172](https://github.com/open-mercato/open-mercato/issues/6172).
+Source: [Communication channel setup navigation](https://github.com/open-mercato/open-mercato/pull/10364) and [issue #6172](https://github.com/open-mercato/open-mercato/issues/6172).
 
 ## Requirement: Find the next setup step from shared channels
 
