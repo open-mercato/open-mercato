@@ -172,6 +172,16 @@ describe('ingestInboundMessageCommand email admission', () => {
     }))
   })
 
+  it('falls back to a verified provider thread when the layered matcher fails', async () => {
+    const { execute, context } = setup(true, true)
+    mockMatchThread.mockRejectedValueOnce(new Error('matcher failed'))
+
+    await expect(ingestInboundMessageCommand.execute(input, context)).resolves.toMatchObject({ status: 'created' })
+    expect(execute).toHaveBeenCalledWith('messages.messages.compose', expect.objectContaining({
+      input: expect.objectContaining({ parentMessageId: 'provider-mapped-thread' }),
+    }))
+  })
+
   it.each([null, { name: 'Display name only' }])('does not use the mailbox fallback for From %j', async (from) => {
     const { lookup, context } = setup()
     lookup.mockResolvedValue('mailbox-is-a-crm-person')

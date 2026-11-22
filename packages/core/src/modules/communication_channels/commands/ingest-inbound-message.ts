@@ -279,11 +279,16 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         )
       } catch (matcherErr) {
         if (requiresAdmission) {
-          throw Object.assign(new Error('[internal] Inbound email thread lookup failed'), { transient: true })
+          const error = new Error('[internal] Inbound email thread lookup failed')
+          if (!mapping?.messageThreadId) throw Object.assign(error, { transient: true })
+          reportTelemetryError(error, {
+            module: 'communication_channels',
+            code: 'communication_channels.inbound_thread_lookup_failed',
+            attributes: { channelId: input.channelId },
+          })
+        } else {
+          logger.warn('thread matcher failed, falling back to conversation mapping', { err: matcherErr })
         }
-        // Matcher failure must not block ingest — fall back to the existing
-        // conversation-based thread mapping so the message still lands.
-        logger.warn('thread matcher failed, falling back to conversation mapping', { err: matcherErr })
       }
     }
 
