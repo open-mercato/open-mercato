@@ -240,6 +240,13 @@ Do not introduce hard-coded strings for labels, tooltips, errors, or button text
 
 Library list GET, detail GET, and detail PATCH apply the caller's target read grants before enriching assignments. Supported built-in targets require the owning module's read feature and exact tenant and organization scope. Custom targets use the records API's classification and ACL checks. Automatic enrichment is omitted when a required scope or policy cannot be established. Clients can use saved label and link values or fall back to the assignment ID. No route, payload shape, or stored metadata changes. The enrichment helper accepts optional verified request authorization and returns an empty map without it. See [upgrade notes](../../UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336).
 
+Read/query policies on a target or its parent suppress direct enrichment rather
+than bypassing the source policy. Batches contain at most 100 IDs; permission
+decisions are shared only within one call so a later permission revocation takes
+effect. Regressions cover exact/wildcard query policies, variant parent policies,
+batch boundaries, revoked grants, unexpected result IDs/kinds, and real PostgreSQL
+tenant/organization and parent-scope refusals.
+
 ## Implementation Plan
 
 ### Phase 1: Contain Assignment Row Layout
@@ -411,6 +418,11 @@ None.
 **Fully compliant** - approved and ready for implementation.
 
 ## Changelog
+
+### 2026-11-22 — Assignment authorization (#10336)
+
+- Documented fail-closed target/parent policy handling and bounded lookups; added
+  policy, grant-revocation, batching, and unexpected-result regressions.
 
 ### 2026-07-05
 

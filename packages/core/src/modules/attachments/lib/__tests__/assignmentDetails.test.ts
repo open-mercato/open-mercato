@@ -1,10 +1,12 @@
 import type { AwilixContainer } from 'awilix'
+import { randomUUID } from 'node:crypto'
 import { Kysely, PostgresDialect, sql } from 'kysely'
 import { Pool } from 'pg'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { getApiInterceptorsForRoute } from '@open-mercato/shared/lib/crud/interceptor-registry'
+import { registerSyncSubscribers } from '@open-mercato/shared/lib/crud/sync-subscriber-store'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { assertEntityAclForRequest } from '@open-mercato/core/modules/entities/lib/entityAcl'
@@ -67,6 +69,7 @@ function grant(...features: string[]) {
 
 beforeEach(() => {
   jest.resetAllMocks()
+  registerSyncSubscribers([])
   grant('attachments.view', 'attachments.manage')
   jest.mocked(getApiInterceptorsForRoute).mockReturnValue([])
   jest.mocked(classifyRecordsEntity).mockImplementation(async (_em, entityId) => (
@@ -76,6 +79,8 @@ beforeEach(() => {
   ))
   query.mockResolvedValue({ items: [] })
 })
+
+afterEach(() => registerSyncSubscribers([]))
 
 it('leaves stored assignment metadata opaque for attachment-only callers', async () => {
   const assignments = [
@@ -130,6 +135,66 @@ it('skips direct enrichment when the owning read route has a policy hook', async
   await expect(resolveAssignmentEnrichments([{ type: 'sales:sales_channel', id: localId }], opts)).resolves.toEqual(new Map())
   expect(getApiInterceptorsForRoute).toHaveBeenCalledWith('sales/channels', 'GET')
   expect(query).not.toHaveBeenCalled()
+})
+
+it.each([
+  'catalog.catalog_product.querying',
+  'catalog.catalog_product.queried',
+  '*.querying',
+])('does not bypass the owning query policy %s', async (event) => {
+  grant('catalog.products.view')
+  const handler = jest.fn(async () => undefined)
+  registerSyncSubscribers([{ metadata: { event, sync: true }, handler }])
+
+  await expect(resolveAssignmentEnrichments([product], opts)).resolves.toEqual(new Map())
+  expect(query).not.toHaveBeenCalled()
+  expect(handler).not.toHaveBeenCalled()
+})
+
+it.each(['route', 'query'])('does not bypass a variant parent %s policy', async (policy) => {
+  grant('catalog.products.view')
+  if (policy === 'route') {
+    jest.mocked(getApiInterceptorsForRoute).mockImplementation((route) => route === 'catalog/products' ? [{
+      moduleId: 'fixture', moduleOrder: 0, interceptorOrder: 0,
+      interceptor: { id: 'fixture.parent', targetRoute: route, methods: ['GET'], before: async () => ({ ok: false }) },
+    }] : [])
+  } else {
+    registerSyncSubscribers([{
+      metadata: { event: 'catalog.catalog_product.querying', sync: true },
+      handler: async () => undefined,
+    }])
+  }
+
+  await expect(resolveAssignmentEnrichments([{ type: 'catalog:catalog_product_variant', id: localId }], opts))
+    .resolves.toEqual(new Map())
+  expect(query).not.toHaveBeenCalled()
+})
+
+it('batches target reads at 100 and shares permission checks only within one call', async () => {
+  grant('catalog.products.view')
+  const assignments = Array.from({ length: 101 }, () => ({ ...product, id: randomUUID() }))
+  await resolveAssignmentEnrichments(assignments, opts)
+
+  expect(query).toHaveBeenCalledTimes(2)
+  expect(query.mock.calls.map(([, options]) => options.page.pageSize)).toEqual([100, 1])
+  expect(userHasAllFeatures).toHaveBeenCalledTimes(1)
+
+  grant('attachments.view')
+  query.mockClear()
+  await expect(resolveAssignmentEnrichments(assignments, opts)).resolves.toEqual(new Map())
+  expect(userHasAllFeatures).toHaveBeenCalledTimes(2)
+  expect(query).not.toHaveBeenCalled()
+})
+
+it('ignores unexpected target IDs and CRM kinds in an engine response', async () => {
+  grant('customers.people.view')
+  query.mockResolvedValue({ items: [
+    { id: localId, kind: 'company', display_name: 'Hidden company' },
+    { id: foreignId, kind: 'person', display_name: 'Unrequested person' },
+  ] })
+
+  await expect(resolveAssignmentEnrichments([{ type: 'customers:customer_entity', id: localId }], opts))
+    .resolves.toEqual(new Map())
 })
 
 it('requires custom record permissions including the restricted entity grant', async () => {
