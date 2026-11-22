@@ -3,6 +3,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
 import { type Kysely, sql } from 'kysely'
 import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
@@ -14,6 +15,7 @@ import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { buildIndexDocument, type IndexCustomFieldValue } from '@open-mercato/core/modules/query_index/lib/document'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -35,6 +37,7 @@ import {
 } from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
 import { recomputeNextInteraction } from './lib/interactionProjection'
+import { backfillCustomerLookupHashes } from './lib/backfillLookupHashes'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
   CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
@@ -3143,7 +3146,54 @@ const interactionsBackfill: ModuleCli = {
   },
 }
 
-const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, interactionsBackfill]
+const lookupHashBackfillOptions = z.strictObject({
+  'tenant-id': z.uuid().optional(),
+  'organization-id': z.uuid().optional(),
+  'dry-run': z.literal(true).optional(),
+})
+
+const lookupHashBackfillUsage = 'mercato customers lookup-hashes:backfill [--tenant-id <uuid>] [--organization-id <uuid>] [--dry-run]'
+
+const lookupHashBackfill: ModuleCli = {
+  command: 'lookup-hashes:backfill',
+  help: lookupHashBackfillUsage,
+  async run(rest) {
+    const result = lookupHashBackfillOptions.safeParse(parseModuleCliOptions(rest))
+    if (!result.success) throw new Error(`Usage: ${lookupHashBackfillUsage}`)
+
+    const { resolve } = await createRequestContainer()
+    const dryRun = result.data['dry-run'] === true
+    const complete = await backfillCustomerLookupHashes(
+      resolve<EntityManager>('em'),
+      resolve<TenantDataEncryptionService>('tenantEncryptionService'),
+      {
+        tenantId: result.data['tenant-id'],
+        organizationId: result.data['organization-id'],
+        dryRun,
+      },
+      (report) => {
+        const scope = `tenant=${report.tenantId} organization=${report.organizationId} field=${report.field}`
+        switch (report.status) {
+          case 'unprotected-field':
+            console.log(`[lookup-hashes] ${scope}: skipped, field has no active encryption rule.`)
+            break
+          case 'unreconciled-map':
+            console.warn(`[lookup-hashes] ${scope}: reconcile the encryption map before retrying.`)
+            break
+          case 'no-pepper':
+            console.warn(`[lookup-hashes] ${scope}: configure LOOKUP_HASH_PEPPER before retrying.`)
+            break
+          case 'processed':
+            console.log(`[lookup-hashes] ${scope}: ${report.changed} ${dryRun ? 'to update' : 'updated'}, ${report.undecryptable} undecryptable, ${report.concurrentChanges} concurrent changes.`)
+            break
+        }
+      },
+    )
+    if (!complete) throw new Error('CRM lookup hash backfill was incomplete. Resolve the reported scope issues and retry.')
+  },
+}
+
+const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, interactionsBackfill, lookupHashBackfill]
 
 export default customersCliCommands
 export async function ensureCustomerCustomFieldDefinitions(
