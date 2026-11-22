@@ -55,6 +55,9 @@ test('TC-CHANNEL-EMAIL-033: OAuth readiness is scoped and exposes only configura
     const partial = await request.put(credentialsPath, { headers, data: { credentials: { clientId } } })
     expect(partial.status()).toBe(200)
     expect(await (await request.get(statusPath, { headers })).json()).toEqual({ configured: false })
+    const partialInitiation = await request.post(oauthPath + '/gmail/initiate', { headers, data: {} })
+    expect(partialInitiation.status()).toBe(409)
+    expect(await partialInitiation.json()).toMatchObject({ code: 'oauth_client_not_configured' })
 
     const save = await request.put(credentialsPath, {
       headers,

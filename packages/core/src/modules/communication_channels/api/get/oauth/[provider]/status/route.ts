@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
 import { resolveOAuthClientCredentials } from '../../../../../lib/oauth-client-config'
 
@@ -14,13 +16,15 @@ export const metadata = {
 }
 
 const providerKeySchema = z.string().regex(/^[a-z0-9_-]+$/i)
+const statusHeaders = { 'Cache-Control': 'no-store' }
 
 type RouteContext = {
   params: Promise<{ provider: string }> | { provider: string }
+  auth?: AuthContext
 }
 
 export async function GET(req: Request, context: RouteContext): Promise<Response> {
-  const auth = await getAuthFromRequest(req)
+  const auth = context.auth === undefined ? await getAuthFromRequest(req) : context.auth
   if (!auth?.sub || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -36,19 +40,30 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   }
 
   const container = await createRequestContainer()
+  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? null }
+  const rbac = container.resolve<Pick<RbacService, 'userHasAllFeatures'>>('rbacService')
+  const canConnect = await rbac.userHasAllFeatures(auth.sub, metadata.GET.requireFeatures, scope)
+  if (!canConnect) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: statusHeaders })
+  }
+
   const service = container.resolve<Parameters<typeof resolveOAuthClientCredentials>[0]>(
     'integrationCredentialsService',
     { allowUnregistered: true },
   )
-  const credentials = await resolveOAuthClientCredentials(service, provider.data, {
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId ?? null,
-  })
-  const configured =
-    typeof credentials?.clientId === 'string' && credentials.clientId.trim().length > 0 &&
-    typeof credentials.clientSecret === 'string' && credentials.clientSecret.trim().length > 0
-
-  return NextResponse.json({ configured }, { headers: { 'Cache-Control': 'no-store' } })
+  let credentials: Awaited<ReturnType<typeof resolveOAuthClientCredentials>>
+  try {
+    credentials = await resolveOAuthClientCredentials(
+      service, provider.data, scope, { failOnReadError: true, requireComplete: true },
+    )
+  } catch (error) {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'communication_channels',
+      code: 'communication_channels.oauth_client_status_unavailable',
+    })
+    return NextResponse.json({ error: 'OAuth client status unavailable' }, { status: 503, headers: statusHeaders })
+  }
+  return NextResponse.json({ configured: credentials !== null }, { headers: statusHeaders })
 }
 
 export const openApi = {
@@ -62,6 +77,7 @@ export const openApi = {
         { status: 401, description: 'Unauthorized' },
         { status: 403, description: 'Mailbox connection forbidden' },
         { status: 404, description: 'OAuth provider unavailable' },
+        { status: 503, description: 'OAuth client status temporarily unavailable' },
       ],
     },
   },

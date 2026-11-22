@@ -17,5 +17,5 @@ Source: [Communication channel setup navigation](../2026-11-22-communication-cha
 
 ## Verification
 
-- [Scoped OAuth readiness API](../../packages/channel-gmail/src/modules/channel_gmail/__integration__/TC-CHANNEL-EMAIL-033-oauth-setup-status.spec.ts)
-- [Setup and recovery browser flow](../../packages/channel-gmail/src/modules/channel_gmail/__integration__/TC-CHANNEL-EMAIL-034-oauth-setup-navigation.spec.ts)
+- [Scoped OAuth readiness API](../../../packages/channel-gmail/src/modules/channel_gmail/__integration__/TC-CHANNEL-EMAIL-033-oauth-setup-status.spec.ts)
+- [Setup and recovery browser flow](../../../packages/channel-gmail/src/modules/channel_gmail/__integration__/TC-CHANNEL-EMAIL-034-oauth-setup-navigation.spec.ts)
