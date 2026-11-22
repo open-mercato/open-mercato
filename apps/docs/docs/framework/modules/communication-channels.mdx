@@ -100,9 +100,11 @@ ExternalMessage + MessageChannelLink rows written
 
 ### Receive path
 
+Polling needs the `scheduler` module. The hub registers its poll tick and the Gmail watch renewal from `seedDefaults` and `onOrganizationCreated`, and skips both when `schedulerService` is not available — mail then arrives only on a manual "Poll now", and the profile page "My communication channels" shows an "Automatic sync is off" warning while any connected channel relies on polling and the organization's poll-tick schedule is missing, disabled, or deleted. The `crm` starter preset enables `scheduler`; an app that enables it later must run `yarn mercato seed:defaults --module communication_channels` once so existing organizations get their schedules, and `yarn mercato auth sync-role-acls` so existing roles get the scheduler features.
+
 ```
-@open-mercato/scheduler "poll-channel" cron (5 minutes by default)
-     │
+@open-mercato/scheduler "poll-tick" (every OM_HUB_POLL_SCHEDULER_TICK_SECONDS, 60 s by default)
+     │   enqueues channels whose poll interval is due (OM_HUB_POLL_DEFAULT_SECONDS, 5 minutes by default)
      ▼
 poll-channel worker (per channel)
      │
@@ -359,6 +361,7 @@ Each slice ships its own module-local integration specs under `__integration__/`
 | `TC-CHANNEL-EMAIL-001..003` | channel-imap | IMAP provider registration + webhook no-op + profile page |
 | `TC-CHANNEL-EMAIL-006..008` | channel-gmail | Gmail OAuth router + webhook no-op + profile page |
 | `TC-CHANNEL-EMAIL-014..020` | hub | Phase 4 cross-provider scenarios: primary swap, admin RBAC, tenant OAuth override, disconnect, send-as-user guard, user-deleted cascade, rich-content widget |
+| `TC-CHANNEL-EMAIL-HUB-007..008` | hub | `send-as-user` attachments: bytes delivered to the adapter, caller-written refs dropped, refusals (no file sharing, wrong owner, other organization, type not allowed) |
 
 Run with:
 

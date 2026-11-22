@@ -88,7 +88,6 @@ export function BulkActionsBar({
       </span>
       {totalLabel ? (
         <span className="hidden text-sm text-background/80 sm:inline">
-          ·{' '}
           {translateWithFallback(
             t,
             'customers.deals.kanban.bulk.totalValue',

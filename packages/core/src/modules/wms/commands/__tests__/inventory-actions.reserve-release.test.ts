@@ -549,6 +549,41 @@ describe('wms inventory release command', () => {
     expect(em.flush).toHaveBeenCalled()
   })
 
+  it('rejects releasing an already released reservation without changing the balance', async () => {
+    const em = createEm()
+    const reservation = makeReservation({ status: 'released' })
+    const balance = makeBalance({ quantityReserved: '5' })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return reservation
+      if (entity === InventoryBalance) {
+        if (where?.id === BALANCE_ID || where?.location === LOCATION_A) return balance
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.inventory.release')
+    await expect(
+      handler!.execute!(
+        {
+          organizationId: ORG,
+          tenantId: TENANT,
+          reservationId: RESERVATION_ID,
+          reason: 'manual_release',
+          reasonCode: 'manual_release',
+          performedBy: USER_ID,
+        },
+        createCtx(em),
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'invalid_reservation_state' },
+    } satisfies Partial<CrudHttpError>)
+
+    expect(balance.quantityReserved).toBe('5')
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   it('throws balance_integrity_violation when quantityReserved is less than the bucket quantity (ledger drift)', async () => {
     const em = createEm()
     const reservation = makeReservation()
