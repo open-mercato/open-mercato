@@ -1,8 +1,9 @@
 /** @jest-environment jsdom */
 import * as React from 'react'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import DateLocaleSettingsPage from '../page'
 
 let grantedFeatures = ['configs.date_locale.view']
@@ -20,6 +21,11 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: jest.fn(),
 }))
 
+jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/utils/crud'),
+  updateCrud: jest.fn(),
+}))
+
 const payload = {
   settings: { locale: null, dateFormat: null, dateTimeFormat: null, timeFormat: null, timeZone: null, firstDayOfWeek: null },
   envDefaults: {},
@@ -27,6 +33,17 @@ const payload = {
 }
 
 describe('Date locale settings page permissions and errors', () => {
+  const scrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
+
+  beforeAll(() => {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: jest.fn() })
+  })
+
+  afterAll(() => {
+    if (scrollIntoView) Object.defineProperty(Element.prototype, 'scrollIntoView', scrollIntoView)
+    else Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+  })
+
   beforeEach(() => {
     grantedFeatures = ['configs.date_locale.view']
     jest.mocked(readApiResultOrThrow).mockReset().mockResolvedValue(payload)
@@ -44,6 +61,35 @@ describe('Date locale settings page permissions and errors', () => {
     grantedFeatures = ['configs.date_locale.view', 'configs.date_locale.manage']
     renderWithProviders(<DateLocaleSettingsPage />)
     expect((await screen.findAllByRole('button', { name: /Save settings/ })).length).toBeGreaterThan(0)
+  })
+
+  it.each([
+    ['Formatting locale', 'locale', 'de-DE'],
+    ['First day of the week', 'firstDayOfWeek', 0],
+    ['Date format', 'dateFormat', 'dd.MM.yyyy'],
+    ['Date and time format', 'dateTimeFormat', 'dd.MM.yyyy HH:mm'],
+    ['Time format', 'timeFormat', 'HH:mm'],
+  ])('only offers Automatic to reset %s and saves null', async (label, field, value) => {
+    grantedFeatures = ['configs.date_locale.view', 'configs.date_locale.manage']
+    jest.mocked(readApiResultOrThrow).mockResolvedValue({
+      ...payload,
+      settings: { ...payload.settings, [field]: value },
+    })
+    jest.mocked(updateCrud).mockClear()
+    renderWithProviders(<DateLocaleSettingsPage />)
+
+    const trigger = await screen.findByRole('combobox', { name: (name) => name.replace(/ \*$/, '') === label })
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+    const options = within(await screen.findByRole('listbox'))
+    expect(options.queryByText(/Clear/)).not.toBeInTheDocument()
+    fireEvent.keyDown(options.getByRole('option', { name: 'Automatic' }), { key: 'Enter' })
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Save settings/ })[0])
+    await waitFor(() => expect(updateCrud).toHaveBeenCalledWith(
+      'configs/date-locale',
+      expect.objectContaining({ [field]: null }),
+      expect.any(Object),
+    ))
   })
 
   it('translates transport failures instead of showing browser error text', async () => {
