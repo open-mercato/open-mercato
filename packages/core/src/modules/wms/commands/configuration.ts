@@ -61,6 +61,7 @@ import {
   inventoryLotCreateSchema,
   inventoryLotDateOrderingSchema,
   inventoryLotUpdateSchema,
+  keepClearedInventoryLotDates,
   productInventoryProfileCreateSchema,
   productInventoryProfileUpdateSchema,
   warehouseCreateSchema,
@@ -1842,7 +1843,7 @@ const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId
     return before ? { before } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = inventoryLotUpdateSchema.parse(rawInput ?? {})
+    const parsed = keepClearedInventoryLotDates(rawInput, inventoryLotUpdateSchema.parse(rawInput ?? {}))
     const em = resolveEm(ctx)
     const lot = await loadLot(em, ctx, parsed.id)
     if (parsed.manufacturedAt !== undefined || parsed.bestBeforeAt !== undefined || parsed.expiresAt !== undefined) {

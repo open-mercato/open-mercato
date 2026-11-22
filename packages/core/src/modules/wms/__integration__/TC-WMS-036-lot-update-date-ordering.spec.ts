@@ -101,6 +101,14 @@ test.describe('TC-WMS-036: Lot update keeps date ordering against the stored dat
       expect(accepted.status()).toBe(200)
 
       expect(await readExpiresAt()).toBe(validExpiresAt)
+
+      const cleared = await apiRequest(request, 'PUT', '/api/wms/lots', {
+        token: adminToken,
+        data: { id: lotId, expiresAt: null },
+      })
+      expect(cleared.status()).toBe(200)
+
+      expect(await readExpiresAt()).toBeNull()
     } finally {
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/lots', lotId)
       await deleteCatalogProductIfExists(request, adminToken, productId)

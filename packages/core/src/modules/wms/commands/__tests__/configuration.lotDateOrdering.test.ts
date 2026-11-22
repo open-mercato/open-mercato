@@ -123,6 +123,15 @@ describe('wms.lots.update — date ordering against stored dates', () => {
     expect(record.expiresAt?.toISOString()).toBe('2020-06-01T00:00:00.000Z')
   })
 
+  it('clears the expiry when expiresAt is sent as null on a lot that has manufactured and best-before dates', async () => {
+    const { record, ctx } = createLotStore(orderedDates())
+
+    await expect(updateHandler().execute({ id: LOT_ID, expiresAt: null }, ctx)).resolves.toEqual({ lotId: LOT_ID })
+    expect(record.expiresAt).toBeNull()
+    expect(record.manufacturedAt?.toISOString()).toBe('2020-01-01T00:00:00.000Z')
+    expect(record.bestBeforeAt?.toISOString()).toBe('2020-06-01T00:00:00.000Z')
+  })
+
   it('still lets a status-only patch through on a lot whose stored dates are already out of order', async () => {
     const { record, ctx } = createLotStore(outOfOrderDates())
 
