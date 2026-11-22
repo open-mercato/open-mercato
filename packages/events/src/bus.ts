@@ -324,6 +324,16 @@ function registerBroadcastCoalescerShutdownHook(): void {
   ;(globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY] = true
 }
 
+type EventBusGenerationState = {
+  listeners: Map<string, Set<RegisteredSubscriber>>
+  persistentSubscribers: Set<RegisteredSubscriber>
+  queue: Queue<EventJobData> | null
+}
+
+function createEventBusGenerationState(): EventBusGenerationState {
+  return { listeners: new Map(), persistentSubscribers: new Set(), queue: null }
+}
+
 /**
  * Creates an event bus instance.
  *
@@ -355,20 +365,46 @@ function registerBroadcastCoalescerShutdownHook(): void {
  * ```
  */
 export function createEventBus(opts: CreateBusOptions): EventBus {
+  return createEventBusWithState(opts, createEventBusGenerationState())
+}
+
+export function createScopedEventBusFactory(options: Omit<CreateBusOptions, 'resolve'> = {}) {
+  const state = createEventBusGenerationState()
+  return Object.assign(
+    (resolve: CreateBusOptions['resolve'], container?: ScopedResolveContainer): EventBus =>
+      createEventBusWithState({ ...options, resolve, container }, createEventBusGenerationState(), state),
+    {
+      definitions: createEventBusWithState({
+        ...options,
+        resolve: () => { throw new Error('[internal] Event definitions cannot resolve caller services') },
+      }, state),
+    },
+  )
+}
+
+function createEventBusWithState(
+  opts: CreateBusOptions,
+  state: EventBusGenerationState,
+  definitions?: EventBusGenerationState,
+): EventBus {
   registerBroadcastCoalescerShutdownHook()
 
   // In-memory listeners for immediate event delivery
-  const listeners = new Map<string, Set<RegisteredSubscriber>>()
+  const listeners = state.listeners
   // Subscribers registered as persistent (worker-dispatched). Used by the
   // single-delivery path to skip them inline on a persistent emit.
-  const persistentSubscribers = new Set<RegisteredSubscriber>()
+  const persistentSubscribers = state.persistentSubscribers
+  const queueState = definitions ?? state
+  function* listenerEntries() {
+    if (definitions) yield* definitions.listeners
+    yield* listeners
+  }
+  const isPersistentSubscriber = (subscriber: RegisteredSubscriber) =>
+    persistentSubscribers.has(subscriber) || definitions?.persistentSubscribers.has(subscriber) === true
 
   // Determine queue strategy from options or environment
   const queueStrategy = opts.queueStrategy ??
     (process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local')
-
-  // Lazy-initialized queue for persistent events
-  let queue: Queue<EventJobData> | null = null
 
   /**
    * Gets or creates the queue instance for persistent events.
@@ -380,14 +416,14 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    */
   function getQueue(): Queue<EventJobData> {
     if (queueStrategy !== 'async' || !isSharedProducerEnabled()) {
-      if (!queue) {
-        queue = queueStrategy === 'async'
+      if (!queueState.queue) {
+        queueState.queue = queueStrategy === 'async'
           ? createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'async', {
               connection: { url: getRedisUrlOrThrow('QUEUE') },
             })
           : createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'local')
       }
-      return queue
+      return queueState.queue
     }
 
     const redisUrl = getRedisUrlOrThrow('QUEUE')
@@ -422,14 +458,14 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
   ): Promise<{ persistentFailures: number }> {
     let persistentFailures = 0
     // Check all registered patterns (including wildcards)
-    for (const [pattern, handlers] of listeners) {
+    for (const [pattern, handlers] of listenerEntries()) {
       if (!matchEventPattern(event, pattern)) continue
       if (!handlers || handlers.size === 0) continue
 
       for (const subscriber of handlers) {
         // Single-delivery: persistent subscribers are dispatched by the worker,
         // so skip them inline to avoid double execution.
-        if (skipPersistent && persistentSubscribers.has(subscriber)) continue
+        if (skipPersistent && isPersistentSubscriber(subscriber)) continue
         try {
           // Pass eventName in context for wildcard handlers
           const moduleId = subscriber.moduleId ?? inferModuleIdFromResourceId(subscriber.id)
@@ -449,7 +485,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
             }),
           )
         } catch (error) {
-          if (persistentSubscribers.has(subscriber)) {
+          if (isPersistentSubscriber(subscriber)) {
             persistentFailures += 1
           }
           logger.error('Handler error', { event, pattern, err: error })
@@ -483,7 +519,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    */
   function selectQueuedSubscribers(event: string): RegisteredSubscriber[] {
     const matched: RegisteredSubscriber[] = []
-    for (const [pattern, handlers] of listeners) {
+    for (const [pattern, handlers] of listenerEntries()) {
       if (!matchEventPattern(event, pattern)) {
         continue
       }

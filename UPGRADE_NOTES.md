@@ -2,7 +2,12 @@
 
 ## Event subscribers and worker jobs receive the real DI container (eComm Release 5, step F2)
 
-**Additive (`events`, `cli`, `shared`).** `SubscriberContext` gains an optional `container`: the real DI container behind `ctx.resolve`, on inline delivery and on queued delivery through the events worker (the job's own container when the worker passes one; the bus's only when the bus's own resolver is in use, so `ctx.resolve` and `ctx.container` always share one scope). `CreateBusOptions.container` and the fifth `EventBus.dispatchQueued(..., container?)` argument carry it; `bootstrap` hands the bus its container. A queue worker's job context gets `container` too, but only when the per-job container factory returns one with `register()` (`WorkerJobContainer.register?` is new and optional). Handler code that calls `container.register({ auth: asValue(...) })` before nested command resolution now works there. `@open-mercato/shared/lib/di/scopedContainer` adds `buildScopedContainerFromResolve(resolve)`, a fallback overlay for callers that only hold a bound `resolve`; its `register()` is visible only to its own callers, not to services already bound to the real container. Subscribers that read only `ctx.resolve` are unchanged.
+**Additive (`events`, `cli`, `shared`).** `SubscriberContext` gains an optional `container`: the real DI container behind `ctx.resolve`. Its lifetime is the scope that `ctx.resolve` already uses:
+
+- **Inline delivery:** the container of the caller that resolved the event bus — the current API request or queue job container, also when `OM_BOOTSTRAP_CACHE` replays the bus into later requests and under `OM_PROCESS_CONTAINER_ROOT`. It is never the container that ran `bootstrap`, except for an emit outside any request or job scope through the global bus. The emitter and every other inline subscriber of that request share this container. A `register()` call on it therefore stays for the rest of that request or job, and is not undone when the handler returns.
+- **Queued delivery (events worker):** the job's own per-job container, created for that job and dropped after it. When no job container is passed, the bus's container is used only if the bus's own resolver is used too, so `ctx.resolve` and `ctx.container` always share one scope.
+
+`CreateBusOptions.container`, the optional second argument of the `createScopedEventBusFactory` caller factory, and the fifth `EventBus.dispatchQueued(..., container?)` argument carry it. A queue worker's job context gets `container` too, but only when the per-job container factory returns one with `register()` (`WorkerJobContainer.register?` is new and optional). Overriding a registration before nested command resolution (`container.register({ auth: asValue(...) })`) is supported on queued delivery and in worker jobs, where the container belongs to that job alone. Inline subscribers must not override registrations on `ctx.container` unless the change may apply to the whole request. A child scope (`createScope()`) does not help either: services such as `promotionsService` close over the container their registrar received, so they do not see a child scope's overrides. `@open-mercato/shared/lib/di/scopedContainer` adds `buildScopedContainerFromResolve(resolve)`, a fallback overlay for callers that only hold a bound `resolve`. Its `register()` is visible only to its own callers, not to services already bound to the real container. Subscribers that read only `ctx.resolve` are unchanged.
 
 **Behaviour change (`forms`).** Three `forms` subscribers read `ctx.container` and never got one. `forms.pdf-snapshot.submitted` failed with a `TypeError` on every delivery; the other two swallowed the error and did nothing. They now run:
 
@@ -11,6 +16,33 @@
 - `forms.invitation-email` (`forms.invitation.sent`) sends the reminder e-mail. It sends it only for `forms.invitation.send` (send and resend). `forms.invitation.create` already e-mails the personal link and now marks its `forms.invitation.sent` payload with the additive optional field `source: 'create'`, which the subscriber skips; send and resend emit `source: 'send'`.
 
 **Action:** none required. If you relied on a submission having no attachments, filter out `kind: 'snapshot'`. If you consume `forms.invitation.sent` and want to tell the two paths apart, read `source` (absent on events emitted before this release).
+
+## Query index metadata cached across requests (#2967)
+
+The query index engine no longer re-reads table metadata and custom-field definitions
+on every request:
+
+- Base-table column maps are cached per process for `OM_QUERY_INDEX_COLUMN_CACHE_MS`
+  (default 300000 ms; `0` disables it). A column missing from a cached map is always
+  re-checked, so a tenant, organization or soft-delete column added by a migration
+  takes effect immediately. A dropped or newly added non-scoping column is picked up
+  when the entry expires.
+- Custom-field definitions and sort kinds are cached in the DI `cache` service for
+  `QUERY_INDEX_CF_KEYS_CACHE_MS` (default 300000 ms; `0` keeps the old per-request
+  behavior). Definition writes through the definitions API, batch, restore,
+  `install-from-ce` and the Akeneo importer invalidate them immediately for the
+  writer's tenant. Definitions written by seeds or CLI commands, global definitions
+  edited from another tenant, and other instances when `CACHE_STRATEGY=memory` can
+  take up to the TTL to appear in list queries. Use `CACHE_STRATEGY=redis` in
+  multi-instance deployments, or lower the TTL, to converge sooner.
+
+No configuration, database, route, event or DI-key change is required.
+
+## Optional process DI root (#8989)
+
+`OM_PROCESS_CONTAINER_ROOT=on` enables generation-owned registration/bootstrap with isolated caller scopes. It defaults to off pending workload qualification. Existing `createRequestContainer()` calls retain separate EntityManagers and mutation boundaries. No schema migration is required.
+
+Custom module/app registrars continue through the legacy builder unless explicitly audited and marked with `defineProcessDiRegistrar`. Use `asScopedService` for factories that need the resolving caller; never capture a process root as the request container. Module DI overrides and custom event buses also select the legacy builder to preserve registration and subscriber ordering. See the request lifecycle documentation for setup hooks, counters and explicit event-context boundaries.
 
 ## Backend API documentation permission (#3810)
 
@@ -287,6 +319,24 @@ where tenant_id = '<tenant>' and code = '<code>';
 The earlier active state is unknown, so check `is_active` after restoring. The SQL
 bypasses cache invalidation: clear the CRUD/API cache (or restart the app)
 afterwards. No migration is needed.
+
+## Module events dispatch per request (#2963)
+
+Module emitters (`createModuleEvents().emit`) now run inline subscribers against
+the DI container built for the current API request or queue job, instead of the
+container built most recently anywhere in the process. Before this fix, a
+subscriber's `ctx.resolve('em')` (or `dataEngine`, `tenantEncryptionService`, …)
+could return another concurrent request's services. Within one request nothing
+changes: the latest container built during that request is used, as before.
+
+The API dispatcher (`app/api/[...slug]/route.ts`) and the per-job worker handler
+now open a request scope via `runInRequestScope` from
+`@open-mercato/shared/lib/di/request-scope`. **Standalone apps** that keep a
+customized copy of the catch-all API route should wrap their request handling in
+`runInRequestScope(() => …)` the same way. Without it, emits fall back to the
+global bus exactly as before. Code outside a scope (CLI commands, scheduler timers,
+RSC pages) is unchanged. No configuration, database, route, event or DI-key change
+is needed.
 
 ## Event-triggered workflow execution identity (#9137)
 

@@ -41,6 +41,14 @@ export type SubscriberContext = {
    * direct callers, never for an already-constructed dependent service holding its
    * own reference to the original container. Optional and additive: a subscriber
    * that does not need `.register()` ignores this field entirely.
+   *
+   * Lifetime: inline delivery hands the container of the caller that resolved the
+   * bus (the current request or job container, never the one that ran `bootstrap`
+   * unless the emit came through the global bus outside any request or job). The
+   * emitter and every other inline subscriber share it, so a `.register()` made
+   * there outlives the handler for the rest of that request. Queued delivery hands
+   * the job's own per-job container, the only scope where overriding registrations
+   * is safe without affecting anyone else.
    */
   container?: ScopedResolveContainer
 }
@@ -137,7 +145,9 @@ export type CreateBusOptions = {
   /**
    * The REAL container `resolve` was bound from, when the caller has one. Handed
    * to inline subscribers via `SubscriberContext.container` (see its own doc for
-   * why a bound resolve function alone cannot support `.register()` overrides).
+   * why a bound resolve function alone cannot support `.register()` overrides and
+   * for its lifetime). `bootstrap` passes the resolving caller's container, so a
+   * bus replayed into a later request never hands out an earlier request's one.
    */
   container?: ScopedResolveContainer
   /** Queue strategy for persistent events: 'local' (file-based) or 'async' (BullMQ) */
