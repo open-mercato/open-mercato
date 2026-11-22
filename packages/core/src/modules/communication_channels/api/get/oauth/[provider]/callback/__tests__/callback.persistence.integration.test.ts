@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { MikroORM, PostgreSqlDriver, type EntityManager } from '@mikro-orm/postgresql'
+import { MikroORM } from '@mikro-orm/core'
+import { PostgreSqlDriver, type EntityManager } from '@mikro-orm/postgresql'
 import { IntegrationCredentials } from '@open-mercato/core/modules/integrations/data/entities'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { StartedTestContainer } from 'testcontainers'
@@ -61,8 +62,8 @@ const describeWithPostgres = process.env.OM_PG_INTEGRATION === '1' ? describe : 
 
 describeWithPostgres('Gmail OAuth reconnect against PostgreSQL', () => {
   let postgres: StartedTestContainer | undefined
-  let orm: MikroORM<PostgreSqlDriver>
-  let em: EntityManager
+  let orm: MikroORM<PostgreSqlDriver, EntityManager<PostgreSqlDriver>>
+  let em: EntityManager<PostgreSqlDriver>
 
   beforeAll(async () => {
     jest.replaceProperty(process, 'env', { ...process.env, OM_HUB_OAUTH_STATE_KEY: randomUUID() })
@@ -72,7 +73,8 @@ describeWithPostgres('Gmail OAuth reconnect against PostgreSQL', () => {
       .withExposedPorts(5432)
       .withWaitStrategy(Wait.forLogMessage('database system is ready to accept connections', 2))
       .start()
-    orm = await MikroORM.init({
+    orm = await MikroORM.init<PostgreSqlDriver, EntityManager<PostgreSqlDriver>>({
+      driver: PostgreSqlDriver,
       entities: [CommunicationChannel, ExternalConversation, ExternalMessage, IntegrationCredentials],
       host: postgres.getHost(),
       port: postgres.getMappedPort(5432),
@@ -147,12 +149,13 @@ describeWithPostgres('Gmail OAuth reconnect against PostgreSQL', () => {
       em.create(IntegrationCredentials, { ...foreignScope, integrationId, credentials: {} })
     }
     await em.flush()
+    const historyScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
     const conversation = em.create(ExternalConversation, {
-      ...scope, channelId: original.id, externalConversationId: 'existing-thread',
+      ...historyScope, channelId: original.id, externalConversationId: 'existing-thread',
     })
     await em.flush()
     const message = em.create(ExternalMessage, {
-      ...scope, channelId: original.id, conversationId: conversation.id,
+      ...historyScope, channelId: original.id, conversationId: conversation.id,
       externalMessageId: 'existing-email', direction: 'inbound',
     })
     await em.flush()
