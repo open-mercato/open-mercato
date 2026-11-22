@@ -12,15 +12,15 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { fetchCrudList } from '@open-mercato/ui/backend/utils/crud'
 import { useDirection, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { ImportVehiclesDialog } from './ImportVehiclesDialog'
+import { VEHICLE_STATUS_VALUES, type VehicleStatusValue } from '../lib/transportEnums'
 
 export const RESOURCE = 'transport_operations/vehicles'
 export const CREATE_HREF = '/backend/transport/vehicles/create'
 export const editHref = (id: string) => `/backend/transport/vehicles/${id}/edit`
 export const ENTITY_ID = 'transport_operations:transport_vehicle'
 
-export type VehicleStatus = 'active' | 'maintenance' | 'out_of_service'
-
-export const VEHICLE_STATUS_VALUES: VehicleStatus[] = ['active', 'maintenance', 'out_of_service']
+export type VehicleStatus = VehicleStatusValue
 
 export type VehicleRow = {
   id: string
@@ -55,6 +55,7 @@ export default function TransportVehiclesTable() {
   const [values, setValues] = React.useState<FilterValues>({})
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'plate_number', desc: false }])
   const [page, setPage] = React.useState(1)
+  const [importOpen, setImportOpen] = React.useState(false)
 
   const statusFilter = typeof values.status === 'string' ? values.status : undefined
 
@@ -127,66 +128,78 @@ export default function TransportVehiclesTable() {
   }
 
   return (
-    <DataTable
-      title={t('transport_operations.vehicles.page.title', 'Vehicles')}
-      titleHeadingLevel={1}
-      actions={(
-        <Button asChild>
-          <Link href={CREATE_HREF}>{t('transport_operations.vehicles.actions.create', 'New vehicle')}</Link>
-        </Button>
-      )}
-      rowActions={(row) => (
-        <Link className="text-sm font-medium underline" href={editHref(row.id)}>
-          {t('transport_operations.vehicles.actions.edit', 'Edit')}
-        </Link>
-      )}
-      columns={columns}
-      data={data?.items ?? []}
-      searchValue={search}
-      onSearchChange={(value) => {
-        setSearch(value)
-        setPage(1)
-      }}
-      searchPlaceholder={t('transport_operations.vehicles.searchPlaceholder', 'Plate, VIN, make or model')}
-      // `searchAlign` only takes physical sides, so the inline end is expressed here:
-      // the search box belongs at the reading end of the toolbar in both scripts.
-      searchAlign={direction === 'rtl' ? 'left' : 'right'}
-      filters={[
-        {
-          id: 'status',
-          label: t('transport_operations.vehicles.filters.status', 'Status'),
-          type: 'select',
-          options: VEHICLE_STATUS_VALUES.map((value) => ({
-            value,
-            label: t(`transport_operations.vehicles.status.${value}`, STATUS_FALLBACKS[value]),
-          })),
-        },
-      ]}
-      filterValues={values}
-      onFiltersApply={(next: FilterValues) => {
-        setValues(next)
-        setPage(1)
-      }}
-      onFiltersClear={() => {
-        setValues({})
-        setPage(1)
-      }}
-      entityId={ENTITY_ID}
-      sortable
-      sorting={sorting}
-      onSortingChange={(next) => {
-        setSorting(next)
-        setPage(1)
-      }}
-      pagination={{
-        page,
-        pageSize: 50,
-        total: data?.total ?? 0,
-        totalPages: data?.totalPages ?? 0,
-        totalIsCapped: data?.totalIsCapped === true,
-        onPageChange: setPage,
-      }}
-      isLoading={query.isLoading}
-    />
+    <>
+      <DataTable
+        title={t('transport_operations.vehicles.page.title', 'Vehicles')}
+        titleHeadingLevel={1}
+        actions={(
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" onClick={() => setImportOpen(true)}>
+              {t('transport_operations.vehicles.actions.import', 'Import')}
+            </Button>
+            <Button asChild>
+              <Link href={CREATE_HREF}>{t('transport_operations.vehicles.actions.create', 'New vehicle')}</Link>
+            </Button>
+          </div>
+        )}
+        rowActions={(row) => (
+          <Link className="text-sm font-medium underline" href={editHref(row.id)}>
+            {t('transport_operations.vehicles.actions.edit', 'Edit')}
+          </Link>
+        )}
+        columns={columns}
+        data={data?.items ?? []}
+        searchValue={search}
+        onSearchChange={(value) => {
+          setSearch(value)
+          setPage(1)
+        }}
+        searchPlaceholder={t('transport_operations.vehicles.searchPlaceholder', 'Plate, VIN, make or model')}
+        // `searchAlign` only takes physical sides, so the inline end is expressed here:
+        // the search box belongs at the reading end of the toolbar in both scripts.
+        searchAlign={direction === 'rtl' ? 'left' : 'right'}
+        filters={[
+          {
+            id: 'status',
+            label: t('transport_operations.vehicles.filters.status', 'Status'),
+            type: 'select',
+            options: VEHICLE_STATUS_VALUES.map((value) => ({
+              value,
+              label: t(`transport_operations.vehicles.status.${value}`, STATUS_FALLBACKS[value]),
+            })),
+          },
+        ]}
+        filterValues={values}
+        onFiltersApply={(next: FilterValues) => {
+          setValues(next)
+          setPage(1)
+        }}
+        onFiltersClear={() => {
+          setValues({})
+          setPage(1)
+        }}
+        entityId={ENTITY_ID}
+        sortable
+        sorting={sorting}
+        onSortingChange={(next) => {
+          setSorting(next)
+          setPage(1)
+        }}
+        pagination={{
+          page,
+          pageSize: 50,
+          total: data?.total ?? 0,
+          totalPages: data?.totalPages ?? 0,
+          totalIsCapped: data?.totalIsCapped === true,
+          onPageChange: setPage,
+        }}
+        isLoading={query.isLoading}
+      />
+      <ImportVehiclesDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={() => { void query.refetch() }}
+      />
+    </>
   )
 }

@@ -42,7 +42,7 @@ external providers (TGA/Bayan, SMS, maps, telematics) and are explicitly gated.
 | Dispatching to own or contracted fleet | **Partial** | Own fleet assignment exists; subcontractor/carrier master does not |
 | Long-term contracts with negotiated per-route rates | **Shipped** | `FreightContract` + `FreightContractRoute` |
 | Vehicle types and plates | **Partial** | Plates are first-class and unique; vehicle type is free text |
-| Bulk driver/vehicle upload | **Missing** | No import path |
+| Bulk driver/vehicle upload | **Shipped (Phase 6)** | CSV/XLSX dry-run/commit importer on both transport list screens |
 | Products with weight/package units | **Partial** | Catalog has weight/dimensions/units; no package hierarchy; freight cargo is free text |
 | Order sealing | **Partial** | Seal number captured on the delivery note; no order/trip seal lifecycle |
 | Late/completed trips visually flagged | **Partial** | Statuses exist; no lateness calculation or colour rule |
@@ -222,3 +222,8 @@ corresponding business approvals are in hand.
   `yarn typecheck`, `yarn lint`, `yarn i18n:check-sync` and `yarn build:app` are green. Lint
   surfaced a conditional `useCallback` in the order-detail tracking-link action, now moved above
   the loading/error early returns.
+- **2026-11-22 (Phase 6)** — Bulk driver/vehicle upload shipped: CSV/XLSX dry-run/commit
+  importer on the transport drivers and vehicles screens, reusing the entity create schemas and
+  commands. The dependency-free spreadsheet reader moved to
+  `@open-mercato/shared/lib/browser/spreadsheet` for both modules. Spec:
+  `2026-11-22-transport-bulk-import.md`; coverage: TC-TRANSPORT-015 plus new parser unit suites.

@@ -1,5 +1,5 @@
 /**
- * Spreadsheet reading for the rate importer, with no third-party dependency.
+ * Spreadsheet reading for bulk import dialogs, with no third-party dependency.
  *
  * CSV is parsed directly. An `.xlsx` file is a ZIP of XML parts, and the browser
  * (and Node ≥20) ships `DecompressionStream('deflate-raw')`, so a small ZIP

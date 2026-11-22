@@ -18,7 +18,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { buildRateImportTemplateCsv, parseRateImportRows, type RateImportRow } from '../lib/contractRateImport'
-import { isSpreadsheetAccepted, readSpreadsheetFile, sheetToObjects } from '../lib/spreadsheet'
+import { isSpreadsheetAccepted, readSpreadsheetFile, sheetToObjects } from '@open-mercato/shared/lib/browser/spreadsheet'
 
 const CONTEXT_ID = 'freight_operations.contract_routes.import'
 

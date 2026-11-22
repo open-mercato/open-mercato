@@ -27,7 +27,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useCustomerOptions } from './freightOptions'
 import { buildOrderImportTemplateCsv, parseOrderImportRows, type OrderImportRow } from '../lib/orderImport'
-import { isSpreadsheetAccepted, readSpreadsheetFile, sheetToObjects } from '../lib/spreadsheet'
+import { isSpreadsheetAccepted, readSpreadsheetFile, sheetToObjects } from '@open-mercato/shared/lib/browser/spreadsheet'
 
 const CONTEXT_ID = 'freight_operations.orders.import'
 const ENTITY_ID = 'freight_operations:freight_order'

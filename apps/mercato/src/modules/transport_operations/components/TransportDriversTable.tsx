@@ -13,15 +13,15 @@ import { fetchCrudList } from '@open-mercato/ui/backend/utils/crud'
 import { useDirection, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { ExpiryCell } from './ExpiryCell'
+import { ImportDriversDialog } from './ImportDriversDialog'
+import { DRIVER_STATUS_VALUES, type DriverStatusValue } from '../lib/transportEnums'
 
 export const RESOURCE = 'transport_operations/drivers'
 export const CREATE_HREF = '/backend/transport/drivers/create'
 export const editHref = (id: string) => `/backend/transport/drivers/${id}/edit`
 export const ENTITY_ID = 'transport_operations:transport_driver'
 
-export type DriverStatus = 'available' | 'on_trip' | 'on_leave' | 'suspended'
-
-export const DRIVER_STATUS_VALUES: DriverStatus[] = ['available', 'on_trip', 'on_leave', 'suspended']
+export type DriverStatus = DriverStatusValue
 
 export type DriverRow = {
   user_id?: string | null
@@ -53,6 +53,7 @@ export default function TransportDriversTable() {
   // Expiry first: the driver directory exists to catch renewals before dispatch refuses the trip.
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'license_expiry', desc: false }])
   const [page, setPage] = React.useState(1)
+  const [importOpen, setImportOpen] = React.useState(false)
 
   const statusFilter = typeof values.status === 'string' ? values.status : undefined
   const expiryFilter = typeof values.expiry === 'string' ? values.expiry : undefined
@@ -128,73 +129,85 @@ export default function TransportDriversTable() {
   }
 
   return (
-    <DataTable
-      title={t('transport_operations.drivers.page.title', 'Drivers')}
-      titleHeadingLevel={1}
-      actions={(
-        <Button asChild>
-          <Link href={CREATE_HREF}>{t('transport_operations.drivers.actions.create', 'New driver')}</Link>
-        </Button>
-      )}
-      rowActions={(row) => (
-        <Link className="text-sm font-medium underline" href={editHref(row.id)}>
-          {t('transport_operations.drivers.actions.edit', 'Edit')}
-        </Link>
-      )}
-      columns={columns}
-      data={data?.items ?? []}
-      searchValue={search}
-      onSearchChange={(value) => {
-        setSearch(value)
-        setPage(1)
-      }}
-      searchPlaceholder={t('transport_operations.drivers.searchPlaceholder', 'Name, national id, licence or phone')}
-      searchAlign={direction === 'rtl' ? 'left' : 'right'}
-      filters={[
-        {
-          id: 'expiry',
-          label: t('transport_operations.drivers.filters.compliance', 'Compliance'),
-          type: 'select',
-          options: [
-            { value: 'expired', label: t('transport_operations.drivers.filters.expired', 'Expired') },
-            { value: 'within30', label: t('transport_operations.drivers.filters.within30', 'Expired or due within 30 days') },
-          ],
-        },
-        {
-          id: 'status',
-          label: t('transport_operations.drivers.filters.status', 'Status'),
-          type: 'select',
-          options: DRIVER_STATUS_VALUES.map((value) => ({
-            value,
-            label: t(`transport_operations.drivers.status.${value}`, STATUS_FALLBACKS[value]),
-          })),
-        },
-      ]}
-      filterValues={values}
-      onFiltersApply={(next: FilterValues) => {
-        setValues(next)
-        setPage(1)
-      }}
-      onFiltersClear={() => {
-        setValues({})
-        setPage(1)
-      }}
-      entityId={ENTITY_ID}
-      sortable
-      sorting={sorting}
-      onSortingChange={(next) => {
-        setSorting(next)
-        setPage(1)
-      }}
-      pagination={{
-        page,
-        pageSize: 50,
-        total: data?.total ?? 0,
-        totalPages: data?.totalPages ?? 0,
-        totalIsCapped: data?.totalIsCapped === true,
-        onPageChange: setPage,
-      }}
-      isLoading={query.isLoading}
-    />
+    <>
+      <DataTable
+        title={t('transport_operations.drivers.page.title', 'Drivers')}
+        titleHeadingLevel={1}
+        actions={(
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" onClick={() => setImportOpen(true)}>
+              {t('transport_operations.drivers.actions.import', 'Import')}
+            </Button>
+            <Button asChild>
+              <Link href={CREATE_HREF}>{t('transport_operations.drivers.actions.create', 'New driver')}</Link>
+            </Button>
+          </div>
+        )}
+        rowActions={(row) => (
+          <Link className="text-sm font-medium underline" href={editHref(row.id)}>
+            {t('transport_operations.drivers.actions.edit', 'Edit')}
+          </Link>
+        )}
+        columns={columns}
+        data={data?.items ?? []}
+        searchValue={search}
+        onSearchChange={(value) => {
+          setSearch(value)
+          setPage(1)
+        }}
+        searchPlaceholder={t('transport_operations.drivers.searchPlaceholder', 'Name, national id, licence or phone')}
+        searchAlign={direction === 'rtl' ? 'left' : 'right'}
+        filters={[
+          {
+            id: 'expiry',
+            label: t('transport_operations.drivers.filters.compliance', 'Compliance'),
+            type: 'select',
+            options: [
+              { value: 'expired', label: t('transport_operations.drivers.filters.expired', 'Expired') },
+              { value: 'within30', label: t('transport_operations.drivers.filters.within30', 'Expired or due within 30 days') },
+            ],
+          },
+          {
+            id: 'status',
+            label: t('transport_operations.drivers.filters.status', 'Status'),
+            type: 'select',
+            options: DRIVER_STATUS_VALUES.map((value) => ({
+              value,
+              label: t(`transport_operations.drivers.status.${value}`, STATUS_FALLBACKS[value]),
+            })),
+          },
+        ]}
+        filterValues={values}
+        onFiltersApply={(next: FilterValues) => {
+          setValues(next)
+          setPage(1)
+        }}
+        onFiltersClear={() => {
+          setValues({})
+          setPage(1)
+        }}
+        entityId={ENTITY_ID}
+        sortable
+        sorting={sorting}
+        onSortingChange={(next) => {
+          setSorting(next)
+          setPage(1)
+        }}
+        pagination={{
+          page,
+          pageSize: 50,
+          total: data?.total ?? 0,
+          totalPages: data?.totalPages ?? 0,
+          totalIsCapped: data?.totalIsCapped === true,
+          onPageChange: setPage,
+        }}
+        isLoading={query.isLoading}
+      />
+      <ImportDriversDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={() => { void query.refetch() }}
+      />
+    </>
   )
 }
