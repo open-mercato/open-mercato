@@ -36,7 +36,7 @@ describe('staff availability windows', () => {
     ])
   })
 
-  it('uses a member working-hours override when present on an assigned schedule', () => {
+  it.each([true, false])('uses member working hours with an assigned schedule: %s', (hasRuleSet) => {
     const range = { start: utc('2026-03-09T09:00:00Z'), end: utc('2026-03-09T17:00:00Z') }
     const ruleSetRules = [{
       id: 'template-monday',
@@ -50,7 +50,7 @@ describe('staff availability windows', () => {
       id: 'member-monday',
       rrule: 'DTSTART:20260309T110000Z\nDURATION:PT4H\nRRULE:FREQ=WEEKLY',
     }]
-    expect(build({ range, ruleSetRules, memberRules })).toEqual([
+    expect(build({ range, ruleSetRules: hasRuleSet ? ruleSetRules : null, memberRules })).toEqual([
       { kind: 'unavailable', start: '2026-03-09T09:00:00.000Z', end: '2026-03-09T11:00:00.000Z' },
       { kind: 'unavailable', start: '2026-03-09T15:00:00.000Z', end: '2026-03-09T17:00:00.000Z' },
     ])

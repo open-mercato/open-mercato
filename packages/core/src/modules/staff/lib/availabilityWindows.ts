@@ -167,6 +167,7 @@ export function buildStaffAvailabilityWindows({
   const manualMemberRules = memberRules.filter((rule) => !isApprovedLeaveMirror(rule, leaveRequests))
   const hasMemberSchedule = manualMemberRules.some((rule) => rule.kind === 'availability')
   const useTemplate = ruleSetRules !== null && !hasMemberSchedule
+  const hasWorkingHours = hasMemberSchedule || useTemplate
   const explicitRules = [
     ...expandExplicitRules(manualMemberRules, planner, range, canReadPlannerReasons, false),
     ...expandExplicitRules(useTemplate ? ruleSetRules : [], planner, range, canReadPlannerReasons, true),
@@ -174,16 +175,16 @@ export function buildStaffAvailabilityWindows({
   const explicit = explicitRules.flatMap((window) =>
     subtractPeriods(window, approved).map((period) => ({ ...window, ...period })))
 
-  const availability = ruleSetRules === null ? [] : planner.getMergedAvailabilityWindows({
+  const availability = hasWorkingHours ? planner.getMergedAvailabilityWindows({
     rules: useTemplate ? ruleSetRules : manualMemberRules,
     range,
     respectTimezone: true,
     weeklyScheduleTemplate: useTemplate,
-  }).map(({ start, end }) => clippedPeriod(start, end, range))
-  const outsideHours: Window[] = ruleSetRules === null ? [] : subtractPeriods(
+  }).map(({ start, end }) => clippedPeriod(start, end, range)) : []
+  const outsideHours: Window[] = hasWorkingHours ? subtractPeriods(
     { start: range.start.getTime(), end: range.end.getTime() },
     mergePeriods([...availability, ...explicit, ...approved]),
-  ).map((period) => ({ ...period, kind: 'unavailable' }))
+  ).map((period) => ({ ...period, kind: 'unavailable' })) : []
 
   return [...leaveWindows, ...explicit, ...outsideHours]
 }
