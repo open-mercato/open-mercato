@@ -310,6 +310,68 @@ test.describe('TC-SALES-7336: negative invoice amounts and line replacement', ()
     }
   })
 
+  test('keeps every digit of amounts through replaceLines and restores the stored strings on undo', async ({ request }) => {
+    skipIfUndoTestsDisabled()
+    const token = await getAuthToken(request, 'admin')
+    const longAmount = '1234567890.123456789012345'
+    const longNegative = '-0.123456789012345678'
+    let invoiceId: string | null = null
+    const readGrandTotal = (id: string) =>
+      withClient(async (client) => {
+        const result = await client.query<{ grand: string }>(
+          'select grand_total_gross_amount::text as grand from sales_invoices where id = $1',
+          [id],
+        )
+        return result.rows[0]?.grand
+      })
+    try {
+      invoiceId = await createInvoice(request, token, {
+        lines: [{ quantity: 1, currencyCode: 'EUR', name: 'Scaled', unitPriceNet: '10.50', totalNetAmount: '10.50', totalGrossAmount: '10.50' }],
+        subtotalNetAmount: '10.50',
+        subtotalGrossAmount: '10.50',
+        taxTotalAmount: 0,
+        grandTotalNetAmount: '10.50',
+        grandTotalGrossAmount: '10.50',
+      })
+      const original = await readLines(invoiceId)
+      expect(original.map((line) => Number(line.total_gross_amount))).toEqual([10.5])
+      const originalGrandTotal = await readGrandTotal(invoiceId)
+      expect(Number(originalGrandTotal)).toBe(10.5)
+
+      const replace = await apiRequest(request, 'PUT', INVOICES, {
+        token,
+        data: {
+          id: invoiceId,
+          replaceLines: true,
+          lines: [
+            { quantity: 1, currencyCode: 'EUR', name: 'Long', unitPriceNet: longAmount, totalNetAmount: longAmount, totalGrossAmount: longAmount },
+            { quantity: 1, currencyCode: 'EUR', kind: 'discount', name: 'Tiny', totalNetAmount: longNegative, totalGrossAmount: longNegative },
+          ],
+          subtotalNetAmount: longAmount,
+          subtotalGrossAmount: longAmount,
+          taxTotalAmount: 0,
+          grandTotalNetAmount: longAmount,
+          grandTotalGrossAmount: longAmount,
+        },
+      })
+      expect(replace.status(), 'replaceLines update should be 200').toBe(200)
+      const operation = expectOperation(replace, 'exact replacement')
+      const replaced = await readLines(invoiceId)
+      expect(replaced.map((line) => [line.unit_price_net, line.total_net_amount, line.total_gross_amount])).toEqual([
+        [longAmount, longAmount, longAmount],
+        ['0', longNegative, longNegative],
+      ])
+      expect(await readGrandTotal(invoiceId)).toBe(longAmount)
+
+      const undo = await undoByToken(request, token, operation.undoToken)
+      expect(undo.status(), 'undo of an exact replacement should not see a stale invoice').toBe(200)
+      expect(await readLines(invoiceId), 'undo restores the stored line strings').toEqual(original)
+      expect(await readGrandTotal(invoiceId)).toBe(originalGrandTotal)
+    } finally {
+      await purgeInvoice(invoiceId)
+    }
+  })
+
   test('refuses an undo with 409 after another actor edited the replaced lines', async ({ request }) => {
     skipIfUndoTestsDisabled()
     const token = await getAuthToken(request, 'admin')
