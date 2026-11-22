@@ -20,6 +20,6 @@ Let a host worker advance a durable checkpoint for one folder without updating c
 
 ### Phase 1 — Scoped cursor persistence
 
-- [ ] 1.1 Add the folder cursor entity, migration and DI store
-- [ ] 1.2 Verify concurrency and scope in PostgreSQL and document the worker call sequence
+- [x] 1.1 Add the folder cursor entity, migration and DI store — c83c526068
+- [x] 1.2 Verify concurrency and scope in PostgreSQL and document the worker call sequence — d5fa9bd819
 - [ ] 1.3 Archive the capability requirements and run the configured validation gate
