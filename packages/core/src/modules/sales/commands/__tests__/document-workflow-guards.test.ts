@@ -217,6 +217,7 @@ it.each(['sales.invoices.create', 'sales.shipments.create'])(
     let committedStatus = 'confirmed'
     let releaseDocument: (() => void) | null = null
     const acquireDocument = async () => {
+      if (releaseDocument) return
       documentWaiting.resolve()
       releaseDocument = await lock.acquire()
     }
