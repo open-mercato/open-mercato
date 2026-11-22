@@ -35,12 +35,14 @@ Organization is part of both joins. Reasons require an existing Staff or Planner
 
 ## Progress
 
+PR: #10386
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands.
 
 ### Phase 1: Scoped reads
 
-- [ ] 1.1 Implement and test Staff availability windows
-- [ ] 1.2 Add and test Customers interaction filters
+- [x] 1.1 Implement and test Staff availability windows — 267697f7cf
+- [x] 1.2 Add and test Customers interaction filters — 9bd148fda1
 
 ### Phase 2: Calendar scheduling
 
