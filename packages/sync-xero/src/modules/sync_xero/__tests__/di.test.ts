@@ -7,8 +7,7 @@ import { createXeroHealthCheck } from '../lib/health'
 import { XERO_PROVIDER_KEY } from '../lib/constants'
 
 jest.mock('../lib/contacts/adapter', () => ({ xeroContactsAdapter: { providerKey: 'xero' } }))
-const healthCheck = { check: jest.fn() }
-jest.mock('../lib/health', () => ({ createXeroHealthCheck: jest.fn(() => healthCheck) }))
+jest.mock('../lib/health', () => ({ createXeroHealthCheck: jest.fn() }))
 
 const credentialsService = { resolve: jest.fn() }
 const grantService = { inspectGrant: jest.fn() }
@@ -38,7 +37,7 @@ afterEach(() => {
 
 describe('sync_xero DI registrar', () => {
   it('is marked process-safe', () => {
-    expect(getProcessDiRegistrar(register)).toBeDefined()
+    expect(getProcessDiRegistrar(register)).toEqual(expect.any(Function))
   })
 
   it('publishes the contacts adapter only once the process root activates', () => {
@@ -56,12 +55,25 @@ describe('sync_xero DI registrar', () => {
     expect(getDataSyncAdapter(XERO_PROVIDER_KEY)).toBe(xeroContactsAdapter)
   })
 
-  it('builds the health check per request scope from the scope integration services', async () => {
+  it('builds the health check per request scope from that scope\'s integration services', () => {
     const root = containerWithIntegrationServices()
     register(root)
-    const scope = root.createScope()
-    await scope.resolve<{ check: (...args: unknown[]) => unknown }>('xeroHealthCheck').check(null, {})
-    expect(createXeroHealthCheck).toHaveBeenCalledWith({ credentialsService, grantService })
-    expect(healthCheck.check).toHaveBeenCalledTimes(1)
+    const scopeCredentials = { resolve: jest.fn() }
+    const scopeGrants = { inspectGrant: jest.fn() }
+    const firstScope = root.createScope()
+    firstScope.register({
+      integrationCredentialsService: asValue(scopeCredentials),
+      integrationOAuthGrantService: asValue(scopeGrants),
+    })
+    const secondScope = root.createScope()
+    const mockedFactory = jest.mocked(createXeroHealthCheck)
+    mockedFactory.mockImplementation(() => ({ check: jest.fn() }))
+    const first = firstScope.resolve<{ check: jest.Mock }>('xeroHealthCheck')
+    first.check()
+    const second = secondScope.resolve<{ check: jest.Mock }>('xeroHealthCheck')
+    second.check()
+    expect(mockedFactory).toHaveBeenNthCalledWith(1, { credentialsService: scopeCredentials, grantService: scopeGrants })
+    expect(mockedFactory).toHaveBeenNthCalledWith(2, { credentialsService, grantService })
+    expect(mockedFactory).toHaveBeenCalledTimes(2)
   })
 })

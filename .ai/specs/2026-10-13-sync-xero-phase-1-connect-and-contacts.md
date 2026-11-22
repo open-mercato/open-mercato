@@ -1041,6 +1041,11 @@ Fully compliant. The core's public surface was signed off on 2026-10-15 (core Q3
 
 ## Changelog
 
+### 2026-11-22
+- Aligned with `main`'s process-safe DI: `di.ts` uses `defineProcessDiRegistrar`, publishing the Contacts adapter on process activation, and `xeroHealthCheck` is a scoped factory resolved in the caller's request container (the scoped `integrationHealthService`), so a health check never opens a second container.
+- The OAuth callback redirects to a relative `Location`, never to a host taken from request headers.
+- A Xero `Website` is written only with an `http` or `https` scheme; any other scheme is left out with the `xero.value_left_out` warning (App Spec § 6.2a).
+
 ### 2026-11-17
 - The Xero tax number goes to the Company's native encrypted `taxId` (#8538) instead of a `sync_xero` custom field: `TaxNumber` is written through the `customers` commands (set on create when non-blank, on update only when it differs after normalization, never cleared by a blank value, left out with `xero.value_left_out` when the `taxId` validator rejects it, never written when `TaxNumberType` is `SSN`, `ITIN` or `ATIN`, which still serves as a matching key), the tax index reads the decrypted `taxId` with each chunk of Companies, and `sync_xero` declares two custom fields, `xero_contact_id` and `xero_merged_into` (§ Design Decisions, § `xero.contacts` adapter, § Indexes, § Data Models, § Risks). The `search` change of App Spec § 10 #31 merged as #8410.
 
@@ -1075,7 +1080,7 @@ Fully compliant. The core's public surface was signed off on 2026-10-15 (core Q3
   - the adapter preloads per run and per page, with lazy marker, tax-number and name indexes;
   - `xero_tax_number` is encrypted;
   - custom-field definitions are ensured at runtime, on every Organisation save and every run, instead of through `ce.ts`;
-  - the health check is registered as a value and opens its own request container;
+  - the health check is registered as a value and opens its own request container (superseded on 2026-11-22);
   - invoice endpoints and fetches by id move to Phase 2, and default schedules to Phase A;
   - run failures map onto `data_sync`'s single failed state;
   - the seam mark is a Client ID prefix;
