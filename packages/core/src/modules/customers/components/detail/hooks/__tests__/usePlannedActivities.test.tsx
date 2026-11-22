@@ -50,8 +50,8 @@ describe('usePlannedActivities', () => {
     expect(plannedActivitiesUrl({ entityId: 'person-1' })).toBe(
       '/api/customers/interactions?entityId=person-1&excludeStatus=done,canceled,completed&excludeInteractionType=task&limit=100&sortField=scheduledAt&sortDir=asc',
     )
-    expect(plannedActivitiesUrl({ dealId: 'deal-1' })).toBe(
-      '/api/customers/interactions?dealId=deal-1&excludeStatus=done,canceled,completed&excludeInteractionType=task&limit=100&sortField=scheduledAt&sortDir=asc',
+    expect(plannedActivitiesUrl({ dealId: 'deal-1' }, true)).toBe(
+      '/api/customers/interactions?dealId=deal-1&excludeStatus=done,canceled,completed&limit=100&sortField=scheduledAt&sortDir=asc',
     )
   })
 

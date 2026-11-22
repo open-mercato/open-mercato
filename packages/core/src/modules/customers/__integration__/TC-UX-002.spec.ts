@@ -62,7 +62,7 @@ test.describe('TC-UX-002: Inline Activity Composer', () => {
       await expect(callButton).toHaveAttribute('aria-pressed', 'false')
 
       // Composer exposes a textarea + "Save activity" button inline (no modal, no cancel button)
-      const textarea = page.getByPlaceholder(/what happened/i)
+      const textarea = page.getByRole('textbox', { name: 'Description' })
       await expect(textarea).toBeVisible()
 
       const saveActivityButton = page.getByRole('button', { name: /save activity/i })

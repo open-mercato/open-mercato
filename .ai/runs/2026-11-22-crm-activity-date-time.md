@@ -10,11 +10,13 @@ Use the shared date picker, guarded interactions POST, and existing refresh call
 
 ## Progress
 
+PR: #10407
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Unified composer
 
-- [ ] 1.1 Characterize the existing save payload and refresh.
+- [x] 1.1 Characterize the existing save payload and refresh. — f2fc7d2e89
 - [ ] 1.2 Create logged and planned activities from one date and time.
 - [ ] 1.3 Verify the flow on person, company, and deal detail pages.
 - [ ] 1.4 Archive the creation requirement.

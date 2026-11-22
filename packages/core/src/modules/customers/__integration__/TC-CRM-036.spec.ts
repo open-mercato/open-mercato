@@ -18,7 +18,7 @@ async function createInteraction(
 
 // TODO(crm-activity-redesign): Re-author against the new ActivitiesCard +
 // ActivityHistorySection layout introduced in PR #1791. The previous flow exercised the
-// `InlineActivityComposer` (its "Log activity" header, "what happened?" textarea, and inline
+// `InlineActivityComposer` (its "Add activity" header, Description textarea, and inline
 // "Save activity" button), which has been replaced by the `ActivitiesAddNewMenu` →
 // `ScheduleActivityDialog` path. Filter chip behaviour and counts are now exercised by the
 // `ActivityTimelineFilters` and `ActivityHistorySection` Jest suites in
@@ -72,7 +72,7 @@ test.describe.skip('TC-CRM-036: Company activity log tab history and planned sta
 
       await page.getByRole('tab', { name: /activity log/i }).click()
 
-      await expect(page.getByText(/log activity/i).first()).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Add activity' })).toBeVisible()
       await expect(page.getByText(/overdue|zaległe/i).first()).toBeVisible()
       await expect(page.getByRole('heading', { name: callTitle }).first()).toBeVisible()
       await expect(page.getByRole('heading', { name: emailTitle }).first()).toBeVisible()
@@ -82,7 +82,7 @@ test.describe.skip('TC-CRM-036: Company activity log tab history and planned sta
         response.request().method() === 'POST',
       )
       const inlineText = `QA inline activity ${Date.now()}`
-      await page.getByPlaceholder(/what happened\?/i).fill(inlineText)
+      await page.getByRole('textbox', { name: 'Description' }).fill(inlineText)
       await page.getByRole('button', { name: /save activity/i }).click()
       const composerResponse = await composerRequestPromise
       expect(composerResponse.ok()).toBeTruthy()

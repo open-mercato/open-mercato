@@ -20,6 +20,7 @@ export function useDealActivities({
 }: UseDealActivitiesOptions): UseDealActivitiesResult {
   return usePlannedActivities({
     scope: { dealId },
+    includeTasks: true,
     runMutationWithContext,
     logContext: 'customers.deals.detail',
   })

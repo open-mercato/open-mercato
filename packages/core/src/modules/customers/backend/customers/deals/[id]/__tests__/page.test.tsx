@@ -15,14 +15,12 @@ const inlineActivityComposerMock = jest.fn(
   ({
     entityType,
     entityId,
-    onScheduleRequested,
   }: {
     entityType: string
     entityId: string
-    onScheduleRequested?: () => void
   }) => (
     <div data-testid="inline-activity-composer">
-      {entityType}:{entityId}:{onScheduleRequested ? 'schedule-enabled' : 'schedule-disabled'}
+      {entityType}:{entityId}
     </div>
   ),
 )
@@ -278,11 +276,14 @@ jest.mock('../../../../../components/detail/ActivitiesSection', () => ({
   ActivitiesSection: (props: { onDataRefresh?: () => void; refreshKey?: number }) => activitiesSectionMock(props),
 }))
 
+jest.mock('../../../../../components/detail/hooks/useCanManageInteractions', () => ({
+  useCanManageInteractions: () => true,
+}))
+
 jest.mock('../../../../../components/detail/InlineActivityComposer', () => ({
   InlineActivityComposer: (props: {
     entityType: string
     entityId: string
-    onScheduleRequested?: () => void
   }) => inlineActivityComposerMock(props),
 }))
 
@@ -753,7 +754,7 @@ describe('DealDetailPage', () => {
     fireEvent.change(selector, { target: { value: 'company-1' } })
 
     await waitFor(() => {
-      expect(screen.getByTestId('inline-activity-composer')).toHaveTextContent('company:company-1:schedule-enabled')
+      expect(screen.getByTestId('inline-activity-composer')).toHaveTextContent('company:company-1')
     })
     expect(screen.getByTestId('planned-activities-section')).toHaveTextContent('schedule-enabled')
   })

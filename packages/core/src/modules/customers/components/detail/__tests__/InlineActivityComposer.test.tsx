@@ -39,44 +39,88 @@ describe('InlineActivityComposer', () => {
     }) as HTMLTextAreaElement
     expect(textarea).toBeInTheDocument()
     expect(textarea.rows).toBe(3)
-    expect(textarea.className).toEqual(expect.stringContaining('min-h-[72px]'))
+    expect(textarea.className).toEqual(expect.stringContaining('min-h-18'))
     expect(textarea.className).toEqual(expect.stringContaining('resize-none'))
   })
 
-  it('logs the selected timestamp on the active customer and deal, then refreshes', async () => {
-    const onActivityCreated = jest.fn()
-    const runGuardedMutation = jest.fn(<Result,>(operation: () => Promise<Result>) => operation())
-    const { container } = renderWithProviders(
-      <InlineActivityComposer
-        entityType="company"
-        entityId="company-1"
-        dealId="deal-1"
-        onActivityCreated={onActivityCreated}
-        runGuardedMutation={runGuardedMutation}
-      />,
-    )
+  describe('activity timestamps', () => {
+    beforeEach(() => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date(2026, 0, 15, 12))
+    })
 
-    const selectedLocalTime = '2026-10-02T09:30'
-    const dateField = container.querySelector('input[type="datetime-local"]')!
-    fireEvent.change(dateField, { target: { value: selectedLocalTime } })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Description' }), { target: { value: 'Renewal call' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save activity' }))
+    afterEach(() => {
+      jest.useRealTimers()
+    })
 
-    await waitFor(() => expect(onActivityCreated).toHaveBeenCalledTimes(1))
-    const payload = {
-      entityId: 'company-1',
-      dealId: 'deal-1',
-      interactionType: 'call',
-      body: 'Renewal call',
-      status: 'done',
-      occurredAt: new Date(selectedLocalTime).toISOString(),
-      scheduledAt: null,
-    }
-    expect(runGuardedMutation).toHaveBeenCalledWith(expect.any(Function), payload)
-    expect(apiCallOrThrow).toHaveBeenCalledWith('/api/customers/interactions', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }))
+    it.each([
+      { day: 13, status: 'done', timestampField: 'occurredAt' },
+      { day: 17, status: 'planned', timestampField: 'scheduledAt' },
+    ])('saves the selected date and time as $status on the active customer and deal', async ({ day, status, timestampField }) => {
+      const onActivityCreated = jest.fn()
+      const runGuardedMutation = jest.fn(<Result,>(operation: () => Promise<Result>) => operation())
+      renderWithProviders(
+        <InlineActivityComposer
+          entityType="company"
+          entityId="company-1"
+          dealId="deal-1"
+          onActivityCreated={onActivityCreated}
+          runGuardedMutation={runGuardedMutation}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'Date and time' }))
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(`January ${day}`) }))
+      fireEvent.change(screen.getByLabelText('Hour'), { target: { value: '09' } })
+      fireEvent.change(screen.getByLabelText('Minute'), { target: { value: '30' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Description' }), { target: { value: 'Renewal call' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save activity' }))
+
+      await waitFor(() => expect(onActivityCreated).toHaveBeenCalledTimes(1))
+      const payload = {
+        entityId: 'company-1',
+        dealId: 'deal-1',
+        interactionType: 'call',
+        body: 'Renewal call',
+        status,
+        occurredAt: null,
+        scheduledAt: null,
+        [timestampField]: new Date(2026, 0, day, 9, 30).toISOString(),
+      }
+      expect(runGuardedMutation).toHaveBeenCalledWith(expect.any(Function), payload)
+      expect(apiCallOrThrow).toHaveBeenCalledWith('/api/customers/interactions', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }))
+      expect(screen.getByRole('button', { name: 'Date and time' })).toHaveTextContent('Now')
+    })
+
+    it('uses the submit time when no date has been selected', async () => {
+      const onActivityCreated = jest.fn()
+      const runGuardedMutation = jest.fn(<Result,>(operation: () => Promise<Result>) => operation())
+      renderWithProviders(
+        <InlineActivityComposer
+          entityType="person"
+          entityId="person-1"
+          onActivityCreated={onActivityCreated}
+          runGuardedMutation={runGuardedMutation}
+        />,
+      )
+
+      const submitTime = new Date(2026, 0, 15, 12, 15, 24)
+      jest.setSystemTime(submitTime)
+      const description = screen.getByRole('textbox', { name: 'Description' })
+      fireEvent.change(description, { target: { value: 'Spoke to the customer' } })
+      fireEvent.keyDown(description, { key: 'Enter', ctrlKey: true })
+
+      await waitFor(() => expect(onActivityCreated).toHaveBeenCalledTimes(1))
+      expect(runGuardedMutation).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({
+        status: 'done',
+        occurredAt: submitTime.toISOString(),
+        scheduledAt: null,
+      }))
+    })
   })
 
   it('shows the MiniWeekCalendar by default (hideWeekPreview=false)', () => {

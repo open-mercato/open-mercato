@@ -95,7 +95,6 @@ export function ActivityLogTab({
           entityId={entityId}
           onActivityCreated={onActivityCreated}
           runGuardedMutation={runGuardedMutation}
-          onScheduleRequested={onScheduleRequested}
           useCanonicalInteractions={useCanonicalInteractions}
           refreshKey={refreshKey}
         />

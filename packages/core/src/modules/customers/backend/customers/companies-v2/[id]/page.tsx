@@ -215,6 +215,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     handleCancelActivity,
   } = usePlannedActivities({
     scope: { entityId: currentCompanyId ?? id ?? '' },
+    includeTasks: true,
     runMutationWithContext,
     logContext: 'customers.companies-v2',
     onAfterChange: reloadAfterActivityChange,
