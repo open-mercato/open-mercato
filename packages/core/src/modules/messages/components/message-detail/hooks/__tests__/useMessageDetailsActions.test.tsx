@@ -3,7 +3,6 @@
  */
 
 import { act, renderHook } from '@testing-library/react'
-import type { UseQueryResult } from '@tanstack/react-query'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -47,7 +46,7 @@ function setup(detailOverrides: Partial<MessageDetail> = {}) {
   const onDeleted = jest.fn()
   const onMarkedUnread = jest.fn()
   const suppressAutoMarkRead = jest.fn()
-  const detailQuery = { refetch } as unknown as UseQueryResult<MessageDetail | null, Error>
+  const runDelete = jest.fn((operation: () => Promise<boolean>) => operation())
   const detail = {
     id: 'message-1',
     isRead: false,
@@ -59,16 +58,17 @@ function setup(detailOverrides: Partial<MessageDetail> = {}) {
     id: 'message-1',
     t: translate,
     detail,
-    detailQuery,
+    refetchDetail: refetch,
     attachments: [],
     isArchived: false,
+    runDelete,
     onDeleted,
     onMarkedUnread,
     refreshDetailWithoutAutoMarkRead,
     suppressAutoMarkRead,
   }))
 
-  return { ...view, refetch, refreshDetailWithoutAutoMarkRead, onDeleted, onMarkedUnread, suppressAutoMarkRead }
+  return { ...view, refetch, refreshDetailWithoutAutoMarkRead, onDeleted, onMarkedUnread, suppressAutoMarkRead, runDelete }
 }
 
 describe('useMessageDetailsActions guarded writes (#3258)', () => {
@@ -162,6 +162,25 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
     expect(mockApiCall).toHaveBeenCalledWith('/api/messages/message-1/conversation', { method: 'DELETE' })
     expect(onDeleted).toHaveBeenCalledTimes(1)
   })
+
+  it.each(['handleDelete', 'deleteConversation'] as const)(
+    'pauses reads when retrying %s and navigates only on success',
+    async (action) => {
+      const { result, onDeleted, runDelete } = setup()
+      mockRunMutation.mockRejectedValueOnce(new Error('Locked'))
+      mockRetryLastMutation.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+
+      await act(async () => { await result.current[action]() })
+      const { retryLastMutation } = mockRunMutation.mock.calls[0][0].context
+      await expect(retryLastMutation()).resolves.toBe(false)
+      expect(onDeleted).not.toHaveBeenCalled()
+
+      await expect(retryLastMutation()).resolves.toBe(true)
+      expect(onDeleted).toHaveBeenCalledTimes(1)
+      expect(runDelete).toHaveBeenCalledTimes(3)
+      expect(runDelete).toHaveBeenLastCalledWith(mockRetryLastMutation)
+    },
+  )
 
   it('routes message action execution through runMutation and refetches', async () => {
     mockApiCall.mockResolvedValue(okResult({ ok: true, result: {} }))

@@ -35,7 +35,7 @@ jest.mock('@open-mercato/ui/backend/injection/useAppEvent', () => ({
 
 jest.mock('../useMessageDetailsQueries', () => ({
   useMessageDetailsQueries: () => ({
-    detailQuery: { refetch: jest.fn() },
+    refetchDetail: jest.fn(),
     detail: null,
     isLoadingDetail: false,
     loadErrorMessage: 'load error',
