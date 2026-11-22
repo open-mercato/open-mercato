@@ -26,6 +26,11 @@ export interface CustomerKyselyDb {
     deleted_at: Date | string | null
     transitioned_at: Date | string | null
   }
+  customer_entities: {
+    id: string
+    organization_id: string
+    tenant_id: string
+  }
   customer_interactions: {
     deal_id: string | null
     entity_id: string | null

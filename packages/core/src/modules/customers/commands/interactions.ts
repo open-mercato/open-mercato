@@ -28,6 +28,7 @@ import {
   type InteractionCancelInput,
 } from '../data/validators'
 import {
+  buildCustomerCommandLookup,
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
@@ -49,6 +50,7 @@ import { enforceRecordGoneIsConflict, enforceCommandOptimisticLockWithGuards } f
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
+import type { CustomerKyselyDb } from '../lib/kysely'
 import {
   INTERACTION_STATUS_CANCELED,
   INTERACTION_STATUS_COMPLETED,
@@ -259,16 +261,34 @@ async function ensureInteractionRestoreAccess(
   }
 }
 
+function findInteractionForWrite(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  where: { id: string; deletedAt?: null },
+  populateParent = false,
+): Promise<CustomerInteraction | null> {
+  const lookup = buildCustomerCommandLookup(where, ctx)
+  const options = populateParent
+    ? { ...interactionWriteOptions, populate: ['entity'] as const, strategy: LoadStrategy.SELECT_IN }
+    : interactionWriteOptions
+  return findOneWithDecryption(em, CustomerInteraction, lookup.where, options, lookup.scope)
+}
+
+async function prepareInteractionSnapshot(id: string, ctx: CommandRuntimeContext) {
+  const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
+  const snapshot = await loadInteractionSnapshot(em, id, ctx, Boolean(ctx.transactionalEm))
+  return snapshot ? { before: snapshot } : {}
+}
+
 async function loadInteractionSnapshot(
   em: EntityManager,
   id: string,
   ctx?: CommandRuntimeContext,
   lockForUpdate = false,
 ): Promise<InteractionSnapshot | null> {
-  const interaction = await findOneWithDecryption(em, CustomerInteraction, { id }, {
-    populate: ['entity'],
-    ...(lockForUpdate ? { ...interactionWriteOptions, strategy: LoadStrategy.SELECT_IN } : {}),
-  })
+  const interaction = lockForUpdate && ctx
+    ? await findInteractionForWrite(em, ctx, { id }, true)
+    : await findOneWithDecryption(em, CustomerInteraction, { id }, { populate: ['entity'] })
   if (!interaction) return null
   if (ctx) await ensureInteractionMutationAccess(ctx, em, interaction)
   const custom = await loadCustomFieldSnapshot(em, {
@@ -523,20 +543,33 @@ async function runInTransaction<TResult>(
 async function refreshInteractionProjection(
   em: EntityManager,
   entityId: string | null | undefined,
+  scope: CustomerEntityScope,
 ): Promise<InteractionProjectionMutation | null> {
   if (!entityId) return null
-  const { nextInteractionId } = await recomputeNextInteraction(em, entityId)
+  if (em.getTransactionContext?.()) {
+    const parent = await em.getKysely<CustomerKyselyDb>()
+      .selectFrom('customer_entities')
+      .select('id')
+      .where('id', '=', entityId)
+      .where('tenant_id', '=', scope.tenantId)
+      .where('organization_id', '=', scope.organizationId)
+      .forNoKeyUpdate()
+      .executeTakeFirst()
+    if (!parent) return null
+  }
+  const { nextInteractionId } = await recomputeNextInteraction(em, entityId, scope.organizationId)
   return { entityId, nextInteractionId }
 }
 
 async function refreshInteractionProjections(
   em: EntityManager,
   entityIds: ReadonlyArray<string | null | undefined>,
+  scope: CustomerEntityScope,
 ): Promise<InteractionProjectionMutation[]> {
   const projections: InteractionProjectionMutation[] = []
   const parentIds = [...new Set(entityIds.filter((id): id is string => Boolean(id)))].sort()
   for (const entityId of parentIds) {
-    const projection = await refreshInteractionProjection(em, entityId)
+    const projection = await refreshInteractionProjection(em, entityId, scope)
     if (projection) projections.push(projection)
   }
   return projections
@@ -728,7 +761,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       )
 
       const entityId = entity?.id ?? null
-      const projection = await refreshInteractionProjection(trx, entityId)
+      const projection = await refreshInteractionProjection(trx, entityId, interaction)
       return { interaction, entityId, projection }
     }, ctx.beforeTransactionalWrite, rawInput)
 
@@ -782,13 +815,13 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     if (!interactionId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const result = await runInTransaction(em, async (trx) => {
-      const record = await findOneWithDecryption(trx, CustomerInteraction, { id: interactionId }, interactionWriteOptions)
+      const record = await findInteractionForWrite(trx, ctx, { id: interactionId })
       if (!record) return null
       await ensureInteractionMutationAccess(ctx, trx, record)
       const entityId = interactionParentId(record.entity)
       trx.remove(record)
       await trx.flush()
-      const projection = await refreshInteractionProjection(trx, entityId)
+      const projection = await refreshInteractionProjection(trx, entityId, record)
       return {
         projection,
         identifiers: {
@@ -808,7 +841,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, projection } = await runInTransaction(em, async (trx) => {
-      let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: after.interaction.id }, interactionWriteOptions)
+      let interaction = await findInteractionForWrite(trx, ctx, { id: after.interaction.id })
       await ensureInteractionRestoreAccess(ctx, trx, interaction, after.interaction)
       const entity = await resolveRestoredInteractionParent(trx, after.interaction, interaction)
       if (!interaction) {
@@ -873,7 +906,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       }
       await trx.flush()
 
-      const projection = await refreshInteractionProjection(trx, after.interaction.entityId)
+      const projection = await refreshInteractionProjection(trx, after.interaction.entityId, interaction)
 
       const restoreValues = buildCustomFieldResetMap(after.custom, undefined)
       if (Object.keys(restoreValues).length) {
@@ -919,9 +952,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
 
 async function prepareUpdateInteractionSnapshot(rawInput: InteractionUpdateInput, ctx: CommandRuntimeContext) {
   const { parsed } = parseWithCustomFields(interactionUpdateSchema, rawInput)
-  const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
-  const snapshot = await loadInteractionSnapshot(em, parsed.id, ctx, Boolean(ctx.transactionalEm))
-  return snapshot ? { before: snapshot } : {}
+  return prepareInteractionSnapshot(parsed.id, ctx)
 }
 
 const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interactionId: string }> = {
@@ -932,7 +963,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const { parsed, custom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, projections } = await runInTransaction(em, async (trx) => {
-      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null }, interactionWriteOptions)
+      const interaction = await findInteractionForWrite(trx, ctx, { id: parsed.id, deletedAt: null })
       if (!interaction) {
         enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
         throw notFound('Interaction not found')
@@ -1095,7 +1126,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         { ...sameTypeCustom, ...clearedCustom },
       )
 
-      const projections = await refreshInteractionProjections(trx, [entityId, previousEntityId])
+      const projections = await refreshInteractionProjections(trx, [entityId, previousEntityId], interaction)
 
       return { interaction, projections }
     }, ctx.beforeTransactionalWrite, rawInput)
@@ -1157,7 +1188,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, projections } = await runInTransaction(em, async (trx) => {
-      let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id }, interactionWriteOptions)
+      let interaction = await findInteractionForWrite(trx, ctx, { id: before.interaction.id })
       await ensureInteractionRestoreAccess(ctx, trx, interaction, before.interaction)
       const entity = await resolveRestoredInteractionParent(trx, before.interaction, interaction)
       const previousEntityId = interactionParentId(interaction?.entity)
@@ -1229,7 +1260,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         before.interaction.entityId,
         previousEntityId,
         payload?.after?.interaction.entityId,
-      ])
+      ], interaction)
 
       const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
       if (Object.keys(resetValues).length) {
@@ -1278,17 +1309,16 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
 
 const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { interactionId: string }> = {
   id: 'customers.interactions.complete',
+  prepareSnapshotInsideTransaction: true,
   async prepare(rawInput, ctx) {
     const parsed = interactionCompleteSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadInteractionSnapshot(em, parsed.id, ctx)
-    return snapshot ? { before: snapshot } : {}
+    return prepareInteractionSnapshot(parsed.id, ctx)
   },
   async execute(rawInput, ctx) {
     const parsed = interactionCompleteSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId, projection } = await runInTransaction(em, async (trx) => {
-      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null }, interactionWriteOptions)
+      const interaction = await findInteractionForWrite(trx, ctx, { id: parsed.id, deletedAt: null })
       if (!interaction) {
         enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
         throw notFound('Interaction not found')
@@ -1309,9 +1339,9 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       await trx.flush()
 
       const entityId = interactionParentId(interaction.entity)
-      const projection = await refreshInteractionProjection(trx, entityId)
+      const projection = await refreshInteractionProjection(trx, entityId, interaction)
       return { interaction, entityId, projection }
-    })
+    }, ctx.beforeTransactionalWrite, rawInput)
 
     const identifiers = {
       id: interaction.id,
@@ -1374,7 +1404,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const result = await runInTransaction(em, async (trx) => {
-      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id }, interactionWriteOptions)
+      const interaction = await findInteractionForWrite(trx, ctx, { id: before.interaction.id })
       if (!interaction) return null
       await ensureInteractionMutationAccess(ctx, trx, interaction)
 
@@ -1382,7 +1412,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       interaction.occurredAt = before.interaction.occurredAt
       await trx.flush()
 
-      const projection = await refreshInteractionProjection(trx, interactionParentId(interaction.entity))
+      const projection = await refreshInteractionProjection(trx, interactionParentId(interaction.entity), interaction)
       return { interaction, projection }
     })
     if (!result) return
@@ -1401,7 +1431,10 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
-    await emitInteractionRevertedEvent(ctx, before.interaction)
+    await emitInteractionRevertedEvent(ctx, {
+      ...before.interaction,
+      entityId: interactionParentId(result.interaction.entity),
+    })
     await emitNextInteractionUpdatedEvent(ctx, result.projection, {
       id: result.interaction.id,
       organizationId: result.interaction.organizationId,
@@ -1414,17 +1447,16 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
 
 const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interactionId: string }> = {
   id: 'customers.interactions.cancel',
+  prepareSnapshotInsideTransaction: true,
   async prepare(rawInput, ctx) {
     const parsed = interactionCancelSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadInteractionSnapshot(em, parsed.id, ctx)
-    return snapshot ? { before: snapshot } : {}
+    return prepareInteractionSnapshot(parsed.id, ctx)
   },
   async execute(rawInput, ctx) {
     const parsed = interactionCancelSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId, projection } = await runInTransaction(em, async (trx) => {
-      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null }, interactionWriteOptions)
+      const interaction = await findInteractionForWrite(trx, ctx, { id: parsed.id, deletedAt: null })
       if (!interaction) {
         enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
         throw notFound('Interaction not found')
@@ -1444,9 +1476,9 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
       await trx.flush()
 
       const entityId = interactionParentId(interaction.entity)
-      const projection = await refreshInteractionProjection(trx, entityId)
+      const projection = await refreshInteractionProjection(trx, entityId, interaction)
       return { interaction, entityId, projection }
-    })
+    }, ctx.beforeTransactionalWrite, rawInput)
 
     const identifiers = {
       id: interaction.id,
@@ -1508,14 +1540,14 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const result = await runInTransaction(em, async (trx) => {
-      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id }, interactionWriteOptions)
+      const interaction = await findInteractionForWrite(trx, ctx, { id: before.interaction.id })
       if (!interaction) return null
       await ensureInteractionMutationAccess(ctx, trx, interaction)
 
       interaction.status = before.interaction.status
       await trx.flush()
 
-      const projection = await refreshInteractionProjection(trx, interactionParentId(interaction.entity))
+      const projection = await refreshInteractionProjection(trx, interactionParentId(interaction.entity), interaction)
       return { interaction, projection }
     })
     if (!result) return
@@ -1534,7 +1566,10 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
-    await emitInteractionRevertedEvent(ctx, before.interaction)
+    await emitInteractionRevertedEvent(ctx, {
+      ...before.interaction,
+      entityId: interactionParentId(result.interaction.entity),
+    })
     await emitNextInteractionUpdatedEvent(ctx, result.projection, {
       id: result.interaction.id,
       organizationId: result.interaction.organizationId,
@@ -1548,17 +1583,16 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
 const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { interactionId: string }> =
   {
     id: 'customers.interactions.delete',
+    prepareSnapshotInsideTransaction: true,
     async prepare(input, ctx) {
       const id = requireId(input, 'Interaction id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshot = await loadInteractionSnapshot(em, id, ctx)
-      return snapshot ? { before: snapshot } : {}
+      return prepareInteractionSnapshot(id, ctx)
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Interaction id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, projection } = await runInTransaction(em, async (trx) => {
-        const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id, deletedAt: null }, interactionWriteOptions)
+        const interaction = await findInteractionForWrite(trx, ctx, { id, deletedAt: null })
         if (!interaction) {
           enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: id, request: ctx.request ?? null })
           throw notFound('Interaction not found')
@@ -1578,9 +1612,9 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
         interaction.deletedAt = new Date()
         await trx.flush()
 
-        const projection = await refreshInteractionProjection(trx, entityId)
+        const projection = await refreshInteractionProjection(trx, entityId, interaction)
         return { interaction, projection }
-      })
+      }, ctx.beforeTransactionalWrite, input)
 
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudSideEffects({
@@ -1629,7 +1663,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, projection } = await runInTransaction(em, async (trx) => {
-        let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id }, interactionWriteOptions)
+        let interaction = await findInteractionForWrite(trx, ctx, { id: before.interaction.id })
         await ensureInteractionRestoreAccess(ctx, trx, interaction, before.interaction)
         const entity = await resolveRestoredInteractionParent(trx, before.interaction, interaction)
         if (!interaction) {
@@ -1696,7 +1730,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
         }
         await trx.flush()
 
-        const projection = await refreshInteractionProjection(trx, before.interaction.entityId)
+        const projection = await refreshInteractionProjection(trx, before.interaction.entityId, interaction)
 
         const resetValues = buildCustomFieldResetMap(before.custom, undefined)
         if (Object.keys(resetValues).length) {
