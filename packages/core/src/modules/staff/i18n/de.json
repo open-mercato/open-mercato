@@ -2116,6 +2116,7 @@
   "staff.timesheets.errors.projectsKpis": "Projekt-KPIs konnten nicht geladen werden.",
   "staff.timesheets.errors.savePreference": "Zeiterfassungseinstellung konnte nicht gespeichert werden.",
   "staff.timesheets.errors.segmentCreate": "Zeiteintragssegment konnte nicht erstellt werden.",
+  "staff.timesheets.errors.segmentEndBeforeStart": "Ein Segment kann nicht enden, bevor es beginnt.",
   "staff.timesheets.errors.staffMemberNotFound": "Mitarbeiter nicht gefunden oder nicht zugänglich.",
   "staff.timesheets.errors.taskAlreadyClaimed": "Jemand anderes hat diese Aufgabe bereits übernommen.",
   "staff.timesheets.errors.taskChanged": "Die Aufgabe hat sich während der Freigabe geändert. Aktualisieren Sie und versuchen Sie es erneut.",

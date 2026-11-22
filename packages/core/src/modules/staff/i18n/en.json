@@ -2116,6 +2116,7 @@
   "staff.timesheets.errors.projectsKpis": "Failed to load project KPIs.",
   "staff.timesheets.errors.savePreference": "Failed to save timesheet preference.",
   "staff.timesheets.errors.segmentCreate": "Failed to create time entry segment.",
+  "staff.timesheets.errors.segmentEndBeforeStart": "A segment cannot end before it starts.",
   "staff.timesheets.errors.staffMemberNotFound": "Staff member not found or not accessible.",
   "staff.timesheets.errors.taskAlreadyClaimed": "Someone else already took this task.",
   "staff.timesheets.errors.taskChanged": "The task changed while you were releasing it. Refresh and try again.",

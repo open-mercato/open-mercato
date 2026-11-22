@@ -2116,6 +2116,7 @@
   "staff.timesheets.errors.projectsKpis": "Nie udało się załadować wskaźników KPI projektów.",
   "staff.timesheets.errors.savePreference": "Nie udało się zapisać preferencji karty czasu pracy.",
   "staff.timesheets.errors.segmentCreate": "Nie udało się utworzyć segmentu wpisu czasu.",
+  "staff.timesheets.errors.segmentEndBeforeStart": "Segment nie może kończyć się przed jego rozpoczęciem.",
   "staff.timesheets.errors.staffMemberNotFound": "Pracownik nie został znaleziony lub jest niedostępny.",
   "staff.timesheets.errors.taskAlreadyClaimed": "Ktoś inny już przejął to zadanie.",
   "staff.timesheets.errors.taskChanged": "Zadanie zmieniło się podczas zwalniania. Odśwież i spróbuj ponownie.",

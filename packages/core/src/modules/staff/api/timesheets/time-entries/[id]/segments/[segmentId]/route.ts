@@ -7,6 +7,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
@@ -155,6 +156,16 @@ export async function PATCH(req: Request) {
         throw new CrudHttpError(404, { error: 'Segment not found' })
       }
 
+      const nextStartedAt = parsed.data.startedAt ?? lockedSegment.startedAt
+      const nextEndedAt = parsed.data.endedAt !== undefined ? parsed.data.endedAt : lockedSegment.endedAt
+      const touchesRange = parsed.data.startedAt !== undefined || parsed.data.endedAt !== undefined
+      if (touchesRange && nextEndedAt && nextEndedAt.getTime() < nextStartedAt.getTime()) {
+        const { translate } = await resolveTranslations()
+        const message = translate('staff.timesheets.errors.segmentEndBeforeStart', 'A segment cannot end before it starts.')
+        const field = parsed.data.endedAt !== undefined ? 'endedAt' : 'startedAt'
+        throw new CrudHttpError(400, { code: 'segment_end_before_start', error: message, fieldErrors: { [field]: message } })
+      }
+
       if (parsed.data.startedAt !== undefined) {
         lockedSegment.startedAt = parsed.data.startedAt
       }
@@ -240,7 +251,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Segment updated successfully', schema: segmentResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Invalid payload or missing segment id', schema: errorSchema },
+        { status: 400, description: 'Invalid payload, missing segment id, or an endedAt earlier than startedAt', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Segment not found', schema: errorSchema },
       ],

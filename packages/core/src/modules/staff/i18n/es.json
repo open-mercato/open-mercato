@@ -2116,6 +2116,7 @@
   "staff.timesheets.errors.projectsKpis": "No se pudieron cargar los KPI del proyecto.",
   "staff.timesheets.errors.savePreference": "No se pudo guardar la preferencia de hoja de horas.",
   "staff.timesheets.errors.segmentCreate": "No se pudo crear el segmento del registro de tiempo.",
+  "staff.timesheets.errors.segmentEndBeforeStart": "Un segmento no puede terminar antes de empezar.",
   "staff.timesheets.errors.staffMemberNotFound": "Miembro del personal no encontrado o no accesible.",
   "staff.timesheets.errors.taskAlreadyClaimed": "Otra persona ya tomó esta tarea.",
   "staff.timesheets.errors.taskChanged": "La tarea cambió mientras la liberabas. Actualiza e inténtalo de nuevo.",
