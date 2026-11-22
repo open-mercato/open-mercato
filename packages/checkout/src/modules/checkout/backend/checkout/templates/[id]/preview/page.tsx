@@ -1,18 +1,19 @@
 import { headers } from 'next/headers'
 import { PayPage, type PayLinkPayload } from '../../../../../components/PayPage'
+import { resolveTrustedAppBaseUrl } from '../../../../../lib/trustedAppBaseUrl'
 
 async function loadInitialTemplatePreview(id: string): Promise<{ payload: PayLinkPayload | null; error: string | null }> {
-  const requestHeaders = await headers()
-  const host = requestHeaders.get('host')
-  if (!host) {
-    return { payload: null, error: 'Missing host header' }
+  const baseUrl = resolveTrustedAppBaseUrl()
+  if (!baseUrl) {
+    return { payload: null, error: null }
   }
-  const protocol = requestHeaders.get('x-forwarded-proto') ?? 'http'
+  const requestHeaders = await headers()
   const cookie = requestHeaders.get('cookie') ?? ''
   try {
-    const response = await fetch(`${protocol}://${host}/api/checkout/templates/${encodeURIComponent(id)}/preview`, {
+    const response = await fetch(`${baseUrl}/api/checkout/templates/${encodeURIComponent(id)}/preview`, {
       headers: cookie ? { cookie } : undefined,
       cache: 'no-store',
+      redirect: 'error',
     })
     const payload = await response.json().catch(() => null) as PayLinkPayload | { error?: string } | null
     if (!response.ok) {
