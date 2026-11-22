@@ -53,4 +53,9 @@ PR: #10386
 
 - [x] 3.1 Show CRM events in Staff availability schedules — 5627d5f8b7
 - [x] 3.2 Show overlapping CRM events in leave review — 5627d5f8b7
-- [ ] 3.3 Archive capabilities and validate implementation
+- [x] 3.3 Archive capabilities and validate implementation — 298e471e08
+
+## Validation
+
+- The ordered local gate passed. Workspace tests were split across the host runtime and the official Node and npm bundle for the scaffold suite.
+- Five targeted Playwright scenarios passed against the isolated production app. [Browser evidence](https://github.com/open-mercato/open-mercato/pull/10386#issuecomment-7084744759).
