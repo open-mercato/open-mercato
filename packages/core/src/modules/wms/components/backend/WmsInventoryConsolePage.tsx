@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -297,7 +296,7 @@ function InventoryDataTableSection<T extends RowData>({
 }: InventoryDataTableSectionProps<T>) {
   const t = useT()
   const [page, setPage] = React.useState(1)
-  const [search, setSearch] = useUrlSearchState()
+  const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([])
 
   const handleSortingChange = React.useCallback((nextSorting: SortingState) => {

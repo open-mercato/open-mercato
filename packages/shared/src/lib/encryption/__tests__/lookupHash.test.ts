@@ -5,6 +5,7 @@ const originalEnv = { ...process.env }
 
 function clearLookupEnv() {
   delete process.env.LOOKUP_HASH_PEPPER
+  delete process.env.LOOKUP_HASH_OLD_PEPPER
   delete process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
   delete process.env.TENANT_DATA_ENCRYPTION_KEY
 }
@@ -109,5 +110,38 @@ describe('hashForLookup keyed digest (issue #2718)', () => {
     const candidates = lookupHashCandidates('user@example.com')
     expect(candidates).toEqual([legacyHashForLookup('user@example.com')])
     expect(candidates).toHaveLength(1)
+  })
+
+  it('matches the previous fallback pepper with the original context while new writes use the current pepper', () => {
+    clearLookupEnv()
+    const email = 'User@Example.com '
+    const context = 'auth.user:email'
+    process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY = 'previous-fallback-secret'
+    const previous = hashForLookup(email, context)
+
+    process.env.LOOKUP_HASH_PEPPER = 'replacement-pepper'
+    process.env.LOOKUP_HASH_OLD_PEPPER = ' "previous-fallback-secret" '
+    const current = hashForLookup(email, context)
+
+    expect(current).not.toBe(previous)
+    expect(lookupHashCandidates(email, context)).toEqual([current, previous, legacyHashForLookup(email)])
+    expect(lookupHashCandidates(email, 'different-context')).not.toContain(previous)
+
+    delete process.env.LOOKUP_HASH_OLD_PEPPER
+    expect(lookupHashCandidates(email, context)).toEqual([current, legacyHashForLookup(email)])
+  })
+
+  it('deduplicates matching peppers and keeps the previous pepper out of writes without a current secret', () => {
+    clearLookupEnv()
+    const email = 'user@example.com'
+    process.env.LOOKUP_HASH_PEPPER = 'shared-pepper'
+    const keyed = hashForLookup(email)
+    const legacy = legacyHashForLookup(email)
+    process.env.LOOKUP_HASH_OLD_PEPPER = 'shared-pepper'
+    expect(lookupHashCandidates(email)).toEqual([keyed, legacy])
+
+    delete process.env.LOOKUP_HASH_PEPPER
+    expect(hashForLookup(email)).toBe(legacy)
+    expect(lookupHashCandidates(email)).toEqual([legacy, keyed])
   })
 })
