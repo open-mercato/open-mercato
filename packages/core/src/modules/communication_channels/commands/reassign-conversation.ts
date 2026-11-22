@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload as extractSharedUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -100,6 +100,9 @@ const THREAD_NOT_FOUND_FALLBACK = 'Thread not found'
 const REASSIGN_UNDO_CONFLICT_KEY = 'communication_channels.errors.reassignUndoConflict'
 const REASSIGN_UNDO_CONFLICT_FALLBACK =
   'This conversation was reassigned again after this change. Undo was refused so the newer assignment is kept.'
+const REASSIGN_REDO_CONFLICT_KEY = 'communication_channels.errors.reassignRedoConflict'
+const REASSIGN_REDO_CONFLICT_FALLBACK =
+  'This reassignment could not be safely redone. The current assignment was kept.'
 
 /**
  * The generic "not found" message used to mask an authorization refusal, so a
@@ -123,17 +126,20 @@ function normalizeAssignedUserId(value: string | null | undefined): string | nul
   return value ? value.toLowerCase() : null
 }
 
-/**
- * The message for an undo refused because a later reassignment superseded it,
- * so the newer assignment is never overwritten with the stale previous owner.
- */
-async function resolveReassignUndoConflictMessage(): Promise<string> {
+async function resolveReassignConflictMessage(key: string, fallback: string): Promise<string> {
   try {
     const { translate } = await resolveTranslations()
-    return translate(REASSIGN_UNDO_CONFLICT_KEY, REASSIGN_UNDO_CONFLICT_FALLBACK)
+    return translate(key, fallback)
   } catch {
-    return REASSIGN_UNDO_CONFLICT_FALLBACK
+    return fallback
   }
+}
+
+async function throwReassignRedoConflict(): Promise<never> {
+  throw new CrudHttpError(409, {
+    error: await resolveReassignConflictMessage(REASSIGN_REDO_CONFLICT_KEY, REASSIGN_REDO_CONFLICT_FALLBACK),
+    code: REASSIGN_REDO_CONFLICT_KEY,
+  })
 }
 
 export type ReassignConversationResult =
@@ -163,6 +169,195 @@ export interface ReassignConversationUndoSnapshot {
 export const COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID =
   'communication_channels.conversation.reassign'
 
+async function executeReassignment(
+  rawInput: ReassignConversationInput,
+  ctx: CommandRuntimeContext,
+  redoSnapshot?: ReassignConversationUndoSnapshot | null,
+): Promise<ReassignConversationResult> {
+  const input = reassignConversationSchema.parse(rawInput) as ReassignConversationInput
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const dscope = {
+    tenantId: input.scope.tenantId,
+    organizationId: input.scope.organizationId ?? null,
+  }
+
+  const mapping = await findOneWithDecryption(
+    em,
+    ChannelThreadMapping,
+    {
+      messageThreadId: input.threadId,
+      tenantId: input.scope.tenantId,
+      organizationId: input.scope.organizationId ?? null,
+    },
+    // `message_thread_id` is non-unique (only `(external_conversation_id,
+    // tenant_id)` is unique). The 1:1 thread↔mapping invariant holds in v1,
+    // but order deterministically so a future many-conversations-per-thread
+    // merge can never resolve an arbitrary mapping here.
+    { orderBy: { createdAt: 'asc' } },
+    dscope,
+  )
+  if (!mapping) {
+    return {
+      status: 'no_channel_link',
+      reason: `no ChannelThreadMapping for thread ${input.threadId}`,
+    }
+  }
+
+  const channel = await findOneWithDecryption(
+    em,
+    CommunicationChannel,
+    { id: mapping.channelId, tenantId: input.scope.tenantId },
+    undefined,
+    dscope,
+  )
+  if (!channel) {
+    return {
+      status: 'no_channel_link',
+      reason: `no CommunicationChannel for thread ${input.threadId}`,
+    }
+  }
+  const denialReason = await checkChannelAccess(ctx, channel, input.scope)
+  if (denialReason) {
+    return { status: 'access_denied', reason: denialReason }
+  }
+
+  if (redoSnapshot === null) await throwReassignRedoConflict()
+
+  if (!redoSnapshot && (mapping.assignedUserId ?? null) === input.assignedUserId) {
+    return { status: 'noop', reason: 'assigned user unchanged' }
+  }
+
+  // Reject an assignee that is not a live user of this tenant — a UUID-shaped
+  // body alone must not create a cross-tenant / dangling owner reference.
+  if (input.assignedUserId) {
+    // Reference the `auth` user row by string entity name so this command does
+    // not import the auth module's entities (module independence); `as never`
+    // matches the codebase pattern for cross-module decrypted reads.
+    const assignee = await findOneWithDecryption(
+      em,
+      'User' as never,
+      { id: input.assignedUserId, tenantId: input.scope.tenantId, deletedAt: null } as never,
+      undefined,
+      dscope,
+    )
+    if (!assignee) {
+      return {
+        status: 'invalid_assignee',
+        reason: 'assigned user is not a member of this tenant',
+      }
+    }
+  }
+
+  const applied = await em.transactional(async (tem) => {
+    const lockedMapping = await findOneWithDecryption(
+      tem,
+      ChannelThreadMapping,
+      {
+        id: mapping.id,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+      },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      dscope,
+    )
+    if (!lockedMapping) {
+      return {
+        status: 'no_channel_link' as const,
+        reason: `no ChannelThreadMapping for thread ${input.threadId}`,
+      }
+    }
+    const lockedPreviousAssignedUserId = lockedMapping.assignedUserId ?? null
+    const expectedOwner = normalizeAssignedUserId(redoSnapshot?.previousAssignedUserId)
+    if (redoSnapshot && (
+      lockedMapping.id !== redoSnapshot.threadMappingId ||
+      lockedMapping.externalConversationId !== redoSnapshot.conversationId ||
+      normalizeAssignedUserId(lockedPreviousAssignedUserId) !== expectedOwner
+    )) {
+      return { status: 'redo_conflict' as const }
+    }
+    if (!redoSnapshot && lockedPreviousAssignedUserId === input.assignedUserId) {
+      return { status: 'noop' as const, reason: 'assigned user unchanged' }
+    }
+    const conversation = await findOneWithDecryption(
+      tem,
+      ExternalConversation,
+      {
+        id: lockedMapping.externalConversationId,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+      },
+      redoSnapshot ? { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true } : { refresh: true },
+      dscope,
+    )
+    if (!conversation) {
+      return {
+        status: 'no_channel_link' as const,
+        reason: `no ExternalConversation for thread ${input.threadId}`,
+      }
+    }
+    if (redoSnapshot) {
+      if (normalizeAssignedUserId(conversation.assignedUserId) !== expectedOwner) {
+        return { status: 'redo_conflict' as const }
+      }
+      if (lockedPreviousAssignedUserId === input.assignedUserId) {
+        return { status: 'noop' as const, reason: 'assigned user unchanged' }
+      }
+    }
+
+    lockedMapping.assignedUserId = input.assignedUserId
+    conversation.assignedUserId = input.assignedUserId
+    await tem.flush()
+    return {
+      status: 'applied' as const,
+      previousAssignedUserId: lockedPreviousAssignedUserId,
+      conversation,
+    }
+  })
+  if (applied.status === 'redo_conflict') return throwReassignRedoConflict()
+  if (applied.status !== 'applied') return applied
+  const { previousAssignedUserId, conversation } = applied
+
+  try {
+    await emitCommunicationChannelsEvent(
+      'communication_channels.conversation.reassigned',
+      {
+        conversationId: conversation.id,
+        channelId: mapping.channelId,
+        messageThreadId: input.threadId,
+        previousAssignedUserId,
+        assignedUserId: input.assignedUserId,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+      },
+      { persistent: true },
+    )
+  } catch (emitErr) {
+    // Best-effort lifecycle/workflow-trigger signal — a bus failure must not
+    // abort the reassignment (the rows are already committed above).
+    logger.warn(
+      'reassigned event emit failed',
+      { err: emitErr },
+    )
+  }
+
+  const undo: ReassignConversationUndoSnapshot = {
+    threadMappingId: mapping.id,
+    conversationId: conversation.id,
+    tenantId: mapping.tenantId,
+    previousAssignedUserId,
+    newAssignedUserId: input.assignedUserId,
+  }
+
+  return {
+    status: 'reassigned',
+    threadId: input.threadId,
+    previousAssignedUserId,
+    nextAssignedUserId: input.assignedUserId,
+    conversationId: conversation.id,
+    undo,
+  }
+}
+
 /**
  * Reassign the owning user of a channel-linked conversation.
  *
@@ -185,171 +380,7 @@ const reassignConversationCommand: CommandHandler<
   // Explicitly undoable (the bus also infers this from `undo` below, but
   // declaring it keeps undoability from silently dropping under a refactor).
   isUndoable: true,
-  async execute(rawInput, ctx) {
-    const input = reassignConversationSchema.parse(rawInput) as ReassignConversationInput
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const dscope = {
-      tenantId: input.scope.tenantId,
-      organizationId: input.scope.organizationId ?? null,
-    }
-
-    const mapping = await findOneWithDecryption(
-      em,
-      ChannelThreadMapping,
-      {
-        messageThreadId: input.threadId,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-      },
-      // `message_thread_id` is non-unique (only `(external_conversation_id,
-      // tenant_id)` is unique). The 1:1 thread↔mapping invariant holds in v1,
-      // but order deterministically so a future many-conversations-per-thread
-      // merge can never resolve an arbitrary mapping here.
-      { orderBy: { createdAt: 'asc' } },
-      dscope,
-    )
-    if (!mapping) {
-      return {
-        status: 'no_channel_link',
-        reason: `no ChannelThreadMapping for thread ${input.threadId}`,
-      }
-    }
-
-    const channel = await findOneWithDecryption(
-      em,
-      CommunicationChannel,
-      { id: mapping.channelId, tenantId: input.scope.tenantId },
-      undefined,
-      dscope,
-    )
-    if (!channel) {
-      return {
-        status: 'no_channel_link',
-        reason: `no CommunicationChannel for thread ${input.threadId}`,
-      }
-    }
-    const denialReason = await checkChannelAccess(ctx, channel, input.scope)
-    if (denialReason) {
-      return { status: 'access_denied', reason: denialReason }
-    }
-
-    if ((mapping.assignedUserId ?? null) === input.assignedUserId) {
-      return { status: 'noop', reason: 'assigned user unchanged' }
-    }
-
-    // Reject an assignee that is not a live user of this tenant — a UUID-shaped
-    // body alone must not create a cross-tenant / dangling owner reference.
-    if (input.assignedUserId) {
-      // Reference the `auth` user row by string entity name so this command does
-      // not import the auth module's entities (module independence); `as never`
-      // matches the codebase pattern for cross-module decrypted reads.
-      const assignee = await findOneWithDecryption(
-        em,
-        'User' as never,
-        { id: input.assignedUserId, tenantId: input.scope.tenantId, deletedAt: null } as never,
-        undefined,
-        dscope,
-      )
-      if (!assignee) {
-        return {
-          status: 'invalid_assignee',
-          reason: 'assigned user is not a member of this tenant',
-        }
-      }
-    }
-
-    const applied = await em.transactional(async (tem) => {
-      const lockedMapping = await findOneWithDecryption(
-        tem,
-        ChannelThreadMapping,
-        {
-          id: mapping.id,
-          tenantId: input.scope.tenantId,
-          organizationId: input.scope.organizationId ?? null,
-        },
-        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-        dscope,
-      )
-      if (!lockedMapping) {
-        return {
-          status: 'no_channel_link' as const,
-          reason: `no ChannelThreadMapping for thread ${input.threadId}`,
-        }
-      }
-      const lockedPreviousAssignedUserId = lockedMapping.assignedUserId ?? null
-      if (lockedPreviousAssignedUserId === input.assignedUserId) {
-        return { status: 'noop' as const, reason: 'assigned user unchanged' }
-      }
-      const conversation = await findOneWithDecryption(
-        tem,
-        ExternalConversation,
-        {
-          id: lockedMapping.externalConversationId,
-          tenantId: input.scope.tenantId,
-          organizationId: input.scope.organizationId ?? null,
-        },
-        { refresh: true },
-        dscope,
-      )
-      if (!conversation) {
-        return {
-          status: 'no_channel_link' as const,
-          reason: `no ExternalConversation for thread ${input.threadId}`,
-        }
-      }
-
-      lockedMapping.assignedUserId = input.assignedUserId
-      conversation.assignedUserId = input.assignedUserId
-      await tem.flush()
-      return {
-        status: 'applied' as const,
-        previousAssignedUserId: lockedPreviousAssignedUserId,
-        conversation,
-      }
-    })
-    if (applied.status !== 'applied') return applied
-    const { previousAssignedUserId, conversation } = applied
-
-    try {
-      await emitCommunicationChannelsEvent(
-        'communication_channels.conversation.reassigned',
-        {
-          conversationId: conversation.id,
-          channelId: mapping.channelId,
-          messageThreadId: input.threadId,
-          previousAssignedUserId,
-          assignedUserId: input.assignedUserId,
-          tenantId: input.scope.tenantId,
-          organizationId: input.scope.organizationId ?? null,
-        },
-        { persistent: true },
-      )
-    } catch (emitErr) {
-      // Best-effort lifecycle/workflow-trigger signal — a bus failure must not
-      // abort the reassignment (the rows are already committed above).
-      logger.warn(
-        'reassigned event emit failed',
-        { err: emitErr },
-      )
-    }
-
-    const undo: ReassignConversationUndoSnapshot = {
-      threadMappingId: mapping.id,
-      conversationId: conversation.id,
-      tenantId: mapping.tenantId,
-      previousAssignedUserId,
-      newAssignedUserId: input.assignedUserId,
-    }
-
-    return {
-      status: 'reassigned',
-      threadId: input.threadId,
-      previousAssignedUserId,
-      nextAssignedUserId: input.assignedUserId,
-      conversationId: conversation.id,
-      undo,
-    }
-  },
+  execute: (input, ctx) => executeReassignment(input, ctx),
   // Persist the undo snapshot into the action log. Without this, the command bus
   // mints an undo token (so the UI offers "Undo") but the snapshot returned from
   // execute() is never stored, and undo() would silently no-op.
@@ -364,14 +395,13 @@ const reassignConversationCommand: CommandHandler<
       snapshotBefore: result.undo,
     }
   },
-  // A redo replays execute(); an authorization refusal there must surface as a
-  // domain error so the redo route leaves the source log undone instead of
-  // marking it redone with the assignment unchanged.
-  async redo({ input, ctx }) {
-    const result = await reassignConversationCommand.execute(input, ctx)
-    if (result.status === 'access_denied') {
+  async redo({ input, ctx, logEntry }) {
+    const snapshot = extractRedoSnapshot(logEntry)
+    const result = await executeReassignment(input, ctx, snapshot)
+    if (result.status === 'access_denied' || result.status === 'no_channel_link') {
       throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
     }
+    if (result.status === 'invalid_assignee') return throwReassignRedoConflict()
     return result
   },
   async undo({ ctx, logEntry }) {
@@ -452,7 +482,7 @@ const reassignConversationCommand: CommandHandler<
     })
     if (superseded) {
       throw new CrudHttpError(409, {
-        error: await resolveReassignUndoConflictMessage(),
+        error: await resolveReassignConflictMessage(REASSIGN_UNDO_CONFLICT_KEY, REASSIGN_UNDO_CONFLICT_FALLBACK),
         code: REASSIGN_UNDO_CONFLICT_KEY,
       })
     }
@@ -494,6 +524,17 @@ export function extractSnapshotFromLog(logEntry: unknown): ReassignConversationU
   )
   if (undo) return extractUndoPayload(undo)
   return extractUndoPayload(logEntry)
+}
+
+function extractRedoSnapshot(logEntry: CommandUndoLogEntry): ReassignConversationUndoSnapshot | null {
+  const candidates = [extractSharedUndoPayload<unknown>(logEntry), logEntry.snapshotBefore]
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object' || !('previousAssignedUserId' in candidate)) continue
+    if (!reassignConversationSchema.shape.assignedUserId.safeParse(candidate.previousAssignedUserId).success) continue
+    const snapshot = extractUndoPayload(candidate)
+    if (snapshot) return snapshot
+  }
+  return null
 }
 
 registerCommand(reassignConversationCommand)

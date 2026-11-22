@@ -68,6 +68,13 @@ const undoneLog = {
   organizationId: ORG,
   executionState: 'undone',
   commandPayload: {
+    undo: {
+      threadMappingId: 'mapping-1',
+      conversationId: 'conv-1',
+      tenantId: TENANT,
+      previousAssignedUserId: null,
+      newAssignedUserId: ASSIGNEE,
+    },
     __redoInput: {
       threadId: THREAD,
       assignedUserId: ASSIGNEE,
@@ -96,7 +103,7 @@ function redoRequest(): Request {
   })
 }
 
-describe('audit_logs redo of a personal-mailbox reassignment (#3832)', () => {
+describe('audit_logs redo of a personal-mailbox reassignment', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockFindOne.mockReset()
@@ -142,5 +149,72 @@ describe('audit_logs redo of a personal-mailbox reassignment (#3832)', () => {
     expect(mockLogs.markRedone).toHaveBeenCalledTimes(1)
     expect(mockLogs.markRedone).toHaveBeenCalledWith(undoneLog.id)
     expect(mockFlush).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { mappingOwner: OTHER_ADMIN, conversationOwner: OTHER_ADMIN },
+    { mappingOwner: ASSIGNEE, conversationOwner: ASSIGNEE },
+    { mappingOwner: null, conversationOwner: OTHER_ADMIN },
+  ])('returns 409 and leaves the log undone when the locked owners are $mappingOwner and $conversationOwner', async ({ mappingOwner, conversationOwner }) => {
+    mockGetAuth.mockResolvedValue({ sub: OWNER, tenantId: TENANT, orgId: ORG })
+    const mapping = { id: 'mapping-1', assignedUserId: mappingOwner, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT }
+    const conversation = { id: 'conv-1', assignedUserId: conversationOwner }
+    mockFindOne
+      .mockResolvedValueOnce({ ...mapping, assignedUserId: null })
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER })
+      .mockResolvedValueOnce({ id: ASSIGNEE })
+      .mockResolvedValueOnce(mapping)
+      .mockResolvedValueOnce(conversation)
+
+    const res = await redoRoute(redoRequest())
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toMatchObject({ code: 'communication_channels.errors.reassignRedoConflict' })
+    expect(mockLogs.markRedone).not.toHaveBeenCalled()
+    expect(mockFlush).not.toHaveBeenCalled()
+    expect(mapping.assignedUserId).toBe(mappingOwner)
+    expect(conversation.assignedUserId).toBe(conversationOwner)
+  })
+
+  it.each([
+    { description: 'a missing snapshot', undo: undefined },
+    { description: 'a snapshot without the restored owner', undo: { threadMappingId: 'mapping-1', conversationId: 'conv-1' } },
+    { description: 'a snapshot with an invalid owner', undo: { ...undoneLog.commandPayload.undo, previousAssignedUserId: '' } },
+  ])('refuses redo with $description', async ({ undo }) => {
+    mockGetAuth.mockResolvedValue({ sub: OWNER, tenantId: TENANT, orgId: ORG })
+    mockLogs.findById.mockResolvedValue({
+      ...undoneLog,
+      commandPayload: { ...undoneLog.commandPayload, undo },
+    })
+    seedPersonalMailboxLookups({ granted: true })
+
+    const res = await redoRoute(redoRequest())
+
+    expect(res.status).toBe(409)
+    expect(mockLogs.markRedone).not.toHaveBeenCalled()
+    expect(mockFlush).not.toHaveBeenCalled()
+  })
+
+  it('keeps the log undone if the original redo assignee no longer exists', async () => {
+    mockGetAuth.mockResolvedValue({ sub: OWNER, tenantId: TENANT, orgId: ORG })
+    seedPersonalMailboxLookups({ granted: false })
+    mockFindOne.mockResolvedValueOnce(null)
+
+    const res = await redoRoute(redoRequest())
+
+    expect(res.status).toBe(409)
+    expect(mockLogs.markRedone).not.toHaveBeenCalled()
+    expect(mockFlush).not.toHaveBeenCalled()
+  })
+
+  it('keeps the log undone if the thread is no longer linked', async () => {
+    mockGetAuth.mockResolvedValue({ sub: OWNER, tenantId: TENANT, orgId: ORG })
+    mockFindOne.mockResolvedValueOnce(null)
+
+    const res = await redoRoute(redoRequest())
+
+    expect(res.status).toBe(404)
+    expect(mockLogs.markRedone).not.toHaveBeenCalled()
+    expect(mockFlush).not.toHaveBeenCalled()
   })
 })
