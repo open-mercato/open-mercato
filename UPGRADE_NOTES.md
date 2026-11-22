@@ -5,6 +5,8 @@
 `POST /api/auth/login` accepts URL-encoded and multipart forms up to 64 KiB,
 including form encoding overhead. Larger forms receive HTTP 413 with the existing
 JSON error shape. Standard login forms and successful responses are unchanged.
+Clients sending large custom login forms must reduce the encoded payload and
+handle 413. Operators require no configuration, startup, or database changes.
 
 ## Query index metadata cached across requests (#2967)
 

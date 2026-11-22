@@ -714,3 +714,13 @@ the emergency waiver of steps 1–3 on 2026-11-20:
 
 STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
 
+## 2026-11-22 — Staff login form size (#10334)
+
+STABLE `POST /api/auth/login` now rejects encoded forms over 64 KiB with 413.
+Accepting unbounded forms as a bridge preserves anonymous allocation/parsing
+abuse. The narrow bound requests the Emergency Security Exception for steps
+1–3; named human maintainer acknowledgement is pending and required before merge.
+Clients reduce encoded forms and handle 413; operators need no startup,
+configuration, schema, or data migration. See [migration guidance](.ai/specs/implemented/SPEC-030a-2026-02-09-rate-limiting.md#migration--backward-compatibility--staff-login-body-bound-10334)
+and [upgrade notes](UPGRADE_NOTES.md#staff-login-form-size-10334).
+

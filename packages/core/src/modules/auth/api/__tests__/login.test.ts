@@ -106,6 +106,64 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     expect(authServiceMock.verifyPassword).not.toHaveBeenCalled()
   })
 
+  test.each([
+    ['application/x-www-form-urlencoded', null],
+    ['application/x-www-form-urlencoded', 'invalid'],
+    ['application/x-www-form-urlencoded', '1'],
+    ['multipart/form-data; boundary=login-form', null],
+    ['multipart/form-data; boundary=login-form', 'invalid'],
+    ['multipart/form-data; boundary=login-form', '1'],
+  ])('bounds streamed %s with Content-Length %s before authentication', async (contentType, contentLength) => {
+    const cancel = jest.fn()
+    let consumedChunks = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        consumedChunks += 1
+        if (consumedChunks > 20) controller.close()
+        else controller.enqueue(new Uint8Array(4096))
+      },
+      cancel,
+    }, { highWaterMark: 0 })
+    const headers = new Headers({ 'content-type': contentType })
+    if (contentLength !== null) headers.set('content-length', contentLength)
+
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST', headers, body, duplex: 'half',
+    } as RequestInit & { duplex: 'half' }))
+
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({ ok: false, error: 'An error occurred. Please try again.' })
+    expect(consumedChunks).toBe(17)
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(containerMock.resolve).not.toHaveBeenCalled()
+    expect(authServiceMock.findUsersByEmail).not.toHaveBeenCalled()
+    expect(authServiceMock.verifyPassword).not.toHaveBeenCalled()
+    expect(response.headers.get('set-cookie')).toBeNull()
+  })
+
+  test.each([
+    ['application/x-www-form-urlencoded', 65535],
+    ['application/x-www-form-urlencoded', 65536],
+    ['multipart/form-data; boundary=login-form', 65535],
+    ['multipart/form-data; boundary=login-form', 65536],
+  ])('authenticates a valid %s form of exactly %i bytes', async (contentType, size) => {
+    const multipart = contentType.startsWith('multipart/')
+    const prefix = multipart
+      ? '--login-form\r\nContent-Disposition: form-data; name="email"\r\n\r\nuser@example.com\r\n--login-form\r\nContent-Disposition: form-data; name="password"\r\n\r\nsecret\r\n--login-form\r\nContent-Disposition: form-data; name="padding"\r\n\r\n'
+      : 'email=user%40example.com&password=secret&padding='
+    const suffix = multipart ? '\r\n--login-form--\r\n' : ''
+    const body = prefix + 'x'.repeat(size - prefix.length - suffix.length) + suffix
+    expect(new TextEncoder().encode(body)).toHaveLength(size)
+
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST', headers: { 'content-type': contentType }, body,
+    }))
+
+    expect(response.status).toBe(200)
+    expect(authServiceMock.verifyPassword).toHaveBeenCalledWith(expect.anything(), 'secret')
+    expect(authServiceMock.createSession).toHaveBeenCalledTimes(1)
+  })
+
   test('accepts application/x-www-form-urlencoded login payloads', async () => {
     const form = new URLSearchParams()
     form.set('email', 'user@example.com')
