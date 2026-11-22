@@ -11,6 +11,7 @@ import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { legacyCommandCleanupOptionsSchema } from './data/validators'
 import { cleanupLegacyNotificationCommands } from './lib/legacyCommandCleanup'
 import { NOTIFICATION_EVENTS } from './lib/events'
+import { NOTIFICATION_RESOURCE_KIND } from './lib/routeHelpers'
 
 const cleanupExpiredCommand: ModuleCli = {
   command: 'cleanup-expired',
@@ -43,7 +44,7 @@ const cleanupLegacyCommands: ModuleCli = {
     if (parsed.data.apply && notifications.length > 0) {
       const organizations = new Set(notifications.map((notification) => notification.organizationId))
       for (const organizationId of organizations) {
-        await invalidateCrudCache(container, 'notifications.notification', {
+        await invalidateCrudCache(container, NOTIFICATION_RESOURCE_KIND, {
           tenantId: parsed.data.tenant,
           organizationId,
         }, parsed.data.tenant, 'updated')

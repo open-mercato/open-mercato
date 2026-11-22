@@ -10,6 +10,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (key: string) => key }),
 }))
 jest.mock('../lib/legacyCommandCleanup', () => ({ cleanupLegacyNotificationCommands: jest.fn() }))
+jest.mock('../lib/routeHelpers', () => ({ NOTIFICATION_RESOURCE_KIND: 'notifications.notification' }))
 jest.mock('@open-mercato/queue', () => ({ createQueue: jest.fn() }))
 
 const tenantId = '00000000-0000-4000-8000-000000000001'

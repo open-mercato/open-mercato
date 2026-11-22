@@ -116,8 +116,12 @@ test('limits each batch and includes tenant-global rows only when no organizatio
 test('skips rows locked by an action claim and leaves an already claimed action intact', async () => {
   const id = await insertNotification()
   await database.transaction().execute(async (transaction) => {
-    await sql`update notifications set status = 'actioned', actioned_at = now() where id = ${id}::uuid`.execute(transaction)
+    await sql`select id from notifications where id = ${id}::uuid for update`.execute(transaction)
+    expect(await cleanupLegacyNotificationCommands(database, { ...options, apply: false })).toEqual([
+      { id, tenantId, organizationId },
+    ])
     expect(await cleanupLegacyNotificationCommands(database, options)).toEqual([])
+    await sql`update notifications set status = 'actioned', actioned_at = now() where id = ${id}::uuid`.execute(transaction)
   })
   expect(await cleanupLegacyNotificationCommands(database, options)).toEqual([])
   const row = (await sql<{ action_data: unknown }>`select action_data from notifications where id = ${id}::uuid`.execute(database)).rows[0]
