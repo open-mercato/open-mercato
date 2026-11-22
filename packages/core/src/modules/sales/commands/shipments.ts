@@ -539,7 +539,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         items: input.items,
         lockOrderLines: true,
       })
-      const positiveLines = [...lineMap.values()].filter((line) => toNumber(line.quantity) > 0)
+      const positiveLines = [...lineMap.values()].filter((line) => !line.deletedAt && toNumber(line.quantity) > 0)
       if (workflowPolicy && positiveLines.length > 0
         && positiveLines.every((line) => toNumber(line.returnedQuantity) >= toNumber(line.quantity))) {
         await rejectSalesDocumentWorkflowAction('shipment')

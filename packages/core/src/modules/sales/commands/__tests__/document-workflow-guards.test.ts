@@ -88,7 +88,7 @@ function harness(status = 'draft', shipmentStatus = 'shipped', returnedQuantity 
     selectedOrganizationId: ORG, organizationIds: [ORG], organizationScope: null,
     request: new Request('https://example.test/api/sales/returns', { method: 'POST' }),
   } as unknown as CommandRuntimeContext
-  return { ctx, manager, created, transactionStates }
+  return { ctx, manager, created, transactionStates, order }
 }
 
 function execute(command: string, ctx: CommandRuntimeContext, extra: Record<string, unknown> = {}) {
@@ -168,3 +168,99 @@ it('refuses a shipment when every positive line has already been fully returned'
   })
   expect(world.created).toHaveLength(0)
 })
+
+it('ignores deleted unreturned lines when the active order is fully returned', async () => {
+  const world = harness('confirmed')
+  jest.mocked(findWithDecryption).mockImplementation(async (_manager, entity) => {
+    if (entity === SalesOrderLine) return [
+      { id: LINE, quantity: '2', returnedQuantity: '2', deletedAt: null },
+      { id: 'ffffffff-ffff-4fff-8fff-ffffffffffff', quantity: '1', returnedQuantity: '0', deletedAt: new Date() },
+    ] as never
+    return []
+  })
+  await expect(execute('sales.shipments.create', world.ctx)).rejects.toMatchObject({
+    status: 409, body: { code: 'sales_document_workflow_restricted', action: 'shipment' },
+  })
+  expect(world.created).toHaveLength(0)
+})
+
+
+function deferredSignal() {
+  let resolve: () => void = () => {}
+  const promise = new Promise<void>((complete) => { resolve = complete })
+  return { promise, resolve }
+}
+
+function contenderLock() {
+  let held = false
+  const waiters: Array<(release: () => void) => void> = []
+  const release = () => {
+    const next = waiters.shift()
+    if (next) next(release)
+    else held = false
+  }
+  return {
+    acquire: () => new Promise<() => void>((resolve) => {
+      if (held) waiters.push(resolve)
+      else { held = true; resolve(release) }
+    }),
+  }
+}
+
+it.each(['sales.invoices.create', 'sales.shipments.create'])(
+  '%s waits for a competing status commit and refuses deterministically on retry',
+  async (command) => {
+    const world = harness('confirmed')
+    const lock = contenderLock()
+    const releaseStatusTransition = await lock.acquire()
+    const documentWaiting = deferredSignal()
+    let committedStatus = 'confirmed'
+    let releaseDocument: (() => void) | null = null
+    const acquireDocument = async () => {
+      documentWaiting.resolve()
+      releaseDocument = await lock.acquire()
+    }
+    const transaction = world.manager.transactional.getMockImplementation()!
+    world.manager.transactional.mockImplementation(async (operation) => {
+      try { return await transaction(operation) }
+      finally { releaseDocument?.(); releaseDocument = null }
+    })
+    jest.mocked(findOneWithDecryption).mockImplementation(async (_manager, entity, _query, options) => {
+      if (entity !== SalesOrder) return null
+      if (command === 'sales.invoices.create' && options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+        await acquireDocument()
+      }
+      return { ...world.order, status: committedStatus } as never
+    })
+    if (command === 'sales.shipments.create') {
+      const kysely = createSalesDocumentLockKyselyFixture(ORDER)
+      const query = kysely.selectFrom()
+      query.executeTakeFirst = async () => { await acquireDocument(); return { id: ORDER } }
+      world.manager.getKysely = () => kysely
+      jest.mocked(findWithDecryption).mockImplementation(async (_manager, entity) => {
+        if (entity === SalesOrderLine) return [{ id: LINE, quantity: '2', returnedQuantity: '0' }] as never
+        return []
+      })
+    }
+    const creation = execute(command, world.ctx, { lines: [] }).then(
+      (value) => ({ kind: 'created', value }),
+      (error: unknown) => ({ kind: 'rejected', error }),
+    )
+    const first = await Promise.race([
+      documentWaiting.promise.then(() => 'waiting'),
+      creation.then((result) => result.kind),
+    ])
+    committedStatus = 'draft'
+    releaseStatusTransition()
+    const outcome = await creation
+    expect(first).toBe('waiting')
+    expect(outcome).toMatchObject({ kind: 'rejected', error: { status: 409, body: { code: 'sales_document_workflow_restricted' } } })
+    await expect(execute(command, world.ctx, { lines: [] })).rejects.toMatchObject({
+      status: 409, body: { code: 'sales_document_workflow_restricted' },
+    })
+    expect(world.created).toHaveLength(0)
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    expect(world.transactionStates.filter((state) => state === 'rollback')).toHaveLength(2)
+  },
+  5000,
+)

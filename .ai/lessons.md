@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 196 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 197 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -17,6 +17,8 @@ This catalog indexes 196 focused lessons. Route the task first, then read only r
 - Run `yarn lessons:check` before committing.
 
 ## Catalog
+
+- [Exclude deleted rows from aggregate eligibility decisions](lessons/exclude-deleted-rows-from-aggregate-eligibility.md) — area:module-data,testing; module:sales; topic:soft-delete,aggregate-validation,workflow-guards,testing
 
 - [Preserve peer resolution when copying test dependencies](lessons/preserve-peer-resolution-when-copying-test-dependencies.md) — area:testing,debugging; module:platform; topic:package-runtime,worktrees,peer-dependencies,lockfile
 
