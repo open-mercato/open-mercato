@@ -3,6 +3,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { SsoService } from '../../services/ssoService'
+import { sanitizeReturnUrl } from '../../lib/return-url'
 import { ssoInitiateSchema } from '../../data/validators'
 import { emitSsoEvent } from '../../events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -11,18 +12,6 @@ const logger = createLogger('sso').child({ component: 'initiate' })
 
 export const metadata = {
   GET: { requireAuth: false },
-}
-
-function sanitizeReturnUrl(raw: string | null): string {
-  const value = raw || '/backend'
-  if (!value.startsWith('/') || value.startsWith('//')) return '/backend'
-  try {
-    const parsed = new URL(value, 'http://localhost')
-    if (parsed.origin !== 'http://localhost') return '/backend'
-    return parsed.pathname + parsed.search + parsed.hash
-  } catch {
-    return '/backend'
-  }
 }
 
 export async function GET(req: Request) {

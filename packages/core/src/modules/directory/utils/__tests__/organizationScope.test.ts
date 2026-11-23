@@ -559,6 +559,44 @@ describe('resolveOrganizationScopeForRequest', () => {
 })
 
 describe('resolveFeatureCheckContext', () => {
+  it.each(['org-b', 'org-deleted'])('preserves rejection of selection %s when narrowing feature access', async (selectedOrganizationId) => {
+    const { container } = createFeatureNarrowingContainer({
+      approvedOrganizationIds: ['org-a'],
+      acl: { isSuperAdmin: false, features: ['auth.users.edit'], organizations: ['org-a'] },
+    })
+    const auth = createAuth({ sub: 'user-stale-selection', orgId: 'org-a' })
+    const request = {
+      headers: {
+        get: (name: string) => name === 'cookie'
+          ? `om_selected_org=${selectedOrganizationId}`
+          : null,
+      },
+    }
+
+    const originalScope = await resolveOrganizationScopeForRequest({ container, auth, request })
+    expect(originalScope.selectionRejected).toBe(true)
+    expect(originalScope.selectedId).toBeNull()
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request,
+      requiredFeatures: ['auth.users.edit'],
+    })
+
+    expect(featureContext.scope).toEqual({
+      selectedId: null,
+      filterIds: ['org-a'],
+      allowedIds: ['org-a'],
+      tenantId: 'tenant-1',
+      selectionRejected: true,
+    })
+    await expect(resolveOrganizationScopeForRequest({ container, auth, request }))
+      .resolves.toEqual(featureContext.scope)
+    await expect(resolveFeatureCheckContext({ container, auth, request }))
+      .resolves.toMatchObject({ scope: featureContext.scope })
+  })
+
   it('binds a feature-authorized organization subset to an all-organizations request', async () => {
     const em = createMockEm(ALL_ORGS)
     const rbac = {

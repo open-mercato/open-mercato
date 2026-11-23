@@ -17,7 +17,7 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerActivity, CustomerDeal, CustomerInteraction } from '../../data/entities'
 import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
 import { activityCreateSchema, activityUpdateSchema, interactionUpdateSchema } from '../../data/validators'
@@ -395,8 +395,8 @@ async function listCanonicalActivities(
 
   const rows =
     options?.paginate === false
-      ? await em.find(CustomerInteraction, where, findOptions)
-      : (await em.findAndCount(CustomerInteraction, where, findOptions))[0]
+      ? await findWithDecryption(em, CustomerInteraction, where, findOptions, { tenantId, organizationId: selectedOrganizationId ?? null })
+      : (await findAndCountWithDecryption(em, CustomerInteraction, where, findOptions, { tenantId, organizationId: selectedOrganizationId ?? null }))[0]
   const total =
     options?.paginate === false
       ? rows.filter((row) => !row.deletedAt).length
@@ -459,8 +459,8 @@ async function listLegacyActivities(
 
   const rows =
     options?.paginate === false
-      ? await em.find(CustomerActivity, where, findOptions)
-      : (await em.findAndCount(CustomerActivity, where, findOptions))[0]
+      ? await findWithDecryption(em, CustomerActivity, where, findOptions, { tenantId, organizationId: selectedOrganizationId ?? null })
+      : (await findAndCountWithDecryption(em, CustomerActivity, where, findOptions, { tenantId, organizationId: selectedOrganizationId ?? null }))[0]
   const total =
     options?.paginate === false
       ? rows.length

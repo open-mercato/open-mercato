@@ -12,6 +12,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 // in via INFRA_BIND_HOST, or VERDACCIO_HOST for the registry only (#6949).
 const DEV_INFRA_COMPOSE_FILES = [
   'starters/docker/compose.infra.yml',
+  'starters/docker/compose.fullapp.dev.yml',
+  'docker-compose.fullapp.dev.yml',
+  'packages/create-app/template/docker-compose.fullapp.dev.yml',
   'docker-compose.yml',
   'packages/create-app/template/docker-compose.yml',
 ]
