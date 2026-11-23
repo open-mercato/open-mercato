@@ -178,6 +178,25 @@ export async function validateUpgradeActionScope(
   if (!tenant || !organization) throw new UpgradeActionError('UPGRADE_ACTION_SCOPE_INVALID')
 }
 
+/**
+ * A unique violation only means "already completed" when the ledger row now exists
+ * (a writer outside the lock, such as an older binary, won the race). A violation
+ * raised by the handler's own writes is a failure and must not be reported as done.
+ */
+async function isUpgradeActionRecorded(
+  em: EntityManager,
+  definition: UpgradeActionDefinition,
+  { tenantId, organizationId }: { tenantId: string; organizationId: string },
+): Promise<boolean> {
+  const record = await em.fork().findOne(UpgradeActionRun, {
+    actionId: definition.id,
+    version: definition.version,
+    tenantId,
+    organizationId,
+  })
+  return record !== null
+}
+
 export async function listPendingUpgradeActions(
   em: EntityManager,
   {
@@ -253,12 +272,14 @@ export async function executeUpgradeAction(
       return 'completed' as const
     })
   } catch (error) {
-    logger.error('Upgrade action failed', { component: 'upgrade-actions', actionId, tenantId, organizationId, version, err: error })
-    if (error instanceof UniqueConstraintViolationException) {
-      status = 'already_completed'
-    } else {
+    const completedElsewhere =
+      error instanceof UniqueConstraintViolationException &&
+      (await isUpgradeActionRecorded(em, definition, { tenantId, organizationId }))
+    if (!completedElsewhere) {
+      logger.error('Upgrade action failed', { component: 'upgrade-actions', actionId, tenantId, organizationId, version, err: error })
       throw error
     }
+    status = 'already_completed'
   }
 
   if (status === 'completed') await runAfterCommit(definition, afterCommitCallbacks)

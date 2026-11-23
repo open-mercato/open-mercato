@@ -10,6 +10,8 @@ jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => ({
 
 process.env.UPGRADE_ACTIONS_ENABLED = 'true'
 
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
+
 import { getEnabledModuleIds } from '@open-mercato/shared/security/enabledModulesRegistry'
 import { withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
 import {
@@ -440,6 +442,47 @@ describe('listUpgradeActionStates', () => {
       applied: true,
       available: false,
       reversible: false,
+    })
+  })
+})
+
+describe('executeUpgradeAction unique violations', () => {
+  afterEach(() => {
+    const actionIndex = upgradeActions.findIndex((action) => action.id === POST_COMMIT_ACTION_ID)
+    if (actionIndex >= 0) upgradeActions.splice(actionIndex, 1)
+  })
+
+  function violation(): UniqueConstraintViolationException {
+    return new UniqueConstraintViolationException(new Error('duplicate key value violates unique constraint'))
+  }
+
+  function containerWithLedger(recorded: unknown) {
+    const { em, container } = createTransactionalEm()
+    const fresh = { findOne: jest.fn(async () => recorded) }
+    Object.assign(em, { fork: jest.fn(() => fresh) })
+    return { container, fresh }
+  }
+
+  it('fails when the handler itself violates a unique constraint and no completion was recorded', async () => {
+    const handlerViolation = violation()
+    upgradeActions.push(testAction({ run: async () => { throw handlerViolation } }))
+    const { container } = containerWithLedger(null)
+    await expect(
+      executeUpgradeAction(container, { actionId: POST_COMMIT_ACTION_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, version: '99.0.0' }),
+    ).rejects.toBe(handlerViolation)
+  })
+
+  it('reports already_completed when a concurrent writer recorded the completion first', async () => {
+    upgradeActions.push(testAction({ run: async () => { throw violation() } }))
+    const { container, fresh } = containerWithLedger({ id: 'run-from-older-binary' })
+    await expect(
+      executeUpgradeAction(container, { actionId: POST_COMMIT_ACTION_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, version: '99.0.0' }),
+    ).resolves.toMatchObject({ status: 'already_completed' })
+    expect(fresh.findOne).toHaveBeenCalledWith(expect.anything(), {
+      actionId: POST_COMMIT_ACTION_ID,
+      version: '99.0.0',
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
     })
   })
 })
