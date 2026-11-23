@@ -23,16 +23,27 @@ A read-only CI evidence audit and one final independent review (maximum two subt
 ## Risks
 Main moves frequently. Evidence must match this branch head. Local prerequisites may block the full local gate; record limits and use exact-head hosted CI evidence without implying unrun checks passed. If no defect remains, retain only the verification record rather than inventing source fixes.
 
+## Findings and verification
+
+- Current main [run 45190386427](https://github.com/open-mercato/open-mercato/actions/runs/45190386427), SHA `9f90793385139ca490592dcfc8890ae2123f7a71`, passed all 15 integration shards, coverage aggregation and 24 jobs. The immediately preceding cancelled runs had zero jobs; cancellation is not a failing test.
+- Four historical script failures were a lesson-count mismatch already repaired by merged #10362, commit `05e09317c65d5b22defeccee72bb8afd724c8636`, an ancestor of this branch. No repeated lesson edit is needed.
+- Historical TC-SALES-9594 intermittency in runs 45030852346 and 45181180866 remains a scope/menu timing lead. Trace evidence shows the payment menu disappearing as delayed fixture-organization initialization finishes. Active #10286 already proposes readiness synchronization; this run did not take over its claim or copy its unmerged changes. The unchanged test passed on current main (4.8s) and this PR (6.5s). A passing run does not establish that the intermittency was repaired.
+- The existing trusted `stabilize/` branch and `ci-full` selectors already select full typechecking, all unit tests and all 15 shards. No duplicate workflow edit or speculative source change was necessary; this PR changes only this execution/evidence record.
+- PR [full CI run 45200988254](https://github.com/open-mercato/open-mercato/actions/runs/45200988254), head `667ebd02778763ddb83a98f0771ed22a4196ec2d`, completed successfully: 24 successful jobs, all 15 integration shards and coverage aggregation. All visible PR checks were settled (32 successes, five existing scope skips). Prepare/test logs verify package build, generation, package rebuild, i18n sync/usage, full typecheck, all units and app build passed in hosted CI.
+- Runner: local for this documentation-only change. The CI scope, concurrency, coverage and lesson-catalog regressions passed 50/50. An exported `yarn` shell function initially bypassed the test fixture's stub; clearing `BASH_FUNC_yarn%%` made the unchanged checks pass. No Markdown lint command is configured; the diff was reread manually. Hosted CI supplies the full configured validation evidence; no unrun local build is claimed as passed.
+- Final independent review and the evidence-only completion commit's exact-head full CI remain pending. Their outcomes, final head and conditional `automerge` application will be recorded on the PR. The required-check endpoint returned 404, so all reported checks are treated as gates; existing scope skips are disclosed above.
+
 ## Progress
+PR: #10452
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose and fix
 
-- [ ] 1.1 Inspect main CI and historical failures
-- [ ] 1.2 Repair demonstrated root causes with regression coverage
+- [x] 1.1 Inspect main CI and historical failures — 667ebd0277
+- [x] 1.2 Repair demonstrated root causes with regression coverage — 667ebd0277
 
 ### Phase 2: Verify and review
 
-- [ ] 2.1 Run configured validation and full PR CI until green
+- [x] 2.1 Run configured validation and full PR CI until green — 667ebd0277
 - [ ] 2.2 Complete independent review and apply automerge
