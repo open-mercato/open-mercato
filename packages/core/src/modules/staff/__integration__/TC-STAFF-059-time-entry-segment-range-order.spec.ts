@@ -105,11 +105,7 @@ test.describe('TC-STAFF-059: time entry segments keep endedAt after startedAt', 
       const extended = (await readJsonSafe<{ item?: SegmentItem }>(forward))?.item
       expect(extended?.endedAt).toBe('2026-01-05T11:00:00.000Z')
     } finally {
-      if (token && entryId) {
-        await apiRequest(request, 'DELETE', `/api/staff/timesheets/time-entries?id=${encodeURIComponent(entryId)}`, {
-          token,
-        }).catch(() => {})
-      }
+      await deleteStaffEntityIfExists(request, token, '/api/staff/timesheets/time-entries', entryId)
       if (token && projectId) {
         await deleteStaffEntityIfExists(
           request,

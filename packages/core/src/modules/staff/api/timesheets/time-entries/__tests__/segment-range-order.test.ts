@@ -128,6 +128,8 @@ describe('time entry segments never end before they start', () => {
   test('PATCH accepts ordered, zero-length and open segments', async () => {
     expect((await patch({ endedAt: '2026-01-01T11:00:00.000Z' })).status).toBe(200)
     expect(segmentRow.endedAt?.toISOString()).toBe('2026-01-01T11:00:00.000Z')
+
+    segmentRow = makeSegment('2026-01-01T08:00:00.000Z', '2026-01-01T11:00:00.000Z')
     expect((await patch({ startedAt: '2026-01-01T11:00:00.000Z' })).status).toBe(200)
 
     segmentRow = makeSegment('2026-01-01T08:00:00.000Z', null)
