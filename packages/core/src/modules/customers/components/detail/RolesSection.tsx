@@ -38,13 +38,28 @@ type GuardedMutationRunner = <T,>(
   mutationPayload?: Record<string, unknown>,
 ) => Promise<T>
 
-export function RolesSection({ entityType, entityId, entityName }: RolesSectionProps) {
-  const t = useT()
+export function RolesSection(props: RolesSectionProps) {
   const { payload } = useBackendChrome()
-  const canManageRoleTypes = React.useMemo(
-    () => hasFeature(payload?.grantedFeatures ?? [], 'customers.settings.manage'),
-    [payload?.grantedFeatures],
+  const features = payload?.grantedFeatures ?? []
+  if (!hasFeature(features, 'customers.roles.view')) return null
+
+  return (
+    <RolesSectionContent
+      {...props}
+      canReadRoleTypes={hasFeature(features, 'customers.people.view')}
+      canManageRoleTypes={hasFeature(features, 'customers.settings.manage')}
+    />
   )
+}
+
+function RolesSectionContent({
+  entityType,
+  entityId,
+  entityName,
+  canReadRoleTypes,
+  canManageRoleTypes,
+}: RolesSectionProps & { canReadRoleTypes: boolean; canManageRoleTypes: boolean }) {
+  const t = useT()
   const [roles, setRoles] = React.useState<RoleAssignment[]>([])
   const [roleTypes, setRoleTypes] = React.useState<DictionaryEntryOption[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -109,6 +124,11 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
   }, [loadRoles])
 
   React.useEffect(() => {
+    if (!canReadRoleTypes) {
+      setRoleTypes([])
+      return
+    }
+
     let active = true
 
     readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
@@ -145,7 +165,7 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
     return () => {
       active = false
     }
-  }, [])
+  }, [canReadRoleTypes])
 
   const assignedRoleTypes = React.useMemo(
     () => new Set(roles.map((role) => role.roleType)),

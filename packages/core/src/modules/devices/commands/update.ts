@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
@@ -37,16 +38,19 @@ const updateDeviceCommand: CommandHandler<UpdateDeviceCommandInput, { id: string
   async execute(rawInput, ctx) {
     const parsed = updateDeviceCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const device = assertFound(
-      await findOneWithDecryption(em, UserDevice, { id: parsed.id, deletedAt: null }),
-      'Device not found',
-    )
-    ensureTenantScope(ctx, device.tenantId)
-
     const now = new Date()
-    await withAtomicFlush(
-      em,
-      [
+    const device = await em.transactional(async (transaction) => {
+      const device = assertFound(
+        await findOneWithDecryption(
+          transaction,
+          UserDevice,
+          { id: parsed.id, deletedAt: null },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+        ),
+        'Device not found',
+      )
+      ensureTenantScope(ctx, device.tenantId)
+      await withAtomicFlush(transaction, [
         () => {
           if (Object.prototype.hasOwnProperty.call(parsed, 'clientAppVersion')) {
             device.clientAppVersion = parsed.clientAppVersion ?? null
@@ -71,9 +75,9 @@ const updateDeviceCommand: CommandHandler<UpdateDeviceCommandInput, { id: string
             device.lastSeenAt = parsed.lastSeenAt
           }
         },
-      ],
-      { transaction: true },
-    )
+      ])
+      return device
+    })
 
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
