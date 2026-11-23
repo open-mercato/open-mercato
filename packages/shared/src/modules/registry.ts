@@ -286,6 +286,8 @@ export type Module = {
   runtime?: import('./runtime').ModuleRuntime
   // Optional: default encryption maps owned by the module (from encryption.ts)
   defaultEncryptionMaps?: import('./encryption').ModuleEncryptionMap[]
+  // Optional: server-only upgrade actions owned by the module (from upgrades.ts)
+  upgradeActions?: import('./upgrade-actions').UpgradeActionDefinition[]
   // Optional: integration marketplace declarations discovered from integration.ts
   integrations?: IntegrationDefinition[]
   bundles?: IntegrationBundle[]
