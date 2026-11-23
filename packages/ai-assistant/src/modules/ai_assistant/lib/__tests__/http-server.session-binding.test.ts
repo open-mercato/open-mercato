@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { z } from 'zod'
 import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { createMcpHttpRequestHandler, isSessionKeyBoundToApiKey } from '../http-server'
+import { DEFAULT_MCP_KEY_NAME } from '../mcp-ensure-api-key'
 import { DEFAULT_MCP_EXPOSURE_CONFIG, type McpExposureConfig } from '../mcp-exposure'
 import { MCP_AUDIT_RESOURCE_KIND, type McpAuditAccessLogInput } from '../mcp-audit'
 import type { AiToolDefinition, McpServerConfig, McpToolDefinition, ToolExecutionResult } from '../types'
@@ -157,6 +158,18 @@ describe('isSessionKeyBoundToApiKey — fail-closed transport binding predicate 
     expect(isSessionKeyBoundToApiKey(defaultSessionKey({ tenantId: null }), defaultServerKey({ tenantId: null }))).toBe(false)
   })
 
+  it('lets the designated MCP server key refine any tenant when provisioned instance-globally', () => {
+    const designatedServerKey = defaultServerKey({ tenantId: null, name: DEFAULT_MCP_KEY_NAME })
+    expect(isSessionKeyBoundToApiKey(defaultSessionKey({ tenantId: 'tenant-9' }), designatedServerKey)).toBe(true)
+    expect(isSessionKeyBoundToApiKey(defaultSessionKey({ tenantId: null }), designatedServerKey)).toBe(true)
+  })
+
+  it('does not extend the designated-key allowance to a tenant-scoped transport key', () => {
+    expect(
+      isSessionKeyBoundToApiKey(defaultSessionKey({ tenantId: 'tenant-2' }), defaultServerKey({ name: DEFAULT_MCP_KEY_NAME })),
+    ).toBe(false)
+  })
+
   it('fails closed when the session key is not tenant-scoped', () => {
     expect(isSessionKeyBoundToApiKey(defaultSessionKey({ tenantId: null }), defaultServerKey())).toBe(false)
     expect(isSessionKeyBoundToApiKey(defaultSessionKey({ tenantId: undefined }), defaultServerKey())).toBe(false)
@@ -224,6 +237,18 @@ describe('MCP HTTP server — session tokens bound to the transport API key (GHS
       expect(result.status).toBe(401)
       expect(result.body).toEqual({ error: 'Invalid or expired session token' })
       expect(loadAclMock).not.toHaveBeenCalled()
+    })
+
+    it('keeps session ACL filtering when the designated MCP server key is provisioned instance-globally', async () => {
+      mockFindApiKeyBySecret.mockImplementation(async (_em: unknown, secret: string) =>
+        secret === SERVER_SECRET ? defaultServerKey({ tenantId: null, name: DEFAULT_MCP_KEY_NAME }) : null)
+
+      const baseUrl = await startHandler()
+      const result = await postRpc(baseUrl, 'tools/list', {}, { 'x-om-session-token': SESSION_TOKEN })
+
+      expect(result.status).toBe(200)
+      const names = (result.body.result?.tools ?? []).map((tool: { name: string }) => tool.name).sort()
+      expect(names).toEqual(['catalog.list_products', 'context_whoami'])
     })
   })
 
@@ -299,6 +324,28 @@ describe('MCP HTTP server — session tokens bound to the transport API key (GHS
 
       expect(JSON.parse(result.body.result?.content?.[0]?.text ?? '{}').code).toBe('SESSION_EXPIRED')
       expect(mockExecuteTool).not.toHaveBeenCalled()
+    })
+
+    it('executes under the session principal when the designated MCP server key is provisioned instance-globally', async () => {
+      mockExecuteTool.mockResolvedValue({ success: true, result: { items: [] } })
+      mockFindApiKeyBySecret.mockImplementation(async (_em: unknown, secret: string) =>
+        secret === SERVER_SECRET ? defaultServerKey({ tenantId: null, name: DEFAULT_MCP_KEY_NAME }) : null)
+
+      const baseUrl = await startHandler()
+      const result = await postRpc(
+        baseUrl,
+        'tools/call',
+        { name: 'catalog.list_products', arguments: { _sessionToken: SESSION_TOKEN } },
+        { 'x-om-session-token': SESSION_TOKEN },
+      )
+
+      expect(result.body.result?.isError).toBeUndefined()
+      expect(mockExecuteTool).toHaveBeenCalledTimes(1)
+      expect(mockExecuteTool.mock.calls[0][2]).toMatchObject({
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        userId: 'user-2',
+      })
     })
   })
 })

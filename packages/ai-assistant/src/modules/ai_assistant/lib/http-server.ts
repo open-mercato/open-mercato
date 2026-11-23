@@ -48,6 +48,7 @@ import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { DEFAULT_MCP_KEY_NAME } from './mcp-ensure-api-key'
 import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
 
 const logger = createLogger('ai_assistant').child({ component: 'mcp-http' })
@@ -96,13 +97,22 @@ type ResolvedSessionContext = {
  * is authenticated by a designated server API key. Resolving a session token without comparing
  * the two identities let the holder of any valid server key adopt a session key — and its
  * decrypted secret plus ACL — from a different tenant or user: cross-tenant impersonation.
- * A session resolves only when both keys are bound to the same tenant, and a transport key
- * that is not tenant-scoped binds nothing: every other shape fails closed.
+ *
+ * A session resolves only when the transport key is bound to the same tenant as the session
+ * key. A transport key that is not tenant-scoped binds nothing — EXCEPT the designated MCP
+ * server key (`__mcp_server__`, provisioned by `mcp:ensure-api-key` when its owner is the
+ * instance-level superadmin): that key is the documented shared-server transport and may
+ * refine requests for any tenant's sessions, exactly as before. Every other instance-global
+ * key fails closed.
  */
 export function isSessionKeyBoundToApiKey(sessionKey: ApiKey, apiKeyRecord: ApiKey): boolean {
   const transportTenantId = apiKeyRecord.tenantId ?? null
-  if (!transportTenantId) return false
+  if (!transportTenantId) return isDesignatedMcpServerKey(apiKeyRecord)
   return (sessionKey.tenantId ?? null) === transportTenantId
+}
+
+function isDesignatedMcpServerKey(apiKeyRecord: ApiKey): boolean {
+  return apiKeyRecord.name === DEFAULT_MCP_KEY_NAME
 }
 
 type McpToolCallResponse = {
