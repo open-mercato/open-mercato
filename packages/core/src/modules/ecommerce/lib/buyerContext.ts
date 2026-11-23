@@ -10,6 +10,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { isOwnedCompanyEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { CatalogPriceKind } from '@open-mercato/core/modules/catalog/data/entities'
 import type { CustomerGroupsService } from '@open-mercato/core/modules/customer_groups/services/customerGroupsService'
@@ -474,14 +475,38 @@ async function loadPersonCompanyEntityId(
   return row?.company_entity_id ?? null
 }
 
+async function requireLiveCustomerEntity(
+  em: EntityManager,
+  customerId: string,
+  scope: TenantOrganizationScope,
+): Promise<CustomerEntity> {
+  const entity = await findOneWithDecryption(em, CustomerEntity, { id: customerId, ...scope, deletedAt: null }, undefined, scope)
+  if (!entity) throw new StorefrontResolutionError(403, 'buyer_out_of_scope')
+  return entity
+}
+
+/**
+ * The person's primary company, only when it is a live company in the same tenant and
+ * organization. A stale `company_entity_id` (soft-deleted, or pointing into another organization
+ * of the tenant) contributes no group, price kind or assortment terms.
+ */
+async function resolveTrustedPersonCompanyId(
+  em: EntityManager,
+  personEntityId: string,
+  scope: TenantOrganizationScope,
+): Promise<string | null> {
+  const candidate = await loadPersonCompanyEntityId(em, personEntityId, scope)
+  if (!candidate) return null
+  return (await isOwnedCompanyEntity(em, candidate, scope)) ? candidate : null
+}
+
 async function resolveTrustedCustomerIdentity(
   em: EntityManager,
   customerId: string,
   scope: TenantOrganizationScope,
 ): Promise<BuyerIdentity> {
-  const entity = await findOneWithDecryption(em, CustomerEntity, { id: customerId, ...scope, deletedAt: null }, undefined, scope)
-  if (!entity) throw new StorefrontResolutionError(403, 'buyer_out_of_scope')
-  const companyId = entity.kind === 'company' ? customerId : await loadPersonCompanyEntityId(em, customerId, scope)
+  const entity = await requireLiveCustomerEntity(em, customerId, scope)
+  const companyId = entity.kind === 'company' ? customerId : await resolveTrustedPersonCompanyId(em, customerId, scope)
   const customerIds = Array.from(
     new Set([customerId, companyId].filter((id): id is string => typeof id === 'string' && id.length > 0)),
   )
@@ -524,13 +549,14 @@ export async function resolveTrustedBuyerIdentity(
     )
     if (!user) throw new StorefrontResolutionError(403, 'buyer_out_of_scope')
     const identity = buyerIdentityFromCustomerUser(user)
-    if (customerId && !identity.customerIds.includes(customerId)) {
-      throw new StorefrontResolutionError(403, 'buyer_out_of_scope')
+    if (customerId) {
+      if (!identity.customerIds.includes(customerId)) throw new StorefrontResolutionError(403, 'buyer_out_of_scope')
+      await requireLiveCustomerEntity(em, customerId, scope)
     }
     return identity
   }
   if (customerId) return resolveTrustedCustomerIdentity(em, customerId, scope)
-  return ANONYMOUS_IDENTITY
+  return { ...ANONYMOUS_IDENTITY, customerIds: [] }
 }
 
 export type TrustedBuyerChannel = {

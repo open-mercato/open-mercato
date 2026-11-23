@@ -121,6 +121,7 @@ function createHarness(options: HarnessOptions = {}) {
           (row) =>
             row.id === where.id &&
             inScope(row, where) &&
+            (where.kind === undefined || row.kind === where.kind) &&
             (where.deletedAt === undefined || row.deletedAt === where.deletedAt),
         ) ?? null
       )
@@ -454,12 +455,97 @@ describe('storeContextService.resolveForBuyer', () => {
         'buyer_out_of_scope',
       )
     })
+
+    it('refuses a customerId of the given user when its CRM record was soft-deleted', async () => {
+      const harness = createHarness({
+        users: [user('user-1', 'person-1', 'company-1')],
+        entities: [entity('person-1', 'person', { deletedAt: new Date() }), entity('company-1', 'company')],
+      })
+      const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
+      await expectRefusal(
+        resolveForBuyer({ tenantId: TENANT_ID, organizationId: ORG_ID, customerUserId: 'user-1', customerId: 'person-1' }),
+        403,
+        'buyer_out_of_scope',
+      )
+    })
+
+    it('refuses a customerId of the given user when its CRM record lives in another organization', async () => {
+      const harness = createHarness({
+        users: [user('user-1', 'person-1', 'company-1')],
+        entities: [entity('person-1', 'person', { organizationId: OTHER_ORG_ID })],
+      })
+      const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
+      await expectRefusal(
+        resolveForBuyer({ tenantId: TENANT_ID, organizationId: ORG_ID, customerUserId: 'user-1', customerId: 'person-1' }),
+        403,
+        'buyer_out_of_scope',
+      )
+    })
+
+    it('resolves a customerId of the given user when its CRM record is live in scope', async () => {
+      const harness = createHarness({
+        users: [user('user-1', 'person-1', 'company-1')],
+        entities: [entity('person-1', 'person')],
+      })
+      const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
+
+      const result = await resolveForBuyer({
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        customerUserId: 'user-1',
+        customerId: 'person-1',
+      })
+
+      expect(result.customerUserId).toBe('user-1')
+      expect(result.customerIds).toEqual(['person-1', 'company-1'])
+    })
   })
 
   describe('customerId only', () => {
+    it('drops a primary company that lives in another organization of the same tenant', async () => {
+      const harness = createHarness({
+        entities: [entity('person-1', 'person'), entity('company-1', 'company', { organizationId: OTHER_ORG_ID })],
+        personCompanies: { 'person-1': 'company-1' },
+        groupsByCustomer: { 'company-1': { groupIds: ['group-b2b'], priceKindId: 'kind-b2b' } },
+      })
+      const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
+
+      const result = await resolveForBuyer({ tenantId: TENANT_ID, organizationId: ORG_ID, customerId: 'person-1' })
+
+      expect(result.customerIds).toEqual(['person-1'])
+      expect(result.customerGroupIds).toEqual([])
+      expect(result.priceKindId).toBeNull()
+    })
+
+    it('drops a soft-deleted primary company', async () => {
+      const harness = createHarness({
+        entities: [entity('person-1', 'person'), entity('company-1', 'company', { deletedAt: new Date() })],
+        personCompanies: { 'person-1': 'company-1' },
+        groupsByCustomer: { 'company-1': { groupIds: ['group-b2b'] } },
+      })
+      const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
+
+      const result = await resolveForBuyer({ tenantId: TENANT_ID, organizationId: ORG_ID, customerId: 'person-1' })
+
+      expect(result.customerIds).toEqual(['person-1'])
+      expect(result.customerGroupIds).toEqual([])
+    })
+
+    it('drops a primary company link that points at a person record', async () => {
+      const harness = createHarness({
+        entities: [entity('person-1', 'person'), entity('person-2', 'person')],
+        personCompanies: { 'person-1': 'person-2' },
+      })
+      const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
+
+      const result = await resolveForBuyer({ tenantId: TENANT_ID, organizationId: ORG_ID, customerId: 'person-1' })
+
+      expect(result.customerIds).toEqual(['person-1'])
+    })
+
     it('resolves a person with its primary company and counts as authenticated for scope', async () => {
       const harness = createHarness({
-        entities: [entity('person-1', 'person')],
+        entities: [entity('person-1', 'person'), entity('company-1', 'company')],
         personCompanies: { 'person-1': 'company-1' },
         groupsByCustomer: { 'company-1': { groupIds: ['group-b2b'], scope: null } },
       })
@@ -566,6 +652,19 @@ describe('storeContextService.resolveForBuyer', () => {
     expect(withClosedStore.priceKindId).toBe('kind-channel')
     expect(withClosedStore.currencyCode).toBe('USD')
     expect(withClosedStore.assortmentScope).toEqual([])
+  })
+
+  it('gives every guest call its own identity, so mutating one result cannot leak into the next', async () => {
+    const harness = createHarness({})
+    const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
+
+    const first = await resolveForBuyer({ tenantId: TENANT_ID, organizationId: ORG_ID })
+    first.customerIds.push('injected-customer')
+    const second = await resolveForBuyer({ tenantId: TENANT_ID, organizationId: ORG_ID })
+
+    expect(second.customerIds).toEqual([])
+    expect(second.customerIds).not.toBe(first.customerIds)
+    expect(second.customerGroupIds).toEqual([])
   })
 
   it('resolves a guest on an open store to the channel scope', async () => {
