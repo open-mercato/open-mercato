@@ -1,4 +1,4 @@
-import { priceCreateSchema, priceUpdateSchema } from '../validators'
+import { priceCreateSchema, priceKindCreateSchema, priceKindUpdateSchema, priceUpdateSchema } from '../validators'
 
 const scope = {
   organizationId: '22222222-2222-4222-8222-222222222222',
@@ -11,6 +11,28 @@ const basePrice = {
   currencyCode: 'USD',
   priceKindId: '55555555-5555-4555-8555-555555555555',
 }
+
+describe('price validity window clearing', () => {
+  it.each([null, ''])('maps %j to null instead of the epoch date on update', (empty) => {
+    const result = priceUpdateSchema.safeParse({
+      id: '66666666-6666-4666-8666-666666666666',
+      ...scope,
+      startsAt: empty,
+      endsAt: empty,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.startsAt).toBeNull()
+      expect(result.data.endsAt).toBeNull()
+    }
+  })
+
+  it('still coerces ISO strings to dates and rejects garbage', () => {
+    const ok = priceCreateSchema.safeParse({ ...basePrice, startsAt: '2026-01-01T00:00:00.000Z' })
+    expect(ok.success && ok.data.startsAt instanceof Date).toBe(true)
+    expect(priceCreateSchema.safeParse({ ...basePrice, endsAt: 'not-a-date' }).success).toBe(false)
+  })
+})
 
 describe('price cross-field validators', () => {
   it('accepts a full payload with a quantity tier and validity window', () => {
@@ -85,5 +107,27 @@ describe('price cross-field validators', () => {
       unitPriceNet: '12.50',
     })
     expect(result.success).toBe(true)
+  })
+})
+
+describe('price kind update schema', () => {
+  const priceKindId = '77777777-7777-4777-8777-777777777777'
+
+  it('leaves displayMode out when a partial update omits it', () => {
+    const parsed = priceKindUpdateSchema.parse({ id: priceKindId, title: 'Renamed' })
+    expect(parsed).toEqual({ id: priceKindId, title: 'Renamed' })
+    expect(parsed).not.toHaveProperty('displayMode')
+  })
+
+  it('keeps an explicit displayMode and still validates it', () => {
+    expect(priceKindUpdateSchema.parse({ id: priceKindId, displayMode: 'including-tax' }).displayMode).toBe(
+      'including-tax',
+    )
+    expect(priceKindUpdateSchema.safeParse({ id: priceKindId, displayMode: 'bogus' }).success).toBe(false)
+  })
+
+  it('keeps the excluding-tax default on create', () => {
+    const parsed = priceKindCreateSchema.parse({ ...scope, code: 'regular', title: 'Regular' })
+    expect(parsed.displayMode).toBe('excluding-tax')
   })
 })

@@ -12,7 +12,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { PlannerAvailabilityRule } from '@open-mercato/core/modules/planner/data/entities'
-import { StaffLeaveRequest, type StaffLeaveRequestStatus } from '../data/entities'
+import { StaffLeaveRequest, StaffTeamMember, type StaffLeaveRequestStatus } from '../data/entities'
 import {
   staffLeaveRequestCreateSchema,
   staffLeaveRequestDecisionSchema,
@@ -200,14 +200,60 @@ async function requireLeaveRequest(
     undefined,
     scopeForDecryption(scope),
   )
-  if (!request) throw new CrudHttpError(404, { error: 'Leave request not found.' })
-  return request
+  if (request) return request
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(404, {
+    error: translate('staff.leaveRequests.errors.notFound', 'Leave request not found.'),
+  })
 }
 
-function ensurePendingStatus(request: StaffLeaveRequest): void {
-  if (request.status !== 'pending') {
-    throw new CrudHttpError(400, { error: 'Leave request is already finalized.' })
-  }
+async function ensurePendingStatus(request: StaffLeaveRequest): Promise<void> {
+  if (request.status === 'pending') return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(400, {
+    error: translate('staff.leaveRequests.errors.alreadyFinalized', 'Leave request is already finalized.'),
+  })
+}
+
+async function ensureValidDateRange(request: StaffLeaveRequest): Promise<void> {
+  if (request.endDate.getTime() >= request.startDate.getTime()) return
+  const { translate } = await resolveTranslations()
+  const message = translate('staff.leaveRequests.errors.invalidDateRange', 'End date must be after start date.')
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { endDate: message },
+    details: [{ path: ['endDate'], message, code: 'custom', origin: 'validation' }],
+  })
+}
+
+async function ensureUndoablePending(request: StaffLeaveRequest): Promise<void> {
+  if (request.status === 'pending') return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      'staff.leaveRequests.errors.undoAfterDecision',
+      'This leave request has already been approved or rejected and can no longer be undone. Undo the decision first.',
+    ),
+  })
+}
+
+async function requireUndoMember(em: EntityManager, snapshot: LeaveRequestSnapshot): Promise<StaffTeamMember> {
+  const scope = explicitStaffCommandScope(snapshot.tenantId, snapshot.organizationId)
+  const member = await findOneWithDecryption(
+    em,
+    StaffTeamMember,
+    applyScopeToWhere<StaffTeamMember>({ id: snapshot.memberId, deletedAt: null }, scope),
+    undefined,
+    scopeForDecryption(scope),
+  )
+  if (member) return member
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      'staff.leaveRequests.errors.undoMemberMissing',
+      'The original team member of this leave request no longer exists, so the change cannot be undone.',
+    ),
+  })
 }
 
 async function createUnavailabilityRules(params: {
@@ -388,25 +434,25 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const request = await em.findOne(StaffLeaveRequest, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
-    if (request) {
-      request.deletedAt = new Date()
-      request.updatedAt = new Date()
-      await em.flush()
+    if (!request || request.deletedAt) return
+    await ensureUndoablePending(request)
+    request.deletedAt = new Date()
+    request.updatedAt = new Date()
+    await em.flush()
 
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      await emitCrudUndoSideEffects({
-        dataEngine: de,
-        action: 'deleted',
-        entity: request,
-        identifiers: {
-          id: request.id,
-          organizationId: request.organizationId,
-          tenantId: request.tenantId,
-        },
-        events: staffLeaveRequestCrudEvents,
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: request,
+      identifiers: {
+        id: request.id,
+        organizationId: request.organizationId,
+        tenantId: request.tenantId,
+      },
+      events: staffLeaveRequestCrudEvents,
       indexer: leaveRequestCrudIndexer,
-      })
-    }
+    })
   },
   redo: makeCreateRedo<StaffLeaveRequest, LeaveRequestSnapshot, StaffLeaveRequestCreateInput, { requestId: string }>({
     entityClass: StaffLeaveRequest,
@@ -441,7 +487,7 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
     const request = await requireLeaveRequest(em, parsed.id, scope)
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
-    ensurePendingStatus(request)
+    await ensurePendingStatus(request)
 
     if (parsed.memberId !== undefined) {
       const member = await requireTeamMember(em, parsed.memberId, scope, 'Team member not found')
@@ -451,6 +497,7 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
     }
     if (parsed.startDate !== undefined) request.startDate = parsed.startDate
     if (parsed.endDate !== undefined) request.endDate = parsed.endDate
+    if (parsed.startDate !== undefined || parsed.endDate !== undefined) await ensureValidDateRange(request)
     if (parsed.timezone !== undefined) request.timezone = parsed.timezone
     if (parsed.unavailabilityReasonEntryId !== undefined) request.unavailabilityReasonEntryId = parsed.unavailabilityReasonEntryId ?? null
     if (parsed.unavailabilityReasonValue !== undefined) request.unavailabilityReasonValue = parsed.unavailabilityReasonValue ?? null
@@ -517,17 +564,18 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
     if (!before || !after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const request = await em.findOne(StaffLeaveRequest, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
-    if (!request) return
+    if (!request || request.deletedAt) return
+    await ensureUndoablePending(request)
+    const currentMemberId = typeof request.member === 'string' ? request.member : request.member.id
+    if (before.memberId !== currentMemberId) {
+      request.member = await requireUndoMember(em, before)
+    }
     request.startDate = new Date(before.startDate)
     request.endDate = new Date(before.endDate)
     request.timezone = before.timezone
-    request.status = before.status
     request.unavailabilityReasonEntryId = before.unavailabilityReasonEntryId
     request.unavailabilityReasonValue = before.unavailabilityReasonValue
     request.note = before.note
-    request.decisionComment = before.decisionComment
-    request.decidedByUserId = before.decidedByUserId
-    request.decidedAt = before.decidedAt ? new Date(before.decidedAt) : null
     request.updatedAt = new Date()
     await em.flush()
 
@@ -555,7 +603,7 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
     const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
-    ensurePendingStatus(request)
+    await ensurePendingStatus(request)
 
     request.deletedAt = new Date()
     request.updatedAt = new Date()
@@ -636,7 +684,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
     const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
-    ensurePendingStatus(request)
+    await ensurePendingStatus(request)
 
     const memberId = typeof request.member === 'string' ? request.member : request.member.id
     const decidedByUserId = parsed.decidedByUserId ?? resolveAuthUserId(ctx)
@@ -847,7 +895,7 @@ const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
     const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
-    ensurePendingStatus(request)
+    await ensurePendingStatus(request)
 
     request.status = 'rejected'
     request.decisionComment = parsed.decisionComment ?? null

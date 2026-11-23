@@ -9,6 +9,8 @@ import {
   isBroadcastEvent,
   isCoalescedBroadcastEvent,
   isCrossProcessBroadcastEvent,
+  isPortalBroadcastEvent,
+  isPrivateCrossProcessBroadcastEvent,
   isPrivateCrossProcessEventEmitter,
 } from '@open-mercato/shared/modules/events'
 import {
@@ -76,17 +78,27 @@ function normalizePayloadScope(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
+function isBrowserBroadcastEvent(event: string): boolean {
+  return isBroadcastEvent(event) || isPortalBroadcastEvent(event)
+}
+
+/** Relayed over the bridge: both browser audiences plus private coordination; each consumer filters by its own flag. */
+function shouldPublishCrossProcess(event: string): boolean {
+  return isCrossProcessBroadcastEvent(event) || isPortalBroadcastEvent(event)
+}
+
 function resolveCrossProcessEmitOptions(
   event: string,
   payload: EventPayload,
   options?: EmitOptions,
 ): EmitOptions | undefined {
   if (hasTrustedTenantScope(options)) return options
-  // Preserve the public raw EventBus contract for legacy clientBroadcast
-  // emitters. These callers are trusted server code and historically supplied
-  // their scope in the typed payload. Tenant-managed workflow execution passes
-  // scope in options, while private cross-process events never take this path.
-  if (!isBroadcastEvent(event)) return options
+  // Preserve the public raw EventBus contract for legacy clientBroadcast and
+  // portalBroadcast emitters. These callers are trusted server code and
+  // historically supplied their scope in the typed payload. Tenant-managed
+  // workflow execution passes scope in options, while private cross-process
+  // events never take this path.
+  if (!isBrowserBroadcastEvent(event) || isPrivateCrossProcessBroadcastEvent(event)) return options
   const tenantId = normalizePayloadScope((payload as Record<string, unknown>)?.tenantId)
   if (!tenantId) return options
   const organizationId = normalizePayloadScope((payload as Record<string, unknown>)?.organizationId)
@@ -311,6 +323,16 @@ function registerBroadcastCoalescerShutdownHook(): void {
   ;(globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY] = true
 }
 
+type EventBusGenerationState = {
+  listeners: Map<string, Set<RegisteredSubscriber>>
+  persistentSubscribers: Set<RegisteredSubscriber>
+  queue: Queue<EventJobData> | null
+}
+
+function createEventBusGenerationState(): EventBusGenerationState {
+  return { listeners: new Map(), persistentSubscribers: new Set(), queue: null }
+}
+
 /**
  * Creates an event bus instance.
  *
@@ -342,20 +364,46 @@ function registerBroadcastCoalescerShutdownHook(): void {
  * ```
  */
 export function createEventBus(opts: CreateBusOptions): EventBus {
+  return createEventBusWithState(opts, createEventBusGenerationState())
+}
+
+export function createScopedEventBusFactory(options: Omit<CreateBusOptions, 'resolve'> = {}) {
+  const state = createEventBusGenerationState()
+  return Object.assign(
+    (resolve: CreateBusOptions['resolve']): EventBus =>
+      createEventBusWithState({ ...options, resolve }, createEventBusGenerationState(), state),
+    {
+      definitions: createEventBusWithState({
+        ...options,
+        resolve: () => { throw new Error('[internal] Event definitions cannot resolve caller services') },
+      }, state),
+    },
+  )
+}
+
+function createEventBusWithState(
+  opts: CreateBusOptions,
+  state: EventBusGenerationState,
+  definitions?: EventBusGenerationState,
+): EventBus {
   registerBroadcastCoalescerShutdownHook()
 
   // In-memory listeners for immediate event delivery
-  const listeners = new Map<string, Set<RegisteredSubscriber>>()
+  const listeners = state.listeners
   // Subscribers registered as persistent (worker-dispatched). Used by the
   // single-delivery path to skip them inline on a persistent emit.
-  const persistentSubscribers = new Set<RegisteredSubscriber>()
+  const persistentSubscribers = state.persistentSubscribers
+  const queueState = definitions ?? state
+  function* listenerEntries() {
+    if (definitions) yield* definitions.listeners
+    yield* listeners
+  }
+  const isPersistentSubscriber = (subscriber: RegisteredSubscriber) =>
+    persistentSubscribers.has(subscriber) || definitions?.persistentSubscribers.has(subscriber) === true
 
   // Determine queue strategy from options or environment
   const queueStrategy = opts.queueStrategy ??
     (process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local')
-
-  // Lazy-initialized queue for persistent events
-  let queue: Queue<EventJobData> | null = null
 
   /**
    * Gets or creates the queue instance for persistent events.
@@ -367,14 +415,14 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    */
   function getQueue(): Queue<EventJobData> {
     if (queueStrategy !== 'async' || !isSharedProducerEnabled()) {
-      if (!queue) {
-        queue = queueStrategy === 'async'
+      if (!queueState.queue) {
+        queueState.queue = queueStrategy === 'async'
           ? createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'async', {
               connection: { url: getRedisUrlOrThrow('QUEUE') },
             })
           : createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'local')
       }
-      return queue
+      return queueState.queue
     }
 
     const redisUrl = getRedisUrlOrThrow('QUEUE')
@@ -409,14 +457,14 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
   ): Promise<{ persistentFailures: number }> {
     let persistentFailures = 0
     // Check all registered patterns (including wildcards)
-    for (const [pattern, handlers] of listeners) {
+    for (const [pattern, handlers] of listenerEntries()) {
       if (!matchEventPattern(event, pattern)) continue
       if (!handlers || handlers.size === 0) continue
 
       for (const subscriber of handlers) {
         // Single-delivery: persistent subscribers are dispatched by the worker,
         // so skip them inline to avoid double execution.
-        if (skipPersistent && persistentSubscribers.has(subscriber)) continue
+        if (skipPersistent && isPersistentSubscriber(subscriber)) continue
         try {
           // Pass eventName in context for wildcard handlers
           const moduleId = subscriber.moduleId ?? inferModuleIdFromResourceId(subscriber.id)
@@ -435,7 +483,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
             }),
           )
         } catch (error) {
-          if (persistentSubscribers.has(subscriber)) {
+          if (isPersistentSubscriber(subscriber)) {
             persistentFailures += 1
           }
           logger.error('Handler error', { event, pattern, err: error })
@@ -469,7 +517,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    */
   function selectQueuedSubscribers(event: string): RegisteredSubscriber[] {
     const matched: RegisteredSubscriber[] = []
-    for (const [pattern, handlers] of listeners) {
+    for (const [pattern, handlers] of listenerEntries()) {
       if (!matchEventPattern(event, pattern)) {
         continue
       }
@@ -605,7 +653,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     const publishToOtherProcesses = async (): Promise<void> => {
       const crossProcessOptions = resolveCrossProcessEmitOptions(event, payload, options)
       if (
-        !isCrossProcessBroadcastEvent(event)
+        !shouldPublishCrossProcess(event)
         || !hasTrustedTenantScope(crossProcessOptions)
         || !isPrivateCrossProcessEventEmitter(event, crossProcessOptions?.emitterModuleId)
       ) return

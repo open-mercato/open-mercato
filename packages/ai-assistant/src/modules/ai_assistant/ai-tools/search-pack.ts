@@ -6,7 +6,7 @@
  * agents that whitelist them via `allowedTools`.
  */
 import { z } from 'zod'
-import type { SearchOptions, SearchResult, SearchStrategyId } from '@open-mercato/shared/modules/search'
+import type { SearchOptions, SearchResult, SearchStrategyId, SearchViewer } from '@open-mercato/shared/modules/search'
 import {
   canReadSearchEntity,
   filterSearchResultsByEntityAccess,
@@ -16,7 +16,12 @@ import {
   type SearchEntityDenyReason,
 } from '@open-mercato/shared/lib/search/entityAccess'
 import { defineAiTool } from '../lib/ai-tool-definition'
+import { emitCitations, isSafeHref, type AiCitation } from '../lib/citations'
 import type { AiToolDefinition, McpToolContext } from '../lib/types'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { AwilixContainer } from 'awilix'
 
 type SearchServiceLike = {
   search: (query: string, options: SearchOptions) => Promise<SearchResult[]>
@@ -69,6 +74,81 @@ function authorizeEntityAccess(
   )
 }
 
+/**
+ * Resolve the actor's allowed-organization scope the same way the HTTP search
+ * route does, so this tool pack can never return results outside a
+ * restricted user's organization allowlist — even when their current
+ * organization is null. Mirrors packages/search/.../api/search/route.ts.
+ *
+ * `organizationId` is the re-validated selection (`scope.selectedId`), not the
+ * raw `ctx.organizationId` — `SearchOptions.organizationId` takes precedence
+ * over `organizationIds` in `normalizeOrganizationFilter`, so passing the
+ * unvalidated context value through would let a stale/out-of-allowlist
+ * selection bypass the allowlist below.
+ */
+async function resolveActorOrganizationScope(ctx: McpToolContext): Promise<{
+  organizationId: string | undefined
+  organizationIds: string[] | undefined
+  denyAll: boolean
+}> {
+  if (!ctx.userId) return { organizationId: undefined, organizationIds: undefined, denyAll: true }
+  const auth: AuthContext = {
+    sub: ctx.userId,
+    tenantId: ctx.tenantId,
+    orgId: ctx.organizationId,
+    isSuperAdmin: ctx.isSuperAdmin,
+  }
+  const scope = await resolveOrganizationScopeForRequest({
+    container: ctx.container as unknown as AwilixContainer,
+    auth,
+    selectedId: ctx.organizationId,
+  })
+  const scopeFilter = resolveOrganizationScopeFilter(scope, auth)
+  const denyAll = Array.isArray(scope.filterIds) && scope.filterIds.length === 0
+  const organizationId = typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0
+    ? scope.selectedId.trim()
+    : undefined
+  return { organizationId, organizationIds: scopeFilter.organizationIds, denyAll }
+}
+
+/**
+ * The caller the search runs for, so entities with a per-record `filterResults`
+ * hook (e.g. document sections) apply their own open rule instead of dropping
+ * every hit. An API-key caller is the key itself (`api_key:<id>`, no user), so
+ * owner checks see the key's own ACL rather than its creator's.
+ */
+function buildSearchViewer(ctx: McpToolContext, organizationId: string | null | undefined): SearchViewer | undefined {
+  if (!ctx.userId || !ctx.tenantId) return undefined
+  const apiKeyId = typeof ctx.apiKeyId === 'string' && ctx.apiKeyId.length > 0 ? ctx.apiKeyId : null
+  return {
+    auth: {
+      sub: apiKeyId ? `api_key:${apiKeyId}` : ctx.userId,
+      tenantId: ctx.tenantId,
+      orgId: organizationId ?? null,
+      features: [...ctx.userFeatures],
+      isSuperAdmin: ctx.isSuperAdmin === true,
+      ...(apiKeyId ? { isApiKey: true, keyId: apiKeyId } : { userId: ctx.userId }),
+    },
+    container: ctx.container,
+  }
+}
+
+function toRecordCitation(result: Pick<SearchResult, 'entityId' | 'recordId' | 'presenter' | 'url'>): AiCitation {
+  const citation: AiCitation = { kind: 'record', ref: `${result.entityId}:${result.recordId}` }
+  const label = typeof result.presenter?.title === 'string' ? result.presenter.title.trim().slice(0, 200) : ''
+  if (label) citation.label = label
+  if (typeof result.url === 'string' && result.url.length <= 2048 && isSafeHref(result.url)) citation.href = result.url
+  return citation
+}
+
+function emitRecordCitations(
+  ctx: McpToolContext,
+  results: ReadonlyArray<Pick<SearchResult, 'entityId' | 'recordId' | 'presenter' | 'url'>>,
+): void {
+  if (results.length === 0) return
+  emitCitations(ctx, results.map(toRecordCitation))
+}
+
 const hybridSearchInput = z.object({
   q: z.string().min(1).describe('Search query text.'),
   limit: z
@@ -116,11 +196,13 @@ const hybridSearchTool = defineAiTool({
         limit,
         strategies: input.strategies as SearchStrategyId[] | undefined,
         entityTypes: input.entityTypes,
+        viewer: buildSearchViewer(ctx, ctx.organizationId),
       })
       const timingMs = Date.now() - started
       const strategiesUsed = Array.from(
         new Set(results.map((result) => result.source).filter((id): id is SearchStrategyId => typeof id === 'string')),
       )
+      emitRecordCitations(ctx, results)
       return {
         query: input.q,
         totalResults: results.length,
@@ -142,18 +224,32 @@ const hybridSearchTool = defineAiTool({
       }
     }
 
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return {
+        query: input.q,
+        totalResults: 0,
+        results: [],
+        strategiesUsed: [],
+        timing: { ms: Date.now() - started },
+      }
+    }
+
     const rawResults = await service.search(input.q, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       limit,
       strategies: input.strategies as SearchStrategyId[] | undefined,
       entityTypes: readableEntityTypes,
+      viewer: buildSearchViewer(ctx, orgScope.organizationId),
     })
     const results = filterSearchResultsByEntityAccess(rawResults, lookup, subject)
     const timingMs = Date.now() - started
     const strategiesUsed = Array.from(
       new Set(results.map((result) => result.source).filter((id): id is SearchStrategyId => typeof id === 'string')),
     )
+    emitRecordCitations(ctx, results)
     return {
       query: input.q,
       totalResults: results.length,
@@ -193,12 +289,23 @@ const getRecordContextTool = defineAiTool({
       authorizeEntityAccess(input.entityId, lookup, subject)
     }
 
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return {
+        found: false as const,
+        entityId: input.entityId,
+        recordId: input.recordId,
+      }
+    }
+
     const service = ctx.container.resolve<SearchServiceLike>('searchService')
     const rawResults = await service.search(input.recordId, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       limit: 5,
       entityTypes: [input.entityId],
+      viewer: buildSearchViewer(ctx, orgScope.organizationId),
     })
     const results = lookup ? filterSearchResultsByEntityAccess(rawResults, lookup, subject) : rawResults
     const match = results.find((result) => result.recordId === input.recordId)
@@ -209,6 +316,7 @@ const getRecordContextTool = defineAiTool({
         recordId: input.recordId,
       }
     }
+    emitRecordCitations(ctx, [match])
     return {
       found: true as const,
       entityId: match.entityId,

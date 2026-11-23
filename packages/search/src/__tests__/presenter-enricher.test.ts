@@ -70,6 +70,26 @@ describe('createPresenterEnricher', () => {
     mockedDecryptIndexDocForSearch.mockReset()
   })
 
+  it.each(['throw', 'null'])('keeps protected contacts out of the read-time fallback when callbacks %s', async (failure) => {
+    const doc = { id: 'person-1', name: 'Safe display name', email: 'private-contact@example.com', password_hash: 'private-password' }
+    mockedDecryptIndexDocForSearch.mockResolvedValue(doc)
+    const unavailable = () => {
+      if (failure === 'throw') throw new Error('[internal] Injected formatter failure')
+      return null
+    }
+    const config = createConfig({
+      fieldPolicy: { searchable: ['name', 'email', 'password_hash'], hashOnly: ['email'], excluded: ['password_hash'] },
+      formatResult: unavailable, buildSource: unavailable,
+    })
+    const enrich = createPresenterEnricher(
+      createKyselyMock([{ entity_type: config.entityId, entity_id: doc.id, doc }]),
+      new Map([[config.entityId, config]]),
+    )
+    const [enriched] = await enrich([createResult()], 'tenant-1', 'org-1')
+    expect(enriched.presenter?.title).toBe('Safe display name')
+    expect(JSON.stringify(enriched.presenter)).not.toContain('private-')
+  })
+
   it('uses search config presenters and the stored organization scope for doc decryption', async () => {
     const decryptedDoc = {
       id: 'person-1',
@@ -493,3 +513,12 @@ describe('createPresenterEnricher', () => {
     expect(enriched[1]?.url).toBe(`/backend/customers/people-v2/${entityId}#notes`)
   })
 })
+
+jest.mock('@open-mercato/core/modules/query_index/lib/search-scope', () => ({
+  buildQueryIndexSearchScopePredicate: () => jest.requireActual('kysely').sql`true`,
+  filterQueryIndexSearchRecords: async (_database: unknown, _scope: unknown, records: unknown[]) => records,
+  resolveQueryIndexSearchScope: async () => ({
+    blockedEntityTypes: [],
+    tenantGlobalEntityTypes: jest.requireActual('@open-mercato/core/modules/query_index/lib/tenant-global').listTenantGlobalEntityTypes(),
+  }),
+}))

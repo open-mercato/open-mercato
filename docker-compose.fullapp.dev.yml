@@ -20,6 +20,7 @@ services:
     container_name: mercato-opencode-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_PASSWORD:?Set OPENCODE_PASSWORD to a strong random value for the dev agent server}
       # Unified AI provider/model selection. OM_AI_* wins; OPENCODE_* stays
       # as a BC fallback resolved by the opencode entrypoint script.
       OM_AI_PROVIDER: ${OM_AI_PROVIDER:-openai}
@@ -68,14 +69,14 @@ services:
       # SSL_CERT_FILE/NODE_EXTRA_CA_CERTS when certs are present).
       - ./docker/opencode/certs:/run/om-certs:ro
     ports:
-      - "${OPENCODE_PORT:-4096}:4096"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${OPENCODE_PORT:-4096}:4096"
     depends_on:
       mcp:
         condition: service_started
     # Visibility only (compose ps / smoke tests): the entrypoint owns the
     # wait-for-MCP-and-key sequencing.
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:4096/global/health"]
+      test: ["CMD-SHELL", 'curl -fsS --max-time 5 -u "opencode:$$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/global/health']
       interval: 30s
       timeout: 6s
       retries: 20
@@ -119,7 +120,7 @@ services:
       - pkg_create_app_dist:/app/packages/create-app/dist
       - pkg_documents_dist:/app/packages/documents/dist
     ports:
-      - "${MCP_PORT:-3001}:3001"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${MCP_PORT:-3001}:3001"
     environment:
       NODE_ENV: development
       NODE_OPTIONS: ${MCP_NODE_OPTIONS:---max-old-space-size=2048}
@@ -151,6 +152,13 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       MCP_PORT: "3001"
+      # The mcp container is reached over the internal compose network by the app and
+      # opencode services (mcp:3001), which is not loopback from this container's own
+      # point of view. mcp:serve-http defaults to binding 127.0.0.1 (issue #2659); this
+      # opts into 0.0.0.0 explicitly, matching the deliberate default-loopback-unless-
+      # configured contract, since this network is internal and not published (dev
+      # compose publishes MCP_PORT to the host, which also requires a non-loopback bind).
+      MCP_HTTP_HOST: "0.0.0.0"
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
       MCP_WAIT_FOR_APP_TIMEOUT: ${MCP_WAIT_FOR_APP_TIMEOUT:-1800}
       MCP_DEBUG: ${MCP_DEBUG:-false}
@@ -252,9 +260,10 @@ services:
       - pkg_documents_dist:/app/packages/documents/dist
       - mcp_shared:/run/mcp-shared:ro
     ports:
-      - "${APP_PORT:-3000}:3000"
-      - "${OM_DEV_SPLASH_PORT:-4000}:${OM_DEV_SPLASH_PORT:-4000}"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${APP_PORT:-3000}:3000"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${OM_DEV_SPLASH_PORT:-4000}:${OM_DEV_SPLASH_PORT:-4000}"
     environment:
+      OPENCODE_PASSWORD: ${OPENCODE_PASSWORD:?Set OPENCODE_PASSWORD to a strong random value for the dev agent server}
       CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
       WATCHPACK_POLLING: ${WATCHPACK_POLLING:-true}
       OM_DEV_SPLASH_PORT: ${OM_DEV_SPLASH_PORT:-4000}
@@ -324,6 +333,10 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
+      OM_INIT_ADMIN_EMAIL: ${OM_INIT_ADMIN_EMAIL:-}
+      OM_INIT_ADMIN_PASSWORD: ${OM_INIT_ADMIN_PASSWORD:-}
+      OM_INIT_EMPLOYEE_EMAIL: ${OM_INIT_EMPLOYEE_EMAIL:-}
+      OM_INIT_EMPLOYEE_PASSWORD: ${OM_INIT_EMPLOYEE_PASSWORD:-}
       SSO_DEV_SEED: ${SSO_DEV_SEED:-true}
       # Service DNS, not the container_name: survives DEPLOY_ENV != local.
       SSO_DEV_ISSUER: ${SSO_DEV_ISSUER:-http://keycloak:8080/realms/open-mercato}
@@ -342,6 +355,10 @@ services:
       OPENCODE_URL: ${OPENCODE_URL:-http://opencode:4096}
       MCP_URL: ${MCP_URL:-http://mcp:3001}
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
+      # The dedicated mcp service provisions the key and serves MCP; without this
+      # `yarn dev` would start a second MCP runtime and try to write the key into
+      # the read-only shared volume (EROFS, retried every 30s).
+      OM_DEV_WITH_MCP: "0"
     depends_on:
       file-watch-limits:
         condition: service_completed_successfully
@@ -378,7 +395,7 @@ services:
       - app_node_modules:/app/node_modules
       - pkg_documents_dist:/app/packages/documents/dist
     ports:
-      - "${DOCUMENTS_COLLAB_PORT:-4101}:${DOCUMENTS_COLLAB_PORT:-4101}"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${DOCUMENTS_COLLAB_PORT:-4101}:${DOCUMENTS_COLLAB_PORT:-4101}"
     environment:
       NODE_ENV: development
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
@@ -455,10 +472,10 @@ services:
     restart: unless-stopped
     command: start-dev
     environment:
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     ports:
-      - "${KEYCLOAK_PORT:-8080}:8080"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${KEYCLOAK_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080; echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3; cat <&3 | grep -q '200'"]
       interval: 15s
@@ -494,7 +511,7 @@ services:
     profiles:
       - storage-s3
     ports:
-      - "${LOCALSTACK_PORT:-4566}:4566"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${LOCALSTACK_PORT:-4566}:4566"
     environment:
       SERVICES: s3
       AWS_DEFAULT_REGION: us-east-1

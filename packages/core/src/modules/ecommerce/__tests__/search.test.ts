@@ -45,7 +45,8 @@ describe('ecommerce search config', () => {
       record: { id: 's1', name: 'Outlet', code: 'outlet', slug: 'outlet-eu', status: 'archived' },
       customFields: {},
     } as never)
-    expect(presenter).toMatchObject({ title: 'Outlet', subtitle: 'outlet · outlet-eu · Archived', badge: 'Store' })
+    expect(presenter).toMatchObject({ title: 'Outlet', subtitle: 'outlet · outlet-eu · Archived' })
+    expect(presenter).not.toHaveProperty('badge')
   })
 
   it('resolves the store configuration URL', async () => {

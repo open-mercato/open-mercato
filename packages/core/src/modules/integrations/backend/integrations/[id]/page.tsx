@@ -57,8 +57,10 @@ import {
   buildIntegrationCredentialSavePayload,
   type SecretFieldsConfigured,
 } from '../credential-secret-fields'
+import { translateCredentialFields } from '../credential-translations'
 import { isValidCredentialUrl } from '../../../lib/credentials-field-validation'
 import { useIntegrationCredentialsFeatureAccess } from '../useIntegrationCredentialsFeatureAccess'
+import { OAuthGrantReauthBanner, resolveOAuthGrantReconnectHref } from '../../../components/OAuthGrantReauthBanner'
 
 type CredentialField = IntegrationCredentialField
 type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs' | 'data-sync-schedule'
@@ -105,6 +107,7 @@ type IntegrationDetail = {
     detailPage?: {
       widgetSpotId?: string
       hiddenTabs?: IntegrationDetailBuiltInTab[]
+      connectTabId?: string
     }
     credentials?: { fields: CredentialField[] }
   }
@@ -123,6 +126,7 @@ type IntegrationDetail = {
   credentialsUpdatedAt?: string | null
   healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured'
   analytics: IntegrationLogAnalytics
+  oauthGrant?: { status: 'active' | 'invalidated' | 'unavailable' } | null
 }
 
 type LogEntry = {
@@ -459,6 +463,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const {
     isLoading: isLoadingCredentialsAccess,
     canManageCredentials,
+    canManageIntegration,
   } = useIntegrationCredentialsFeatureAccess()
 
   const loadDetail = React.useCallback(async (options?: { showLoading?: boolean }) => {
@@ -525,7 +530,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   }, [integrationId])
 
   const loadLogs = React.useCallback(async () => {
-    if (!integrationId) return
+    if (!integrationId || isLoadingCredentialsAccess || !canManageIntegration) return
     setIsLoadingLogs(true)
     const params = new URLSearchParams({ integrationId, pageSize: '50' })
     if (logLevel) params.set('level', logLevel)
@@ -538,7 +543,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       setLogs(call.result.items)
     }
     setIsLoadingLogs(false)
-  }, [logLevel, integrationId])
+  }, [logLevel, integrationId, isLoadingCredentialsAccess, canManageIntegration])
 
   const detailWidgetSpotId = React.useMemo(
     () => resolveIntegrationDetailWidgetSpotId(detail?.integration ?? null, extensionPoints.hosts.legacyDetailTabs.spotId),
@@ -748,9 +753,8 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       })
 
       if (call.ok) {
-        setCredentialsFormKey((current) => current + 1)
+        await loadCredentials()
         flash(t('integrations.detail.credentials.saved'), 'success')
-        void loadCredentials()
         return
       }
 
@@ -837,8 +841,12 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const integration = detail?.integration ?? null
   const state = detail?.state ?? null
   const editableCredentialFields = React.useMemo(
-    () => (detail?.integration.credentials?.fields ?? detail?.bundle?.credentials?.fields ?? []).filter(isEditableCredentialField),
-    [detail?.bundle?.credentials?.fields, detail?.integration.credentials?.fields],
+    () => translateCredentialFields(
+      (detail?.integration.credentials?.fields ?? detail?.bundle?.credentials?.fields ?? []).filter(isEditableCredentialField),
+      detail?.integration.credentials?.fields ? detail.integration.id : detail?.bundle?.id ?? '',
+      t,
+    ),
+    [detail?.bundle, detail?.integration.credentials?.fields, detail?.integration.id, t],
   )
   const credentialFormFields = React.useMemo(
     () => buildCredentialFields(editableCredentialFields, secretFieldsConfigured, t),
@@ -1014,6 +1022,15 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     ? 'border-status-success-border bg-status-success-bg text-status-success-text'
     : 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text'
 
+  const oauthGrantReconnectHref = resolvedIntegration
+    ? resolveOAuthGrantReconnectHref({
+      integrationId: resolvedIntegration.id,
+      connectTabId: resolvedIntegration.detailPage?.connectTabId,
+      visibleTabIds,
+      canManageCredentials,
+    })
+    : null
+
   const showCredentialActions = showCredentialsTab
     && activeTab === 'credentials'
     && credentialFormFields.length > 0
@@ -1104,15 +1121,23 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           }}
         />
 
+        <OAuthGrantReauthBanner
+          status={detail.oauthGrant?.status}
+          integrationTitle={resolvedIntegration.title}
+          reconnectHref={oauthGrantReconnectHref}
+          canManageCredentials={canManageCredentials}
+          isAccessLoading={isLoadingCredentialsAccess}
+        />
+
         <div className="space-y-2">
           {resolvedIntegration.description ? (
-            <p className="text-sm text-muted-foreground">{resolvedIntegration.description}</p>
+            <p className="text-sm text-muted-foreground">{t(`${resolvedIntegration.id}.description`, resolvedIntegration.description)}</p>
           ) : null}
           <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
             {resolvedIntegration.category ? (
               <div className="flex items-center gap-2">
                 {CategoryIcon ? <CategoryIcon className="h-4 w-4" /> : null}
-                <span>{formatTypeLabel(resolvedIntegration.category)}</span>
+                <span>{t(`integrations.marketplace.categories.${resolvedIntegration.category}`, formatTypeLabel(resolvedIntegration.category))}</span>
               </div>
             ) : null}
             {resolvedIntegration.hub ? (
@@ -1120,7 +1145,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                 <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground/80">
                   {t('integrations.detail.hub.label', 'Hub')}
                 </span>
-                <span>{formatTypeLabel(resolvedIntegration.hub)}</span>
+                <span>{t(`integrations.hubs.${resolvedIntegration.hub}`, formatTypeLabel(resolvedIntegration.hub))}</span>
               </div>
             ) : null}
           </div>
@@ -1165,7 +1190,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             </div>
             <Switch
               checked={resolvedState.isEnabled}
-              disabled={isTogglingState}
+              disabled={isTogglingState || !canManageIntegration}
               onCheckedChange={(checked) => void handleToggleState(checked)}
             />
           </div>
@@ -1303,8 +1328,11 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                     return (
                       <div
                         key={version.id}
-                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors ${isSelected ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}
-                        onClick={() => void handleVersionChange(version.id)}
+                        className={`flex items-center justify-between rounded-lg border p-3 transition-colors ${canManageIntegration ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'} ${isSelected ? 'border-primary bg-primary/5' : canManageIntegration ? 'hover:bg-muted/50' : ''}`}
+                        onClick={() => {
+                          if (canManageIntegration) void handleVersionChange(version.id)
+                        }}
+                        aria-disabled={!canManageIntegration}
                       >
                         <div>
                           <span className="text-sm font-medium">{version.label ?? version.id}</span>
@@ -1368,7 +1396,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                         variant="outline"
                         size="sm"
                         onClick={() => void handleHealthCheck()}
-                        disabled={isCheckingHealth}
+                        disabled={isCheckingHealth || !canManageIntegration}
                       >
                         {isCheckingHealth ? <Spinner className="mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
                         {isCheckingHealth ? t('integrations.detail.health.checking') : t('integrations.detail.health.check')}
@@ -1433,6 +1461,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
           {showLogsTab ? (
             <TabsContent value="logs" className="mt-0 space-y-4">
+            {!isLoadingCredentialsAccess && !canManageIntegration ? (
+              <EmptyState
+                size="sm"
+                icon={<FileText className="h-8 w-8" aria-hidden="true" />}
+                title={t('integrations.detail.logs.noPermission', 'You do not have permission to view the logs of this integration.')}
+              />
+            ) : (
+            <>
             <RunActivityStrip
               run={activeRunDetail}
               refreshedAt={activeRunRefreshedAt}
@@ -1570,6 +1606,8 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                 })}
                 emptyMessage={t('integrations.detail.logs.empty')}
               />
+            )}
+            </>
             )}
             </TabsContent>
           ) : null}

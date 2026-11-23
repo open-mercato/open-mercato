@@ -2420,6 +2420,10 @@ export interface ModuleFactsJsonEntry {
 
 const EMPTY_SECTION_MARKER = '_none_'
 const MAX_ANCHORED_SECTION_BYTES = 32 * 1024
+// Room for what renderModuleFactsDirectory wraps around a section (title, back link,
+// end marker): a section must be split while its table alone still fits the cap.
+const ANCHORED_SECTION_WRAPPER_RESERVE_BYTES = 512
+const MAX_COMPACT_SECTION_BYTES = MAX_ANCHORED_SECTION_BYTES - ANCHORED_SECTION_WRAPPER_RESERVE_BYTES
 
 interface ModuleFactsRenderContext {
   sourceRoot: string
@@ -2454,7 +2458,7 @@ function renderGroupedTableSection(
     }
     for (const row of group.rows) {
       const candidateRows = [...currentRows, row]
-      if (Buffer.byteLength(renderChunk(candidateRows, chunks.length)) <= MAX_ANCHORED_SECTION_BYTES) {
+      if (Buffer.byteLength(renderChunk(candidateRows, chunks.length)) <= MAX_COMPACT_SECTION_BYTES) {
         currentRows = candidateRows
         continue
       }
@@ -2463,7 +2467,7 @@ function renderGroupedTableSection(
       }
       chunks.push(currentRows)
       currentRows = [row]
-      if (Buffer.byteLength(renderChunk(currentRows, chunks.length)) > MAX_ANCHORED_SECTION_BYTES) {
+      if (Buffer.byteLength(renderChunk(currentRows, chunks.length)) > MAX_COMPACT_SECTION_BYTES) {
         throw new Error(`[module-facts] ${sectionHeading} group "${group.title}" contains a row larger than the anchored read cap`)
       }
     }
@@ -2512,7 +2516,7 @@ function renderEventsSection(
   const rows = events.map((event) => {
     const transports = [event.clientBroadcast ? 'client' : null, event.portalBroadcast ? 'portal' : null]
       .filter((value): value is string => value !== null)
-    return `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} | ${transports.join(', ') || '—'} | ${renderLookedUpSource(lookup, 'event', event.id, context)} |`
+    return `| ${event.id} |${event.category ?? '—'}|${event.entity ?? '—'}|${transports.join(', ') || '—'}|${renderLookedUpSource(lookup, 'event', event.id, context)}|`
   })
   return [heading, '', header, divider, ...rows].join('\n')
 }
@@ -2696,7 +2700,7 @@ function renderExtensionHostsSection(
     `| ${host.id} | ${host.family} | ${host.capabilities.join(', ') || '—'} | ${renderExtensionHostContext(host)} | ${host.stability.toUpperCase()} | ${renderExtensionHostSource(host, context)} |`,
   )
   const compact = [...header, ...renderRows(boundHosts)].join('\n')
-  if (Buffer.byteLength(compact) <= MAX_ANCHORED_SECTION_BYTES) return compact
+  if (Buffer.byteLength(compact) <= MAX_COMPACT_SECTION_BYTES) return compact
   const families = [...new Set(boundHosts.map((host) => host.family))]
   return renderGroupedTableSection(
     '## UMES hosts',
@@ -2849,7 +2853,7 @@ function renderOverrideTargetsSection(
     return `| ${target.domain} | ${path} | ${modes} | ${fact} | ${renderSourceRefLink(target.source, context)} |`
   })
   const compact = ['## Exact override targets', '', header, divider, ...renderRows(targets)].join('\n')
-  if (Buffer.byteLength(compact) <= MAX_ANCHORED_SECTION_BYTES) return compact
+  if (Buffer.byteLength(compact) <= MAX_COMPACT_SECTION_BYTES) return compact
   const domains = [...new Set(targets.map((target) => target.domain))]
   return renderGroupedTableSection(
     '## Exact override targets',

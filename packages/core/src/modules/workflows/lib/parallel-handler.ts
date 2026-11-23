@@ -21,6 +21,8 @@
 
 import { EntityManager, LockMode } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   WorkflowInstance,
   WorkflowBranchInstance,
@@ -30,9 +32,18 @@ import {
   WorkflowEvent,
 } from '../data/entities'
 import { logWorkflowEvent } from './event-logger'
+import {
+  ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES,
+  readPendingAsyncJobIds,
+  resolveAsyncActivityWait,
+} from './async-activity-wait'
 import * as stepHandler from './step-handler'
 import { branchToken, mergeTokenContext, type ExecutionToken } from './execution-token'
-import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry } from './error-routing'
+import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry, resolveStepFailureHandling } from './error-routing'
+import { findDefinitionForInstance } from './find-definition'
+import { isSafeMappingTargetPath, safeGetNestedValue } from './safe-mapping-path'
+
+const logger = createLogger('workflows')
 
 export interface AdvanceBranchesResult {
   outcome: 'joined' | 'waiting' | 'failed'
@@ -105,15 +116,22 @@ interface ParallelContext {
   userId?: string
 }
 
+export function applyParallelJoinOutputMapping(
+  context: Record<string, unknown>,
+  outputMapping: Record<string, string>,
+): void {
+  for (const [topKey, sourcePath] of Object.entries(outputMapping)) {
+    if (topKey === 'branches' || !isSafeMappingTargetPath(topKey)) continue
+    const value = safeGetNestedValue(context, sourcePath)
+    if (value !== undefined) context[topKey] = value
+  }
+}
+
 function normalizeWorkflowUserId(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   if (!trimmed || trimmed.startsWith('trigger:')) return null
   return trimmed
-}
-
-function getNestedValue(obj: any, path: string): any {
-  return path.split('.').reduce((current, key) => (current == null ? undefined : current[key]), obj)
 }
 
 /**
@@ -202,25 +220,29 @@ export async function resumeBranchAfterActivities(
   }
 
   const namespace = branch.contextNamespace || {}
-  const pendingJobIds = (namespace._pendingAsyncActivities as any[]) || []
+  const pendingJobIds = readPendingAsyncJobIds(namespace._pendingAsyncActivities)
 
-  const completedEvents = await em.find(WorkflowEvent, {
-    workflowInstanceId: instanceId,
-    branchInstanceId,
-    eventType: 'ACTIVITY_COMPLETED',
-    eventData: { async: true },
-  })
-  const failedCount = await em.count(WorkflowEvent, {
-    workflowInstanceId: instanceId,
-    branchInstanceId,
-    eventType: 'ACTIVITY_FAILED',
-    eventData: { async: true },
-  })
+  const outcomeEvents = pendingJobIds.length === 0
+    ? []
+    : await em.find(
+      WorkflowEvent,
+      {
+        workflowInstanceId: instanceId,
+        branchInstanceId,
+        eventType: { $in: [...ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES] },
+        eventData: { async: true, jobId: { $in: pendingJobIds } },
+      },
+      { orderBy: { occurredAt: 'asc', id: 'asc' } },
+    )
+  const wait = resolveAsyncActivityWait(pendingJobIds, outcomeEvents)
 
-  if (completedEvents.length + failedCount < pendingJobIds.length) {
+  if (!wait.settled) {
     // Still waiting on other branch activities.
     return { continueExecution: false }
   }
+
+  const completedEvents = wait.completed
+  const failedCount = wait.failed.length
 
   const now = new Date()
   if (failedCount > 0) {
@@ -255,17 +277,70 @@ export async function resumeBranchAfterActivities(
     if (instance) {
       branch.currentStepId = pending.toStepId
       await em.flush()
-      await stepHandler.executeStep(
+      const evalContext = {
+        workflowContext: { ...(instance.context || {}), ...(branch.contextNamespace || {}) },
+        userId: normalizeWorkflowUserId(instance.metadata?.initiatedBy) ?? undefined,
+      }
+      const stepResult = await stepHandler.executeStep(
         em,
         instance,
         pending.toStepId,
-        {
-          workflowContext: { ...(instance.context || {}), ...(branch.contextNamespace || {}) },
-          userId: normalizeWorkflowUserId(instance.metadata?.initiatedBy) ?? undefined,
-        },
+        evalContext,
         container,
         branch,
       )
+      if (stepResult.status === 'FAILED') {
+        const token = branchToken(instance, branch)
+        const definition = await findDefinitionForInstance(em, instance)
+        const handling = resolveStepFailureHandling(definition?.definition, pending.toStepId)
+        if (handling.kind === 'continue') {
+          await logWorkflowEvent(em, {
+            workflowInstanceId: instance.id,
+            branchInstanceId: branch.id,
+            eventType: 'ERROR_DIRECTIVE_APPLIED',
+            eventData: {
+              stepId: pending.toStepId,
+              directive: 'continueWithFallback',
+              error: stepResult.error,
+              hasFallbackValue: handling.fallbackValue !== undefined,
+            },
+            userId: evalContext.userId,
+            tenantId: instance.tenantId,
+            organizationId: instance.organizationId,
+          })
+          if (handling.fallbackValue !== undefined) {
+            mergeTokenContext(token, { [pending.toStepId]: handling.fallbackValue })
+            await em.flush()
+          }
+        } else {
+          const error = stepResult.error || 'Step execution failed'
+          try {
+            const routed = await followBranchErrorRoute(em, container, instance, branch, token, {
+              failedStepId: pending.toStepId,
+              error,
+              errorRoute: handling.kind === 'route' && handling.transition.toStepId
+                ? { transitionId: handling.transition.transitionId, toStepId: handling.transition.toStepId }
+                : undefined,
+            }, evalContext)
+            if (!routed) {
+              await failBranch(em, instance, branch, error)
+            } else if (branch.currentStepId === branch.joinStepId) {
+              await completeBranchAtJoin(em, instance, branch)
+            }
+          } catch (error) {
+            await failBranch(em, instance, branch, error instanceof Error ? error.message : String(error))
+            try {
+              getTelemetryRuntime()?.reportError(error, {
+                module: 'workflows',
+                code: 'workflows.branch_resume_error_route_failed',
+                attributes: { instanceId: instance.id, branchInstanceId: branch.id },
+              })
+            } catch (reportingError) {
+              logger.warn('Failed to report branch resume error', { err: reportingError })
+            }
+          }
+        }
+      }
     }
   }
 
@@ -625,11 +700,7 @@ async function fireJoin(
   // mapping cannot clobber the per-branch namespaces.
   const outputMapping: Record<string, string> | undefined = joinStep?.config?.outputMapping
   if (outputMapping) {
-    for (const [topKey, sourcePath] of Object.entries(outputMapping)) {
-      if (topKey === 'branches') continue
-      const value = getNestedValue(nextContext, sourcePath)
-      if (value !== undefined) nextContext[topKey] = value
-    }
+    applyParallelJoinOutputMapping(nextContext, outputMapping)
   }
 
   // Park the root token ON the JOIN step (not its successor) and let the

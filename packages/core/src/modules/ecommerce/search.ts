@@ -39,7 +39,6 @@ function buildStorePresenter(
     title,
     subtitle: subtitleParts.length ? subtitleParts.join(' · ') : undefined,
     icon: 'store',
-    badge,
   }
 }
 

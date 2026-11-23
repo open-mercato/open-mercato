@@ -400,6 +400,7 @@ All validators live in `data/validators.ts`:
 - `inventoryAdjustSchema`: `reason` required, `delta` must be non-zero
 - `reservationCreateSchema`: `quantity` must be positive, must not exceed `quantity_available` in target buckets
 - `lotCreateSchema`: `expires_at >= best_before_at >= manufactured_at` when dates are provided
+- `wms.lots.update`: when any date is patched, checks the stored dates merged with the patched ones in the same order as create (`inventoryLotDateOrderingSchema`)
 - `movementCreateSchema`: enforce valid `type` and `reference_type` combinations
 - `cycleCountCreateSchema`: `countedQuantity` and `reason` required; used by `POST /api/wms/inventory/cycle-count` / `cycleCountReconcile`
 
@@ -674,6 +675,15 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-11-22
+- A lot update that sent only one or two dates compared them with each other but not with the lot's stored dates, so `PUT /api/wms/lots` with just `expiresAt` could save an expiry earlier than the stored manufactured or best-before date. `wms.lots.update` now checks the stored dates merged with the patched ones before writing and answers with the same 400 validation error as create. Updates that don't touch a date are not re-checked, and existing lots are not repaired. Coverage: `configuration.lotDateOrdering.test.ts`, `TC-WMS-036`.
+
+### 2026-11-15
+- The CSV inventory import read a `quantity` that isn't a number (for example `1,000` with a comma thousands separator, a decimal comma like `1,5`, or other text) as 0, so the row was skipped in additive mode or set the bucket to 0 in reconcile mode. Validation now rejects it with the existing `quantity_invalid` row error, whose message now asks for a plain number with a dot for decimals. Coverage: `inventoryImportService.test.ts`, `TC-WMS-035`.
+
+### 2026-10-09
+- Balance buckets without a serial number had no unique index, and `upsertBalanceBucket` read the bucket `FOR UPDATE` (locking nothing when no row exists) before inserting it, so concurrent receipts, adjustments, cycle counts or moves into an empty bucket each inserted their own row. Cycle counts and moves then read one of those rows, and `verify-balances --repair` set every row to the bucket total. Creating a bucket now takes a transaction-scoped advisory lock on the bucket identity (warehouse, location, variant, lot, serial) and re-reads it before inserting; writes to existing buckets are unchanged. `move` no longer creates an empty source bucket before answering `409 insufficient_stock`. Existing duplicate rows are not merged. Coverage: `inventory-actions.balanceBucket.test.ts`, `TC-WMS-030`.
 
 ### 2026-09-29
 - Cycle count now applies the same non-negative availability bound as `adjust` and `move`: a negative variance that would drop on-hand below the bucket's reserved + allocated quantity is rejected with `409 insufficient_stock` instead of committing and leaving availability negative with the reservation still active. Roadmap invariant 4 defines availability and invariant 7 forbids negative availability until an explicit over-commit policy exists, so the count is rejected rather than silently shorting reservations; operators release the affected reservations, then recount. The cycle-count wizard shows a translated message naming the committed quantity. Coverage: `inventory-actions.cycleCount.test.ts`, `TC-WMS-029`.

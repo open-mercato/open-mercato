@@ -51,16 +51,22 @@ export function mergeOptimisticEmailThreads(
     if (existing) {
       // Guard against double-adding the same optimistic message across re-renders.
       if (existing.messages.some((m) => m.id === message.id)) continue
-      const messages = [...existing.messages, message].sort((a, b) =>
-        a.sentAt.localeCompare(b.sentAt),
+      const messages = [...existing.messages, message].sort((left, right) => compareNullableDates(
+        left.sentAt,
+        right.sentAt,
+        left.id,
+        right.id,
+      ))
+      const latestDatedMessage = findLatestDatedMessage(messages)
+      const summaryMessage = latestDatedMessage ?? (
+        existing.lastMessageAt === null ? messages[messages.length - 1] : undefined
       )
-      const last = messages[messages.length - 1]
       byKey.set(threadKey, {
         ...existing,
         messages,
         messageCount: messages.length,
-        lastMessageAt: last?.sentAt ?? existing.lastMessageAt,
-        lastDirection: last?.direction ?? existing.lastDirection,
+        lastMessageAt: latestDatedMessage?.sentAt ?? existing.lastMessageAt,
+        lastDirection: summaryMessage?.direction ?? existing.lastDirection,
       })
     } else {
       byKey.set(threadKey, {
@@ -80,5 +86,36 @@ export function mergeOptimisticEmailThreads(
 
   return order
     .map((key) => byKey.get(key)!)
-    .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt))
+    .sort((left, right) => compareNullableDates(
+      left.lastMessageAt,
+      right.lastMessageAt,
+      left.threadKey,
+      right.threadKey,
+      'desc',
+    ))
+}
+
+function findLatestDatedMessage(messages: EmailThreadMessage[]): EmailThreadMessage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].sentAt !== null) return messages[index]
+  }
+  return undefined
+}
+
+function compareNullableDates(
+  leftValue: string | null,
+  rightValue: string | null,
+  leftTieBreaker: string,
+  rightTieBreaker: string,
+  direction: 'asc' | 'desc' = 'asc',
+): number {
+  if (leftValue === rightValue) {
+    const tie = leftTieBreaker.localeCompare(rightTieBreaker)
+    return direction === 'asc' ? tie : -tie
+  }
+  if (leftValue === null) return 1
+  if (rightValue === null) return -1
+  return direction === 'asc'
+    ? leftValue.localeCompare(rightValue)
+    : rightValue.localeCompare(leftValue)
 }

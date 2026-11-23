@@ -1,10 +1,18 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
-import { CrudHttpError, conflict } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
-import type { NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
+import {
+  NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE,
+  NOTIFICATION_ACTION_FORBIDDEN_ERROR_CODE,
+  type NotificationAction,
+  type NotificationPollData,
+  type NotificationTypeAction,
+} from '@open-mercato/shared/modules/notifications/types'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from './events'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -15,7 +23,7 @@ import {
   type NotificationTenantContext,
 } from './notificationFactory'
 import { toNotificationDto } from './notificationMapper'
-import { buildNotificationReadScopeWhere } from './notificationScope'
+import { buildNotificationReadScopeSql, buildNotificationReadScopeWhere } from './notificationScope'
 import {
   getRecipientUserIdsForFeature,
   getRecipientUserIdsForRole,
@@ -85,6 +93,34 @@ async function assertNotificationRecipientsInScope(
   if (scopedRecipientUserIds.length !== recipientUserIds.length) {
     throw new CrudHttpError(404, { error: 'Notification recipient not found' })
   }
+}
+
+function actionAlreadyExecuted(): CrudHttpError {
+  return new CrudHttpError(409, {
+    error: 'Notification action already executed',
+    code: NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE,
+  })
+}
+
+async function actionForbidden(): Promise<CrudHttpError> {
+  const { translate } = await resolveTranslations()
+  return new CrudHttpError(403, {
+    error: translate('notifications.error.actionForbidden', 'You are not allowed to run this notification action'),
+    code: NOTIFICATION_ACTION_FORBIDDEN_ERROR_CODE,
+  })
+}
+
+/**
+ * The command action the notification's registered type declares for a stored action: same action
+ * id (across `actions` and `optionalActions`) and same `commandId`. Anything else is not dispatched.
+ */
+function findDeclaredCommandAction(type: string, action: NotificationAction): NotificationTypeAction | null {
+  const definition = getNotificationType(type)
+  if (!definition) return null
+  const declared = [...definition.actions, ...(definition.optionalActions ?? [])]
+    .find((candidate) => candidate.id === action.id)
+  if (!declared?.commandId || declared.commandId !== action.commandId) return null
+  return declared
 }
 
 function applyNotificationContent(
@@ -232,9 +268,13 @@ export type CreateFeatureNotificationServiceInput = CreateFeatureNotificationInp
   restrictRecipientsToOrganization?: boolean
 }
 
+export type CreateBatchNotificationOptions = {
+  skipExistingGroup?: boolean
+}
+
 export interface NotificationService {
   create(input: CreateNotificationInput, ctx: NotificationServiceContext): Promise<Notification>
-  createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+  createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext, options?: CreateBatchNotificationOptions): Promise<Notification[]>
   createForRole(input: CreateRoleNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
   createForFeature(input: CreateFeatureNotificationServiceInput, ctx: NotificationServiceContext): Promise<Notification[]>
   markAsRead(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
@@ -274,6 +314,39 @@ export interface NotificationServiceDeps {
 
 export function createNotificationService(deps: NotificationServiceDeps): NotificationService {
   const { em: rootEm, eventBus, commandBus, container } = deps
+
+  /**
+   * Whether the clicking user holds every feature a declared notification action requires.
+   * Fails closed: no user, no container, or a failing RBAC check denies the action.
+   */
+  const userHoldsActionFeatures = async (
+    requiredFeatures: string[] | undefined,
+    scopeCtx: NotificationServiceContext,
+  ): Promise<boolean> => {
+    if (!requiredFeatures || requiredFeatures.length === 0) return true
+    if (!scopeCtx.userId || !container) return false
+    try {
+      const rbacService = container.resolve('rbacService') as {
+        userHasAllFeatures: (
+          userId: string,
+          features: string[],
+          scope: { tenantId: string | null; organizationId: string | null },
+        ) => Promise<boolean>
+      }
+      const allowed = await rbacService.userHasAllFeatures(
+        scopeCtx.userId,
+        requiredFeatures,
+        { tenantId: scopeCtx.tenantId, organizationId: scopeCtx.organizationId ?? null },
+      )
+      return allowed === true
+    } catch (err) {
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'notifications',
+        code: 'notifications.action_feature_check_failed',
+      })
+      return false
+    }
+  }
 
   /**
    * Resolves the authoritative delivery-channel set for one recipient at create time — the single
@@ -367,8 +440,12 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       return notification
     },
 
-    async createBatch(input, ctx) {
+    async createBatch(input, ctx, options) {
+      if (options?.skipExistingGroup && !input.groupKey?.trim()) {
+        throw new Error('[internal] Notification group key is required for deduplicated batch delivery')
+      }
       const recipientUserIds = Array.from(new Set(input.recipientUserIds))
+      if (options?.skipExistingGroup) recipientUserIds.sort((left, right) => left.localeCompare(right))
       const { recipientUserIds: _recipientUserIds, ...content } = input
       const notifications: Notification[] = []
       const resolved = await resolveChannelsForRecipients(content, recipientUserIds, ctx)
@@ -377,12 +454,26 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       await writeEm.transactional(async (tx) => {
         await assertNotificationRecipientsInScope(tx, recipientUserIds, ctx)
         for (const { recipientUserId, channels } of resolved) {
+          if (options?.skipExistingGroup) {
+            const organizationId = normalizeOrgScope(ctx.organizationId)
+            const lockKey = `notifications:${ctx.tenantId}:${organizationId ?? 'global'}:${recipientUserId}:${content.type}:${content.groupKey}`
+            await sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`.execute(getDb(tx))
+            const existing = await tx.findOne(Notification, {
+              recipientUserId,
+              tenantId: ctx.tenantId,
+              organizationId,
+              type: content.type,
+              groupKey: content.groupKey,
+            })
+            if (existing) continue
+          }
           const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx, channels)
           notifications.push(notification)
         }
         await tx.flush()
       })
 
+      if (options?.skipExistingGroup && notifications.length === 0) return []
       await invalidateNotificationCache(container, ctx, 'created')
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
       await emitNotificationSseEvents(eventBus, notifications, ctx)
@@ -550,50 +641,31 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
     async markAllAsRead(ctx) {
       const em = rootEm.fork()
-      const db = getDb(em)
-      const applyScope = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
-        let chain = q
-          .where('recipient_user_id' as any, '=', ctx.userId as any)
-          .where('tenant_id' as any, '=', ctx.tenantId)
-          .where('status' as any, '=', 'unread')
-          // Only in-app-visible rows count toward the badge (see getUnreadCount),
-          // so "mark all as read" must scope to the SAME set — otherwise it flips
-          // push/email-only rows the user never saw and SSE-broadcasts a read for
-          // notifications that were never in the bell, inflating the returned
-          // count past what the badge showed.
-          .where(inAppVisibleSql() as any)
-        if (ctx.organizationId) {
-          chain = chain.where('organization_id' as any, '=', ctx.organizationId)
-        }
-        return chain
+      let update = getDb(em)
+        .updateTable('notifications')
+        .set({ status: 'read', read_at: sql`now()` })
+        .where('recipient_user_id', '=', ctx.userId)
+        .where('tenant_id', '=', ctx.tenantId)
+        .where('status', '=', 'unread')
+        .where(inAppVisibleSql())
+
+      const organizationScope = buildNotificationReadScopeSql(ctx)
+      if (organizationScope) {
+        update = update.where(organizationScope)
+      } else if (ctx.organizationId) {
+        update = update.where('organization_id', '=', ctx.organizationId)
       }
 
-      const targetRows = await applyScope(
-        db
-          .selectFrom('notifications' as any)
-          .select([
-            'id' as any,
-            'organization_id' as any,
-            'recipient_user_id' as any,
-          ]),
-      ).execute() as Array<{ id: string }>
-
-      if (!targetRows.length) {
-        return 0
-      }
-
-      const updateResult = await applyScope(
-        db.updateTable('notifications' as any).set({
-          status: 'read',
-          read_at: sql`now()`,
-        } as any) as any,
-      ).executeTakeFirst() as { numUpdatedRows?: bigint | number } | undefined
-      const result = Number(updateResult?.numUpdatedRows ?? targetRows.length)
+      // Use the rows this statement changed so concurrent requests do not emit duplicate events.
+      const updatedRows = await update.returning('id').execute() as Array<{ id: string }>
+      if (!updatedRows.length) return 0
 
       await invalidateNotificationCache(container, ctx, 'updated')
 
       const notifications = await findWithDecryption(em, Notification, {
-        id: { $in: targetRows.map((row) => row.id) },
+        id: { $in: updatedRows.map((row) => row.id) },
+        tenantId: ctx.tenantId,
+        recipientUserId: ctx.userId,
       }, undefined, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
@@ -614,7 +686,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         })
       }
 
-      return result
+      return updatedRows.length
     },
 
     async dismiss(notificationId, ctx) {
@@ -643,7 +715,9 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         return notification
       }
 
-      const targetStatus = status ?? 'read'
+      // A dismissed notification whose action already ran comes back as `actioned`,
+      // whatever the caller asked for: `actioned_at` outlives the dismissal.
+      const targetStatus: NotificationStatus = notification.actionedAt != null ? 'actioned' : status ?? 'read'
       notification.status = targetStatus
       notification.dismissedAt = null
 
@@ -678,9 +752,17 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       }
 
       // Reject an already-actioned notification before dispatching the command,
-      // so a retry or double-click cannot re-run the side effect.
-      if (notification.status === 'actioned') {
-        throw conflict('Notification action already executed')
+      // so a retry or double-click cannot re-run the side effect. `actioned_at` is
+      // the durable marker: `status` is overwritten by a dismissal.
+      if (notification.status === 'actioned' || notification.actionedAt != null) {
+        throw actionAlreadyExecuted()
+      }
+
+      if (action.commandId) {
+        const declared = findDeclaredCommandAction(notification.type, action)
+        if (!declared || !(await userHoldsActionFeatures(declared.requiredFeatures, ctx))) {
+          throw await actionForbidden()
+        }
       }
 
       const actionedAt = new Date()
@@ -702,29 +784,33 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         .where('recipient_user_id' as any, '=', ctx.userId as any)
         .where('tenant_id' as any, '=', ctx.tenantId)
         .where('status' as any, '!=', 'actioned')
+        .where('actioned_at' as any, 'is', null)
         .executeTakeFirst()) as { numUpdatedRows?: bigint | number } | undefined
 
       if (Number(claimResult?.numUpdatedRows ?? 0) === 0) {
-        throw conflict('Notification action already executed')
+        throw actionAlreadyExecuted()
       }
 
       // The claim is provisional: if the side-effecting command fails, the action
       // never actually completed, so release the claim to its prior state. This
       // lets the user retry the action instead of the notification being locked as
-      // `actioned` forever. Only release while we still own the claim
-      // (status = 'actioned'), so a concurrent winner's state is never clobbered.
+      // `actioned` forever. The claim is owned through its own `actioned_at` and
+      // `action_taken`, not through `status`: a dismissal that lands while the
+      // command runs overwrites `status`, and the release must still clear the
+      // claim then — while leaving that dismissal in place.
       const releaseClaim = async () => {
         await getDb(em)
           .updateTable('notifications' as any)
           .set({
-            status: previousStatus,
+            status: sql`case when status = 'actioned' then ${previousStatus} else status end`,
             actioned_at: previousActionedAt,
             action_taken: previousActionTaken,
           } as any)
           .where('id' as any, '=', notification.id)
           .where('recipient_user_id' as any, '=', ctx.userId as any)
           .where('tenant_id' as any, '=', ctx.tenantId)
-          .where('status' as any, '=', 'actioned')
+          .where('actioned_at' as any, '=', actionedAt)
+          .where('action_taken' as any, '=', input.actionId)
           .executeTakeFirst()
       }
 
@@ -732,8 +818,8 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       if (action.commandId && commandBus && container) {
         const commandInput = {
-          id: notification.sourceEntityId,
           ...input.payload,
+          id: notification.sourceEntityId,
         }
 
         // Build a CommandRuntimeContext from the notification service context

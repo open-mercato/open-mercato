@@ -51,7 +51,7 @@ picks PRs.
 can request and a maintainer applies. Until that label exists and this doc names it, the
 author list above is the rule.
 
-**Always out of a batch** — these keep the normal per-PR flow against `main`/`develop`, even
+**Always out of a batch** — these keep the normal per-PR flow against `main`, even
 from a listed author:
 
 - PRs labelled `needs-human-qa`, `security`, `enterprise`, `backport` or `risk-high`.
@@ -72,7 +72,7 @@ gh pr edit <N> --base batch/<lane>-<YYYYMMDD>
 ```
 
 The PR must be based on `main`. If its diff against the batch suddenly shows unrelated
-commits (it was branched from `develop` or another topic branch), rebase it onto `main` first
+commits (it was branched from a release line or another topic branch), rebase it onto `main` first
 and force-push the PR branch, or send it back to the author:
 
 ```bash

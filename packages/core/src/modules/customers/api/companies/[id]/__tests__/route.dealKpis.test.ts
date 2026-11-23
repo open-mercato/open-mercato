@@ -17,11 +17,16 @@ const mockEm = {
   findOne: jest.fn(),
   find: jest.fn(),
   count: jest.fn(),
+  createQueryBuilder: jest.fn(() => ({
+    select: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+  })),
 }
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
+    if (token === 'rbacService') return { getGrantedFeatures: async () => ['customers.*'] }
     return null
   }),
 }

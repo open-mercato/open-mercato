@@ -16,6 +16,11 @@ import {
   customerMagicLinkIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
+import { sendCustomerMagicLinkEmail } from '@open-mercato/core/modules/customer_accounts/lib/authLinkEmails'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+
+const logger = createLogger('customer_accounts').child({ component: 'magic-link-request' })
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -26,6 +31,7 @@ export async function POST(req: Request) {
     ipConfig: customerMagicLinkIpRateLimitConfig,
     compoundConfig: customerMagicLinkRateLimitConfig,
     compoundIdentifier: rateLimitEmail,
+    isolateByIdentifierWithoutTrustedIp: true,
   })
   if (rateLimitError) return rateLimitError
 
@@ -59,9 +65,17 @@ export async function POST(req: Request) {
 
   const user = await customerUserService.findByEmail(email, tenantId)
   if (user) {
-    await customerTokenService.createMagicLink(user.id, tenantId)
-    // Token is stored in DB; email delivery should be handled by a direct service call,
-    // NOT via the event bus — raw tokens must never travel through events.
+    const rawToken = await customerTokenService.createMagicLink(user.id, tenantId)
+    await sendCustomerMagicLinkEmail({
+      container,
+      tenantId,
+      organizationId: user.organizationId,
+      email: user.email,
+      rawToken,
+    }).catch((error) => {
+      logger.error('Magic link email failed', { err: error })
+      getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.magic_link_email_failed' })
+    })
     void import('@open-mercato/core/modules/customer_accounts/events').then(({ emitCustomerAccountsEvent }) =>
       emitCustomerAccountsEvent('customer_accounts.magic_link.requested', {
         userId: user.id,

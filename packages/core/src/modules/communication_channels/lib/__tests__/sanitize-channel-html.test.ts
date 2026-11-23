@@ -19,7 +19,7 @@ describe('sanitizeChannelHtml', () => {
     expect(out).not.toMatch(/onclick/i)
     expect(out).not.toMatch(/alert/)
     expect(out).toMatch(/<img/i)
-    expect(out).toMatch(/src="x\.png"/)
+    expect(out).not.toMatch(/\ssrc=/)
   })
 
   it('strips javascript: URLs from href', () => {
@@ -45,6 +45,40 @@ describe('sanitizeChannelHtml', () => {
     const tinyJpg = 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='
     const out = sanitizeChannelHtml(`<img src="${tinyJpg}" />`)
     expect(out).toMatch(/data:image\/jpeg;base64,/)
+  })
+
+  it.each([
+    ['https://sender.example/pixel.gif?open=1&reader=2', 'https://sender.example/pixel.gif?open=1&amp;reader=2'],
+    ['http://sender.example/pixel.gif', 'http://sender.example/pixel.gif'],
+    ['HTTPS://sender.example/pixel.gif', 'https://sender.example/pixel.gif'],
+    ['//sender.example/pixel.gif', 'https://sender.example/pixel.gif'],
+  ])('defers remote image source %s without an active src', (source, deferredSource) => {
+    const out = sanitizeChannelHtml(`<img src="${source}" alt="Sender image" srcset="https://other.example/pixel.gif 2x" />`)
+    expect(out).toContain(`data-channel-remote-src="${deferredSource}"`)
+    expect(out).not.toMatch(/\ssrc=/)
+    expect(out).not.toContain('srcset=')
+    expect(out).toContain('alt="Sender image"')
+  })
+
+  it.each(['pixel.gif', '/pixel.gif', 'cid:attachment', 'javascript:alert(1)', 'file:///pixel.gif'])('blocks uncontrolled image source %s', (source) => {
+    const out = sanitizeChannelHtml(`<img src="${source}" />`)
+    expect(out).not.toMatch(/\ssrc=/)
+    expect(out).not.toContain('data-channel-remote-src=')
+  })
+
+  it('discards sender-supplied deferred sources', () => {
+    const out = sanitizeChannelHtml('<img data-channel-remote-src="https://forged.example/pixel.gif" />')
+    expect(out).not.toContain('forged.example')
+  })
+
+  it('derives the deferred source only from the validated image source', () => {
+    const out = sanitizeChannelHtml('<img src="https://sender.example/pixel.gif" data-channel-remote-src="javascript:alert(1)" />')
+    expect(out).toContain('data-channel-remote-src="https://sender.example/pixel.gif"')
+    expect(out).not.toContain('javascript:')
+  })
+
+  it.each(['data:image/svg+xml;base64,PHN2Zz4=', 'DATA:text/html;base64,PHNjcmlwdD4='])('strips unsafe embedded image type %s', (source) => {
+    expect(sanitizeChannelHtml(`<img src="${source}" />`)).not.toContain('<img')
   })
 
   it('preserves <a> with safe href (https, mailto, tel)', () => {
@@ -85,6 +119,21 @@ describe('sanitizeChannelHtml', () => {
     const out = sanitizeChannelHtml('<p><strong>bold</strong> and <em>italic</em></p>')
     expect(out).toMatch(/<strong>bold<\/strong>/)
     expect(out).toMatch(/<em>italic<\/em>/)
+  })
+
+  it('strips sender-supplied classes while preserving allowed formatting and attributes', () => {
+    const html = [
+      '<p class="email-body greeting" style="color:red">Hello</p>',
+      '<a class="email-link" href="https://example.com">Read more</a>',
+      '<img class="email-image" alt="Logo" src="data:image/png;base64,iVBORw0KGgo=" />',
+    ].join('')
+    const out = sanitizeChannelHtml(html)
+
+    expect(out).not.toMatch(/\sclass=/i)
+    expect(out).toContain('<p style="color:red">Hello</p>')
+    expect(out).toContain('<a href="https://example.com">Read more</a>')
+    expect(out).toContain('alt="Logo"')
+    expect(out).toContain('src="data:image/png;base64,iVBORw0KGgo="')
   })
 
   it('keeps safe color/background-color style values', () => {

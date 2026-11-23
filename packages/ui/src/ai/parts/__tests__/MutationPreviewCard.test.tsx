@@ -30,10 +30,15 @@ const dict = {
   'ai_assistant.chat.mutation_cards.preview.confirm': 'Confirm',
   'ai_assistant.chat.mutation_cards.preview.cancel': 'Cancel',
   'ai_assistant.chat.mutation_cards.preview.reviewDetails': 'Review details',
+  'ai_assistant.chat.mutation_cards.preview.unavailable': 'This proposal is not available to you.',
   'ai_assistant.chat.mutation_cards.diff.fieldHeader': 'Field',
   'ai_assistant.chat.mutation_cards.diff.beforeHeader': 'Before',
   'ai_assistant.chat.mutation_cards.diff.afterHeader': 'After',
   'ai_assistant.chat.mutation_cards.diff.empty': 'No field changes for this record.',
+  'ai_assistant.chat.mutation_cards.confirmation.toolFeaturesDeniedTitle': 'Permission required',
+  'ai_assistant.chat.mutation_cards.confirmation.staleVersionTitle': 'Re-propose required',
+  'ai_assistant.chat.mutation_cards.confirmation.staleVersionBody': 'One or more records changed since this preview was generated.',
+  'ai_assistant.chat.mutation_cards.confirmation.errorTitle': 'Confirm failed',
 }
 
 function makeAction(
@@ -86,6 +91,52 @@ describe('MutationPreviewCard', () => {
     })
   })
 
+  it('hides the diff, Confirm and Cancel when the action is unavailable to the viewer', () => {
+    ;(useAiPendingActionPolling as jest.Mock).mockReturnValue({
+      action: null,
+      status: null,
+      isPolling: false,
+      error: null,
+      unavailable: true,
+      refresh: jest.fn().mockResolvedValue(null),
+    })
+    renderWithProviders(
+      <MutationPreviewCard
+        componentId="mutation-preview-card"
+        pendingActionId="pa-foreign"
+        payload={{ pendingAction: makeAction() }}
+      />,
+      { dict },
+    )
+    expect(screen.queryByText('Alicia')).toBeNull()
+    expect(document.querySelector('[data-ai-mutation-preview-body]')).toBeNull()
+    expect(document.querySelector('[data-ai-mutation-preview-unavailable]')).not.toBeNull()
+    expect(document.querySelector('[data-ai-mutation-preview-confirm]')).toBeNull()
+    expect(document.querySelector('[data-ai-mutation-preview-cancel]')).toBeNull()
+  })
+
+  it('shows the tool_features_denied alert after a refused confirm and keeps the preview actions', async () => {
+    installPollingMock(makeAction())
+    ;(confirmPendingAction as jest.Mock).mockResolvedValue({
+      ok: false,
+      error: { status: 403, code: 'tool_features_denied', message: 'Forbidden' },
+    })
+    renderWithProviders(
+      <MutationPreviewCard
+        componentId="mutation-preview-card"
+        pendingActionId="pa-1"
+      />,
+      { dict },
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => {
+      expect(document.querySelector('[data-ai-confirmation-error="tool_features_denied"]')).not.toBeNull()
+    })
+    expect(screen.getByText('Permission required')).toBeInTheDocument()
+    expect(document.querySelector('[data-ai-mutation-preview]')).not.toBeNull()
+    expect(document.querySelector('[data-ai-mutation-preview-cancel]')).not.toBeNull()
+  })
+
   it('renders fieldDiff mode with before/after cells', () => {
     installPollingMock(makeAction())
     renderWithProviders(
@@ -98,6 +149,29 @@ describe('MutationPreviewCard', () => {
     expect(screen.getByText('Alice')).toBeInTheDocument()
     expect(screen.getByText('Alicia')).toBeInTheDocument()
     expect(document.querySelector('[data-ai-mutation-preview-mode]')?.getAttribute('data-ai-mutation-preview-mode')).toBe('single')
+  })
+
+  it('shows only the comment body edit when the pending action includes an empty dealId', () => {
+    const action = makeAction({
+      toolName: 'customers.update_comment',
+      targetEntityType: 'customers.comment',
+      fieldDiff: [
+        { field: 'dealId', before: null, after: '' },
+        { field: 'body', before: 'old', after: 'new 2' },
+      ],
+    })
+    installPollingMock(action)
+    renderWithProviders(
+      <MutationPreviewCard componentId="mutation-preview-card" pendingActionId="pa-1" />,
+      { dict },
+    )
+
+    expect(screen.queryByText('dealId')).not.toBeInTheDocument()
+    expect(screen.getByText('old')).toBeInTheDocument()
+    expect(screen.getByText('new 2')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+    expect(action.fieldDiff).toHaveLength(2)
+    expect(confirmPendingAction).not.toHaveBeenCalled()
   })
 
   it('renders records[] batch mode with count + labels summary', () => {
@@ -198,5 +272,58 @@ describe('MutationPreviewCard', () => {
     await waitFor(() => {
       expect(document.querySelector('[data-ai-mutation-preview-details]')).toBeNull()
     })
+  })
+
+  it('shows the 412 stale_version refusal with the stale rows when every previewed row changed', async () => {
+    installPollingMock(
+      makeAction({
+        fieldDiff: [],
+        records: [
+          { recordId: 'prod-a', entityType: 'catalog.product', label: 'Product A', fieldDiff: [] },
+          { recordId: 'prod-b', entityType: 'catalog.product', label: 'Product B', fieldDiff: [] },
+        ],
+      }),
+    )
+    ;(confirmPendingAction as jest.Mock).mockResolvedValue({
+      ok: false,
+      error: {
+        status: 412,
+        code: 'stale_version',
+        message: 'All pending records are stale; the model must re-propose the batch.',
+        extra: { staleRecords: ['prod-a', 'prod-b'] },
+      },
+    })
+    renderWithProviders(
+      <MutationPreviewCard componentId="mutation-preview-card" pendingActionId="pa-1" />,
+      { dict },
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => {
+      expect(document.querySelector('[data-ai-confirmation-error="stale_version"]')).not.toBeNull()
+    })
+    expect(document.querySelector('[data-ai-mutation-preview]')).not.toBeNull()
+    expect(screen.getByText('Re-propose required')).toBeInTheDocument()
+    const staleRows = Array.from(document.querySelectorAll('[data-ai-confirmation-stale-record]'))
+    expect(staleRows.map((row) => row.getAttribute('data-ai-confirmation-stale-record'))).toEqual(['prod-a', 'prod-b'])
+    expect(screen.getByText('Product A')).toBeInTheDocument()
+    expect(screen.getByText('Product B')).toBeInTheDocument()
+  })
+
+  it('shows any other confirm error envelope on the preview card', async () => {
+    installPollingMock(makeAction())
+    ;(confirmPendingAction as jest.Mock).mockResolvedValue({
+      ok: false,
+      error: { status: 403, code: 'agent_features_denied', message: 'Caller lacks a required feature.' },
+    })
+    renderWithProviders(
+      <MutationPreviewCard componentId="mutation-preview-card" pendingActionId="pa-1" />,
+      { dict },
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => {
+      expect(document.querySelector('[data-ai-confirmation-error="agent_features_denied"]')).not.toBeNull()
+    })
+    expect(screen.getByText('Confirm failed')).toBeInTheDocument()
+    expect(screen.getByText('Caller lacks a required feature.')).toBeInTheDocument()
   })
 })

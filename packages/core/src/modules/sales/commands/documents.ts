@@ -84,7 +84,10 @@ import {
   orderCreateSchema,
   ORDER_PAYMENT_LEDGER_WARNING_CODE,
   resolveSuppliedOrderPaymentLedgerFields,
+  amountsModeSchema,
   orderLineCreateSchema,
+  orderLineBulkUpsertSchema,
+  orderHeaderTotalsSchema,
   orderAdjustmentCreateSchema,
   invoiceCreateSchema,
   invoiceUpdateSchema,
@@ -106,9 +109,13 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   toNumericString,
+  exactAmountString,
   reconcileLinePersistedTotals,
-  deriveLineNetFromGross,
+  deriveExactLineNetFromGross,
+  resolveOrderPaymentTotals,
   enforceSalesDocumentOptimisticLock,
+  lockSalesDocumentRow,
+  SALES_RESOURCE_KIND_INVOICE,
   SALES_RESOURCE_KIND_ORDER,
   SALES_RESOURCE_KIND_QUOTE,
 } from "./shared";
@@ -123,16 +130,40 @@ import {
   type PaymentSnapshot,
 } from "./payments";
 import { resolveConvertedOrderFeeTotals } from "../lib/convertedOrderTotals";
+import { resequenceLinesForUpsert } from "../lib/lineOrdering";
 import type { SalesCalculationService } from "../services/salesCalculationService";
+import {
+  DEFAULT_AMOUNT_DECIMAL_PLACES,
+  FX_DECIMAL_PLACES,
+  absDecimal,
+  addDecimals,
+  countDecimalPlaces,
+  decimalToNumber,
+  decimalToString,
+  decimalsEqual,
+  divideDecimals,
+  maxDecimal,
+  multiplyDecimals,
+  parseDecimal,
+  resolveExactDecimal,
+  roundDecimal,
+  subtractDecimals,
+  toDecimal,
+  withExactAmounts,
+  withExactListAmounts,
+} from "@open-mercato/shared/lib/decimal";
+import { resolveCurrencyAmountDecimalPlaces } from "@open-mercato/shared/lib/currencyPrecision";
 import type { TaxCalculationService } from "../services/taxCalculationService";
 import type {
   PaymentMethodContext,
   ShippingMethodContext,
 } from "../lib/providers";
 import {
+  type SalesAmountsMode,
   type SalesLineSnapshot,
   type SalesLineUomSnapshot,
   type SalesAdjustmentDraft,
+  type SalesDocumentAmounts,
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
 } from "../lib/types";
@@ -142,11 +173,30 @@ import {
   resolveUpsertDiscountFields,
   resolveUpsertTotalsOrigin,
   resolveUpsertCalculatedAmounts,
+  type SalesPersistedLineSnapshot,
 } from "../lib/lineSnapshots";
+import {
+  assertAmountsModeUnsupportedOnQuote,
+  assertExternalHeaderComplete,
+  assertExternalLineComplete,
+  assertUniformAmountsMode,
+  buildExternalHeaderTotals,
+  hasAnySuppliedHeaderTotal,
+  readPersistedHeaderTotals,
+  refuseOnExternalOrder,
+  requireOrderTotalsForExternalWrite,
+} from "../lib/externalAmounts";
+import { EXTERNAL_HEADER_FIELDS, isExternalAmountsMode } from "../lib/calculations";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
+import { assertOrderCanBeCancelled, isCancelledOrderStatus } from "../lib/orderCancellationGuard";
 import type { CacheStrategy } from "@open-mercato/cache";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
+import {
+  ADJUSTMENT_EXACT_AMOUNT_FIELDS,
+  DOCUMENT_TOTAL_EXACT_AMOUNT_FIELDS,
+  LINE_EXACT_AMOUNT_FIELDS,
+} from "../lib/exactAmountFields";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
 import { loadSalesSettings } from "./settings";
 import { notificationTypes } from "../notifications";
@@ -336,6 +386,7 @@ type QuoteAdjustmentSnapshot = {
 type OrderGraphSnapshot = {
   order: {
     id: string;
+    updatedAt?: string;
     organizationId: string;
     tenantId: string;
     orderNumber: string;
@@ -389,6 +440,7 @@ type OrderGraphSnapshot = {
     outstandingAmount: string;
     totalsSnapshot: Record<string, unknown> | null;
     lineItemCount: number;
+    totalsMode: SalesAmountsMode;
   };
   lines: OrderLineSnapshot[];
   adjustments: OrderAdjustmentSnapshot[];
@@ -429,6 +481,7 @@ type OrderLineSnapshot = {
   taxAmount: string;
   totalNetAmount: string;
   totalGrossAmount: string;
+  amountsMode: SalesAmountsMode;
   configuration: Record<string, unknown> | null;
   promotionCode: string | null;
   promotionSnapshot: Record<string, unknown> | null;
@@ -598,12 +651,12 @@ const addressSnapshotSchema = z
   .nullable()
   .optional();
 
-// Mirrors the create schema's `decimal({ min: 0 })` (data/validators.ts). `null`
+// Reuses the create schema's `decimal({ min: 0 })` (data/validators.ts). `null`
 // comes first in the union below because the coercion accepts it — `Number(null)`
 // is 0 — and would turn a clear into a written zero.
-const exchangeRateSchema = z.coerce.number().min(0);
+const exchangeRateSchema = orderCreateSchema.shape.exchangeRate.unwrap();
 
-export const documentUpdateSchema = z
+const documentUpdateFieldsSchema = z
   .object({
     id: z.string().uuid(),
     customerEntityId: z.string().uuid().nullable().optional(),
@@ -623,8 +676,9 @@ export const documentUpdateSchema = z
     currencyCode: currencyCodeSchema.optional(),
     // Order-only columns — SalesQuote declares none of them. Declared here
     // because the create schema declares them and a caller reusing its create
-    // payload on an update otherwise lost them silently; `applyDocumentUpdate`
-    // rejects each with a 400 on a quote rather than dropping it.
+    // payload on an update otherwise lost them silently. `applyDocumentUpdate`
+    // rejects them on a quote, except `totalsMode`, which is ignored to preserve
+    // quote-create compatibility without enabling external quote amounts.
     exchangeRate: z.union([z.null(), exchangeRateSchema]).optional(),
     paymentStatusEntryId: z.string().uuid().nullable().optional(),
     fulfillmentStatusEntryId: z.string().uuid().nullable().optional(),
@@ -651,43 +705,63 @@ export const documentUpdateSchema = z
     tags: z.array(z.string().uuid()).optional(),
     customFields: z.record(z.string(), z.unknown()).optional(),
     customFieldSetId: z.string().uuid().nullable().optional(),
-  })
-  .refine(
-    (input) =>
-      typeof input.currencyCode === "string" ||
-      input.placedAt !== undefined ||
-      input.expectedDeliveryAt !== undefined ||
-      input.channelId !== undefined ||
-      input.statusEntryId !== undefined ||
-      input.exchangeRate !== undefined ||
-      input.paymentStatusEntryId !== undefined ||
-      input.fulfillmentStatusEntryId !== undefined ||
-      input.shippingAddressId !== undefined ||
-      input.billingAddressId !== undefined ||
-      input.customerEntityId !== undefined ||
-      input.customerContactId !== undefined ||
-      input.customerSnapshot !== undefined ||
-      input.metadata !== undefined ||
-      input.customerReference !== undefined ||
-      input.externalReference !== undefined ||
-      input.comment !== undefined ||
-      input.comments !== undefined ||
-      input.internalNotes !== undefined ||
-      input.orderNumber !== undefined ||
-      input.quoteNumber !== undefined ||
-      input.shippingAddressSnapshot !== undefined ||
-      input.billingAddressSnapshot !== undefined ||
-      input.shippingMethodId !== undefined ||
-      input.shippingMethodCode !== undefined ||
-      input.shippingMethodSnapshot !== undefined ||
-      input.paymentMethodId !== undefined ||
-      input.paymentMethodCode !== undefined ||
-      input.paymentMethodSnapshot !== undefined ||
-      input.tags !== undefined ||
-      input.customFields !== undefined ||
-      input.customFieldSetId !== undefined,
-    { message: "update_payload_empty" },
+    totalsMode: amountsModeSchema.optional(),
+    ...orderHeaderTotalsSchema.shape,
+  });
+
+type DocumentUpdateFields = z.infer<typeof documentUpdateFieldsSchema>;
+
+function carriesDocumentEdit(input: DocumentUpdateFields): boolean {
+  return (
+    typeof input.currencyCode === "string" ||
+    input.placedAt !== undefined ||
+    input.expectedDeliveryAt !== undefined ||
+    input.channelId !== undefined ||
+    input.statusEntryId !== undefined ||
+    input.exchangeRate !== undefined ||
+    input.paymentStatusEntryId !== undefined ||
+    input.fulfillmentStatusEntryId !== undefined ||
+    input.shippingAddressId !== undefined ||
+    input.billingAddressId !== undefined ||
+    input.customerEntityId !== undefined ||
+    input.customerContactId !== undefined ||
+    input.customerSnapshot !== undefined ||
+    input.metadata !== undefined ||
+    input.customerReference !== undefined ||
+    input.externalReference !== undefined ||
+    input.comment !== undefined ||
+    input.comments !== undefined ||
+    input.internalNotes !== undefined ||
+    input.orderNumber !== undefined ||
+    input.quoteNumber !== undefined ||
+    input.shippingAddressSnapshot !== undefined ||
+    input.billingAddressSnapshot !== undefined ||
+    input.shippingMethodId !== undefined ||
+    input.shippingMethodCode !== undefined ||
+    input.shippingMethodSnapshot !== undefined ||
+    input.paymentMethodId !== undefined ||
+    input.paymentMethodCode !== undefined ||
+    input.paymentMethodSnapshot !== undefined ||
+    input.tags !== undefined ||
+    input.customFields !== undefined ||
+    input.customFieldSetId !== undefined
   );
+}
+
+// The route cannot see an order's persisted mode, so it lets header totals count
+// as an edit; each command re-applies `documentEditSchema` once it can. An empty
+// update must not reach a quote: execution reverts a `sent` quote to draft.
+export const documentUpdateSchema = documentUpdateFieldsSchema.refine(
+  (input) =>
+    carriesDocumentEdit(input) ||
+    input.totalsMode !== undefined ||
+    hasAnySuppliedHeaderTotal(input),
+  { message: "update_payload_empty" },
+);
+
+const documentEditSchema = documentUpdateFieldsSchema.refine(carriesDocumentEdit, {
+  message: "update_payload_empty",
+});
 
 export type DocumentUpdateInput = z.infer<typeof documentUpdateSchema>;
 
@@ -949,10 +1023,6 @@ function isConfirmedOrderStatus(status: string | null): boolean {
   return status === "confirmed";
 }
 
-function isCancelledOrderStatus(status: string | null): boolean {
-  return status === "canceled" || status === "cancelled";
-}
-
 async function emitOrderLifecycleEvent(input: {
   eventId: "sales.order.confirmed" | "sales.order.cancelled";
   order: SalesOrder;
@@ -1158,19 +1228,33 @@ async function applyDocumentUpdate({
   }
 
   if (input.customerEntityId !== undefined) {
-    entity.customerEntityId = input.customerEntityId ?? null;
+    const nextCustomerEntityId = input.customerEntityId ?? null;
+    const customerChanged =
+      (nextCustomerEntityId?.toLowerCase() ?? null) !==
+      (entity.customerEntityId?.toLowerCase() ?? null);
+    const snapshotContactId =
+      input.customerContactId !== undefined
+        ? input.customerContactId
+        : customerChanged
+          ? null
+          : entity.customerContactId ?? null;
+    if (customerChanged) {
+      entity.customerEntityId = nextCustomerEntityId;
+    }
     entity.customerSnapshot = await resolveCustomerSnapshot(
       em,
       organizationId,
       tenantId,
-      input.customerEntityId,
-      input.customerContactId ?? entity.customerContactId ?? null,
+      entity.customerEntityId ?? null,
+      snapshotContactId,
     );
-    entity.customerContactId = input.customerContactId ?? null;
-    entity.billingAddressId = null;
-    entity.shippingAddressId = null;
-    entity.billingAddressSnapshot = null;
-    entity.shippingAddressSnapshot = null;
+    if (customerChanged) {
+      entity.customerContactId = input.customerContactId ?? null;
+      entity.billingAddressId = null;
+      entity.shippingAddressId = null;
+      entity.billingAddressSnapshot = null;
+      entity.shippingAddressSnapshot = null;
+    }
   }
   if (input.customerContactId !== undefined) {
     entity.customerContactId = input.customerContactId ?? null;
@@ -1249,7 +1333,10 @@ async function applyDocumentUpdate({
     });
   }
   if (kind === "order" && input.exchangeRate !== undefined) {
-    (entity as SalesOrder).exchangeRate = toNumericString(input.exchangeRate);
+    (entity as SalesOrder).exchangeRate = exactAmountString(
+      (input as { exchangeRateExact?: string | null }).exchangeRateExact,
+      input.exchangeRate,
+    );
   }
   if (input.channelId !== undefined) {
     if (input.channelId === null) {
@@ -1424,14 +1511,21 @@ async function applyDocumentUpdate({
         });
       }
     }
-    (entity as any).shippingMethodId = input.shippingMethodId ?? null;
-    (entity as any).shippingMethod = shippingMethod ?? null;
-    (entity as any).shippingMethodCode =
-      input.shippingMethodCode ?? shippingMethod?.code ?? null;
+    if (input.shippingMethodId !== undefined) {
+      entity.shippingMethodId = input.shippingMethodId ?? null;
+      entity.shippingMethod = shippingMethod ?? null;
+    }
+    if (
+      input.shippingMethodId !== undefined ||
+      input.shippingMethodCode !== undefined
+    ) {
+      entity.shippingMethodCode =
+        input.shippingMethodCode ?? shippingMethod?.code ?? null;
+    }
     if (input.shippingMethodSnapshot !== undefined) {
       (entity as any).shippingMethodSnapshot =
         input.shippingMethodSnapshot ?? null;
-    } else {
+    } else if (input.shippingMethodId !== undefined) {
       (entity as any).shippingMethodSnapshot = shippingMethod
         ? {
             id: shippingMethod.id,
@@ -1482,14 +1576,21 @@ async function applyDocumentUpdate({
         });
       }
     }
-    (entity as any).paymentMethodId = input.paymentMethodId ?? null;
-    (entity as any).paymentMethod = paymentMethod ?? null;
-    (entity as any).paymentMethodCode =
-      input.paymentMethodCode ?? paymentMethod?.code ?? null;
+    if (input.paymentMethodId !== undefined) {
+      entity.paymentMethodId = input.paymentMethodId ?? null;
+      entity.paymentMethod = paymentMethod ?? null;
+    }
+    if (
+      input.paymentMethodId !== undefined ||
+      input.paymentMethodCode !== undefined
+    ) {
+      entity.paymentMethodCode =
+        input.paymentMethodCode ?? paymentMethod?.code ?? null;
+    }
     if (input.paymentMethodSnapshot !== undefined) {
       (entity as any).paymentMethodSnapshot =
         input.paymentMethodSnapshot ?? null;
-    } else {
+    } else if (input.paymentMethodId !== undefined) {
       (entity as any).paymentMethodSnapshot = paymentMethod
         ? {
             id: paymentMethod.id,
@@ -1981,6 +2082,7 @@ async function loadOrderSnapshot(
   return {
     order: {
       id: order.id,
+      updatedAt: order.updatedAt?.toISOString(),
       organizationId: order.organizationId,
       tenantId: order.tenantId,
       orderNumber: order.orderNumber,
@@ -2052,6 +2154,7 @@ async function loadOrderSnapshot(
         ? cloneJson(order.totalsSnapshot)
         : null,
       lineItemCount: order.lineItemCount,
+      totalsMode: order.totalsMode ?? "computed",
     },
     lines: lines.map((line) => ({
       id: line.id,
@@ -2085,6 +2188,7 @@ async function loadOrderSnapshot(
       taxAmount: line.taxAmount,
       totalNetAmount: line.totalNetAmount,
       totalGrossAmount: line.totalGrossAmount,
+      amountsMode: line.amountsMode ?? "computed",
       configuration: line.configuration ? cloneJson(line.configuration) : null,
       promotionCode: line.promotionCode ?? null,
       promotionSnapshot: line.promotionSnapshot
@@ -2334,13 +2438,16 @@ type NormalizeLineUomInput = {
   resolver: UomResolver;
   organizationId: string;
   tenantId: string;
+  amountDecimalPlaces?: number;
   line: {
     productId?: string | null;
     productVariantId?: string | null;
     quantity?: number | string | null;
     quantityUnit?: string | null;
     unitPriceNet?: number | null;
+    unitPriceNetExact?: string | null;
     unitPriceGross?: number | null;
+    unitPriceGrossExact?: string | null;
     normalizedQuantity?: number | string | null;
     normalizedUnit?: string | null;
     uomSnapshot?: Record<string, unknown> | null;
@@ -2393,22 +2500,30 @@ function resolveSnapshotToBaseFactor(snapshot: unknown): number {
   return factor;
 }
 
-function roundAutoConvertedUnitPrice(value: number): number | null {
-  if (!Number.isFinite(value) || value < 0) return null;
-  const factor = 10 ** UNIT_PRICE_AUTOCONVERT_SCALE;
-  const rounded = Math.round((value + Number.EPSILON) * factor) / factor;
-  return Number.isFinite(rounded) ? rounded : null;
+function roundAutoConvertedUnitPrice(
+  value: string,
+  amountDecimalPlaces?: number,
+): string | null {
+  const parsed = parseDecimal(value);
+  if (!parsed || parsed.lt(0)) return null;
+  const decimalPlaces = Math.max(UNIT_PRICE_AUTOCONVERT_SCALE, amountDecimalPlaces ?? 0);
+  return decimalToString(roundDecimal(parsed, decimalPlaces));
 }
 
-function convertLineUnitPricesOnUnitChange(params: {
+export function convertLineUnitPricesOnUnitChange(params: {
   existingSnapshot: SalesLineSnapshot | null;
   nextQuantityUnit: string | null;
   nextUomSnapshot: SalesLineUomSnapshot | Record<string, unknown> | null;
   unitPriceNet: number | null;
+  unitPriceNetExact?: string | null;
   unitPriceGross: number | null;
+  unitPriceGrossExact?: string | null;
+  amountDecimalPlaces?: number;
 }): {
   unitPriceNet: number | null;
+  unitPriceNetExact?: string | null;
   unitPriceGross: number | null;
+  unitPriceGrossExact?: string | null;
   didConvert: boolean;
 } {
   if (!params.existingSnapshot) {
@@ -2428,16 +2543,31 @@ function convertLineUnitPricesOnUnitChange(params: {
     Number.isFinite(params.existingSnapshot.unitPriceGross)
       ? params.existingSnapshot.unitPriceGross
       : null;
-  const sameNumber = (left: number | null, right: number | null): boolean => {
-    if (left === null || right === null) return left === right;
-    return Math.abs(left - right) < 0.000001;
+  const samePrice = (
+    next: number | null,
+    nextExact: string | null | undefined,
+    existing: number | null,
+    existingExact: string | null | undefined,
+  ): boolean => {
+    if (next === null || existing === null) return next === existing;
+    return decimalsEqual(exactFor(next, nextExact) ?? next, exactFor(existing, existingExact) ?? existing);
   };
   const shouldConvertNet =
     params.unitPriceNet === null ||
-    sameNumber(params.unitPriceNet, existingUnitPriceNet);
+    samePrice(
+      params.unitPriceNet,
+      params.unitPriceNetExact,
+      existingUnitPriceNet,
+      params.existingSnapshot.unitPriceNetExact,
+    );
   const shouldConvertGross =
     params.unitPriceGross === null ||
-    sameNumber(params.unitPriceGross, existingUnitPriceGross);
+    samePrice(
+      params.unitPriceGross,
+      params.unitPriceGrossExact,
+      existingUnitPriceGross,
+      params.existingSnapshot.unitPriceGrossExact,
+    );
   if (!shouldConvertNet && !shouldConvertGross) {
     return {
       unitPriceNet: params.unitPriceNet,
@@ -2472,24 +2602,42 @@ function convertLineUnitPricesOnUnitChange(params: {
   }
   const convertAmount = (
     value: number | null,
+    exact: string | null | undefined,
     shouldConvert: boolean,
-  ): number | null => {
-    if (!shouldConvert) return value;
-    if (value === null || !Number.isFinite(value)) return value;
-    const converted = roundAutoConvertedUnitPrice((value / previousFactor) * nextFactor);
-    return converted ?? value;
+  ): string | null => {
+    if (value === null || !Number.isFinite(value)) return null;
+    const source = exactFor(value, exact) ?? "0";
+    if (!shouldConvert) return source;
+    const converted = roundAutoConvertedUnitPrice(
+      decimalToString(
+        divideDecimals(source, previousFactor, FX_DECIMAL_PLACES).times(nextFactor),
+      ),
+      params.amountDecimalPlaces,
+    );
+    return converted ?? source;
   };
-  const nextUnitPriceNet = convertAmount(params.unitPriceNet, shouldConvertNet);
-  const nextUnitPriceGross = convertAmount(
+  const nextUnitPriceNetExact = convertAmount(
+    params.unitPriceNet,
+    params.unitPriceNetExact,
+    shouldConvertNet,
+  );
+  const nextUnitPriceGrossExact = convertAmount(
     params.unitPriceGross,
+    params.unitPriceGrossExact,
     shouldConvertGross,
   );
+  const nextUnitPriceNet =
+    nextUnitPriceNetExact === null ? params.unitPriceNet : decimalToNumber(nextUnitPriceNetExact);
+  const nextUnitPriceGross =
+    nextUnitPriceGrossExact === null ? params.unitPriceGross : decimalToNumber(nextUnitPriceGrossExact);
   const didConvert =
     nextUnitPriceNet !== params.unitPriceNet ||
     nextUnitPriceGross !== params.unitPriceGross;
   return {
     unitPriceNet: nextUnitPriceNet,
+    unitPriceNetExact: nextUnitPriceNetExact,
     unitPriceGross: nextUnitPriceGross,
+    unitPriceGrossExact: nextUnitPriceGrossExact,
     didConvert,
   };
 }
@@ -2611,14 +2759,15 @@ async function resolveProductUomState(
   return state;
 }
 
-function buildUnitPriceReferenceSnapshot(params: {
+export function buildUnitPriceReferenceSnapshot(params: {
   product: ProductUomState;
   toBaseFactor: number;
-  unitPriceNet: number | null;
-  unitPriceGross: number | null;
+  unitPriceNet: string | null;
+  unitPriceGross: string | null;
+  amountDecimalPlaces?: number;
 }) {
   if (!params.product.unitPriceEnabled) return undefined;
-  const baseQuantityNumber = toNumeric(params.product.unitPriceBaseQuantity);
+  const baseQuantity = parseDecimal(params.product.unitPriceBaseQuantity);
   const output: NonNullable<SalesLineUomSnapshot["unitPriceReference"]> = {
     enabled: true,
     referenceUnitCode: params.product.unitPriceReferenceUnit ?? null,
@@ -2627,25 +2776,24 @@ function buildUnitPriceReferenceSnapshot(params: {
   if (
     !params.product.unitPriceReferenceUnit ||
     params.toBaseFactor <= 0 ||
-    baseQuantityNumber <= 0
+    baseQuantity === null ||
+    baseQuantity.lte(0)
   ) {
     return output;
   }
-  if (
-    typeof params.unitPriceGross === "number" &&
-    Number.isFinite(params.unitPriceGross)
-  ) {
-    output.grossPerReference = toNumericString(
-      (params.unitPriceGross / params.toBaseFactor) * baseQuantityNumber,
+  const decimalPlaces = params.amountDecimalPlaces ?? DEFAULT_AMOUNT_DECIMAL_PLACES;
+  const perReference = (unitPrice: string) =>
+    decimalToString(
+      roundDecimal(
+        divideDecimals(multiplyDecimals(unitPrice, baseQuantity), params.toBaseFactor, FX_DECIMAL_PLACES),
+        decimalPlaces,
+      ),
     );
+  if (params.unitPriceGross !== null) {
+    output.grossPerReference = perReference(params.unitPriceGross);
   }
-  if (
-    typeof params.unitPriceNet === "number" &&
-    Number.isFinite(params.unitPriceNet)
-  ) {
-    output.netPerReference = toNumericString(
-      (params.unitPriceNet / params.toBaseFactor) * baseQuantityNumber,
-    );
+  if (params.unitPriceNet !== null) {
+    output.netPerReference = perReference(params.unitPriceNet);
   }
   return output;
 }
@@ -2810,8 +2958,9 @@ async function normalizeLineUom(input: NormalizeLineUomInput): Promise<{
   const unitPriceReference = buildUnitPriceReferenceSnapshot({
     product: productState,
     toBaseFactor,
-    unitPriceNet: toOptionalNumber(input.line.unitPriceNet),
-    unitPriceGross: toOptionalNumber(input.line.unitPriceGross),
+    unitPriceNet: resolveExactDecimal(input.line.unitPriceNetExact, toOptionalNumber(input.line.unitPriceNet)),
+    unitPriceGross: resolveExactDecimal(input.line.unitPriceGrossExact, toOptionalNumber(input.line.unitPriceGross)),
+    amountDecimalPlaces: input.amountDecimalPlaces,
   });
   const snapshot: SalesLineUomSnapshot = {
     version: 1,
@@ -2884,6 +3033,20 @@ function normalizeShippingMethodContext(
         | null,
     ),
     baseRateGross: toNumeric(
+      ((snapshot as Record<string, unknown>).baseRateGross ??
+        (snapshot as Record<string, unknown>).base_rate_gross) as
+        | string
+        | number
+        | null,
+    ),
+    baseRateNetExact: toNumericString(
+      ((snapshot as Record<string, unknown>).baseRateNet ??
+        (snapshot as Record<string, unknown>).base_rate_net) as
+        | string
+        | number
+        | null,
+    ),
+    baseRateGrossExact: toNumericString(
       ((snapshot as Record<string, unknown>).baseRateGross ??
         (snapshot as Record<string, unknown>).base_rate_gross) as
         | string
@@ -3009,7 +3172,9 @@ function mapOrderAdjustmentToDraft(
     promotionId: adjustment.promotionId ?? null,
     rate: toNumeric(adjustment.rate),
     amountNet: toNumeric(adjustment.amountNet),
+    amountNetExact: toNumericString(adjustment.amountNet) ?? "0",
     amountGross: toNumeric(adjustment.amountGross),
+    amountGrossExact: toNumericString(adjustment.amountGross) ?? "0",
     currencyCode: adjustment.currencyCode ?? null,
     metadata: adjustment.metadata ? cloneJson(adjustment.metadata) : null,
     position: adjustment.position ?? 0,
@@ -3029,7 +3194,9 @@ function mapQuoteAdjustmentToDraft(
     promotionId: adjustment.promotionId ?? null,
     rate: toNumeric(adjustment.rate),
     amountNet: toNumeric(adjustment.amountNet),
+    amountNetExact: toNumericString(adjustment.amountNet) ?? "0",
     amountGross: toNumeric(adjustment.amountGross),
+    amountGrossExact: toNumericString(adjustment.amountGross) ?? "0",
     currencyCode: adjustment.currencyCode ?? null,
     metadata: adjustment.metadata ? cloneJson(adjustment.metadata) : null,
     position: adjustment.position ?? 0,
@@ -3066,6 +3233,25 @@ function isStoredRowSourcedTotalsLine(line: DocumentLineCreateInput): boolean {
   );
 }
 
+/**
+ * Exact decimal string for `value`: the first candidate whose float equals it
+ * (so digits beyond float precision survive), else `value` itself.
+ */
+function exactFor(value: number | null | undefined, ...candidates: unknown[]): string | null {
+  if (value === null || value === undefined) return null;
+  for (const candidate of candidates) {
+    const exact = parseDecimal(candidate);
+    if (exact && decimalToNumber(exact) === value) return decimalToString(exact);
+  }
+  return toNumericString(value);
+}
+
+function rawListItem(raw: unknown, key: string, index: number): unknown {
+  if (!raw || typeof raw !== "object") return undefined;
+  const list = (raw as Record<string, unknown>)[key];
+  return Array.isArray(list) ? list[index] : undefined;
+}
+
 function createLineSnapshotFromInput(
   line: DocumentLineCreateInput,
   lineNumber: number,
@@ -3074,7 +3260,9 @@ function createLineSnapshotFromInput(
   const normalizedQuantity = toNumeric(
     line.normalizedQuantity ?? quantity,
   );
+  const lineId = (line as { id?: unknown }).id;
   return {
+    ...(typeof lineId === "string" && lineId.length > 0 ? { id: lineId } : {}),
     lineNumber,
     kind: line.kind ?? "product",
     productId: line.productId ?? null,
@@ -3095,8 +3283,11 @@ function createLineSnapshotFromInput(
         : null,
     currencyCode: line.currencyCode,
     unitPriceNet: line.unitPriceNet ?? null,
+    unitPriceNetExact: exactAmountString(line.unitPriceNetExact, line.unitPriceNet),
     unitPriceGross: line.unitPriceGross ?? null,
+    unitPriceGrossExact: exactAmountString(line.unitPriceGrossExact, line.unitPriceGross),
     discountAmount: line.discountAmount ?? null,
+    discountAmountExact: exactAmountString(line.discountAmountExact, line.discountAmount),
     // Several callers re-run an already-mapped snapshot through here — the line
     // upsert and delete paths rebuild every line of the document, not just the
     // one being edited. Those inputs already carry a line total from a stored
@@ -3114,8 +3305,11 @@ function createLineSnapshotFromInput(
     discountPercent: line.discountPercent ?? null,
     taxRate: line.taxRate ?? null,
     taxAmount: line.taxAmount ?? null,
+    taxAmountExact: exactAmountString(line.taxAmountExact, line.taxAmount),
     totalNetAmount: line.totalNetAmount ?? null,
+    totalNetAmountExact: exactAmountString(line.totalNetAmountExact, line.totalNetAmount),
     totalGrossAmount: line.totalGrossAmount ?? null,
+    totalGrossAmountExact: exactAmountString(line.totalGrossAmountExact, line.totalGrossAmount),
     configuration: line.configuration ? cloneJson(line.configuration) : null,
     promotionCode: line.promotionCode ?? null,
     metadata: line.metadata ? cloneJson(line.metadata) : null,
@@ -3127,6 +3321,7 @@ function createLineSnapshotFromInput(
       "customFields" in line && line.customFields
         ? cloneJson((line as any).customFields)
         : null,
+    amountsMode: (line as { amountsMode?: SalesAmountsMode | null }).amountsMode ?? null,
   };
 }
 
@@ -3152,11 +3347,31 @@ function createAdjustmentDraftFromInput(
     promotionId: adjustment.promotionId ?? null,
     rate: adjustment.rate ?? null,
     amountNet: adjustment.amountNet ?? null,
+    amountNetExact: exactAmountString(adjustment.amountNetExact, adjustment.amountNet),
     amountGross: adjustment.amountGross ?? null,
+    amountGrossExact: exactAmountString(adjustment.amountGrossExact, adjustment.amountGross),
     currencyCode: adjustment.currencyCode ?? null,
     metadata: adjustment.metadata ? cloneJson(adjustment.metadata) : null,
     position: adjustment.position ?? 0,
   };
+}
+
+function deriveUnitAmount(
+  totalExact: string | null | undefined,
+  total: number,
+  quantity: number | null | undefined,
+  amountDecimalPlaces?: number,
+): string {
+  const divisor = Math.max(quantity || 1, 1);
+  const totalAmount = exactAmountString(totalExact, total) ?? "0";
+  const decimalPlaces = Math.max(
+    DEFAULT_AMOUNT_DECIMAL_PLACES,
+    amountDecimalPlaces ?? 0,
+    countDecimalPlaces(totalAmount),
+  );
+  return decimalToString(
+    roundDecimal(divideDecimals(totalAmount, divisor, FX_DECIMAL_PLACES), decimalPlaces),
+  );
 }
 
 function convertLineCalculationToEntityInput(
@@ -3166,7 +3381,12 @@ function convertLineCalculationToEntityInput(
   index: number,
 ) {
   const line = lineResult.line;
-  return reconcileLinePersistedTotals({
+  // The gross-derived net repair heals core-owned rows; on an external line a
+  // zero net is the caller's figure, not a defect to correct.
+  const persistTotals = isExternalAmountsMode(line.amountsMode)
+    ? <T,>(payload: T): T => payload
+    : reconcileLinePersistedTotals;
+  return persistTotals({
     lineNumber: line.lineNumber ?? index + 1,
     kind: line.kind ?? "product",
     statusEntryId: sourceLine.statusEntryId ?? null,
@@ -3189,21 +3409,26 @@ function convertLineCalculationToEntityInput(
         : null,
     currencyCode: line.currencyCode,
     unitPriceNet:
-      toNumericString(
-        line.unitPriceNet ??
-          lineResult.netAmount / Math.max(line.quantity || 1, 1),
-      ) ?? "0",
+      exactAmountString(line.unitPriceNetExact, line.unitPriceNet) ??
+      (line.unitPriceGross !== null && line.unitPriceGross !== undefined
+        ? deriveExactLineNetFromGross(
+            null,
+            exactAmountString(line.unitPriceGrossExact, line.unitPriceGross),
+            line.taxRate,
+            lineResult.amountDecimalPlaces,
+          )
+        : deriveUnitAmount(lineResult.netAmountExact, lineResult.netAmount, line.quantity, lineResult.amountDecimalPlaces)),
     unitPriceGross:
-      toNumericString(
-        line.unitPriceGross ??
-          lineResult.grossAmount / Math.max(line.quantity || 1, 1),
-      ) ?? "0",
-    discountAmount: toNumericString(lineResult.discountAmount) ?? "0",
+      exactAmountString(line.unitPriceGrossExact, line.unitPriceGross) ??
+      deriveUnitAmount(lineResult.grossAmountExact, lineResult.grossAmount, line.quantity, lineResult.amountDecimalPlaces),
+    discountAmount: exactAmountString(lineResult.discountAmountExact, lineResult.discountAmount) ?? "0",
     discountPercent: toNumericString(line.discountPercent) ?? "0",
     taxRate: toNumericString(line.taxRate) ?? "0",
-    taxAmount: toNumericString(lineResult.taxAmount) ?? "0",
-    totalNetAmount: toNumericString(lineResult.netAmount) ?? "0",
-    totalGrossAmount: toNumericString(lineResult.grossAmount) ?? "0",
+    taxAmount: exactAmountString(lineResult.taxAmountExact, lineResult.taxAmount) ?? "0",
+    totalNetAmount: exactAmountString(lineResult.netAmountExact, lineResult.netAmount) ?? "0",
+    totalGrossAmount: exactAmountString(lineResult.grossAmountExact, lineResult.grossAmount) ?? "0",
+    // Conditional: this converter also serves quote lines, which have no column.
+    ...(line.amountsMode ? { amountsMode: line.amountsMode } : {}),
     configuration: line.configuration ? cloneJson(line.configuration) : null,
     promotionCode: line.promotionCode ?? null,
     promotionSnapshot: sourceLine.promotionSnapshot
@@ -3236,9 +3461,11 @@ function convertAdjustmentResultToEntityInput(
     calculatorKey: adjustment.calculatorKey ?? null,
     promotionId: adjustment.promotionId ?? null,
     rate: toNumericString(adjustment.rate) ?? "0",
-    amountNet: toNumericString(adjustment.amountNet) ?? "0",
+    amountNet: exactAmountString(adjustment.amountNetExact, adjustment.amountNet) ?? "0",
     amountGross:
-      toNumericString(adjustment.amountGross ?? adjustment.amountNet) ?? "0",
+      exactAmountString(adjustment.amountGrossExact, adjustment.amountGross) ??
+      exactAmountString(adjustment.amountNetExact, adjustment.amountNet) ??
+      "0",
     currencyCode: adjustment.currencyCode ?? null,
     metadata,
     position: resolvedPosition,
@@ -3391,12 +3618,29 @@ async function applyQuoteLineResults(params: {
   }
 }
 
+async function queueCreatedLineIndexes(
+  dataEngine: DataEngine,
+  lines: Array<SalesOrderLine | SalesQuoteLine>,
+  entityType: string,
+): Promise<void> {
+  for (const line of lines) {
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "created",
+      entity: line,
+      identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+      indexer: { entityType },
+    });
+  }
+}
+
 async function replaceQuoteLines(
   em: EntityManager,
   quote: SalesQuote,
   calculation: SalesDocumentCalculationResult,
   lineInputs: QuoteLineCreateInput[],
-): Promise<void> {
+): Promise<SalesQuoteLine[]> {
+  const linesWithCustomFields: SalesQuoteLine[] = [];
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
@@ -3417,6 +3661,7 @@ async function replaceQuoteLines(
     );
     const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null);
     const lineEntity = em.create(SalesQuoteLine, {
+      id: randomUUID(),
       quote,
       ...entityInput,
       status: statusValue,
@@ -3424,21 +3669,19 @@ async function replaceQuoteLines(
       updatedAt: new Date(),
     });
     em.persist(lineEntity);
-    const rawCustomFields = (sourceLine as any).customFields;
-    if (rawCustomFields !== undefined && rawCustomFields !== null) {
-      const customValues =
-        rawCustomFields && typeof rawCustomFields === "object"
-          ? (rawCustomFields as Record<string, unknown>)
-          : {};
+    const { customFields } = sourceLine;
+    if (customFields && Object.keys(customFields).length > 0) {
       await setRecordCustomFields(em, {
         entityId: E.sales.sales_quote_line,
         recordId: lineEntity.id,
         organizationId: quote.organizationId,
         tenantId: quote.tenantId,
-        values: normalizeCustomFieldValues(customValues),
+        values: normalizeCustomFieldValues(customFields),
       });
+      linesWithCustomFields.push(lineEntity);
     }
   }
+  return linesWithCustomFields;
 }
 
 async function replaceQuoteAdjustments(
@@ -3524,7 +3767,8 @@ async function replaceOrderLines(
   order: SalesOrder,
   calculation: SalesDocumentCalculationResult,
   lineInputs: OrderLineCreateInput[],
-): Promise<void> {
+): Promise<SalesOrderLine[]> {
+  const linesWithCustomFields: SalesOrderLine[] = [];
   await em.nativeDelete(SalesOrderLine, { order: order.id });
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
@@ -3545,6 +3789,7 @@ async function replaceOrderLines(
     );
     const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null);
     const lineEntity = em.create(SalesOrderLine, {
+      id: randomUUID(),
       order,
       ...entityInput,
       reservedQuantity: "0",
@@ -3556,21 +3801,19 @@ async function replaceOrderLines(
       updatedAt: new Date(),
     });
     em.persist(lineEntity);
-    const rawCustomFields = (sourceLine as any).customFields;
-    if (rawCustomFields !== undefined && rawCustomFields !== null) {
-      const customValues =
-        rawCustomFields && typeof rawCustomFields === "object"
-          ? (rawCustomFields as Record<string, unknown>)
-          : {};
+    const { customFields } = sourceLine;
+    if (customFields && Object.keys(customFields).length > 0) {
       await setRecordCustomFields(em, {
         entityId: E.sales.sales_order_line,
         recordId: lineEntity.id,
         organizationId: order.organizationId,
         tenantId: order.tenantId,
-        values: normalizeCustomFieldValues(customValues),
+        values: normalizeCustomFieldValues(customFields),
       });
+      linesWithCustomFields.push(lineEntity);
     }
   }
+  return linesWithCustomFields;
 }
 
 async function replaceOrderAdjustments(
@@ -3656,16 +3899,16 @@ function applyQuoteTotals(
   totals: SalesDocumentCalculationResult["totals"],
   lineCount: number,
 ): void {
-  quote.subtotalNetAmount = toNumericString(totals.subtotalNetAmount) ?? "0";
+  quote.subtotalNetAmount = exactAmountString(totals.subtotalNetAmountExact, totals.subtotalNetAmount) ?? "0";
   quote.subtotalGrossAmount =
-    toNumericString(totals.subtotalGrossAmount) ?? "0";
+    exactAmountString(totals.subtotalGrossAmountExact, totals.subtotalGrossAmount) ?? "0";
   quote.discountTotalAmount =
-    toNumericString(totals.discountTotalAmount) ?? "0";
-  quote.taxTotalAmount = toNumericString(totals.taxTotalAmount) ?? "0";
+    exactAmountString(totals.discountTotalAmountExact, totals.discountTotalAmount) ?? "0";
+  quote.taxTotalAmount = exactAmountString(totals.taxTotalAmountExact, totals.taxTotalAmount) ?? "0";
   quote.grandTotalNetAmount =
-    toNumericString(totals.grandTotalNetAmount) ?? "0";
+    exactAmountString(totals.grandTotalNetAmountExact, totals.grandTotalNetAmount) ?? "0";
   quote.grandTotalGrossAmount =
-    toNumericString(totals.grandTotalGrossAmount) ?? "0";
+    exactAmountString(totals.grandTotalGrossAmountExact, totals.grandTotalGrossAmount) ?? "0";
   quote.totalsSnapshot = cloneJson(totals);
   quote.lineItemCount = lineCount;
 }
@@ -3675,44 +3918,50 @@ function applyOrderTotals(
   totals: SalesDocumentCalculationResult["totals"],
   lineCount: number,
 ): void {
-  order.subtotalNetAmount = toNumericString(totals.subtotalNetAmount) ?? "0";
+  order.subtotalNetAmount = exactAmountString(totals.subtotalNetAmountExact, totals.subtotalNetAmount) ?? "0";
   order.subtotalGrossAmount =
-    toNumericString(totals.subtotalGrossAmount) ?? "0";
+    exactAmountString(totals.subtotalGrossAmountExact, totals.subtotalGrossAmount) ?? "0";
   order.discountTotalAmount =
-    toNumericString(totals.discountTotalAmount) ?? "0";
-  order.taxTotalAmount = toNumericString(totals.taxTotalAmount) ?? "0";
-  order.shippingNetAmount = toNumericString(totals.shippingNetAmount) ?? "0";
+    exactAmountString(totals.discountTotalAmountExact, totals.discountTotalAmount) ?? "0";
+  order.taxTotalAmount = exactAmountString(totals.taxTotalAmountExact, totals.taxTotalAmount) ?? "0";
+  order.shippingNetAmount = exactAmountString(totals.shippingNetAmountExact, totals.shippingNetAmount) ?? "0";
   order.shippingGrossAmount =
-    toNumericString(totals.shippingGrossAmount) ?? "0";
+    exactAmountString(totals.shippingGrossAmountExact, totals.shippingGrossAmount) ?? "0";
   order.surchargeTotalAmount =
-    toNumericString(totals.surchargeTotalAmount) ?? "0";
+    exactAmountString(totals.surchargeTotalAmountExact, totals.surchargeTotalAmount) ?? "0";
   order.grandTotalNetAmount =
-    toNumericString(totals.grandTotalNetAmount) ?? "0";
+    exactAmountString(totals.grandTotalNetAmountExact, totals.grandTotalNetAmount) ?? "0";
   order.grandTotalGrossAmount =
-    toNumericString(totals.grandTotalGrossAmount) ?? "0";
-  order.paidTotalAmount = toNumericString(totals.paidTotalAmount) ?? "0";
+    exactAmountString(totals.grandTotalGrossAmountExact, totals.grandTotalGrossAmount) ?? "0";
+  order.paidTotalAmount = exactAmountString(totals.paidTotalAmountExact, totals.paidTotalAmount) ?? "0";
   order.refundedTotalAmount =
-    toNumericString(totals.refundedTotalAmount) ?? "0";
-  order.outstandingAmount = toNumericString(totals.outstandingAmount) ?? "0";
+    exactAmountString(totals.refundedTotalAmountExact, totals.refundedTotalAmount) ?? "0";
+  order.outstandingAmount = exactAmountString(totals.outstandingAmountExact, totals.outstandingAmount) ?? "0";
   order.totalsSnapshot = cloneJson(totals);
   order.lineItemCount = lineCount;
 }
 
-function normalizePaymentTotal(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value))
-    return Math.max(value, 0);
-  if (typeof value === "string" && value.trim().length) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? Math.max(parsed, 0) : 0;
-  }
-  return 0;
+function applyOrderLineAmountsFromCalculation(params: {
+  em: EntityManager;
+  lines: SalesOrderLine[];
+  calculation: SalesDocumentCalculationResult;
+  amountsMode: SalesAmountsMode;
+}): void {
+  const { em, lines, calculation, amountsMode } = params;
+  lines.forEach((line, index) => {
+    const result = calculation.lines[index];
+    if (!result) return;
+    line.amountsMode = amountsMode;
+    line.discountAmount = exactAmountString(result.discountAmountExact, result.discountAmount) ?? "0";
+    line.taxAmount = exactAmountString(result.taxAmountExact, result.taxAmount) ?? "0";
+    line.totalNetAmount = exactAmountString(result.netAmountExact, result.netAmount) ?? "0";
+    line.totalGrossAmount = exactAmountString(result.grossAmountExact, result.grossAmount) ?? "0";
+    em.persist(line);
+  });
 }
 
 function resolveExistingPaymentTotals(order: SalesOrder) {
-  return {
-    paidTotalAmount: normalizePaymentTotal(order.paidTotalAmount),
-    refundedTotalAmount: normalizePaymentTotal(order.refundedTotalAmount),
-  };
+  return resolveOrderPaymentTotals(order);
 }
 
 function ensureQuoteScope(
@@ -3773,6 +4022,13 @@ function buildTagChange(
     return null;
   }
   return { from: beforeIds, to: afterIds };
+}
+
+function documentGraphAuditValue(snapshot: OrderGraphSnapshot | QuoteGraphSnapshot) {
+  if ("order" in snapshot) {
+    return { ...snapshot, order: { ...snapshot.order, updatedAt: null } };
+  }
+  return { ...snapshot, quote: { ...snapshot.quote, updatedAt: null } };
 }
 
 function buildDocumentUpdateChangeKeys(kind: SalesDocumentKind, input: DocumentUpdateInput): string[] {
@@ -4072,6 +4328,9 @@ function applyOrderSnapshot(
     ? cloneJson(snapshot.totalsSnapshot)
     : null;
   order.lineItemCount = snapshot.lineItemCount;
+  // Restored with the amounts, never separately: the lines come back with their
+  // own mode, so omitting this leaves a mixed document the next write recomputes.
+  order.totalsMode = snapshot.totalsMode ?? "computed";
 }
 
 async function assertQuoteGraphUndoCurrent(
@@ -4298,9 +4557,7 @@ async function restoreQuoteGraph(
       discountPercent: line.discountPercent,
       taxRate: line.taxRate,
       taxAmount: line.taxAmount,
-      totalNetAmount: toNumericString(
-        deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
-      ),
+      totalNetAmount: deriveExactLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
       totalGrossAmount: line.totalGrossAmount,
       configuration: line.configuration ? cloneJson(line.configuration) : null,
       promotionCode: line.promotionCode ?? null,
@@ -4747,6 +5004,7 @@ async function restoreOrderGraph(
         ? cloneJson(snapshot.order.totalsSnapshot)
         : null,
       lineItemCount: snapshot.order.lineItemCount,
+      totalsMode: snapshot.order.totalsMode ?? "computed",
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -4857,10 +5115,12 @@ async function restoreOrderGraph(
       discountPercent: line.discountPercent,
       taxRate: line.taxRate,
       taxAmount: line.taxAmount,
-      totalNetAmount: toNumericString(
-        deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
-      ),
+      // Not repaired from gross: an external line's net is the caller's figure.
+      totalNetAmount: isExternalAmountsMode(line.amountsMode)
+        ? line.totalNetAmount
+        : deriveExactLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
       totalGrossAmount: line.totalGrossAmount,
+      amountsMode: line.amountsMode ?? "computed",
       configuration: line.configuration ? cloneJson(line.configuration) : null,
       promotionCode: line.promotionCode ?? null,
       promotionSnapshot: line.promotionSnapshot
@@ -5160,16 +5420,26 @@ const createQuoteCommand: CommandHandler<
       updatedAt: new Date(),
     });
 
+    await assertAmountsModeUnsupportedOnQuote(parsed.lines ?? []);
     const lineInputs = (parsed.lines ?? []).map((line, index) =>
-      quoteLineCreateSchema.parse({
-        ...line,
-        organizationId: parsed.organizationId,
-        tenantId: parsed.tenantId,
-        quoteId: quote.id,
-        lineNumber: line.lineNumber ?? index + 1,
-      }),
+      withExactAmounts(
+        quoteLineCreateSchema.parse({
+          ...line,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          quoteId: quote.id,
+          lineNumber: line.lineNumber ?? index + 1,
+        }),
+        rawListItem(rawInput, "lines", index),
+        LINE_EXACT_AMOUNT_FIELDS,
+      ),
     );
     const uomResolver = createUomResolver();
+    const lineAmountDecimalPlaces = await resolveCurrencyAmountDecimalPlaces(ctx.container, {
+      code: quote.currencyCode,
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+    });
     const normalizedLineInputs = await Promise.all(
       lineInputs.map(async (line) => {
         const normalized = await normalizeLineUom({
@@ -5177,6 +5447,7 @@ const createQuoteCommand: CommandHandler<
           resolver: uomResolver,
           organizationId: parsed.organizationId,
           tenantId: parsed.tenantId,
+          amountDecimalPlaces: lineAmountDecimalPlaces,
           line,
         });
         return {
@@ -5190,13 +5461,17 @@ const createQuoteCommand: CommandHandler<
       }),
     );
     const adjustmentInputs = parsed.adjustments
-      ? parsed.adjustments.map((adj) =>
-          quoteAdjustmentCreateSchema.parse({
-            ...adj,
-            organizationId: parsed.organizationId,
-            tenantId: parsed.tenantId,
-            quoteId: quote.id,
-          }),
+      ? parsed.adjustments.map((adj, index) =>
+          withExactAmounts(
+            quoteAdjustmentCreateSchema.parse({
+              ...adj,
+              organizationId: parsed.organizationId,
+              tenantId: parsed.tenantId,
+              quoteId: quote.id,
+            }),
+            rawListItem(rawInput, "adjustments", index),
+            ADJUSTMENT_EXACT_AMOUNT_FIELDS,
+          ),
         )
       : null;
 
@@ -5234,6 +5509,7 @@ const createQuoteCommand: CommandHandler<
     } catch {
       eventBus = null;
     }
+    let linesWithCustomFields: SalesQuoteLine[] = [];
     // Persist the quote header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built quote committed (#2336).
@@ -5242,7 +5518,7 @@ const createQuoteCommand: CommandHandler<
       [
         async () => {
           em.persist(quote);
-          await replaceQuoteLines(em, quote, calculation, normalizedLineInputs);
+          linesWithCustomFields = await replaceQuoteLines(em, quote, calculation, normalizedLineInputs);
           await replaceQuoteAdjustments(
             em,
             quote,
@@ -5318,6 +5594,7 @@ const createQuoteCommand: CommandHandler<
 
     // Emit CRUD side effects to trigger workflow event listeners
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await queueCreatedLineIndexes(dataEngine, linesWithCustomFields, E.sales.sales_quote_line);
     await emitCrudSideEffects({
       dataEngine,
       action: "created",
@@ -5522,6 +5799,264 @@ const deleteQuoteCommand: CommandHandler<
   },
 };
 
+type TotalsCalculatedPayload = Parameters<typeof emitTotalsCalculated>[1];
+type LockedGraphWrite<TResult> = {
+  result: TResult;
+  calculation: SalesDocumentCalculationResult;
+};
+type LockedGraphSnapshots<TSnapshot> = {
+  before: TSnapshot | null;
+  after: TSnapshot | null;
+};
+type LockedGraphKind<TDocument, TSnapshot> = {
+  documentKind: SalesDocumentKind;
+  lock: (
+    em: EntityManager,
+    ctx: CommandRuntimeContext,
+    documentId: string,
+    missingMessage: string,
+  ) => Promise<TDocument>;
+  loadSnapshot: (em: EntityManager, documentId: string) => Promise<TSnapshot | null>;
+  snapshots: WeakMap<object, LockedGraphSnapshots<TSnapshot>>;
+};
+
+const lockedGraphWriteInputs = new WeakSet<object>();
+const lockedOrderGraphSnapshots = new WeakMap<object, LockedGraphSnapshots<OrderGraphSnapshot>>();
+const lockedQuoteGraphSnapshots = new WeakMap<object, LockedGraphSnapshots<QuoteGraphSnapshot>>();
+
+function resolveRequestDecryptionScope(ctx: CommandRuntimeContext) {
+  return {
+    tenantId: ctx.auth?.tenantId ?? undefined,
+    organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
+  };
+}
+
+async function lockOrderForTotalsWrite(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  orderId: string,
+  missingOrderMessage: string,
+): Promise<SalesOrder> {
+  const existingOrder = await findOneWithDecryption(
+    em,
+    SalesOrder,
+    { id: orderId, deletedAt: null },
+    {},
+    resolveRequestDecryptionScope(ctx),
+  );
+  if (!existingOrder) throw notFound(missingOrderMessage);
+  ensureOrderScope(ctx, existingOrder.organizationId, existingOrder.tenantId);
+  const scope = {
+    tenantId: existingOrder.tenantId,
+    organizationId: existingOrder.organizationId,
+  };
+  if (!(await lockSalesDocumentRow(em, "sales_orders", orderId, scope))) {
+    throw notFound(missingOrderMessage);
+  }
+  const order = await findOneWithDecryption(
+    em,
+    SalesOrder,
+    { id: orderId, deletedAt: null, ...scope },
+    { refresh: true },
+    scope,
+  );
+  if (!order) throw notFound(missingOrderMessage);
+  await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+  return order;
+}
+
+async function lockQuoteForTotalsWrite(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  quoteId: string,
+  missingQuoteMessage: string,
+): Promise<SalesQuote> {
+  const existingQuote = await findOneWithDecryption(
+    em,
+    SalesQuote,
+    { id: quoteId, deletedAt: null },
+    {},
+    resolveRequestDecryptionScope(ctx),
+  );
+  if (!existingQuote) throw notFound(missingQuoteMessage);
+  ensureQuoteScope(ctx, existingQuote.organizationId, existingQuote.tenantId);
+  const scope = {
+    tenantId: existingQuote.tenantId,
+    organizationId: existingQuote.organizationId,
+  };
+  if (!(await lockSalesDocumentRow(em, "sales_quotes", quoteId, scope))) {
+    throw notFound(missingQuoteMessage);
+  }
+  const quote = await findOneWithDecryption(
+    em,
+    SalesQuote,
+    { id: quoteId, deletedAt: null, ...scope },
+    { refresh: true },
+    scope,
+  );
+  if (!quote) throw notFound(missingQuoteMessage);
+  await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+  return quote;
+}
+
+function buildTotalsCalculatedPayload(
+  documentKind: SalesDocumentKind,
+  document: SalesOrder | SalesQuote,
+  calculation: SalesDocumentCalculationResult,
+): TotalsCalculatedPayload {
+  return {
+    documentKind,
+    documentId: document.id,
+    organizationId: document.organizationId,
+    tenantId: document.tenantId,
+    customerId: document.customerEntityId ?? null,
+    totals: calculation.totals,
+    lineCount: calculation.lines.length,
+  };
+}
+
+async function emitCommittedTotalsCalculated(
+  ctx: CommandRuntimeContext,
+  payload: TotalsCalculatedPayload | null,
+): Promise<void> {
+  if (!payload) return;
+  let eventBus: EventBus | null = null;
+  try {
+    eventBus = ctx.container.resolve("eventBus") as EventBus;
+  } catch {
+    eventBus = null;
+  }
+  await emitTotalsCalculated(eventBus, payload);
+}
+
+const lockedOrderGraphKind: LockedGraphKind<SalesOrder, OrderGraphSnapshot> = {
+  documentKind: "order",
+  lock: lockOrderForTotalsWrite,
+  loadSnapshot: loadOrderSnapshot,
+  snapshots: lockedOrderGraphSnapshots,
+};
+
+const lockedQuoteGraphKind: LockedGraphKind<SalesQuote, QuoteGraphSnapshot> = {
+  documentKind: "quote",
+  lock: lockQuoteForTotalsWrite,
+  loadSnapshot: loadQuoteSnapshot,
+  snapshots: lockedQuoteGraphSnapshots,
+};
+
+function markLockedGraphWrite(input: object): Record<string, never> {
+  lockedGraphWriteInputs.add(input);
+  return {};
+}
+
+async function writeLockedDocumentGraph<
+  TDocument extends SalesOrder | SalesQuote,
+  TSnapshot,
+  TResult extends object,
+>(
+  kind: LockedGraphKind<TDocument, TSnapshot>,
+  input: object,
+  ctx: CommandRuntimeContext,
+  documentId: string,
+  missingMessage: string,
+  write: (em: EntityManager, document: TDocument) => Promise<LockedGraphWrite<TResult>>,
+): Promise<TResult> {
+  const em = (ctx.container.resolve("em") as EntityManager).fork();
+  const captureSnapshots = lockedGraphWriteInputs.has(input);
+  let written!: LockedGraphWrite<TResult>;
+  let totalsEvent!: TotalsCalculatedPayload;
+  let before: TSnapshot | null = null;
+  let after: TSnapshot | null = null;
+  await withAtomicFlush(
+    em,
+    [
+      async () => {
+        const document = await kind.lock(em, ctx, documentId, missingMessage);
+        if (captureSnapshots) before = await kind.loadSnapshot(em, document.id);
+        written = await write(em, document);
+        totalsEvent = buildTotalsCalculatedPayload(
+          kind.documentKind,
+          document,
+          written.calculation,
+        );
+      },
+      ...(captureSnapshots
+        ? [
+            async () => {
+              em.clear();
+              after = await kind.loadSnapshot(em, documentId);
+            },
+          ]
+        : []),
+    ],
+    { transaction: true },
+  );
+  if (captureSnapshots) kind.snapshots.set(written.result, { before, after });
+  await emitCommittedTotalsCalculated(ctx, totalsEvent);
+  return written.result;
+}
+
+function writeLockedOrderGraph<TResult extends object>(
+  input: object,
+  ctx: CommandRuntimeContext,
+  orderId: string,
+  missingOrderMessage: string,
+  write: (em: EntityManager, order: SalesOrder) => Promise<LockedGraphWrite<TResult>>,
+): Promise<TResult> {
+  return writeLockedDocumentGraph(lockedOrderGraphKind, input, ctx, orderId, missingOrderMessage, write);
+}
+
+function writeLockedQuoteGraph<TResult extends object>(
+  input: object,
+  ctx: CommandRuntimeContext,
+  quoteId: string,
+  missingQuoteMessage: string,
+  write: (em: EntityManager, quote: SalesQuote) => Promise<LockedGraphWrite<TResult>>,
+): Promise<TResult> {
+  return writeLockedDocumentGraph(lockedQuoteGraphKind, input, ctx, quoteId, missingQuoteMessage, write);
+}
+
+function resolveLockedOrderGraphBefore(
+  result: object,
+  preparedBefore: unknown,
+): OrderGraphSnapshot | undefined {
+  return (
+    lockedOrderGraphSnapshots.get(result)?.before ??
+    (preparedBefore as OrderGraphSnapshot | undefined)
+  );
+}
+
+function resolveLockedQuoteGraphBefore(
+  result: object,
+  preparedBefore: unknown,
+): QuoteGraphSnapshot | undefined {
+  return (
+    lockedQuoteGraphSnapshots.get(result)?.before ??
+    (preparedBefore as QuoteGraphSnapshot | undefined)
+  );
+}
+
+async function captureLockedOrderGraphAfter(
+  ctx: CommandRuntimeContext,
+  result: object,
+  orderId: string,
+): Promise<OrderGraphSnapshot | null> {
+  const locked = lockedOrderGraphSnapshots.get(result);
+  if (locked) return locked.after;
+  const em = (ctx.container.resolve("em") as EntityManager).fork();
+  return loadOrderSnapshot(em, orderId);
+}
+
+async function captureLockedQuoteGraphAfter(
+  ctx: CommandRuntimeContext,
+  result: object,
+  quoteId: string,
+): Promise<QuoteGraphSnapshot | null> {
+  const locked = lockedQuoteGraphSnapshots.get(result);
+  if (locked) return locked.after;
+  const em = (ctx.container.resolve("em") as EntityManager).fork();
+  return loadQuoteSnapshot(em, quoteId);
+}
+
 const updateQuoteCommand: CommandHandler<
   DocumentUpdateInput,
   { quote: SalesQuote }
@@ -5541,17 +6076,15 @@ const updateQuoteCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {};
   },
   async execute(rawInput, ctx) {
-    const parsed = documentUpdateSchema.parse(rawInput ?? {});
+    const parsed = withExactAmounts(
+      documentUpdateSchema.parse(rawInput ?? {}),
+      rawInput,
+      ["exchangeRate"] as const,
+    );
+    documentEditSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await findOneWithDecryption(em, SalesQuote, {
-      id: parsed.id,
-      deletedAt: null,
-    });
-    if (!quote)
-      throw notFound("Sales quote not found");
-    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
-    const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
+    let quote!: SalesQuote;
+    let totalsEvent: TotalsCalculatedPayload | null = null;
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
       parsed.shippingMethodSnapshot !== undefined ||
@@ -5568,6 +6101,8 @@ const updateQuoteCommand: CommandHandler<
       em,
       [
         async () => {
+          quote = await lockQuoteForTotalsWrite(em, ctx, parsed.id, "Sales quote not found");
+          const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
           await applyDocumentUpdate({
             kind: "quote",
             entity: quote,
@@ -5670,27 +6205,14 @@ const updateQuoteCommand: CommandHandler<
               adjustmentInputs,
             );
             applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
-            let eventBus: EventBus | null = null;
-            try {
-              eventBus = ctx.container.resolve("eventBus") as EventBus;
-            } catch {
-              eventBus = null;
-            }
-            await emitTotalsCalculated(eventBus, {
-              documentKind: "quote",
-              documentId: quote.id,
-              organizationId: quote.organizationId,
-              tenantId: quote.tenantId,
-              customerId: quote.customerEntityId ?? null,
-              totals: calculation.totals,
-              lineCount: calculation.lines.length,
-            });
+            totalsEvent = buildTotalsCalculatedPayload("quote", quote, calculation);
           }
           quote.updatedAt = new Date();
         },
       ],
       { transaction: true },
     );
+    await emitCommittedTotalsCalculated(ctx, totalsEvent);
     // Same as sales.orders.update (#6217): refresh the query-index projection so
     // customFields written in applyDocumentUpdate are visible on the next list GET.
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
@@ -5732,7 +6254,7 @@ const updateQuoteCommand: CommandHandler<
     if (!after) return null;
     const { translate } = await resolveTranslations();
     const changes = before
-      ? buildChanges(
+      ? buildAuditChanges(
           before.quote as unknown as Record<string, unknown>,
           after.quote as unknown as Record<string, unknown>,
           buildDocumentUpdateChangeKeys("quote", parsed),
@@ -5744,6 +6266,9 @@ const updateQuoteCommand: CommandHandler<
     }
     return {
       actionLabel: translate("sales.audit.quotes.update", "Update sales quote"),
+      skipLog:
+        !!before &&
+        isDeepStrictEqual(documentGraphAuditValue(before), documentGraphAuditValue(after)),
       resourceKind: "sales.quote",
       resourceId: result.quote.id,
       tenantId: after.quote.tenantId,
@@ -5830,18 +6355,20 @@ const updateOrderCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {};
   },
   async execute(rawInput, ctx) {
-    const parsed = documentUpdateSchema.parse(rawInput ?? {});
+    const parsed = withExactAmounts(
+      documentUpdateSchema.parse(rawInput ?? {}),
+      rawInput,
+      ["exchangeRate", ...EXTERNAL_HEADER_FIELDS] as const,
+    );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await findOneWithDecryption(em, SalesOrder, {
-      id: parsed.id,
-      deletedAt: null,
-    });
-    if (!order)
-      throw notFound("Sales order not found");
-    ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
-    const previousStatus = normalizeStatusValue(order.status);
+    let order!: SalesOrder;
+    let previousStatus: string | null = null;
+    let nextTotalsMode: SalesAmountsMode = "computed";
+    let totalsModeChanged = false;
+    let externalHeaderSupplied = false;
+    let suppliedTotals: Partial<SalesDocumentAmounts> | null = null;
     let statusChangeNote: SalesNote | null = null;
+    let totalsEvent: TotalsCalculatedPayload | null = null;
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
       parsed.shippingMethodSnapshot !== undefined ||
@@ -5858,6 +6385,34 @@ const updateOrderCommand: CommandHandler<
       em,
       [
         async () => {
+          order = await lockOrderForTotalsWrite(em, ctx, parsed.id, "Sales order not found");
+          const currentTotalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
+          nextTotalsMode = parsed.totalsMode ?? currentTotalsMode;
+          totalsModeChanged = nextTotalsMode !== currentTotalsMode;
+          externalHeaderSupplied =
+            isExternalAmountsMode(nextTotalsMode) && hasAnySuppliedHeaderTotal(parsed);
+          if (!totalsModeChanged && !externalHeaderSupplied) {
+            documentEditSchema.parse(rawInput ?? {});
+          }
+          if (isExternalAmountsMode(nextTotalsMode) && (totalsModeChanged || externalHeaderSupplied)) {
+            await requireOrderTotalsForExternalWrite(parsed);
+          }
+          suppliedTotals = isExternalAmountsMode(nextTotalsMode)
+            ? externalHeaderSupplied
+              ? buildExternalHeaderTotals(parsed)
+              : readPersistedHeaderTotals(order)
+            : null;
+          previousStatus = normalizeStatusValue(order.status);
+          if (parsed.statusEntryId && !isCancelledOrderStatus(previousStatus)) {
+            const requestedStatus = normalizeStatusValue(
+              await resolveDictionaryEntryValue(em, parsed.statusEntryId, {
+                tenantId: order.tenantId,
+              }),
+            );
+            if (isCancelledOrderStatus(requestedStatus)) {
+              await assertOrderCanBeCancelled(em, order);
+            }
+          }
           await applyDocumentUpdate({
             kind: "order",
             entity: order,
@@ -5872,7 +6427,7 @@ const updateOrderCommand: CommandHandler<
         // `em.find` lines/adjustments or appendOrderStatusChangeNote queries
         // reset the changeset (see SPEC-018).
         async () => {
-          if (shouldRecalculateTotals) {
+          if (shouldRecalculateTotals || totalsModeChanged || externalHeaderSupplied) {
             const [existingLines, adjustments] = await Promise.all([
               em.find(
                 SalesOrderLine,
@@ -5886,10 +6441,19 @@ const updateOrderCommand: CommandHandler<
               ),
             ]);
             const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
+            // Leaving external: the stored tax and gross are the source's figures,
+            // and the computed path honours both verbatim while it re-derives net,
+            // so they must be re-derived too or net + tax ≠ gross (#7925).
+            const leavingExternal =
+              totalsModeChanged && !isExternalAmountsMode(nextTotalsMode);
             const calcLines = lineSnapshots.map((line, index) =>
               createLineSnapshotFromInput(
                 {
                   ...line,
+                  ...(leavingExternal
+                    ? { taxAmount: null, taxAmountExact: null, totalGrossAmount: null, totalGrossAmountExact: null }
+                    : {}),
+                  amountsMode: nextTotalsMode,
                   organizationId: order.organizationId,
                   tenantId: order.tenantId,
                   orderId: order.id,
@@ -5924,6 +6488,8 @@ const updateOrderCommand: CommandHandler<
                 adjustments: adjustmentDrafts,
                 context: calculationContext,
                 existingTotals: resolveExistingPaymentTotals(order),
+                totalsMode: nextTotalsMode,
+                suppliedTotals,
               });
             const adjustmentInputs = adjustmentDrafts.map((adj, index) => ({
               organizationId: order.organizationId,
@@ -5948,22 +6514,17 @@ const updateOrderCommand: CommandHandler<
               calculation,
               adjustmentInputs,
             );
-            applyOrderTotals(order, calculation.totals, calculation.lines.length);
-            let eventBus: EventBus | null = null;
-            try {
-              eventBus = ctx.container.resolve("eventBus") as EventBus;
-            } catch {
-              eventBus = null;
+            if (totalsModeChanged) {
+              applyOrderLineAmountsFromCalculation({
+                em,
+                lines: existingLines,
+                calculation,
+                amountsMode: nextTotalsMode,
+              });
+              order.totalsMode = nextTotalsMode;
             }
-            await emitTotalsCalculated(eventBus, {
-              documentKind: "order",
-              documentId: order.id,
-              organizationId: order.organizationId,
-              tenantId: order.tenantId,
-              customerId: order.customerEntityId ?? null,
-              totals: calculation.totals,
-              lineCount: calculation.lines.length,
-            });
+            applyOrderTotals(order, calculation.totals, calculation.lines.length);
+            totalsEvent = buildTotalsCalculatedPayload("order", order, calculation);
           }
           statusChangeNote = await appendOrderStatusChangeNote({
             em,
@@ -5976,6 +6537,7 @@ const updateOrderCommand: CommandHandler<
       ],
       { transaction: true },
     );
+    await emitCommittedTotalsCalculated(ctx, totalsEvent);
     emitOrderLifecycleEventsForTransition({ order, previousStatus });
     // Refresh the query-index projection (including customValues). Create already
     // did this; update used to only invalidate the HTTP CRUD cache, so a PUT that
@@ -6033,7 +6595,7 @@ const updateOrderCommand: CommandHandler<
     if (!after) return null;
     const { translate } = await resolveTranslations();
     const changes = before
-      ? buildChanges(
+      ? buildAuditChanges(
           before.order as unknown as Record<string, unknown>,
           after.order as unknown as Record<string, unknown>,
           buildDocumentUpdateChangeKeys("order", parsed),
@@ -6045,6 +6607,9 @@ const updateOrderCommand: CommandHandler<
     }
     return {
       actionLabel: translate("sales.audit.orders.update", "Update sales order"),
+      skipLog:
+        !!before &&
+        isDeepStrictEqual(documentGraphAuditValue(before), documentGraphAuditValue(after)),
       resourceKind: "sales.order",
       resourceId: result.order.id,
       tenantId: after.order.tenantId,
@@ -6098,7 +6663,11 @@ const createOrderCommand: CommandHandler<
               tenantId: initial.tenantId,
             })
           ).number;
-    const parsed = orderCreateSchema.parse({ ...initial, orderNumber });
+    const parsed = withExactAmounts(
+      orderCreateSchema.parse({ ...initial, orderNumber }),
+      rawInput,
+      EXTERNAL_HEADER_FIELDS,
+    );
     const ensuredOrderNumber = parsed.orderNumber ?? orderNumber;
     if (!ensuredOrderNumber) {
       throw new CrudHttpError(400, { error: "Order number is required." });
@@ -6154,7 +6723,15 @@ const createOrderCommand: CommandHandler<
       currencyCode: parsed.currencyCode,
       exchangeRate:
         typeof parsed.exchangeRate === "number"
-          ? toNumericString(parsed.exchangeRate)
+          ? exactFor(
+              parsed.exchangeRate,
+              rawInput && typeof rawInput === "object"
+                ? (rawInput as Record<string, unknown>).exchangeRateExact
+                : undefined,
+              rawInput && typeof rawInput === "object"
+                ? (rawInput as Record<string, unknown>).exchangeRate
+                : undefined,
+            )
           : null,
       taxStrategyKey: parsed.taxStrategyKey ?? null,
       discountStrategyKey: parsed.discountStrategyKey ?? null,
@@ -6260,15 +6837,24 @@ const createOrderCommand: CommandHandler<
       updatedAt: new Date(),
     });
     const lineInputs = (parsed.lines ?? []).map((line, index) =>
-      orderLineCreateSchema.parse({
-        ...line,
-        organizationId: parsed.organizationId,
-        tenantId: parsed.tenantId,
-        orderId: order.id,
-        lineNumber: line.lineNumber ?? index + 1,
-      }),
+      withExactAmounts(
+        orderLineCreateSchema.parse({
+          ...line,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          orderId: order.id,
+          lineNumber: line.lineNumber ?? index + 1,
+        }),
+        rawListItem(rawInput, "lines", index),
+        LINE_EXACT_AMOUNT_FIELDS,
+      ),
     );
     const uomResolver = createUomResolver();
+    const lineAmountDecimalPlaces = await resolveCurrencyAmountDecimalPlaces(ctx.container, {
+      code: order.currencyCode,
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+    });
     const normalizedLineInputs = await Promise.all(
       lineInputs.map(async (line) => {
         const normalized = await normalizeLineUom({
@@ -6276,6 +6862,7 @@ const createOrderCommand: CommandHandler<
           resolver: uomResolver,
           organizationId: parsed.organizationId,
           tenantId: parsed.tenantId,
+          amountDecimalPlaces: lineAmountDecimalPlaces,
           line,
         });
         return {
@@ -6289,17 +6876,37 @@ const createOrderCommand: CommandHandler<
       }),
     );
     const adjustmentInputs = parsed.adjustments
-      ? parsed.adjustments.map((adj) =>
-          orderAdjustmentCreateSchema.parse({
-            ...adj,
-            organizationId: parsed.organizationId,
-            tenantId: parsed.tenantId,
-            orderId: order.id,
-          }),
+      ? parsed.adjustments.map((adj, index) =>
+          withExactAmounts(
+            orderAdjustmentCreateSchema.parse({
+              ...adj,
+              organizationId: parsed.organizationId,
+              tenantId: parsed.tenantId,
+              orderId: order.id,
+            }),
+            rawListItem(rawInput, "adjustments", index),
+            ADJUSTMENT_EXACT_AMOUNT_FIELDS,
+          ),
         )
       : null;
 
-    const lineSnapshots: SalesLineSnapshot[] = normalizedLineInputs.map(
+    const totalsMode: SalesAmountsMode = parsed.totalsMode ?? "computed";
+    await assertUniformAmountsMode(totalsMode, normalizedLineInputs);
+    const modedLineInputs = normalizedLineInputs.map((line) => ({
+      ...line,
+      amountsMode: totalsMode,
+    }));
+    if (isExternalAmountsMode(totalsMode)) {
+      await assertExternalHeaderComplete(parsed);
+      for (const [index, line] of modedLineInputs.entries()) {
+        await assertExternalLineComplete(line, line.lineNumber ?? index + 1);
+      }
+    }
+    order.totalsMode = totalsMode;
+    const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalAmountsMode(totalsMode)
+      ? buildExternalHeaderTotals(parsed)
+      : null;
+    const lineSnapshots: SalesLineSnapshot[] = modedLineInputs.map(
       (line, index) =>
         createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
     );
@@ -6326,6 +6933,8 @@ const createOrderCommand: CommandHandler<
       adjustments: adjustmentDrafts,
       context: calculationContext,
       existingTotals: resolveExistingPaymentTotals(order),
+      totalsMode,
+      suppliedTotals,
     });
 
     let eventBus: EventBus | null = null;
@@ -6334,6 +6943,7 @@ const createOrderCommand: CommandHandler<
     } catch {
       eventBus = null;
     }
+    let linesWithCustomFields: SalesOrderLine[] = [];
     // Persist the order header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built order committed (#2336).
@@ -6342,7 +6952,7 @@ const createOrderCommand: CommandHandler<
       [
         async () => {
           em.persist(order);
-          await replaceOrderLines(em, order, calculation, normalizedLineInputs);
+          linesWithCustomFields = await replaceOrderLines(em, order, calculation, modedLineInputs);
           await replaceOrderAdjustments(
             em,
             order,
@@ -6418,6 +7028,7 @@ const createOrderCommand: CommandHandler<
 
     // Emit CRUD side effects to trigger workflow event listeners
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await queueCreatedLineIndexes(dataEngine, linesWithCustomFields, E.sales.sales_order_line);
     await emitCrudSideEffects({
       dataEngine,
       action: "created",
@@ -6596,6 +7207,18 @@ const deleteOrderCommand: CommandHandler<
       em,
       [
         async () => {
+          const lockedOrder = await findOneWithDecryption(
+            em,
+            SalesOrder,
+            { id, tenantId: order.tenantId, organizationId: order.organizationId },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            { tenantId: order.tenantId, organizationId: order.organizationId },
+          );
+          if (!lockedOrder) {
+            const { translate } = await resolveTranslations();
+            throw notFound(translate("sales.documents.detail.notFound", "Document not found."));
+          }
+          await enforceSalesDocumentOptimisticLock(ctx, lockedOrder, SALES_RESOURCE_KIND_ORDER);
           if (shipmentIds.length) {
             await em.nativeDelete(SalesShipmentItem, {
               shipment: { $in: shipmentIds },
@@ -6618,7 +7241,7 @@ const deleteOrderCommand: CommandHandler<
           });
           await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
           await em.nativeDelete(SalesOrderLine, { order: order.id });
-          em.remove(order);
+          em.remove(lockedOrder);
         },
       ],
       { transaction: true },
@@ -6926,9 +7549,7 @@ const convertQuoteToOrderCommand: CommandHandler<
           discountPercent: line.discountPercent,
           taxRate: line.taxRate,
           taxAmount: line.taxAmount,
-          totalNetAmount: toNumericString(
-            deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
-          ),
+          totalNetAmount: deriveExactLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
           totalGrossAmount: line.totalGrossAmount,
           configuration: line.configuration
             ? cloneJson(line.configuration)
@@ -7181,13 +7802,17 @@ const convertQuoteToOrderCommand: CommandHandler<
   },
 };
 
+// Nested rather than spread flat: a line payload already has a `totalNetAmount`
+// that means the line's, not the document's.
 const orderLineUpsertSchema = orderLineCreateSchema.extend({
   id: z.string().uuid().optional(),
+  orderTotals: orderHeaderTotalsSchema.optional(),
 });
 
 const orderLineDeleteSchema = z.object({
   id: z.string().uuid(),
   orderId: z.string().uuid(),
+  orderTotals: orderHeaderTotalsSchema.optional(),
 });
 
 const quoteLineUpsertSchema = quoteLineCreateSchema.extend({
@@ -7223,14 +7848,15 @@ const quoteAdjustmentDeleteSchema = z.object({
 
 const SHIPPED_QUANTITY_TOLERANCE = 1e-6;
 
-// Locked outright on a shipped line: none of these may move at all.
-const SHIPPED_LINE_NUMERIC_PRICING_FIELDS = [
+// Locked outright on a shipped line: none of these may move at all. Amounts are
+// compared through their exact siblings, rates within the float tolerance.
+const SHIPPED_LINE_LOCKED_AMOUNT_FIELDS = [
   "unitPriceNet",
   "unitPriceGross",
   "discountAmount",
-  "discountPercent",
-  "taxRate",
 ] as const;
+
+const SHIPPED_LINE_LOCKED_RATE_FIELDS = ["discountPercent", "taxRate"] as const;
 
 // Line totals are derived, not authored: clients recompute and echo them on every
 // submit, so raising the quantity of a shipped line legitimately changes them. They
@@ -7243,13 +7869,51 @@ const SHIPPED_LINE_DERIVED_TOTAL_FIELDS = [
   "totalGrossAmount",
 ] as const;
 
+type ShippedLineLockedAmountField = (typeof SHIPPED_LINE_LOCKED_AMOUNT_FIELDS)[number];
+
 type ShippedLineComparable = Pick<
   SalesLineSnapshot,
   | "quantity"
   | "quantityUnit"
-  | (typeof SHIPPED_LINE_NUMERIC_PRICING_FIELDS)[number]
+  | ShippedLineLockedAmountField
+  | `${ShippedLineLockedAmountField}Exact`
+  | (typeof SHIPPED_LINE_LOCKED_RATE_FIELDS)[number]
   | (typeof SHIPPED_LINE_DERIVED_TOTAL_FIELDS)[number]
+  | `${(typeof SHIPPED_LINE_DERIVED_TOTAL_FIELDS)[number]}Exact`
 >;
+
+const SHIPPED_TOTAL_FLOAT_RELATIVE_TOLERANCE = 1e-9;
+
+/**
+ * Whether `nextTotal` still carries the per-unit economics of `previousTotal`
+ * once rescaled from `previousQuantity` to `nextQuantity`. Both totals may be
+ * stored rounded to `decimalPlaces`, so each can be off by half a unit at that
+ * scale, and the previous one's error grows with the quantity ratio. Float
+ * products sent by older clients stay within the relative float tolerance.
+ */
+function isRescaledShippedTotal(
+  nextTotal: string,
+  previousTotal: string,
+  previousQuantity: number,
+  nextQuantity: number,
+  decimalPlaces: number,
+): boolean {
+  const quantityRatio = absDecimal(divideDecimals(nextQuantity, previousQuantity));
+  const expectedTotal = divideDecimals(
+    multiplyDecimals(previousTotal, nextQuantity),
+    previousQuantity,
+  );
+  const storedPlaces = Math.max(decimalPlaces, countDecimalPlaces(previousTotal));
+  const roundingTolerance = multiplyDecimals(
+    toDecimal(`5e-${storedPlaces + 1}`),
+    addDecimals(1, quantityRatio),
+  );
+  const tolerance = maxDecimal(
+    multiplyDecimals(absDecimal(expectedTotal), SHIPPED_TOTAL_FLOAT_RELATIVE_TOLERANCE),
+    roundingTolerance,
+  );
+  return absDecimal(subtractDecimals(nextTotal, expectedTotal)).lte(tolerance);
+}
 
 const hasNumericChange = (
   next: number | null | undefined,
@@ -7270,6 +7934,29 @@ const hasExactNumericChange = (
   if (previous === undefined || previous === null) return true;
   return Math.abs(next - previous) > SHIPPED_QUANTITY_TOLERANCE;
 };
+
+/**
+ * Whether a locked amount moves, compared exactly. A discount is stored rounded to
+ * the amount precision, so the next one is rounded the same way before comparing;
+ * unit prices are stored as sent.
+ */
+function hasShippedLineAmountChange(
+  next: Partial<ShippedLineComparable>,
+  previous: ShippedLineComparable,
+  field: ShippedLineLockedAmountField,
+  exact: boolean,
+  amountDecimalPlaces: number,
+): boolean {
+  const nextAmount = resolveExactDecimal(next[`${field}Exact`], next[field]);
+  const previousAmount = resolveExactDecimal(previous[`${field}Exact`], previous[field]);
+  if (nextAmount === null) return exact && previousAmount !== null;
+  if (previousAmount === null) return true;
+  const comparable =
+    field === "discountAmount"
+      ? roundDecimal(nextAmount, Math.max(amountDecimalPlaces, countDecimalPlaces(previousAmount)))
+      : nextAmount;
+  return !decimalsEqual(comparable, previousAmount);
+}
 
 const hasUnitChange = (
   next: string | null | undefined,
@@ -7293,6 +7980,7 @@ function hasShippedLineTotalChange(
   previous: ShippedLineComparable,
   nextQuantity: number | null | undefined,
   exact: boolean,
+  amountDecimalPlaces: number,
 ): boolean {
   const numericChange = exact ? hasExactNumericChange : hasNumericChange;
   const previousQuantity = previous.quantity;
@@ -7312,15 +8000,21 @@ function hasShippedLineTotalChange(
     if (nextTotal === undefined || nextTotal === null) {
       return exact ? numericChange(nextTotal, previousTotal) : false;
     }
-    const expectedTotal =
-      (previousTotal / (previousQuantity as number)) * (nextQuantity as number);
-    // Scale the tolerance with magnitude: a fixed 1e-6 is below the float noise
-    // floor once totals reach six figures.
-    const tolerance = Math.max(
-      SHIPPED_QUANTITY_TOLERANCE,
-      Math.abs(expectedTotal) * 1e-9,
+    const nextExact = resolveExactDecimal(next[`${field}Exact` as const], nextTotal);
+    const previousExact = resolveExactDecimal(
+      previous[`${field}Exact` as const],
+      previousTotal,
     );
-    return Math.abs(nextTotal - expectedTotal) > tolerance;
+    if (nextExact === null || previousExact === null) {
+      return numericChange(nextTotal, previousTotal);
+    }
+    return !isRescaledShippedTotal(
+      nextExact,
+      previousExact,
+      previousQuantity as number,
+      nextQuantity as number,
+      amountDecimalPlaces,
+    );
   });
 }
 
@@ -7329,13 +8023,23 @@ function hasShippedLinePricingChange(
   previous: ShippedLineComparable,
   nextQuantity: number | null | undefined,
   exact: boolean,
+  amountDecimalPlaces: number,
 ): boolean {
   const numericChange = exact ? hasExactNumericChange : hasNumericChange;
   return (
-    SHIPPED_LINE_NUMERIC_PRICING_FIELDS.some((field) =>
+    SHIPPED_LINE_LOCKED_AMOUNT_FIELDS.some((field) =>
+      hasShippedLineAmountChange(next, previous, field, exact, amountDecimalPlaces),
+    ) ||
+    SHIPPED_LINE_LOCKED_RATE_FIELDS.some((field) =>
       numericChange(next[field], previous[field]),
     ) ||
-    hasShippedLineTotalChange(next, previous, nextQuantity, exact) ||
+    hasShippedLineTotalChange(
+      next,
+      previous,
+      nextQuantity,
+      exact,
+      amountDecimalPlaces,
+    ) ||
     (exact
       ? hasExactUnitChange(next.quantityUnit, previous.quantityUnit)
       : hasUnitChange(next.quantityUnit, previous.quantityUnit))
@@ -7347,6 +8051,7 @@ async function assertShippedOrderLineChangeAllowed(
   nextSnapshot: Partial<ShippedLineComparable> | null,
   shippedQuantity: number,
   exact: boolean,
+  amountDecimalPlaces: number,
 ): Promise<void> {
   if (shippedQuantity <= 0) return;
 
@@ -7365,6 +8070,7 @@ async function assertShippedOrderLineChangeAllowed(
       existingSnapshot,
       nextQuantity,
       exact,
+      amountDecimalPlaces,
     );
   if (!quantityInvalid && !pricingChanged) return;
 
@@ -7386,24 +8092,46 @@ async function assertShippedOrderLineChangeAllowed(
   });
 }
 
+/**
+ * Shipment guard for one line, against an already-loaded shipped-quantity map.
+ * A bulk write loads that map once for the whole order instead of once per
+ * line; the per-line command keeps loading it itself via
+ * {@link assertShippedOrderLineEditable}.
+ */
+async function assertShippedOrderLineEditableAgainst(
+  shippedQuantityByLine: Map<string, number>,
+  existingSnapshot: SalesLineSnapshot | null,
+  parsed: Partial<ShippedLineComparable>,
+  amountDecimalPlaces: number,
+): Promise<void> {
+  const lineId = existingSnapshot?.id;
+  if (!existingSnapshot || !lineId) return;
+  await assertShippedOrderLineChangeAllowed(
+    existingSnapshot,
+    parsed,
+    shippedQuantityByLine.get(lineId) ?? 0,
+    false,
+    amountDecimalPlaces,
+  );
+}
+
 async function assertShippedOrderLineEditable(
   em: EntityManager,
   order: SalesOrder,
   existingSnapshot: SalesLineSnapshot | null,
-  parsed: z.infer<typeof orderLineUpsertSchema>,
+  parsed: Partial<ShippedLineComparable>,
+  amountDecimalPlaces: number,
 ): Promise<void> {
-  const lineId = existingSnapshot?.id;
-  if (!existingSnapshot || !lineId) return;
-  const shippedByLine = await loadShippedQuantityByLine(em, order.id, {
+  if (!existingSnapshot?.id) return;
+  const shippedQuantityByLine = await loadShippedQuantityByLine(em, order.id, {
     tenantId: order.tenantId,
     organizationId: order.organizationId,
   });
-  const shippedQuantity = shippedByLine.get(lineId) ?? 0;
-  await assertShippedOrderLineChangeAllowed(
+  await assertShippedOrderLineEditableAgainst(
+    shippedQuantityByLine,
     existingSnapshot,
     parsed,
-    shippedQuantity,
-    false,
+    amountDecimalPlaces,
   );
 }
 
@@ -7430,6 +8158,7 @@ async function assertShippedOrderGraphRestorable(
       snapshotLinesById.get(line.id) ?? null,
       shippedQuantity,
       true,
+      DEFAULT_AMOUNT_DECIMAL_PLACES,
     );
   }
 }
@@ -7460,297 +8189,451 @@ async function assertOrderAcceptsNewLine(
   });
 }
 
+type OrderLineUpsertInput = Omit<
+  z.infer<typeof orderLineUpsertSchema>,
+  "orderId"
+> & { orderId?: string };
+
+type OrderLineUpsertDependencies = {
+  em: EntityManager;
+  order: SalesOrder;
+  uomResolver: UomResolver;
+  resolveTaxCalculationService: () => TaxCalculationService | null;
+  resolveAmountDecimalPlaces: (currencyCode: string) => Promise<number>;
+};
+
+/** Amount precision per currency code, resolved at most once per code. */
+function createAmountDecimalPlacesResolver(
+  container: CommandRuntimeContext["container"],
+  scope: { tenantId: string; organizationId: string },
+): (currencyCode: string) => Promise<number> {
+  const resolved = new Map<string, Promise<number>>();
+  return (currencyCode) => {
+    let places = resolved.get(currencyCode);
+    if (!places) {
+      places = resolveCurrencyAmountDecimalPlaces(container, { code: currencyCode, ...scope });
+      resolved.set(currencyCode, places);
+    }
+    return places;
+  };
+}
+
+function resolveUpsertLineCurrencyCode(
+  parsed: { currencyCode?: string | null },
+  existingSnapshot: SalesLineSnapshot | null,
+  documentCurrencyCode: string,
+): string {
+  return parsed.currencyCode ?? existingSnapshot?.currencyCode ?? documentCurrencyCode;
+}
+
+/**
+ * Resolve `taxCalculationService` lazily and at most once. A line that already
+ * carries both net and gross never needs it, and a bulk write must not resolve
+ * it once per line.
+ */
+function createTaxCalculationServiceResolver(container: {
+  resolve: (name: string) => unknown;
+}): () => TaxCalculationService | null {
+  let resolved = false;
+  let service: TaxCalculationService | null = null;
+  return () => {
+    if (resolved) return service;
+    resolved = true;
+    try {
+      service = container.resolve(
+        "taxCalculationService",
+      ) as TaxCalculationService;
+    } catch {
+      service = null;
+    }
+    return service;
+  };
+}
+
+/**
+ * Resolve one order-line upsert entry into the line snapshot it should become:
+ * price-mode net/gross fallback, metadata merge, UoM normalization and the
+ * unit-price conversion that follows a unit change, then the merged snapshot.
+ *
+ * Shared by `sales.orders.lines.upsert` and `sales.orders.lines.upsert_many` so
+ * the per-line semantics cannot drift between them. Guards, line numbering,
+ * totals and persistence stay with the callers — this builds a value and
+ * touches nothing.
+ */
+async function buildUpsertedOrderLineSnapshot(
+  dependencies: OrderLineUpsertDependencies,
+  parsed: OrderLineUpsertInput,
+  existingSnapshot: SalesPersistedLineSnapshot | null,
+  fallbackLineNumber: number,
+): Promise<SalesPersistedLineSnapshot> {
+  const {
+    em,
+    order,
+    uomResolver,
+    resolveTaxCalculationService,
+    resolveAmountDecimalPlaces,
+  } = dependencies;
+  const priceMode =
+    parsed.priceMode === "gross"
+      ? "gross"
+      : parsed.priceMode === "net"
+        ? "net"
+        : null;
+  let unitPriceNet =
+    parsed.unitPriceNet ?? existingSnapshot?.unitPriceNet ?? null;
+  let unitPriceGross =
+    parsed.unitPriceGross ?? existingSnapshot?.unitPriceGross ?? null;
+  let taxRate = parsed.taxRate ?? existingSnapshot?.taxRate ?? null;
+  const unitPriceSupplied = unitPriceNet !== null || unitPriceGross !== null;
+  let unitPriceExactFromTax: { net?: string; gross?: string } | null = null;
+  const lineAmountDecimalPlaces = await resolveAmountDecimalPlaces(
+    resolveUpsertLineCurrencyCode(parsed, existingSnapshot, order.currencyCode),
+  );
+  if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
+    const taxService = resolveTaxCalculationService();
+    if (taxService) {
+      const taxAmountInput =
+        priceMode === "gross"
+          ? (unitPriceGross ?? unitPriceNet ?? 0)
+          : (unitPriceNet ?? unitPriceGross ?? 0);
+      const taxResult = await taxService.calculateUnitAmounts({
+        amount: taxAmountInput,
+        amountExact: exactFor(
+          taxAmountInput,
+          parsed.unitPriceGrossExact,
+          parsed.unitPriceNetExact,
+          existingSnapshot?.unitPriceGrossExact,
+          existingSnapshot?.unitPriceNetExact,
+        ),
+        amountDecimalPlaces: lineAmountDecimalPlaces,
+        mode: priceMode,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        taxRateId: parsed.taxRateId ?? undefined,
+        taxRate: taxRate ?? undefined,
+      });
+      unitPriceNet = unitPriceNet ?? taxResult.netAmount;
+      unitPriceGross = unitPriceGross ?? taxResult.grossAmount;
+      unitPriceExactFromTax = { net: taxResult.netAmountExact, gross: taxResult.grossAmountExact };
+      taxRate = taxResult.taxRate ?? taxRate;
+    }
+  }
+
+  const metadata =
+    typeof parsed.metadata === "object" && parsed.metadata
+      ? { ...parsed.metadata }
+      : existingSnapshot?.metadata
+        ? cloneJson(existingSnapshot.metadata)
+        : {};
+  if (parsed.priceId) metadata.priceId = parsed.priceId;
+  if (priceMode) metadata.priceMode = priceMode;
+
+  const statusEntryId =
+    parsed.statusEntryId ?? existingSnapshot?.statusEntryId ?? null;
+  const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
+  const lineUomInput = {
+    productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+    productVariantId:
+      parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+    quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
+    quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+    normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
+    normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
+    uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
+  };
+  const lineUomPrices = () => {
+    const netExactCandidates = [
+      parsed.unitPriceNetExact,
+      existingSnapshot?.unitPriceNetExact,
+      unitPriceExactFromTax?.net,
+    ];
+    return {
+      unitPriceNet: unitPriceNet ?? 0,
+      unitPriceNetExact: exactFor(unitPriceNet ?? 0, ...netExactCandidates),
+      unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+      unitPriceGrossExact: exactFor(
+        unitPriceGross ?? unitPriceNet ?? 0,
+        parsed.unitPriceGrossExact,
+        existingSnapshot?.unitPriceGrossExact,
+        unitPriceExactFromTax?.gross,
+        ...netExactCandidates,
+      ),
+    };
+  };
+  let normalizedUom = await normalizeLineUom({
+    em,
+    resolver: uomResolver,
+    organizationId: order.organizationId,
+    tenantId: order.tenantId,
+    amountDecimalPlaces: lineAmountDecimalPlaces,
+    line: { ...lineUomInput, ...lineUomPrices() },
+  });
+  const convertedPrices = convertLineUnitPricesOnUnitChange({
+    existingSnapshot,
+    nextQuantityUnit: normalizedUom.quantityUnit,
+    nextUomSnapshot: normalizedUom.uomSnapshot,
+    unitPriceNet,
+    unitPriceNetExact: exactFor(
+      unitPriceNet,
+      parsed.unitPriceNetExact,
+      existingSnapshot?.unitPriceNetExact,
+      unitPriceExactFromTax?.net,
+    ),
+    unitPriceGross,
+    unitPriceGrossExact: exactFor(
+      unitPriceGross,
+      parsed.unitPriceGrossExact,
+      existingSnapshot?.unitPriceGrossExact,
+      unitPriceExactFromTax?.gross,
+    ),
+    amountDecimalPlaces: lineAmountDecimalPlaces,
+  });
+  if (convertedPrices.didConvert) {
+    unitPriceNet = convertedPrices.unitPriceNet;
+    unitPriceGross = convertedPrices.unitPriceGross;
+    unitPriceExactFromTax = {
+      net: convertedPrices.unitPriceNetExact ?? undefined,
+      gross: convertedPrices.unitPriceGrossExact ?? undefined,
+    };
+    normalizedUom = await normalizeLineUom({
+      em,
+      resolver: uomResolver,
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      amountDecimalPlaces: lineAmountDecimalPlaces,
+      line: { ...lineUomInput, ...lineUomPrices() },
+    });
+  }
+  const updatedSnapshot: SalesPersistedLineSnapshot = {
+    id: lineId,
+    lineNumber:
+      parsed.lineNumber ??
+      existingSnapshot?.lineNumber ??
+      fallbackLineNumber,
+    kind: parsed.kind ?? existingSnapshot?.kind ?? "product",
+    productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+    productVariantId:
+      parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+    name: parsed.name ?? existingSnapshot?.name ?? null,
+    description: parsed.description ?? existingSnapshot?.description ?? null,
+    comment: parsed.comment ?? existingSnapshot?.comment ?? null,
+    quantity: normalizedUom.quantity,
+    quantityUnit: normalizedUom.quantityUnit,
+    normalizedQuantity: normalizedUom.normalizedQuantity,
+    normalizedUnit: normalizedUom.normalizedUnit,
+    uomSnapshot: normalizedUom.uomSnapshot
+      ? cloneJson(normalizedUom.uomSnapshot)
+      : null,
+    currencyCode:
+      parsed.currencyCode ??
+      existingSnapshot?.currencyCode ??
+      order.currencyCode,
+    unitPriceNet: unitPriceNet ?? 0,
+    unitPriceNetExact: exactFor(
+      unitPriceNet ?? 0,
+      parsed.unitPriceNetExact,
+      existingSnapshot?.unitPriceNetExact,
+      unitPriceExactFromTax?.net,
+    ),
+    unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+    unitPriceGrossExact: exactFor(
+      unitPriceGross ?? unitPriceNet ?? 0,
+      parsed.unitPriceGrossExact,
+      existingSnapshot?.unitPriceGrossExact,
+      unitPriceExactFromTax?.gross,
+      parsed.unitPriceNetExact,
+      existingSnapshot?.unitPriceNetExact,
+    ),
+    ...resolveUpsertDiscountFields(
+      parsed.discountAmount,
+      parsed.discountAmountBasis,
+      existingSnapshot,
+      parsed.discountAmountExact,
+    ),
+    discountPercent:
+      parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
+    taxRate: taxRate ?? 0,
+    totalNetAmount:
+      parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
+    totalNetAmountExact:
+      parsed.totalNetAmount !== undefined && parsed.totalNetAmount !== null
+        ? parsed.totalNetAmountExact
+        : (existingSnapshot?.totalNetAmountExact ?? null),
+    ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
+    configuration:
+      parsed.configuration ?? existingSnapshot?.configuration ?? null,
+    promotionCode:
+      parsed.promotionCode ?? existingSnapshot?.promotionCode ?? null,
+    metadata,
+    customFieldSetId:
+      parsed.customFieldSetId ?? existingSnapshot?.customFieldSetId ?? null,
+    customFields:
+      parsed.customFields && typeof parsed.customFields === "object"
+        ? cloneJson(parsed.customFields)
+        : (existingSnapshot?.customFields ?? null),
+    amountsMode: order.totalsMode ?? "computed",
+    statusEntryId,
+    catalogSnapshot:
+      parsed.catalogSnapshot ?? existingSnapshot?.catalogSnapshot ?? null,
+    promotionSnapshot:
+      parsed.promotionSnapshot ?? existingSnapshot?.promotionSnapshot ?? null,
+  };
+  // `taxAmount` and `totalGrossAmount` are the engine's own output read back off
+  // the row, so carrying them verbatim pinned a line's gross to its pre-edit
+  // value whenever the caller changed quantity or pricing without supplying
+  // totals (#6459). Dropping them when the pricing moved makes the calculation
+  // recompute instead. Both commands go through here, so neither can drift.
+  Object.assign(
+    updatedSnapshot,
+    resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot, lineAmountDecimalPlaces),
+  );
+
+  if (isExternalAmountsMode(order.totalsMode ?? "computed")) {
+    await assertExternalLineComplete(
+      {
+        ...updatedSnapshot,
+        unitPriceNet: unitPriceSupplied ? unitPriceNet : null,
+        unitPriceNetExact: unitPriceSupplied ? updatedSnapshot.unitPriceNetExact : null,
+      },
+      updatedSnapshot.lineNumber ?? 1,
+    );
+  }
+
+  return updatedSnapshot;
+}
+
 const orderLineUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; lineId: string }
 > = {
   id: "sales.orders.lines.upsert",
-  async prepare(input, ctx) {
-    const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
-    const orderId = typeof raw.orderId === "string" ? raw.orderId : null;
-    if (!orderId) return {};
-    const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadOrderSnapshot(em, orderId);
-    if (snapshot)
-      ensureOrderScope(
-        ctx,
-        snapshot.order.organizationId,
-        snapshot.order.tenantId,
-      );
-    return snapshot ? { before: snapshot } : {};
+  async prepare(input) {
+    return markLockedGraphWrite(input);
   },
   async execute(input, ctx) {
     const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
-    const parsed = orderLineUpsertSchema.parse(rawBody);
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await findOneWithDecryption(em, SalesOrder, {
-      id: parsed.orderId,
-      deletedAt: null,
-    });
-    if (!order)
-      throw notFound("Sales order not found");
-    ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
-
-    const [existingLines, adjustments] = await Promise.all([
-      em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
-      em.find(
-        SalesOrderAdjustment,
-        { order },
-        { orderBy: { position: "asc" } },
-      ),
-    ]);
-    const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
-    const existingSnapshot = parsed.id
-      ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
-      : null;
-    await assertOrderAcceptsNewLine(order, existingSnapshot);
-    await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
-    const priceMode =
-      parsed.priceMode === "gross"
-        ? "gross"
-        : parsed.priceMode === "net"
-          ? "net"
-          : null;
-    let unitPriceNet =
-      parsed.unitPriceNet ?? existingSnapshot?.unitPriceNet ?? null;
-    let unitPriceGross =
-      parsed.unitPriceGross ?? existingSnapshot?.unitPriceGross ?? null;
-    let taxRate = parsed.taxRate ?? existingSnapshot?.taxRate ?? null;
-    if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
-      let taxService: TaxCalculationService | null = null;
-      try {
-        taxService = ctx.container.resolve(
-          "taxCalculationService",
-        ) as TaxCalculationService;
-      } catch {
-        taxService = null;
+    const parsed = withExactAmounts(
+      orderLineUpsertSchema.parse(rawBody),
+      rawBody,
+      LINE_EXACT_AMOUNT_FIELDS,
+    );
+    return writeLockedOrderGraph(input, ctx, parsed.orderId, "Sales order not found", async (em, order) => {
+      const [existingLines, adjustments] = await Promise.all([
+        em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
+        em.find(
+          SalesOrderAdjustment,
+          { order },
+          { orderBy: { position: "asc" } },
+        ),
+      ]);
+      const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
+      const existingSnapshot = parsed.id
+        ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
+        : null;
+      const totalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
+      await assertUniformAmountsMode(totalsMode, [parsed]);
+      const orderTotals = parsed.orderTotals
+        ? withExactAmounts(parsed.orderTotals, rawBody.orderTotals, EXTERNAL_HEADER_FIELDS)
+        : parsed.orderTotals;
+      if (isExternalAmountsMode(totalsMode)) {
+        await requireOrderTotalsForExternalWrite(orderTotals);
       }
-      if (taxService) {
-        const taxResult = await taxService.calculateUnitAmounts({
-          amount:
-            priceMode === "gross"
-              ? (unitPriceGross ?? unitPriceNet ?? 0)
-              : (unitPriceNet ?? unitPriceGross ?? 0),
-          mode: priceMode,
-          organizationId: parsed.organizationId,
-          tenantId: parsed.tenantId,
-          taxRateId: parsed.taxRateId ?? undefined,
-          taxRate: taxRate ?? undefined,
-        });
-        unitPriceNet = unitPriceNet ?? taxResult.netAmount;
-        unitPriceGross = unitPriceGross ?? taxResult.grossAmount;
-        taxRate = taxResult.taxRate ?? taxRate;
-      }
-    }
-
-    const metadata =
-      typeof parsed.metadata === "object" && parsed.metadata
-        ? { ...parsed.metadata }
-        : existingSnapshot?.metadata
-          ? cloneJson(existingSnapshot.metadata)
-          : {};
-    if (parsed.priceId) metadata.priceId = parsed.priceId;
-    if (priceMode) metadata.priceMode = priceMode;
-
-    const statusEntryId =
-      parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null;
-    const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-    const lineUomInput = {
-      productId: parsed.productId ?? existingSnapshot?.productId ?? null,
-      productVariantId:
-        parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-      quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
-      quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
-      normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
-      normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
-      uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
-    };
-    const uomResolver = createUomResolver();
-    let normalizedUom = await normalizeLineUom({
-      em,
-      resolver: uomResolver,
-      organizationId: order.organizationId,
-      tenantId: order.tenantId,
-      line: {
-        ...lineUomInput,
-        unitPriceNet: unitPriceNet ?? 0,
-        unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      },
-    });
-    const convertedPrices = convertLineUnitPricesOnUnitChange({
-      existingSnapshot,
-      nextQuantityUnit: normalizedUom.quantityUnit,
-      nextUomSnapshot: normalizedUom.uomSnapshot,
-      unitPriceNet,
-      unitPriceGross,
-    });
-    if (convertedPrices.didConvert) {
-      unitPriceNet = convertedPrices.unitPriceNet;
-      unitPriceGross = convertedPrices.unitPriceGross;
-      normalizedUom = await normalizeLineUom({
+      const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalAmountsMode(totalsMode)
+        ? buildExternalHeaderTotals(orderTotals)
+        : null;
+      await assertOrderAcceptsNewLine(order, existingSnapshot);
+      const resolveAmountDecimalPlaces = createAmountDecimalPlacesResolver(ctx.container, {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+      });
+      await assertShippedOrderLineEditable(
         em,
-        resolver: uomResolver,
+        order,
+        existingSnapshot,
+        parsed,
+        await resolveAmountDecimalPlaces(
+          resolveUpsertLineCurrencyCode(parsed, existingSnapshot, order.currencyCode),
+        ),
+      );
+      const uomResolver = createUomResolver();
+      const updatedSnapshot = await buildUpsertedOrderLineSnapshot(
+        {
+          em,
+          order,
+          uomResolver,
+          resolveTaxCalculationService: createTaxCalculationServiceResolver(
+            ctx.container,
+          ),
+          resolveAmountDecimalPlaces,
+        },
+        parsed,
+        existingSnapshot,
+        lineSnapshots.length + 1,
+      );
+      const lineId = updatedSnapshot.id;
+      const mergedLines = parsed.id
+        ? lineSnapshots.map((line) =>
+            line.id === parsed.id ? updatedSnapshot : line,
+          )
+        : [...lineSnapshots, updatedSnapshot];
+      const nextLines = resequenceLinesForUpsert(
+        mergedLines,
+        lineId,
+        parsed.lineNumber ?? null,
+        existingSnapshot?.lineNumber ?? null,
+      );
+
+      const sourceInputs = nextLines.map((line, index) => ({
+        ...line,
+        statusEntryId: (line as any).statusEntryId ?? null,
+        catalogSnapshot: (line as any).catalogSnapshot ?? null,
+        promotionSnapshot: (line as any).promotionSnapshot ?? null,
         organizationId: order.organizationId,
         tenantId: order.tenantId,
-        line: {
-          ...lineUomInput,
-          unitPriceNet: unitPriceNet ?? 0,
-          unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-        },
+        orderId: order.id,
+        lineNumber: line.lineNumber ?? index + 1,
+      }));
+      const calcLines: SalesLineSnapshot[] = sourceInputs.map((line, index) =>
+        createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
+      );
+      const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft);
+      const salesCalculationService =
+        ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+      const calculationContext = buildCalculationContext({
+        tenantId: order.tenantId,
+        organizationId: order.organizationId,
+        currencyCode: order.currencyCode,
+        shippingSnapshot: order.shippingMethodSnapshot,
+        paymentSnapshot: order.paymentMethodSnapshot,
+        shippingMethodId: order.shippingMethodId ?? null,
+        paymentMethodId: order.paymentMethodId ?? null,
+        shippingMethodCode: order.shippingMethodCode ?? null,
+        paymentMethodCode: order.paymentMethodCode ?? null,
       });
-    }
-    const updatedSnapshot: SalesLineSnapshot & {
-      statusEntryId?: string | null;
-      catalogSnapshot?: Record<string, unknown> | null;
-      promotionSnapshot?: Record<string, unknown> | null;
-    } = {
-      id: lineId,
-      lineNumber:
-        parsed.lineNumber ??
-        existingSnapshot?.lineNumber ??
-        lineSnapshots.length + 1,
-      kind: parsed.kind ?? existingSnapshot?.kind ?? "product",
-      productId: parsed.productId ?? existingSnapshot?.productId ?? null,
-      productVariantId:
-        parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-      name: parsed.name ?? existingSnapshot?.name ?? null,
-      description: parsed.description ?? existingSnapshot?.description ?? null,
-      comment: parsed.comment ?? existingSnapshot?.comment ?? null,
-      quantity: normalizedUom.quantity,
-      quantityUnit: normalizedUom.quantityUnit,
-      normalizedQuantity: normalizedUom.normalizedQuantity,
-      normalizedUnit: normalizedUom.normalizedUnit,
-      uomSnapshot: normalizedUom.uomSnapshot
-        ? cloneJson(normalizedUom.uomSnapshot)
-        : null,
-      currencyCode:
-        parsed.currencyCode ??
-        existingSnapshot?.currencyCode ??
-        order.currencyCode,
-      unitPriceNet: unitPriceNet ?? 0,
-      unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      ...resolveUpsertDiscountFields(
-        parsed.discountAmount,
-        parsed.discountAmountBasis,
-        existingSnapshot,
-      ),
-      discountPercent:
-        parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
-      taxRate: taxRate ?? 0,
-      totalNetAmount:
-        parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
-      ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
-      configuration:
-        parsed.configuration ?? existingSnapshot?.configuration ?? null,
-      promotionCode:
-        parsed.promotionCode ?? existingSnapshot?.promotionCode ?? null,
-      metadata,
-      customFieldSetId:
-        parsed.customFieldSetId ?? existingSnapshot?.customFieldSetId ?? null,
-      customFields:
-        parsed.customFields && typeof parsed.customFields === "object"
-          ? cloneJson(parsed.customFields)
-          : ((existingSnapshot as any)?.customFields ?? null),
-    };
-    Object.assign(
-      updatedSnapshot,
-      resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot),
-    );
-    (updatedSnapshot as any).statusEntryId = statusEntryId;
-    (updatedSnapshot as any).catalogSnapshot =
-      parsed.catalogSnapshot ??
-      (existingSnapshot as any)?.catalogSnapshot ??
-      null;
-    (updatedSnapshot as any).promotionSnapshot =
-      parsed.promotionSnapshot ??
-      (existingSnapshot as any)?.promotionSnapshot ??
-      null;
-
-    let nextLines = parsed.id
-      ? lineSnapshots.map((line) =>
-          line.id === parsed.id ? updatedSnapshot : line,
-        )
-      : [...lineSnapshots, updatedSnapshot];
-    nextLines = nextLines
-      .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
-      .map((line, index) => ({ ...line, lineNumber: index + 1 }));
-
-    const sourceInputs = nextLines.map((line, index) => ({
-      ...line,
-      statusEntryId: (line as any).statusEntryId ?? null,
-      catalogSnapshot: (line as any).catalogSnapshot ?? null,
-      promotionSnapshot: (line as any).promotionSnapshot ?? null,
-      organizationId: order.organizationId,
-      tenantId: order.tenantId,
-      orderId: order.id,
-      lineNumber: line.lineNumber ?? index + 1,
-    }));
-    const calcLines: SalesLineSnapshot[] = sourceInputs.map((line, index) =>
-      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
-    );
-    const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft);
-    const salesCalculationService =
-      ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: order.tenantId,
-      organizationId: order.organizationId,
-      currencyCode: order.currencyCode,
-      shippingSnapshot: order.shippingMethodSnapshot,
-      paymentSnapshot: order.paymentMethodSnapshot,
-      shippingMethodId: order.shippingMethodId ?? null,
-      paymentMethodId: order.paymentMethodId ?? null,
-      shippingMethodCode: order.shippingMethodCode ?? null,
-      paymentMethodCode: order.paymentMethodCode ?? null,
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: "order",
+        lines: calcLines,
+        adjustments: adjustmentDrafts,
+        context: calculationContext,
+        existingTotals: resolveExistingPaymentTotals(order),
+        totalsMode,
+        suppliedTotals,
+      });
+      await applyOrderLineResults({
+        em,
+        order,
+        calculation,
+        sourceLines: sourceInputs,
+        existingLines,
+      });
+      applyOrderTotals(order, calculation.totals, calculation.lines.length);
+      return { result: { orderId: order.id, lineId }, calculation };
     });
-    const calculation = await salesCalculationService.calculateDocumentTotals({
-      documentKind: "order",
-      lines: calcLines,
-      adjustments: adjustmentDrafts,
-      context: calculationContext,
-      existingTotals: resolveExistingPaymentTotals(order),
-    });
-    let eventBus: EventBus | null = null;
-    try {
-      eventBus = ctx.container.resolve("eventBus") as EventBus;
-    } catch {
-      eventBus = null;
-    }
-    // Persist the line changes and recalculated totals atomically so a
-    // mid-build failure cannot leave a half-updated order committed (#2336).
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          await applyOrderLineResults({
-            em,
-            order,
-            calculation,
-            sourceLines: sourceInputs,
-            existingLines,
-          });
-          applyOrderTotals(order, calculation.totals, calculation.lines.length);
-          await emitTotalsCalculated(eventBus, {
-            documentKind: "order",
-            documentId: order.id,
-            organizationId: order.organizationId,
-            tenantId: order.tenantId,
-            customerId: order.customerEntityId ?? null,
-            totals: calculation.totals,
-            lineCount: calculation.lines.length,
-          });
-        },
-      ],
-      { transaction: true },
-    );
-    return { orderId: order.id, lineId };
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadOrderSnapshot(em, result.orderId);
-  },
+  captureAfter: async (_input, result, ctx) =>
+    captureLockedOrderGraphAfter(ctx, result, result.orderId),
   buildLog: async ({ result, snapshots }) => {
-    const before = snapshots.before as OrderGraphSnapshot | undefined;
+    const before = resolveLockedOrderGraphBefore(result, snapshots.before);
     const after = snapshots.after as OrderGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
@@ -7783,153 +8666,119 @@ const orderLineDeleteCommand: CommandHandler<
   { orderId: string; lineId: string }
 > = {
   id: "sales.orders.lines.delete",
-  async prepare(input, ctx) {
-    const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
-    const orderId = typeof raw.orderId === "string" ? raw.orderId : null;
-    if (!orderId) return {};
-    const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadOrderSnapshot(em, orderId);
-    if (snapshot)
-      ensureOrderScope(
-        ctx,
-        snapshot.order.organizationId,
-        snapshot.order.tenantId,
-      );
-    return snapshot ? { before: snapshot } : {};
+  async prepare(input) {
+    return markLockedGraphWrite(input);
   },
   async execute(input, ctx) {
     const { translate } = await resolveTranslations();
-    const parsed = orderLineDeleteSchema.parse(
-      (input?.body as Record<string, unknown> | undefined) ?? {},
-    );
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await findOneWithDecryption(em, SalesOrder, {
-      id: parsed.orderId,
-      deletedAt: null,
-    });
-    if (!order)
-      throw notFound(translate(
-          "sales.documents.detail.error",
-          "Document not found or inaccessible.",
-        ));
-    ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
-    const shipmentCount = await em.count(SalesShipmentItem, {
-      orderLine: parsed.id,
-      shipment: { deletedAt: null },
-    });
-    if (shipmentCount > 0) {
-      throw new CrudHttpError(409, {
-        error: translate(
-          "sales.documents.items.errorDeleteShipped",
-          "Cannot delete a line that has shipped items.",
-        ),
+    const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
+    const parsed = orderLineDeleteSchema.parse(rawBody);
+    return writeLockedOrderGraph(input, ctx, parsed.orderId, translate(
+      "sales.documents.detail.error",
+      "Document not found or inaccessible.",
+    ), async (em, order) => {
+      const shipmentCount = await em.count(SalesShipmentItem, {
+        orderLine: parsed.id,
+        shipment: { deletedAt: null },
       });
-    }
-    const existingLines = await em.find(
-      SalesOrderLine,
-      { order },
-      { orderBy: { lineNumber: "asc" } },
-    );
-    const adjustments = await em.find(
-      SalesOrderAdjustment,
-      { order },
-      { orderBy: { position: "asc" } },
-    );
-    const filtered = existingLines.filter((line) => line.id !== parsed.id);
-    if (filtered.length === existingLines.length) {
-      throw notFound(translate(
-          "sales.documents.detail.error",
-          "Document not found or inaccessible.",
-        ));
-    }
-    if (filtered.length === 0) {
-      throw new CrudHttpError(409, {
-        error: translate(
-          "sales.documents.items.errorDeleteLast",
-          "An order must contain at least one line item.",
-        ),
+      if (shipmentCount > 0) {
+        throw new CrudHttpError(409, {
+          error: translate(
+            "sales.documents.items.errorDeleteShipped",
+            "Cannot delete a line that has shipped items.",
+          ),
+        });
+      }
+      const existingLines = await em.find(
+        SalesOrderLine,
+        { order },
+        { orderBy: { lineNumber: "asc" } },
+      );
+      const adjustments = await em.find(
+        SalesOrderAdjustment,
+        { order },
+        { orderBy: { position: "asc" } },
+      );
+      const filtered = existingLines.filter((line) => line.id !== parsed.id);
+      if (filtered.length === existingLines.length) {
+        throw notFound(translate(
+            "sales.documents.detail.error",
+            "Document not found or inaccessible.",
+          ));
+      }
+      if (filtered.length === 0) {
+        throw new CrudHttpError(409, {
+          error: translate(
+            "sales.documents.items.errorDeleteLast",
+            "An order must contain at least one line item.",
+          ),
+        });
+      }
+      const totalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
+      const orderTotals = parsed.orderTotals
+        ? withExactAmounts(parsed.orderTotals, rawBody.orderTotals, EXTERNAL_HEADER_FIELDS)
+        : parsed.orderTotals;
+      if (isExternalAmountsMode(totalsMode)) {
+        await requireOrderTotalsForExternalWrite(orderTotals);
+      }
+      const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalAmountsMode(totalsMode)
+        ? buildExternalHeaderTotals(orderTotals)
+        : null;
+      const sourceInputs = filtered.map((line, index) => ({
+        ...mapOrderLineEntityToSnapshot(line),
+        statusEntryId: line.statusEntryId ?? null,
+        catalogSnapshot: line.catalogSnapshot
+          ? cloneJson(line.catalogSnapshot)
+          : null,
+        promotionSnapshot: line.promotionSnapshot
+          ? cloneJson(line.promotionSnapshot)
+          : null,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        orderId: order.id,
+        lineNumber: index + 1,
+      }));
+      const calcLines = sourceInputs.map((line, index) =>
+        createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
+      );
+      const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft);
+      const salesCalculationService =
+        ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+      const calculationContext = buildCalculationContext({
+        tenantId: order.tenantId,
+        organizationId: order.organizationId,
+        currencyCode: order.currencyCode,
+        shippingSnapshot: order.shippingMethodSnapshot,
+        paymentSnapshot: order.paymentMethodSnapshot,
+        shippingMethodId: order.shippingMethodId ?? null,
+        paymentMethodId: order.paymentMethodId ?? null,
+        shippingMethodCode: order.shippingMethodCode ?? null,
+        paymentMethodCode: order.paymentMethodCode ?? null,
       });
-    }
-    const sourceInputs = filtered.map((line, index) => ({
-      ...mapOrderLineEntityToSnapshot(line),
-      statusEntryId: line.statusEntryId ?? null,
-      catalogSnapshot: line.catalogSnapshot
-        ? cloneJson(line.catalogSnapshot)
-        : null,
-      promotionSnapshot: line.promotionSnapshot
-        ? cloneJson(line.promotionSnapshot)
-        : null,
-      organizationId: order.organizationId,
-      tenantId: order.tenantId,
-      orderId: order.id,
-      lineNumber: index + 1,
-    }));
-    const calcLines = sourceInputs.map((line, index) =>
-      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
-    );
-    const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft);
-    const salesCalculationService =
-      ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: order.tenantId,
-      organizationId: order.organizationId,
-      currencyCode: order.currencyCode,
-      shippingSnapshot: order.shippingMethodSnapshot,
-      paymentSnapshot: order.paymentMethodSnapshot,
-      shippingMethodId: order.shippingMethodId ?? null,
-      paymentMethodId: order.paymentMethodId ?? null,
-      shippingMethodCode: order.shippingMethodCode ?? null,
-      paymentMethodCode: order.paymentMethodCode ?? null,
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: "order",
+        lines: calcLines,
+        adjustments: adjustmentDrafts,
+        context: calculationContext,
+        existingTotals: resolveExistingPaymentTotals(order),
+        totalsMode,
+        suppliedTotals,
+      });
+      await applyOrderLineResults({
+        em,
+        order,
+        calculation,
+        sourceLines: sourceInputs,
+        existingLines,
+      });
+      applyOrderTotals(order, calculation.totals, calculation.lines.length);
+      return { result: { orderId: order.id, lineId: parsed.id }, calculation };
     });
-    const calculation = await salesCalculationService.calculateDocumentTotals({
-      documentKind: "order",
-      lines: calcLines,
-      adjustments: adjustmentDrafts,
-      context: calculationContext,
-      existingTotals: resolveExistingPaymentTotals(order),
-    });
-    let eventBus: EventBus | null = null;
-    try {
-      eventBus = ctx.container.resolve("eventBus") as EventBus;
-    } catch {
-      eventBus = null;
-    }
-    // Persist the line removal and recalculated totals atomically so a
-    // mid-build failure cannot leave a half-updated order committed (#2336).
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          await applyOrderLineResults({
-            em,
-            order,
-            calculation,
-            sourceLines: sourceInputs,
-            existingLines,
-          });
-          applyOrderTotals(order, calculation.totals, calculation.lines.length);
-          await emitTotalsCalculated(eventBus, {
-            documentKind: "order",
-            documentId: order.id,
-            organizationId: order.organizationId,
-            tenantId: order.tenantId,
-            customerId: order.customerEntityId ?? null,
-            totals: calculation.totals,
-            lineCount: calculation.lines.length,
-          });
-        },
-      ],
-      { transaction: true },
-    );
-    return { orderId: order.id, lineId: parsed.id };
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadOrderSnapshot(em, result.orderId);
-  },
+  captureAfter: async (_input, result, ctx) =>
+    captureLockedOrderGraphAfter(ctx, result, result.orderId),
   buildLog: async ({ result, snapshots }) => {
-    const before = snapshots.before as OrderGraphSnapshot | undefined;
+    const before = resolveLockedOrderGraphBefore(result, snapshots.before);
     const after = snapshots.after as OrderGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
@@ -7957,292 +8806,582 @@ const orderLineDeleteCommand: CommandHandler<
   },
 };
 
+/**
+ * Place `line` in `lines` at the position the caller asked for.
+ *
+ * A supplied `targetPosition` is a 1-based destination, not a sort key: the
+ * line is pulled out of its current slot and spliced back in there, so moving
+ * a line one step in either direction is expressible (sorting a list that
+ * contains ties is not — see the per-line command). Without a target position
+ * an existing line keeps its slot and a new line is appended.
+ */
+function placeOrderLine(
+  lines: SalesPersistedLineSnapshot[],
+  line: SalesPersistedLineSnapshot,
+  targetPosition: number | null,
+): SalesPersistedLineSnapshot[] {
+  const currentIndex = lines.findIndex((entry) => entry.id === line.id);
+  const remaining =
+    currentIndex === -1
+      ? [...lines]
+      : [...lines.slice(0, currentIndex), ...lines.slice(currentIndex + 1)];
+  if (targetPosition == null) {
+    if (currentIndex === -1) {
+      remaining.push(line);
+      return remaining;
+    }
+    remaining.splice(currentIndex, 0, line);
+    return remaining;
+  }
+  const index = Math.min(Math.max(targetPosition - 1, 0), remaining.length);
+  remaining.splice(index, 0, line);
+  return remaining;
+}
+
+/**
+ * Write a whole set of order-line changes in one aggregate load.
+ *
+ * `sales.orders.lines.upsert` is per line: each call reloads the order, all of
+ * its lines and adjustments, recalculates the document and flushes, so writing
+ * N lines costs O(N²) in rows read. This command takes the same per-line
+ * bodies as a list, loads the aggregate once, resolves every line in memory
+ * against one UoM resolver, calculates totals once and flushes once — O(N) —
+ * and produces the end state N sequential single upserts would produce.
+ *
+ * All-or-nothing: a refusal on any line or delete aborts the whole batch.
+ */
+const orderLineBulkUpsertCommand: CommandHandler<
+  { body?: Record<string, unknown>; query?: Record<string, unknown> },
+  { orderId: string; lineIds: string[] }
+> = {
+  id: "sales.orders.lines.upsert_many",
+  async prepare(input) {
+    return markLockedGraphWrite(input);
+  },
+  async execute(input, ctx) {
+    const { translate } = await resolveTranslations();
+    const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
+    const parsedBody = orderLineBulkUpsertSchema.parse(rawBody);
+    const parsed = {
+      ...parsedBody,
+      lines: withExactListAmounts(parsedBody.lines, rawBody, "lines", LINE_EXACT_AMOUNT_FIELDS) ?? parsedBody.lines,
+    };
+    return writeLockedOrderGraph(input, ctx, parsed.orderId, "Sales order not found", async (em, order) => {
+      const totalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
+      await assertUniformAmountsMode(totalsMode, parsed.lines);
+      const orderTotals = parsed.orderTotals
+        ? withExactAmounts(parsed.orderTotals, rawBody.orderTotals, EXTERNAL_HEADER_FIELDS)
+        : parsed.orderTotals;
+      if (isExternalAmountsMode(totalsMode)) {
+        await requireOrderTotalsForExternalWrite(orderTotals);
+      }
+      const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalAmountsMode(totalsMode)
+        ? buildExternalHeaderTotals(orderTotals)
+        : null;
+
+      const [existingLines, adjustments] = await Promise.all([
+        em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
+        em.find(
+          SalesOrderAdjustment,
+          { order },
+          { orderBy: { position: "asc" } },
+        ),
+      ]);
+      const existingSnapshotsById = new Map(
+        existingLines.map((line) => [line.id, mapOrderLineEntityToSnapshot(line)]),
+      );
+
+      // An entry id names a line to update. One this order does not have is
+      // refused rather than created: it is a line deleted since the caller read
+      // the order, or one belonging to another order.
+      const deleteIds = new Set(parsed.deleteIds);
+      const referencedIds = [
+        ...deleteIds,
+        ...parsed.lines.flatMap((line) => (line.id ? [line.id] : [])),
+      ];
+      for (const id of referencedIds) {
+        if (existingSnapshotsById.has(id)) continue;
+        throw notFound(
+          translate(
+            "sales.documents.detail.error",
+            "Document not found or inaccessible.",
+          ),
+        );
+      }
+      if (deleteIds.size) {
+        const shippedItems = await em.find(SalesShipmentItem, {
+          orderLine: { $in: [...deleteIds] },
+          shipment: { deletedAt: null },
+        });
+        if (shippedItems.length) {
+          throw new CrudHttpError(409, {
+            error: translate(
+              "sales.documents.items.errorDeleteShipped",
+              "Cannot delete a line that has shipped items.",
+            ),
+          });
+        }
+      }
+
+      const editsExistingLine = parsed.lines.some(
+        (line) => line.id != null && existingSnapshotsById.has(line.id),
+      );
+      const shippedQuantityByLine = editsExistingLine
+        ? await loadShippedQuantityByLine(em, order.id, {
+            tenantId: order.tenantId,
+            organizationId: order.organizationId,
+          })
+        : new Map<string, number>();
+
+      const dependencies: OrderLineUpsertDependencies = {
+        em,
+        order,
+        uomResolver: createUomResolver(),
+        resolveTaxCalculationService: createTaxCalculationServiceResolver(
+          ctx.container,
+        ),
+        resolveAmountDecimalPlaces: createAmountDecimalPlacesResolver(ctx.container, {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        }),
+      };
+      let nextLines = [...existingSnapshotsById.values()].filter(
+        (line) => !deleteIds.has(line.id),
+      );
+      const lineIds: string[] = [];
+      for (const entry of parsed.lines) {
+        const existingSnapshot = entry.id
+          ? (existingSnapshotsById.get(entry.id) ?? null)
+          : null;
+        await assertOrderAcceptsNewLine(order, existingSnapshot);
+        await assertShippedOrderLineEditableAgainst(
+          shippedQuantityByLine,
+          existingSnapshot,
+          entry,
+          await dependencies.resolveAmountDecimalPlaces(
+            resolveUpsertLineCurrencyCode(entry, existingSnapshot, order.currencyCode),
+          ),
+        );
+        const upserted = await buildUpsertedOrderLineSnapshot(
+          dependencies,
+          {
+            ...entry,
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+          },
+          existingSnapshot,
+          nextLines.length + 1,
+        );
+        nextLines = placeOrderLine(nextLines, upserted, entry.lineNumber ?? null);
+        lineIds.push(upserted.id);
+      }
+
+      if (!nextLines.length) {
+        throw new CrudHttpError(409, {
+          error: translate(
+            "sales.documents.items.errorDeleteLast",
+            "An order must contain at least one line item.",
+          ),
+        });
+      }
+
+      const sourceInputs = nextLines.map((line, index) => ({
+        ...line,
+        statusEntryId: line.statusEntryId ?? null,
+        catalogSnapshot: line.catalogSnapshot ?? null,
+        promotionSnapshot: line.promotionSnapshot ?? null,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        orderId: order.id,
+        lineNumber: index + 1,
+      }));
+      const calcLines: SalesLineSnapshot[] = sourceInputs.map((line, index) =>
+        createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
+      );
+      const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft);
+      const salesCalculationService =
+        ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+      const calculationContext = buildCalculationContext({
+        tenantId: order.tenantId,
+        organizationId: order.organizationId,
+        currencyCode: order.currencyCode,
+        shippingSnapshot: order.shippingMethodSnapshot,
+        paymentSnapshot: order.paymentMethodSnapshot,
+        shippingMethodId: order.shippingMethodId ?? null,
+        paymentMethodId: order.paymentMethodId ?? null,
+        shippingMethodCode: order.shippingMethodCode ?? null,
+        paymentMethodCode: order.paymentMethodCode ?? null,
+      });
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: "order",
+        lines: calcLines,
+        adjustments: adjustmentDrafts,
+        context: calculationContext,
+        existingTotals: resolveExistingPaymentTotals(order),
+        totalsMode,
+        suppliedTotals,
+      });
+      await applyOrderLineResults({
+        em,
+        order,
+        calculation,
+        sourceLines: sourceInputs,
+        existingLines,
+      });
+      applyOrderTotals(order, calculation.totals, calculation.lines.length);
+      return { result: { orderId: order.id, lineIds }, calculation };
+    });
+  },
+  captureAfter: async (_input, result, ctx) =>
+    captureLockedOrderGraphAfter(ctx, result, result.orderId),
+  buildLog: async ({ result, snapshots }) => {
+    const before = resolveLockedOrderGraphBefore(result, snapshots.before);
+    const after = snapshots.after as OrderGraphSnapshot | undefined;
+    if (!after) return null;
+    const { translate } = await resolveTranslations();
+    return {
+      actionLabel: translate(
+        "sales.audit.orders.lines.upsert_many",
+        "Update order lines",
+      ),
+      resourceKind: "sales.order",
+      resourceId: result.orderId,
+      tenantId: after.order.tenantId,
+      organizationId: after.order.organizationId,
+      snapshotBefore: before ?? null,
+      snapshotAfter: after,
+      payload: {
+        undo: { before, after } satisfies OrderUndoPayload,
+      },
+    };
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
+    const before = payload?.before;
+    if (!before) return;
+    // Same path as every other order-graph undo: it locks the order, refuses
+    // with 409 when the graph moved since the batch ran — a payment, shipment
+    // or note recorded afterwards would otherwise be hard-deleted by the
+    // restore (#6462, #6833) — restores inside one transaction, and refreshes
+    // the query index.
+    await undoOrderGraph(ctx, before, payload?.after);
+  },
+};
+
 const quoteLineUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { quoteId: string; lineId: string }
 > = {
   id: "sales.quotes.lines.upsert",
-  async prepare(input, ctx) {
-    const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
-    const quoteId = typeof raw.quoteId === "string" ? raw.quoteId : null;
-    if (!quoteId) return {};
-    const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadQuoteSnapshot(em, quoteId);
-    if (snapshot)
-      ensureQuoteScope(
-        ctx,
-        snapshot.quote.organizationId,
-        snapshot.quote.tenantId,
-      );
-    return snapshot ? { before: snapshot } : {};
+  async prepare(input) {
+    return markLockedGraphWrite(input);
   },
   async execute(input, ctx) {
     const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
-    const parsed = quoteLineUpsertSchema.parse(rawBody);
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await findOneWithDecryption(em, SalesQuote, {
-      id: parsed.quoteId,
-      deletedAt: null,
-    });
-    if (!quote)
-      throw notFound("Sales quote not found");
-    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
-    const [existingLines, adjustments] = await Promise.all([
-      em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
-      em.find(
-        SalesQuoteAdjustment,
-        { quote },
-        { orderBy: { position: "asc" } },
-      ),
-    ]);
-    const lineSnapshots = existingLines.map(mapQuoteLineEntityToSnapshot);
-    const existingSnapshot = parsed.id
-      ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
-      : null;
-    const priceMode =
-      parsed.priceMode === "gross"
-        ? "gross"
-        : parsed.priceMode === "net"
-          ? "net"
-          : null;
-    let unitPriceNet =
-      parsed.unitPriceNet ?? existingSnapshot?.unitPriceNet ?? null;
-    let unitPriceGross =
-      parsed.unitPriceGross ?? existingSnapshot?.unitPriceGross ?? null;
-    let taxRate = parsed.taxRate ?? existingSnapshot?.taxRate ?? null;
-    if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
-      let taxService: TaxCalculationService | null = null;
-      try {
-        taxService = ctx.container.resolve(
-          "taxCalculationService",
-        ) as TaxCalculationService;
-      } catch {
-        taxService = null;
-      }
-      if (taxService) {
-        const taxResult = await taxService.calculateUnitAmounts({
-          amount:
+    const parsed = withExactAmounts(
+      quoteLineUpsertSchema.parse(rawBody),
+      rawBody,
+      LINE_EXACT_AMOUNT_FIELDS,
+    );
+    await assertAmountsModeUnsupportedOnQuote([parsed]);
+    return writeLockedQuoteGraph(input, ctx, parsed.quoteId, "Sales quote not found", async (em, quote) => {
+      const [existingLines, adjustments] = await Promise.all([
+        em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
+        em.find(
+          SalesQuoteAdjustment,
+          { quote },
+          { orderBy: { position: "asc" } },
+        ),
+      ]);
+      const lineSnapshots = existingLines.map(mapQuoteLineEntityToSnapshot);
+      const existingSnapshot = parsed.id
+        ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
+        : null;
+      const priceMode =
+        parsed.priceMode === "gross"
+          ? "gross"
+          : parsed.priceMode === "net"
+            ? "net"
+            : null;
+      let unitPriceNet =
+        parsed.unitPriceNet ?? existingSnapshot?.unitPriceNet ?? null;
+      let unitPriceGross =
+        parsed.unitPriceGross ?? existingSnapshot?.unitPriceGross ?? null;
+      let taxRate = parsed.taxRate ?? existingSnapshot?.taxRate ?? null;
+      let unitPriceExactFromTax: { net?: string; gross?: string } | null = null;
+      const lineAmountDecimalPlaces = await resolveCurrencyAmountDecimalPlaces(ctx.container, {
+        code: parsed.currencyCode ?? existingSnapshot?.currencyCode ?? quote.currencyCode,
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+      });
+      if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
+        let taxService: TaxCalculationService | null = null;
+        try {
+          taxService = ctx.container.resolve(
+            "taxCalculationService",
+          ) as TaxCalculationService;
+        } catch {
+          taxService = null;
+        }
+        if (taxService) {
+          const taxAmountInput =
             priceMode === "gross"
               ? (unitPriceGross ?? unitPriceNet ?? 0)
-              : (unitPriceNet ?? unitPriceGross ?? 0),
-          mode: priceMode,
-          organizationId: parsed.organizationId,
-          tenantId: parsed.tenantId,
-          taxRateId: parsed.taxRateId ?? undefined,
-          taxRate: taxRate ?? undefined,
-        });
-        unitPriceNet = unitPriceNet ?? taxResult.netAmount;
-        unitPriceGross = unitPriceGross ?? taxResult.grossAmount;
-        taxRate = taxResult.taxRate ?? taxRate;
+              : (unitPriceNet ?? unitPriceGross ?? 0);
+          const taxResult = await taxService.calculateUnitAmounts({
+            amount: taxAmountInput,
+            amountExact: exactFor(
+              taxAmountInput,
+              parsed.unitPriceGrossExact,
+              parsed.unitPriceNetExact,
+              existingSnapshot?.unitPriceGrossExact,
+              existingSnapshot?.unitPriceNetExact,
+            ),
+            amountDecimalPlaces: lineAmountDecimalPlaces,
+            mode: priceMode,
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+            taxRateId: parsed.taxRateId ?? undefined,
+            taxRate: taxRate ?? undefined,
+          });
+          unitPriceNet = unitPriceNet ?? taxResult.netAmount;
+          unitPriceGross = unitPriceGross ?? taxResult.grossAmount;
+          unitPriceExactFromTax = { net: taxResult.netAmountExact, gross: taxResult.grossAmountExact };
+          taxRate = taxResult.taxRate ?? taxRate;
+        }
       }
-    }
-    const metadata =
-      typeof parsed.metadata === "object" && parsed.metadata
-        ? { ...parsed.metadata }
-        : existingSnapshot?.metadata
-          ? cloneJson(existingSnapshot.metadata)
-          : {};
-    if (parsed.priceId) metadata.priceId = parsed.priceId;
-    if (priceMode) metadata.priceMode = priceMode;
+      const metadata =
+        typeof parsed.metadata === "object" && parsed.metadata
+          ? { ...parsed.metadata }
+          : existingSnapshot?.metadata
+            ? cloneJson(existingSnapshot.metadata)
+            : {};
+      if (parsed.priceId) metadata.priceId = parsed.priceId;
+      if (priceMode) metadata.priceMode = priceMode;
 
-    const statusEntryId =
-      parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null;
-    const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-    const lineUomInput = {
-      productId: parsed.productId ?? existingSnapshot?.productId ?? null,
-      productVariantId:
-        parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-      quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
-      quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
-      normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
-      normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
-      uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
-    };
-    const uomResolver = createUomResolver();
-    let normalizedUom = await normalizeLineUom({
-      em,
-      resolver: uomResolver,
-      organizationId: quote.organizationId,
-      tenantId: quote.tenantId,
-      line: {
-        ...lineUomInput,
-        unitPriceNet: unitPriceNet ?? 0,
-        unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      },
-    });
-    const convertedPrices = convertLineUnitPricesOnUnitChange({
-      existingSnapshot,
-      nextQuantityUnit: normalizedUom.quantityUnit,
-      nextUomSnapshot: normalizedUom.uomSnapshot,
-      unitPriceNet,
-      unitPriceGross,
-    });
-    if (convertedPrices.didConvert) {
-      unitPriceNet = convertedPrices.unitPriceNet;
-      unitPriceGross = convertedPrices.unitPriceGross;
-      normalizedUom = await normalizeLineUom({
+      const statusEntryId =
+        parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null;
+      const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
+      const lineUomInput = {
+        productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+        productVariantId:
+          parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+        quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
+        quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+        normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
+        normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
+        uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
+      };
+      const lineUomPrices = () => {
+        const netExactCandidates = [
+          parsed.unitPriceNetExact,
+          existingSnapshot?.unitPriceNetExact,
+          unitPriceExactFromTax?.net,
+        ];
+        return {
+          unitPriceNet: unitPriceNet ?? 0,
+          unitPriceNetExact: exactFor(unitPriceNet ?? 0, ...netExactCandidates),
+          unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+          unitPriceGrossExact: exactFor(
+            unitPriceGross ?? unitPriceNet ?? 0,
+            parsed.unitPriceGrossExact,
+            existingSnapshot?.unitPriceGrossExact,
+            unitPriceExactFromTax?.gross,
+            ...netExactCandidates,
+          ),
+        };
+      };
+      const uomResolver = createUomResolver();
+      let normalizedUom = await normalizeLineUom({
         em,
         resolver: uomResolver,
         organizationId: quote.organizationId,
         tenantId: quote.tenantId,
-        line: {
-          ...lineUomInput,
-          unitPriceNet: unitPriceNet ?? 0,
-          unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-        },
+        amountDecimalPlaces: lineAmountDecimalPlaces,
+        line: { ...lineUomInput, ...lineUomPrices() },
       });
-    }
-    const updatedSnapshot: SalesLineSnapshot & {
-      statusEntryId?: string | null;
-      catalogSnapshot?: Record<string, unknown> | null;
-      promotionSnapshot?: Record<string, unknown> | null;
-    } = {
-      id: lineId,
-      lineNumber:
-        parsed.lineNumber ??
-        existingSnapshot?.lineNumber ??
-        lineSnapshots.length + 1,
-      kind: parsed.kind ?? existingSnapshot?.kind ?? "product",
-      productId: parsed.productId ?? existingSnapshot?.productId ?? null,
-      productVariantId:
-        parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-      name: parsed.name ?? existingSnapshot?.name ?? null,
-      description: parsed.description ?? existingSnapshot?.description ?? null,
-      comment: parsed.comment ?? existingSnapshot?.comment ?? null,
-      quantity: normalizedUom.quantity,
-      quantityUnit: normalizedUom.quantityUnit,
-      normalizedQuantity: normalizedUom.normalizedQuantity,
-      normalizedUnit: normalizedUom.normalizedUnit,
-      uomSnapshot: normalizedUom.uomSnapshot
-        ? cloneJson(normalizedUom.uomSnapshot)
-        : null,
-      currencyCode:
-        parsed.currencyCode ??
-        existingSnapshot?.currencyCode ??
-        quote.currencyCode,
-      unitPriceNet: unitPriceNet ?? 0,
-      unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      ...resolveUpsertDiscountFields(
-        parsed.discountAmount,
-        parsed.discountAmountBasis,
+      const convertedPrices = convertLineUnitPricesOnUnitChange({
         existingSnapshot,
-      ),
-      discountPercent:
-        parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
-      taxRate: taxRate ?? 0,
-      totalNetAmount:
-        parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
-      ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
-      configuration:
-        parsed.configuration ?? existingSnapshot?.configuration ?? null,
-      promotionCode:
-        parsed.promotionCode ?? existingSnapshot?.promotionCode ?? null,
-      metadata,
-      customFieldSetId:
-        parsed.customFieldSetId ?? existingSnapshot?.customFieldSetId ?? null,
-      customFields:
-        parsed.customFields && typeof parsed.customFields === "object"
-          ? cloneJson(parsed.customFields)
-          : ((existingSnapshot as any)?.customFields ?? null),
-    };
-    Object.assign(
-      updatedSnapshot,
-      resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot),
-    );
-    (updatedSnapshot as any).statusEntryId = statusEntryId;
-    (updatedSnapshot as any).catalogSnapshot =
-      parsed.catalogSnapshot ??
-      (existingSnapshot as any)?.catalogSnapshot ??
-      null;
-    (updatedSnapshot as any).promotionSnapshot =
-      parsed.promotionSnapshot ??
-      (existingSnapshot as any)?.promotionSnapshot ??
-      null;
+        nextQuantityUnit: normalizedUom.quantityUnit,
+        nextUomSnapshot: normalizedUom.uomSnapshot,
+        unitPriceNet,
+        unitPriceNetExact: exactFor(
+          unitPriceNet,
+          parsed.unitPriceNetExact,
+          existingSnapshot?.unitPriceNetExact,
+          unitPriceExactFromTax?.net,
+        ),
+        unitPriceGross,
+        unitPriceGrossExact: exactFor(
+          unitPriceGross,
+          parsed.unitPriceGrossExact,
+          existingSnapshot?.unitPriceGrossExact,
+          unitPriceExactFromTax?.gross,
+        ),
+        amountDecimalPlaces: lineAmountDecimalPlaces,
+      });
+      if (convertedPrices.didConvert) {
+        unitPriceNet = convertedPrices.unitPriceNet;
+        unitPriceGross = convertedPrices.unitPriceGross;
+        unitPriceExactFromTax = {
+          net: convertedPrices.unitPriceNetExact ?? undefined,
+          gross: convertedPrices.unitPriceGrossExact ?? undefined,
+        };
+        normalizedUom = await normalizeLineUom({
+          em,
+          resolver: uomResolver,
+          organizationId: quote.organizationId,
+          tenantId: quote.tenantId,
+          amountDecimalPlaces: lineAmountDecimalPlaces,
+          line: { ...lineUomInput, ...lineUomPrices() },
+        });
+      }
+      const updatedSnapshot: SalesLineSnapshot & {
+        statusEntryId?: string | null;
+        catalogSnapshot?: Record<string, unknown> | null;
+        promotionSnapshot?: Record<string, unknown> | null;
+      } = {
+        id: lineId,
+        lineNumber:
+          parsed.lineNumber ??
+          existingSnapshot?.lineNumber ??
+          lineSnapshots.length + 1,
+        kind: parsed.kind ?? existingSnapshot?.kind ?? "product",
+        productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+        productVariantId:
+          parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+        name: parsed.name ?? existingSnapshot?.name ?? null,
+        description: parsed.description ?? existingSnapshot?.description ?? null,
+        comment: parsed.comment ?? existingSnapshot?.comment ?? null,
+        quantity: normalizedUom.quantity,
+        quantityUnit: normalizedUom.quantityUnit,
+        normalizedQuantity: normalizedUom.normalizedQuantity,
+        normalizedUnit: normalizedUom.normalizedUnit,
+        uomSnapshot: normalizedUom.uomSnapshot
+          ? cloneJson(normalizedUom.uomSnapshot)
+          : null,
+        currencyCode:
+          parsed.currencyCode ??
+          existingSnapshot?.currencyCode ??
+          quote.currencyCode,
+        unitPriceNet: unitPriceNet ?? 0,
+        unitPriceNetExact: exactFor(
+          unitPriceNet ?? 0,
+          parsed.unitPriceNetExact,
+          existingSnapshot?.unitPriceNetExact,
+          unitPriceExactFromTax?.net,
+        ),
+        unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+        unitPriceGrossExact: exactFor(
+          unitPriceGross ?? unitPriceNet ?? 0,
+          parsed.unitPriceGrossExact,
+          existingSnapshot?.unitPriceGrossExact,
+          unitPriceExactFromTax?.gross,
+          parsed.unitPriceNetExact,
+          existingSnapshot?.unitPriceNetExact,
+        ),
+        ...resolveUpsertDiscountFields(
+          parsed.discountAmount,
+          parsed.discountAmountBasis,
+          existingSnapshot,
+          parsed.discountAmountExact,
+        ),
+        discountPercent:
+          parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
+        taxRate: taxRate ?? 0,
+        totalNetAmount:
+          parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
+        totalNetAmountExact:
+          parsed.totalNetAmount !== undefined && parsed.totalNetAmount !== null
+            ? parsed.totalNetAmountExact
+            : (existingSnapshot?.totalNetAmountExact ?? null),
+        ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
+        configuration:
+          parsed.configuration ?? existingSnapshot?.configuration ?? null,
+        promotionCode:
+          parsed.promotionCode ?? existingSnapshot?.promotionCode ?? null,
+        metadata,
+        customFieldSetId:
+          parsed.customFieldSetId ?? existingSnapshot?.customFieldSetId ?? null,
+        customFields:
+          parsed.customFields && typeof parsed.customFields === "object"
+            ? cloneJson(parsed.customFields)
+            : ((existingSnapshot as any)?.customFields ?? null),
+      };
+      Object.assign(
+        updatedSnapshot,
+        resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot, lineAmountDecimalPlaces),
+      );
+      (updatedSnapshot as any).statusEntryId = statusEntryId;
+      (updatedSnapshot as any).catalogSnapshot =
+        parsed.catalogSnapshot ??
+        (existingSnapshot as any)?.catalogSnapshot ??
+        null;
+      (updatedSnapshot as any).promotionSnapshot =
+        parsed.promotionSnapshot ??
+        (existingSnapshot as any)?.promotionSnapshot ??
+        null;
 
-    let nextLines = parsed.id
-      ? lineSnapshots.map((line) =>
-          line.id === parsed.id ? updatedSnapshot : line,
-        )
-      : [...lineSnapshots, updatedSnapshot];
-    nextLines = nextLines
-      .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
-      .map((line, index) => ({ ...line, lineNumber: index + 1 }));
+      const mergedLines = parsed.id
+        ? lineSnapshots.map((line) =>
+            line.id === parsed.id ? updatedSnapshot : line,
+          )
+        : [...lineSnapshots, updatedSnapshot];
+      const nextLines = resequenceLinesForUpsert(
+        mergedLines,
+        lineId,
+        parsed.lineNumber ?? null,
+        existingSnapshot?.lineNumber ?? null,
+      );
 
-    const sourceInputs = nextLines.map((line, index) => ({
-      ...line,
-      statusEntryId: (line as any).statusEntryId ?? null,
-      catalogSnapshot: (line as any).catalogSnapshot ?? null,
-      promotionSnapshot: (line as any).promotionSnapshot ?? null,
-      organizationId: quote.organizationId,
-      tenantId: quote.tenantId,
-      quoteId: quote.id,
-      lineNumber: line.lineNumber ?? index + 1,
-    }));
-    const calcLines: SalesLineSnapshot[] = sourceInputs.map((line, index) =>
-      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
-    );
-    const adjustmentDrafts = adjustments.map(mapQuoteAdjustmentToDraft);
-    const salesCalculationService =
-      ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-      currencyCode: quote.currencyCode,
-      shippingSnapshot: quote.shippingMethodSnapshot,
-      paymentSnapshot: quote.paymentMethodSnapshot,
-      shippingMethodId: quote.shippingMethodId ?? null,
-      paymentMethodId: quote.paymentMethodId ?? null,
-      shippingMethodCode: quote.shippingMethodCode ?? null,
-      paymentMethodCode: quote.paymentMethodCode ?? null,
+      const sourceInputs = nextLines.map((line, index) => ({
+        ...line,
+        statusEntryId: (line as any).statusEntryId ?? null,
+        catalogSnapshot: (line as any).catalogSnapshot ?? null,
+        promotionSnapshot: (line as any).promotionSnapshot ?? null,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        quoteId: quote.id,
+        lineNumber: line.lineNumber ?? index + 1,
+      }));
+      const calcLines: SalesLineSnapshot[] = sourceInputs.map((line, index) =>
+        createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
+      );
+      const adjustmentDrafts = adjustments.map(mapQuoteAdjustmentToDraft);
+      const salesCalculationService =
+        ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+      const calculationContext = buildCalculationContext({
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+        currencyCode: quote.currencyCode,
+        shippingSnapshot: quote.shippingMethodSnapshot,
+        paymentSnapshot: quote.paymentMethodSnapshot,
+        shippingMethodId: quote.shippingMethodId ?? null,
+        paymentMethodId: quote.paymentMethodId ?? null,
+        shippingMethodCode: quote.shippingMethodCode ?? null,
+        paymentMethodCode: quote.paymentMethodCode ?? null,
+      });
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: "quote",
+        lines: calcLines,
+        adjustments: adjustmentDrafts,
+        context: calculationContext,
+      });
+      await applyQuoteLineResults({
+        em,
+        quote,
+        calculation,
+        sourceLines: sourceInputs,
+        existingLines,
+      });
+      applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
+      return { result: { quoteId: quote.id, lineId }, calculation };
     });
-    const calculation = await salesCalculationService.calculateDocumentTotals({
-      documentKind: "quote",
-      lines: calcLines,
-      adjustments: adjustmentDrafts,
-      context: calculationContext,
-    });
-    let eventBus: EventBus | null = null;
-    try {
-      eventBus = ctx.container.resolve("eventBus") as EventBus;
-    } catch {
-      eventBus = null;
-    }
-    // Persist the line changes and recalculated totals atomically so a
-    // mid-build failure cannot leave a half-updated quote committed (#2336).
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          await applyQuoteLineResults({
-            em,
-            quote,
-            calculation,
-            sourceLines: sourceInputs,
-            existingLines,
-          });
-          applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
-          await emitTotalsCalculated(eventBus, {
-            documentKind: "quote",
-            documentId: quote.id,
-            organizationId: quote.organizationId,
-            tenantId: quote.tenantId,
-            customerId: quote.customerEntityId ?? null,
-            totals: calculation.totals,
-            lineCount: calculation.lines.length,
-          });
-        },
-      ],
-      { transaction: true },
-    );
-    return { quoteId: quote.id, lineId };
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadQuoteSnapshot(em, result.quoteId);
-  },
+  captureAfter: async (_input, result, ctx) =>
+    captureLockedQuoteGraphAfter(ctx, result, result.quoteId),
   buildLog: async ({ result, snapshots }) => {
-    const before = snapshots.before as QuoteGraphSnapshot | undefined;
+    const before = resolveLockedQuoteGraphBefore(result, snapshots.before);
     const after = snapshots.after as QuoteGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
@@ -8275,125 +9414,80 @@ const quoteLineDeleteCommand: CommandHandler<
   { quoteId: string; lineId: string }
 > = {
   id: "sales.quotes.lines.delete",
-  async prepare(input, ctx) {
-    const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
-    const quoteId = typeof raw.quoteId === "string" ? raw.quoteId : null;
-    if (!quoteId) return {};
-    const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadQuoteSnapshot(em, quoteId);
-    if (snapshot)
-      ensureQuoteScope(
-        ctx,
-        snapshot.quote.organizationId,
-        snapshot.quote.tenantId,
-      );
-    return snapshot ? { before: snapshot } : {};
+  async prepare(input) {
+    return markLockedGraphWrite(input);
   },
   async execute(input, ctx) {
     const parsed = quoteLineDeleteSchema.parse(
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await findOneWithDecryption(em, SalesQuote, {
-      id: parsed.quoteId,
-      deletedAt: null,
+    return writeLockedQuoteGraph(input, ctx, parsed.quoteId, "Sales quote not found", async (em, quote) => {
+      const existingLines = await em.find(
+        SalesQuoteLine,
+        { quote },
+        { orderBy: { lineNumber: "asc" } },
+      );
+      const adjustments = await em.find(
+        SalesQuoteAdjustment,
+        { quote },
+        { orderBy: { position: "asc" } },
+      );
+      const filtered = existingLines.filter((line) => line.id !== parsed.id);
+      if (filtered.length === existingLines.length) {
+        throw notFound("Quote line not found");
+      }
+      const sourceInputs = filtered.map((line, index) => ({
+        ...mapQuoteLineEntityToSnapshot(line),
+        statusEntryId: line.statusEntryId ?? null,
+        catalogSnapshot: line.catalogSnapshot
+          ? cloneJson(line.catalogSnapshot)
+          : null,
+        promotionSnapshot: line.promotionSnapshot
+          ? cloneJson(line.promotionSnapshot)
+          : null,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        quoteId: quote.id,
+        lineNumber: index + 1,
+      }));
+      const calcLines = sourceInputs.map((line, index) =>
+        createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
+      );
+      const adjustmentDrafts = adjustments.map(mapQuoteAdjustmentToDraft);
+      const salesCalculationService =
+        ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+      const calculationContext = buildCalculationContext({
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+        currencyCode: quote.currencyCode,
+        shippingSnapshot: quote.shippingMethodSnapshot,
+        paymentSnapshot: quote.paymentMethodSnapshot,
+        shippingMethodId: quote.shippingMethodId ?? null,
+        paymentMethodId: quote.paymentMethodId ?? null,
+        shippingMethodCode: quote.shippingMethodCode ?? null,
+        paymentMethodCode: quote.paymentMethodCode ?? null,
+      });
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: "quote",
+        lines: calcLines,
+        adjustments: adjustmentDrafts,
+        context: calculationContext,
+      });
+      await applyQuoteLineResults({
+        em,
+        quote,
+        calculation,
+        sourceLines: sourceInputs,
+        existingLines,
+      });
+      applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
+      return { result: { quoteId: quote.id, lineId: parsed.id }, calculation };
     });
-    if (!quote)
-      throw notFound("Sales quote not found");
-    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
-    const existingLines = await em.find(
-      SalesQuoteLine,
-      { quote },
-      { orderBy: { lineNumber: "asc" } },
-    );
-    const adjustments = await em.find(
-      SalesQuoteAdjustment,
-      { quote },
-      { orderBy: { position: "asc" } },
-    );
-    const filtered = existingLines.filter((line) => line.id !== parsed.id);
-    if (filtered.length === existingLines.length) {
-      throw notFound("Quote line not found");
-    }
-    const sourceInputs = filtered.map((line, index) => ({
-      ...mapQuoteLineEntityToSnapshot(line),
-      statusEntryId: line.statusEntryId ?? null,
-      catalogSnapshot: line.catalogSnapshot
-        ? cloneJson(line.catalogSnapshot)
-        : null,
-      promotionSnapshot: line.promotionSnapshot
-        ? cloneJson(line.promotionSnapshot)
-        : null,
-      organizationId: quote.organizationId,
-      tenantId: quote.tenantId,
-      quoteId: quote.id,
-      lineNumber: index + 1,
-    }));
-    const calcLines = sourceInputs.map((line, index) =>
-      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
-    );
-    const adjustmentDrafts = adjustments.map(mapQuoteAdjustmentToDraft);
-    const salesCalculationService =
-      ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-      currencyCode: quote.currencyCode,
-      shippingSnapshot: quote.shippingMethodSnapshot,
-      paymentSnapshot: quote.paymentMethodSnapshot,
-      shippingMethodId: quote.shippingMethodId ?? null,
-      paymentMethodId: quote.paymentMethodId ?? null,
-      shippingMethodCode: quote.shippingMethodCode ?? null,
-      paymentMethodCode: quote.paymentMethodCode ?? null,
-    });
-    const calculation = await salesCalculationService.calculateDocumentTotals({
-      documentKind: "quote",
-      lines: calcLines,
-      adjustments: adjustmentDrafts,
-      context: calculationContext,
-    });
-    let eventBus: EventBus | null = null;
-    try {
-      eventBus = ctx.container.resolve("eventBus") as EventBus;
-    } catch {
-      eventBus = null;
-    }
-    // Persist the line removal and recalculated totals atomically so a
-    // mid-build failure cannot leave a half-updated quote committed (#2336).
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          await applyQuoteLineResults({
-            em,
-            quote,
-            calculation,
-            sourceLines: sourceInputs,
-            existingLines,
-          });
-          applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
-          await emitTotalsCalculated(eventBus, {
-            documentKind: "quote",
-            documentId: quote.id,
-            organizationId: quote.organizationId,
-            tenantId: quote.tenantId,
-            customerId: quote.customerEntityId ?? null,
-            totals: calculation.totals,
-            lineCount: calculation.lines.length,
-          });
-        },
-      ],
-      { transaction: true },
-    );
-    return { quoteId: quote.id, lineId: parsed.id };
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadQuoteSnapshot(em, result.quoteId);
-  },
+  captureAfter: async (_input, result, ctx) =>
+    captureLockedQuoteGraphAfter(ctx, result, result.quoteId),
   buildLog: async ({ result, snapshots }) => {
-    const before = snapshots.before as QuoteGraphSnapshot | undefined;
+    const before = resolveLockedQuoteGraphBefore(result, snapshots.before);
     const after = snapshots.after as QuoteGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
@@ -8426,265 +9520,250 @@ const orderAdjustmentUpsertCommand: CommandHandler<
   { orderId: string; adjustmentId: string }
 > = {
   id: "sales.orders.adjustments.upsert",
-  async prepare(input, ctx) {
-    const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
-    const orderId = typeof raw.orderId === "string" ? raw.orderId : null;
-    if (!orderId) return {};
-    const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadOrderSnapshot(em, orderId);
-    if (snapshot)
-      ensureOrderScope(
-        ctx,
-        snapshot.order.organizationId,
-        snapshot.order.tenantId,
-      );
-    return snapshot ? { before: snapshot } : {};
+  async prepare(input) {
+    return markLockedGraphWrite(input);
   },
   async execute(input, ctx) {
-    const parsed = orderAdjustmentUpsertSchema.parse(
-      (input?.body as Record<string, unknown> | undefined) ?? {},
-    );
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await findOneWithDecryption(em, SalesOrder, {
-      id: parsed.orderId,
-      deletedAt: null,
-    });
-    if (!order)
-      throw notFound("Sales order not found");
-    ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
-    if (parsed.scope === "line") {
-      throw new CrudHttpError(400, {
-        error: "Line-scoped adjustments are not supported yet.",
-      });
-    }
-
-    const [existingLines, existingAdjustments] = await Promise.all([
-      em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
-      em.find(
-        SalesOrderAdjustment,
-        { order },
-        { orderBy: { position: "asc" } },
+    const parsed = withExactAmounts(
+      orderAdjustmentUpsertSchema.parse(
+        (input?.body as Record<string, unknown> | undefined) ?? {},
       ),
-    ]);
-    const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
-    const adjustmentDrafts = existingAdjustments.map(mapOrderAdjustmentToDraft);
-    const existingSnapshot = parsed.id
-      ? (adjustmentDrafts.find((adj) => adj.id === parsed.id) ?? null)
-      : null;
-    const adjustmentId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-    let metadata =
-      typeof parsed.metadata === "object" && parsed.metadata
-        ? cloneJson(parsed.metadata)
-        : existingSnapshot?.metadata
-          ? cloneJson(existingSnapshot.metadata)
-          : null;
-    const calculatorKey =
-      parsed.calculatorKey ?? existingSnapshot?.calculatorKey ?? null;
-    if (
-      parsed.id &&
-      calculatorKey &&
-      (calculatorKey.startsWith("shipping-provider:") ||
-        calculatorKey.startsWith("payment-provider:"))
-    ) {
-      metadata = { ...(metadata ?? {}), manualOverride: true };
-    }
-    let nextAdjustments = parsed.id
-      ? adjustmentDrafts.map((adj) =>
-          adj.id === parsed.id
-            ? {
-                ...adj,
-                id: adjustmentId,
-                scope: parsed.scope ?? adj.scope ?? "order",
-                kind: parsed.kind ?? adj.kind ?? "custom",
-                code: parsed.code ?? adj.code ?? null,
-                label: parsed.label ?? adj.label ?? null,
-                calculatorKey:
-                  parsed.calculatorKey ?? adj.calculatorKey ?? null,
-                promotionId: parsed.promotionId ?? adj.promotionId ?? null,
-                rate: parsed.rate ?? adj.rate ?? null,
-                amountNet: parsed.amountNet ?? adj.amountNet ?? null,
-                amountGross: parsed.amountGross ?? adj.amountGross ?? null,
-                currencyCode:
-                  parsed.currencyCode ?? adj.currencyCode ?? order.currencyCode,
-                metadata,
-                customFields:
-                  parsed.customFields !== undefined
-                    ? parsed.customFields
-                    : ((adj as any).customFields ?? null),
-                position:
-                  parsed.position ?? adj.position ?? adjustmentDrafts.length,
-              }
-            : adj,
-        )
-      : [
-          ...adjustmentDrafts,
-          {
-            id: adjustmentId,
-            scope: parsed.scope ?? "order",
-            kind: parsed.kind ?? "custom",
-            code: parsed.code ?? null,
-            label: parsed.label ?? null,
-            calculatorKey: parsed.calculatorKey ?? null,
-            promotionId: parsed.promotionId ?? null,
-            rate: parsed.rate ?? null,
-            amountNet: parsed.amountNet ?? null,
-            amountGross: parsed.amountGross ?? null,
-            currencyCode: parsed.currencyCode ?? order.currencyCode,
-            metadata,
-            customFields: parsed.customFields ?? null,
-            position: parsed.position ?? adjustmentDrafts.length,
-          },
-        ];
-
-    nextAdjustments = nextAdjustments
-      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-      .map((adj, index) => ({ ...adj, position: adj.position ?? index }));
-
-    const sourceLines = lineSnapshots.map((line, index) => ({
-      ...line,
-      statusEntryId: (line as any).statusEntryId ?? null,
-      catalogSnapshot: (line as any).catalogSnapshot ?? null,
-      promotionSnapshot: (line as any).promotionSnapshot ?? null,
-      organizationId: order.organizationId,
-      tenantId: order.tenantId,
-      orderId: order.id,
-      lineNumber: line.lineNumber ?? index + 1,
-    }));
-    const calcLines = sourceLines.map((line, index) =>
-      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
+      input?.body,
+      ADJUSTMENT_EXACT_AMOUNT_FIELDS,
     );
-    const salesCalculationService =
-      ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: order.tenantId,
-      organizationId: order.organizationId,
-      currencyCode: order.currencyCode,
-      shippingSnapshot: order.shippingMethodSnapshot,
-      paymentSnapshot: order.paymentMethodSnapshot,
-      shippingMethodId: order.shippingMethodId ?? null,
-      paymentMethodId: order.paymentMethodId ?? null,
-      shippingMethodCode: order.shippingMethodCode ?? null,
-      paymentMethodCode: order.paymentMethodCode ?? null,
-    });
-    const effectiveAdjustment = nextAdjustments.find(
-      (adj) => adj.id === adjustmentId,
-    );
-    if (effectiveAdjustment?.kind === "return") {
-      const baselineAdjustments = nextAdjustments.filter(
-        (adj) => adj.id !== adjustmentId,
-      );
-      const baselineCalculation =
-        await salesCalculationService.calculateDocumentTotals({
-          documentKind: "order",
-          lines: calcLines,
-          adjustments: baselineAdjustments,
-          context: calculationContext,
-          existingTotals: resolveExistingPaymentTotals(order),
-        });
-      const issues = validateReturnAdjustmentWithinRemaining({
-        kind: "return",
-        amountNet:
-          effectiveAdjustment.amountNet ?? effectiveAdjustment.amountGross ?? 0,
-        amountGross:
-          effectiveAdjustment.amountGross ?? effectiveAdjustment.amountNet ?? 0,
-        remainingNet: Number(
-          baselineCalculation.totals?.grandTotalNetAmount ?? 0,
-        ),
-        remainingGross: Number(
-          baselineCalculation.totals?.grandTotalGrossAmount ?? 0,
-        ),
-      });
-      if (issues.length > 0) {
-        const { translate } = await resolveTranslations();
-        const grossIssue = issues.find((issue) => issue.path === "amountGross");
-        const netIssue = issues.find((issue) => issue.path === "amountNet");
-        const fieldErrors: Record<string, string> = {};
-        if (grossIssue) {
-          fieldErrors.amountGross = translate(
-            "sales.adjustments.error.returnExceedsRemainingGrandTotalGross",
-            RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
-          );
-        }
-        if (netIssue) {
-          fieldErrors.amountNet = translate(
-            "sales.adjustments.error.returnExceedsRemainingGrandTotalNet",
-            RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE,
-          );
-        }
+    return writeLockedOrderGraph(input, ctx, parsed.orderId, "Sales order not found", async (em, order) => {
+      if (isExternalAmountsMode(order.totalsMode ?? "computed")) await refuseOnExternalOrder();
+      if (parsed.scope === "line") {
         throw new CrudHttpError(400, {
-          error:
-            fieldErrors.amountGross ??
-            fieldErrors.amountNet ??
-            translate(
-              "sales.adjustments.error.returnExceedsRemainingGrandTotalGross",
-              RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
-            ),
-          fieldErrors,
+          error: "Line-scoped adjustments are not supported yet.",
         });
       }
-    }
-    const calculation = await salesCalculationService.calculateDocumentTotals({
-      documentKind: "order",
-      lines: calcLines,
-      adjustments: nextAdjustments,
-      context: calculationContext,
-      existingTotals: resolveExistingPaymentTotals(order),
-    });
-    const adjustmentInputs = nextAdjustments.map((adj, index) => ({
-      organizationId: order.organizationId,
-      tenantId: order.tenantId,
-      orderId: order.id,
-      scope: adj.scope ?? "order",
-      kind: adj.kind ?? "custom",
-      code: adj.code ?? undefined,
-      label: adj.label ?? undefined,
-      calculatorKey: adj.calculatorKey ?? undefined,
-      promotionId: adj.promotionId ?? undefined,
-      rate: adj.rate ?? undefined,
-      amountNet: adj.amountNet ?? undefined,
-      amountGross: adj.amountGross ?? undefined,
-      currencyCode: adj.currencyCode ?? order.currencyCode,
-      metadata: adj.metadata ?? undefined,
-      customFields: (adj as any).customFields ?? undefined,
-      position: adj.position ?? index,
-    }));
-    let eventBus: EventBus | null = null;
-    try {
-      eventBus = ctx.container.resolve("eventBus") as EventBus;
-    } catch {
-      eventBus = null;
-    }
-    // Persist the adjustment change and recalculated totals atomically so a
-    // mid-build failure cannot leave a half-updated order committed (#2336).
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          await replaceOrderAdjustments(em, order, calculation, adjustmentInputs);
-          applyOrderTotals(order, calculation.totals, calculation.lines.length);
-          order.updatedAt = new Date();
-          await emitTotalsCalculated(eventBus, {
+
+      const [existingLines, existingAdjustments] = await Promise.all([
+        em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
+        em.find(
+          SalesOrderAdjustment,
+          { order },
+          { orderBy: { position: "asc" } },
+        ),
+      ]);
+      const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
+      const adjustmentDrafts = existingAdjustments.map(mapOrderAdjustmentToDraft);
+      const existingSnapshot = parsed.id
+        ? (adjustmentDrafts.find((adj) => adj.id === parsed.id) ?? null)
+        : null;
+      const adjustmentId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
+      let metadata =
+        typeof parsed.metadata === "object" && parsed.metadata
+          ? cloneJson(parsed.metadata)
+          : existingSnapshot?.metadata
+            ? cloneJson(existingSnapshot.metadata)
+            : null;
+      const calculatorKey =
+        parsed.calculatorKey ?? existingSnapshot?.calculatorKey ?? null;
+      if (
+        parsed.id &&
+        calculatorKey &&
+        (calculatorKey.startsWith("shipping-provider:") ||
+          calculatorKey.startsWith("payment-provider:"))
+      ) {
+        metadata = { ...(metadata ?? {}), manualOverride: true };
+      }
+      let nextAdjustments = parsed.id
+        ? adjustmentDrafts.map((adj) =>
+            adj.id === parsed.id
+              ? {
+                  ...adj,
+                  id: adjustmentId,
+                  scope: parsed.scope ?? adj.scope ?? "order",
+                  kind: parsed.kind ?? adj.kind ?? "custom",
+                  code: parsed.code ?? adj.code ?? null,
+                  label: parsed.label ?? adj.label ?? null,
+                  calculatorKey:
+                    parsed.calculatorKey ?? adj.calculatorKey ?? null,
+                  promotionId: parsed.promotionId ?? adj.promotionId ?? null,
+                  rate: parsed.rate ?? adj.rate ?? null,
+                  amountNet: parsed.amountNet ?? adj.amountNet ?? null,
+                  amountNetExact:
+                    parsed.amountNet !== undefined && parsed.amountNet !== null
+                      ? parsed.amountNetExact
+                      : (adj.amountNetExact ?? null),
+                  amountGross: parsed.amountGross ?? adj.amountGross ?? null,
+                  amountGrossExact:
+                    parsed.amountGross !== undefined && parsed.amountGross !== null
+                      ? parsed.amountGrossExact
+                      : (adj.amountGrossExact ?? null),
+                  currencyCode:
+                    parsed.currencyCode ?? adj.currencyCode ?? order.currencyCode,
+                  metadata,
+                  customFields:
+                    parsed.customFields !== undefined
+                      ? parsed.customFields
+                      : ((adj as any).customFields ?? null),
+                  position:
+                    parsed.position ?? adj.position ?? adjustmentDrafts.length,
+                }
+              : adj,
+          )
+        : [
+            ...adjustmentDrafts,
+            {
+              id: adjustmentId,
+              scope: parsed.scope ?? "order",
+              kind: parsed.kind ?? "custom",
+              code: parsed.code ?? null,
+              label: parsed.label ?? null,
+              calculatorKey: parsed.calculatorKey ?? null,
+              promotionId: parsed.promotionId ?? null,
+              rate: parsed.rate ?? null,
+              amountNet: parsed.amountNet ?? null,
+              amountNetExact: parsed.amountNetExact ?? null,
+              amountGross: parsed.amountGross ?? null,
+              amountGrossExact: parsed.amountGrossExact ?? null,
+              currencyCode: parsed.currencyCode ?? order.currencyCode,
+              metadata,
+              customFields: parsed.customFields ?? null,
+              position: parsed.position ?? adjustmentDrafts.length,
+            },
+          ];
+
+      nextAdjustments = nextAdjustments
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+        .map((adj, index) => ({ ...adj, position: adj.position ?? index }));
+
+      const sourceLines = lineSnapshots.map((line, index) => ({
+        ...line,
+        statusEntryId: (line as any).statusEntryId ?? null,
+        catalogSnapshot: (line as any).catalogSnapshot ?? null,
+        promotionSnapshot: (line as any).promotionSnapshot ?? null,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        orderId: order.id,
+        lineNumber: line.lineNumber ?? index + 1,
+      }));
+      const calcLines = sourceLines.map((line, index) =>
+        createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
+      );
+      const salesCalculationService =
+        ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+      const calculationContext = buildCalculationContext({
+        tenantId: order.tenantId,
+        organizationId: order.organizationId,
+        currencyCode: order.currencyCode,
+        shippingSnapshot: order.shippingMethodSnapshot,
+        paymentSnapshot: order.paymentMethodSnapshot,
+        shippingMethodId: order.shippingMethodId ?? null,
+        paymentMethodId: order.paymentMethodId ?? null,
+        shippingMethodCode: order.shippingMethodCode ?? null,
+        paymentMethodCode: order.paymentMethodCode ?? null,
+      });
+      const effectiveAdjustment = nextAdjustments.find(
+        (adj) => adj.id === adjustmentId,
+      );
+      if (effectiveAdjustment?.kind === "return") {
+        const baselineAdjustments = nextAdjustments.filter(
+          (adj) => adj.id !== adjustmentId,
+        );
+        const baselineCalculation =
+          await salesCalculationService.calculateDocumentTotals({
             documentKind: "order",
-            documentId: order.id,
-            organizationId: order.organizationId,
-            tenantId: order.tenantId,
-            customerId: order.customerEntityId ?? null,
-            totals: calculation.totals,
-            lineCount: calculation.lines.length,
+            lines: calcLines,
+            adjustments: baselineAdjustments,
+            context: calculationContext,
+            existingTotals: resolveExistingPaymentTotals(order),
           });
-        },
-      ],
-      { transaction: true },
-    );
-    return { orderId: order.id, adjustmentId };
+        const issues = validateReturnAdjustmentWithinRemaining({
+          kind: "return",
+          amountNet:
+            effectiveAdjustment.amountNet ?? effectiveAdjustment.amountGross ?? 0,
+          amountNetExact:
+            effectiveAdjustment.amountNet !== null && effectiveAdjustment.amountNet !== undefined
+              ? effectiveAdjustment.amountNetExact
+              : effectiveAdjustment.amountGrossExact,
+          amountGross:
+            effectiveAdjustment.amountGross ?? effectiveAdjustment.amountNet ?? 0,
+          amountGrossExact:
+            effectiveAdjustment.amountGross !== null && effectiveAdjustment.amountGross !== undefined
+              ? effectiveAdjustment.amountGrossExact
+              : effectiveAdjustment.amountNetExact,
+          remainingNet: Number(
+            baselineCalculation.totals?.grandTotalNetAmount ?? 0,
+          ),
+          remainingNetExact: baselineCalculation.totals?.grandTotalNetAmountExact,
+          remainingGross: Number(
+            baselineCalculation.totals?.grandTotalGrossAmount ?? 0,
+          ),
+          remainingGrossExact: baselineCalculation.totals?.grandTotalGrossAmountExact,
+          amountDecimalPlaces: await resolveCurrencyAmountDecimalPlaces(ctx.container, {
+            code: calculationContext.currencyCode,
+            tenantId: calculationContext.tenantId,
+            organizationId: calculationContext.organizationId,
+          }),
+        });
+        if (issues.length > 0) {
+          const { translate } = await resolveTranslations();
+          const grossIssue = issues.find((issue) => issue.path === "amountGross");
+          const netIssue = issues.find((issue) => issue.path === "amountNet");
+          const fieldErrors: Record<string, string> = {};
+          if (grossIssue) {
+            fieldErrors.amountGross = translate(
+              "sales.adjustments.error.returnExceedsRemainingGrandTotalGross",
+              RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
+            );
+          }
+          if (netIssue) {
+            fieldErrors.amountNet = translate(
+              "sales.adjustments.error.returnExceedsRemainingGrandTotalNet",
+              RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE,
+            );
+          }
+          throw new CrudHttpError(400, {
+            error:
+              fieldErrors.amountGross ??
+              fieldErrors.amountNet ??
+              translate(
+                "sales.adjustments.error.returnExceedsRemainingGrandTotalGross",
+                RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
+              ),
+            fieldErrors,
+          });
+        }
+      }
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: "order",
+        lines: calcLines,
+        adjustments: nextAdjustments,
+        context: calculationContext,
+        existingTotals: resolveExistingPaymentTotals(order),
+      });
+      const adjustmentInputs = nextAdjustments.map((adj, index) => ({
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        orderId: order.id,
+        scope: adj.scope ?? "order",
+        kind: adj.kind ?? "custom",
+        code: adj.code ?? undefined,
+        label: adj.label ?? undefined,
+        calculatorKey: adj.calculatorKey ?? undefined,
+        promotionId: adj.promotionId ?? undefined,
+        rate: adj.rate ?? undefined,
+        amountNet: adj.amountNet ?? undefined,
+        amountGross: adj.amountGross ?? undefined,
+        currencyCode: adj.currencyCode ?? order.currencyCode,
+        metadata: adj.metadata ?? undefined,
+        customFields: (adj as any).customFields ?? undefined,
+        position: adj.position ?? index,
+      }));
+      await replaceOrderAdjustments(em, order, calculation, adjustmentInputs);
+      applyOrderTotals(order, calculation.totals, calculation.lines.length);
+      order.updatedAt = new Date();
+      return { result: { orderId: order.id, adjustmentId }, calculation };
+    });
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadOrderSnapshot(em, result.orderId);
-  },
+  captureAfter: async (_input, result, ctx) =>
+    captureLockedOrderGraphAfter(ctx, result, result.orderId),
   buildLog: async ({ snapshots, result }) => {
-    const before = snapshots.before as OrderGraphSnapshot | undefined;
+    const before = resolveLockedOrderGraphBefore(result, snapshots.before);
     const after = snapshots.after as OrderGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
@@ -8717,136 +9796,91 @@ const orderAdjustmentDeleteCommand: CommandHandler<
   { orderId: string; adjustmentId: string }
 > = {
   id: "sales.orders.adjustments.delete",
-  async prepare(input, ctx) {
-    const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
-    const orderId = typeof raw.orderId === "string" ? raw.orderId : null;
-    if (!orderId) return {};
-    const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadOrderSnapshot(em, orderId);
-    if (snapshot)
-      ensureOrderScope(
-        ctx,
-        snapshot.order.organizationId,
-        snapshot.order.tenantId,
-      );
-    return snapshot ? { before: snapshot } : {};
+  async prepare(input) {
+    return markLockedGraphWrite(input);
   },
   async execute(input, ctx) {
     const parsed = orderAdjustmentDeleteSchema.parse(
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await findOneWithDecryption(em, SalesOrder, {
-      id: parsed.orderId,
-      deletedAt: null,
-    });
-    if (!order)
-      throw notFound("Sales order not found");
-    ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
-
-    const [existingLines, adjustments] = await Promise.all([
-      em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
-      em.find(
-        SalesOrderAdjustment,
-        { order },
-        { orderBy: { position: "asc" } },
-      ),
-    ]);
-    const filtered = adjustments.filter((adj) => adj.id !== parsed.id);
-    if (filtered.length === adjustments.length) {
-      throw notFound("Adjustment not found");
-    }
-    const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
-    const calcLines = lineSnapshots.map((line, index) =>
-      createLineSnapshotFromInput(
-        {
-          ...line,
-          organizationId: order.organizationId,
-          tenantId: order.tenantId,
-          orderId: order.id,
-          lineNumber: line.lineNumber ?? index + 1,
-          statusEntryId: (line as any).statusEntryId ?? null,
-          catalogSnapshot: (line as any).catalogSnapshot ?? null,
-          promotionSnapshot: (line as any).promotionSnapshot ?? null,
-        },
-        line.lineNumber ?? index + 1,
-      ),
-    );
-    const adjustmentDrafts = filtered.map(mapOrderAdjustmentToDraft);
-    const salesCalculationService =
-      ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: order.tenantId,
-      organizationId: order.organizationId,
-      currencyCode: order.currencyCode,
-      shippingSnapshot: order.shippingMethodSnapshot,
-      paymentSnapshot: order.paymentMethodSnapshot,
-      shippingMethodId: order.shippingMethodId ?? null,
-      paymentMethodId: order.paymentMethodId ?? null,
-      shippingMethodCode: order.shippingMethodCode ?? null,
-      paymentMethodCode: order.paymentMethodCode ?? null,
-    });
-    const calculation = await salesCalculationService.calculateDocumentTotals({
-      documentKind: "order",
-      lines: calcLines,
-      adjustments: adjustmentDrafts,
-      context: calculationContext,
-      existingTotals: resolveExistingPaymentTotals(order),
-    });
-    const adjustmentInputs = adjustmentDrafts.map((adj, index) => ({
-      organizationId: order.organizationId,
-      tenantId: order.tenantId,
-      orderId: order.id,
-      scope: adj.scope ?? "order",
-      kind: adj.kind ?? "custom",
-      code: adj.code ?? undefined,
-      label: adj.label ?? undefined,
-      calculatorKey: adj.calculatorKey ?? undefined,
-      promotionId: adj.promotionId ?? undefined,
-      rate: adj.rate ?? undefined,
-      amountNet: adj.amountNet ?? undefined,
-      amountGross: adj.amountGross ?? undefined,
-      currencyCode: adj.currencyCode ?? order.currencyCode,
-      metadata: adj.metadata ?? undefined,
-      position: adj.position ?? index,
-    }));
-    let eventBus: EventBus | null = null;
-    try {
-      eventBus = ctx.container.resolve("eventBus") as EventBus;
-    } catch {
-      eventBus = null;
-    }
-    // Persist the adjustment removal and recalculated totals atomically so a
-    // mid-build failure cannot leave a half-updated order committed (#2336).
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          await replaceOrderAdjustments(em, order, calculation, adjustmentInputs);
-          applyOrderTotals(order, calculation.totals, calculation.lines.length);
-          order.updatedAt = new Date();
-          await emitTotalsCalculated(eventBus, {
-            documentKind: "order",
-            documentId: order.id,
+    return writeLockedOrderGraph(input, ctx, parsed.orderId, "Sales order not found", async (em, order) => {
+      if (isExternalAmountsMode(order.totalsMode ?? "computed")) await refuseOnExternalOrder();
+      const [existingLines, adjustments] = await Promise.all([
+        em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
+        em.find(
+          SalesOrderAdjustment,
+          { order },
+          { orderBy: { position: "asc" } },
+        ),
+      ]);
+      const filtered = adjustments.filter((adj) => adj.id !== parsed.id);
+      if (filtered.length === adjustments.length) {
+        throw notFound("Adjustment not found");
+      }
+      const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
+      const calcLines = lineSnapshots.map((line, index) =>
+        createLineSnapshotFromInput(
+          {
+            ...line,
             organizationId: order.organizationId,
             tenantId: order.tenantId,
-            customerId: order.customerEntityId ?? null,
-            totals: calculation.totals,
-            lineCount: calculation.lines.length,
-          });
-        },
-      ],
-      { transaction: true },
-    );
-    return { orderId: order.id, adjustmentId: parsed.id };
+            orderId: order.id,
+            lineNumber: line.lineNumber ?? index + 1,
+            statusEntryId: (line as any).statusEntryId ?? null,
+            catalogSnapshot: (line as any).catalogSnapshot ?? null,
+            promotionSnapshot: (line as any).promotionSnapshot ?? null,
+          },
+          line.lineNumber ?? index + 1,
+        ),
+      );
+      const adjustmentDrafts = filtered.map(mapOrderAdjustmentToDraft);
+      const salesCalculationService =
+        ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+      const calculationContext = buildCalculationContext({
+        tenantId: order.tenantId,
+        organizationId: order.organizationId,
+        currencyCode: order.currencyCode,
+        shippingSnapshot: order.shippingMethodSnapshot,
+        paymentSnapshot: order.paymentMethodSnapshot,
+        shippingMethodId: order.shippingMethodId ?? null,
+        paymentMethodId: order.paymentMethodId ?? null,
+        shippingMethodCode: order.shippingMethodCode ?? null,
+        paymentMethodCode: order.paymentMethodCode ?? null,
+      });
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: "order",
+        lines: calcLines,
+        adjustments: adjustmentDrafts,
+        context: calculationContext,
+        existingTotals: resolveExistingPaymentTotals(order),
+      });
+      const adjustmentInputs = adjustmentDrafts.map((adj, index) => ({
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        orderId: order.id,
+        scope: adj.scope ?? "order",
+        kind: adj.kind ?? "custom",
+        code: adj.code ?? undefined,
+        label: adj.label ?? undefined,
+        calculatorKey: adj.calculatorKey ?? undefined,
+        promotionId: adj.promotionId ?? undefined,
+        rate: adj.rate ?? undefined,
+        amountNet: adj.amountNet ?? undefined,
+        amountGross: adj.amountGross ?? undefined,
+        currencyCode: adj.currencyCode ?? order.currencyCode,
+        metadata: adj.metadata ?? undefined,
+        position: adj.position ?? index,
+      }));
+      await replaceOrderAdjustments(em, order, calculation, adjustmentInputs);
+      applyOrderTotals(order, calculation.totals, calculation.lines.length);
+      order.updatedAt = new Date();
+      return { result: { orderId: order.id, adjustmentId: parsed.id }, calculation };
+    });
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadOrderSnapshot(em, result.orderId);
-  },
+  captureAfter: async (_input, result, ctx) =>
+    captureLockedOrderGraphAfter(ctx, result, result.orderId),
   buildLog: async ({ snapshots, result }) => {
-    const before = snapshots.before as OrderGraphSnapshot | undefined;
+    const before = resolveLockedOrderGraphBefore(result, snapshots.before);
     const after = snapshots.after as OrderGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
@@ -8879,263 +9913,247 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
   { quoteId: string; adjustmentId: string }
 > = {
   id: "sales.quotes.adjustments.upsert",
-  async prepare(input, ctx) {
-    const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
-    const quoteId = typeof raw.quoteId === "string" ? raw.quoteId : null;
-    if (!quoteId) return {};
-    const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadQuoteSnapshot(em, quoteId);
-    if (snapshot)
-      ensureQuoteScope(
-        ctx,
-        snapshot.quote.organizationId,
-        snapshot.quote.tenantId,
-      );
-    return snapshot ? { before: snapshot } : {};
+  async prepare(input) {
+    return markLockedGraphWrite(input);
   },
   async execute(input, ctx) {
-    const parsed = quoteAdjustmentUpsertSchema.parse(
-      (input?.body as Record<string, unknown> | undefined) ?? {},
-    );
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await findOneWithDecryption(em, SalesQuote, {
-      id: parsed.quoteId,
-      deletedAt: null,
-    });
-    if (!quote)
-      throw notFound("Sales quote not found");
-    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
-    if (parsed.scope === "line") {
-      throw new CrudHttpError(400, {
-        error: "Line-scoped adjustments are not supported yet.",
-      });
-    }
-
-    const [existingLines, existingAdjustments] = await Promise.all([
-      em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
-      em.find(
-        SalesQuoteAdjustment,
-        { quote },
-        { orderBy: { position: "asc" } },
+    const parsed = withExactAmounts(
+      quoteAdjustmentUpsertSchema.parse(
+        (input?.body as Record<string, unknown> | undefined) ?? {},
       ),
-    ]);
-    const lineSnapshots = existingLines.map(mapQuoteLineEntityToSnapshot);
-    const adjustmentDrafts = existingAdjustments.map(mapQuoteAdjustmentToDraft);
-    const existingSnapshot = parsed.id
-      ? (adjustmentDrafts.find((adj) => adj.id === parsed.id) ?? null)
-      : null;
-    const adjustmentId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-    let metadata =
-      typeof parsed.metadata === "object" && parsed.metadata
-        ? cloneJson(parsed.metadata)
-        : existingSnapshot?.metadata
-          ? cloneJson(existingSnapshot.metadata)
-          : null;
-    const calculatorKey =
-      parsed.calculatorKey ?? existingSnapshot?.calculatorKey ?? null;
-    if (
-      parsed.id &&
-      calculatorKey &&
-      (calculatorKey.startsWith("shipping-provider:") ||
-        calculatorKey.startsWith("payment-provider:"))
-    ) {
-      metadata = { ...(metadata ?? {}), manualOverride: true };
-    }
-    let nextAdjustments = parsed.id
-      ? adjustmentDrafts.map((adj) =>
-          adj.id === parsed.id
-            ? {
-                ...adj,
-                id: adjustmentId,
-                scope: parsed.scope ?? adj.scope ?? "order",
-                kind: parsed.kind ?? adj.kind ?? "custom",
-                code: parsed.code ?? adj.code ?? null,
-                label: parsed.label ?? adj.label ?? null,
-                calculatorKey:
-                  parsed.calculatorKey ?? adj.calculatorKey ?? null,
-                promotionId: parsed.promotionId ?? adj.promotionId ?? null,
-                rate: parsed.rate ?? adj.rate ?? null,
-                amountNet: parsed.amountNet ?? adj.amountNet ?? null,
-                amountGross: parsed.amountGross ?? adj.amountGross ?? null,
-                currencyCode:
-                  parsed.currencyCode ?? adj.currencyCode ?? quote.currencyCode,
-                metadata,
-                customFields:
-                  parsed.customFields !== undefined
-                    ? parsed.customFields
-                    : ((adj as any).customFields ?? null),
-                position:
-                  parsed.position ?? adj.position ?? adjustmentDrafts.length,
-              }
-            : adj,
-        )
-      : [
-          ...adjustmentDrafts,
-          {
-            id: adjustmentId,
-            scope: parsed.scope ?? "order",
-            kind: parsed.kind ?? "custom",
-            code: parsed.code ?? null,
-            label: parsed.label ?? null,
-            calculatorKey: parsed.calculatorKey ?? null,
-            promotionId: parsed.promotionId ?? null,
-            rate: parsed.rate ?? null,
-            amountNet: parsed.amountNet ?? null,
-            amountGross: parsed.amountGross ?? null,
-            currencyCode: parsed.currencyCode ?? quote.currencyCode,
-            metadata,
-            customFields: parsed.customFields ?? null,
-            position: parsed.position ?? adjustmentDrafts.length,
-          },
-        ];
-
-    nextAdjustments = nextAdjustments
-      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-      .map((adj, index) => ({ ...adj, position: adj.position ?? index }));
-
-    const sourceLines = lineSnapshots.map((line, index) => ({
-      ...line,
-      statusEntryId: (line as any).statusEntryId ?? null,
-      catalogSnapshot: (line as any).catalogSnapshot ?? null,
-      promotionSnapshot: (line as any).promotionSnapshot ?? null,
-      organizationId: quote.organizationId,
-      tenantId: quote.tenantId,
-      quoteId: quote.id,
-      lineNumber: line.lineNumber ?? index + 1,
-    }));
-    const calcLines = sourceLines.map((line, index) =>
-      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
+      input?.body,
+      ADJUSTMENT_EXACT_AMOUNT_FIELDS,
     );
-    const salesCalculationService =
-      ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-      currencyCode: quote.currencyCode,
-      shippingSnapshot: quote.shippingMethodSnapshot,
-      paymentSnapshot: quote.paymentMethodSnapshot,
-      shippingMethodId: quote.shippingMethodId ?? null,
-      paymentMethodId: quote.paymentMethodId ?? null,
-      shippingMethodCode: quote.shippingMethodCode ?? null,
-      paymentMethodCode: quote.paymentMethodCode ?? null,
-    });
-    const effectiveAdjustment = nextAdjustments.find(
-      (adj) => adj.id === adjustmentId,
-    );
-    if (effectiveAdjustment?.kind === "return") {
-      const baselineAdjustments = nextAdjustments.filter(
-        (adj) => adj.id !== adjustmentId,
-      );
-      const baselineCalculation =
-        await salesCalculationService.calculateDocumentTotals({
-          documentKind: "quote",
-          lines: calcLines,
-          adjustments: baselineAdjustments,
-          context: calculationContext,
-        });
-      const issues = validateReturnAdjustmentWithinRemaining({
-        kind: "return",
-        amountNet:
-          effectiveAdjustment.amountNet ?? effectiveAdjustment.amountGross ?? 0,
-        amountGross:
-          effectiveAdjustment.amountGross ?? effectiveAdjustment.amountNet ?? 0,
-        remainingNet: Number(
-          baselineCalculation.totals?.grandTotalNetAmount ?? 0,
-        ),
-        remainingGross: Number(
-          baselineCalculation.totals?.grandTotalGrossAmount ?? 0,
-        ),
-      });
-      if (issues.length > 0) {
-        const { translate } = await resolveTranslations();
-        const grossIssue = issues.find((issue) => issue.path === "amountGross");
-        const netIssue = issues.find((issue) => issue.path === "amountNet");
-        const fieldErrors: Record<string, string> = {};
-        if (grossIssue) {
-          fieldErrors.amountGross = translate(
-            "sales.adjustments.error.returnExceedsRemainingGrandTotalGross",
-            RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
-          );
-        }
-        if (netIssue) {
-          fieldErrors.amountNet = translate(
-            "sales.adjustments.error.returnExceedsRemainingGrandTotalNet",
-            RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE,
-          );
-        }
+    return writeLockedQuoteGraph(input, ctx, parsed.quoteId, "Sales quote not found", async (em, quote) => {
+      if (parsed.scope === "line") {
         throw new CrudHttpError(400, {
-          error:
-            fieldErrors.amountGross ??
-            fieldErrors.amountNet ??
-            translate(
-              "sales.adjustments.error.returnExceedsRemainingGrandTotalGross",
-              RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
-            ),
-          fieldErrors,
+          error: "Line-scoped adjustments are not supported yet.",
         });
       }
-    }
-    const calculation = await salesCalculationService.calculateDocumentTotals({
-      documentKind: "quote",
-      lines: calcLines,
-      adjustments: nextAdjustments,
-      context: calculationContext,
-    });
-    const adjustmentInputs = nextAdjustments.map((adj, index) => ({
-      organizationId: quote.organizationId,
-      tenantId: quote.tenantId,
-      quoteId: quote.id,
-      scope: adj.scope ?? "order",
-      kind: adj.kind ?? "custom",
-      code: adj.code ?? undefined,
-      label: adj.label ?? undefined,
-      calculatorKey: adj.calculatorKey ?? undefined,
-      promotionId: adj.promotionId ?? undefined,
-      rate: adj.rate ?? undefined,
-      amountNet: adj.amountNet ?? undefined,
-      amountGross: adj.amountGross ?? undefined,
-      currencyCode: adj.currencyCode ?? quote.currencyCode,
-      metadata: adj.metadata ?? undefined,
-      customFields: (adj as any).customFields ?? undefined,
-      position: adj.position ?? index,
-    }));
-    let eventBus: EventBus | null = null;
-    try {
-      eventBus = ctx.container.resolve("eventBus") as EventBus;
-    } catch {
-      eventBus = null;
-    }
-    // Persist the adjustment change and recalculated totals atomically so a
-    // mid-build failure cannot leave a half-updated quote committed (#2336).
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          await replaceQuoteAdjustments(em, quote, calculation, adjustmentInputs);
-          applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
-          quote.updatedAt = new Date();
-          await emitTotalsCalculated(eventBus, {
+
+      const [existingLines, existingAdjustments] = await Promise.all([
+        em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
+        em.find(
+          SalesQuoteAdjustment,
+          { quote },
+          { orderBy: { position: "asc" } },
+        ),
+      ]);
+      const lineSnapshots = existingLines.map(mapQuoteLineEntityToSnapshot);
+      const adjustmentDrafts = existingAdjustments.map(mapQuoteAdjustmentToDraft);
+      const existingSnapshot = parsed.id
+        ? (adjustmentDrafts.find((adj) => adj.id === parsed.id) ?? null)
+        : null;
+      const adjustmentId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
+      let metadata =
+        typeof parsed.metadata === "object" && parsed.metadata
+          ? cloneJson(parsed.metadata)
+          : existingSnapshot?.metadata
+            ? cloneJson(existingSnapshot.metadata)
+            : null;
+      const calculatorKey =
+        parsed.calculatorKey ?? existingSnapshot?.calculatorKey ?? null;
+      if (
+        parsed.id &&
+        calculatorKey &&
+        (calculatorKey.startsWith("shipping-provider:") ||
+          calculatorKey.startsWith("payment-provider:"))
+      ) {
+        metadata = { ...(metadata ?? {}), manualOverride: true };
+      }
+      let nextAdjustments = parsed.id
+        ? adjustmentDrafts.map((adj) =>
+            adj.id === parsed.id
+              ? {
+                  ...adj,
+                  id: adjustmentId,
+                  scope: parsed.scope ?? adj.scope ?? "order",
+                  kind: parsed.kind ?? adj.kind ?? "custom",
+                  code: parsed.code ?? adj.code ?? null,
+                  label: parsed.label ?? adj.label ?? null,
+                  calculatorKey:
+                    parsed.calculatorKey ?? adj.calculatorKey ?? null,
+                  promotionId: parsed.promotionId ?? adj.promotionId ?? null,
+                  rate: parsed.rate ?? adj.rate ?? null,
+                  amountNet: parsed.amountNet ?? adj.amountNet ?? null,
+                  amountNetExact:
+                    parsed.amountNet !== undefined && parsed.amountNet !== null
+                      ? parsed.amountNetExact
+                      : (adj.amountNetExact ?? null),
+                  amountGross: parsed.amountGross ?? adj.amountGross ?? null,
+                  amountGrossExact:
+                    parsed.amountGross !== undefined && parsed.amountGross !== null
+                      ? parsed.amountGrossExact
+                      : (adj.amountGrossExact ?? null),
+                  currencyCode:
+                    parsed.currencyCode ?? adj.currencyCode ?? quote.currencyCode,
+                  metadata,
+                  customFields:
+                    parsed.customFields !== undefined
+                      ? parsed.customFields
+                      : ((adj as any).customFields ?? null),
+                  position:
+                    parsed.position ?? adj.position ?? adjustmentDrafts.length,
+                }
+              : adj,
+          )
+        : [
+            ...adjustmentDrafts,
+            {
+              id: adjustmentId,
+              scope: parsed.scope ?? "order",
+              kind: parsed.kind ?? "custom",
+              code: parsed.code ?? null,
+              label: parsed.label ?? null,
+              calculatorKey: parsed.calculatorKey ?? null,
+              promotionId: parsed.promotionId ?? null,
+              rate: parsed.rate ?? null,
+              amountNet: parsed.amountNet ?? null,
+              amountNetExact: parsed.amountNetExact ?? null,
+              amountGross: parsed.amountGross ?? null,
+              amountGrossExact: parsed.amountGrossExact ?? null,
+              currencyCode: parsed.currencyCode ?? quote.currencyCode,
+              metadata,
+              customFields: parsed.customFields ?? null,
+              position: parsed.position ?? adjustmentDrafts.length,
+            },
+          ];
+
+      nextAdjustments = nextAdjustments
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+        .map((adj, index) => ({ ...adj, position: adj.position ?? index }));
+
+      const sourceLines = lineSnapshots.map((line, index) => ({
+        ...line,
+        statusEntryId: (line as any).statusEntryId ?? null,
+        catalogSnapshot: (line as any).catalogSnapshot ?? null,
+        promotionSnapshot: (line as any).promotionSnapshot ?? null,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        quoteId: quote.id,
+        lineNumber: line.lineNumber ?? index + 1,
+      }));
+      const calcLines = sourceLines.map((line, index) =>
+        createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
+      );
+      const salesCalculationService =
+        ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+      const calculationContext = buildCalculationContext({
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+        currencyCode: quote.currencyCode,
+        shippingSnapshot: quote.shippingMethodSnapshot,
+        paymentSnapshot: quote.paymentMethodSnapshot,
+        shippingMethodId: quote.shippingMethodId ?? null,
+        paymentMethodId: quote.paymentMethodId ?? null,
+        shippingMethodCode: quote.shippingMethodCode ?? null,
+        paymentMethodCode: quote.paymentMethodCode ?? null,
+      });
+      const effectiveAdjustment = nextAdjustments.find(
+        (adj) => adj.id === adjustmentId,
+      );
+      if (effectiveAdjustment?.kind === "return") {
+        const baselineAdjustments = nextAdjustments.filter(
+          (adj) => adj.id !== adjustmentId,
+        );
+        const baselineCalculation =
+          await salesCalculationService.calculateDocumentTotals({
             documentKind: "quote",
-            documentId: quote.id,
-            organizationId: quote.organizationId,
-            tenantId: quote.tenantId,
-            customerId: quote.customerEntityId ?? null,
-            totals: calculation.totals,
-            lineCount: calculation.lines.length,
+            lines: calcLines,
+            adjustments: baselineAdjustments,
+            context: calculationContext,
           });
-        },
-      ],
-      { transaction: true },
-    );
-    return { quoteId: quote.id, adjustmentId };
+        const issues = validateReturnAdjustmentWithinRemaining({
+          kind: "return",
+          amountNet:
+            effectiveAdjustment.amountNet ?? effectiveAdjustment.amountGross ?? 0,
+          amountNetExact:
+            effectiveAdjustment.amountNet !== null && effectiveAdjustment.amountNet !== undefined
+              ? effectiveAdjustment.amountNetExact
+              : effectiveAdjustment.amountGrossExact,
+          amountGross:
+            effectiveAdjustment.amountGross ?? effectiveAdjustment.amountNet ?? 0,
+          amountGrossExact:
+            effectiveAdjustment.amountGross !== null && effectiveAdjustment.amountGross !== undefined
+              ? effectiveAdjustment.amountGrossExact
+              : effectiveAdjustment.amountNetExact,
+          remainingNet: Number(
+            baselineCalculation.totals?.grandTotalNetAmount ?? 0,
+          ),
+          remainingNetExact: baselineCalculation.totals?.grandTotalNetAmountExact,
+          remainingGross: Number(
+            baselineCalculation.totals?.grandTotalGrossAmount ?? 0,
+          ),
+          remainingGrossExact: baselineCalculation.totals?.grandTotalGrossAmountExact,
+          amountDecimalPlaces: await resolveCurrencyAmountDecimalPlaces(ctx.container, {
+            code: calculationContext.currencyCode,
+            tenantId: calculationContext.tenantId,
+            organizationId: calculationContext.organizationId,
+          }),
+        });
+        if (issues.length > 0) {
+          const { translate } = await resolveTranslations();
+          const grossIssue = issues.find((issue) => issue.path === "amountGross");
+          const netIssue = issues.find((issue) => issue.path === "amountNet");
+          const fieldErrors: Record<string, string> = {};
+          if (grossIssue) {
+            fieldErrors.amountGross = translate(
+              "sales.adjustments.error.returnExceedsRemainingGrandTotalGross",
+              RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
+            );
+          }
+          if (netIssue) {
+            fieldErrors.amountNet = translate(
+              "sales.adjustments.error.returnExceedsRemainingGrandTotalNet",
+              RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE,
+            );
+          }
+          throw new CrudHttpError(400, {
+            error:
+              fieldErrors.amountGross ??
+              fieldErrors.amountNet ??
+              translate(
+                "sales.adjustments.error.returnExceedsRemainingGrandTotalGross",
+                RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE,
+              ),
+            fieldErrors,
+          });
+        }
+      }
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: "quote",
+        lines: calcLines,
+        adjustments: nextAdjustments,
+        context: calculationContext,
+      });
+      const adjustmentInputs = nextAdjustments.map((adj, index) => ({
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        quoteId: quote.id,
+        scope: adj.scope ?? "order",
+        kind: adj.kind ?? "custom",
+        code: adj.code ?? undefined,
+        label: adj.label ?? undefined,
+        calculatorKey: adj.calculatorKey ?? undefined,
+        promotionId: adj.promotionId ?? undefined,
+        rate: adj.rate ?? undefined,
+        amountNet: adj.amountNet ?? undefined,
+        amountGross: adj.amountGross ?? undefined,
+        currencyCode: adj.currencyCode ?? quote.currencyCode,
+        metadata: adj.metadata ?? undefined,
+        customFields: (adj as any).customFields ?? undefined,
+        position: adj.position ?? index,
+      }));
+      await replaceQuoteAdjustments(em, quote, calculation, adjustmentInputs);
+      applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
+      quote.updatedAt = new Date();
+      return { result: { quoteId: quote.id, adjustmentId }, calculation };
+    });
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadQuoteSnapshot(em, result.quoteId);
-  },
+  captureAfter: async (_input, result, ctx) =>
+    captureLockedQuoteGraphAfter(ctx, result, result.quoteId),
   buildLog: async ({ snapshots, result }) => {
-    const before = snapshots.before as QuoteGraphSnapshot | undefined;
+    const before = resolveLockedQuoteGraphBefore(result, snapshots.before);
     const after = snapshots.after as QuoteGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
@@ -9168,135 +10186,89 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
   { quoteId: string; adjustmentId: string }
 > = {
   id: "sales.quotes.adjustments.delete",
-  async prepare(input, ctx) {
-    const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
-    const quoteId = typeof raw.quoteId === "string" ? raw.quoteId : null;
-    if (!quoteId) return {};
-    const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadQuoteSnapshot(em, quoteId);
-    if (snapshot)
-      ensureQuoteScope(
-        ctx,
-        snapshot.quote.organizationId,
-        snapshot.quote.tenantId,
-      );
-    return snapshot ? { before: snapshot } : {};
+  async prepare(input) {
+    return markLockedGraphWrite(input);
   },
   async execute(input, ctx) {
     const parsed = quoteAdjustmentDeleteSchema.parse(
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await findOneWithDecryption(em, SalesQuote, {
-      id: parsed.quoteId,
-      deletedAt: null,
-    });
-    if (!quote)
-      throw notFound("Sales quote not found");
-    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
-
-    const [existingLines, adjustments] = await Promise.all([
-      em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
-      em.find(
-        SalesQuoteAdjustment,
-        { quote },
-        { orderBy: { position: "asc" } },
-      ),
-    ]);
-    const filtered = adjustments.filter((adj) => adj.id !== parsed.id);
-    if (filtered.length === adjustments.length) {
-      throw notFound("Adjustment not found");
-    }
-    const lineSnapshots = existingLines.map(mapQuoteLineEntityToSnapshot);
-    const calcLines = lineSnapshots.map((line, index) =>
-      createLineSnapshotFromInput(
-        {
-          ...line,
-          organizationId: quote.organizationId,
-          tenantId: quote.tenantId,
-          quoteId: quote.id,
-          lineNumber: line.lineNumber ?? index + 1,
-          statusEntryId: (line as any).statusEntryId ?? null,
-          catalogSnapshot: (line as any).catalogSnapshot ?? null,
-          promotionSnapshot: (line as any).promotionSnapshot ?? null,
-        },
-        line.lineNumber ?? index + 1,
-      ),
-    );
-    const adjustmentDrafts = filtered.map(mapQuoteAdjustmentToDraft);
-    const salesCalculationService =
-      ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-      currencyCode: quote.currencyCode,
-      shippingSnapshot: quote.shippingMethodSnapshot,
-      paymentSnapshot: quote.paymentMethodSnapshot,
-      shippingMethodId: quote.shippingMethodId ?? null,
-      paymentMethodId: quote.paymentMethodId ?? null,
-      shippingMethodCode: quote.shippingMethodCode ?? null,
-      paymentMethodCode: quote.paymentMethodCode ?? null,
-    });
-    const calculation = await salesCalculationService.calculateDocumentTotals({
-      documentKind: "quote",
-      lines: calcLines,
-      adjustments: adjustmentDrafts,
-      context: calculationContext,
-    });
-    const adjustmentInputs = adjustmentDrafts.map((adj, index) => ({
-      organizationId: quote.organizationId,
-      tenantId: quote.tenantId,
-      quoteId: quote.id,
-      scope: adj.scope ?? "order",
-      kind: adj.kind ?? "custom",
-      code: adj.code ?? undefined,
-      label: adj.label ?? undefined,
-      calculatorKey: adj.calculatorKey ?? undefined,
-      promotionId: adj.promotionId ?? undefined,
-      rate: adj.rate ?? undefined,
-      amountNet: adj.amountNet ?? undefined,
-      amountGross: adj.amountGross ?? undefined,
-      currencyCode: adj.currencyCode ?? quote.currencyCode,
-      metadata: adj.metadata ?? undefined,
-      position: adj.position ?? index,
-    }));
-    let eventBus: EventBus | null = null;
-    try {
-      eventBus = ctx.container.resolve("eventBus") as EventBus;
-    } catch {
-      eventBus = null;
-    }
-    // Persist the adjustment removal and recalculated totals atomically so a
-    // mid-build failure cannot leave a half-updated quote committed (#2336).
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          await replaceQuoteAdjustments(em, quote, calculation, adjustmentInputs);
-          applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
-          quote.updatedAt = new Date();
-          await emitTotalsCalculated(eventBus, {
-            documentKind: "quote",
-            documentId: quote.id,
+    return writeLockedQuoteGraph(input, ctx, parsed.quoteId, "Sales quote not found", async (em, quote) => {
+      const [existingLines, adjustments] = await Promise.all([
+        em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
+        em.find(
+          SalesQuoteAdjustment,
+          { quote },
+          { orderBy: { position: "asc" } },
+        ),
+      ]);
+      const filtered = adjustments.filter((adj) => adj.id !== parsed.id);
+      if (filtered.length === adjustments.length) {
+        throw notFound("Adjustment not found");
+      }
+      const lineSnapshots = existingLines.map(mapQuoteLineEntityToSnapshot);
+      const calcLines = lineSnapshots.map((line, index) =>
+        createLineSnapshotFromInput(
+          {
+            ...line,
             organizationId: quote.organizationId,
             tenantId: quote.tenantId,
-            customerId: quote.customerEntityId ?? null,
-            totals: calculation.totals,
-            lineCount: calculation.lines.length,
-          });
-        },
-      ],
-      { transaction: true },
-    );
-    return { quoteId: quote.id, adjustmentId: parsed.id };
+            quoteId: quote.id,
+            lineNumber: line.lineNumber ?? index + 1,
+            statusEntryId: (line as any).statusEntryId ?? null,
+            catalogSnapshot: (line as any).catalogSnapshot ?? null,
+            promotionSnapshot: (line as any).promotionSnapshot ?? null,
+          },
+          line.lineNumber ?? index + 1,
+        ),
+      );
+      const adjustmentDrafts = filtered.map(mapQuoteAdjustmentToDraft);
+      const salesCalculationService =
+        ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+      const calculationContext = buildCalculationContext({
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+        currencyCode: quote.currencyCode,
+        shippingSnapshot: quote.shippingMethodSnapshot,
+        paymentSnapshot: quote.paymentMethodSnapshot,
+        shippingMethodId: quote.shippingMethodId ?? null,
+        paymentMethodId: quote.paymentMethodId ?? null,
+        shippingMethodCode: quote.shippingMethodCode ?? null,
+        paymentMethodCode: quote.paymentMethodCode ?? null,
+      });
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: "quote",
+        lines: calcLines,
+        adjustments: adjustmentDrafts,
+        context: calculationContext,
+      });
+      const adjustmentInputs = adjustmentDrafts.map((adj, index) => ({
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        quoteId: quote.id,
+        scope: adj.scope ?? "order",
+        kind: adj.kind ?? "custom",
+        code: adj.code ?? undefined,
+        label: adj.label ?? undefined,
+        calculatorKey: adj.calculatorKey ?? undefined,
+        promotionId: adj.promotionId ?? undefined,
+        rate: adj.rate ?? undefined,
+        amountNet: adj.amountNet ?? undefined,
+        amountGross: adj.amountGross ?? undefined,
+        currencyCode: adj.currencyCode ?? quote.currencyCode,
+        metadata: adj.metadata ?? undefined,
+        position: adj.position ?? index,
+      }));
+      await replaceQuoteAdjustments(em, quote, calculation, adjustmentInputs);
+      applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
+      quote.updatedAt = new Date();
+      return { result: { quoteId: quote.id, adjustmentId: parsed.id }, calculation };
+    });
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadQuoteSnapshot(em, result.quoteId);
-  },
+  captureAfter: async (_input, result, ctx) =>
+    captureLockedQuoteGraphAfter(ctx, result, result.quoteId),
   buildLog: async ({ snapshots, result }) => {
-    const before = snapshots.before as QuoteGraphSnapshot | undefined;
+    const before = resolveLockedQuoteGraphBefore(result, snapshots.before);
     const after = snapshots.after as QuoteGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
@@ -9360,7 +10332,11 @@ const createInvoiceCommand: CommandHandler<
               tenantId: initial.tenantId,
             })
           ).number;
-    const parsed = invoiceCreateSchema.parse({ ...initial, invoiceNumber });
+    const parsed = withExactAmounts(
+      invoiceCreateSchema.parse({ ...initial, invoiceNumber }),
+      rawInput,
+      DOCUMENT_TOTAL_EXACT_AMOUNT_FIELDS,
+    );
     const ensuredInvoiceNumber = parsed.invoiceNumber ?? invoiceNumber;
     if (!ensuredInvoiceNumber) {
       throw new CrudHttpError(400, { error: "Invoice number is required." });
@@ -9408,14 +10384,14 @@ const createInvoiceCommand: CommandHandler<
       issueDate: parsed.issueDate ?? new Date(),
       dueDate: parsed.dueDate ?? null,
       currencyCode: parsed.currencyCode,
-      subtotalNetAmount: toNumericString(parsed.subtotalNetAmount ?? 0),
-      subtotalGrossAmount: toNumericString(parsed.subtotalGrossAmount ?? 0),
-      discountTotalAmount: toNumericString(parsed.discountTotalAmount ?? 0),
-      taxTotalAmount: toNumericString(parsed.taxTotalAmount ?? 0),
-      grandTotalNetAmount: toNumericString(parsed.grandTotalNetAmount ?? 0),
-      grandTotalGrossAmount: toNumericString(parsed.grandTotalGrossAmount ?? 0),
-      paidTotalAmount: toNumericString(parsed.paidTotalAmount ?? 0),
-      outstandingAmount: toNumericString(parsed.outstandingAmount ?? 0),
+      subtotalNetAmount: exactAmountString(parsed.subtotalNetAmountExact, parsed.subtotalNetAmount ?? 0),
+      subtotalGrossAmount: exactAmountString(parsed.subtotalGrossAmountExact, parsed.subtotalGrossAmount ?? 0),
+      discountTotalAmount: exactAmountString(parsed.discountTotalAmountExact, parsed.discountTotalAmount ?? 0),
+      taxTotalAmount: exactAmountString(parsed.taxTotalAmountExact, parsed.taxTotalAmount ?? 0),
+      grandTotalNetAmount: exactAmountString(parsed.grandTotalNetAmountExact, parsed.grandTotalNetAmount ?? 0),
+      grandTotalGrossAmount: exactAmountString(parsed.grandTotalGrossAmountExact, parsed.grandTotalGrossAmount ?? 0),
+      paidTotalAmount: exactAmountString(parsed.paidTotalAmountExact, parsed.paidTotalAmount ?? 0),
+      outstandingAmount: exactAmountString(parsed.outstandingAmountExact, parsed.outstandingAmount ?? 0),
       metadata: parsed.metadata ?? null,
       customFieldSetId: parsed.customFieldSetId ?? null,
       createdAt: new Date(),
@@ -9433,7 +10409,11 @@ const createInvoiceCommand: CommandHandler<
 
           if (parsed.lines?.length) {
             for (let i = 0; i < parsed.lines.length; i++) {
-              const line = parsed.lines[i];
+              const line = withExactAmounts(
+                parsed.lines[i],
+                rawListItem(rawInput, "lines", i),
+                LINE_EXACT_AMOUNT_FIELDS,
+              );
               em.persist(
                 em.create(SalesInvoiceLine, {
                   id: randomUUID(),
@@ -9452,16 +10432,14 @@ const createInvoiceCommand: CommandHandler<
                   normalizedUnit: line.normalizedUnit ?? null,
                   uomSnapshot: line.uomSnapshot ?? null,
                   currencyCode: line.currencyCode ?? parsed.currencyCode,
-                  unitPriceNet: toNumericString(line.unitPriceNet ?? 0),
-                  unitPriceGross: toNumericString(line.unitPriceGross ?? 0),
-                  discountAmount: toNumericString(line.discountAmount ?? 0),
+                  unitPriceNet: exactAmountString(line.unitPriceNetExact, line.unitPriceNet ?? 0),
+                  unitPriceGross: exactAmountString(line.unitPriceGrossExact, line.unitPriceGross ?? 0),
+                  discountAmount: exactAmountString(line.discountAmountExact, line.discountAmount ?? 0),
                   discountPercent: toNumericString(line.discountPercent ?? 0),
                   taxRate: toNumericString(line.taxRate ?? 0),
-                  taxAmount: toNumericString(line.taxAmount ?? 0),
-                  totalNetAmount: toNumericString(
-                    deriveLineNetFromGross(line.totalNetAmount ?? 0, line.totalGrossAmount ?? 0, line.taxRate ?? 0),
-                  ),
-                  totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
+                  taxAmount: exactAmountString(line.taxAmountExact, line.taxAmount ?? 0),
+                  totalNetAmount: deriveExactLineNetFromGross(exactAmountString(line.totalNetAmountExact, line.totalNetAmount ?? 0), exactAmountString(line.totalGrossAmountExact, line.totalGrossAmount ?? 0), line.taxRate ?? 0),
+                  totalGrossAmount: exactAmountString(line.totalGrossAmountExact, line.totalGrossAmount ?? 0),
                   metadata: line.metadata ?? null,
                 }),
               );
@@ -9618,14 +10596,14 @@ function applyInvoiceHeaderUpdate(
   if (input.issueDate !== undefined) invoice.issueDate = input.issueDate;
   if (input.dueDate !== undefined) invoice.dueDate = input.dueDate;
   if (input.currencyCode !== undefined) invoice.currencyCode = input.currencyCode;
-  if (input.subtotalNetAmount !== undefined) invoice.subtotalNetAmount = toNumericString(input.subtotalNetAmount);
-  if (input.subtotalGrossAmount !== undefined) invoice.subtotalGrossAmount = toNumericString(input.subtotalGrossAmount);
-  if (input.discountTotalAmount !== undefined) invoice.discountTotalAmount = toNumericString(input.discountTotalAmount);
-  if (input.taxTotalAmount !== undefined) invoice.taxTotalAmount = toNumericString(input.taxTotalAmount);
-  if (input.grandTotalNetAmount !== undefined) invoice.grandTotalNetAmount = toNumericString(input.grandTotalNetAmount);
-  if (input.grandTotalGrossAmount !== undefined) invoice.grandTotalGrossAmount = toNumericString(input.grandTotalGrossAmount);
-  if (input.paidTotalAmount !== undefined) invoice.paidTotalAmount = toNumericString(input.paidTotalAmount);
-  if (input.outstandingAmount !== undefined) invoice.outstandingAmount = toNumericString(input.outstandingAmount);
+  if (input.subtotalNetAmount !== undefined) invoice.subtotalNetAmount = exactAmountString(input.subtotalNetAmountExact, input.subtotalNetAmount);
+  if (input.subtotalGrossAmount !== undefined) invoice.subtotalGrossAmount = exactAmountString(input.subtotalGrossAmountExact, input.subtotalGrossAmount);
+  if (input.discountTotalAmount !== undefined) invoice.discountTotalAmount = exactAmountString(input.discountTotalAmountExact, input.discountTotalAmount);
+  if (input.taxTotalAmount !== undefined) invoice.taxTotalAmount = exactAmountString(input.taxTotalAmountExact, input.taxTotalAmount);
+  if (input.grandTotalNetAmount !== undefined) invoice.grandTotalNetAmount = exactAmountString(input.grandTotalNetAmountExact, input.grandTotalNetAmount);
+  if (input.grandTotalGrossAmount !== undefined) invoice.grandTotalGrossAmount = exactAmountString(input.grandTotalGrossAmountExact, input.grandTotalGrossAmount);
+  if (input.paidTotalAmount !== undefined) invoice.paidTotalAmount = exactAmountString(input.paidTotalAmountExact, input.paidTotalAmount);
+  if (input.outstandingAmount !== undefined) invoice.outstandingAmount = exactAmountString(input.outstandingAmountExact, input.outstandingAmount);
   if (input.metadata !== undefined) invoice.metadata = input.metadata;
 }
 
@@ -9645,7 +10623,11 @@ const updateInvoiceCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {};
   },
   async execute(rawInput, ctx) {
-    const parsed = invoiceUpdateSchema.parse(rawInput ?? {});
+    const parsed = withExactAmounts(
+      invoiceUpdateSchema.parse(rawInput ?? {}),
+      rawInput,
+      DOCUMENT_TOTAL_EXACT_AMOUNT_FIELDS,
+    );
     const id = requireId(parsed);
     ensureOrganizationScope(ctx, parsed.organizationId);
     ensureTenantScope(ctx, parsed.tenantId);
@@ -9774,15 +10756,31 @@ const deleteInvoiceCommand: CommandHandler<
     ensureOrganizationScope(ctx, rawInput.organizationId);
     ensureTenantScope(ctx, rawInput.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const invoice = await em.findOneOrFail(SalesInvoice, {
-      id,
-      organizationId: rawInput.organizationId,
-      tenantId: rawInput.tenantId,
-      deletedAt: null,
-    });
-    invoice.deletedAt = new Date();
-    invoice.updatedAt = new Date();
-    await em.flush();
+    const scope = { organizationId: rawInput.organizationId, tenantId: rawInput.tenantId };
+    let invoice!: SalesInvoice;
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          const locked = await findOneWithDecryption(
+            em,
+            SalesInvoice,
+            { id, ...scope, deletedAt: null },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            scope,
+          );
+          if (!locked) {
+            const { translate } = await resolveTranslations();
+            throw notFound(translate("sales.documents.detail.notFound", "Document not found."));
+          }
+          await enforceSalesDocumentOptimisticLock(ctx, locked, SALES_RESOURCE_KIND_INVOICE);
+          locked.deletedAt = new Date();
+          locked.updatedAt = new Date();
+          invoice = locked;
+        },
+      ],
+      { transaction: true },
+    );
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitCrudSideEffects({
@@ -9885,9 +10883,7 @@ const deleteInvoiceCommand: CommandHandler<
         discountPercent: line.discountPercent,
         taxRate: line.taxRate,
         taxAmount: line.taxAmount,
-        totalNetAmount: toNumericString(
-          deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
-        ),
+        totalNetAmount: deriveExactLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
         totalGrossAmount: line.totalGrossAmount,
         metadata: line.metadata,
       }));
@@ -9932,7 +10928,11 @@ const createCreditMemoCommand: CommandHandler<
               tenantId: initial.tenantId,
             })
           ).number;
-    const parsed = creditMemoCreateSchema.parse({ ...initial, creditMemoNumber });
+    const parsed = withExactAmounts(
+      creditMemoCreateSchema.parse({ ...initial, creditMemoNumber }),
+      rawInput,
+      DOCUMENT_TOTAL_EXACT_AMOUNT_FIELDS,
+    );
     const ensuredCreditMemoNumber = parsed.creditMemoNumber ?? creditMemoNumber;
     if (!ensuredCreditMemoNumber) {
       throw new CrudHttpError(400, { error: "Credit memo number is required." });
@@ -9994,11 +10994,11 @@ const createCreditMemoCommand: CommandHandler<
       reason: parsed.reason ?? null,
       issueDate: parsed.issueDate ?? new Date(),
       currencyCode: parsed.currencyCode,
-      subtotalNetAmount: toNumericString(parsed.subtotalNetAmount ?? 0),
-      subtotalGrossAmount: toNumericString(parsed.subtotalGrossAmount ?? 0),
-      taxTotalAmount: toNumericString(parsed.taxTotalAmount ?? 0),
-      grandTotalNetAmount: toNumericString(parsed.grandTotalNetAmount ?? 0),
-      grandTotalGrossAmount: toNumericString(parsed.grandTotalGrossAmount ?? 0),
+      subtotalNetAmount: exactAmountString(parsed.subtotalNetAmountExact, parsed.subtotalNetAmount ?? 0),
+      subtotalGrossAmount: exactAmountString(parsed.subtotalGrossAmountExact, parsed.subtotalGrossAmount ?? 0),
+      taxTotalAmount: exactAmountString(parsed.taxTotalAmountExact, parsed.taxTotalAmount ?? 0),
+      grandTotalNetAmount: exactAmountString(parsed.grandTotalNetAmountExact, parsed.grandTotalNetAmount ?? 0),
+      grandTotalGrossAmount: exactAmountString(parsed.grandTotalGrossAmountExact, parsed.grandTotalGrossAmount ?? 0),
       metadata: parsed.metadata ?? null,
       customFieldSetId: parsed.customFieldSetId ?? null,
       createdAt: new Date(),
@@ -10016,7 +11016,11 @@ const createCreditMemoCommand: CommandHandler<
 
           if (parsed.lines?.length) {
             for (let i = 0; i < parsed.lines.length; i++) {
-              const line = parsed.lines[i];
+              const line = withExactAmounts(
+                parsed.lines[i],
+                rawListItem(rawInput, "lines", i),
+                LINE_EXACT_AMOUNT_FIELDS,
+              );
               em.persist(
                 em.create(SalesCreditMemoLine, {
                   id: randomUUID(),
@@ -10034,14 +11038,12 @@ const createCreditMemoCommand: CommandHandler<
                   normalizedUnit: line.normalizedUnit ?? null,
                   uomSnapshot: line.uomSnapshot ?? null,
                   currencyCode: line.currencyCode ?? parsed.currencyCode,
-                  unitPriceNet: toNumericString(line.unitPriceNet ?? 0),
-                  unitPriceGross: toNumericString(line.unitPriceGross ?? 0),
+                  unitPriceNet: exactAmountString(line.unitPriceNetExact, line.unitPriceNet ?? 0),
+                  unitPriceGross: exactAmountString(line.unitPriceGrossExact, line.unitPriceGross ?? 0),
                   taxRate: toNumericString(line.taxRate ?? 0),
-                  taxAmount: toNumericString(line.taxAmount ?? 0),
-                  totalNetAmount: toNumericString(
-                    deriveLineNetFromGross(line.totalNetAmount ?? 0, line.totalGrossAmount ?? 0, line.taxRate ?? 0),
-                  ),
-                  totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
+                  taxAmount: exactAmountString(line.taxAmountExact, line.taxAmount ?? 0),
+                  totalNetAmount: deriveExactLineNetFromGross(exactAmountString(line.totalNetAmountExact, line.totalNetAmount ?? 0), exactAmountString(line.totalGrossAmountExact, line.totalGrossAmount ?? 0), line.taxRate ?? 0),
+                  totalGrossAmount: exactAmountString(line.totalGrossAmountExact, line.totalGrossAmount ?? 0),
                   metadata: line.metadata ?? null,
                 }),
               );
@@ -10165,11 +11167,11 @@ function applyCreditMemoHeaderUpdate(
   if (input.reason !== undefined) creditMemo.reason = input.reason;
   if (input.issueDate !== undefined) creditMemo.issueDate = input.issueDate;
   if (input.currencyCode !== undefined) creditMemo.currencyCode = input.currencyCode;
-  if (input.subtotalNetAmount !== undefined) creditMemo.subtotalNetAmount = toNumericString(input.subtotalNetAmount);
-  if (input.subtotalGrossAmount !== undefined) creditMemo.subtotalGrossAmount = toNumericString(input.subtotalGrossAmount);
-  if (input.taxTotalAmount !== undefined) creditMemo.taxTotalAmount = toNumericString(input.taxTotalAmount);
-  if (input.grandTotalNetAmount !== undefined) creditMemo.grandTotalNetAmount = toNumericString(input.grandTotalNetAmount);
-  if (input.grandTotalGrossAmount !== undefined) creditMemo.grandTotalGrossAmount = toNumericString(input.grandTotalGrossAmount);
+  if (input.subtotalNetAmount !== undefined) creditMemo.subtotalNetAmount = exactAmountString(input.subtotalNetAmountExact, input.subtotalNetAmount);
+  if (input.subtotalGrossAmount !== undefined) creditMemo.subtotalGrossAmount = exactAmountString(input.subtotalGrossAmountExact, input.subtotalGrossAmount);
+  if (input.taxTotalAmount !== undefined) creditMemo.taxTotalAmount = exactAmountString(input.taxTotalAmountExact, input.taxTotalAmount);
+  if (input.grandTotalNetAmount !== undefined) creditMemo.grandTotalNetAmount = exactAmountString(input.grandTotalNetAmountExact, input.grandTotalNetAmount);
+  if (input.grandTotalGrossAmount !== undefined) creditMemo.grandTotalGrossAmount = exactAmountString(input.grandTotalGrossAmountExact, input.grandTotalGrossAmount);
   if (input.metadata !== undefined) creditMemo.metadata = input.metadata;
 }
 
@@ -10189,7 +11191,11 @@ const updateCreditMemoCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {};
   },
   async execute(rawInput, ctx) {
-    const parsed = creditMemoUpdateSchema.parse(rawInput ?? {});
+    const parsed = withExactAmounts(
+      creditMemoUpdateSchema.parse(rawInput ?? {}),
+      rawInput,
+      DOCUMENT_TOTAL_EXACT_AMOUNT_FIELDS,
+    );
     const id = requireId(parsed);
     ensureOrganizationScope(ctx, parsed.organizationId);
     ensureTenantScope(ctx, parsed.tenantId);
@@ -10430,9 +11436,7 @@ const deleteCreditMemoCommand: CommandHandler<
         unitPriceGross: line.unitPriceGross,
         taxRate: line.taxRate,
         taxAmount: line.taxAmount,
-        totalNetAmount: toNumericString(
-          deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
-        ),
+        totalNetAmount: deriveExactLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
         totalGrossAmount: line.totalGrossAmount,
         metadata: line.metadata,
       }));
@@ -10449,6 +11453,7 @@ registerCommand(updateOrderCommand);
 registerCommand(createOrderCommand);
 registerCommand(deleteOrderCommand);
 registerCommand(orderLineUpsertCommand);
+registerCommand(orderLineBulkUpsertCommand);
 registerCommand(orderLineDeleteCommand);
 registerCommand(quoteLineUpsertCommand);
 registerCommand(quoteLineDeleteCommand);

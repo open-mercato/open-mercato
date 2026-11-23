@@ -63,6 +63,8 @@ function createCatalogWorld() {
   const mappings: MappingRow[] = []
   const deletedPriceIds: string[] = []
   const deletedOfferIds: string[] = []
+  const integrationLogWrites: Array<Record<string, unknown>> = []
+  const salesModule = { enabled: true }
   let sequence = 0
   const nextId = (prefix: string) => {
     sequence += 1
@@ -168,7 +170,10 @@ function createCatalogWorld() {
   }
 
   mockContainerResolve.mockImplementation((key: string) => {
-    if (key === 'em') return {}
+    if (key === 'em') return { getMetadata: () => ({ has: (entity: unknown) => salesModule.enabled || entity !== SalesChannel }) }
+    if (key === 'integrationLogService') {
+      return { write: jest.fn(async (entry: Record<string, unknown>) => { integrationLogWrites.push(entry) }) }
+    }
     if (key === 'commandBus') return commandBus
     if (key === 'dataEngine') return {}
     if (key === 'externalIdMappingService') return externalIdMappingService
@@ -177,6 +182,7 @@ function createCatalogWorld() {
   })
 
   mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+    if (entity === SalesChannel && !salesModule.enabled) throw new Error('Metadata for entity SalesChannel not found')
     if (entity === SalesChannel) return CHANNELS.find((channel) => channel.code === where.code) ?? null
     if (entity === CatalogPriceKind) {
       return where.code === 'regular' || where.code === 'sale'
@@ -196,6 +202,7 @@ function createCatalogWorld() {
   })
 
   mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+    if (entity === SalesChannel && !salesModule.enabled) throw new Error('Metadata for entity SalesChannel not found')
     if (entity === CatalogOffer) return offers.filter((offer) => offer.product === where.product)
     if (entity === CatalogProductPrice) {
       return prices.filter((price) => (
@@ -209,7 +216,7 @@ function createCatalogWorld() {
   const client = {
     getFamily: jest.fn(async () => null),
     getFamilyVariant: jest.fn(async () => null),
-    getAttribute: jest.fn(async () => null),
+    getAttribute: jest.fn(async (_code: string): Promise<unknown> => null),
     getProductModel: jest.fn(async (code: string) => (
       code === MODEL_CODE
         ? { code: MODEL_CODE, values: { name: [{ locale: 'en_US', scope: null, data: 'Tee' }] }, categories: [] }
@@ -269,6 +276,8 @@ function createCatalogWorld() {
     mappings,
     deletedPriceIds,
     deletedOfferIds,
+    integrationLogWrites,
+    salesModule,
     pricesOf,
     seedManualPrice,
     dropPriceRow,
@@ -350,6 +359,28 @@ describe('akeneo catalog importer offer and price reconciliation', () => {
     mockContainerResolve.mockReset()
     mockFindOneWithDecryption.mockReset()
     mockFindWithDecryption.mockReset()
+  })
+
+  it('passes every decimal digit to catalog price create and update commands', async () => {
+    const world = createCatalogWorld()
+    const importer = await createAkeneoImporter(world.client as never, scope)
+    const mapping = buildMapping([WEB_REGULAR])
+    const originalAmount = '1.123456789012345678'
+    const updatedAmount = '1.123456789012345679'
+
+    await importer.upsertProduct(buildVariant('uuid-exact', 'TEE-EXACT', {
+      price: [{ scope: 'ecommerce', amount: originalAmount }],
+    }), mapping)
+    expect(world.commandBus.execute).toHaveBeenCalledWith('catalog.prices.create', expect.objectContaining({
+      input: expect.objectContaining({ unitPriceNet: originalAmount, unitPriceGross: originalAmount }),
+    }))
+
+    await importer.upsertProduct(buildVariant('uuid-exact', 'TEE-EXACT', {
+      price: [{ scope: 'ecommerce', amount: updatedAmount }],
+    }), mapping)
+    expect(world.commandBus.execute).toHaveBeenCalledWith('catalog.prices.update', expect.objectContaining({
+      input: expect.objectContaining({ unitPriceNet: updatedAmount, unitPriceGross: updatedAmount }),
+    }))
   })
 
   it('keeps the prices of sibling variants that share a product-level offer', async () => {
@@ -482,6 +513,31 @@ describe('akeneo catalog importer offer and price reconciliation', () => {
     expect(world.offers[0]?.channelId).toBe('channel-web')
     expect(world.pricesOf('TEE-S')).toEqual(['regular:channel-web:USD:10'])
     expect(world.pricesOf('TEE-M')).toEqual(['regular:channel-web:USD:10'])
+  })
+
+  it('passes the exact Akeneo price strings to the create and update commands', async () => {
+    const world = createCatalogWorld()
+    const importer = await createAkeneoImporter(world.client as never, scope)
+    const mapping = buildMapping([WEB_REGULAR])
+
+    await importer.upsertProduct(buildSimpleProduct('uuid-gem', 'GEM', {
+      price: [{ scope: 'ecommerce', amount: '1.123456789012345678' }],
+    }), mapping)
+    await importer.upsertProduct(buildSimpleProduct('uuid-gem', 'GEM', {
+      price: [{ scope: 'ecommerce', amount: '1.123456789012345679' }],
+    }), mapping)
+
+    const priceCommands = world.commandBus.execute.mock.calls
+      .filter(([commandId]) => commandId === 'catalog.prices.create' || commandId === 'catalog.prices.update')
+      .map(([commandId, { input }]) => ({
+        commandId,
+        unitPriceNet: input.unitPriceNet,
+        unitPriceGross: input.unitPriceGross,
+      }))
+    expect(priceCommands).toEqual([
+      { commandId: 'catalog.prices.create', unitPriceNet: '1.123456789012345678', unitPriceGross: '1.123456789012345678' },
+      { commandId: 'catalog.prices.update', unitPriceNet: '1.123456789012345679', unitPriceGross: '1.123456789012345679' },
+    ])
   })
 
   it('deletes the offer of a simple product whose channel price was removed', async () => {
@@ -708,5 +764,91 @@ describe('akeneo catalog importer offer and price reconciliation', () => {
     const variantId = world.prices[0]?.variant?.id
     expect(priceLookups.filter((where) => where.variant !== undefined).every((where) => where.variant === variantId)).toBe(true)
     expect(priceLookups.some((where) => where.variant === variantId)).toBe(true)
+  })
+
+  describe('when the sales module is disabled', () => {
+    const PRODUCT_COMMANDS = ['catalog.products.create', 'catalog.variants.create']
+
+    function executedCommands(world: ReturnType<typeof createCatalogWorld>): string[] {
+      return world.commandBus.execute.mock.calls.map(([commandId]) => commandId)
+    }
+
+    it('imports the product and skips mapped channel-bound offers and prices without throwing', async () => {
+      const world = createCatalogWorld()
+      world.salesModule.enabled = false
+      const importer = await createAkeneoImporter(world.client as never, scope)
+      const mapping = buildMapping([WEB_REGULAR, B2B_SALE])
+
+      await importer.upsertProduct(buildSimpleProduct('uuid-mug', 'MUG', {
+        price: [{ scope: 'ecommerce', amount: '5.00' }, { scope: 'b2b', amount: '4.00' }],
+      }), mapping)
+      await importer.upsertProduct(buildSimpleProduct('uuid-cup', 'CUP', {
+        price: [{ scope: 'ecommerce', amount: '3.00' }],
+      }), mapping)
+
+      expect(executedCommands(world)).toEqual(expect.arrayContaining(PRODUCT_COMMANDS))
+      expect(executedCommands(world).filter((commandId) => commandId === 'catalog.products.create')).toHaveLength(2)
+      expect(executedCommands(world).some((commandId) => commandId.startsWith('catalog.offers.') || commandId.startsWith('catalog.prices.'))).toBe(false)
+      expect(world.offers).toEqual([])
+      expect(world.prices).toEqual([])
+      expect(world.integrationLogWrites).toEqual([
+        expect.objectContaining({ integrationId: 'sync_akeneo', level: 'warn', code: 'sync_akeneo.sales_channels_unavailable' }),
+      ])
+    })
+
+    it('never auto-creates a sales channel for inferred price attributes', async () => {
+      const world = createCatalogWorld()
+      world.salesModule.enabled = false
+      world.client.getAttribute.mockImplementation(async (code: string) => (
+        code === 'price'
+          ? { code: 'price', type: 'pim_catalog_price_collection', labels: {}, localizable: false, scopable: true }
+          : null
+      ))
+      const importer = await createAkeneoImporter(world.client as never, scope)
+      const base = buildMapping([])
+      const products = base.settings?.products
+      if (!products) throw new Error('[internal] product mapping settings are missing')
+      const mapping: AkeneoDataMapping = {
+        ...base,
+        settings: { ...base.settings, products: { ...products, createMissingChannels: true } },
+      }
+
+      await importer.upsertProduct(buildSimpleProduct('uuid-mug', 'MUG', {
+        price: [{ scope: 'ecommerce', amount: '5.00' }],
+      }), mapping)
+
+      expect(executedCommands(world)).toEqual(expect.arrayContaining(PRODUCT_COMMANDS))
+      expect(executedCommands(world)).not.toContain('sales.channels.create')
+      expect(world.offers).toEqual([])
+      expect(world.integrationLogWrites).toHaveLength(1)
+    })
+
+    it('keeps offers and prices imported while sales was enabled', async () => {
+      const world = createCatalogWorld()
+      const mapping = buildMapping([WEB_REGULAR])
+      const product = buildSimpleProduct('uuid-mug', 'MUG', { price: [{ scope: 'ecommerce', amount: '5.00' }] })
+      const enabledImporter = await createAkeneoImporter(world.client as never, scope)
+      await enabledImporter.upsertProduct(product, mapping)
+      expect(world.pricesOf('MUG')).toEqual(['regular:channel-web:USD:5'])
+
+      world.salesModule.enabled = false
+      const disabledImporter = await createAkeneoImporter(world.client as never, scope)
+      await disabledImporter.upsertProduct(product, mapping)
+
+      expect(world.deletedOfferIds).toEqual([])
+      expect(world.deletedPriceIds).toEqual([])
+      expect(world.pricesOf('MUG')).toEqual(['regular:channel-web:USD:5'])
+    })
+
+    it('does not warn when the product carries no price mappings', async () => {
+      const world = createCatalogWorld()
+      world.salesModule.enabled = false
+      const importer = await createAkeneoImporter(world.client as never, scope)
+
+      await importer.upsertProduct(buildSimpleProduct('uuid-mug', 'MUG', {}), buildMapping([]))
+
+      expect(executedCommands(world)).toEqual(expect.arrayContaining(PRODUCT_COMMANDS))
+      expect(world.integrationLogWrites).toEqual([])
+    })
   })
 })

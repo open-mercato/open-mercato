@@ -10,14 +10,17 @@
 //      scripts/validate-skills-tiers.mjs) and links each selected skill into
 //      .agents/skills/<name> -> .ai/skills/<name>.
 //   2. External shared skills: installs the open-mercato/skills collection via
-//      `npx skills add` into the same .agents/skills/ directory, then runs
-//      `npx skills update` so a re-run always refreshes the already installed
-//      external skills to the latest published versions (the lockfile is
-//      gitignored, so `add` seeds and `update` keeps them current).
+//      a pinned `skills` CLI into the same .agents/skills/ directory.
+//      Re-runs install the same collection commit; upgrades require explicit
+//      CLI version or collection ref changes in tiers.json.
 //      The external source and skill list live under `external` in tiers.json.
 //      A folder under .ai/skills/ matching an external skill name is a
 //      repo-local override that the external skill reads in place; it is never
-//      linked into the canonical or per-agent directories.
+//      linked into the canonical or per-agent directories. A tiered local skill
+//      whose name the collection also publishes (but that is not registered in
+//      `external.skills`) replaces the collection's copy, but only when the
+//      skills CLI lockfile (skills-lock.json) records that copy as installed
+//      from the external source; any other directory at that path is kept.
 //
 // Agent support matrix. Per-agent links are created ONLY for agents that
 // cannot read the canonical project-level .agents/skills/ directory, so no
@@ -43,6 +46,7 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   rmdirSync,
   rmSync,
@@ -80,8 +84,7 @@ Options:
                       cursor). Defaults to \`agents.ignore\` in tiers.json; this
                       flag overrides it.
   --no-external       Skip the external-collection step for the external
-                      collection — \`npx skills add\` on first run and
-                      \`npx skills update\` on re-runs (also:
+                      collection at its pinned commit (also:
                       OM_SKIP_EXTERNAL_SKILLS=1). Use when offline.
   --list              Print the tier table, the external shared collection,
                       and the current install state, then exit.
@@ -265,8 +268,24 @@ export function createInstaller({
     }
   }
 
-  function installCanonical(selectedSkills, externalSkills) {
+  // Skills the external collection installed, per the skills CLI lockfile
+  // (skills-lock.json at the repo root). Only these real directories under
+  // .agents/skills/ are collection-owned; anything else is left untouched.
+  function collectionOwnedSkills(source) {
+    if (!source) return new Set()
+    let lock
+    try {
+      lock = JSON.parse(readFileSync(join(repoRoot, 'skills-lock.json'), 'utf8'))
+    } catch {
+      return new Set()
+    }
+    const entries = lock && typeof lock.skills === 'object' && lock.skills ? Object.entries(lock.skills) : []
+    return new Set(entries.filter(([, entry]) => entry?.source === source).map(([name]) => name))
+  }
+
+  function installCanonical(selectedSkills, externalSkills, externalSource) {
     prepareHarnessDir(agentsDir)
+    const ownedByCollection = collectionOwnedSkills(externalSource)
     for (const skill of selectedSkills) {
       if (externalSkills.includes(skill)) {
         // Owned by the external collection; a same-named .ai/skills/ folder is a
@@ -277,7 +296,18 @@ export function createInstaller({
       const skillTarget = join(skillsDir, skill)
       const entry = lstatSync(skillTarget, { throwIfNoEntry: false })
       if (!entry?.isDirectory()) fail(`skill folder '${skillTarget}' is missing on disk.`)
-      createLink(join(agentsDir, skill), skillTarget, platform, warn)
+      const linkPath = join(agentsDir, skill)
+      const existing = lstatSync(linkPath, { throwIfNoEntry: false })
+      if (existing?.isDirectory() && !existing.isSymbolicLink() && ownedByCollection.has(skill)) {
+        // The external collection ships a skill with the same name as this tier
+        // skill (`skills add --skill '*'` copies every published skill). The local
+        // skill wins, so replace the collection's copy instead of leaving it in place.
+        // A real directory the lockfile does not attribute to the collection is
+        // not ours to delete: createLink keeps it and warns.
+        rmSync(linkPath, { recursive: true, force: true })
+        log(`info: local skill '${skill}' replaces the external collection's copy of the same name.`)
+      }
+      createLink(linkPath, skillTarget, platform, warn)
     }
     sweepHarness(agentsDir, selectedSkills)
   }
@@ -363,10 +393,6 @@ export function createInstaller({
     }
   }
 
-  // Mix in the external shared collection (open-mercato/skills). The npx CLI
-  // copies each skill into .agents/skills/. This runs BEFORE the link layer is
-  // written: `skills update --project` owns .agents/skills/ and would otherwise
-  // prune entries it does not know about.
   function installExternal(manifest, linkAgents, noExternal) {
     const source = manifest.external?.source
     if (!source) return 'none'
@@ -374,7 +400,8 @@ export function createInstaller({
     const agentArgs = linkAgents.length > 0
       ? linkAgents.flatMap((agent) => ['--agent', agent])
       : ['--agent', 'universal']
-    const addResult = runNpx(['-y', 'skills', 'add', source, '--skill', '*', ...agentArgs, '-y'], repoRoot)
+    const pinnedSource = `https://github.com/${source}/tree/${manifest.external.ref}`
+    const addResult = runNpx(['-y', `skills@${manifest.external.cliVersion}`, 'add', pinnedSource, '--skill', '*', ...agentArgs, '-y'], repoRoot)
     if (addResult === null) {
       warn(`install-skills: warning: npx not found; skipping external skills from ${source}.`)
       return 'skipped (npx not found)'
@@ -384,18 +411,7 @@ export function createInstaller({
       warn('  local tier skills are installed. Re-run when online, or pass --no-external to silence this.')
       return 'FAILED'
     }
-    // `add` seeds the collection (and re-resolves on a fresh checkout), but on a
-    // clone that already has the skills a follow-up `update` guarantees they are
-    // bumped to the latest published versions — the point of a re-run. The
-    // lockfile is gitignored, so this is how contributors pick up new skills and
-    // fixes without a manual reinstall. Non-fatal when offline mid-run: the
-    // freshly added skills stay installed.
-    if (runNpx(['-y', 'skills', 'update', '--project', '-y'], repoRoot)) {
-      return `updated to latest from ${source}`
-    }
-    warn('install-skills: warning: could not update external skills to latest;')
-    warn('  the installed versions are kept. Re-run when online to refresh.')
-    return `installed from ${source}`
+    return `installed from ${source}@${manifest.external.ref}`
   }
 
   function run(args = [], env = process.env) {
@@ -460,7 +476,7 @@ export function createInstaller({
 
     const externalStatus = installExternal(manifest, linkAgents, options.noExternal)
 
-    installCanonical(selectedSkills, externalSkills)
+    installCanonical(selectedSkills, externalSkills, manifest.external?.source)
 
     for (const agent of KNOWN_AGENTS) {
       if (linkAgents.includes(agent)) {

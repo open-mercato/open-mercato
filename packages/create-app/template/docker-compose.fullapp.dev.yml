@@ -22,8 +22,10 @@ services:
       - init_marker:/tmp/init-marker
       - attachments_storage:/app/storage
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${APP_PORT:-3000}:3000"
     environment:
+      OPENCODE_URL: ${OPENCODE_URL:-http://opencode:4096}
+      OPENCODE_PASSWORD: ${OPENCODE_PASSWORD:?Set OPENCODE_PASSWORD to a strong random value for the dev agent server}
       CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
       WATCHPACK_POLLING: ${WATCHPACK_POLLING:-true}
       REDIS_URL: redis://redis:6379
@@ -67,6 +69,10 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
+      OM_INIT_ADMIN_EMAIL: ${OM_INIT_ADMIN_EMAIL:-}
+      OM_INIT_ADMIN_PASSWORD: ${OM_INIT_ADMIN_PASSWORD:-}
+      OM_INIT_EMPLOYEE_EMAIL: ${OM_INIT_EMPLOYEE_EMAIL:-}
+      OM_INIT_EMPLOYEE_PASSWORD: ${OM_INIT_EMPLOYEE_PASSWORD:-}
       OPEN_MERCATO_DOCKER_REGISTRY_HOST: ${OPEN_MERCATO_DOCKER_REGISTRY_HOST:-host.docker.internal}
     depends_on:
       postgres:
@@ -97,7 +103,7 @@ services:
       - .:/app
       - app_node_modules:/app/node_modules
     ports:
-      - "${DOCUMENTS_COLLAB_PORT:-4101}:${DOCUMENTS_COLLAB_PORT:-4101}"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${DOCUMENTS_COLLAB_PORT:-4101}:${DOCUMENTS_COLLAB_PORT:-4101}"
     environment:
       NODE_ENV: development
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-open-mercato}
@@ -154,16 +160,14 @@ services:
     entrypoint: ["/bin/sh", "/home/opencode/entrypoint.sh"]
     restart: unless-stopped
     # Published for local development (MCP Inspector, curl /global/health).
-    # OpenCode has no authentication of its own, so do not expose this port on
-    # a shared or public host without setting OPENCODE_PASSWORD.
     ports:
-      - "${OPENCODE_PORT:-4096}:4096"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${OPENCODE_PORT:-4096}:4096"
     environment:
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_PASSWORD:?Set OPENCODE_PASSWORD to a strong random value for the dev agent server}
       OM_AI_PROVIDER: ${OM_AI_PROVIDER:-openai}
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      OPENCODE_PASSWORD: ${OPENCODE_PASSWORD:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
@@ -193,7 +197,7 @@ services:
     # Visibility only (compose ps / smoke tests): the entrypoint owns the
     # wait-for-MCP-and-key sequencing.
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:4096/global/health"]
+      test: ["CMD-SHELL", 'curl -fsS --max-time 5 -u "opencode:$$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/global/health']
       interval: 30s
       timeout: 6s
       retries: 20
@@ -229,7 +233,7 @@ services:
         sh /app/docker/scripts/mcp-entrypoint.sh
     working_dir: /app
     ports:
-      - "${MCP_PORT:-3001}:3001"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${MCP_PORT:-3001}:3001"
     volumes:
       # KEEP IN SYNC with the `app` service: the sidecar runs the same source.
       - .:/app
@@ -265,6 +269,13 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       MCP_PORT: "3001"
+      # The mcp container is reached over the internal compose network by the app and
+      # opencode services (mcp:3001), which is not loopback from this container's own
+      # point of view. mcp:serve-http defaults to binding 127.0.0.1 (issue #2659); this
+      # opts into 0.0.0.0 explicitly, matching the deliberate default-loopback-unless-
+      # configured contract, since this network is internal and not published (dev
+      # compose publishes MCP_PORT to the host, which also requires a non-loopback bind).
+      MCP_HTTP_HOST: "0.0.0.0"
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
       MCP_WAIT_FOR_APP_TIMEOUT: ${MCP_WAIT_FOR_APP_TIMEOUT:-1800}
       MCP_DEBUG: ${MCP_DEBUG:-false}
@@ -340,7 +351,7 @@ services:
     profiles:
       - storage-s3
     ports:
-      - "${LOCALSTACK_PORT:-4566}:4566"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${LOCALSTACK_PORT:-4566}:4566"
     environment:
       SERVICES: s3
       AWS_DEFAULT_REGION: us-east-1

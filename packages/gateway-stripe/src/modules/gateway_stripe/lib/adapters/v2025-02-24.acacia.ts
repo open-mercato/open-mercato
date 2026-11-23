@@ -15,10 +15,11 @@ import type {
   UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import { resolveStripeClient } from '../client'
-import { mapRefundReason, mapStripeStatus, mapWebhookEventToStatus } from '../status-map'
+import { mapRefundReason, mapStripeAdapterStatus, mapStripeStatus } from '../status-map'
 import {
   toCents,
   fromCents,
+  fromCentsExact,
   buildStripeMetadata,
   normalizeStripePaymentElementSettings,
   resolveStripeRendererKey,
@@ -38,7 +39,7 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
     const rendererSettings = normalizeStripePaymentElementSettings(input.presentation?.rendererSettings)
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: toCents(input.amount, input.currencyCode),
+      amount: toCents(input.amountExact ?? input.amount, input.currencyCode),
       currency: input.currencyCode.toLowerCase(),
       capture_method: input.captureMethod ?? 'automatic',
       metadata: buildStripeMetadata({
@@ -85,7 +86,7 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
       input.sessionId,
       {
         amount_to_capture: input.amount && paymentIntent
-          ? toCents(input.amount, paymentIntent.currency)
+          ? toCents(input.amountExact ?? input.amount, paymentIntent.currency)
           : undefined,
       },
       stripeIdempotencyOptions(input.idempotencyKey),
@@ -94,6 +95,7 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
     return {
       status: mapStripeStatus(captured.status),
       capturedAmount: fromCents(captured.amount_received, captured.currency),
+      capturedAmountExact: fromCentsExact(captured.amount_received, captured.currency),
       providerData: { chargeId: captured.latest_charge },
     }
   },
@@ -108,7 +110,7 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
       {
         payment_intent: input.sessionId,
         amount: input.amount && paymentIntent
-          ? toCents(input.amount, paymentIntent.currency)
+          ? toCents(input.amountExact ?? input.amount, paymentIntent.currency)
           : undefined,
         reason: mapRefundReason(input.reason),
         metadata: input.metadata as Record<string, string> | undefined,
@@ -120,6 +122,7 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
       refundId: refund.id,
       status: await resolveStripeRefundStatus(stripe, refund, paymentIntent?.amount_received),
       refundedAmount: fromCents(refund.amount, refund.currency),
+      refundedAmountExact: fromCentsExact(refund.amount, refund.currency),
     }
   },
 
@@ -144,7 +147,9 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
     return {
       status: mapStripeStatus(pi.status),
       amount: fromCents(pi.amount, pi.currency),
+      amountExact: fromCentsExact(pi.amount, pi.currency),
       amountReceived: fromCents(pi.amount_received, pi.currency),
+      amountReceivedExact: fromCentsExact(pi.amount_received, pi.currency),
       currencyCode: pi.currency.toUpperCase(),
     }
   },
@@ -153,11 +158,7 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
     return verifyStripeWebhook(input)
   },
 
-  mapStatus(providerStatus: string, eventType?: string): UnifiedPaymentStatus {
-    if (eventType) {
-      const mappedEvent = mapWebhookEventToStatus(eventType)
-      if (mappedEvent) return mappedEvent
-    }
-    return mapStripeStatus(providerStatus)
+  mapStatus(providerStatus: string, eventType?: string, event?: WebhookEvent): UnifiedPaymentStatus {
+    return mapStripeAdapterStatus(providerStatus, eventType, event)
   },
 }

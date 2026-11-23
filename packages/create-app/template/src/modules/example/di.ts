@@ -2,6 +2,7 @@ import type { CalendarEventTypeRegistry } from '@open-mercato/core/modules/custo
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import calendarVisitWidget from './widgets/injection/calendar-visit/widget'
 import { asFunction, asValue } from 'awilix'
+import { defineProcessDiRegistrar, registerCallerSetup, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
   registerGatewayAdapter,
@@ -17,6 +18,7 @@ import { mockShippingAdapter } from './lib/mock-shipping-adapter'
 import { exampleCurrencyRateProvider } from './lib/mock-currency-rate-provider'
 import { registerCurrencyRateProvider } from '@open-mercato/core/modules/currencies/services/providers/registry'
 import { createVisitBookingSerializingCommandBus } from './lib/visitBookingSerialization'
+import { syncQaCapacityProbeRegistration } from './lib/qaCapacityProbe'
 
 function readMockWebhookSessionId(payload: Record<string, unknown> | null): string | null {
   const data = payload?.data
@@ -30,7 +32,7 @@ export const EXAMPLE_TODO_SUMMARY_SERVICE = 'exampleTodoSummaryService' as const
 export const EXAMPLE_CURRENCY_RATE_PROVIDER = 'exampleCurrencyRateProvider' as const
 
 // Example DI registrar; modules can register their own services/components
-export function register(container: AppContainer) {
+function registerCalendar(container: AppContainer): void {
   let calendarRegistry: CalendarEventTypeRegistry | null
   try {
     calendarRegistry = container.resolve<CalendarEventTypeRegistry>('calendarEventTypeRegistry')
@@ -43,13 +45,10 @@ export function register(container: AppContainer) {
     for (const patch of calendarVisitWidget.eventTypePatches ?? []) calendarRegistry.patch('example', patch)
   }
 
-  if (container.hasRegistration('commandBus')) {
-    const commandBus = container.resolve<CommandBus>('commandBus')
-    container.register({
-      commandBus: asValue(createVisitBookingSerializingCommandBus({ commandBus })),
-    })
-  }
 
+}
+
+function registerServices(container: AppContainer) {
   // The module's own service registration, as opposed to the adapter-registry calls
   // below (which register into module-external registries, not into this container).
   //
@@ -61,6 +60,9 @@ export function register(container: AppContainer) {
     [EXAMPLE_CURRENCY_RATE_PROVIDER]: asValue(exampleCurrencyRateProvider),
   })
 
+}
+
+function registerProviders(): void {
   // Register mock gateway adapter for payment testing (no real credentials needed)
   registerGatewayAdapter(mockGatewayAdapter)
   registerGatewayAdapter({
@@ -81,6 +83,10 @@ export function register(container: AppContainer) {
       }
     },
   })
+  registerGatewayAdapter({
+    ...mockGatewayAdapter,
+    providerKey: 'mock_payer_required',
+  })
   registerWebhookHandler('mock', mockGatewayAdapter.verifyWebhook, {
     readSessionIdHint: readMockWebhookSessionId,
   })
@@ -88,6 +94,9 @@ export function register(container: AppContainer) {
     readSessionIdHint: readMockWebhookSessionId,
   })
   registerWebhookHandler('mock_processing', mockGatewayAdapter.verifyWebhook, {
+    readSessionIdHint: readMockWebhookSessionId,
+  })
+  registerWebhookHandler('mock_payer_required', mockGatewayAdapter.verifyWebhook, {
     readSessionIdHint: readMockWebhookSessionId,
   })
   registerPaymentGatewayDescriptor({
@@ -150,6 +159,16 @@ export function register(container: AppContainer) {
       presentation: 'either',
     },
   })
+  registerPaymentGatewayDescriptor({
+    providerKey: 'mock_payer_required',
+    label: 'Mock Gateway (payer email and name required)',
+    requiresPayerFields: ['email', 'name'],
+    sessionConfig: {
+      supportedCurrencies: '*',
+      supportedPaymentTypes: [{ value: 'mock', label: 'Mock payment' }],
+      presentation: 'either',
+    },
+  })
 
   // Register mock shipping adapter for carrier testing (no real credentials needed)
   registerShippingAdapter(mockShippingAdapter)
@@ -157,4 +176,36 @@ export function register(container: AppContainer) {
 
   // Register mock inbound webhook adapter for webhooks module integration tests
   registerWebhookEndpointAdapter(mockWebhookEndpointAdapter)
+
 }
+
+
+function decorateCommandBus(container: AppContainer): void {
+  if (container.hasRegistration('commandBus')) {
+    const commandBus = container.resolve<CommandBus>('commandBus')
+    container.register({
+      commandBus: asValue(createVisitBookingSerializingCommandBus({ commandBus })),
+    })
+  }
+
+}
+
+function registerLegacy(container: AppContainer): void {
+  registerCalendar(container)
+  decorateCommandBus(container)
+  registerServices(container)
+  registerProviders()
+  syncQaCapacityProbeRegistration()
+}
+
+export const register = defineProcessDiRegistrar((container: AppContainer) => {
+  registerServices(container)
+  registerProcessActivation(container, () => {
+    registerCalendar(container)
+    registerProviders()
+  })
+  registerCallerSetup(container, (scope) => {
+    decorateCommandBus(scope)
+    syncQaCapacityProbeRegistration()
+  })
+}, { legacy: registerLegacy })

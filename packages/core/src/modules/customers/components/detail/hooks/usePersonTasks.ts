@@ -4,10 +4,12 @@ import * as React from 'react'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { resolveTodoApiPath } from '../utils'
+import { isEmptyCustomValue } from '../customFieldUtils'
 import type { TodoLinkSummary } from '../types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CUSTOMER_INTERACTION_TASK_SOURCE } from '../../../lib/interactionCompatibility'
 
 const DEFAULT_TODO_SOURCE = CUSTOMER_INTERACTION_TASK_SOURCE
@@ -18,6 +20,7 @@ type CustomerTodoRow = {
   todoSource: string
   todoTitle: string | null
   todoIsDone: boolean | null
+  todoStatus?: string | null
   todoPriority: number | null
   todoSeverity: string | null
   todoDescription: string | null
@@ -30,7 +33,7 @@ type CustomerTodoRow = {
   createdAt: string
 }
 
-// `/api/customers/todos` also reports `totalPages`, deliberately left out of
+// `/api/customers/interactions/tasks` also reports `totalPages`, deliberately left out of
 // this type: the load-more affordance terminates on a short page instead — see
 // `hasMoreFromPage`. `total` stays because it feeds the section's count badge,
 // where an under-report is cosmetic rather than a way to strand rows.
@@ -84,7 +87,7 @@ function mapRowToSummary(row: CustomerTodoRow): TodoLinkSummary {
     createdAt: row.createdAt,
     title: row.todoTitle ?? null,
     isDone: row.todoIsDone ?? null,
-    status: row.todoIsDone ? 'done' : 'planned',
+    status: row.todoStatus ?? (row.todoIsDone ? 'done' : 'planned'),
     priority: row.todoPriority ?? null,
     severity: row.todoSeverity ?? null,
     description: row.todoDescription ?? null,
@@ -163,9 +166,9 @@ function buildLegacyTaskCustomValues(
     custom[key] = value
   }
 
-  assignValue('priority', payload.base.priority ?? null)
-  assignValue('description', payload.base.description ?? null)
-  assignValue('due_at', payload.base.scheduledAt ?? null)
+  assignValue('priority', payload.base.priority)
+  assignValue('description', payload.base.description)
+  assignValue('due_at', payload.base.scheduledAt)
 
   return custom
 }
@@ -219,11 +222,25 @@ export function usePersonTasks({
         pageSize: String(pageSize),
         entityId,
       })
-      return readApiResultOrThrow<CustomerTodosResponse>(
-        `/api/customers/todos?${params.toString()}`,
-        undefined,
+      const readPage = (path: string, init?: RequestInit) => readApiResultOrThrow<CustomerTodosResponse>(
+        `${path}?${params.toString()}`,
+        init,
         { errorMessage: 'Failed to load tasks.' },
       )
+      try {
+        return await readPage('/api/customers/interactions/tasks', {
+          headers: { 'x-om-forbidden-redirect': '0' },
+        })
+      } catch (error) {
+        if (typeof error !== 'object' || error === null || !('status' in error) || error.status !== 403) {
+          throw error
+        }
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'customers',
+          code: 'customers.person_tasks_legacy_fallback',
+        })
+        return readPage('/api/customers/todos')
+      }
     },
     [entityId, pageSize],
   )
@@ -365,7 +382,11 @@ export function usePersonTasks({
   const updateTask = React.useCallback(
     async (task: TodoLinkSummary, { base, custom }: TaskFormPayload) => {
       if (!task.todoId) throw new Error('Task is missing todo id')
-      const apiPath = resolveTodoApiPath(task.todoSource || DEFAULT_TODO_SOURCE)
+      const hasRichStatus = task.todoSource === DEFAULT_TODO_SOURCE
+        && Boolean(task.status && task.status !== 'planned' && task.status !== 'done')
+      const apiPath = hasRichStatus
+        ? '/api/customers/interactions'
+        : resolveTodoApiPath(task.todoSource || DEFAULT_TODO_SOURCE)
       if (!apiPath) throw new Error('Unsupported task source')
       setIsMutating(true)
       try {
@@ -378,9 +399,25 @@ export function usePersonTasks({
           body.title = base.title.trim()
         }
         const normalizedDone = normalizeBoolean(base.is_done)
-        if (normalizedDone !== undefined) body.is_done = normalizedDone
-        if (Object.keys(customValues).length) {
-          body.customFields = customValues
+        const nextStatus = hasRichStatus && base.status !== undefined
+          ? base.status
+          : normalizedDone !== undefined
+            ? (normalizedDone ? 'done' : 'planned')
+            : task.status
+        if (hasRichStatus) {
+          delete body.linkId
+          if (nextStatus !== undefined && nextStatus !== null) body.status = nextStatus
+          if (base.priority !== undefined) body.priority = base.priority
+          if (base.description !== undefined) body.body = base.description
+          if (base.scheduledAt !== undefined) body.scheduledAt = base.scheduledAt
+          const changedCustomValues = Object.fromEntries(
+            Object.entries(custom).filter(([key, value]) =>
+              !isEmptyCustomValue(value) || !isEmptyCustomValue(task.customValues?.[key])),
+          )
+          if (Object.keys(changedCustomValues).length) body.customValues = changedCustomValues
+        } else {
+          if (normalizedDone !== undefined) body.is_done = normalizedDone
+          if (Object.keys(customValues).length) body.customFields = customValues
         }
         // Send the optimistic-lock header (task's loaded updatedAt) so a stale
         // edit — or an edit after the task was deleted in another tab — surfaces
@@ -408,8 +445,12 @@ export function usePersonTasks({
             return {
               ...item,
               title: typeof base.title === 'string' && base.title.trim().length ? base.title.trim() : item.title,
-              isDone: normalizedDone !== undefined ? normalizedDone : item.isDone,
-              status: normalizedDone !== undefined ? (normalizedDone ? 'done' : 'planned') : item.status ?? null,
+              isDone: hasRichStatus && nextStatus !== undefined && nextStatus !== null
+                ? nextStatus === 'done'
+                : normalizedDone !== undefined ? normalizedDone : item.isDone,
+              status: hasRichStatus
+                ? nextStatus ?? item.status ?? null
+                : normalizedDone !== undefined ? (normalizedDone ? 'done' : 'planned') : item.status ?? null,
               priority:
                 normalizeNumber(base.priority ?? customValues.priority) ??
                 (base.priority === undefined && customValues.priority === undefined ? item.priority ?? null : null),

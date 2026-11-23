@@ -4,8 +4,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { DataMapping } from '@open-mercato/core/modules/data_sync/lib/adapter'
 import type { ExternalIdMappingService } from '@open-mercato/core/modules/data_sync/lib/id-mapping'
 import { SyncExternalIdMapping } from '@open-mercato/core/modules/integrations/data/entities'
@@ -25,9 +28,13 @@ import { normalizeEntityFieldsetConfig, type CustomFieldsetDefinition } from '@o
 import { invalidateDefinitionsCache } from '@open-mercato/core/modules/entities/api/definitions.cache'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
-import { deletePartitionFile, storePartitionFile } from '@open-mercato/core/modules/attachments/lib/storage'
-import { ensureDefaultPartitions, resolveDefaultPartitionCode } from '@open-mercato/core/modules/attachments/lib/partitions'
-import { mergeAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
+import type { AttachmentService } from '@open-mercato/core/modules/attachments'
+import {
+  isScopedAttachmentUploadError,
+  type ScopedAttachmentUploadErrorCode,
+  type ScopedAttachmentUploadService,
+} from '@open-mercato/core/modules/attachments/lib/scoped-upload-service'
+import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/modules/attachments/lib/crud'
 import { emitCatalogQueryIndexEvent } from '@open-mercato/core/modules/catalog/commands/shared'
 import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
@@ -52,14 +59,21 @@ import {
   type AkeneoValues,
   buildDefaultAkeneoMapping,
 } from './shared'
-import type { AkeneoClient } from './client'
+import { isAkeneoResponseTooLargeError, type AkeneoClient } from './client'
 import { inferAkeneoProductMapping } from './inference'
 import { normalizeMarkdownText } from './markdown'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 
 type ImportScope = {
   organizationId: string
   tenantId: string
 }
+
+const REJECTED_MEDIA_UPLOAD_CODES: ReadonlySet<ScopedAttachmentUploadErrorCode> = new Set([
+  'dangerous_executable',
+  'max_upload_size',
+  'active_content',
+])
 
 type UpsertResult = {
   localId: string
@@ -101,7 +115,7 @@ type DesiredPrice = {
   priceKindId: string
   channelId: string
   currencyCode: string
-  amount: number
+  amount: string
   variantId: string
 }
 
@@ -475,17 +489,17 @@ function resolvePriceVariantId(price: Pick<CatalogProductPrice, 'variant'>): str
   return price.variant?.id ?? null
 }
 
-function parsePriceCollection(value: unknown): Array<{ currencyCode: string; amount: number }> {
+function parsePriceCollection(value: unknown): Array<{ currencyCode: string; amount: string }> {
   if (!Array.isArray(value)) return []
   return value
     .map((entry) => {
       const record = safeRecord(entry)
       const currencyCode = typeof record?.currency === 'string' ? record.currency.trim().toUpperCase() : ''
-      const amount = coerceNumber(record?.amount)
+      const amount = parseDecimal(record?.amount)
       if (!currencyCode || amount === null) return null
-      return { currencyCode, amount }
+      return { currencyCode, amount: decimalToString(amount) }
     })
-    .filter((entry): entry is { currencyCode: string; amount: number } => Boolean(entry))
+    .filter((entry): entry is { currencyCode: string; amount: string } => Boolean(entry))
 }
 
 function collectMediaReferences(value: unknown): MediaReference[] {
@@ -537,6 +551,10 @@ export function resolveAkeneoMediaTarget(params: {
     return 'variant'
   }
   return params.mappingTarget
+}
+
+function isEmptyCustomFieldValue(value: unknown): boolean {
+  return value === null || value === undefined || (Array.isArray(value) && value.length === 0)
 }
 
 function resolveCustomFieldValue(value: unknown, attribute: AkeneoAttribute, kind: AkeneoCustomFieldKind): unknown {
@@ -795,6 +813,8 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   const preferredPriceKindCodeCache = new Map<string, Promise<string | null>>()
   const attributeOptionLabelCache = new Map<string, Promise<Map<string, string>>>()
   const defaultProductSettings = buildDefaultAkeneoMapping('products').settings?.products
+  const salesChannelsAvailable = em.getMetadata().has(SalesChannel)
+  let salesChannelsUnavailableReported = false
 
   function buildCommandContext(): CommandRuntimeContext {
     return {
@@ -958,7 +978,20 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     return categoryCache.get(code) ?? null
   }
 
+  async function reportSalesChannelsUnavailable(): Promise<void> {
+    if (salesChannelsUnavailableReported) return
+    salesChannelsUnavailableReported = true
+    const integrationLogService = container.resolve('integrationLogService') as IntegrationLogService
+    await integrationLogService.write({
+      integrationId: 'sync_akeneo',
+      level: 'warn',
+      code: 'sync_akeneo.sales_channels_unavailable',
+      message: 'The sales module is disabled, so Akeneo channel-bound offers and prices were skipped.',
+    }, scope)
+  }
+
   async function resolveChannel(code: string, options?: { createIfMissing?: boolean; label?: string | null }): Promise<{ id: string; code: string } | null> {
+    if (!salesChannelsAvailable) return null
     const normalizedCode = code.trim().toLowerCase()
     if (!normalizedCode) return null
     const cacheKey = `${normalizedCode}:${options?.createIfMissing ? 'create' : 'read'}:${options?.label ?? ''}`
@@ -1020,6 +1053,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   }
 
   async function resolvePreferredLocalChannelCode(): Promise<string | null> {
+    if (!salesChannelsAvailable) return null
     const cacheKey = 'preferred'
     if (!preferredChannelCodeCache.has(cacheKey)) {
       preferredChannelCodeCache.set(cacheKey, (async () => {
@@ -1816,6 +1850,10 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     settings: AkeneoProductMappingSettings
     priceAttributeCodes: string[]
   }): Promise<AkeneoProductMappingSettings['priceMappings']> {
+    if (!salesChannelsAvailable) {
+      if (params.priceAttributeCodes.length > 0) await reportSalesChannelsUnavailable()
+      return []
+    }
     const fallbackChannelCode = await resolvePreferredLocalChannelCode()
 
     const mappings: AkeneoProductMappingSettings['priceMappings'] = []
@@ -2010,6 +2048,23 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     }
   }
 
+  async function omitClearsOfEmptyFields(
+    entityId: string,
+    recordId: string,
+    values: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (!Object.values(values).some((value) => value === null)) return values
+    const current = await loadCustomFieldSnapshot(em, {
+      entityId,
+      recordId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+    return Object.fromEntries(
+      Object.entries(values).filter(([key, value]) => value !== null || !isEmptyCustomFieldValue(current[key])),
+    )
+  }
+
   async function applyCustomFieldMappings(params: {
     mapping: AkeneoDataMapping
     hierarchy: ResolvedHierarchy
@@ -2036,8 +2091,8 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         ? [params.hierarchy.rootValues, params.hierarchy.mergedValues]
         : [params.product.values ?? {}, params.hierarchy.mergedValues]
       const rawValue = readLayeredAkeneoValue(sourceLayers, fieldMapping.attributeCode, settings.locale, settings.channel ?? null)
-      const value = resolveCustomFieldValue(rawValue, attribute, kind)
-      if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) continue
+      const resolved = resolveCustomFieldValue(rawValue, attribute, kind)
+      const value = isEmptyCustomFieldValue(resolved) ? null : resolved
       if (fieldMapping.target === 'product') {
         productCustomFields[normalizeFieldKey(fieldMapping.fieldKey)] = value
       } else {
@@ -2045,24 +2100,24 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       }
     }
 
-    await Promise.all([
-      setCustomFieldsIfAny({
-        dataEngine,
-        entityId: PRODUCT_ENTITY_ID,
-        recordId: params.localProductId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        values: productCustomFields,
-      }),
-      setCustomFieldsIfAny({
-        dataEngine,
-        entityId: VARIANT_ENTITY_ID,
-        recordId: params.localVariantId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        values: variantCustomFields,
-      }),
-    ])
+    const productValues = await omitClearsOfEmptyFields(PRODUCT_ENTITY_ID, params.localProductId, productCustomFields)
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: PRODUCT_ENTITY_ID,
+      recordId: params.localProductId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      values: productValues,
+    })
+    const variantValues = await omitClearsOfEmptyFields(VARIANT_ENTITY_ID, params.localVariantId, variantCustomFields)
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: VARIANT_ENTITY_ID,
+      recordId: params.localVariantId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      values: variantValues,
+    })
 
     await Promise.all([
       params.fieldsetPlan?.product?.code
@@ -2079,7 +2134,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         : Promise.resolve(),
     ])
 
-    if (Object.keys(productCustomFields).length > 0) {
+    if (Object.keys(productValues).length > 0) {
       await emitCatalogQueryIndexEvent(buildCommandContext(), {
         entityType: PRODUCT_ENTITY_ID,
         recordId: params.localProductId,
@@ -2089,7 +2144,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       })
     }
 
-    if (Object.keys(variantCustomFields).length > 0) {
+    if (Object.keys(variantValues).length > 0) {
       await emitCatalogQueryIndexEvent(buildCommandContext(), {
         entityType: VARIANT_ENTITY_ID,
         recordId: params.localVariantId,
@@ -2110,6 +2165,10 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     resolvedProductDescription: string | null
     variantExternalId: string
   }): Promise<void> {
+    if (!salesChannelsAvailable) {
+      if (params.settings.priceMappings.length > 0) await reportSalesChannelsUnavailable()
+      return
+    }
     const desiredOffers = new Map<string, DesiredOffer>()
     for (const priceMapping of params.settings.priceMappings) {
       const channel = await resolveChannel(priceMapping.localChannelCode, {
@@ -2305,42 +2364,64 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     }
   }
 
-  async function upsertAsset(asset: DesiredAsset): Promise<string> {
+  async function recordRejectedMedia(asset: DesiredAsset, reason: string): Promise<void> {
+    const integrationLogService = container.resolve('integrationLogService') as IntegrationLogService
+    await integrationLogService.write({
+      integrationId: 'sync_akeneo',
+      level: 'warn',
+      code: 'sync_akeneo.media_rejected',
+      message: `Akeneo media ${asset.remote.codeOrUrl} was not imported: ${reason}`,
+      scopeEntityType: asset.entityId,
+      scopeEntityId: asset.recordId,
+      payload: {
+        externalId: asset.externalId,
+        remoteCode: asset.remote.codeOrUrl,
+        kind: asset.kind,
+        reason,
+      },
+    }, scope)
+  }
+
+  async function upsertAsset(asset: DesiredAsset): Promise<string | null> {
     const existingAttachmentId = await externalIdMappingService.lookupLocalId('sync_akeneo', 'attachment', asset.externalId, scope)
     if (existingAttachmentId) return existingAttachmentId
 
-    await ensureDefaultPartitions(em)
-    const binary = await client.downloadMediaFile(asset.remote.codeOrUrl)
+    let binary: Awaited<ReturnType<AkeneoClient['downloadMediaFile']>>
+    try {
+      binary = await client.downloadMediaFile(asset.remote.codeOrUrl)
+    } catch (error) {
+      if (!isAkeneoResponseTooLargeError(error)) throw error
+      await recordRejectedMedia(asset, 'max_upload_size')
+      return null
+    }
     const fileName = asset.remote.fileNameHint ?? binary.fileName ?? `akeneo-${randomUUID().slice(0, 8)}`
-    const partitionCode = resolveDefaultPartitionCode(asset.entityId)
-    const stored = await storePartitionFile({
-      partitionCode,
-      orgId: scope.organizationId,
-      tenantId: scope.tenantId,
-      fileName,
-      buffer: binary.buffer,
-    })
-    const attachment = em.create(Attachment, {
-      entityId: asset.entityId,
-      recordId: asset.recordId,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      partitionCode,
-      fileName,
-      mimeType: asset.remote.mimeTypeHint ?? binary.contentType ?? 'application/octet-stream',
-      fileSize: binary.contentLength ?? binary.buffer.byteLength,
-      storageDriver: 'local',
-      storagePath: stored.storagePath,
-      storageMetadata: mergeAttachmentMetadata(null, {
-        assignments: [{ type: asset.entityId, id: asset.recordId }],
-      }),
-      url: buildAttachmentFileUrl('pending'),
-      content: null,
-    })
-    em.persist(attachment)
-    await em.flush()
+    const uploadService = container.resolve('attachmentScopedUploadService') as ScopedAttachmentUploadService
+    let attachment: Attachment
+    try {
+      attachment = await uploadService.upload({
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        entityId: asset.entityId,
+        recordId: asset.recordId,
+        fileName,
+        declaredMimeType: asset.remote.mimeTypeHint ?? binary.contentType,
+        buffer: binary.buffer,
+      })
+    } catch (error) {
+      if (!isScopedAttachmentUploadError(error)) throw error
+      if (REJECTED_MEDIA_UPLOAD_CODES.has(error.code)) {
+        await recordRejectedMedia(asset, error.code)
+        return null
+      }
+      const { translate } = await resolveTranslations()
+      throw new Error(translate(
+        'sync_akeneo.errors.mediaStorageRejected',
+        'Akeneo media {code} was rejected by attachment storage ({reason}).',
+        { code: asset.remote.codeOrUrl, reason: error.code },
+      ))
+    }
     attachment.url = asset.kind === 'image'
-      ? buildAttachmentImageUrl(attachment.id, { slug: slugifyAttachmentFileName(fileName) })
+      ? buildAttachmentImageUrl(attachment.id, { slug: slugifyAttachmentFileName(attachment.fileName) })
       : buildAttachmentFileUrl(attachment.id)
     attachment.storageMetadata = {
       ...(attachment.storageMetadata ?? {}),
@@ -2350,9 +2431,30 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       remoteCode: asset.remote.codeOrUrl,
     }
     await em.flush()
-    await emitAttachmentCrudChange('created', attachment)
+    await emitAttachmentCrudChange('updated', attachment)
     await externalIdMappingService.storeExternalIdMapping('sync_akeneo', 'attachment', attachment.id, asset.externalId, scope)
     return attachment.id
+  }
+
+  async function releaseImportedAttachment(attachment: Attachment): Promise<boolean> {
+    const attachmentService = container.resolve('attachmentService') as AttachmentService
+    if (!attachmentService.releaseScoped) {
+      throw new Error('[internal] attachmentService.releaseScoped is not available')
+    }
+    try {
+      await attachmentService.releaseScoped({
+        attachmentId: attachment.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        expectedOwner: { entityId: attachment.entityId, recordId: attachment.recordId },
+        expectedAssignment: { type: attachment.entityId, id: attachment.recordId },
+        expectedPartitionCode: attachment.partitionCode,
+      })
+      return true
+    } catch (error) {
+      if (isCrudHttpError(error) && (error.status === 409 || error.status === 404)) return false
+      throw error
+    }
   }
 
   async function reconcileAttachments(params: {
@@ -2362,12 +2464,11 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     reconciliation: AkeneoReconciliationSettings
   }): Promise<{ heroAttachmentId: string | null; heroAttachmentUrl: string | null }> {
     const desiredExternalIds = new Set(params.desiredAssets.map((asset) => asset.externalId))
-    const desiredImages = params.desiredAssets.filter((asset) => asset.kind === 'image')
-    const desiredFiles = params.desiredAssets.filter((asset) => asset.kind === 'file')
-    const desiredAttachmentIds = await Promise.all(params.desiredAssets.map((asset) => upsertAsset(asset)))
-    const heroAttachmentId = desiredImages.length > 0
-      ? desiredAttachmentIds[params.desiredAssets.findIndex((asset) => asset.externalId === desiredImages[0]?.externalId)]
-      : null
+    let heroAttachmentId: string | null = null
+    for (const asset of params.desiredAssets) {
+      const attachmentId = await upsertAsset(asset)
+      if (!heroAttachmentId && attachmentId && asset.kind === 'image') heroAttachmentId = attachmentId
+    }
     const heroAttachmentUrl = heroAttachmentId ? buildAttachmentImageUrl(heroAttachmentId) : null
 
     const existing = await findWithDecryption(em, Attachment, {
@@ -2385,8 +2486,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         ? params.reconciliation.deleteMissingMedia
         : params.reconciliation.deleteMissingAttachments
       if (!shouldDelete || desiredExternalIds.has(externalId)) continue
-      await deletePartitionFile(attachment.partitionCode, attachment.storagePath, attachment.storageDriver)
-      await em.remove(attachment).flush()
+      if (!(await releaseImportedAttachment(attachment))) continue
       await emitAttachmentCrudChange('deleted', attachment)
     }
 

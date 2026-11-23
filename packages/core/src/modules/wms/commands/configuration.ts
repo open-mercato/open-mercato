@@ -59,7 +59,9 @@ import {
 } from '../data/entities'
 import {
   inventoryLotCreateSchema,
+  inventoryLotDateOrderingSchema,
   inventoryLotUpdateSchema,
+  keepClearedInventoryLotDates,
   productInventoryProfileCreateSchema,
   productInventoryProfileUpdateSchema,
   warehouseCreateSchema,
@@ -1532,6 +1534,28 @@ function restoreInventoryProfileFromSnapshot(em: EntityManager, before: ProductI
   record.deletedAt = null
 }
 
+type InventoryProfileEventSource = {
+  id: string
+  catalogProductId: string
+  catalogVariantId?: string | null
+  tenantId: string
+  organizationId: string
+}
+
+function emitInventoryProfileEvent(
+  eventId: 'wms.inventory_profile.created' | 'wms.inventory_profile.updated' | 'wms.inventory_profile.deleted',
+  profile: InventoryProfileEventSource,
+): void {
+  void emitWmsEvent(eventId, {
+    id: profile.id,
+    profileId: profile.id,
+    catalogProductId: profile.catalogProductId,
+    catalogVariantId: profile.catalogVariantId ?? null,
+    tenantId: profile.tenantId,
+    organizationId: profile.organizationId,
+  }).catch(() => undefined)
+}
+
 const createProductInventoryProfileCommand: CommandHandler<ProductInventoryProfileCreateInput, { profileId: string }> = {
   id: 'wms.inventoryProfiles.create',
   async execute(rawInput, ctx) {
@@ -1555,14 +1579,7 @@ const createProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
       metadata: toJsonValue(parsed.metadata),
     })
     await em.persist(profile).flush()
-    void emitWmsEvent('wms.inventory_profile.created', {
-      id: profile.id,
-      profileId: profile.id,
-      catalogProductId: profile.catalogProductId,
-      catalogVariantId: profile.catalogVariantId ?? null,
-      tenantId: profile.tenantId,
-      organizationId: profile.organizationId,
-    }).catch(() => undefined)
+    emitInventoryProfileEvent('wms.inventory_profile.created', profile)
     return { profileId: profile.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1591,6 +1608,7 @@ const createProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
     ensureOrganizationScope(ctx, record.organizationId)
     record.deletedAt = new Date()
     await em.flush()
+    emitInventoryProfileEvent('wms.inventory_profile.deleted', record)
   },
 }
 
@@ -1629,14 +1647,7 @@ const updateProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
     if (parsed.safetyStock !== undefined) profile.safetyStock = toNumericString(parsed.safetyStock)
     if (parsed.metadata !== undefined) profile.metadata = toJsonValue(parsed.metadata)
     await em.flush()
-    void emitWmsEvent('wms.inventory_profile.updated', {
-      id: profile.id,
-      profileId: profile.id,
-      catalogProductId: profile.catalogProductId,
-      catalogVariantId: profile.catalogVariantId ?? null,
-      tenantId: profile.tenantId,
-      organizationId: profile.organizationId,
-    }).catch(() => undefined)
+    emitInventoryProfileEvent('wms.inventory_profile.updated', profile)
     return { profileId: profile.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1686,6 +1697,7 @@ const updateProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
       restoreInventoryProfileFromSnapshot(em, before, record)
     }
     await em.flush()
+    emitInventoryProfileEvent('wms.inventory_profile.updated', before)
   },
 }
 
@@ -1703,6 +1715,7 @@ const deleteProductInventoryProfileCommand: CommandHandler<{ id?: string }, { pr
     const profile = await loadProfile(em, ctx, profileId)
     profile.deletedAt = new Date()
     await em.flush()
+    emitInventoryProfileEvent('wms.inventory_profile.deleted', profile)
     return { profileId: profile.id }
   },
   buildLog: async ({ input, result, ctx, snapshots }) => {
@@ -1747,6 +1760,7 @@ const deleteProductInventoryProfileCommand: CommandHandler<{ id?: string }, { pr
       restoreInventoryProfileFromSnapshot(em, before, record)
     }
     await em.flush()
+    emitInventoryProfileEvent('wms.inventory_profile.created', before)
   },
 }
 
@@ -1816,6 +1830,10 @@ const createInventoryLotCommand: CommandHandler<InventoryLotCreateInput, { lotId
   },
 }
 
+function patchedOrStoredDate(patched: Date | null | undefined, stored: Date | null | undefined): Date | undefined {
+  return (patched !== undefined ? patched : stored) ?? undefined
+}
+
 const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId: string }> = {
   id: 'wms.lots.update',
   prepare: async (input, ctx) => {
@@ -1825,9 +1843,16 @@ const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId
     return before ? { before } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = inventoryLotUpdateSchema.parse(rawInput ?? {})
+    const parsed = keepClearedInventoryLotDates(rawInput, inventoryLotUpdateSchema.parse(rawInput ?? {}))
     const em = resolveEm(ctx)
     const lot = await loadLot(em, ctx, parsed.id)
+    if (parsed.manufacturedAt !== undefined || parsed.bestBeforeAt !== undefined || parsed.expiresAt !== undefined) {
+      inventoryLotDateOrderingSchema.parse({
+        manufacturedAt: patchedOrStoredDate(parsed.manufacturedAt, lot.manufacturedAt),
+        bestBeforeAt: patchedOrStoredDate(parsed.bestBeforeAt, lot.bestBeforeAt),
+        expiresAt: patchedOrStoredDate(parsed.expiresAt, lot.expiresAt),
+      })
+    }
     const nextVariantId = parsed.catalogVariantId ?? lot.catalogVariantId
     const nextLotNumber = parsed.lotNumber ?? lot.lotNumber
     if (

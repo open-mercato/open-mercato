@@ -68,6 +68,7 @@ jest.mock(
 )
 
 import mutationAiTools from '../../ai-tools/mutation-pack'
+import { productUpdateSchema } from '../../data/validators'
 import { knownFeatureIds } from './shared'
 
 function findTool(name: string) {
@@ -141,6 +142,60 @@ const PRODUCT_EXAMPLE = {
 function clonePrototype(overrides: Record<string, unknown>) {
   return { ...PRODUCT_EXAMPLE, ...overrides }
 }
+
+describe.each(['catalog.update_product', 'catalog.bulk_update_products'])(
+  '%s — description API compatibility (issue #10003)',
+  (toolName) => {
+    beforeEach(() => {
+      findOneWithDecryptionMock.mockReset()
+      runMock.mockReset()
+      createRunnerMock.mockClear()
+    })
+
+    it.each([
+      [{}, 'Existing description'],
+      [{ description: null }, null],
+      [{ description: '' }, ''],
+      [{ description: '   ' }, ''],
+      [{ description: '  New description  ' }, 'New description'],
+    ])('saves a subtitle with description patch %j', async (patch, expectedDescription) => {
+      const tool = findTool(toolName)
+      const ctx = makeMutationCtx({ tenantId: MEDIA_ID_A, organizationId: MEDIA_ID_B })
+      const product = clonePrototype({
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        description: 'Existing description',
+      })
+      findOneWithDecryptionMock.mockResolvedValue(product)
+      runMock.mockImplementation(async (operation: { body: unknown }) => {
+        const parsed = productUpdateSchema.parse(operation.body)
+        Object.assign(product, parsed)
+        return { success: true, statusCode: 200, data: { ok: true } }
+      })
+      const input = tool.isBulk
+        ? { records: [{ recordId: PRODUCT_ID_A, subtitle: 'New subtitle', ...patch }] }
+        : { productId: PRODUCT_ID_A, subtitle: 'New subtitle', ...patch }
+
+      const result = await tool.handler(input, ctx)
+
+      expect(runMock).toHaveBeenCalledTimes(1)
+      expect(runMock.mock.calls[0][0]).toMatchObject({
+        method: 'PUT',
+        path: '/catalog/products',
+        body: { id: PRODUCT_ID_A, tenantId: MEDIA_ID_A, organizationId: MEDIA_ID_B },
+      })
+      if (!('description' in patch)) {
+        expect(runMock.mock.calls[0][0].body).not.toHaveProperty('description')
+      }
+      expect(product.subtitle).toBe('New subtitle')
+      expect(product.description).toBe(expectedDescription)
+      const updated = { after: { subtitle: 'New subtitle', description: expectedDescription } }
+      expect(result).toMatchObject(tool.isBulk
+        ? { records: [{ status: 'updated', ...updated }], failedRecordIds: [] }
+        : updated)
+    })
+  },
+)
 
 describe('catalog.update_product — contract', () => {
   const tool = findTool('catalog.update_product')
@@ -753,6 +808,35 @@ describe('catalog.update_product_media_descriptions — contract', () => {
 
   it('declares a loadBeforeRecords resolver (always batch)', () => {
     expect(typeof tool.loadBeforeRecords).toBe('function')
+  })
+})
+
+describe('catalog.update_product_media_descriptions — loadBeforeRecords', () => {
+  const tool = findTool('catalog.update_product_media_descriptions')
+
+  beforeEach(() => {
+    findOneWithDecryptionMock.mockReset()
+  })
+
+  it('projects an explicit after so untouched fields do not surface as cleared (regression #7349)', async () => {
+    const mediaRow = {
+      id: MEDIA_ID_A,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      fileName: 'hero.jpg',
+      storageMetadata: { altText: 'Old alt', caption: 'Old caption' },
+      createdAt: new Date('2026-04-01T00:00:00Z'),
+    }
+    findOneWithDecryptionMock.mockResolvedValueOnce(mediaRow)
+    const ctx = makeMutationCtx()
+    const rows = await tool.loadBeforeRecords!(
+      {
+        mediaUpdates: [{ mediaId: MEDIA_ID_A, altText: 'New alt' }],
+      } as any,
+      ctx as any,
+    )
+    expect(rows[0].before).toEqual({ altText: 'Old alt', caption: 'Old caption' })
+    expect(rows[0].after).toEqual({ altText: 'New alt', caption: 'Old caption' })
   })
 })
 

@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto'
 import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   TEST_CHANNEL_SEEDING_ENV,
   TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV,
@@ -8,6 +10,7 @@ import {
   TEST_SEED_CHAT_PROVIDER_KEY,
   TEST_SEED_PROVIDER_KEY,
   clearTestSeedCapturedMessages,
+  deleteTestSeedPlatformMessage,
   ensureTestSeedAdapterRegistered,
   isTestChannelSeedingEnabled,
   isTestEmailCaptureAccessAuthorized,
@@ -97,6 +100,49 @@ describe('communication_channels test-seed gate', () => {
       expect((normalized as { subject?: string }).subject).toBeUndefined()
     })
 
+    it('the email stub normalizes an email-shaped frame whose sender is an address (#6089)', async () => {
+      process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
+      clearChannelAdapters()
+      ensureTestSeedAdapterRegistered()
+      const adapter = getChannelAdapter(TEST_SEED_PROVIDER_KEY)
+
+      const normalized = await adapter!.normalizeInbound({
+        raw: {
+          externalMessageId: '<inbound-1@example.test>',
+          externalConversationId: 'inbound-conversation-1',
+          senderIdentifier: 'inbound-sender@example.test',
+          senderDisplayName: 'Inbound Sender',
+          subject: 'Inbound subject',
+          body: 'hello from an inbox',
+        },
+        eventType: 'message',
+        metadata: {},
+      })
+
+      expect(normalized.senderIdentifier).toBe('inbound-sender@example.test')
+      expect(normalized.subject).toBe('Inbound subject')
+      expect(normalized.body).toBe('hello from an inbox')
+      expect(normalized.channelPayload.from).toEqual({
+        address: 'inbound-sender@example.test',
+        name: 'Inbound Sender',
+      })
+    })
+
+    it('the email stub rejects a frame whose sender is not an address', async () => {
+      process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
+      clearChannelAdapters()
+      ensureTestSeedAdapterRegistered()
+      const adapter = getChannelAdapter(TEST_SEED_PROVIDER_KEY)
+
+      await expect(
+        adapter!.normalizeInbound({
+          raw: { externalMessageId: 'x', externalConversationId: 'y', senderIdentifier: '1499156851487539260' },
+          eventType: 'message',
+          metadata: {},
+        }),
+      ).rejects.toThrow('email-shaped senderIdentifier')
+    })
+
     it('registers a network-free email stub adapter when the gate is on', () => {
       process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
       clearChannelAdapters()
@@ -155,6 +201,28 @@ describe('communication_channels test-seed gate', () => {
   })
 })
 
+describe('deleteTestSeedPlatformMessage', () => {
+  it('scopes deletion to a test-seed stamp or the verified external conversation', async () => {
+    const execute = jest.fn().mockResolvedValue(undefined)
+    const em = {
+      getConnection: () => ({ execute }),
+    } as unknown as EntityManager
+
+    await deleteTestSeedPlatformMessage(em, {
+      messageId: 'message-1',
+      channelId: 'channel-1',
+      conversationId: 'conversation-1',
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
+    })
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.stringContaining("source_entity_type = 'communication_channels.external_conversation'"),
+      ['message-1', 'channel-1', 'conversation-1', 'tenant-1', 'organization-1'],
+    )
+  })
+})
+
 const tenantId = 'tenant-1'
 const organizationId = 'organization-1'
 const captureScope = { tenantId, organizationId }
@@ -202,6 +270,120 @@ describe('test-seed email capture scoping', () => {
   async function seedCapture(messages: TestSeedCapturedMessage[]): Promise<void> {
     await writeFile(capturePath, `${messages.map((message) => JSON.stringify(message)).join('\n')}\n`, 'utf8')
   }
+
+  it('records URL attachments in their original shape and a versioned digest for every attachment', async () => {
+    const originalFlag = process.env[TEST_CHANNEL_SEEDING_ENV]
+    process.env[TEST_CHANNEL_SEEDING_ENV] = '1'
+    clearChannelAdapters()
+    try {
+      ensureTestSeedAdapterRegistered()
+      const hubBytes = Buffer.from('%PDF-1.7 order')
+      await getChannelAdapter(TEST_SEED_PROVIDER_KEY)!.sendMessage({
+        content: {
+          text: 'with files',
+          bodyFormat: 'text',
+          attachments: [
+            { url: '', mimeType: 'application/pdf', fileName: 'order.pdf', fileSize: hubBytes.byteLength, content: hubBytes },
+            { url: 'data:text/plain;base64,aGk=', mimeType: 'text/plain', fileName: 'note.txt', inline: false },
+          ],
+        },
+        credentials: {},
+        scope: captureScope,
+      })
+
+      const [captured] = await listTestSeedCapturedMessages(captureScope)
+      const legacyUrl: string = captured.content.attachments![0].url
+
+      expect(legacyUrl).toBe('data:text/plain;base64,aGk=')
+      expect(captured.content.attachments).toEqual([
+        { url: 'data:text/plain;base64,aGk=', mimeType: 'text/plain', fileName: 'note.txt', inline: false },
+      ])
+      expect(captured.content.attachmentDigests).toEqual([
+        {
+          version: 1,
+          fileName: 'order.pdf',
+          mimeType: 'application/pdf',
+          fileSize: hubBytes.byteLength,
+          sha256: createHash('sha256').update(hubBytes).digest('hex'),
+        },
+        {
+          version: 1,
+          fileName: 'note.txt',
+          mimeType: 'text/plain',
+          fileSize: 2,
+          sha256: createHash('sha256').update('hi').digest('hex'),
+        },
+      ])
+    } finally {
+      if (originalFlag === undefined) delete process.env[TEST_CHANNEL_SEEDING_ENV]
+      else process.env[TEST_CHANNEL_SEEDING_ENV] = originalFlag
+      clearChannelAdapters()
+    }
+  })
+
+  it('records a remote attachment URL as before, without fetching or digesting it', async () => {
+    const originalFlag = process.env[TEST_CHANNEL_SEEDING_ENV]
+    process.env[TEST_CHANNEL_SEEDING_ENV] = '1'
+    clearChannelAdapters()
+    try {
+      ensureTestSeedAdapterRegistered()
+      const remote = { url: 'https://files.example.test/a.pdf', mimeType: 'application/pdf', fileName: 'a.pdf', fileSize: 3 }
+      const result = await getChannelAdapter(TEST_SEED_PROVIDER_KEY)!.sendMessage({
+        content: { text: 'remote', bodyFormat: 'text', attachments: [remote] },
+        credentials: {},
+        scope: captureScope,
+      })
+
+      const [captured] = await listTestSeedCapturedMessages(captureScope)
+
+      expect(result.status).toBe('sent')
+      expect(captured.content.attachments).toEqual([remote])
+      expect(captured.content.attachmentDigests).toBeUndefined()
+    } finally {
+      if (originalFlag === undefined) delete process.env[TEST_CHANNEL_SEEDING_ENV]
+      else process.env[TEST_CHANNEL_SEEDING_ENV] = originalFlag
+      clearChannelAdapters()
+    }
+  })
+
+  it('records malformed data: URLs and attachments without a URL as before, without digests', async () => {
+    const originalFlag = process.env[TEST_CHANNEL_SEEDING_ENV]
+    process.env[TEST_CHANNEL_SEEDING_ENV] = '1'
+    clearChannelAdapters()
+    try {
+      ensureTestSeedAdapterRegistered()
+      const adapter = getChannelAdapter(TEST_SEED_PROVIDER_KEY)!
+      const handed = [
+        { url: 'data:abc', mimeType: 'text/plain', fileName: 'no-comma.txt' },
+        { url: 'data:text/plain,50%', mimeType: 'text/plain', fileName: 'bad-escape.txt' },
+        { url: '', mimeType: 'application/pdf', fileName: 'no-url.pdf', fileSize: 0 },
+      ]
+      const withItems = await adapter.sendMessage({
+        content: { text: 'odd items', bodyFormat: 'text', attachments: handed },
+        credentials: {},
+        scope: captureScope,
+      })
+      const withNone = await adapter.sendMessage({
+        content: { text: 'empty list', bodyFormat: 'text', attachments: [] },
+        credentials: {},
+        scope: captureScope,
+      })
+
+      const captured = await listTestSeedCapturedMessages(captureScope)
+      const odd = captured.find((message) => message.content.text === 'odd items')!
+      const empty = captured.find((message) => message.content.text === 'empty list')!
+
+      expect([withItems.status, withNone.status]).toEqual(['sent', 'sent'])
+      expect(odd.content.attachments).toEqual(handed)
+      expect(odd.content.attachmentDigests).toBeUndefined()
+      expect(empty.content.attachments).toEqual([])
+      expect(empty.content.attachmentDigests).toBeUndefined()
+    } finally {
+      if (originalFlag === undefined) delete process.env[TEST_CHANNEL_SEEDING_ENV]
+      else process.env[TEST_CHANNEL_SEEDING_ENV] = originalFlag
+      clearChannelAdapters()
+    }
+  })
 
   it('returns exact-organization and tenant-wide messages without exposing another organization', async () => {
     await seedCapture([

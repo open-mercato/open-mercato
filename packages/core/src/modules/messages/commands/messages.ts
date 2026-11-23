@@ -12,16 +12,24 @@ import {
   replyMessageSchema,
   updateDraftSchema,
 } from '../data/validators'
-import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
+import {
+  copyAttachmentsForForwardMessages,
+  deleteMessageAttachmentRows,
+  enqueueMessageAttachmentSectionCleanup,
+  linkAttachmentsToMessage,
+  linkLibraryAttachmentsToMessage,
+  type DeletedMessageAttachmentRows,
+} from '../lib/attachments'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveActorFeatures,
   resolveMessageChannelThreadAccess,
 } from '../lib/channelThreadAccess'
-import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID } from '../lib/constants'
+import { MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID } from '../lib/constants'
 import { canUseChannelThreadFallback } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
+import { assertExternalEmailBudget } from '../lib/externalEmailBudget'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
 import {
   assertOrganizationAccess,
@@ -142,6 +150,7 @@ const composeCommandSchema = composeMessageSchema.safeExtend({
   // undefined). When set, a re-issued compose returns the first message instead
   // of creating a duplicate.
   idempotencyKey: z.string().min(1).max(255).optional(),
+  externalEmailRecipients: z.array(z.string().email()).min(1).optional(),
 })
 
 const updateDraftCommandSchema = updateDraftSchema.safeExtend({
@@ -266,6 +275,13 @@ async function buildComposeResultFromExisting(
   }
 }
 
+/**
+ * `parentMessageId` is trusted: the thread is derived from it without a read
+ * check, because the acting `userId` is itself an input and server-side callers
+ * (channel ingest) pass parents the actor is not a participant of. Every surface
+ * that accepts a parent from a caller MUST resolve it against its own read rule
+ * first (`resolveReplyParentMessage` for the messages API).
+ */
 const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: string | null; externalEmail: string | null; isDraft: boolean; recipientUserIds: string[]; deduplicated?: boolean }> = {
   id: 'messages.messages.compose',
   async execute(rawInput, ctx) {
@@ -293,6 +309,14 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
       if (existing) return buildComposeResultFromExisting(em, existing)
     }
 
+    if (!input.isDraft && (input.sendViaEmail || input.externalEmailRecipients?.length) && input.externalEmail) {
+      await assertExternalEmailBudget(
+        ctx.container,
+        { tenantId: input.tenantId, userId: input.userId },
+        input.externalEmailRecipients ? [input.externalEmail, ...input.externalEmailRecipients] : input.externalEmail,
+      )
+    }
+
     let messageId = ''
     let responseThreadId: string | null = null
     let responseExternalEmail: string | null = null
@@ -315,14 +339,14 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         )?.threadId ?? input.parentMessageId
         : undefined
 
-      const isPublicVisibility = input.visibility === 'public'
-      // #6093: a channel-ingested message was RECEIVED, not sent. Ingest passes
-      // `sendViaEmail: false` on purpose; forcing it for public visibility would
-      // mail the assignee a copy and echo the message to its external sender
-      // (#6089) the moment the recipients waiver lets it compose. #6090 removes
-      // the forcing for every caller; until then it is skipped here for the
-      // ingest path only.
-      const sendViaEmail = isPublicVisibility && !input.inboundFromChannel ? true : input.sendViaEmail
+      // Honor the caller's explicit `sendViaEmail` (#6089, #6090). The messages API
+      // route forces email delivery for public messages a user composes; internal
+      // callers (communication_channels inbound ingest, send-as-user) compose
+      // `visibility: 'public'` with `sendViaEmail: false` on purpose. Forcing it
+      // here echoed every inbound email back to its sender through the tenant
+      // system email channel and made send-as-user deliver twice.
+      const sendViaEmail = input.sendViaEmail
+      const sentAt = input.sentAt === undefined ? new Date() : input.sentAt
       const message = trx.create(Message, {
         type: input.type,
         visibility: input.visibility ?? null,
@@ -341,7 +365,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         isDraft: input.isDraft ?? false,
         // #6095: channel ingest passes the provider's timestamp so an imported
         // mailbox sorts by when the mail was received, not when it was imported.
-        sentAt: input.isDraft ? null : input.sentAt ?? new Date(),
+        sentAt: input.isDraft ? null : sentAt,
         actionData: input.actionData as MessageActionData | undefined,
         sendViaEmail,
         idempotencyKey: input.idempotencyKey ?? null,
@@ -428,8 +452,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         messageId,
         senderUserId: input.userId,
         recipientUserIds: input.recipients.map((recipient) => recipient.userId),
-        sendViaEmail:
-          input.visibility === 'public' && !input.inboundFromChannel ? true : input.sendViaEmail,
+        sendViaEmail: input.sendViaEmail,
         inboundFromChannel: input.inboundFromChannel === true,
         externalEmail: responseExternalEmail,
         tenantId: input.tenantId,
@@ -549,11 +572,11 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
     }
 
+    const finalVisibility = input.visibility ?? message.visibility
     // Validate the send transition BEFORE the atomic-flush block so a rejected
     // send never mutates or flushes anything (everything checked here is known
     // from the parsed input + the loaded message).
     if (isSending) {
-      const finalVisibility = input.visibility ?? message.visibility
       const finalSubject = input.subject ?? message.subject
       const finalBody = input.body ?? message.body
       const finalRecipientCount = input.recipients
@@ -566,6 +589,17 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       if (!finalBody?.trim()) throw new Error('body is required')
     }
 
+    const finalSendViaEmail = input.sendViaEmail ?? message.sendViaEmail
+    const finalExternalEmail = input.externalEmail ?? message.externalEmail
+    if (isSending && (finalVisibility === 'public' || finalSendViaEmail) && finalExternalEmail) {
+      await assertExternalEmailBudget(
+        ctx.container,
+        { tenantId: input.tenantId, userId: input.userId },
+        finalExternalEmail,
+      )
+    }
+
+    let deletedAttachments: DeletedMessageAttachmentRows | null = null
     // Phase 1 mutates the managed `message` scalars; the per-phase flush issues
     // those changes before phase 2's interleaved reads run (e.g.
     // `linkAttachmentsToMessage` issues an `em.find`). Under MikroORM v7 a read
@@ -614,23 +648,12 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
 
       if (input.attachmentIds) {
-        const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-        if (input.attachmentIds.length === 0) {
-          await em.nativeDelete(Attachment, {
-            entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-            recordId: message.id,
-            tenantId: input.tenantId,
-            organizationId: input.organizationId,
-          })
-        } else {
-          await em.nativeDelete(Attachment, {
-            entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-            recordId: message.id,
-            tenantId: input.tenantId,
-            organizationId: input.organizationId,
-            id: { $nin: input.attachmentIds },
-          })
-        }
+        deletedAttachments = await deleteMessageAttachmentRows(em, {
+          messageId: message.id,
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+          excludeIds: input.attachmentIds,
+        })
         await linkAttachmentsToMessage(
           em,
           message.id,
@@ -649,6 +672,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
         if (!message.threadId) message.threadId = message.id
       }
     }], { transaction: true })
+    if (deletedAttachments) await enqueueMessageAttachmentSectionCleanup(deletedAttachments)
 
     await emitMessageIndexUpsert(ctx.container, {
       messageId: message.id,
@@ -660,13 +684,11 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       const recipientUserIds = input.recipients
         ? input.recipients.map((r) => r.userId)
         : (preloadedRecipients ?? []).map((r) => r.recipientUserId)
-      const resolvedVisibility = input.visibility ?? message.visibility
-      const resolvedSendViaEmail = input.sendViaEmail ?? message.sendViaEmail
       await emitMessageSentEvent(ctx.container, {
         messageId: message.id,
         senderUserId: input.userId,
         recipientUserIds,
-        sendViaEmail: resolvedVisibility === 'public' ? true : resolvedSendViaEmail,
+        sendViaEmail: finalVisibility === 'public' ? true : finalSendViaEmail,
         externalEmail: message.externalEmail ?? null,
         tenantId: input.tenantId,
         organizationId: input.organizationId,
@@ -810,6 +832,23 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
     }
     if (recipientIds.size === 0 && original.senderUserId !== SYSTEM_SENDER_USER_ID) {
       throw new Error('No recipients available for reply')
+    }
+
+    const channelThread = !input.sendViaEmail && original.visibility === 'public'
+      ? await resolveMessageChannelThreadAccess(
+        ctx.container,
+        { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
+        { messageThreadId: original.threadId ?? original.id },
+        { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
+      )
+      : null
+    const sendsChannelEmail = channelThread?.channelType === 'email'
+    if ((input.sendViaEmail && original.externalEmail) || sendsChannelEmail) {
+      await assertExternalEmailBudget(
+        ctx.container,
+        { tenantId: input.tenantId, userId: input.userId },
+        original.externalEmail ?? [],
+      )
     }
 
     let messageId = ''
@@ -976,6 +1015,13 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     // thread, not the source, and some public messages on a channel thread
     // carry no source type (an AI or parented compose), so the thread decides.
     const keepsExternalCorrespondent = !(await isOnChannelThread(ctx, input, original))
+    if (input.sendViaEmail && keepsExternalCorrespondent && original.externalEmail) {
+      await assertExternalEmailBudget(
+        ctx.container,
+        { tenantId: input.tenantId, userId: input.userId },
+        original.externalEmail,
+      )
+    }
     let newMessageId = ''
     let responseExternalEmail: string | null = null
     await em.transactional(async (trx) => {
@@ -1097,40 +1143,39 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
   },
 }
 
-const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
+const DELETE_RECIPIENT_CLAIM_ATTEMPTS = 3
+
+async function claimRecipientDelete(
+  em: EntityManager,
+  messageId: string,
+  userId: string,
+): Promise<{ id: string; status: MessageRecipient['status'] } | null> {
+  for (let attempt = 0; attempt < DELETE_RECIPIENT_CLAIM_ATTEMPTS; attempt += 1) {
+    const recipient = await em.findOne(
+      MessageRecipient,
+      { messageId, recipientUserId: userId, deletedAt: null },
+      { refresh: true },
+    )
+    if (!recipient) return null
+    const claimed = { id: recipient.id, status: recipient.status }
+    const claimedRows = await em.nativeUpdate(
+      MessageRecipient,
+      { id: claimed.id, deletedAt: null, status: claimed.status },
+      { status: 'deleted', deletedAt: new Date() },
+    )
+    if (claimedRows > 0) return claimed
+  }
+  throw new Error('[internal] Message recipient changed concurrently during delete')
+}
+
+const deleteForActorCommand: CommandHandler<unknown, { ok: true; executed: MessageDeleteUndoState }> = {
   id: 'messages.messages.delete_for_actor',
-  async prepare(rawInput, ctx) {
-    const input = deleteForActorCommandSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const message = await requireMessageById(em, input, input.messageId)
-    const recipient = await em.findOne(MessageRecipient, {
-      messageId: input.messageId,
-      recipientUserId: input.userId,
-      deletedAt: null,
-    })
-    return {
-      before: {
-        messageId: message.id,
-        messageDeletedAt: toIso(message.deletedAt),
-        recipientId: recipient?.id ?? null,
-        recipientStatus: recipient?.status ?? null,
-        recipientDeletedAt: toIso(recipient?.deletedAt),
-      } satisfies MessageDeleteUndoState,
-    }
-  },
   async execute(rawInput, ctx) {
     const input = deleteForActorCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const message = await requireMessageById(em, input, input.messageId)
-    const recipient = await em.findOne(MessageRecipient, {
-      messageId: input.messageId,
-      recipientUserId: input.userId,
-      deletedAt: null,
-    })
+    const recipient = await claimRecipientDelete(em, input.messageId, input.userId)
     if (recipient) {
-      recipient.status = 'deleted'
-      recipient.deletedAt = new Date()
-      await em.flush()
       await emitMessageDeletedEvent(ctx.container, {
         messageId: input.messageId,
         actorUserId: input.userId,
@@ -1138,10 +1183,20 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      return { ok: true }
+      return {
+        ok: true,
+        executed: {
+          messageId: message.id,
+          messageDeletedAt: toIso(message.deletedAt),
+          recipientId: recipient.id,
+          recipientStatus: recipient.status,
+          recipientDeletedAt: null,
+        },
+      }
     }
     if (message.senderUserId === input.userId) {
       const recipientRows = await em.find(MessageRecipient, { messageId: input.messageId })
+      const messageDeletedAtBefore = toIso(message.deletedAt)
       message.deletedAt = new Date()
       await em.flush()
       const recipientUserIds = recipientRows
@@ -1154,7 +1209,16 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      return { ok: true }
+      return {
+        ok: true,
+        executed: {
+          messageId: message.id,
+          messageDeletedAt: messageDeletedAtBefore,
+          recipientId: null,
+          recipientStatus: null,
+          recipientDeletedAt: null,
+        },
+      }
     }
     throw new Error('Access denied')
   },
@@ -1174,8 +1238,9 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
       recipientDeletedAt: toIso(recipient?.deletedAt),
     } satisfies MessageDeleteUndoState
   },
-  buildLog: async ({ input, snapshots }) => {
+  buildLog: async ({ input, result, snapshots }) => {
     const parsed = deleteForActorCommandSchema.parse(input)
+    const before = result?.executed ?? null
     return {
       actionLabel: 'Delete message for actor',
       resourceKind: 'messages.message',
@@ -1184,11 +1249,11 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
       organizationId: parsed.organizationId,
       payload: {
         undo: {
-          before: (snapshots.before as MessageDeleteUndoState | undefined) ?? null,
+          before,
           after: (snapshots.after as MessageDeleteUndoState | undefined) ?? null,
         } satisfies UndoPayload<MessageDeleteUndoState>,
       },
-      snapshotBefore: snapshots.before ?? null,
+      snapshotBefore: before,
       snapshotAfter: snapshots.after ?? null,
     }
   },
@@ -1197,15 +1262,24 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
     const before = undo?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const message = await em.findOne(Message, { id: before.messageId })
-    if (message) {
-      message.deletedAt = toDate(before.messageDeletedAt)
-    }
     if (before.recipientId) {
       const recipient = await em.findOne(MessageRecipient, { id: before.recipientId })
       if (recipient) {
         recipient.status = (before.recipientStatus ?? 'unread') as MessageRecipient['status']
         recipient.deletedAt = toDate(before.recipientDeletedAt)
+      }
+    } else {
+      const tenantId = logEntry.tenantId ?? null
+      const organizationId = logEntry.organizationId ?? null
+      const message = await findOneWithDecryption(
+        em,
+        Message,
+        { id: before.messageId, tenantId, organizationId },
+        undefined,
+        { tenantId, organizationId },
+      )
+      if (message) {
+        message.deletedAt = toDate(before.messageDeletedAt)
       }
     }
     await em.flush()

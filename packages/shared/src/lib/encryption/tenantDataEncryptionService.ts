@@ -162,7 +162,8 @@ function assertNotSealedUnderAnotherKey(value: unknown, field: string): void {
     TenantDataEncryptionErrorCode.WRONG_KEY,
     `[internal] Field "${field}" already holds an encrypted payload that does not decrypt under the current tenant DEK. `
       + 'Encrypting it again would produce an unreadable nested envelope. '
-      + 'Complete the key rotation for this tenant (mercato entities rotate-encryption-key --old-key …) '
+      + 'Complete the key rotation for this tenant (set TENANT_DATA_ENCRYPTION_OLD_KEY, then run '
+      + 'mercato entities rotate-encryption-key) '
       + 'or restore the DEK that sealed it before writing this record again.',
   )
 }
@@ -519,6 +520,15 @@ export class TenantDataEncryptionService {
       options?.em,
     )
     return fields.map((rule) => rule.field)
+  }
+
+  async getLookupHashRules(
+    entityId: string,
+    tenantId: string | null,
+    organizationId: string | null,
+  ): Promise<Array<{ field: string; hashField: string }>> {
+    const { fields } = await this.resolvePolicy({ entityId, tenantId, organizationId })
+    return fields.flatMap(({ field, hashField }) => hashField ? [{ field, hashField }] : [])
   }
 
   private encryptFields(

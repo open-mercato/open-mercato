@@ -13,15 +13,30 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
 }))
 
-jest.mock('../../../../../../data/repositories/AiPendingActionRepository', () => ({
-  AiPendingActionRepository: jest.fn().mockImplementation(() => ({
-    getById: repoGetByIdMock,
-    setStatus: repoSetStatusMock,
-  })),
-}))
+jest.mock('../../../../../../data/repositories/AiPendingActionRepository', () => {
+  const actual = jest.requireActual('../../../../../../data/repositories/AiPendingActionRepository')
+  return {
+    ...actual,
+    AiPendingActionRepository: jest.fn().mockImplementation(() => ({
+      getById: repoGetByIdMock,
+      getByIdForApprover: async (
+        id: string,
+        scope: { tenantId: string; organizationId?: string | null },
+        viewer: { userId: string; canApproveAny: boolean },
+      ) => {
+        const row = await repoGetByIdMock(id, scope)
+        return row && actual.canViewerAccessPendingAction(row, viewer) ? row : null
+      },
+      setStatus: repoSetStatusMock,
+    })),
+  }
+})
 
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { POST } from '../route'
+
+const PENDING_ACTION_ID = '3b7e1f2a-6c4d-4a9e-8f1b-2c3d4e5f6a7b'
+const MISSING_PENDING_ACTION_ID = '5e2b8c71-9d4a-4f3e-8b6c-7a1d2e3f4b5c'
 
 function buildRequest(body?: unknown): Request {
   const init: RequestInit = {
@@ -31,7 +46,7 @@ function buildRequest(body?: unknown): Request {
   if (body !== undefined) {
     init.body = typeof body === 'string' ? body : JSON.stringify(body)
   }
-  return new Request('http://localhost/api/ai_assistant/ai/actions/pa_123/cancel', init)
+  return new Request(`http://localhost/api/ai_assistant/ai/actions/${PENDING_ACTION_ID}/cancel`, init)
 }
 
 function buildContext(id: string) {
@@ -40,7 +55,7 @@ function buildContext(id: string) {
 
 function makeRow(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'pa_123',
+    id: PENDING_ACTION_ID,
     tenantId: 'tenant-1',
     organizationId: 'org-1',
     agentId: 'catalog.merchandising_assistant',
@@ -125,16 +140,67 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
     consoleWarnSpy.mockRestore()
   })
 
+  it('refuses an API-key principal even when its role may approve', async () => {
+    authMock.mockResolvedValueOnce({ sub: 'api_key:key-1', tenantId: 'tenant-1', orgId: 'org-1', isApiKey: true, keyId: 'key-1' })
+
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+    expect(response.status).toBe(403)
+    expect((await response.json()).code).toBe('api_key_cannot_decide')
+    expect(repoGetByIdMock).not.toHaveBeenCalled()
+  })
+
   it('returns 401 when unauthenticated', async () => {
     authMock.mockResolvedValueOnce(null)
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(401)
+  })
+
+  describe('owner / approver visibility', () => {
+    it('another user without the approve feature gets 404 on a chat row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'agent' }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+      expect((await response.json()).code).toBe('pending_action_not_found')
+      expect(repoSetStatusMock).not.toHaveBeenCalled()
+    })
+
+    it('another user without the approve feature gets 404 on an MCP row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'mcp', agentId: 'ai_assistant.raw_tool' }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+      expect(repoSetStatusMock).not.toHaveBeenCalled()
+    })
+
+    it('an approver cancels another user\'s MCP row but gets 404 on their chat row', async () => {
+      const approverAcl = {
+        features: ['ai_assistant.view', 'ai_assistant.pending_actions.approve'],
+        isSuperAdmin: false,
+      }
+      authMock.mockResolvedValue({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      loadAclMock.mockResolvedValue(approverAcl)
+
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'mcp', agentId: 'ai_assistant.raw_tool' }))
+      const mcpResponse = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+      expect(mcpResponse.status).toBe(200)
+      expect((await mcpResponse.json()).pendingAction.status).toBe('cancelled')
+
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'agent' }))
+      const chatResponse = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+      expect(chatResponse.status).toBe(404)
+    })
   })
 
   it('happy path: pending → cancelled returns 200 with pendingAction.status === cancelled', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
 
-    const response = await POST(buildRequest({ reason: 'Wrong price' }) as any, buildContext('pa_123'))
+    const response = await POST(buildRequest({ reason: 'Wrong price' }) as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.ok).toBe(true)
@@ -159,7 +225,7 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
     })
     repoGetByIdMock.mockResolvedValueOnce(cancelledRow)
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.ok).toBe(true)
@@ -172,7 +238,7 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
     const expiredRow = makeRow({ expiresAt: new Date('2020-01-01T00:00:00.000Z') })
     repoGetByIdMock.mockResolvedValueOnce(expiredRow)
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(409)
     const body = await response.json()
     expect(body.code).toBe('expired')
@@ -187,7 +253,7 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
   it('409 invalid_status: already confirmed', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow({ status: 'confirmed' }))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(409)
     const body = await response.json()
     expect(body.code).toBe('invalid_status')
@@ -198,7 +264,7 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
   it('409 invalid_status: already executing', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow({ status: 'executing' }))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(409)
     const body = await response.json()
     expect(body.code).toBe('invalid_status')
@@ -207,16 +273,30 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
   it('409 invalid_status: already failed', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow({ status: 'failed' }))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(409)
     const body = await response.json()
     expect(body.code).toBe('invalid_status')
   })
 
+  it.each([
+    ['a non-UUID string', 'not-a-uuid'],
+    ['a 128-character string', 'a'.repeat(128)],
+  ])('returns 400 validation_error without querying the database for %s', async (_label, id) => {
+    const response = await POST(buildRequest() as any, buildContext(id))
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.code).toBe('validation_error')
+    expect(JSON.stringify(body)).not.toContain('invalid input syntax')
+    expect(repoGetByIdMock).not.toHaveBeenCalled()
+    expect(repoSetStatusMock).not.toHaveBeenCalled()
+  })
+
   it('404 pending_action_not_found for cross-tenant / unknown id', async () => {
     repoGetByIdMock.mockResolvedValueOnce(null)
 
-    const response = await POST(buildRequest() as any, buildContext('pa_missing'))
+    const response = await POST(buildRequest() as any, buildContext(MISSING_PENDING_ACTION_ID))
     expect(response.status).toBe(404)
     const body = await response.json()
     expect(body.code).toBe('pending_action_not_found')
@@ -226,27 +306,27 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
   it('403 forbidden when caller lacks ai_assistant.view', async () => {
     loadAclMock.mockResolvedValueOnce({ features: ['catalog.view'], isSuperAdmin: false })
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(403)
     const body = await response.json()
     expect(body.code).toBe('forbidden')
     expect(repoGetByIdMock).not.toHaveBeenCalled()
   })
 
-  it('whitespace-only reason becomes empty → default "Cancelled by user" message', async () => {
+  it('whitespace-only reason becomes empty (no hardcoded English copy)', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
 
-    const response = await POST(buildRequest({ reason: '   \t\n  ' }) as any, buildContext('pa_123'))
+    const response = await POST(buildRequest({ reason: '   \t\n  ' }) as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.pendingAction.executionResult).toEqual({
-      error: { code: 'cancelled_by_user', message: 'Cancelled by user' },
+      error: { code: 'cancelled_by_user', message: '' },
     })
   })
 
   it('400 validation_error when reason exceeds 500 characters', async () => {
     const longReason = 'x'.repeat(501)
-    const response = await POST(buildRequest({ reason: longReason }) as any, buildContext('pa_123'))
+    const response = await POST(buildRequest({ reason: longReason }) as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(400)
     const body = await response.json()
     expect(body.code).toBe('validation_error')
@@ -256,7 +336,7 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
   it('400 validation_error when body contains unknown fields', async () => {
     const response = await POST(
       buildRequest({ reason: 'ok', evil: 'payload' }) as any,
-      buildContext('pa_123'),
+      buildContext(PENDING_ACTION_ID),
     )
     expect(response.status).toBe(400)
     const body = await response.json()
@@ -266,19 +346,19 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
   it('accepts an empty body (no reason)', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.ok).toBe(true)
     expect(body.pendingAction.executionResult).toEqual({
-      error: { code: 'cancelled_by_user', message: 'Cancelled by user' },
+      error: { code: 'cancelled_by_user', message: '' },
     })
   })
 
   it('500 cancel_internal_error when the repo throws unexpectedly', async () => {
     repoGetByIdMock.mockRejectedValueOnce(new Error('db down'))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(500)
     const body = await response.json()
     expect(body.code).toBe('cancel_internal_error')

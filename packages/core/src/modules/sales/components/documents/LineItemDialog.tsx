@@ -13,6 +13,7 @@ import {
 } from "@open-mercato/ui/backend/CrudForm";
 import { collectCustomFieldValues } from "@open-mercato/ui/backend/utils/customFieldValues";
 import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
+import { useSalesDocumentMutation } from "./useSalesDocumentMutation";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { createCrud, updateCrud } from "@open-mercato/ui/backend/utils/crud";
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
@@ -49,18 +50,30 @@ import { E } from "#generated/entities.ids.generated";
 import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import {
+  deriveUnitPrices,
   formatMoney,
   normalizeNumber,
-  resolveCatalogPriceAmount,
+  resolveCatalogPriceAmountExact,
+  resolveMoneyDecimalPlaces,
+  roundMoney,
+  toExactAmount,
 } from "./lineItemUtils";
 import type { SalesLineRecord } from "./lineItemTypes";
 import { prepareShippedLineUpdatePayload } from "./lineItemShipmentLock";
+import { useCurrencyDecimalPlacesLoader } from "./currencyDecimalPlaces";
 import {
   normalizeCustomFieldSubmitValue,
   extractCustomFieldValues,
 } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
-import { parseLocaleNumber } from "@open-mercato/shared/lib/number";
+import { parseLocaleDecimal, parseLocaleNumber } from "@open-mercato/shared/lib/number";
+import {
+  compareDecimals,
+  decimalToString,
+  divideDecimals,
+  multiplyDecimals,
+  type DecimalInput,
+} from "@open-mercato/shared/lib/decimal";
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -88,8 +101,8 @@ type VariantOption = {
 
 type PriceOption = {
   id: string;
-  amountNet: number | null;
-  amountGross: number | null;
+  amountNet: string | null;
+  amountGross: string | null;
   currencyCode: string | null;
   displayMode: "including-tax" | "excluding-tax" | null;
   taxRate: number | null;
@@ -186,8 +199,8 @@ type ApiPriceKind = {
 };
 
 type ApiPriceItem = Record<string, unknown> & {
-  unit_price_net?: number | null;
-  unit_price_gross?: number | null;
+  unit_price_net?: number | string | null;
+  unit_price_gross?: number | string | null;
   currency_code?: string | null;
   currencyCode?: string | null;
   display_mode?: string | null;
@@ -315,8 +328,6 @@ const defaultForm = (currencyCode?: string | null): LineFormState => ({
   statusEntryId: null,
 });
 
-const UNIT_PRICE_INPUT_SCALE = 4;
-
 function buildPriceScopeReason(
   item: Record<string, unknown>,
   t: (k: string, f: string) => string,
@@ -405,12 +416,8 @@ function normalizeQuantityPreview(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000;
 }
 
-function normalizeUnitPriceInputValue(value: number): string {
-  if (!Number.isFinite(value)) return "";
-  const factor = 10 ** UNIT_PRICE_INPUT_SCALE;
-  const rounded = Math.round((value + Number.EPSILON) * factor) / factor;
-  if (!Number.isFinite(rounded)) return "";
-  return rounded.toString();
+function normalizeUnitPriceInputValue(value: DecimalInput, source: DecimalInput): string {
+  return roundMoney(value, resolveMoneyDecimalPlaces(source));
 }
 
 function mapProductOption(item: Record<string, unknown>): ProductOption | null {
@@ -494,6 +501,7 @@ export function LineItemDialog({
   onDraftSaved,
 }: SalesLineDialogProps) {
   const t = useT();
+  const runDocumentMutation = useSalesDocumentMutation(kind, documentId);
   const locale = useLocale();
   // These fields are hand-rolled text inputs, so the raw string a user typed reaches the
   // submit handler. It carries the separator the surrounding UI displays, which follows the
@@ -509,6 +517,16 @@ export function LineItemDialog({
     },
     [locale],
   );
+  const parseUserDecimal = React.useCallback(
+    (value: unknown): string | null => {
+      if (value == null) return "0";
+      if (typeof value === "number") return Number.isFinite(value) ? decimalToString(value) : null;
+      if (typeof value !== "string") return null;
+      if (!value.trim()) return "0";
+      return parseLocaleDecimal(value, locale);
+    },
+    [locale],
+  );
   const numberExample = React.useMemo(() => {
     try {
       return new Intl.NumberFormat(locale, {
@@ -519,6 +537,7 @@ export function LineItemDialog({
       return "110.70";
     }
   }, [locale]);
+  const loadDecimalPlacesForCurrency = useCurrencyDecimalPlacesLoader();
   const scope = useOrganizationScopeDetail();
   const resolvedOrganizationId = organizationId ?? scope.organizationId ?? null;
   const resolvedTenantId = tenantId ?? scope.tenantId ?? null;
@@ -1003,20 +1022,12 @@ export function LineItemDialog({
           .map((item) => {
             const id = typeof item.id === "string" ? item.id : null;
             if (!id) return null;
-            const amountNetRaw = normalizeNumber(
+            const amountNet = toExactAmount(
               (item as ApiPriceItem).unit_price_net,
-              Number.NaN,
             );
-            const amountGrossRaw = normalizeNumber(
+            const amountGross = toExactAmount(
               (item as ApiPriceItem).unit_price_gross,
-              Number.NaN,
             );
-            const amountNet = Number.isFinite(amountNetRaw)
-              ? amountNetRaw
-              : null;
-            const amountGross = Number.isFinite(amountGrossRaw)
-              ? amountGrossRaw
-              : null;
             const currency =
               typeof (item as ApiPriceItem).currency_code === "string"
                 ? (item as ApiPriceItem).currency_code
@@ -1117,7 +1128,7 @@ export function LineItemDialog({
           .filter((entry): entry is PriceOption => Boolean(entry))
           .filter(
             (entry) =>
-              resolveCatalogPriceAmount(
+              resolveCatalogPriceAmountExact(
                 entry.amountNet,
                 entry.amountGross,
                 entry.displayMode === "excluding-tax" ? "net" : "gross",
@@ -1175,8 +1186,8 @@ export function LineItemDialog({
       fromUnit: string | null | undefined,
       toUnit: string | null | undefined,
     ): string | null => {
-      const amount = parseUserNumber(rawUnitPrice) ?? Number.NaN;
-      if (!Number.isFinite(amount) || amount <= 0) return null;
+      const amount = parseUserDecimal(rawUnitPrice);
+      if (amount === null || compareDecimals(amount, 0) <= 0) return null;
       const fromCode = normalizeUnitCode(fromUnit);
       const toCode = normalizeUnitCode(toUnit);
       if (!fromCode || !toCode || fromCode === toCode) return null;
@@ -1190,12 +1201,15 @@ export function LineItemDialog({
       ) {
         return null;
       }
-      const baseAmount = amount / fromFactor;
-      const convertedAmount = baseAmount * toFactor;
-      if (!Number.isFinite(convertedAmount) || convertedAmount <= 0) return null;
-      return normalizeUnitPriceInputValue(convertedAmount);
+      const convertedAmount = divideDecimals(
+        multiplyDecimals(amount, toFactor),
+        fromFactor,
+        resolveMoneyDecimalPlaces(amount),
+      );
+      if (compareDecimals(convertedAmount, 0) <= 0) return null;
+      return normalizeUnitPriceInputValue(convertedAmount, amount);
     },
-    [parseUserNumber, resolveUnitPriceFactor],
+    [parseUserDecimal, resolveUnitPriceFactor],
   );
 
   const applyPriceSelection = React.useCallback(
@@ -1212,18 +1226,16 @@ export function LineItemDialog({
         const mode =
           selected.displayMode === "excluding-tax" ? "net" : "gross";
         const amountPerBaseUnit =
-          resolveCatalogPriceAmount(
+          resolveCatalogPriceAmountExact(
             selected.amountNet,
             selected.amountGross,
             mode,
-          ) ?? 0;
+          ) ?? "0";
         const factor = resolveUnitPriceFactor(options?.quantityUnit ?? null);
-        const amount = Number.isFinite(amountPerBaseUnit * factor)
-          ? amountPerBaseUnit * factor
-          : amountPerBaseUnit;
+        const amount = multiplyDecimals(amountPerBaseUnit, factor);
         setFormValue("priceId", selected.id);
         setFormValue("priceMode", mode);
-        setFormValue("unitPrice", normalizeUnitPriceInputValue(amount));
+        setFormValue("unitPrice", normalizeUnitPriceInputValue(amount, amountPerBaseUnit));
         setFormValue("taxRate", selected.taxRate ?? null);
         setFormValue("taxRateId", findTaxRateIdByValue(selected.taxRate));
         setFormValue(
@@ -1548,8 +1560,8 @@ export function LineItemDialog({
         );
       })();
 
-      const unitPriceNumber = parseUserNumber(values.unitPrice);
-      if (unitPriceNumber === null) {
+      const unitPriceAmount = parseUserDecimal(values.unitPrice);
+      if (unitPriceAmount === null) {
         const message = t(
           "sales.documents.items.errorUnitPriceInvalid",
           "Enter the unit price as a number, for example {{example}}.",
@@ -1557,7 +1569,7 @@ export function LineItemDialog({
         );
         throw createCrudFormError(message, { unitPrice: message });
       }
-      if (unitPriceNumber <= 0) {
+      if (compareDecimals(unitPriceAmount, 0) <= 0) {
         throw createCrudFormError(
           t(
             "sales.documents.items.errorUnitPrice",
@@ -1631,22 +1643,21 @@ export function LineItemDialog({
       const normalizedTaxRate = Number.isFinite(resolvedTaxRate)
         ? resolvedTaxRate
         : 0;
-      const unitPriceNetValue =
-        resolvedPriceMode === "net"
-          ? unitPriceNumber
-          : unitPriceNumber / (1 + normalizedTaxRate / 100);
-      const unitPriceGrossValue =
-        resolvedPriceMode === "gross"
-          ? unitPriceNumber
-          : unitPriceNumber * (1 + normalizedTaxRate / 100);
-      const safeUnitPriceNet = Number.isFinite(unitPriceNetValue)
-        ? unitPriceNetValue
-        : unitPriceNumber;
-      const safeUnitPriceGross = Number.isFinite(unitPriceGrossValue)
-        ? unitPriceGrossValue
-        : unitPriceNumber;
-      const totalNetAmount = safeUnitPriceNet * qtyNumber;
-      const totalGrossAmount = safeUnitPriceGross * qtyNumber;
+      const currencyPrecision = {
+        code: String(resolvedCurrency),
+        decimalPlaces: await loadDecimalPlacesForCurrency(String(resolvedCurrency)),
+      };
+      const {
+        unitPriceNet: safeUnitPriceNet,
+        unitPriceGross: safeUnitPriceGross,
+      } = deriveUnitPrices(
+        resolvedPriceMode,
+        unitPriceAmount,
+        normalizedTaxRate,
+        currencyPrecision,
+      );
+      const totalNetAmount = decimalToString(multiplyDecimals(safeUnitPriceNet, qtyNumber));
+      const totalGrossAmount = decimalToString(multiplyDecimals(safeUnitPriceGross, qtyNumber));
 
       const metadata = {
         ...(catalogSnapshot ?? {}),
@@ -1717,14 +1728,19 @@ export function LineItemDialog({
       }
       if (resolvedName) payload.name = resolvedName;
 
-      const submittedPayload = prepareShippedLineUpdatePayload(
-        payload,
+      const shippedLine =
         isShippedOrderLine && initialLine
           ? {
               quantity: initialLine.quantity,
-              totalNetAmount: initialLine.totalNet,
-              totalGrossAmount: initialLine.totalGross,
+              totalNetAmount: initialLine.totalNetExact ?? initialLine.totalNet,
+              totalGrossAmount: initialLine.totalGrossExact ?? initialLine.totalGross,
             }
+          : null;
+      const submittedPayload = prepareShippedLineUpdatePayload(
+        payload,
+        shippedLine,
+        shippedLine && shippedLine.quantity !== qtyNumber
+          ? currencyPrecision
           : null,
       );
 
@@ -1735,7 +1751,7 @@ export function LineItemDialog({
           return;
         }
         const action = editingId ? updateCrud : createCrud;
-        const result = await withScopedApiRequestHeaders(
+        const result = await runDocumentMutation(() => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(documentUpdatedAt),
           () =>
             action(
@@ -1750,7 +1766,7 @@ export function LineItemDialog({
                 ),
               },
             ),
-        );
+        ), editingId ? { id: editingId, ...submittedPayload } : submittedPayload);
         if (result.ok) {
           if (onSaved) await onSaved();
           closeDialog();
@@ -1775,6 +1791,7 @@ export function LineItemDialog({
       editingId,
       initialLine,
       isShippedOrderLine,
+      loadDecimalPlacesForCurrency,
       onDraftSaved,
       priceOptions,
       productOption,
@@ -1787,9 +1804,11 @@ export function LineItemDialog({
       onSaved,
       closeDialog,
       numberExample,
+      parseUserDecimal,
       parseUserNumber,
       resolvedOrganizationId,
       resolvedTenantId,
+      runDocumentMutation,
     ],
   );
 
@@ -1911,6 +1930,7 @@ export function LineItemDialog({
                 values,
               }: FieldRenderProps) => (
                 <LookupSelect
+                  defaultOpen
                   value={typeof value === "string" ? value : null}
                   onChange={(next) => {
                     const selectedOption = next
@@ -2058,6 +2078,7 @@ export function LineItemDialog({
                     : null;
                 return (
                   <LookupSelect
+                    defaultOpen
                     key={productId ?? "no-product"}
                     value={typeof value === "string" ? value : null}
                     onChange={(next) => {
@@ -2166,10 +2187,7 @@ export function LineItemDialog({
                     ) ?? null)
                   : null;
                 if (isShippedOrderLine) {
-                  const lockedAmount = normalizeNumber(
-                    values?.unitPrice,
-                    Number.NaN,
-                  );
+                  const lockedAmount = toExactAmount(values?.unitPrice);
                   const lockedCurrency =
                     selectedPrice?.currencyCode ??
                     (typeof values?.currencyCode === "string"
@@ -2180,7 +2198,7 @@ export function LineItemDialog({
                     values?.priceMode === "net"
                       ? t("sales.documents.items.priceNet", "Net")
                       : t("sales.documents.items.priceGross", "Gross");
-                  const lockedAmountLabel = Number.isFinite(lockedAmount)
+                  const lockedAmountLabel = lockedAmount !== null
                     ? `${formatMoney(lockedAmount, lockedCurrency, locale)} — ${lockedModeLabel}`
                     : lockedModeLabel;
                   const lockedPriceDetail =
@@ -2205,6 +2223,7 @@ export function LineItemDialog({
                 }
                 return (
                   <LookupSelect
+                    defaultOpen
                     key={
                       productId
                         ? `${productId}-${variantId ?? "no-variant"}`
@@ -2333,10 +2352,8 @@ export function LineItemDialog({
               : (selectedPrice.amountGross ?? selectedPrice.amountNet ?? null)
             : null;
           const convertedAmount =
-            selectedBaseAmount !== null &&
-            unitFactor !== null &&
-            Number.isFinite(selectedBaseAmount * unitFactor)
-              ? selectedBaseAmount * unitFactor
+            selectedBaseAmount !== null && unitFactor !== null
+              ? decimalToString(multiplyDecimals(selectedBaseAmount, unitFactor))
               : null;
           const isCatalogLine = lineMode !== "custom";
           return (
@@ -2382,7 +2399,7 @@ export function LineItemDialog({
                       "sales.documents.items.priceBasisTemplate",
                       "Catalog price basis: {{baseAmount}} / {{baseUnit}}. Converted for {{unit}}: {{baseAmount}} × {{factor}} = {{convertedAmount}}.",
                       {
-                        baseAmount: formatMoney(selectedBaseAmount as number, selectedCurrency, locale),
+                        baseAmount: formatMoney(selectedBaseAmount as string, selectedCurrency, locale),
                         baseUnit: baseUnitCode,
                         unit: quantityUnitCode,
                         factor: unitFactor,
@@ -2840,8 +2857,8 @@ export function LineItemDialog({
         : (initialLine.priceMode ?? "gross");
     nextForm.unitPrice =
       resolvedPriceMode === "net"
-        ? initialLine.unitPriceNet.toString()
-        : initialLine.unitPriceGross.toString();
+        ? (initialLine.unitPriceNetExact ?? initialLine.unitPriceNet.toString())
+        : (initialLine.unitPriceGrossExact ?? initialLine.unitPriceGross.toString());
     nextForm.priceMode = resolvedPriceMode;
     nextForm.taxRate = Number.isFinite(initialLine.taxRate)
       ? initialLine.taxRate
@@ -2883,8 +2900,8 @@ export function LineItemDialog({
         nextForm.priceMode = mode;
         nextForm.unitPrice =
           mode === "net"
-            ? initialLine.unitPriceNet.toString()
-            : initialLine.unitPriceGross.toString();
+            ? (initialLine.unitPriceNetExact ?? initialLine.unitPriceNet.toString())
+            : (initialLine.unitPriceGrossExact ?? initialLine.unitPriceGross.toString());
       }
       nextForm.priceId =
         typeof metaRecord.priceId === "string"

@@ -18,6 +18,12 @@ export type OcrInput = {
   model?: string
 }
 
+export type OcrImageBufferInput = {
+  imageBuffer: Buffer
+  mediaType?: string
+  model?: string
+}
+
 export type OcrResult = {
   content: string
   pageCount?: number
@@ -49,7 +55,7 @@ function isPdfMimeType(mimeType: string | null, filePath?: string): boolean {
   return false
 }
 
-function getImageMediaType(mimeType: string | null, filePath: string): string {
+export function getImageMediaType(mimeType: string | null, filePath: string): string {
   if (mimeType && mimeType.startsWith('image/')) {
     return mimeType
   }
@@ -155,6 +161,14 @@ export class OcrService {
           guidance = 'Rate limit exceeded. Please try again later.'
           break
         default:
+          if (err?.name === 'TimeoutError') {
+            guidance = `OCR request timed out: ${rawMessage}`
+            break
+          }
+          if (err?.name === 'AbortError') {
+            guidance = `OCR request was aborted: ${rawMessage}`
+            break
+          }
           guidance = rawMessage.includes('https://')
             ? rawMessage
             : `${rawMessage}. Check OPENAI_API_KEY.`
@@ -173,6 +187,14 @@ export class OcrService {
       (wrapped as any).cause = err
       throw wrapped
     }
+  }
+
+  async processImageBuffer(input: OcrImageBufferInput): Promise<string> {
+    return this.generateTextFromImageBuffer({
+      imageBuffer: input.imageBuffer,
+      mediaType: input.mediaType ?? 'image/png',
+      model: input.model ?? this.defaultModel,
+    })
   }
 
   async processImage(input: OcrInput): Promise<OcrResult> {

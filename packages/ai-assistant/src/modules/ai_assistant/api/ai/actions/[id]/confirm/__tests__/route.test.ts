@@ -30,12 +30,24 @@ jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   AttachmentPartition: class AttachmentPartition {},
 }))
 
-jest.mock('../../../../../../data/repositories/AiPendingActionRepository', () => ({
-  AiPendingActionRepository: jest.fn().mockImplementation(() => ({
-    getById: repoGetByIdMock,
-    setStatus: repoSetStatusMock,
-  })),
-}))
+jest.mock('../../../../../../data/repositories/AiPendingActionRepository', () => {
+  const actual = jest.requireActual('../../../../../../data/repositories/AiPendingActionRepository')
+  return {
+    ...actual,
+    AiPendingActionRepository: jest.fn().mockImplementation(() => ({
+      getById: repoGetByIdMock,
+      getByIdForApprover: async (
+        id: string,
+        scope: { tenantId: string; organizationId?: string | null },
+        viewer: { userId: string; canApproveAny: boolean },
+      ) => {
+        const row = await repoGetByIdMock(id, scope)
+        return row && actual.canViewerAccessPendingAction(row, viewer) ? row : null
+      },
+      setStatus: repoSetStatusMock,
+    })),
+  }
+})
 
 jest.mock('../../../../../../data/repositories/AiAgentMutationPolicyOverrideRepository', () => ({
   AiAgentMutationPolicyOverrideRepository: jest.fn().mockImplementation(() => ({
@@ -58,10 +70,25 @@ jest.mock('../../../../../../lib/tool-loader', () => ({
   loadAllModuleTools: (...args: unknown[]) => loadAllModuleToolsMock(...args),
 }))
 
+const requestHeaders = { acceptLanguage: '' }
+
+jest.mock('next/headers', () => ({
+  cookies: async () => ({ get: () => undefined }),
+  headers: async () => ({
+    get: (name: string) => (name.toLowerCase() === 'accept-language' ? requestHeaders.acceptLanguage : null),
+  }),
+}))
+
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import enTranslations from '../../../../../../i18n/en.json'
+import plTranslations from '../../../../../../i18n/pl.json'
 import { POST } from '../route'
 
+const PENDING_ACTION_ID = '3b7e1f2a-6c4d-4a9e-8f1b-2c3d4e5f6a7b'
+const MISSING_PENDING_ACTION_ID = '5e2b8c71-9d4a-4f3e-8b6c-7a1d2e3f4b5c'
+
 function buildRequest(): Request {
-  return new Request('http://localhost/api/ai_assistant/ai/actions/pa_123/confirm', {
+  return new Request(`http://localhost/api/ai_assistant/ai/actions/${PENDING_ACTION_ID}/confirm`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
   })
@@ -73,7 +100,7 @@ function buildContext(id: string) {
 
 function makeRow(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'pa_123',
+    id: PENDING_ACTION_ID,
     tenantId: 'tenant-1',
     organizationId: 'org-1',
     agentId: 'catalog.merchandising_assistant',
@@ -138,8 +165,16 @@ function makeTool(overrides: Record<string, unknown> = {}) {
 describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
   let consoleErrorSpy: jest.SpyInstance
 
+  beforeAll(() => {
+    registerModules([
+      { id: 'ai_assistant', translations: { en: enTranslations, pl: plTranslations } },
+      { id: 'catalog' },
+    ] as unknown as Parameters<typeof registerModules>[0])
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
+    requestHeaders.acceptLanguage = ''
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
 
     authMock.mockResolvedValue({
@@ -181,16 +216,26 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     consoleErrorSpy.mockRestore()
   })
 
+  it('refuses an API-key principal even when its role may approve', async () => {
+    authMock.mockResolvedValueOnce({ sub: 'api_key:key-1', tenantId: 'tenant-1', orgId: 'org-1', isApiKey: true, keyId: 'key-1' })
+
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+    expect(response.status).toBe(403)
+    expect((await response.json()).code).toBe('api_key_cannot_decide')
+    expect(repoGetByIdMock).not.toHaveBeenCalled()
+  })
+
   it('returns 401 when unauthenticated', async () => {
     authMock.mockResolvedValueOnce(null)
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(401)
   })
 
   it('happy path: returns 200 with pendingAction.status === confirmed', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.ok).toBe(true)
@@ -201,7 +246,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
   it('409 invalid_status: already cancelled', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow({ status: 'cancelled' }))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(409)
     const body = await response.json()
     expect(body.code).toBe('invalid_status')
@@ -212,7 +257,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
       makeRow({ expiresAt: new Date('2020-01-01T00:00:00.000Z') }),
     )
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(409)
     const body = await response.json()
     expect(body.code).toBe('expired')
@@ -231,7 +276,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
       }),
     )
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(412)
     const body = await response.json()
     expect(body.code).toBe('stale_version')
@@ -241,7 +286,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
     policyOverrideGetMock.mockResolvedValueOnce({ mutationPolicy: 'read-only' })
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(403)
     const body = await response.json()
     expect(body.code).toBe('read_only_agent')
@@ -251,7 +296,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
     getAgentMock.mockReturnValueOnce(makeAgent({ allowedTools: [] }))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(403)
     const body = await response.json()
     expect(body.code).toBe('tool_not_whitelisted')
@@ -261,10 +306,32 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
     getAgentMock.mockReturnValueOnce(makeAgent({ requiredFeatures: ['catalog.restricted.manage'] }))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(403)
     const body = await response.json()
     expect(body.code).toBe('agent_features_denied')
+  })
+
+  it('403 tool_features_denied when the caller lost a tool feature, in the request locale', async () => {
+    getToolMock.mockReturnValue(makeTool({ requiredFeatures: ['catalog.products.manage'] }))
+
+    repoGetByIdMock.mockResolvedValueOnce(makeRow())
+    const english = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+    expect(english.status).toBe(403)
+    expect(await english.json()).toMatchObject({
+      code: 'tool_features_denied',
+      error: "Caller lacks one of the tool's required features: catalog.products.manage",
+    })
+
+    requestHeaders.acceptLanguage = 'pl'
+    repoGetByIdMock.mockResolvedValueOnce(makeRow())
+    const polish = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+    expect(polish.status).toBe(403)
+    expect(await polish.json()).toMatchObject({
+      code: 'tool_features_denied',
+      error: 'Brakuje Ci jednego z uprawnień wymaganych przez narzędzie: catalog.products.manage',
+    })
+    expect(repoSetStatusMock).not.toHaveBeenCalled()
   })
 
   it('403 attachment_cross_tenant when an attachment belongs to a different tenant', async () => {
@@ -273,7 +340,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
       { id: 'a-1', tenantId: 'tenant-OTHER', organizationId: 'org-OTHER' },
     ])
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(403)
     const body = await response.json()
     expect(body.code).toBe('attachment_cross_tenant')
@@ -283,16 +350,29 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
     getAgentMock.mockReturnValueOnce(undefined)
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(404)
     const body = await response.json()
     expect(body.code).toBe('agent_unknown')
   })
 
+  it.each([
+    ['a non-UUID string', 'not-a-uuid'],
+    ['a 128-character string', 'a'.repeat(128)],
+  ])('returns 400 validation_error without querying the database for %s', async (_label, id) => {
+    const response = await POST(buildRequest() as any, buildContext(id))
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.code).toBe('validation_error')
+    expect(JSON.stringify(body)).not.toContain('invalid input syntax')
+    expect(repoGetByIdMock).not.toHaveBeenCalled()
+  })
+
   it('404 pending_action_not_found when the row does not exist for the caller', async () => {
     repoGetByIdMock.mockResolvedValueOnce(null)
 
-    const response = await POST(buildRequest() as any, buildContext('pa_missing'))
+    const response = await POST(buildRequest() as any, buildContext(MISSING_PENDING_ACTION_ID))
     expect(response.status).toBe(404)
     const body = await response.json()
     expect(body.code).toBe('pending_action_not_found')
@@ -301,7 +381,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
   it('403 forbidden when caller lacks ai_assistant.view', async () => {
     loadAclMock.mockResolvedValueOnce({ features: ['catalog.view'], isSuperAdmin: false })
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(403)
     const body = await response.json()
     expect(body.code).toBe('forbidden')
@@ -319,7 +399,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     const handlerSpy = jest.fn()
     getToolMock.mockReturnValueOnce(makeTool({ handler: handlerSpy }))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.ok).toBe(true)
@@ -328,10 +408,106 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     expect(repoSetStatusMock).not.toHaveBeenCalled()
   })
 
+  describe('owner / approver visibility', () => {
+    beforeEach(() => {
+      getToolMock.mockReset()
+      getToolMock.mockReturnValue(makeTool())
+      repoGetByIdMock.mockReset()
+    })
+
+    const rawRow = () =>
+      makeRow({ channel: 'mcp', agentId: 'ai_assistant.raw_tool', correlationId: 'corr-1', apiKeyId: null })
+
+    function aclByPrincipal(approverFeatures: string[]) {
+      loadAclMock.mockImplementation(async (principal: string) => {
+        if (principal === 'user-2') return { features: approverFeatures, isSuperAdmin: false }
+        return { features: ['ai_assistant.view', 'catalog.manage'], isSuperAdmin: false }
+      })
+    }
+
+    it('another user without the approve feature gets 404 on a chat row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'agent' }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+      expect((await response.json()).code).toBe('pending_action_not_found')
+      expect(repoSetStatusMock).not.toHaveBeenCalled()
+    })
+
+    it('another user without the approve feature gets 404 on an MCP row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      repoGetByIdMock.mockResolvedValueOnce(rawRow())
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+      expect(repoSetStatusMock).not.toHaveBeenCalled()
+    })
+
+    it('an approver gets 404 on someone else\'s chat row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      aclByPrincipal(['ai_assistant.view', 'ai_assistant.pending_actions.approve', 'catalog.manage'])
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'agent' }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+    })
+
+    it('an approver confirms an MCP row under their own identity without agent lookup', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      aclByPrincipal(['ai_assistant.view', 'ai_assistant.pending_actions.approve', 'catalog.manage'])
+      repoGetByIdMock.mockResolvedValueOnce(rawRow())
+      const handlerSpy = jest.fn().mockResolvedValue({ recordId: 'p-1' })
+      getToolMock.mockReturnValueOnce(makeTool({ handler: handlerSpy, requiredFeatures: ['catalog.manage'] }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(200)
+      expect(getAgentMock).not.toHaveBeenCalled()
+      expect(policyOverrideGetMock).not.toHaveBeenCalled()
+      expect(handlerSpy).toHaveBeenCalledTimes(1)
+      const handlerCtx = handlerSpy.mock.calls[0][1]
+      expect(handlerCtx.userId).toBe('user-2')
+      expect(handlerCtx.auditCorrelation).toEqual({
+        correlationId: 'corr-1',
+        apiKeyId: null,
+        pendingActionId: PENDING_ACTION_ID,
+        requestedByUserId: 'user-1',
+      })
+      const [, , , confirmExtra] = repoSetStatusMock.mock.calls[0]
+      expect(confirmExtra).toMatchObject({ resolvedByUserId: 'user-2' })
+    })
+
+    it('an approver lacking the tool feature is denied with approver_features_denied', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      aclByPrincipal(['ai_assistant.view', 'ai_assistant.pending_actions.approve'])
+      repoGetByIdMock.mockResolvedValueOnce(rawRow())
+      getToolMock.mockReturnValueOnce(makeTool({ requiredFeatures: ['catalog.manage'] }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(403)
+      expect((await response.json()).code).toBe('approver_features_denied')
+      expect(repoSetStatusMock).not.toHaveBeenCalled()
+    })
+
+    it('the creator still confirms their own chat row', async () => {
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'agent' }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(200)
+      expect(getAgentMock).toHaveBeenCalledWith('catalog.merchandising_assistant')
+    })
+  })
+
   it('500 confirm_internal_error when the repo throws unexpectedly', async () => {
     repoGetByIdMock.mockRejectedValueOnce(new Error('db down'))
 
-    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(500)
     const body = await response.json()
     expect(body.code).toBe('confirm_internal_error')

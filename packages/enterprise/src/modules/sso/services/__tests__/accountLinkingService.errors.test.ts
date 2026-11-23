@@ -2,10 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { Role, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { AccountLinkingService } from '../accountLinkingService'
 import { isEmailNotVerifiedError, resolveSsoCallbackErrorCode } from '../../lib/errors'
-import { ScimToken, SsoIdentity, SsoRoleGrant } from '../../data/entities'
-import type { SsoConfig } from '../../data/entities'
+import { ScimToken, SsoIdentity, SsoRoleGrant, SsoUserDeactivation, SsoConfig } from '../../data/entities'
+import type { SsoAuthorizationService } from '../ssoAuthorizationService'
 import type { SsoIdentityPayload } from '../../lib/types'
 import { lockUserRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn().mockResolvedValue(null),
@@ -16,7 +17,28 @@ jest.mock('@open-mercato/core/modules/auth/lib/authorizationStateLocks', () => (
   lockUserRoleWriterAuthorizationState: jest.fn().mockResolvedValue(undefined),
 }))
 
-const config = { id: 'cfg-1', organizationId: 'org-1' } as unknown as SsoConfig
+const config = {
+  id: 'cfg-1', organizationId: 'org-1', tenantId: 'tenant-1', isActive: true,
+  updatedAt: new Date('2026-11-15T00:00:00.000Z'), allowedDomains: ['example.com'],
+  autoLinkByEmail: false, jitEnabled: true, appRoleMappings: { engineering: 'employee' },
+} as SsoConfig
+
+function createService(manager: EntityManager): AccountLinkingService {
+  const em = manager as EntityManager & { transactional?: EntityManager['transactional'] }
+  if (!em.transactional) {
+    em.transactional = jest.fn(async (callback: (transaction: EntityManager) => Promise<unknown>) => callback(em)) as EntityManager['transactional']
+  }
+  const authorization = {
+    resolveTenant: jest.fn(async () => 'tenant-1'),
+    assertConfiguration: jest.fn(async () => 'tenant-1'),
+    authorizeAccount: jest.fn(async () => ({ tenantId: 'tenant-1', mappedRoleIds: ['role-employee'] })),
+  }
+  return new AccountLinkingService(em, authorization as unknown as SsoAuthorizationService)
+}
+
+beforeEach(() => {
+  jest.mocked(findOneWithDecryption).mockReset().mockImplementation(async (_em, entity) => entity === SsoConfig ? config : null)
+})
 
 type PersistedRoleGrant = { roleId: string; ssoConfigId: string }
 
@@ -75,6 +97,7 @@ function buildRoleSyncEntityManager(
     }),
     remove: jest.fn(),
     transactional: jest.fn(async (callback: (txEm: EntityManager) => Promise<unknown>) => callback(em as unknown as EntityManager)),
+    isInTransaction: () => true,
     persisted,
   }
 
@@ -92,7 +115,7 @@ async function captureThrow(fn: () => Promise<unknown>): Promise<unknown> {
 
 describe('OIDC callback unverified-email error mapping (#2741)', () => {
   it('resolveUser throws an error the callback classifies as sso_email_not_verified', async () => {
-    const service = new AccountLinkingService({} as unknown as EntityManager)
+    const service = createService({} as unknown as EntityManager)
     const payload: SsoIdentityPayload = {
       subject: 'sub-1',
       email: 'user@example.com',
@@ -107,12 +130,13 @@ describe('OIDC callback unverified-email error mapping (#2741)', () => {
   })
 
   it('treats omitted email_verified as unverified before link or JIT flows', async () => {
-    const service = new AccountLinkingService({} as unknown as EntityManager)
+    const service = createService({} as unknown as EntityManager)
     const payload: SsoIdentityPayload = {
       subject: 'sub-2',
       email: 'user@example.com',
     }
     const strictConfig = {
+      ...config,
       id: 'cfg-1',
       organizationId: 'org-1',
       allowedDomains: ['example.com'],
@@ -140,6 +164,7 @@ describe('SSO app role mappings', () => {
   })
 
   const roleConfig = {
+    ...config,
     id: 'cfg-1',
     organizationId: 'org-1',
     allowedDomains: ['example.com'],
@@ -157,6 +182,59 @@ describe('SSO app role mappings', () => {
     groups,
   })
 
+  it('rejects a newly matching role before expanding the authorized footprint or granting it', async () => {
+    const roles = [{ id: 'role-employee', name: 'employee' }]
+    const em = buildRoleSyncEntityManager(roles)
+    jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity) => {
+      if (entity === SsoConfig) return roleConfig
+      if (entity === SsoIdentity) return { id: 'identity-1', userId: 'user-1' } as SsoIdentity
+      if (entity === User) return { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' } as User
+      return null
+    })
+    const authorization = {
+      resolveTenant: jest.fn(async () => 'tenant-1'),
+      authorizeAccount: jest.fn(async () => {
+        roles[0] = { id: 'privileged-role', name: 'employee' }
+        return { tenantId: 'tenant-1', mappedRoleIds: Object.freeze(['role-employee']) }
+      }),
+    }
+    const service = new AccountLinkingService(em as unknown as EntityManager, authorization as unknown as SsoAuthorizationService)
+
+    await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toMatchObject({ status: 409 })
+
+    expect(authorization.authorizeAccount).toHaveBeenCalledTimes(1)
+    expect(lockUserRoleWriterAuthorizationState).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalledWith(UserRole, expect.anything())
+    expect(em.persisted.filter(isPersistedRoleGrant)).toEqual([])
+    expect(em.remove).not.toHaveBeenCalled()
+  })
+
+  it('rechecks deactivation under the authorization lock before synchronizing roles', async () => {
+    const em = buildRoleSyncEntityManager([{ id: 'role-employee', name: 'employee' }])
+    const previousLock = jest.mocked(lockUserRoleWriterAuthorizationState).getMockImplementation()
+    let revoked = false
+    jest.mocked(lockUserRoleWriterAuthorizationState).mockImplementation(async (...args) => {
+      await previousLock?.(...args)
+      revoked = true
+    })
+    jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity) => {
+      if (entity === SsoConfig) return roleConfig
+      if (entity === SsoIdentity) return { id: 'identity-1', userId: 'user-1' } as SsoIdentity
+      if (entity === User) return { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' } as User
+      if (entity === SsoUserDeactivation && revoked) return { id: 'marker-1' } as SsoUserDeactivation
+      return null
+    })
+
+    try {
+      await expect(createService(em as unknown as EntityManager).resolveUser(
+        roleConfig, payload(['engineering']), 'tenant-1',
+      )).rejects.toThrow('deactivated')
+      expect(em.persisted).toEqual([])
+    } finally {
+      jest.mocked(findOneWithDecryption).mockReset().mockResolvedValue(null)
+    }
+  })
+
   it('does not grant tenant roles from unmapped IdP groups that match role names', async () => {
     const originalGroupRoleMap = process.env.SSO_GROUP_ROLE_MAP
     process.env.SSO_GROUP_ROLE_MAP = JSON.stringify({ admin: 'admin' })
@@ -165,7 +243,7 @@ describe('SSO app role mappings', () => {
       { id: 'role-admin', name: 'admin' },
       { id: 'role-employee', name: 'employee' },
     ])
-    const service = new AccountLinkingService(em as unknown as EntityManager)
+    const service = createService(em as unknown as EntityManager)
 
     try {
       await service.resolveUser(roleConfig, payload(['engineering', 'admin']), 'tenant-1')
@@ -189,7 +267,7 @@ describe('SSO app role mappings', () => {
       { id: 'role-admin', name: 'admin' },
       { id: 'role-employee', name: 'employee' },
     ])
-    const service = new AccountLinkingService(em as unknown as EntityManager)
+    const service = createService(em as unknown as EntityManager)
 
     await expect(service.resolveUser(roleConfig, payload(['admin']), 'tenant-1')).rejects.toThrow(
       'No roles could be resolved from IdP groups',
@@ -207,7 +285,7 @@ describe('SSO app role mappings', () => {
       [{ id: 'role-employee', name: 'employee' }],
       [{ id: 'role-employee', name: 'former-employee' }],
     )
-    const service = new AccountLinkingService(em as unknown as EntityManager)
+    const service = createService(em as unknown as EntityManager)
 
     await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toThrow(
       'No roles could be resolved from IdP groups',
@@ -230,7 +308,7 @@ describe('SSO app role mappings', () => {
       [{ id: 'role-employee', name: 'employee' }],
       [],
     )
-    const service = new AccountLinkingService(em as unknown as EntityManager)
+    const service = createService(em as unknown as EntityManager)
 
     await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toThrow(
       'No roles could be resolved from IdP groups',
@@ -253,7 +331,7 @@ describe('SSO app role mappings', () => {
       [],
       [{ id: 'role-employee', name: 'employee' }],
     )
-    const service = new AccountLinkingService(em as unknown as EntityManager)
+    const service = createService(em as unknown as EntityManager)
 
     await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toMatchObject({
       status: 409,
@@ -295,7 +373,7 @@ describe('SSO app role mappings', () => {
         }],
       },
     )
-    const service = new AccountLinkingService(em as unknown as EntityManager)
+    const service = createService(em as unknown as EntityManager)
 
     await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toMatchObject({
       status: 409,
@@ -318,6 +396,7 @@ describe('SSO app role mappings', () => {
       findOneWithDecryption: jest.Mock
     }
     findOneWithDecryption
+      .mockResolvedValueOnce(roleConfig)
       .mockResolvedValueOnce({ id: 'identity-1', userId: 'user-1', lastLoginAt: null, deletedAt: null })
       .mockResolvedValueOnce({ id: 'user-1', tenantId: 'tenant-1' })
     const staleGrant = { id: 'grant-employee', roleId: 'role-employee', userId: 'user-1', ssoConfigId: 'cfg-1' }
@@ -325,6 +404,7 @@ describe('SSO app role mappings', () => {
     const removed: unknown[] = []
     const transactionOutcomes: string[] = []
     const em = {
+      isInTransaction: () => true,
       find: jest.fn(async (entity: unknown) => {
         if (entity === Role) return [{ id: 'role-employee', name: 'employee' }]
         if (entity === SsoRoleGrant) return [staleGrant]
@@ -352,7 +432,7 @@ describe('SSO app role mappings', () => {
         }
       }),
     }
-    const service = new AccountLinkingService(em as unknown as EntityManager)
+    const service = createService(em as unknown as EntityManager)
 
     await expect(service.resolveUser(roleConfig, payload(['unmapped']), 'tenant-1')).rejects.toThrow(
       'No roles could be resolved from IdP groups — login denied. Configure role mappings or ensure the IdP sends matching group claims.',
@@ -383,7 +463,7 @@ describe('SSO app role mappings', () => {
         }
       }),
     })
-    const service = new AccountLinkingService(em as unknown as EntityManager)
+    const service = createService(em as unknown as EntityManager)
 
     await expect(service.resolveUser(roleConfig, payload(['unmapped']), 'tenant-1')).rejects.toThrow(
       'No roles could be resolved from IdP groups',
@@ -412,7 +492,7 @@ describe('SSO app role mappings', () => {
         }],
       },
     )
-    const service = new AccountLinkingService(em as unknown as EntityManager)
+    const service = createService(em as unknown as EntityManager)
 
     await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toMatchObject({
       status: 409,
