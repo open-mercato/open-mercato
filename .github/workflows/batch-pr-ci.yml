@@ -1,0 +1,140 @@
+name: Batch PR CI
+permissions:
+  contents: read
+
+# Fast gate for PRs merged into a daily batch branch (`batch/<lane>-<YYYYMMDD>`).
+# Budget: 3–5 min wall time. The full `ci.yml` suite (app build, sharded
+# integration, docker, coverage, unfiltered guards) runs once per batch, on the
+# batch → main PR — see .ai/docs/batch-branches.md for the process.
+#
+# `ci.yml` deliberately lists no `batch/**` branch, so it never runs on PRs
+# into a batch or on pushes to one. The enterprise contribution guard has no
+# branch filter and keeps running on every PR, batch PRs included.
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Same reasons as ci.yml: `yarn generate` bakes the module registry the app
+  # typecheck reads, so it must see the enterprise flags, and turbo's strict env
+  # mode would strip them before the task process starts.
+  OM_ENABLE_ENTERPRISE_MODULES: 'true'
+  OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
+  OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+  OM_ENABLE_ENTERPRISE_MODULES_AGENTS: 'true'
+  TURBO_ENV_MODE: 'loose'
+
+on:
+  pull_request:
+    branches:
+      - 'batch/**'
+
+concurrency:
+  group: batch-pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  fast-check:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # A pull_request checkout is GitHub's merge commit; its first parent is
+          # the batch tip the PR merges onto, so depth 2 is enough to diff exactly
+          # the PR's own changes (same reasoning as ci.yml audit-scope).
+          fetch-depth: 2
+
+      - name: List changed files
+        run: |
+          git diff --name-only --diff-filter=d HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          cat "$RUNNER_TEMP/changed.txt"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        # Shared key with ci.yml — a hit skips the ~85s install.
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Cache Turbo build outputs
+        uses: actions/cache@v6
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ github.ref_name }}-
+            turbo-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Build packages and generate
+        # Same sequence as ci.yml `prepare` minus the app build: unchanged
+        # packages are turbo cache hits, so this is seconds on a warm cache.
+        run: yarn build:packages && yarn generate && yarn build:packages
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: Typecheck affected packages
+        # Changed packages plus their dependents — the same filter ci.yml uses
+        # on PRs, pinned to the merge commit's first parent instead of a
+        # freshly fetched base tip.
+        run: yarn turbo run typecheck --filter='[HEAD^1]...'
+        env:
+          NODE_OPTIONS: --max-old-space-size=5120
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: Lint changed files
+        # `yarn lint` runs eslint only in apps/mercato (the one workspace with a
+        # `lint` script), so the fast gate lints the changed files in that same
+        # scope — stricter here would fail PRs the full suite accepts.
+        run: |
+          mapfile -t files < <(grep -E '^apps/mercato/.*\.(ts|tsx|js|jsx|mjs|cjs)$' "$RUNNER_TEMP/changed.txt" | sed 's#^apps/mercato/##')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No lintable files changed under apps/mercato."
+          else
+            cd apps/mercato
+            yarn eslint --no-warn-ignored "${files[@]}"
+          fi
+          cd "$GITHUB_WORKSPACE"
+          yarn logger:check-console:ci
+
+      - name: Run tests related to changed files
+        # One jest run per workspace with a jest config, limited to the tests
+        # that import a changed file. Cross-package fallout is caught by the
+        # full suite on the batch → main PR.
+        run: |
+          JEST="$GITHUB_WORKSPACE/node_modules/jest/bin/jest.js"
+          mapfile -t workspaces < <(grep -E '\.(ts|tsx|js|jsx|mjs|cjs)$' "$RUNNER_TEMP/changed.txt" | grep -oE '^(packages|apps)/[^/]+' | sort -u)
+          ran=0
+          for workspace in "${workspaces[@]}"; do
+            [ -f "$workspace/jest.config.cjs" ] || continue
+            mapfile -t files < <(grep -E "^$workspace/.*\.(ts|tsx|js|jsx|mjs|cjs)$" "$RUNNER_TEMP/changed.txt" | sed "s#^$workspace/##")
+            echo "::group::jest --findRelatedTests in $workspace (${#files[@]} files)"
+            (cd "$workspace" && node "$JEST" --config jest.config.cjs --ci --passWithNoTests --forceExit --findRelatedTests "${files[@]}")
+            echo "::endgroup::"
+            ran=$((ran + 1))
+          done
+          echo "jest runs: $ran"

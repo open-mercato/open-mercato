@@ -71,10 +71,21 @@ env:
   # runtime validation ignores loopback endpoints unless the integration flag
   # explicitly allows them.
   NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
+  # Batch → main PRs: a PR whose head is a `batch/*` branch bundles a day's worth
+  # of PRs that each passed only the fast `batch-pr-ci.yml` gate, so it gets the
+  # same unscoped run as a push — 15 integration shards, full typecheck, full
+  # unit tests. Evaluated to a plain 'true'/'false' here so no step interpolates
+  # the (contributor-chosen) head branch name into a script.
+  FULL_SUITE_HEAD: ${{ startsWith(github.head_ref, 'batch/') }}
 
 # `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
 # `develop`, and while it is absent from these lists no job is scheduled for them at all.
 # Drop the entry once its stack has landed on `develop`.
+#
+# `batch/**` is deliberately absent from both lists: PRs into a daily batch branch and pushes to
+# one get only the fast `.github/workflows/batch-pr-ci.yml`. The batch → main PR matches `main`
+# below and runs this whole workflow unscoped (see FULL_SUITE_HEAD above and
+# .ai/docs/batch-branches.md).
 on:
   push:
     branches:
@@ -130,7 +141,7 @@ jobs:
           FULL_SHARDS='["1/15","2/15","3/15","4/15","5/15","6/15","7/15","8/15","9/15","10/15","11/15","12/15","13/15","14/15","15/15"]'
           SINGLE_SHARD='["none"]'
 
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FULL_SUITE_HEAD" = "true" ]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "modules=" >> "$GITHUB_OUTPUT"
             echo "shard_matrix=${FULL_SHARDS}" >> "$GITHUB_OUTPUT"
@@ -734,9 +745,9 @@ jobs:
 
       - name: Checking types
         # On PRs: scope to packages/app that changed since the base branch.
-        # On pushes to protected branches: full typecheck, no filter.
+        # On pushes to protected branches and batch → main PRs: full typecheck, no filter.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$FULL_SUITE_HEAD" != "true" ]; then
             yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
           else
             yarn typecheck
@@ -746,9 +757,9 @@ jobs:
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
       - name: Test
-        # Same scoping as typecheck — affected packages only on PRs.
+        # Same scoping as typecheck — affected packages only on PRs (batch → main PRs run in full).
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$FULL_SUITE_HEAD" != "true" ]; then
             yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
           else
             yarn test

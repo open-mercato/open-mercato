@@ -6,6 +6,7 @@ We’re excited to collaborate with folks building on top of Open Mercato. This 
 
 - `main` – release-ready code. Every commit is tagged and deployable. Keep PRs targeting `main` limited to hotfixes or release prep approved by maintainers.
 - `develop` – nightly builds and upcoming release work. Base regular feature work off `develop` so it can soak in automation and shared testing.
+- `batch/<lane>-<YYYYMMDD>` – maintainer-run daily batch branches. Selected small PRs are squash-merged here behind a fast CI gate, and each batch lands on `main` as one merge commit after the full suite and one QA pass. See [`.ai/docs/batch-branches.md`](.ai/docs/batch-branches.md).
 - Topic branches – create a dedicated branch per change using the format `feat/<concise-feature-name>` (for example `feat/customer-export`). Use other prefixes when appropriate (`fix/`, `chore/`, `docs/`).
 
 ## Development Setup

@@ -145,6 +145,10 @@ attached evidence comment alone does not make a `needs-qa` PR merge-ready, and a
 skill that cannot apply the labels MUST report that it stopped there rather than treat the
 self-QA as complete.
 
+**Batch branches:** a PR squash-merged into a `batch/<lane>-<YYYYMMDD>` branch gets no QA of
+its own; the gate above applies to the batch → `main` PR instead, after one QA pass over the
+whole batch. See [`batch-branches.md`](batch-branches.md).
+
 `qa-failed` is a hard block: a PR carrying it MUST NOT merge until QA re-runs and it is cleared.
 `do-not-merge` and `blocked` are likewise hard merge blocks. The QA-approval gate (reviewers +
 PR-automation tooling) treats any of these as not-mergeable.
