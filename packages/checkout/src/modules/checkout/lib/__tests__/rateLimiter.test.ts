@@ -1,3 +1,4 @@
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RateLimitResult } from '@open-mercato/shared/lib/ratelimit/types'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import {
@@ -5,6 +6,19 @@ import {
   checkoutSubmitRateLimitConfig,
   enforceCheckoutRateLimit,
 } from '../rateLimiter'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(),
+}))
+
+const POLISH_UNAVAILABLE = 'Usługa jest chwilowo niedostępna. Spróbuj ponownie później.'
+
+function mockPolishTranslations() {
+  jest.mocked(resolveTranslations).mockResolvedValue({
+    translate: (key: string, fallback?: string) =>
+      key === 'api.errors.rateLimitUnavailable' ? POLISH_UNAVAILABLE : (fallback ?? key),
+  } as unknown as Awaited<ReturnType<typeof resolveTranslations>>)
+}
 
 function makeRateLimiter(trustProxyDepth: number): RateLimiterService {
   return { trustProxyDepth } as RateLimiterService
@@ -65,6 +79,10 @@ describe('enforceCheckoutRateLimit', () => {
     msBeforeNext: 30_000,
     consumedPoints: 11,
   }
+
+  beforeEach(() => {
+    jest.mocked(resolveTranslations).mockRejectedValue(new Error('outside a request scope'))
+  })
 
   function makeContainer(consume: jest.Mock | null) {
     return {
@@ -129,6 +147,33 @@ describe('enforceCheckoutRateLimit', () => {
     const response = await enforce(makeContainer(null), 'fail-closed')
 
     expect(response?.status).toBe(503)
+  })
+
+  it('localizes the 503 for the request locale when no limiter is registered', async () => {
+    mockPolishTranslations()
+
+    const response = await enforce(makeContainer(null), 'fail-closed')
+
+    expect(response?.status).toBe(503)
+    expect(await response?.json()).toEqual({ error: POLISH_UNAVAILABLE })
+  })
+
+  it('localizes the 503 when the limiter is degraded or throws', async () => {
+    mockPolishTranslations()
+
+    const degraded = await enforce(makeContainer(jest.fn().mockResolvedValue(degradedResult)), 'fail-closed')
+    const thrown = await enforce(makeContainer(jest.fn().mockRejectedValue(new Error('down'))), 'fail-closed')
+
+    expect(await degraded?.json()).toEqual({ error: POLISH_UNAVAILABLE })
+    expect(await thrown?.json()).toEqual({ error: POLISH_UNAVAILABLE })
+  })
+
+  it('falls back to the English 503 message when the translation lookup fails', async () => {
+    const response = await enforce(makeContainer(null), 'fail-closed')
+
+    expect(await response?.json()).toEqual({
+      error: 'Service temporarily unavailable. Please try again later.',
+    })
   })
 
   it('skips the check when no limiter is registered and the endpoint fails open', async () => {

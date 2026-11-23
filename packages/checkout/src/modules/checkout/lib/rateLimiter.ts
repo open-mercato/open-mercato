@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import {
   checkRateLimit,
   getClientIp,
   RATE_LIMIT_FALLBACK_KEY,
   RATE_LIMIT_UNAVAILABLE_FALLBACK,
+  RATE_LIMIT_UNAVAILABLE_KEY,
 } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
@@ -50,6 +52,11 @@ function resolveOptionalRateLimiter(container: RateLimiterContainer): RateLimite
   }
 }
 
+async function resolveUnavailableMessage(): Promise<string> {
+  const translations = await resolveTranslations().catch(() => null)
+  return translations?.translate(RATE_LIMIT_UNAVAILABLE_KEY, RATE_LIMIT_UNAVAILABLE_FALLBACK) ?? RATE_LIMIT_UNAVAILABLE_FALLBACK
+}
+
 /**
  * Run the checkout rate-limit guard for one request and return the response that should be
  * sent instead of handling it, or null to continue.
@@ -61,6 +68,9 @@ function resolveOptionalRateLimiter(container: RateLimiterContainer): RateLimite
  * - the limiter is configured but could not decide (degraded, or the check threw) → 503 under
  *   `fail-closed`, a logged warning under `fail-open`
  * - the limiter decided the quota is exhausted → the 429 from `checkRateLimit`
+ *
+ * Every 503 carries `RATE_LIMIT_UNAVAILABLE_KEY` resolved for the request locale, falling back
+ * to the English message when the translation lookup fails.
  */
 export async function enforceCheckoutRateLimit(options: {
   req: Request
@@ -78,7 +88,7 @@ export async function enforceCheckoutRateLimit(options: {
         namespace,
         posture,
       })
-      return NextResponse.json({ error: RATE_LIMIT_UNAVAILABLE_FALLBACK }, { status: 503 })
+      return NextResponse.json({ error: await resolveUnavailableMessage() }, { status: 503 })
     }
     logger.error('Rate limiter service is not registered — check RATE_LIMIT_* configuration; serving fail-open checkout request without rate limiting', {
       namespace,
@@ -89,13 +99,17 @@ export async function enforceCheckoutRateLimit(options: {
 
   try {
     const key = buildCheckoutRateLimitKey(req, rateLimiter, namespace)
-    return await checkRateLimit(rateLimiter, config, key, errorMessage, {
+    const response = await checkRateLimit(rateLimiter, config, key, errorMessage, {
       failClosed: posture === 'fail-closed',
     })
+    if (response?.status === 503) {
+      return NextResponse.json({ error: await resolveUnavailableMessage() }, { status: 503 })
+    }
+    return response
   } catch (error) {
     if (posture === 'fail-closed') {
       logger.error('Checkout rate limit check failed, rejecting request', { err: error, namespace })
-      return NextResponse.json({ error: RATE_LIMIT_UNAVAILABLE_FALLBACK }, { status: 503 })
+      return NextResponse.json({ error: await resolveUnavailableMessage() }, { status: 503 })
     }
     logger.warn('Checkout rate limit check failed, allowing request', { err: error, namespace })
     return null
