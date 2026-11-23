@@ -17,3 +17,6 @@
 - All Tasks rows done. Gate recorded in final-gate-checks.md: generate, i18n sync/usage, typecheck, template sync, build:app, targeted core tests 85/85, bc-guard 338/338, TC-ASSIST-001 3/3. yarn test: core interceptor-coverage failure fixed (3.3); create-app harness failures match baseline.
 - Follow-up issue #10039 filed for the settings page (AS7, D-R5-AS4).
 - UI/DS pass skipped: no UI touched.
+
+## 2026-11-23T13:30:27Z — carried forward to #10446
+- #10446 carries the AS1 implementation and fixes requested on #10036.
