@@ -6,8 +6,10 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
@@ -23,6 +25,8 @@ export default function ProfileTimeZonePage() {
   const locale = useLocale()
   const router = useRouter()
   const settings = useDateLocaleSettings()
+  const pickerId = React.useId()
+  const draftTimezone = React.useRef<string | null>(null)
   const [timezone, setTimezone] = React.useState<string | null | undefined>(undefined)
   const [updatedAt, setUpdatedAt] = React.useState<string | null>(null)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -44,20 +48,43 @@ export default function ProfileTimeZonePage() {
     void load()
   }, [load])
 
+  const timezoneOptions = React.useMemo(() => [
+    { value: ORGANIZATION_DEFAULT, label: t('auth.profile.timeZone.organizationDefault', 'Organization default') },
+    ...listSupportedTimeZones(timezone).map((zone) => ({ value: zone, label: zone })),
+  ], [t, timezone])
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'timezone',
-      type: 'combobox',
+      type: 'custom',
       label: t('auth.profile.timeZone.field', 'Time zone'),
       description: t(
         'auth.profile.timeZone.fieldHint',
         'Dates and times across the app are shown in this zone. Choose the organization default to follow your administrator’s setting.',
       ),
-      options: [
-        { value: ORGANIZATION_DEFAULT, label: t('auth.profile.timeZone.organizationDefault', 'Organization default') },
-        ...listSupportedTimeZones(timezone).map((zone) => ({ value: zone, label: zone })),
-      ],
-      allowCustomValues: false,
+      rendersOwnError: true,
+      component: ({ value, setValue, error, disabled }) => (
+        <div onChangeCapture={(event) => {
+          if (event.target instanceof HTMLInputElement) draftTimezone.current = event.target.value
+        }}>
+          <label htmlFor={pickerId} className="sr-only">{t('auth.profile.timeZone.field', 'Time zone')}</label>
+          <ComboboxInput
+            id={pickerId}
+            value={typeof value === 'string' ? value : ''}
+            onChange={(next) => {
+              draftTimezone.current = null
+              setValue(next)
+            }}
+            suggestions={timezoneOptions}
+            allowCustomValues={false}
+            clearable
+            disabled={disabled}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? `${pickerId}-error` : undefined}
+          />
+          {error ? <p id={`${pickerId}-error`} className="mt-2 text-xs text-status-error-text">{error}</p> : null}
+        </div>
+      ),
     },
     {
       id: 'preview',
@@ -80,18 +107,27 @@ export default function ProfileTimeZonePage() {
         )
       },
     },
-  ], [locale, settings, t, timezone])
+  ], [locale, pickerId, settings, t, timezoneOptions])
 
   const handleSubmit = React.useCallback(async (values: TimeZoneFormValues) => {
-    const next = values.timezone && values.timezone !== ORGANIZATION_DEFAULT ? values.timezone : null
+    const draft = draftTimezone.current?.trim().toLowerCase()
+    const choice = draft
+      ? timezoneOptions.find((option) => option.label.toLowerCase() === draft)?.value
+      : (draft ?? values.timezone)
+    if (choice === undefined) {
+      const message = t('auth.profile.errors.timeZone', 'Choose a time zone from the list.')
+      throw createCrudFormError(message, { timezone: message })
+    }
+    const next = choice && choice !== ORGANIZATION_DEFAULT ? choice : null
     const saved = await updateCrud<ProfileResponse>('auth/profile', { timezone: next }, {
       errorMessage: t('auth.profile.timeZone.errors.save', 'Failed to save your time zone.'),
     })
+    draftTimezone.current = null
     setUpdatedAt(saved.result?.updatedAt ?? null)
     setTimezone(next)
     flash(t('auth.profile.timeZone.saved', 'Time zone saved.'), 'success')
     router.refresh()
-  }, [router, t])
+  }, [router, t, timezoneOptions])
 
   return (
     <Page>
