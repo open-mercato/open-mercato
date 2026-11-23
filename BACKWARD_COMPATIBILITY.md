@@ -700,6 +700,10 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
 
+## #10331 #10332 (2026-11-23)
+
+STABLE parser/SQL: no bridge. [Migrate](UPGRADE_NOTES.md).
+
 ## 2026-11-19 — Entity translation authorization (#9139)
 
 The STABLE entity translation route and localization resolver require target

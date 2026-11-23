@@ -1,5 +1,14 @@
 # Upgrade Notes
 
+## Extension header parsing and analytics SQL identifier hardening (#10331, #10332)
+
+Two security-hardening narrowings landed on shared request-header parsing and dashboard analytics SQL construction:
+
+- **UMES extension headers (#10331):** `parseExtensionHeaders` now stores parsed modules and keys in null-prototype objects (`Object.create(null)`) and ignores headers whose module or key segment is empty or one of `__proto__`, `prototype`, or `constructor` (case-insensitive).
+  - **Module / client migration:** Legitimate `x-om-ext-<module_id>-<key>` headers (including `record_locks`, `business_rules`, and optimistic-lock headers) work unchanged. If an interceptor called `Object.prototype` methods directly on `context.extensionHeaders` or `context.extensionHeaders[moduleId]` (for example `extensionHeaders.hasOwnProperty(...)`), switch to `Object.prototype.hasOwnProperty.call(...)` or direct key access, and rename any custom module or key segment named `constructor` or `prototype`.
+- **Dashboard analytics SQL identifiers (#10332):** `DefaultAnalyticsRegistry`, `aggregations.ts`, and `WidgetDataService` now validate every SQL identifier (`tableName`, optional `schema`, mapped `dbColumn`, and `labelResolvers` `table`/`idColumn`/`labelColumn`) against `^[a-zA-Z_][a-zA-Z0-9_]*$` and ignore inherited prototype properties on `entityConfig`, `fieldMappings`, and `labelResolvers`.
+  - **Module / operator migration:** All first-party `analytics.ts` configurations already conform, including schema-qualified tables and JSONB dot-path grouping. Custom or third-party `analytics.ts` modules that placed SQL expressions, spaces, quotes, or punctuation in `tableName`, `schema`, `dbColumn`, or `labelResolvers` must replace them with plain SQL identifiers (or expose a dedicated column/view). No database migration or runtime configuration change is required.
+
 ## Fullapp development agent authentication (#9116)
 
 Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibility copy, or the standalone `docker-compose.fullapp.dev.yml`, generate a strong `OPENCODE_PASSWORD` (for example, `openssl rand -hex 32`) and export it or save it in the compose `.env`. Missing or empty passwords now stop startup. The same value configures native OpenCode server authentication and the existing app client. Direct OpenCode clients must send HTTP Basic credentials with username `opencode`; healthchecks authenticate automatically. Recreate the app and OpenCode services together after changing the password.
