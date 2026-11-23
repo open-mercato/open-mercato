@@ -31,4 +31,10 @@ A portal user should show the display name declared by its module. The code fixe
 ### Phase 2: QA and CI repair
 
 - [x] 2.1 Restore relation labels and search and update integration coverage for scoped writes and soft deletion — 0bd65a0181
-- [ ] 2.2 Verify the full gate, review the final diff, and record exact-head CI evidence
+- [x] 2.2 Verify the full gate, review the final diff, and record exact-head CI evidence — 3ebcec6ea3
+
+## Verification
+
+- The targeted ephemeral Playwright run passed 9 of 9 tests. It confirmed the corrected picker labels and search, the three reworked integration assertions, and the existing access controls.
+- Review follow-ups preserve custom label aliases, refresh the hybrid query column map before using it, and give the merged lot-date test a scoped inventory grant. The grouped security exception fits the existing standalone compatibility budget.
+- The local validation gate passed in order on Node 24.22.3, including all 51 unit-test tasks and the production app build. The exact-head GitHub Actions result is tracked on PR #10157.
