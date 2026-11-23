@@ -2,6 +2,7 @@
  * @jest-environment node
  */
 import type { AwilixContainer } from 'awilix'
+import { computeEmailHash } from '../emailHash'
 
 type Row = Record<string, unknown>
 
@@ -17,6 +18,9 @@ function storeFor(entity: unknown): Row[] {
 function matches(row: Row, where: Row): boolean {
   return Object.entries(where).every(([key, value]) => {
     const actual = row[key]
+    if (value && typeof value === 'object' && '$in' in value && Array.isArray(value.$in)) {
+      return value.$in.includes(actual)
+    }
     if (value && typeof value === 'object' && 'id' in (value as Row)) {
       const target = actual as Row | undefined
       return (target?.id ?? actual) === (value as Row).id
@@ -29,10 +33,6 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(async (_em: unknown, entity: unknown, where: Row) =>
     storeFor(entity).find((row) => matches(row, where)) ?? null,
   ),
-}))
-
-jest.mock('../emailHash', () => ({
-  computeEmailHash: (email: string) => `hash:${email}`,
 }))
 
 jest.mock('@open-mercato/core/modules/auth/lib/authorizationStateLocks', () => ({
@@ -164,6 +164,22 @@ describe('provisionExecutionPrincipal', () => {
     expect(storeFor('UserRole')).toHaveLength(1)
   })
 
+  it('reuses a principal stored with the previous lookup pepper', async () => {
+    const env = jest.replaceProperty(process, 'env', { ...process.env, LOOKUP_HASH_PEPPER: 'original-test-pepper' })
+    const input = { principalKey: 'workflow:def-1', features: ['a.view'] }
+    try {
+      const original = await provisionExecutionPrincipal(container, SCOPE, input)
+      process.env.LOOKUP_HASH_OLD_PEPPER = 'original-test-pepper'
+      process.env.LOOKUP_HASH_PEPPER = 'replacement-test-pepper'
+
+      await expect(resolveExecutionPrincipalUserId(fakeEm as never, input.principalKey, SCOPE)).resolves.toBe(original.userId)
+      await expect(provisionExecutionPrincipal(container, SCOPE, input)).resolves.toEqual(original)
+      expect(storeFor('User')).toHaveLength(1)
+    } finally {
+      env.restore()
+    }
+  })
+
   it('creates live ACL and membership rows without reviving revoked history', async () => {
     const input = { principalKey: 'workflow:def-1', features: ['a.view'] }
     const first = await provisionExecutionPrincipal(container, SCOPE, input)
@@ -223,7 +239,7 @@ describe('provisionExecutionPrincipal', () => {
   it('refuses to repurpose a human User resolved by the deterministic email', async () => {
     storeFor('User').push({
       id: 'human-1',
-      emailHash: `hash:${executionPrincipalEmail('workflow:def-1', ORG)}`,
+      emailHash: computeEmailHash(executionPrincipalEmail('workflow:def-1', ORG)),
       tenantId: TENANT,
       deletedAt: null,
       kind: 'human',
