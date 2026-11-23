@@ -5,32 +5,42 @@
 - **Sales line validators** (`packages/core/src/modules/sales/data/validators.ts`):
   these shared line fields changed from `.optional()` to `.nullable().optional()`,
   so their inferred TypeScript types gain `| null`: `quantityUnit`,
+  `discountAmountBasis`, `amountsMode`, `productId`, `productVariantId`, `name`,
+  `description`, `comment`, `configuration`, `promotionCode`, `metadata`,
+  `customFieldSetId` and `customFields` (`normalizedUnit` and `uomSnapshot`
+  already accepted `null`). They used to reject `null` with a 400; `null` now
+  means the same as omitting the field. They live in `linePricingSchema` /
+  `lineSharedSchema`, so the change applies to order and quote lines alike.
+  **Module authors:** code that reads these fields from `z.infer` types and
+  assumed "string or undefined" needs to handle `null` as well.
+- **Numeric line fields keep their `null` → `0` meaning on line writes.**
   `normalizedQuantity`, `unitPriceNet`, `unitPriceGross`, `discountAmount`,
-  `discountAmountBasis`, `discountPercent`, `taxRate`, `taxAmount`,
-  `totalNetAmount`, `totalGrossAmount`, `amountsMode`, `productId`,
-  `productVariantId`, `name`, `description`, `comment`, `configuration`,
-  `promotionCode`, `metadata`, `customFieldSetId` and `customFields`
-  (`normalizedUnit` and `uomSnapshot` already accepted `null`). They live in
-  `linePricingSchema` / `lineSharedSchema`, which `orderLineCreateSchema` /
-  `orderLineUpdateSchema` **and** `quoteLineCreateSchema` /
-  `quoteLineUpdateSchema` both extend, so the change applies to order lines and
-  quote lines alike, including the `lines` of `orderCreateSchema` and
-  `quoteCreateSchema`. A `SalesLineSnapshot`, which already declares these fields
-  nullable, can now be passed to `sales.orders.create` / `sales.quotes.create`
-  as is; `null` means the same as omitting the field. Every payload that
-  validated before still validates. **Module authors:** code that reads these
-  fields from `z.infer` types and assumed "string or undefined" needs to handle
-  `null` as well.
+  `discountPercent`, `taxRate`, `taxAmount`, `totalNetAmount` and
+  `totalGrossAmount` are coerced numbers, so an explicit `null` has always been
+  read as `0`. That is unchanged for `orderLineCreateSchema` /
+  `orderLineUpdateSchema`, `quoteLineCreateSchema` / `quoteLineUpdateSchema`,
+  `orderLineBulkUpsertEntrySchema` and the `sales.orders.lines.upsert` /
+  `sales.quotes.lines.upsert` commands: `discountAmount: null` on an existing
+  line still clears its discount. Only the `lines` of `orderCreateSchema` and
+  `quoteCreateSchema` (new exports `orderDocumentLineCreateSchema` /
+  `quoteDocumentLineCreateSchema`, types `OrderDocumentLineCreateInput` /
+  `QuoteDocumentLineCreateInput`) read a numeric `null` as omitted, so a
+  `SalesLineSnapshot` can be passed to `sales.orders.create` /
+  `sales.quotes.create` as is. A document-creation caller that sent `null` to
+  mean zero must send `0` instead.
 - **`quoteCreateSchema`** gains optional `externalReference` and
   `customerReference` (trimmed, at most 191 characters), the same pair
   `orderCreateSchema` already has. `sales.quotes.create` and
   `POST /api/sales/quotes` now write them to the quote; omitted, both stay
   `null`. `quoteUpdateSchema` (derived from it) gains them too.
-- **Indexes:** `sales_quotes_tenant_external_reference_idx` and
-  `sales_orders_tenant_external_reference_idx` on `(tenant_id, external_reference)`.
-  Both migrations build the index `CONCURRENTLY` outside a transaction; run
-  `yarn db:migrate` as usual. On a large `sales_orders` table the build takes a
-  while but does not block writes.
+- **Indexes:** `sales_quotes_external_reference_hash_idx` and
+  `sales_orders_external_reference_hash_idx`, hash indexes on
+  `external_reference` for checkout's equality lookup. Hash rather than B-tree
+  because the column is unbounded `text` and the document update path accepts
+  any length: a hash index stores a 4-byte hash, so no existing or future
+  reference can exceed its entry size. Both migrations build the index
+  `CONCURRENTLY` outside a transaction; run `yarn db:migrate` as usual. On a
+  large `sales_orders` table the build takes a while but does not block writes.
 
 ## Extension header parsing and analytics SQL identifier hardening (#10331, #10332)
 
