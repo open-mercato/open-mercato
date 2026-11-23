@@ -81,3 +81,4 @@ PR: #10129
 ### Phase 7: Review follow-up
 
 - [x] 7.1 Explain the dictionary translation scope requirement in All Organizations — a13679179c
+- [x] 7.2 Keep attachment indexing and metadata UI buildable without the Attachments registry — eb1792ecc1
