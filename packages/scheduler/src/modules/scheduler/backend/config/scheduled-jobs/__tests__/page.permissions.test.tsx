@@ -5,25 +5,32 @@ import * as React from 'react'
 import { render, screen } from '@testing-library/react'
 import ScheduleDetailPage from '../[id]/page'
 import SchedulerPage from '../page'
+import schedulerPolish from '../../../../i18n/pl.json'
 
 let mockGrantedFeatures: string[]
-const mockTranslate = (key: string, fallback?: string) => fallback ?? key
+let mockLocale: 'en' | 'pl' = 'en'
+const mockTranslate = (key: string, fallback?: string) =>
+  (mockLocale === 'pl' ? schedulerPolish[key as keyof typeof schedulerPolish] : undefined) ?? fallback ?? key
 const mockPush = jest.fn()
 const mockSchedule = {
   id: 'schedule-1',
   name: 'Nightly sync',
-  scopeType: 'tenant',
+  scopeType: 'organization',
   scheduleType: 'cron',
   scheduleValue: '0 0 * * *',
   timezone: 'UTC',
   targetType: 'queue',
   targetQueue: 'sync',
   isEnabled: true,
+  nextRunAt: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
   sourceType: 'user',
 }
 
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }) }))
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useOptionalLocale: () => mockLocale,
+  useT: () => mockTranslate,
+}))
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
   useBackendChrome: () => ({ payload: { grantedFeatures: mockGrantedFeatures } }),
 }))
@@ -83,6 +90,10 @@ const permissionCases = [
 ]
 
 describe('Scheduled Jobs controls', () => {
+  beforeEach(() => {
+    mockLocale = 'en'
+  })
+
   it.each(permissionCases)('shows only list actions granted by $grants', async ({ grants, manage, trigger }) => {
     mockGrantedFeatures = ['scheduler.jobs.view', ...grants]
     render(<SchedulerPage />)
@@ -103,5 +114,14 @@ describe('Scheduled Jobs controls', () => {
     expect(Boolean(screen.queryByRole('switch', { name: 'Enabled' }))).toBe(manage)
     expect(Boolean(screen.queryByRole('button', { name: 'Edit' }))).toBe(manage)
     expect(Boolean(screen.queryByRole('button', { name: 'Trigger Now' }))).toBe(trigger)
+  })
+
+  it('uses the selected language for schedule scope and relative run time', async () => {
+    mockLocale = 'pl'
+    mockGrantedFeatures = ['scheduler.jobs.view']
+    render(<ScheduleDetailPage params={{ id: mockSchedule.id }} />)
+
+    expect(await screen.findByText('Organizacja')).toBeTruthy()
+    expect(screen.getByText(/za .*godzin/i)).toBeTruthy()
   })
 })
