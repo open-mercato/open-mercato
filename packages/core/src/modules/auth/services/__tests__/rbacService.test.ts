@@ -1364,6 +1364,39 @@ describe('RbacService', () => {
 
       await expect(service.userHasAllFeatures(baseUser.id!, ['entities.definitions.manage'], noOrganization))
         .resolves.toBe(false)
+      await expect(service.userHasAllFeaturesWithEntityManager(em as any, baseUser.id!, ['entities.definitions.manage'], noOrganization))
+        .resolves.toBe(false)
+      await expect(service.getGrantedFeaturesWithEntityManager(em as any, baseUser.id!, noOrganization)).resolves.toEqual([])
+    })
+
+    it('denies an API key bound to an organization its roles do not cover', async () => {
+      const apiKeyPrincipal = 'api_key:key-uncovered-organization'
+      em.findOne.mockImplementation(async (entity: any) => entity === ApiKey ? {
+        id: 'key-uncovered-organization',
+        tenantId: 'tenant-1',
+        organizationId: 'org-key',
+        rolesJson: ['role-a'],
+        deletedAt: null,
+      } : null)
+      em.find.mockImplementation(async (entity: any) => entity === RoleAcl ? [{
+        tenantId: 'tenant-1',
+        isSuperAdmin: false,
+        featuresJson: ['entities.*'],
+        organizationsJson: ['org-other'],
+      }] : [])
+
+      await expect(service.loadAcl(apiKeyPrincipal, noOrganization)).resolves.toEqual({
+        isSuperAdmin: false,
+        features: [],
+        organizations: [],
+      })
+      await expect(service.userHasAllFeatures(apiKeyPrincipal, ['entities.definitions.manage'], noOrganization))
+        .resolves.toBe(false)
+      await expect(service.userHasAllFeaturesWithEntityManager(em as any, apiKeyPrincipal, ['entities.definitions.manage'], noOrganization))
+        .resolves.toBe(false)
+      await expect(service.getEffectiveFeatures(apiKeyPrincipal, noOrganization)).resolves.toEqual([])
+      await expect(service.getGrantedFeatures(apiKeyPrincipal, noOrganization)).resolves.toEqual([])
+      await expect(service.getGrantedFeaturesWithEntityManager(em as any, apiKeyPrincipal, noOrganization)).resolves.toEqual([])
     })
 
     it.each<[string, string[] | null]>([
