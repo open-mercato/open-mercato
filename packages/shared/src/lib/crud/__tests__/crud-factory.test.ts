@@ -536,6 +536,50 @@ describe('CRUD Factory', () => {
     })
   })
 
+  describe('repeated legacy AND fields (#10397)', () => {
+    it.each([false, true])('GET retains contradictory predicates (reversed: %s)', async (reversed) => {
+      const route = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema.passthrough(),
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'is_done'],
+          buildFilters: () => ({ member_id: 'member-1' }),
+        },
+      })
+      queryEngine.query.mockImplementationOnce(async (_entityId: string, options: QueryOptions) => {
+        expect(options.tenantId).toBe(defaultTenantId)
+        const filters = normalizeFilters(options.filters)
+        expect(filters).toEqual(expect.arrayContaining([
+          { field: 'member_id', op: 'eq', value: 'member-1' },
+          { field: 'is_done', op: 'eq', value: true },
+          { field: 'is_done', op: 'eq', value: false },
+        ]))
+        const rows = [
+          { id: 'done', title: 'A', is_done: true, member_id: 'member-1' },
+          { id: 'pending', title: 'B', is_done: false, member_id: 'member-1' },
+        ]
+        const items = rows.filter((row) => filters.every((filter) => (
+          filter.op === 'eq' && row[filter.field as keyof typeof row] === filter.value
+        )))
+        return { items, total: items.length }
+      })
+      const params = new URLSearchParams({ 'filter[logic]': 'and' })
+      const operators = reversed ? ['is_false', 'is_true'] : ['is_true', 'is_false']
+      operators.forEach((operator, index) => {
+        params.set(`filter[conditions][${index}][field]`, 'is_done')
+        params.set(`filter[conditions][${index}][op]`, operator)
+      })
+      const response = await route.GET(new Request(`http://x/api/example/todos?${params}`))
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.items).toEqual([])
+      expect(body.total).toBe(0)
+    })
+  })
+
   describe('repeated query parameters (#5548)', () => {
     const makeFilterRoute = () => {
       const seen: { status?: string | string[]; search?: string | string[] }[] = []
@@ -2505,6 +2549,61 @@ describe('CRUD Factory', () => {
     expect(await res.json()).toMatchObject({ error: 'Record is locked' })
     expect(seenQueries).toEqual([{ id: lockedId }])
     expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('drops reserved prototype extension headers in applyInterceptorsBefore while keeping valid headers and subsequent requests healthy (#10331)', async () => {
+    const seenExtensionHeaders: Array<Record<string, Record<string, string>> | undefined> = []
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.inspect-extension-headers',
+            targetRoute: 'example/todos',
+            methods: ['GET'],
+            async before(_request, context) {
+              seenExtensionHeaders.push(context.extensionHeaders)
+              return { ok: true }
+            },
+          },
+        ],
+      },
+    ])
+
+    const route = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      list: { schema: z.object({}).passthrough() as any },
+    })
+
+    const probeRes = await route.GET(
+      new Request('http://x/api/example/todos', {
+        method: 'GET',
+        headers: {
+          'x-om-ext-__proto__-schema': 'evil schema',
+          'x-om-ext-constructor-prototype': 'polluted',
+          'x-om-ext-prototype-polluted': 'yes',
+          'x-om-ext-record_locks-token': 'lock-123',
+        },
+      }),
+    )
+    expect(probeRes.status).toBe(200)
+    expect(seenExtensionHeaders).toHaveLength(1)
+    expect(seenExtensionHeaders[0]).toEqual({ record_locks: { token: 'lock-123' } })
+    expect(Object.getPrototypeOf(seenExtensionHeaders[0])).toBeNull()
+    expect(Object.getPrototypeOf(seenExtensionHeaders[0]?.record_locks)).toBeNull()
+    expect(({} as Record<string, unknown>).schema).toBeUndefined()
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+
+    const followUpRes = await route.GET(
+      new Request('http://x/api/example/todos', {
+        method: 'GET',
+        headers: { 'x-om-ext-record_locks-token': 'lock-456' },
+      }),
+    )
+    expect(followUpRes.status).toBe(200)
+    expect(seenExtensionHeaders[1]).toEqual({ record_locks: { token: 'lock-456' } })
   })
 
   it('DELETE route passes the whole query string to interceptor before hooks', async () => {
