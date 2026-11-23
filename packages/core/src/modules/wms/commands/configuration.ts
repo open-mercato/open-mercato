@@ -59,7 +59,9 @@ import {
 } from '../data/entities'
 import {
   inventoryLotCreateSchema,
+  inventoryLotDateOrderingSchema,
   inventoryLotUpdateSchema,
+  keepClearedInventoryLotDates,
   productInventoryProfileCreateSchema,
   productInventoryProfileUpdateSchema,
   warehouseCreateSchema,
@@ -1828,6 +1830,10 @@ const createInventoryLotCommand: CommandHandler<InventoryLotCreateInput, { lotId
   },
 }
 
+function patchedOrStoredDate(patched: Date | null | undefined, stored: Date | null | undefined): Date | undefined {
+  return (patched !== undefined ? patched : stored) ?? undefined
+}
+
 const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId: string }> = {
   id: 'wms.lots.update',
   prepare: async (input, ctx) => {
@@ -1837,9 +1843,16 @@ const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId
     return before ? { before } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = inventoryLotUpdateSchema.parse(rawInput ?? {})
+    const parsed = keepClearedInventoryLotDates(rawInput, inventoryLotUpdateSchema.parse(rawInput ?? {}))
     const em = resolveEm(ctx)
     const lot = await loadLot(em, ctx, parsed.id)
+    if (parsed.manufacturedAt !== undefined || parsed.bestBeforeAt !== undefined || parsed.expiresAt !== undefined) {
+      inventoryLotDateOrderingSchema.parse({
+        manufacturedAt: patchedOrStoredDate(parsed.manufacturedAt, lot.manufacturedAt),
+        bestBeforeAt: patchedOrStoredDate(parsed.bestBeforeAt, lot.bestBeforeAt),
+        expiresAt: patchedOrStoredDate(parsed.expiresAt, lot.expiresAt),
+      })
+    }
     const nextVariantId = parsed.catalogVariantId ?? lot.catalogVariantId
     const nextLotNumber = parsed.lotNumber ?? lot.lotNumber
     if (

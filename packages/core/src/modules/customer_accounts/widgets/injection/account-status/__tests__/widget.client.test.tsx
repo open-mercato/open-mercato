@@ -165,6 +165,35 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     expect(screen.queryByRole('button', { name: 'Unclassified role' })).not.toBeInTheDocument()
   })
 
+  it.each(['HTTP', 'transport'])('shows a retryable role lookup error on %s failure', async (failure) => {
+    const defaultCall = mockApiCall.getMockImplementation()!
+    let roleRequests = 0
+    mockApiCall.mockImplementation(async (url, options) => {
+      if (typeof url === 'string' && url.includes('/api/customer_accounts/admin/roles') && ++roleRequests === 1) {
+        if (failure === 'transport') throw new Error('Network unavailable')
+        return { ok: false, status: 500, result: null } as never
+      }
+      return defaultCall(url, options)
+    })
+
+    const submit = await openInviteForm()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to load invitation roles.')
+    expect(screen.queryByText('No roles available')).not.toBeInTheDocument()
+    expect(submit).toBeDisabled()
+
+    const email = screen.getByLabelText('Email')
+    fireEvent.change(email, { target: { value: 'edited@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    const buyerRole = await screen.findByRole('button', { name: 'Buyer' })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(email).toHaveValue('edited@example.test')
+    expect(roleRequests).toBe(2)
+    expect(mockRunMutation).not.toHaveBeenCalled()
+    fireEvent.click(buyerRole)
+    expect(submit).toBeEnabled()
+  })
+
   it('keeps an open invitation draft disabled across read failure and recovery', async () => {
     const { rerender } = render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Invite to Portal' }))
