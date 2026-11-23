@@ -19,7 +19,7 @@ async function listIds(request: APIRequestContext, token: string, params: Record
   return (body?.items ?? [])
     .map((item) => item.id)
     .filter((id): id is string => typeof id === 'string')
-    .sort()
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
 function v2Rule(index: number, label: string): Record<string, string> {
@@ -63,7 +63,7 @@ test.describe('TC-CRM-097: v2 advanced filter on a default-merge list route', ()
         'filter[root][combinator]': 'or',
         ...v2Rule(0, labels[0]),
         ...v2Rule(1, labels[1]),
-      })).toEqual([firstId, secondId].sort())
+      })).toEqual([firstId, secondId].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)))
 
       expect(await listIds(request, token, {
         'filter[conditions][0][field]': 'label',
