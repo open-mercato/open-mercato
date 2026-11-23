@@ -22,6 +22,9 @@
 | 2 | 2.2 | TC-CART-PRICE-01-02 assertion hunks | inline | done | 733ffc83e5 |
 | 3 | 1.4-review-fix | Merge reads lines and builds its outcome under the locks; undo check order | inline | done | 0cbbcf7181 |
 | 3 | 1.2-review-fix | lines.update tier check and re-price under the lock | inline | done | 945021c792 |
+| 4 | 4.0 | Merge #9999's head and main; keep both bulk-add in-lock phases and every pg suite selector | inline | done | f420207f17 |
+| 4 | 1.3-review-2 | cart.lock re-prices under the lock; §9.1 losing-acquisition answer | inline | done | 7b17fcced4 |
+| 4 | 1.4-review-2 | Route token digest re-checked under the locks; merge/undo re-price inside the locked transaction; undo re-selects the latest merge; cart_busy documented | inline | done | 6fd73c1770 |
 
 ## Goal
 
@@ -79,6 +82,17 @@ Review major #1: the merge read both carts' lines and built the outcome before t
 #### Step 1.2-review-fix — lines.update tier check and re-price under the lock
 Review major #2: the same-tier check and re-price ran against the pre-lock line; they move into the locked phase after the guard.
 
+### Phase 4 — Review fixes (haxiorz, review 6019600792)
+
+#### Step 4.0 — Rebase onto #9999 and main
+`commands/lines.ts` keeps CA0's active-cart guard and main's in-lock read of existing lines and the starting line number, in that order. `test:pg-integration` keeps every selector from main and adds `cart`. The cart spec is #9999's current text (rev 10.6).
+
+#### Step 1.3-review-2 — cart.lock re-prices under the lock
+`cart.reprice`'s phases are built by `prepareCartReprice` and `cart.lock` runs them from a fresh read inside the locked transaction, so a contender that loses the lock never writes prices, promotions or totals. Its single promotions pass sets the locked totals and supplies the returned warnings. A line the re-visibility pass flags keeps the flag: the re-price commits and the lock answers `409 cart_has_unavailable_lines`. A lost compare-and-set re-reads the row and answers by §9.1's table.
+
+#### Step 1.4-review-2 — Token binding, merge/undo re-price and undo selection under the locks
+The routes hand merge, merge undo and the line commands the digest of the token they resolved the cart with, and each command re-checks it under the lock before writing (no-oracle 404). Merge and undo run their mandatory re-price inside the same locked transaction. The public undo picks the latest merge again under the locks and takes the locks again when it names another cart (3 attempts, then `503 cart_busy`). It re-checks the window and reads the lines it restores with `refresh: true`.
+
 ## Spec vs reference vs card — differences (rule R4: the spec wins)
 
 | # | Topic | Reference #8268 | This port (spec §8.1 / CA0) |
@@ -92,6 +106,9 @@ Review major #2: the same-tier check and re-price ran against the pre-lock line;
 | 7 | `test:pg-integration` | Adds `cart|assisted_selling|availability|promotions|sales` and `test:pg-concurrency` | Adds `cart` only (CA0 row) |
 | 8 | Merge line reads | Lines read and outcome built before the lock; only the carts re-read inside it | Lines, max quantities, visibility, outcome and merge log built inside the locked phase (§8.1 "re-reads … lines … inside the lock, never before it"); found by the review pass |
 | 9 | `lines.update` tier check | Same-tier check and re-price before the lock | Inside the lock after the guard (same §8.1 rule); found by the review pass |
+| 10 | `cart.lock` re-price position | Before the lock | Inside the lock, from the in-lock re-read. §9.1's "Order of checks" still lists the whole-cart re-price before the lock; review 6019600792 asked for it under the lock so a contender that loses the lock writes nothing |
+| 11 | Merge / undo re-price | Separate `cart.reprice` dispatch after the locks release | Inside the merge/undo transaction and locks (review 6019600792) |
+| 12 | Lost compare-and-set answer | `409 cart_lock_conflict` | §9.1 losing-acquisition table by the re-read row; CA0 has no holder pair yet, so any `locked` row is `423` (the same-pair `409` row arrives with CA1) |
 
 ## Audit findings and decisions that concern this step
 
