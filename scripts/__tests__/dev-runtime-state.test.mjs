@@ -101,6 +101,22 @@ test('classifies a streamed-response cancellation as a benign warning (#8409)', 
   assert.equal(classified.recovery, undefined)
 })
 
+test('classifies a cancelled streamed API response as a benign warning', () => {
+  const classified = classifyRuntimeMessage('⨯ Error: failed to pipe response', 'log')
+  assert.equal(classified.code, 'route_stream_cancelled')
+  assert.equal(classified.severity, 'warning')
+  assert.equal(classified.recovery, undefined)
+})
+
+test('a cancelled streamed API response keeps a healthy runtime ready', () => {
+  const { store } = createStore()
+  store.markReady()
+
+  const status = store.recordSignal({ source: 'log', message: 'Error: failed to pipe response' })
+  assert.equal(status.health, 'ready')
+  assert.equal(status.incidents[0].code, 'route_stream_cancelled')
+})
+
 test('a differently worded stream/write error keeps the generic error severity (#8409)', () => {
   const classified = classifyRuntimeMessage('Error: write EPIPE', 'log')
   assert.equal(classified.code, 'runtime_error')
