@@ -158,7 +158,7 @@ describe('query_index delete_one coverage refresh throttling', () => {
     expect(emitEvent).toHaveBeenCalledWith(
       'search.delete_record',
       expect.objectContaining({ entityId: 'query_index:suppressed_consistent_entity', recordId: 'r1' }),
-      { rethrowHandlerErrors: true },
+      { rethrowHandlerErrors: true, tenantId: null, organizationId: null },
     )
   })
 
