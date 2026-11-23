@@ -194,7 +194,7 @@ describeWithPostgres('Gmail OAuth reconnect against PostgreSQL', () => {
   })
 
   it.each(['save rejected', 'credential row missing'])('leaves persisted channels unchanged when %s', async (failure) => {
-    const original = legacyChannel({ isPrimary: true })
+    legacyChannel({ isPrimary: true })
     legacyChannel({ createdAt: new Date('2026-01-01T00:00:00Z') })
     if (failure === 'save rejected') {
       mockSaveCredentials.mockRejectedValueOnce(new Error('[internal] Test credential save failed'))
@@ -205,7 +205,9 @@ describeWithPostgres('Gmail OAuth reconnect against PostgreSQL', () => {
 
     const result = await reconnect()
 
-    expect(result.get('channelId')).toBe(original.id)
+    expect(result.get('oauth')).toBe('error')
+    expect(result.get('code')).toBe('credentials_persist_failed')
+    expect(result.has('channelId')).toBe(false)
     expect(mockSaveCredentials).toHaveBeenCalledTimes(1)
     expect(await readChannels()).toEqual(before)
   })
