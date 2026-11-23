@@ -84,7 +84,13 @@ import type { Locale } from 'date-fns/locale'
 import { DateTimePicker } from './inputs/DateTimePicker'
 import { TimePicker } from './inputs/TimePicker'
 import { DatePicker } from './inputs/DatePicker'
-import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
+import {
+  mapCrudServerErrorToFormErrors,
+  normalizeCrudServerError,
+  parseServerMessage,
+  resolveFieldIssueTranslation,
+  type CrudServerFieldIssues,
+} from './utils/serverErrors'
 import { withScopedApiRequestHeaders } from './utils/apiCall'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from './utils/optimisticLock'
 import { surfaceRecordConflict } from './conflicts'
@@ -655,6 +661,18 @@ function serializeIssuePath(path: ReadonlyArray<string | number | symbol>): stri
     })
     .filter((segment): segment is string => segment !== null)
   return segments.length > 0 ? segments.join('.') : null
+}
+
+function collectSchemaFieldIssues(issues: readonly z.ZodIssue[]): CrudServerFieldIssues | undefined {
+  const { fieldIssues } = normalizeCrudServerError({
+    details: issues.map((issue) => ({ ...issue, path: [serializeIssuePath(issue.path)] })),
+  })
+  if (!fieldIssues) return undefined
+  return Object.fromEntries(Object.entries(fieldIssues).filter(([, issue]) => {
+    if (issue.code === 'too_big') return issue.params?.maximum !== undefined
+    if (issue.code === 'too_small') return issue.params?.minimum !== undefined
+    return true
+  }))
 }
 
 function normalizeDirtySnapshotValue(value: unknown): unknown {
@@ -1358,11 +1376,23 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   )
 
   const translateValidationErrors = React.useCallback(
-    (fieldErrors: Record<string, string>): Record<string, string> =>
+    (fieldErrors: Record<string, string>, fieldIssues?: CrudServerFieldIssues): Record<string, string> =>
       Object.fromEntries(
-        Object.entries(fieldErrors).map(([fieldId, message]) => [fieldId, translateValidationMessage(message)]),
+        Object.entries(fieldErrors).map(([fieldId, message]) => {
+          // Only trust the structured issue's code/params when the message it was
+          // extracted from still matches — a `transformValidation` widget may have
+          // rewritten `message` into something the issue's params no longer describe.
+          const issue = fieldIssues?.[fieldId]
+          const translation = issue && issue.message === message
+            ? resolveFieldIssueTranslation(issue, message)
+            : { key: '', fallback: message, params: undefined }
+          const translated = translation.key
+            ? t(translation.key, translation.fallback, translation.params)
+            : translateValidationMessage(message)
+          return [fieldId, translated]
+        }),
       ),
-    [translateValidationMessage],
+    [t, translateValidationMessage],
   )
 
   const mapDefsForValidation = React.useCallback(
@@ -2339,7 +2369,10 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         })
         if (Object.keys(schemaFieldErrors).length) {
           const transformedErrors = await transformValidationErrors(schemaFieldErrors)
-          Object.assign(nextFieldErrors, translateValidationErrors(transformedErrors))
+          Object.assign(
+            nextFieldErrors,
+            translateValidationErrors(transformedErrors, collectSchemaFieldIssues(result.error.issues)),
+          )
         }
       }
     }
@@ -3242,7 +3275,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           logger.debug('Schema validation failed', { issues: res.error.issues })
         }
         const transformedErrors = await transformValidationErrors(fieldErrors)
-        setErrors(translateValidationErrors(transformedErrors))
+        setErrors(translateValidationErrors(transformedErrors, collectSchemaFieldIssues(res.error.issues)))
         flash(highlightedMessage, 'error')
         return
       }
@@ -3408,21 +3441,13 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       } catch {
         // ignore event dispatch failures
       }
-      const { message: helperMessage, fieldErrors: serverFieldErrors } = mapCrudServerErrorToFormErrors(err, { customEntity })
+      const { message: helperMessage, fieldErrors: serverFieldErrors, fieldIssues: serverFieldIssues } =
+        mapCrudServerErrorToFormErrors(err, { customEntity })
       const combinedFieldErrors = serverFieldErrors ?? {}
       const hasFieldErrors = Object.keys(combinedFieldErrors).length > 0
-      const firstFieldMessage = hasFieldErrors
-        ? (() => {
-            const firstKey = Object.keys(combinedFieldErrors)[0]
-            if (!firstKey) return null
-            const value = combinedFieldErrors[firstKey]
-            if (typeof value !== 'string' || !value.trim().length) return null
-            return translateValidationMessage(value)
-          })()
-        : null
       if (hasFieldErrors) {
         const transformedErrors = await transformValidationErrors(combinedFieldErrors)
-        setErrors(translateValidationErrors(transformedErrors))
+        setErrors(translateValidationErrors(transformedErrors, serverFieldIssues))
         if (process.env.NODE_ENV !== 'production') {
           logger.debug('Submission failed with field errors', { fieldErrors: transformedErrors })
         }
@@ -3435,8 +3460,14 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       if (hasFieldErrors) {
         const lowered = displayMessage.toLowerCase()
         const highlightedLower = highlightedMessage.toLowerCase()
-        if (!displayMessage || lowered === 'invalid input' || lowered === highlightedLower) {
-          displayMessage = firstFieldMessage ?? highlightedMessage
+        // When the only message we have is one that already duplicates a field's
+        // own text (or is empty/generic), fall back to the generic summary instead
+        // of repeating the same sentence in both the banner and under the field.
+        const matchesFieldMessage = Object.values(combinedFieldErrors).some(
+          (fieldMessage) => fieldMessage.trim().toLowerCase() === lowered,
+        )
+        if (!displayMessage || lowered === 'invalid input' || lowered === highlightedLower || matchesFieldMessage) {
+          displayMessage = highlightedMessage
         }
       }
       if (!displayMessage && err instanceof Error && typeof err.message === 'string' && err.message.trim()) {
@@ -3458,6 +3489,8 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       } else if (!hasFieldErrors) {
         flash(displayMessage, 'error')
       }
+      // Always set the inline banner, even with field errors — it is the only
+      // top-level signal the save failed when the toast above is suppressed.
       setFormError(displayMessage)
     } finally {
       // A successful submit that kicks off the success-redirect keeps the form
@@ -4096,7 +4129,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               )}
               {hasSecondaryColumn ? <div className={`min-w-0 ${densityStackMd}`} data-crud-injection-region>{col2Content}</div> : null}
             </div>
-            {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
+            {formError ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
@@ -4195,7 +4228,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
                 )
               })}
             </div>
-            {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
+            {formError ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
