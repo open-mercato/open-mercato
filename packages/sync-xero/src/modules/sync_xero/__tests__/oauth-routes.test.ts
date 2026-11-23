@@ -10,6 +10,7 @@ import { createFakeGrantService, type FakeGrantService } from './support/fakeGra
 import { createFakeContainer, createMemoryCache, type MemoryCache } from './support/fakeContainer'
 import { createFakeScheduleService, type FakeScheduleService } from './support/fakeScheduleService'
 import { startStubHttpServer, type StubHttpServer, type StubResponse } from './support/stubHttpServer'
+import { memoryAdvisoryLock } from './support/memoryAdvisoryLock'
 
 const mockCreateRequestContainer = jest.fn()
 const mockResolveOrganizationScope = jest.fn()
@@ -28,6 +29,18 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 const mockEnsureFieldDefinitions = jest.fn()
+const mockLockedCredentials = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/db/advisoryLock'),
+  withAdvisoryXactLock: (...args: [unknown, string, (lockEm: unknown) => Promise<unknown>]) =>
+    jest.requireActual('./support/memoryAdvisoryLock').memoryAdvisoryLock.run(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/integrations/lib/credentials-service', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/integrations/lib/credentials-service'),
+  createCredentialsService: () => ({ resolve: (...args: unknown[]) => mockLockedCredentials(...args) }),
+}))
 
 jest.mock('../lib/field-definitions', () => ({
   ...jest.requireActual('../lib/field-definitions'),
@@ -189,6 +202,8 @@ beforeEach(() => {
   grants = createFakeGrantService()
   cache = createMemoryCache()
   clientConfiguration = { clientId: authorizationServer.clientId, clientSecret: authorizationServer.clientSecret }
+  mockLockedCredentials.mockReset().mockImplementation(async () => clientConfiguration)
+  memoryAdvisoryLock.reset()
   mappingCount = 0
   allowedOrganizations = new Set([ORG_ID])
   schedules = createFakeScheduleService()
@@ -275,6 +290,25 @@ describe('POST /api/sync_xero/oauth/initiate', () => {
   it('rejects an unknown body field', async () => {
     const response = await initiate(initiateRequest({ replaceUnreadable: true, returnUrl: '/elsewhere' }))
     expect(response.status).toBe(400)
+  })
+
+  it.each([
+    ['malformed JSON', '{"replaceUnreadable": true'],
+    ['JSON null', 'null'],
+  ])('answers 400 for %s and sets no state cookie', async (_label, body) => {
+    const response = await initiate(new Request(`${APP_ORIGIN}/api/sync_xero/oauth/initiate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+    }))
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'invalid_request' })
+    expect(response.headers.get('set-cookie')).toBeNull()
+  })
+
+  it('reads an empty body as no options', async () => {
+    const response = await initiate(new Request(`${APP_ORIGIN}/api/sync_xero/oauth/initiate`, { method: 'POST' }))
+    expect(response.status).toBe(200)
   })
 
   it('answers oauth_base_url_not_configured in production without APP_URL', async () => {
@@ -432,6 +466,38 @@ describe('GET /api/sync_xero/oauth/callback', () => {
     const started = await startConnect()
     clientConfiguration = null
     expect(resultOf(await finishConnect(started))).toBe('client_misconfigured')
+  })
+
+  it('stores the grant while holding the Xero connection lock', async () => {
+    const lockKey = `sync_xero_connection:${TENANT_ID}:${ORG_ID}`
+    const realCompleteConnect = grants.service.completeConnect
+    let heldDuringStore = false
+    grants.service.completeConnect = async (...args) => {
+      heldDuringStore = memoryAdvisoryLock.isHeld(lockKey)
+      return realCompleteConnect(...args)
+    }
+    expect(resultOf(await finishConnect(await startConnect()))).toBe('connected')
+    expect(heldDuringStore).toBe(true)
+    expect(memoryAdvisoryLock.keys).toEqual([lockKey])
+  })
+
+  it.each([
+    ['removed', null],
+    ['replaced', { clientId: 'client-2', clientSecret: 'secret-2' }],
+  ])('stores no grant when the Client ID and Secret were %s after the code exchange', async (_label, lockedConfiguration) => {
+    const started = await startConnect()
+    mockLockedCredentials.mockImplementation(async () => lockedConfiguration)
+    expect(resultOf(await finishConnect(started))).toBe('client_misconfigured')
+    expect(authorizationServer.counters().token.authorizationCode).toBe(1)
+    expect(grants.calls.some((call) => call.method === 'completeConnect')).toBe(false)
+    expect(grants.state.status).toBe('none')
+  })
+
+  it('stores no grant when the Xero connection lock is unavailable', async () => {
+    const started = await startConnect()
+    memoryAdvisoryLock.failNext('deadline')
+    expect(resultOf(await finishConnect(started))).toBe('connect_failed')
+    expect(grants.calls.some((call) => call.method === 'completeConnect')).toBe(false)
   })
 
   it('reports client_misconfigured when Xero rejects the client', async () => {

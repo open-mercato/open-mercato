@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -14,6 +13,7 @@ import { readXeroClientConfiguration } from '../../../../lib/client-config'
 import { XERO_CALLBACK_PATH, XERO_PROVIDER_KEY } from '../../../../lib/constants'
 import { createXeroDescriptor } from '../../../../lib/descriptor'
 import { resolveXeroEndpoints } from '../../../../lib/endpoints'
+import { readOptionalJsonBody } from '../../../../lib/request-body'
 import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE, type XeroHandlerContext } from '../../../../lib/route-auth'
 import { seamFailureResponse, xeroErrorResponse } from '../../../../lib/route-errors'
 import { setXeroStateCookie } from '../../../../lib/state-cookie'
@@ -34,7 +34,7 @@ export async function POST(req: Request, ctx?: XeroHandlerContext): Promise<Resp
   if (!authorized.ok) return authorized.response
   const { scope, userId } = authorized.context
 
-  const body = initiateBodySchema.safeParse((await readJsonSafe(req, {})) ?? {})
+  const body = initiateBodySchema.safeParse(await readOptionalJsonBody(req))
   if (!body.success) return xeroErrorResponse(400, 'invalid_request')
 
   const credentialsService = container.resolve<CredentialsService>('integrationCredentialsService')

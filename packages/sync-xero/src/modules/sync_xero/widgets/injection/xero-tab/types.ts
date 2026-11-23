@@ -36,7 +36,6 @@ export type XeroTabContext = {
   integrationId?: string
   integrationDetailWidgetSpotId?: string
   state?: { isEnabled?: boolean } | null
-  setActiveTab?: (tabId: string) => void
   refreshDetail?: () => Promise<void>
 }
 

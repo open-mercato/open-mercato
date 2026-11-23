@@ -1,4 +1,5 @@
 "use client"
+/* eslint-disable om-ds/require-loading-state -- The hook exposes isWorking; DisconnectDialog renders it on its confirm button. */
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -15,6 +16,7 @@ export type XeroDisconnectResponse = {
   revocation: string | null
   failureReason: string | null
   steps: Record<DisconnectStep, 'ok' | 'failed' | 'skipped'>
+  reconnected: boolean
 }
 
 type DisconnectBody = { force?: boolean; removeClientCredentials: boolean }
@@ -60,7 +62,8 @@ export function useXeroDisconnect({ revisedAt, confirm, run, onDone }: UseXeroDi
       if (failed.length > 0) {
         flash(t('sync_xero.disconnect.stepsFailed', { steps: failed.map((step) => t(`sync_xero.disconnect.step.${step}`)).join(', ') }), 'warning')
       }
-      if (result.steps.disable === 'skipped') flash(t('sync_xero.disconnect.disableSkipped'), 'warning')
+      if (result.reconnected) flash(t('sync_xero.disconnect.reconnected'), 'info')
+      else if (result.steps.disable === 'skipped') flash(t('sync_xero.disconnect.disableSkipped'), 'warning')
     },
     [t],
   )

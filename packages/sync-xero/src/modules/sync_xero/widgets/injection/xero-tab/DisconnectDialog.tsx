@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
@@ -83,6 +84,7 @@ export function DisconnectDialog({ open, onOpenChange, selectedOrganisationId, i
             {t('sync_xero.disconnect.cancel')}
           </Button>
           <Button type="button" variant="destructive-solid" onClick={submit} disabled={isWorking}>
+            {isWorking ? <Spinner size="sm" /> : null}
             {t('sync_xero.disconnect.confirm')}
           </Button>
         </DialogFooter>

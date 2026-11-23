@@ -13,13 +13,14 @@ import {
   type OAuthStateConsumeStore,
   type OAuthStatePayload,
 } from '@open-mercato/core/modules/communication_channels/lib/oauth-state'
-import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
+import { createCredentialsService, type CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import { exchangeAuthorizationCode } from '@open-mercato/core/modules/integrations/lib/oauth/authorization'
 import { OAuthGrantError } from '@open-mercato/core/modules/integrations/lib/oauth/descriptor'
 import type { IntegrationOAuthGrantService } from '@open-mercato/core/modules/integrations/lib/oauth/grant-service'
 import { resolveOAuthRedirectUri } from '@open-mercato/core/modules/integrations/lib/oauth/redirect'
 import { createXeroApiClient } from '../../../../lib/api-client'
 import { readXeroClientConfiguration } from '../../../../lib/client-config'
+import { withXeroConnectionLock } from '../../../../lib/connection-lock'
 import {
   XERO_CALLBACK_PATH,
   XERO_CALLBACK_RESULTS,
@@ -159,12 +160,17 @@ async function completeCallback(req: Request, auth: AuthContext | undefined): Pr
     redirectUri: resolveOAuthRedirectUri(req, XERO_CALLBACK_PATH),
     codeVerifier: extra.codeVerifier,
   })
-  const connected = await grantService.completeConnect(descriptor, owner, tokenResponse, {
-    clientId: client.clientId,
-    requestedScopes: XERO_SCOPES,
-    replaceUnreadable: extra.replaceUnreadable === true,
-    actorUserId: auth.sub,
+  const connected = await withXeroConnectionLock(container, scope, async (lockEm) => {
+    const current = await readXeroClientConfiguration(createCredentialsService(lockEm), scope)
+    if (!current || current.clientId !== client.clientId || current.clientSecret !== client.clientSecret) return null
+    return grantService.completeConnect(descriptor, owner, tokenResponse, {
+      clientId: client.clientId,
+      requestedScopes: XERO_SCOPES,
+      replaceUnreadable: extra.replaceUnreadable === true,
+      actorUserId: auth.sub,
+    })
   })
+  if (!connected) return 'client_misconfigured'
   await guard.runAfterSuccess()
 
   return autoSelectOrganisation({
@@ -217,7 +223,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Complete a Xero Connect',
       description:
-        'Xero redirects the browser here. The route verifies and consumes the state, exchanges the code, stores the grant and, when exactly one eligible Organisation was authorised, selects it. It always redirects to /backend/integrations/sync_xero?tab=xero with xeroResult set to one result code and clears the state cookie; Xero error bodies are never echoed.',
+        'Xero redirects the browser here. The route verifies and consumes the state, exchanges the code, stores the grant (under the Xero connection lock, and only while the Client ID and Secret used for the exchange are still saved; otherwise client_misconfigured) and, when exactly one eligible Organisation was authorised, selects it. It always redirects to /backend/integrations/sync_xero?tab=xero with xeroResult set to one result code and clears the state cookie; Xero error bodies are never echoed.',
       tags: [XERO_OPENAPI_TAG],
       query: z.object({ code: z.string().optional(), state: z.string().optional(), error: z.string().optional() }),
       responses: [

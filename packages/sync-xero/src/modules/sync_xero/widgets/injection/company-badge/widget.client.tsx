@@ -1,4 +1,5 @@
 "use client"
+/* eslint-disable om-ds/require-loading-state -- The badge renders nothing until a link loads (App Spec US-2.2); an indicator would flash on every Company without a Xero link. */
 
 import * as React from 'react'
 import { ExternalLink } from 'lucide-react'

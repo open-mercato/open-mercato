@@ -168,4 +168,20 @@ export default [
       'om-ds/no-legacy-alert-variant': 'error',
     },
   },
+  {
+    files: ['packages/sync-xero/src/modules/sync_xero/**/*.{ts,tsx}'],
+    ignores: ['**/__tests__/**', '**/*.generated.*'],
+    linterOptions,
+    languageOptions,
+    plugins,
+    rules: {
+      'om-ds/require-empty-state': 'error',
+      'om-ds/require-page-wrapper': 'error',
+      'om-ds/no-raw-table': 'error',
+      'om-ds/require-loading-state': 'error',
+      'om-ds/require-status-badge': 'error',
+      'om-ds/no-hardcoded-status-colors': 'error',
+      'om-ds/no-legacy-alert-variant': 'error',
+    },
+  },
 ]

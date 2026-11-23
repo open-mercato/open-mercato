@@ -6,7 +6,6 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -20,8 +19,10 @@ import { OrganisationPicker, type SaveOrganisationInput } from './OrganisationPi
 import { RedirectUriField } from './RedirectUriField'
 import { ScheduleStatus } from './ScheduleStatus'
 import { asXeroHttpError, type XeroTabContext } from './types'
+import { useOpenCredentialsTab } from './useOpenCredentialsTab'
 import { useXeroConnection } from './useXeroConnection'
 import { useXeroDisconnect } from './useXeroDisconnect'
+import { useXeroMutation } from './useXeroMutation'
 import { useXeroResultFlash } from './useXeroResultFlash'
 
 const STATE_BADGES: Record<XeroTabState, StatusBadgeVariant> = {
@@ -38,10 +39,8 @@ type PickerState = { open: boolean; scope: 'consent' | 'all' }
 export default function XeroTabWidget({ context }: InjectionWidgetComponentProps<XeroTabContext>) {
   const t = useT()
   const { connection, isLoading, hasError, reload } = useXeroConnection()
-  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
-    contextId: 'sync_xero.xero-tab',
-    spotId: context.integrationDetailWidgetSpotId,
-  })
+  const { runMutation, retryLastMutation } = useXeroMutation('sync_xero.xero-tab', context.integrationDetailWidgetSpotId)
+  const openCredentials = useOpenCredentialsTab()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [picker, setPicker] = React.useState<PickerState>({ open: false, scope: 'consent' })
   const [isStarting, setIsStarting] = React.useState(false)
@@ -181,7 +180,7 @@ export default function XeroTabWidget({ context }: InjectionWidgetComponentProps
           disconnectAnyway: () => void disconnect.disconnectAnyway(),
           openDisconnect: () => disconnect.setOpen(true),
           openPicker: (scope) => setPicker({ open: true, scope }),
-          openCredentials: context.setActiveTab ? () => context.setActiveTab?.('credentials') : undefined,
+          openCredentials,
         }}
       />
       {state === 'connected' ? (

@@ -4,13 +4,13 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { OAuthGrantError } from '@open-mercato/core/modules/integrations/lib/oauth/descriptor'
 import type { OAuthDisconnectResult } from '@open-mercato/core/modules/integrations/lib/oauth/grant-service'
 import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND, XERO_INTEGRATION_ID } from '../../../lib/constants'
 import { runDisconnectSteps, SKIPPED_DISCONNECT_STEPS } from '../../../lib/disconnect-steps'
 import { readGuardedPayload } from '../../../lib/guarded-payload'
+import { readOptionalJsonBody } from '../../../lib/request-body'
 import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE, type XeroHandlerContext } from '../../../lib/route-auth'
 import { xeroErrorResponse, seamFailureResponse } from '../../../lib/route-errors'
 import { resolveXeroRouteGrant, type XeroRouteGrant } from '../../../lib/route-grant'
@@ -43,7 +43,7 @@ export async function POST(req: Request, ctx?: XeroHandlerContext): Promise<Resp
   if (!authorized.ok) return authorized.response
   const { scope, userId } = authorized.context
 
-  const body = bodySchema.safeParse((await readJsonSafe(req, {})) ?? {})
+  const body = bodySchema.safeParse(await readOptionalJsonBody(req))
   if (!body.success) return xeroErrorResponse(400, 'invalid_request')
   const payload = { integrationId: XERO_INTEGRATION_ID, force: body.data.force === true }
 
@@ -85,17 +85,20 @@ export async function POST(req: Request, ctx?: XeroHandlerContext): Promise<Resp
   }
 
   if (!result.erased) {
-    return NextResponse.json({ erased: false, revocation: null, failureReason: null, steps: SKIPPED_DISCONNECT_STEPS })
+    return NextResponse.json({ erased: false, revocation: null, failureReason: null, steps: SKIPPED_DISCONNECT_STEPS, reconnected: false })
   }
   await guard.runAfterSuccess()
-  const steps = await runDisconnectSteps({
+  if (result.revocation === 'skipped_reconnected') {
+    return NextResponse.json({ erased: true, revocation: result.revocation, failureReason: result.failureReason, steps: SKIPPED_DISCONNECT_STEPS, reconnected: true })
+  }
+  const { steps, reconnected } = await runDisconnectSteps({
     container,
     req,
     userId,
     scope,
     removeClientCredentials: body.data.removeClientCredentials === true,
   })
-  return NextResponse.json({ erased: true, revocation: result.revocation, failureReason: result.failureReason, steps })
+  return NextResponse.json({ erased: true, revocation: result.revocation, failureReason: result.failureReason, steps, reconnected })
 }
 
 const stepSchema = z.enum(['ok', 'failed', 'skipped'])
@@ -107,7 +110,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Erase the Xero grant and revoke it at Xero',
       description:
-        'Erases the grant, then revokes its refresh token at Xero, which ends every grant of the same Xero user for the same Xero app. Then it runs one health check, disables the integration when the caller holds integrations.manage, and removes the Client ID and Secret when asked (other credential values stay). A failed follow-up step is reported in steps and never undoes the erase. force erases an unreadable grant without revoking it. Send the grant revision (revisedAt) in x-om-ext-optimistic-lock-expected-updated-at.',
+        'Erases the grant, then revokes its refresh token at Xero, which ends every grant of the same Xero user for the same Xero app. Then it runs one health check, disables the integration when the caller holds integrations.manage, and removes the Client ID and Secret when asked (other credential values stay). Disable and the removal are skipped, and reconnected is true, when Xero was connected again meanwhile (revocation skipped_reconnected, or a live grant found under the connection lock). A failed follow-up step is reported in steps and never undoes the erase. An empty body counts as {}; malformed JSON, null or unknown keys answer 400 before anything is erased. force erases an unreadable grant without revoking it. Send the grant revision (revisedAt) in x-om-ext-optimistic-lock-expected-updated-at.',
       tags: [XERO_OPENAPI_TAG],
       requestBody: { schema: bodySchema },
       responses: [
@@ -119,11 +122,13 @@ export const openApi: OpenApiRouteDoc = {
             revocation: z.string().nullable(),
             failureReason: z.string().nullable(),
             steps: z.object({ healthCheck: stepSchema, disable: stepSchema, removeClientCredentials: stepSchema }),
+            reconnected: z.boolean(),
           }),
         },
       ],
       errors: [
         ...xeroRuleOneErrors(),
+        { status: 400, description: 'invalid_request: the body is neither empty nor a JSON object with only force and removeClientCredentials; nothing was erased', schema: xeroErrorSchema },
         {
           status: 409,
           description: 'optimistic_lock_conflict (stale revision), or disconnect_tokens_unreadable (offer "Disconnect anyway" with force)',

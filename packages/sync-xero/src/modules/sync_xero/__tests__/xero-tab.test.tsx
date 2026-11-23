@@ -4,6 +4,8 @@
 import * as React from 'react'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import type { LoadedInjectionWidget } from '@open-mercato/shared/modules/widgets/injection-loader'
+import type { WidgetInjectionEventHandlers } from '@open-mercato/shared/modules/widgets/injection'
 import enDict from '../i18n/en.json'
 import type { XeroConnectionView, XeroOrganisationsView } from '../widgets/injection/xero-tab/types'
 
@@ -13,6 +15,7 @@ const mockFlash = jest.fn()
 const mockReplace = jest.fn()
 const mockConfirm = jest.fn()
 const mockReportError = jest.fn()
+const mockSpotWidgets = new Map<string, LoadedInjectionWidget[]>()
 let mockSearch = ''
 let scopedHeaders: Record<string, string> = {}
 
@@ -20,13 +23,23 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => mockApiCall(...args),
   apiCallOrThrow: (...args: unknown[]) => mockApiCallOrThrow(...args),
   withScopedApiRequestHeaders: async <T,>(headers: Record<string, string>, operation: () => Promise<T>) => {
-    scopedHeaders = headers
+    const outerHeaders = scopedHeaders
+    scopedHeaders = { ...outerHeaders, ...headers }
     try {
       return await operation()
     } finally {
-      scopedHeaders = {}
+      scopedHeaders = outerHeaders
     }
   },
+}))
+
+jest.mock('@open-mercato/shared/modules/widgets/injection-loader', () => ({
+  getInjectionRegistryVersion: () => 0,
+  getInjectionRegistryError: () => null,
+  isInjectionRegistryReady: () => true,
+  subscribeToInjectionRegistryChanges: () => () => {},
+  loadInjectionWidgetsForSpot: async (spotId: string) => mockSpotWidgets.get(spotId) ?? [],
+  loadInjectionDataWidgetsForSpot: async () => [],
 }))
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
@@ -35,13 +48,6 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: (...args: unknown[]) => mockFlash(...args),
-}))
-
-jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
-  useGuardedMutation: () => ({
-    runMutation: async ({ operation }: { operation: () => Promise<unknown> }) => operation(),
-    retryLastMutation: async () => false,
-  }),
 }))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
@@ -60,10 +66,13 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(mockSearch),
 }))
 
+import { useSearchParams } from 'next/navigation'
+import { GLOBAL_MUTATION_INJECTION_SPOT_ID } from '@open-mercato/ui/backend/injection/mutationEvents'
+import { resolveRequestedIntegrationDetailTab } from '@open-mercato/core/modules/integrations/backend/integrations/detail-page-widgets'
 import XeroTabWidget from '../widgets/injection/xero-tab/widget.client'
 import { resolveXeroTabState, revocationUnconfirmed } from '../widgets/injection/xero-tab/ConnectionStatePanel'
 import { injectionTable, XERO_TAB_WIDGET_ID } from '../widgets/injection-table'
-import { integration } from '../integration'
+import { integration, syncXeroDetailWidgetSpotId } from '../integration'
 
 const XERO_ORG_A = '996096ec-5362-40dd-be90-3e6a2be09dce'
 const XERO_ORG_B = '1b2c3d4e-5f60-4718-a9b0-c1d2e3f4a5b6'
@@ -118,10 +127,39 @@ function renderTab(context: Record<string, unknown> = {}) {
   return renderWithProviders(<XeroTabWidget context={{ integrationId: 'sync_xero', ...context }} />, { dict: enDict })
 }
 
+function lifecycleWidget(id: string, eventHandlers: WidgetInjectionEventHandlers<Record<string, unknown>, Record<string, unknown>>): LoadedInjectionWidget {
+  return { metadata: { id }, moduleId: 'test_guards', key: id, Widget: () => null, eventHandlers }
+}
+
+let mockUrlChanged: (() => void) | null = null
+
+function IntegrationTabsHost() {
+  const searchParams = useSearchParams()
+  const [, rerender] = React.useReducer((count: number) => count + 1, 0)
+  const [activeTab, setActiveTab] = React.useState('credentials')
+  const visibleTabIds = ['credentials', 'xero']
+  React.useEffect(() => {
+    mockUrlChanged = rerender
+    return () => {
+      mockUrlChanged = null
+    }
+  }, [])
+  React.useEffect(() => {
+    setActiveTab(resolveRequestedIntegrationDetailTab(searchParams?.get('tab'), visibleTabIds))
+  }, [searchParams, visibleTabIds])
+  const hostContext: Record<string, unknown> = { integrationId: 'sync_xero', activeTab, setActiveTab }
+  return (
+    <div data-testid="integration-host" data-active-tab={activeTab}>
+      {activeTab === 'xero' ? <XeroTabWidget context={{ ...hostContext }} /> : null}
+    </div>
+  )
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
   mockSearch = ''
   scopedHeaders = {}
+  mockSpotWidgets.clear()
   mockConfirm.mockResolvedValue(true)
 })
 
@@ -164,13 +202,78 @@ describe('Xero tab', () => {
     expect(await screen.findByText(enDict['sync_xero.tab.revocationUnconfirmed'])).toBeTruthy()
   })
 
-  it('asks for the Client Configuration and opens the Credentials tab', async () => {
+  it('asks for the Client Configuration and opens the Credentials tab of a host that follows the tab URL', async () => {
     serve(connectionView({ configured: false }, { status: 'none', connectionState: 'not_configured', organisation: null }))
-    const setActiveTab = jest.fn()
-    renderTab({ setActiveTab })
+    mockSearch = 'tab=xero'
+    mockReplace.mockImplementation((href: string) => {
+      mockSearch = href.split('?')[1] ?? ''
+      mockUrlChanged?.()
+    })
+    renderWithProviders(<IntegrationTabsHost />, { dict: enDict })
     expect(await screen.findByText(enDict['sync_xero.tab.notConfigured'])).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: enDict['sync_xero.tab.openCredentials'] }))
-    expect(setActiveTab).toHaveBeenCalledWith('credentials')
+    await waitFor(() => expect(screen.getByTestId('integration-host').getAttribute('data-active-tab')).toBe('credentials'))
+    expect(mockReplace).toHaveBeenCalledWith('/backend/integrations/sync_xero?tab=credentials')
+    expect(screen.queryByTestId('sync-xero-tab')).toBeNull()
+  })
+
+  it('sends no request when a global mutation handler blocks the write', async () => {
+    serve(connectionView({}, { status: 'none', connectionState: 'not_connected', organisation: null }))
+    const onBeforeSave = jest.fn(async () => ({ ok: false, message: 'Record is locked by another user' }))
+    mockSpotWidgets.set(GLOBAL_MUTATION_INJECTION_SPOT_ID, [lifecycleWidget('test_guards.record-lock', { onBeforeSave })])
+    renderTab({ integrationDetailWidgetSpotId: syncXeroDetailWidgetSpotId })
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.tab.connect'] }))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Record is locked by another user', 'error'))
+    expect(onBeforeSave).toHaveBeenCalledWith({ replaceUnreadable: false }, expect.objectContaining({ actionId: 'connect' }))
+    expect(mockApiCallOrThrow).not.toHaveBeenCalled()
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('sends no request when an integration detail handler blocks the write', async () => {
+    serve(connectionView({}, { status: 'none', connectionState: 'not_connected', organisation: null }))
+    mockSpotWidgets.set(syncXeroDetailWidgetSpotId, [lifecycleWidget('test_guards.detail', { onBeforeSave: async () => false })])
+    renderTab({ integrationDetailWidgetSpotId: syncXeroDetailWidgetSpotId })
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.tab.connect'] }))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(expect.any(String), 'error'))
+    expect(mockApiCallOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('runs the global and the integration detail lifecycles around the write, with both handlers\' headers', async () => {
+    serve(connectionView({ schedules: [{ entityType: 'xero.contacts', exists: false, isEnabled: false, fullSync: false, scheduleValue: null }] }))
+    const steps: string[] = []
+    mockSpotWidgets.set(GLOBAL_MUTATION_INJECTION_SPOT_ID, [
+      lifecycleWidget('test_guards.global', {
+        onBeforeSave: async () => {
+          steps.push('global:before')
+          return { ok: true, requestHeaders: { 'x-om-record-lock-token': 'lock-1' } }
+        },
+        onAfterSave: async () => {
+          steps.push('global:after')
+        },
+      }),
+    ])
+    mockSpotWidgets.set(syncXeroDetailWidgetSpotId, [
+      lifecycleWidget('test_guards.detail', {
+        onBeforeSave: async () => {
+          steps.push('detail:before')
+          return { ok: true, requestHeaders: { 'x-test-detail': 'detail-1' } }
+        },
+        onAfterSave: async () => {
+          steps.push('detail:after')
+        },
+      }),
+    ])
+    const sentHeaders: Array<Record<string, string>> = []
+    mockApiCallOrThrow.mockImplementation(async () => {
+      steps.push('request')
+      sentHeaders.push({ ...scopedHeaders })
+      return { ok: true, status: 200, result: { schedules: [] } }
+    })
+    renderTab({ integrationDetailWidgetSpotId: syncXeroDetailWidgetSpotId, state: { isEnabled: true } })
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.schedules.create'] }))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.schedules.created'], 'success'))
+    expect(steps).toEqual(['global:before', 'detail:before', 'request', 'detail:after', 'global:after'])
+    expect(sentHeaders).toEqual([{ 'x-om-record-lock-token': 'lock-1', 'x-test-detail': 'detail-1' }])
   })
 
   it('starts the Connect and navigates to the Xero authorization URL', async () => {
@@ -284,7 +387,7 @@ describe('Xero tab', () => {
       return {
         ok: true,
         status: 200,
-        result: { erased: true, revocation: 'confirmed', failureReason: null, steps: { healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'ok' } },
+        result: { erased: true, revocation: 'confirmed', failureReason: null, steps: { healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'ok' }, reconnected: false },
       }
     })
     renderTab()
@@ -306,7 +409,7 @@ describe('Xero tab', () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        result: { erased: true, revocation: 'failed', failureReason: 'undecryptable', steps: { healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'skipped' } },
+        result: { erased: true, revocation: 'failed', failureReason: 'undecryptable', steps: { healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'skipped' }, reconnected: false },
       })
     renderTab()
     fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
@@ -328,7 +431,7 @@ describe('Xero tab', () => {
     mockApiCallOrThrow.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      result: { erased: true, revocation: 'failed', failureReason, steps: { healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'skipped' } },
+      result: { erased: true, revocation: 'failed', failureReason, steps: { healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'skipped' }, reconnected: false },
     })
     renderTab()
     fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
@@ -351,7 +454,7 @@ describe('Xero tab', () => {
     mockApiCallOrThrow.mockResolvedValue({
       ok: true,
       status: 200,
-      result: { erased: true, revocation: 'confirmed', failureReason: null, steps: { healthCheck: 'ok', disable: 'skipped', removeClientCredentials: 'skipped' } },
+      result: { erased: true, revocation: 'confirmed', failureReason: null, steps: { healthCheck: 'ok', disable: 'skipped', removeClientCredentials: 'skipped' }, reconnected: false },
     })
     renderTab()
     fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
@@ -360,12 +463,27 @@ describe('Xero tab', () => {
     await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.disconnect.disableSkipped'], 'warning'))
   })
 
+  it('says the new connection was kept, not that a permission is missing, when Xero was reconnected meanwhile', async () => {
+    serve(connectionView(), { ...organisations, selected: XERO_ORG_A })
+    mockApiCallOrThrow.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: { erased: true, revocation: 'skipped_reconnected', failureReason: null, steps: { healthCheck: 'skipped', disable: 'skipped', removeClientCredentials: 'skipped' }, reconnected: true },
+    })
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
+    const dialog = await screen.findByTestId('sync-xero-disconnect-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: enDict['sync_xero.disconnect.confirm'] }))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.disconnect.reconnected'], 'info'))
+    expect(mockFlash).not.toHaveBeenCalledWith(enDict['sync_xero.disconnect.disableSkipped'], 'warning')
+  })
+
   it('reports follow-up steps that failed after the erase', async () => {
     serve(connectionView(), { ...organisations, selected: XERO_ORG_A })
     mockApiCallOrThrow.mockResolvedValue({
       ok: true,
       status: 200,
-      result: { erased: true, revocation: 'confirmed', failureReason: null, steps: { healthCheck: 'ok', disable: 'failed', removeClientCredentials: 'skipped' } },
+      result: { erased: true, revocation: 'confirmed', failureReason: null, steps: { healthCheck: 'ok', disable: 'failed', removeClientCredentials: 'skipped' }, reconnected: false },
     })
     renderTab()
     fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
@@ -481,7 +599,7 @@ describe('Xero tab', () => {
     mockApiCallOrThrow.mockResolvedValue({
       ok: true,
       status: 200,
-      result: { erased: true, revocation: 'confirmed', failureReason: null, steps: { healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'skipped' } },
+      result: { erased: true, revocation: 'confirmed', failureReason: null, steps: { healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'skipped' }, reconnected: false },
     })
     renderTab()
     fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
