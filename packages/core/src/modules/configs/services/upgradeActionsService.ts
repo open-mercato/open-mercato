@@ -14,6 +14,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('configs')
 
 const LOCK_NAMESPACE = 'configs_upgrade_actions'
+const LOCK_OPTIONS = { waitDeadlineMs: 60_000 }
 
 export type UpgradeActionStatus = 'completed' | 'already_completed'
 
@@ -270,7 +271,7 @@ export async function executeUpgradeAction(
       await tem.flush()
       logger.info('Upgrade action completed', { component: 'upgrade-actions', actionId: definition.id, version, tenantId, organizationId })
       return 'completed' as const
-    })
+    }, LOCK_OPTIONS)
   } catch (error) {
     const completedElsewhere =
       error instanceof UniqueConstraintViolationException &&
@@ -336,7 +337,7 @@ export async function revertUpgradeAction(
       tenantId,
       organizationId,
     })
-  })
+  }, LOCK_OPTIONS)
   await runAfterCommit(definition, afterCommitCallbacks)
   return { action: definition, status: 'reverted' }
 }

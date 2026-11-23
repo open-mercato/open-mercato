@@ -3,6 +3,8 @@ import * as semver from 'semver'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { AdvisoryLockUnavailableError } from '@open-mercato/shared/lib/db/advisoryLock'
 import {
   executeUpgradeAction,
   getCurrentVersion,
@@ -91,7 +93,7 @@ export function parseUpgradeActionsCliArgs(tokens: readonly string[]): { args: U
     organizationId: read('organization'),
     actionId: read('action'),
     actionVersion: read('version'),
-    allowTenantWide: options['allow-tenant-wide'] === true || read('allow-tenant-wide') === 'true',
+    allowTenantWide: options['allow-tenant-wide'] === true || parseBooleanToken(read('allow-tenant-wide') ?? '') === true,
   })
   if (parsed.success) return { args: parsed.data }
   const issue = parsed.error.issues[0]
@@ -118,6 +120,11 @@ function renderProgress(current: number, total: number): string {
 export function describeUpgradeActionFailure(error: unknown): string {
   if (error instanceof UpgradeActionError) return error.code
   if (error instanceof UpgradeActionPostCommitError) return 'post-commit step failed'
+  if (error instanceof AdvisoryLockUnavailableError) {
+    if (error.reason === 'commit_unknown') return 'commit outcome unknown; run list to see whether it was applied'
+    if (error.reason === 'deadline') return 'another run of this action is in progress; retry later'
+    return 'database unavailable; retry later'
+  }
   if (error instanceof Error && error.name && error.name !== 'Error') return `handler failed (${error.name})`
   return 'handler failed'
 }

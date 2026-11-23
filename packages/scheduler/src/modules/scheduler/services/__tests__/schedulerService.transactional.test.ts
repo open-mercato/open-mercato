@@ -98,6 +98,13 @@ describe('SchedulerService transactional registration', () => {
     await expect(afterCommit[0]()).resolves.toBeUndefined()
   })
 
+  it('refuses a caller transaction without afterCommit before writing anything', async () => {
+    const txEm = createEm()
+    await expect(service.register(registration, { em: txEm as unknown as EntityManager })).rejects.toThrow('requires afterCommit')
+    expect(txEm.flush).not.toHaveBeenCalled()
+    expect(bullmq.register).not.toHaveBeenCalled()
+  })
+
   it('keeps the legacy fork-and-sync behavior when no options are passed', async () => {
     const forked = createEm()
     defaultEm.fork.mockReturnValue(forked)

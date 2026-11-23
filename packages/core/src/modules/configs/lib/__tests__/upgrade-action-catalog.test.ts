@@ -119,19 +119,25 @@ describe('createUpgradeActionCatalog', () => {
     expect(catalog.ownerOf(discovered)).toBe('shop')
   })
 
-  it('syncs on read when modules were registered before the catalog existed', () => {
+  it('fills the exported array on creation when modules were registered first', () => {
     const discovered = action()
     registerModules([{ id: 'shop', upgradeActions: [discovered] }] as Module[])
     const target: UpgradeActionDefinition[] = []
-    expect(createUpgradeActionCatalog(target).list()).toEqual([discovered])
+    createUpgradeActionCatalog(target)
+    expect(target).toEqual([discovered])
   })
 
-  it('hides every registration of a colliding (id, version) completion key', () => {
+  it('keeps the module-owned action when a legacy entry reuses its completion key', () => {
     const discovered = action()
     const target = [action()]
     const catalog = createUpgradeActionCatalog(target)
     registerModules([{ id: 'shop', upgradeActions: [discovered] }])
-    expect(catalog.list()).toEqual([])
+    expect(catalog.list()).toEqual([discovered])
+  })
+
+  it('hides every legacy registration that shares a completion key', () => {
+    const target = [action({ id: 'legacy.seed' }), action({ id: 'legacy.seed' })]
+    expect(createUpgradeActionCatalog(target).list()).toEqual([])
   })
 
   it('keeps a legacy id repeated at different versions', () => {

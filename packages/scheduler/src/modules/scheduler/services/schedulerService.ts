@@ -51,6 +51,9 @@ export class SchedulerService {
    * Register a new schedule (upsert)
    */
   async register(registration: ScheduleRegistration, options: ScheduleRegistrationOptions = {}): Promise<void> {
+    if (options.em && !options.afterCommit) {
+      throw new Error('[internal] schedulerService.register: a caller transaction (em) requires afterCommit so BullMQ sync waits for the commit')
+    }
     const em = options.em ?? this.em().fork()
     
     // Validate scope consistency

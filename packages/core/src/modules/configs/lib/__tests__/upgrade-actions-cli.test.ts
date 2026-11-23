@@ -21,7 +21,13 @@ import {
   validateUpgradeActionScope,
   type UpgradeActionState,
 } from '../../services/upgradeActionsService'
-import { parseUpgradeActionsCliArgs, runUpgradeActionsCli, type UpgradeActionsCliDeps } from '../upgrade-actions-cli'
+import { AdvisoryLockUnavailableError } from '@open-mercato/shared/lib/db/advisoryLock'
+import {
+  describeUpgradeActionFailure,
+  parseUpgradeActionsCliArgs,
+  runUpgradeActionsCli,
+  type UpgradeActionsCliDeps,
+} from '../upgrade-actions-cli'
 
 const TENANT = '10000000-0000-4000-8000-000000000001'
 const ORGANIZATION = '20000000-0000-4000-8000-000000000001'
@@ -95,6 +101,20 @@ describe('parseUpgradeActionsCliArgs', () => {
   ])('rejects %j', (tokens, message) => {
     const result = parseUpgradeActionsCliArgs(tokens)
     expect('error' in result && result.error).toContain(message)
+  })
+})
+
+describe('describeUpgradeActionFailure', () => {
+  it('tells a busy lock and an unknown commit outcome apart from a handler failure', () => {
+    expect(describeUpgradeActionFailure(new AdvisoryLockUnavailableError('deadline', 'k:1'))).toContain('another run of this action is in progress')
+    expect(describeUpgradeActionFailure(new AdvisoryLockUnavailableError('commit_unknown', 'k:1'))).toContain('run list to see whether it was applied')
+    expect(describeUpgradeActionFailure(new AdvisoryLockUnavailableError('transient_db', 'k:1'))).toBe('database unavailable; retry later')
+  })
+
+  it('parses --allow-tenant-wide values with the shared boolean parser', () => {
+    const tokens = ['up', ...SCOPE, '--action', 'cart.sweep', '--version', '0.9.1', '--allow-tenant-wide', 'yes']
+    const parsed = parseUpgradeActionsCliArgs(tokens)
+    expect('args' in parsed && parsed.args.allowTenantWide).toBe(true)
   })
 })
 

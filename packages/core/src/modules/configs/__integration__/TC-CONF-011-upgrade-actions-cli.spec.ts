@@ -43,11 +43,11 @@ function cliArgs(args: string[]): string[] {
   return [cliBin, 'configs', 'upgrade-actions', ...args]
 }
 
-function runCli(args: string[]): CliResult {
+function runCli(args: string[], extraEnv: Record<string, string> = {}): CliResult {
   const result = spawnSync(process.execPath, cliArgs(args), {
     cwd: appDir,
     encoding: 'utf8',
-    env: { ...process.env, ...CLI_ENV },
+    env: { ...process.env, ...CLI_ENV, ...extraEnv },
     timeout: 180_000,
   })
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
@@ -275,6 +275,27 @@ test.describe.serial('TC-CONF-011: configs upgrade-actions CLI', () => {
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain(' configs: no pending upgrade actions')
     expect(await fixtureConfigRows(tenant, organizationB)).toHaveLength(0)
+  })
+
+  test('rolls back a schedule written by a failing action together with its ledger row', async () => {
+    const tenant = tenantId as string
+    const organizationId = await createOrganizationInDb({ name: 'QA upgrade CLI rollback', tenantId: tenant })
+    const action = 'configs.test-schedule-rollback-fixture'
+    const result = runCli(['up', ...scope(tenant, organizationId), '--action', action, '--version', '0.0.1'], {
+      OM_UPGRADE_ACTION_ROLLBACK_FIXTURE: '1',
+    })
+    expect(result.status, result.stdout).toBe(1)
+    expect(result.stderr).toContain(`${action}@0.0.1 failed: handler failed`)
+    const schedules = await withClient(async (client) =>
+      (
+        await client.query<{ id: string }>(
+          `select id from scheduled_jobs where tenant_id = $1 and organization_id = $2 and source_module = 'configs'`,
+          [tenant, organizationId],
+        )
+      ).rows,
+    )
+    expect(schedules).toEqual([])
+    expect((await ledger(tenant, organizationId)).filter((row) => row.action_id === action)).toEqual([])
   })
 
   test('isolates competing applies of one action in one organization', async () => {

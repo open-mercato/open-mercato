@@ -130,20 +130,30 @@ export function createUpgradeActionCatalog(target: UpgradeActionDefinition[]): U
 
   const list = () => {
     sync()
-    const counts = new Map<string, number>()
-    for (const action of target) counts.set(upgradeActionKey(action), (counts.get(upgradeActionKey(action)) ?? 0) + 1)
+    const byKey = new Map<string, UpgradeActionDefinition[]>()
+    for (const action of target) {
+      const key = upgradeActionKey(action)
+      byKey.set(key, [...(byKey.get(key) ?? []), action])
+    }
     return target.filter((action) => {
       const key = upgradeActionKey(action)
-      if ((counts.get(key) ?? 0) === 1) return true
+      const entries = byKey.get(key) ?? []
+      if (entries.length === 1) return true
+      const discovered = entries.filter((entry) => state.discovered.has(entry))
+      const keep = discovered.length === 1 ? discovered[0] : null
       if (!state.reportedCollisions.has(key)) {
         state.reportedCollisions.add(key)
-        logger.error('Ignoring conflicting upgrade action registrations', { actionId: action.id, version: action.version })
+        logger.error(
+          keep ? 'Ignoring legacy upgrade action registration shadowed by a module-owned action' : 'Ignoring conflicting upgrade action registrations',
+          { actionId: action.id, version: action.version },
+        )
       }
-      return false
+      return action === keep
     })
   }
 
   onModulesRegistered(() => sync())
+  sync()
 
   return {
     sync,
