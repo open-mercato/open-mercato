@@ -1,6 +1,7 @@
 import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig, requestMfaEmergencyBypassNotification } from '../lib/security-config'
+import { MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
 
 type JwtClaims = {
   sub: string
@@ -49,6 +50,12 @@ function resolveMfaVerificationService(container: { resolve: (name: string) => u
   }
 }
 
+function isNoMfaMethodsConfiguredError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { name?: unknown; code?: unknown }
+  return candidate.name === 'MfaVerificationServiceError' && candidate.code === MFA_NO_METHODS_CONFIGURED_CODE
+}
+
 export const interceptors: ApiInterceptor[] = [
   {
     id: 'security.auth.login.mfa-challenge',
@@ -63,13 +70,19 @@ export const interceptors: ApiInterceptor[] = [
       const claims = readClaims(response.body.token)
       if (!claims) return {}
 
-      const mfaVerificationService = resolveMfaVerificationService(context.container as { resolve: (name: string) => unknown })
-      if (!mfaVerificationService) return {}
-
+      // The emergency bypass is an explicit operator override and must keep working even
+      // when the MFA service is degraded, so it is evaluated before service resolution.
       if (readSecurityModuleConfig().mfa.emergencyBypass) {
         emitMfaEmergencyBypassActiveWarning('login MFA challenge bypassed', { userId: claims.sub })
         await requestMfaEmergencyBypassNotification({ tenantId: claims.tenantId, organizationId: claims.orgId })
         return {}
+      }
+
+      const mfaVerificationService = resolveMfaVerificationService(context.container as { resolve: (name: string) => unknown })
+      if (!mfaVerificationService) {
+        // Fail closed: without the MFA service we cannot know whether this account needs a
+        // second factor, so the already-issued full staff token must not reach the caller.
+        throw new Error('[internal] MFA verification service unavailable for auth/login')
       }
 
       try {
@@ -97,8 +110,12 @@ export const interceptors: ApiInterceptor[] = [
             token: pendingToken,
           },
         }
-      } catch {
-        return {}
+      } catch (error) {
+        // Only a verified no-MFA account may proceed with the pre-issued token. Any other
+        // failure (reading methods, persisting the challenge, provider resolution) must
+        // abort the login instead of returning the full JWT and refresh token.
+        if (isNoMfaMethodsConfiguredError(error)) return {}
+        throw error
       }
     },
   },
