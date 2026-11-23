@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
 import { sanitizeRichTextHref } from '@open-mercato/shared/lib/html/sanitizeRichText'
 import { channelTypeRequiresExternalEmail } from '../lib/channel-sender-identity'
+import { isSameOriginActionHref } from '../lib/actions'
 
 function collectDuplicateRecipientIds(
   recipients: Array<{ userId: string }>,
@@ -86,8 +87,15 @@ export const messageActionSchema = z.object({
     .string()
     .optional()
     .refine(
-      (value) => value == null || sanitizeRichTextHref(value) != null,
-      { message: '[internal] message action href must be http(s), mailto, tel, or a relative path' },
+      (value) => {
+        if (value == null) return true
+        // #3487: an action href may only redirect the recipient within this
+        // deployment — an absolute or protocol-relative target would turn the
+        // action button into an open redirect to an arbitrary external site.
+        const sanitized = sanitizeRichTextHref(value)
+        return sanitized != null && isSameOriginActionHref(sanitized)
+      },
+      { message: '[internal] message action href must be a same-origin relative path' },
     ),
   isTerminal: z.boolean().optional(),
   confirmRequired: z.boolean().optional(),

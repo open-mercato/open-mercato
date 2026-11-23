@@ -1,6 +1,7 @@
 import {
   getMessageSafeCommandIds,
   isMessageSafeCommandId,
+  isSameOriginActionHref,
   isTerminalMessageAction,
   resolveActionCommandInput,
   resolveActionHref,
@@ -146,21 +147,18 @@ describe('resolveActionHref', () => {
     )
   })
 
-  it('keeps safe absolute http(s) and mailto hrefs', () => {
-    expect(
-      resolveActionHref(
-        createAction({ commandId: undefined, href: 'https://example.com/orders/1' }),
-        createMessage(),
-        resolutionContext,
-      ),
-    ).toBe('https://example.com/orders/1')
-    expect(
-      resolveActionHref(
-        createAction({ commandId: undefined, href: 'mailto:support@example.com' }),
-        createMessage(),
-        resolutionContext,
-      ),
-    ).toBe('mailto:support@example.com')
+  it.each([
+    'https://evil.example.com/steal',
+    'http://evil.example.com/steal',
+    'HTTPS://evil.example.com/steal',
+    'mailto:support@example.com',
+    'tel:+123456789',
+    '  https://evil.example.com/steal  ',
+  ])('rejects absolute external scheme href %s (#3487)', (href) => {
+    // A composer must not be able to turn the action button into an open
+    // redirect: only same-origin (relative) targets may resolve.
+    const action = createAction({ commandId: undefined, href })
+    expect(resolveActionHref(action, createMessage(), resolutionContext)).toBeNull()
   })
 
   it.each([
@@ -184,6 +182,30 @@ describe('resolveActionHref', () => {
     const message = createMessage({ id: '../../evil?x=1#y' } as Partial<Message>)
     const resolved = resolveActionHref(action, message, resolutionContext)
     expect(resolved).toBe('/backend/search/..%2F..%2Fevil%3Fx%3D1%23y')
+  })
+})
+
+describe('isSameOriginActionHref', () => {
+  it('accepts relative hrefs', () => {
+    expect(isSameOriginActionHref('/backend/messages/message-1')).toBe(true)
+    expect(isSameOriginActionHref('./relative/path')).toBe(true)
+    expect(isSameOriginActionHref('../parent/path')).toBe(true)
+    expect(isSameOriginActionHref('?query=1')).toBe(true)
+    expect(isSameOriginActionHref('#hash')).toBe(true)
+    expect(isSameOriginActionHref('  /backend/messages  ')).toBe(true)
+  })
+
+  it('rejects absolute, protocol-relative, and blank hrefs', () => {
+    expect(isSameOriginActionHref('https://example.com/steal')).toBe(false)
+    expect(isSameOriginActionHref('http://example.com/steal')).toBe(false)
+    expect(isSameOriginActionHref('HTTPS://example.com/steal')).toBe(false)
+    expect(isSameOriginActionHref('mailto:support@example.com')).toBe(false)
+    expect(isSameOriginActionHref('tel:+123456789')).toBe(false)
+    expect(isSameOriginActionHref('javascript:alert(1)')).toBe(false)
+    expect(isSameOriginActionHref('//evil.example.com/steal')).toBe(false)
+    expect(isSameOriginActionHref('  //evil.example.com/steal  ')).toBe(false)
+    expect(isSameOriginActionHref('   ')).toBe(false)
+    expect(isSameOriginActionHref('')).toBe(false)
   })
 })
 

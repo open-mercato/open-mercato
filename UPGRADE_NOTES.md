@@ -6584,3 +6584,13 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+## Message action href same-origin restriction (#3487)
+
+Message action `href` values (`actionData.actions[].href` on `POST /api/messages`, draft updates, and message-type/object-type default actions) must resolve to same-origin relative paths (`/absolute`, `./relative`, `../parent`, `?query`, `#hash`; `{placeholder}` templates are still substituted URL-encoded). Absolute scheme URIs (`https:`, `http:`, `mailto:`, `tel:`, …) and protocol-relative `//host` targets are rejected with a validation error at compose time and resolve to no redirect at execute time (`Action has an unsafe redirect target`), closing the open-redirect/phishing vector where any `messages.compose` holder could send a recipient to an attacker-controlled site. `sanitizeRichTextHref`'s shared contract and all API response shapes are unchanged.
+
+**Client migration:** compose action hrefs as relative in-app paths. `mailto:`/`tel:` links belong in the message body (rich text), not in the action redirect target.
+
+**Operator migration:** no database, migration, config, or startup changes. Pre-existing messages that already carry external action hrefs still render their action button but fail closed on execute instead of redirecting off-origin.
+
+**Compatibility:** the compose/execute API shapes are unchanged; only the accepted `href` values are narrowed. No bridge can retain the unrestricted external redirect safely — the issue carries the `automerge-force` sanction from triage. See issue [#3487](https://github.com/open-mercato/open-mercato/issues/3487).

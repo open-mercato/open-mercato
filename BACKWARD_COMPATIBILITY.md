@@ -721,3 +721,14 @@ The STABLE attachment library API response and the enrichment helper signature r
 ## #10331 #10332 (2026-11-23)
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
+
+## 2026-11-23 — Message action href same-origin restriction (#3487)
+
+STABLE compose/execute API shapes are unchanged; message action `href` inputs and the resolved
+`result.redirect` target are narrowed to same-origin relative paths. Absolute scheme URIs
+(http, https, mailto, tel, …) and protocol-relative `//host` targets are rejected at compose
+validation and again at action resolution, so a `messages.compose` holder can no longer turn the
+action button into an open redirect to an attacker-controlled site. Composers use relative
+in-app paths; code-declared message-type/object-type actions are unaffected.
+[Upgrade](UPGRADE_NOTES.md#message-action-href-same-origin-restriction-3487);
+[issue](https://github.com/open-mercato/open-mercato/issues/3487).

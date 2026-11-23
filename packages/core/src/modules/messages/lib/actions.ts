@@ -216,6 +216,19 @@ function resolveTemplateString(
   })
 }
 
+// #3487: a composer-supplied action href may only navigate the recipient
+// inside this deployment. Any absolute URI (scheme-prefixed: http, https,
+// mailto, tel, …) and any protocol-relative `//host` target leaves the
+// origin, so only a relative path may resolve into `result.redirect`.
+const ABSOLUTE_URI_PATTERN = /^[a-zA-Z][a-zA-Z0-9+.-]*:/
+
+export function isSameOriginActionHref(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  if (trimmed.startsWith('//')) return false
+  return !ABSOLUTE_URI_PATTERN.test(trimmed)
+}
+
 export function resolveActionHref(
   action: ResolvedMessageAction,
   message: Message,
@@ -224,7 +237,9 @@ export function resolveActionHref(
   if (!action.href) return null
   const context = buildTemplateContext(message, resolutionContext, action.objectRef)
   const resolved = resolveTemplateString(action.href, context, encodeURIComponent)
-  return sanitizeRichTextHref(resolved)
+  const sanitized = sanitizeRichTextHref(resolved)
+  if (!sanitized || !isSameOriginActionHref(sanitized)) return null
+  return sanitized
 }
 
 function collectCommandId(target: Set<string>, commandId: unknown): void {
