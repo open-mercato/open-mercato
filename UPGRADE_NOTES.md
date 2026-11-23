@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## MFA challenge creation failures deny sign-in (#10456)
+
+Staff sign-in now fails when the enabled enterprise MFA service cannot read methods or create a challenge. Clients must treat that non-successful response as unauthenticated and retry after the service recovers; it contains no access token, refresh token, or authentication cookie. Successful MFA and accounts verified to have no active MFA methods retain their existing flows.
+
+Operators should restore MFA service registration or challenge-store availability before retrying sign-in. The explicit emergency-bypass setting retains its existing behavior and administrator warning. Failed provisional-session cleanup is reported as `auth.login_revoke_failed`; investigate the session store if it occurs. No database migration or credential-format change is required.
+
 ## Attachment assignment label authorization (#10336)
 
 The attachment library automatically fills in assignment labels and links only when the caller can read the referenced entity in the selected tenant and organization. Existing assignment IDs and saved labels and links stay available under the attachment's existing access policy. Supported built-in targets use their owning module's read grants. Custom records require the custom-record view grant and any entity-specific grant. When a target cannot be safely resolved, clients can display the stored label or ID.

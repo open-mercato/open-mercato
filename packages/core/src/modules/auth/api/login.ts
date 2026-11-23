@@ -18,6 +18,7 @@ import { getAppBaseUrl, isCrossSiteBrowserRequest } from '@open-mercato/shared/l
 import { handleAuthRouteError } from '@open-mercato/core/modules/auth/api/routeError'
 import { isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
   points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
@@ -243,13 +244,10 @@ async function handleLoginRequest(req: Request) {
     },
   })
   if (!interceptedResponse.ok) {
-    // The password phase created a session before the after-interceptor ran. When an
-    // interceptor rejects the login (for example an MFA challenge that could not be
-    // created), that provisional session must not outlive the failed response.
     try {
       await auth.deleteSessionById(String(loginSession.id))
-    } catch {
-      // Revocation is best-effort; the failure response never carries the token either way.
+    } catch (error) {
+      getTelemetryRuntime()?.reportError(error, { module: 'auth', code: 'auth.login_revoke_failed' })
     }
     return NextResponse.json(interceptedResponse.body, { status: interceptedResponse.statusCode })
   }
