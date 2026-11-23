@@ -220,12 +220,15 @@ function resolveTemplateString(
 // inside this deployment. Any absolute URI (scheme-prefixed: http, https,
 // mailto, tel, …) and any protocol-relative `//host` target leaves the
 // origin, so only a relative path may resolve into `result.redirect`.
+// WHATWG URL parsing treats a leading backslash like a slash, so
+// `\\host`, `\/host` and `/\host` reach the authority exactly like `//host`.
 const ABSOLUTE_URI_PATTERN = /^[a-zA-Z][a-zA-Z0-9+.-]*:/
+const PROTOCOL_RELATIVE_SEPARATOR_PATTERN = /^[/\\]{2}/
 
 export function isSameOriginActionHref(value: string): boolean {
   const trimmed = value.trim()
   if (!trimmed) return false
-  if (trimmed.startsWith('//')) return false
+  if (PROTOCOL_RELATIVE_SEPARATOR_PATTERN.test(trimmed)) return false
   return !ABSOLUTE_URI_PATTERN.test(trimmed)
 }
 

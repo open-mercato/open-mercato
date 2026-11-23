@@ -395,6 +395,7 @@ describe('messages validators', () => {
       'data:text/html,<script>alert(1)</script>',
       'vbscript:msgbox(1)',
       '//evil.example.com/steal',
+      '\\\\evil.example.com/steal',
     ])('rejects external or unsafe href %s', (href) => {
       // #3487: an action href must stay same-origin — an absolute or
       // protocol-relative target would turn the action button into an open

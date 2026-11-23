@@ -154,6 +154,9 @@ describe('resolveActionHref', () => {
     'mailto:support@example.com',
     'tel:+123456789',
     '  https://evil.example.com/steal  ',
+    '\\\\evil.example.com/steal',
+    '\\\\/evil.example.com/steal',
+    '/\\evil.example.com/steal',
   ])('rejects absolute external scheme href %s (#3487)', (href) => {
     // A composer must not be able to turn the action button into an open
     // redirect: only same-origin (relative) targets may resolve.
@@ -204,6 +207,9 @@ describe('isSameOriginActionHref', () => {
     expect(isSameOriginActionHref('javascript:alert(1)')).toBe(false)
     expect(isSameOriginActionHref('//evil.example.com/steal')).toBe(false)
     expect(isSameOriginActionHref('  //evil.example.com/steal  ')).toBe(false)
+    expect(isSameOriginActionHref('\\\\evil.example.com/steal')).toBe(false)
+    expect(isSameOriginActionHref('\\\\/evil.example.com/steal')).toBe(false)
+    expect(isSameOriginActionHref('/\\evil.example.com/steal')).toBe(false)
     expect(isSameOriginActionHref('   ')).toBe(false)
     expect(isSameOriginActionHref('')).toBe(false)
   })
