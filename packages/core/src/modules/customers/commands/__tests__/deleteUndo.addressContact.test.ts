@@ -4,12 +4,9 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
-const mockFindWithDecryption = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [])
-const mockFindOneWithDecryption = jest.fn(async (..._args: unknown[]): Promise<unknown> => null)
-
-jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
-  findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
+jest.mock('@open-mercato/shared/lib/encryption/toggles', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/encryption/toggles'),
+  isTenantDataEncryptionEnabled: () => false,
 }))
 
 import '@open-mercato/core/modules/customers/commands'
@@ -86,11 +83,12 @@ function makeProfile(kind: 'person' | 'company', entity: Record<string, unknown>
 type Created = Array<{ ctor: unknown; data: Record<string, unknown> }>
 
 function makeEm(entity: Record<string, unknown>, profile: Record<string, unknown>, address: Record<string, unknown> | null, created: Created) {
+  const profileType = entity.kind === 'person' ? CustomerPersonProfile : CustomerCompanyProfile
   const em: any = {
     fork: jest.fn().mockReturnThis(),
     findOne: jest.fn(async (ctor: unknown) => {
       if (ctor === CustomerEntity) return entity
-      if (ctor === CustomerCompanyProfile) return profile
+      if (ctor === profileType) return profile
       return null
     }),
     find: jest.fn(async (ctor: unknown) => (ctor === CustomerAddress && address ? [address] : [])),
@@ -148,7 +146,6 @@ describe.each([
     const entity = makeEntity(kind, id)
     const profile = makeProfile(kind, entity)
     const address = makeAddress(entity)
-    mockFindOneWithDecryption.mockImplementation(async (_em, ctor) => (ctor === CustomerPersonProfile ? profile : null))
     const created: Created = []
     const em = makeEm(entity, profile, address, created)
     const ctx = makeCtx(em)
@@ -191,7 +188,6 @@ describe.each([
     delete legacyAddress.recipientName
     delete legacyAddress.phone
     delete legacyAddress.companyName
-    mockFindOneWithDecryption.mockImplementation(async (_em, ctor) => (ctor === CustomerPersonProfile ? profile : null))
     const created: Created = []
     const em = makeEm(entity, profile, legacyAddress, created)
     const ctx = makeCtx(em)
