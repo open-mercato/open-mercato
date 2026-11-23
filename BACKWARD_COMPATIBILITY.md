@@ -646,6 +646,10 @@ STABLE HTTP/service BREAK (403/404/504), Documents only: org-wide files bypass s
 
 STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them preserves disclosure. Client/operator migration: [notes](UPGRADE_NOTES.md). @haxiorz [approved](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29: steps 1–3 waived for all 18 admin fields; client/operator migration acknowledged.
 
+## Checkout (#9159, 2026-11-15)
+
+STABLE submit schema/template values: undeclared data/Markdown permit email injection; bridges retain it. [Migration/spec](UPGRADE_NOTES.md#checkout-email-variable-and-customer-data-hardening-9159). **Named human maintainer waiver of steps 1–3 pending.**
+
 ## #3805 2026-10-31
 
 STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.md#issue-3805)
@@ -718,6 +722,6 @@ STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/to
 
 The STABLE attachment library API response and the enrichment helper signature retain their shapes. Referenced records contribute optional labels and links only for an authorized read in the selected tenant and organization. Retaining an unrestricted fallback would keep the unauthorized read available. Server callers can supply verified request authorization and clients can fall back to existing assignment metadata. See the [upgrade notes](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [implementation spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
 
-## Checkout (#9159, 2026-11-15)
+## #10331 #10332 (2026-11-23)
 
-STABLE submit schema/template values: undeclared data/Markdown permit email injection; bridges retain it. [Migration/spec](UPGRADE_NOTES.md#checkout-email-variable-and-customer-data-hardening-9159). **Named human maintainer waiver of steps 1–3 pending.**
+STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
