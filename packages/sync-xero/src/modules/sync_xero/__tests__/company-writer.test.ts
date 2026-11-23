@@ -16,6 +16,7 @@ const mockClaim = jest.fn()
 const mockLoadRunIndex = jest.fn()
 const mockLoadIndexSources = jest.fn()
 const mockLoadAddressState = jest.fn()
+const mockLoadAddressRow = jest.fn()
 const mockStoreMapping = jest.fn()
 
 jest.mock('../lib/contacts/preload', () => ({
@@ -23,6 +24,7 @@ jest.mock('../lib/contacts/preload', () => ({
   loadCompanySnapshots: (...args: unknown[]) => mockLoadSnapshots(...args),
   loadXeroRunIndex: (...args: unknown[]) => mockLoadRunIndex(...args),
   loadXeroAddressState: (...args: unknown[]) => mockLoadAddressState(...args),
+  loadXeroAddressRow: (...args: unknown[]) => mockLoadAddressRow(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/data_sync/lib/id-mapping', () => ({
@@ -245,6 +247,10 @@ beforeEach(() => {
     }
     return state
   })
+  mockLoadAddressRow.mockReset().mockImplementation(async (_em: EntityManager, _scope: unknown, addressId: string) => {
+    const row = addresses.get(addressId)
+    return row ? { ...row } : null
+  })
   mockStoreMapping.mockReset().mockImplementation(async (_integrationId: string, _type: string, localId: string, externalId: string) => {
     addressMappings.set(externalId, localId)
   })
@@ -316,6 +322,27 @@ describe('createXeroContactWriter', () => {
     expect(commands).toEqual([])
     expect(item).toMatchObject({ action: 'skip', data: { localId: 'e-mapped' } })
     expect(indexLoads).toBe(0)
+  })
+
+  it('runs no command for an unchanged mapped Contact but still warns of the Xero value it left out', async () => {
+    storeCompany({
+      entityId: 'e-mapped',
+      displayName: 'Acme Ltd',
+      legalName: 'Acme Ltd',
+      primaryEmail: 'old@acme.example',
+      primaryPhone: '+44 20 7946 0000',
+      custom: { xero_contact_id: externalIdOf('c1') },
+    })
+    mappings.set(externalIdOf('c1'), 'e-mapped')
+
+    const [item] = await writePage(createWriter(), [record('c1', { EmailAddress: 'not an email' })])
+
+    expect(commands).toEqual([])
+    expect(item).toMatchObject({ action: 'skip', data: { localId: 'e-mapped' } })
+    expect(companies.get('e-mapped')?.primaryEmail).toBe('old@acme.example')
+    expect(logWrites).toEqual([
+      expect.objectContaining({ level: 'warn', code: 'xero.value_left_out', payload: { sourceIdentifier: externalIdOf('c1'), entityIds: ['e-mapped'], field: 'primaryEmail' } }),
+    ])
   })
 
   it('updates only the Xero-owned values that differ and never sends an OM-only key', async () => {
@@ -801,6 +828,56 @@ describe('createXeroContactWriter', () => {
       expect(addresses.get('a-moved')).toEqual({ id: 'a-moved', entityId: 'e-someone-else', addressLine1: 'Old line' })
       expect(addresses.get('a-user')).toEqual({ id: 'a-user', entityId, addressLine1: 'User line', isPrimary: true })
       expect(commands.some((command) => 'isPrimary' in command.input && command.input.isPrimary === true)).toBe(false)
+    })
+
+    it('leaves a row a user moved to another customer after the page was read untouched and maps a new row instead', async () => {
+      const entityId = mappedCompany('c1')
+      addresses.set('a-street', { id: 'a-street', entityId, addressLine1: '1 High Street', city: 'Leeds', postalCode: 'SW1A 1AA', country: 'GB' })
+      addressMappings.set(`${externalIdOf('c1')}:STREET`, 'a-street')
+      const writer = createWriter()
+      const contactRecord = record('c1', { Addresses: [street] })
+
+      await writer.preparePage([contactRecord])
+      addresses.set('a-street', { ...addresses.get('a-street')!, entityId: 'e-someone-else', city: 'Manchester' })
+      const item = await writer.write(contactRecord)
+
+      expect(commands.map((command) => command.id)).toEqual(['customers.addresses.create'])
+      expect(commands[0].input).toMatchObject({ entityId, purpose: 'office', isPrimary: false, city: 'London' })
+      expect(addresses.get('a-street')).toEqual({ id: 'a-street', entityId: 'e-someone-else', addressLine1: '1 High Street', city: 'Manchester', postalCode: 'SW1A 1AA', country: 'GB' })
+      const repointed = addressMappings.get(`${externalIdOf('c1')}:STREET`)
+      expect(repointed).not.toBe('a-street')
+      expect(addresses.get(String(repointed))).toMatchObject({ entityId, city: 'London' })
+      expect(item).toMatchObject({ action: 'update', data: { localId: entityId } })
+    })
+
+    it('writes nothing when the re-read row already holds the Xero values', async () => {
+      const entityId = mappedCompany('c1')
+      addresses.set('a-street', { id: 'a-street', entityId, addressLine1: '1 High Street', city: 'Leeds', postalCode: 'SW1A 1AA', country: 'GB' })
+      addressMappings.set(`${externalIdOf('c1')}:STREET`, 'a-street')
+      const writer = createWriter()
+      const contactRecord = record('c1', { Addresses: [street] })
+
+      await writer.preparePage([contactRecord])
+      addresses.set('a-street', { ...addresses.get('a-street')!, city: 'London' })
+      const item = await writer.write(contactRecord)
+
+      expect(commands).toEqual([])
+      expect(item).toMatchObject({ action: 'skip', data: { localId: entityId } })
+    })
+
+    it('runs no command for an unchanged address but still warns of a country it kept as written', async () => {
+      const entityId = mappedCompany('c1')
+      addresses.set('a-pobox', { id: 'a-pobox', entityId, addressLine1: 'PO Box 12', country: 'Narnia' })
+      addressMappings.set(`${externalIdOf('c1')}:POBOX`, 'a-pobox')
+
+      const [item] = await writePage(createWriter(), [record('c1', { Addresses: [pobox] })])
+
+      expect(commands).toEqual([])
+      expect(mockLoadAddressRow).not.toHaveBeenCalled()
+      expect(item).toMatchObject({ action: 'skip', data: { localId: entityId } })
+      expect(logWrites).toEqual([
+        expect.objectContaining({ level: 'warn', code: 'xero.address_country_unrecognised', payload: { sourceIdentifier: `${externalIdOf('c1')}:POBOX`, entityIds: [entityId], field: 'country' } }),
+      ])
     })
 
     it('writes no address for a GDPR-redacted or merged-away Contact', async () => {

@@ -3,9 +3,10 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { MikroORM, PostgreSqlDriver, type EntityManager } from '@mikro-orm/postgresql'
 import type { StartedTestContainer } from 'testcontainers'
 import * as customersEntities from '@open-mercato/core/modules/customers/data/entities'
-import { CustomerCompanyProfile, CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
+import { CustomerAddress, CustomerCompanyProfile, CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { defaultEncryptionMaps } from '@open-mercato/core/modules/customers/encryption'
 import '@open-mercato/core/modules/customers/commands/companies'
+import '@open-mercato/core/modules/customers/commands/addresses'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import * as customFieldEntities from '@open-mercato/core/modules/entities/data/entities'
 import { upsertCanonicalEncryptionMap } from '@open-mercato/core/modules/entities/lib/encryption-maps'
@@ -20,11 +21,11 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import type { ImportItem } from '@open-mercato/core/modules/data_sync/lib/adapter'
-import { XERO_INTEGRATION_ID } from '../lib/constants'
-import { buildXeroCommandContext, createXeroContactWriter } from '../lib/contacts/company-writer'
+import { XERO_ADDRESS_MAPPING_TYPE, XERO_INTEGRATION_ID } from '../lib/constants'
+import { buildXeroCommandContext, createXeroContactWriter, type XeroContactWriter } from '../lib/contacts/company-writer'
 import { createLazyXeroCompanyIndexes, loadXeroCompanyIndexSources } from '../lib/contacts/indexes'
 import { loadXeroRunIndex } from '../lib/contacts/preload'
-import { formatContactExternalId } from '../lib/external-ids'
+import { formatAddressExternalId, formatContactExternalId } from '../lib/external-ids'
 import { ensureXeroFieldDefinitions } from '../lib/field-definitions'
 import type { XeroContactRecord } from '../lib/keyset'
 import type { XeroScope } from '../lib/owner'
@@ -45,6 +46,7 @@ const XERO_ORGANISATION_ID = 'a3b1c2d3-0000-4000-8000-000000000001'
 type TestOrm = MikroORM<PostgreSqlDriver, EntityManager<PostgreSqlDriver>>
 
 type StoredCompany = { entityId: string; displayName: string | null; taxId: string | null }
+type StoredAddress = { id: string; entityId: string; addressLine1: string; city: string | null; isPrimary: boolean }
 
 function entityClasses(module: Record<string, unknown>): Array<new () => object> {
   return Object.values(module).filter((value): value is new () => object => typeof value === 'function')
@@ -106,11 +108,19 @@ describeWithPostgres('Xero Contacts written as Companies through the customers c
   }
 
   async function runPage(scope: XeroScope, records: XeroContactRecord[]): Promise<ImportItem[]> {
+    const writer = await createWriter(scope)
+    await writer.preparePage(records)
+    const items: ImportItem[] = []
+    for (const record of records) items.push(await writer.write(record))
+    return items
+  }
+
+  async function createWriter(scope: XeroScope): Promise<XeroContactWriter> {
     const em = fork()
     const container = requestContainer(em)
     await ensureXeroFieldDefinitions({ em: em.fork(), cache: undefined, scope })
     const runIndex = await loadXeroRunIndex(em.fork(), scope)
-    const writer = createXeroContactWriter({
+    return createXeroContactWriter({
       em,
       scope,
       xeroOrganisationId: XERO_ORGANISATION_ID,
@@ -121,10 +131,29 @@ describeWithPostgres('Xero Contacts written as Companies through the customers c
       runIndex,
       indexes: createLazyXeroCompanyIndexes(() => loadXeroCompanyIndexSources(em.fork(), scope), runIndex.isMapped),
     })
-    await writer.preparePage(records)
-    const items: ImportItem[] = []
-    for (const record of records) items.push(await writer.write(record))
-    return items
+  }
+
+  async function executeAsUser<TResult>(scope: XeroScope, commandId: string, input: Record<string, unknown>): Promise<TResult> {
+    const container = requestContainer(fork())
+    const ctx: CommandRuntimeContext = { ...buildXeroCommandContext(container, scope), syncOrigin: null }
+    const { result } = await new CommandBus().execute<Record<string, unknown>, TResult>(commandId, { input, ctx })
+    return result
+  }
+
+  async function readAddress(scope: XeroScope, addressId: string): Promise<StoredAddress | null> {
+    const row = await findOneWithDecryption(fork(), CustomerAddress, { id: addressId }, {}, scope)
+    return row ? { id: row.id, entityId: row.entity.id, addressLine1: row.addressLine1, city: row.city ?? null, isPrimary: row.isPrimary } : null
+  }
+
+  async function readAddressMapping(scope: XeroScope, addressExternalId: string): Promise<string | null> {
+    const mapping = await findOneWithDecryption(
+      fork(),
+      SyncExternalIdMapping,
+      { integrationId: XERO_INTEGRATION_ID, internalEntityType: XERO_ADDRESS_MAPPING_TYPE, externalId: addressExternalId, deletedAt: null },
+      {},
+      scope,
+    )
+    return mapping?.internalEntityId ?? null
   }
 
   async function readCompanies(scope: XeroScope): Promise<StoredCompany[]> {
@@ -276,5 +305,48 @@ describeWithPostgres('Xero Contacts written as Companies through the customers c
       { entityId: createdId, displayName: 'John Roe Services', taxId: null },
     ])
     expect(await readLogCodes(scope)).not.toContain('xero.value_left_out')
+  }, CASE_TIMEOUT_MS)
+
+  it('leaves an address a user moved to another Company after the page preload untouched and maps a new row', async () => {
+    const scope = await createScope()
+    const contactId = randomUUID()
+    const addressExternalId = formatAddressExternalId(XERO_ORGANISATION_ID, contactId, 'STREET')
+    const street = (city: string) => ({ Addresses: [{ AddressType: 'STREET', AddressLine1: '1 High Street', City: city, Country: 'GB' }] })
+
+    const [created] = await runPage(scope, [contact(contactId, street('Leeds'))])
+    const companyId = String(created.data?.localId)
+    const xeroAddressId = await readAddressMapping(scope, addressExternalId)
+    expect(xeroAddressId).not.toBeNull()
+    const otherCompanyId = await createCompany(scope, 'Other Company', 'OTHER-1')
+
+    const changed = contact(contactId, street('London'))
+    const writer = await createWriter(scope)
+    await writer.preparePage([changed])
+    await executeAsUser(scope, 'customers.addresses.update', {
+      id: xeroAddressId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      entityId: otherCompanyId,
+      city: 'Manchester',
+    })
+    const item = await writer.write(changed)
+
+    expect(item).toMatchObject({ action: 'update', data: { localId: companyId } })
+    expect(await readAddress(scope, String(xeroAddressId))).toEqual({
+      id: xeroAddressId,
+      entityId: otherCompanyId,
+      addressLine1: '1 High Street',
+      city: 'Manchester',
+      isPrimary: false,
+    })
+    const repointedId = await readAddressMapping(scope, addressExternalId)
+    expect(repointedId).not.toBe(xeroAddressId)
+    expect(await readAddress(scope, String(repointedId))).toEqual({
+      id: repointedId,
+      entityId: companyId,
+      addressLine1: '1 High Street',
+      city: 'London',
+      isPrimary: false,
+    })
   }, CASE_TIMEOUT_MS)
 })

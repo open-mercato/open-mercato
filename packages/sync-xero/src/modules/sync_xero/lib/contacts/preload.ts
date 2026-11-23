@@ -137,17 +137,31 @@ export async function loadXeroAddressState(em: EntityManager, scope: XeroScope, 
     {},
     scope,
   )
-  for (const row of rows) {
-    state.addresses.set(row.id, {
-      id: row.id,
-      entityId: row.entity.id,
-      addressLine1: row.addressLine1,
-      addressLine2: row.addressLine2 ?? null,
-      city: row.city ?? null,
-      region: row.region ?? null,
-      postalCode: row.postalCode ?? null,
-      country: row.country ?? null,
-    })
-  }
+  for (const row of rows) state.addresses.set(row.id, toAddressSnapshot(row))
   return state
+}
+
+/** Re-reads one Xero-owned row as it is now, so a write never trusts a page preload for the row's owner. */
+export async function loadXeroAddressRow(em: EntityManager, scope: XeroScope, addressId: string): Promise<AddressSnapshot | null> {
+  const [row] = await findWithDecryption(
+    em,
+    CustomerAddress,
+    { id: addressId, organizationId: scope.organizationId, tenantId: scope.tenantId },
+    {},
+    scope,
+  )
+  return row ? toAddressSnapshot(row) : null
+}
+
+function toAddressSnapshot(row: CustomerAddress): AddressSnapshot {
+  return {
+    id: row.id,
+    entityId: row.entity.id,
+    addressLine1: row.addressLine1,
+    addressLine2: row.addressLine2 ?? null,
+    city: row.city ?? null,
+    region: row.region ?? null,
+    postalCode: row.postalCode ?? null,
+    country: row.country ?? null,
+  }
 }

@@ -13,14 +13,28 @@ import { formatAddressExternalId, formatContactExternalId } from '../external-id
 import type { XeroContactRecord } from '../keyset'
 import type { XeroScope } from '../owner'
 import { XERO_MERGED_INTO_FIELD } from '../field-definitions'
-import { diffAddress, mapXeroAddresses, XERO_ADDRESS_PURPOSE, XERO_ADDRESS_TYPES, type XeroAddressWarning } from './addresses'
+import {
+  diffAddress,
+  mapXeroAddresses,
+  XERO_ADDRESS_PURPOSE,
+  XERO_ADDRESS_TYPES,
+  type MappedXeroAddress,
+  type XeroAddressWarning,
+} from './addresses'
 import { claimCompanyMapping } from './claim'
 import { buildCompanyCreateInput, diffCompanyUpdate, resolveCompanyStatus, type CompanySnapshot, type CompanyWriteInput } from './compare'
 import { parseXeroContact, type XeroContact } from './contact'
 import { loadXeroCompanyIndexSources, normalizeTaxNumber, type XeroCompanyIndexes } from './indexes'
 import { mapXeroContactToCompany, type MappedXeroCompany, type XeroValueWarning } from './mapping'
 import { findXeroOrphanedCompanies } from './orphans'
-import { emptyXeroAddressState, loadCompanySnapshots, loadXeroAddressState, loadXeroRunIndex, type XeroRunIndex } from './preload'
+import {
+  emptyXeroAddressState,
+  loadCompanySnapshots,
+  loadXeroAddressRow,
+  loadXeroAddressState,
+  loadXeroRunIndex,
+  type XeroRunIndex,
+} from './preload'
 import { classifyXeroContact } from './rules'
 
 const MAX_CLAIM_ATTEMPTS = 20
@@ -155,49 +169,68 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
   /**
    * App Spec § 6.2a "Addresses": per Xero address type, the mapped row is updated where a value
    * differs while it still exists and belongs to the Company; otherwise a row is created (never primary) and
-   * the mapping re-pointed to it. Every other address row of the Company is the user's.
+   * the mapping re-pointed to it. Every other address row of the Company is the user's. An address's
+   * warnings are logged whether or not it is written.
    */
   async function writeAddresses(contact: XeroContact, entityId: string): Promise<boolean> {
     let written = false
     for (const address of mapXeroAddresses(contact)) {
       const addressExternalId = formatAddressExternalId(xeroOrganisationId, contact.ContactID, address.addressType)
-      const mappedAddressId = pageAddresses.addressIdByExternalId.get(addressExternalId) ?? null
-      const known = mappedAddressId ? pageAddresses.addresses.get(mappedAddressId) ?? null : null
-      const current = known && known.entityId === entityId ? known : null
-      const update = current ? diffAddress(address, current) : null
-      if (current && !update) continue
-      if (current && update && (await updateExistingAddress(current.id, update))) {
-        pageAddresses.addresses.set(current.id, { ...current, ...update })
-      } else {
-        const created = await execute<{ addressId: string }>('customers.addresses.create', {
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
-          entityId,
-          purpose: XERO_ADDRESS_PURPOSE[address.addressType],
-          isPrimary: false,
-          ...address.values,
-        })
-        try {
-          await createExternalIdMappingService(deps.em.fork()).storeExternalIdMapping(
-            XERO_INTEGRATION_ID,
-            XERO_ADDRESS_MAPPING_TYPE,
-            created.addressId,
-            addressExternalId,
-            scope,
-          )
-        } catch (error) {
-          await deleteUnmappedAddress(created.addressId)
-          throw error
-        }
-        pageAddresses.addressIdByExternalId.set(addressExternalId, created.addressId)
-        pageAddresses.addresses.set(created.addressId, { id: created.addressId, entityId, ...address.values })
-      }
-      written = true
+      if (await writeAddress(address, addressExternalId, entityId)) written = true
       for (const warning of address.warnings) {
         await log('warn', warning.code, { sourceIdentifier: addressExternalId, entityIds: [entityId], field: warning.field })
       }
     }
     return written
+  }
+
+  /**
+   * The page preload only decides whether a write is needed. Before an update the row is read again,
+   * and a row that now belongs to another customer is left untouched: the Company gets a new row.
+   */
+  async function writeAddress(address: MappedXeroAddress, addressExternalId: string, entityId: string): Promise<boolean> {
+    const mappedAddressId = pageAddresses.addressIdByExternalId.get(addressExternalId) ?? null
+    const known = mappedAddressId ? pageAddresses.addresses.get(mappedAddressId) ?? null : null
+    if (known && known.entityId === entityId) {
+      if (!diffAddress(address, known)) return false
+      const current = await loadXeroAddressRow(deps.em.fork(), scope, known.id)
+      if (current && current.entityId === entityId) {
+        pageAddresses.addresses.set(current.id, current)
+        const update = diffAddress(address, current)
+        if (!update) return false
+        if (await updateExistingAddress(current.id, update)) {
+          pageAddresses.addresses.set(current.id, { ...current, ...update })
+          return true
+        }
+      }
+    }
+    await createOwnedAddress(address, addressExternalId, entityId)
+    return true
+  }
+
+  async function createOwnedAddress(address: MappedXeroAddress, addressExternalId: string, entityId: string): Promise<void> {
+    const created = await execute<{ addressId: string }>('customers.addresses.create', {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      entityId,
+      purpose: XERO_ADDRESS_PURPOSE[address.addressType],
+      isPrimary: false,
+      ...address.values,
+    })
+    try {
+      await createExternalIdMappingService(deps.em.fork()).storeExternalIdMapping(
+        XERO_INTEGRATION_ID,
+        XERO_ADDRESS_MAPPING_TYPE,
+        created.addressId,
+        addressExternalId,
+        scope,
+      )
+    } catch (error) {
+      await deleteUnmappedAddress(created.addressId)
+      throw error
+    }
+    pageAddresses.addressIdByExternalId.set(addressExternalId, created.addressId)
+    pageAddresses.addresses.set(created.addressId, { id: created.addressId, entityId, ...address.values })
   }
 
   async function updateExistingAddress(addressId: string, update: Record<string, unknown>): Promise<boolean> {
@@ -217,8 +250,8 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
     if (update) {
       if (!(await updateExistingCompany(entityId, companyInput(update)))) return refuseDeleted(externalId, entityId)
       pageSnapshots.delete(entityId)
-      await logValueWarnings(company, externalId, entityId)
     }
+    await logValueWarnings(company, externalId, entityId)
     const addressesWritten = await writeAddresses(contact, entityId)
     return item(externalId, update || addressesWritten ? 'update' : 'skip', { localId: entityId })
   }
