@@ -716,5 +716,5 @@ STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/to
 
 ## #10331 #10332 (2026-11-23)
 
-STABLE parser/SQL: no bridge. [Migrate](UPGRADE_NOTES.md).
+STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
 

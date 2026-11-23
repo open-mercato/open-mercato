@@ -109,6 +109,27 @@ describe('DefaultAnalyticsRegistry security hardening (#10332)', () => {
     })
   })
 
+  it('requires a declared feature list before making an analytics entity available', () => {
+    const moduleConfig = buildBaseModuleConfig()
+    const [entity] = moduleConfig.entities
+    const registry = createAnalyticsRegistry([moduleConfig])
+
+    expect(registry.isValidEntityType(entity.entityId)).toBe(true)
+    expect(registry.getRequiredFeatures(entity.entityId)).toEqual(['sales.orders.view'])
+
+    Reflect.deleteProperty(entity, 'requiredFeatures')
+    expect(registry.isValidEntityType(entity.entityId)).toBe(false)
+    expect(registry.getAllEntityConfigs()).toEqual([])
+    expect(registry.getFieldMapping(entity.entityId, 'amount')).toBeNull()
+
+    entity.requiredFeatures = ['']
+    expect(registry.isValidEntityType(entity.entityId)).toBe(false)
+
+    entity.requiredFeatures = []
+    expect(registry.isValidEntityType(entity.entityId)).toBe(true)
+    expect(registry.getRequiredFeatures(entity.entityId)).toEqual([])
+  })
+
   it('rejects invalid tableName, schema, dbColumn, and labelResolver identifiers', () => {
     const badTable = buildBaseModuleConfig()
     badTable.entities[0].entityConfig.tableName = 'sales_orders; DROP TABLE users'

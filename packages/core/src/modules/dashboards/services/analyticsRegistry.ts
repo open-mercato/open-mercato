@@ -31,6 +31,15 @@ function normalizeFieldMapping(mapping: unknown): AnalyticsFieldMapping | null {
   return normalized
 }
 
+function readRequiredFeatures(config: AnalyticsEntityConfig): string[] | null {
+  const features = readOwnProperty(config, 'requiredFeatures')
+  if (!Array.isArray(features)) return null
+  for (const feature of features) {
+    if (typeof feature !== 'string' || !feature) return null
+  }
+  return features
+}
+
 export class DefaultAnalyticsRegistry implements AnalyticsRegistry {
   private configs: AnalyticsModuleConfig[]
   private entityConfigMap: Map<string, AnalyticsEntityConfig>
@@ -54,15 +63,16 @@ export class DefaultAnalyticsRegistry implements AnalyticsRegistry {
   }
 
   getAllEntityConfigs(): AnalyticsEntityConfig[] {
-    return Array.from(this.entityConfigMap.values())
+    return Array.from(this.entityConfigMap.values()).filter((config) => readRequiredFeatures(config) !== null)
   }
 
   getEntityConfig(entityId: string): AnalyticsEntityConfig | null {
-    return this.entityConfigMap.get(entityId) ?? null
+    const config = this.entityConfigMap.get(entityId)
+    return config && readRequiredFeatures(config) !== null ? config : null
   }
 
   isValidEntityType(entityId: string): boolean {
-    return this.entityConfigMap.has(entityId)
+    return this.getEntityConfig(entityId) !== null
   }
 
   getEntityTypeConfig(entityId: string): AnalyticsEntityTypeConfig | null {
@@ -99,9 +109,8 @@ export class DefaultAnalyticsRegistry implements AnalyticsRegistry {
   }
 
   getRequiredFeatures(entityId: string): string[] | null {
-    const config = this.getEntityConfig(entityId)
-    const requiredFeatures = readOwnProperty(config, 'requiredFeatures')
-    return Array.isArray(requiredFeatures) ? requiredFeatures : null
+    const config = this.entityConfigMap.get(entityId)
+    return config ? readRequiredFeatures(config) : null
   }
 
   getLabelResolverConfig(entityId: string, field: string): AnalyticsLabelResolverConfig | null {

@@ -161,6 +161,10 @@ rejected before any database connection call; valid schema-qualified configurati
 path grouping remain unchanged. Third-party analytics modules using non-identifier fragments
 must migrate to plain SQL identifiers or views.
 
+An analytics entity is queryable only when it declares `requiredFeatures` as an own
+array of nonempty feature IDs. An explicit empty array keeps the route's baseline
+dashboard permission without adding entity-specific requirements.
+
 ## Caching
 
 Widget data responses are cached with 2-minute TTL. The cache system automatically falls back to in-memory storage if Redis is not configured.
