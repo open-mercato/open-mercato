@@ -333,6 +333,8 @@
   "auth.acl.features.sales.shipments.manage": "Zarządzaj wysyłkami zamówień",
   "auth.acl.features.sales.widgets.new-orders": "Wyświetl widżet nowych zamówień",
   "auth.acl.features.sales.widgets.new-quotes": "Wyświetl widżet nowych ofert",
+  "auth.acl.features.sales_invoices_gl_posting.invoices.post": "Księguj faktury sprzedaży w księdze głównej",
+  "auth.acl.features.sales_invoices_gl_posting.settings.manage": "Zarządzaj kontami księgowania faktur sprzedaży",
   "auth.acl.features.scheduler.jobs.manage": "Zarządzaj harmonogramami",
   "auth.acl.features.scheduler.jobs.trigger": "Uruchamiaj harmonogramy",
   "auth.acl.features.scheduler.jobs.view": "Wyświetl harmonogramy",

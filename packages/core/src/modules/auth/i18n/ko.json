@@ -333,6 +333,8 @@
   "auth.acl.features.sales.shipments.manage": "Manage order shipments",
   "auth.acl.features.sales.widgets.new-orders": "View new orders widget",
   "auth.acl.features.sales.widgets.new-quotes": "View new quotes widget",
+  "auth.acl.features.sales_invoices_gl_posting.invoices.post": "판매 송장을 총계정원장에 전기",
+  "auth.acl.features.sales_invoices_gl_posting.settings.manage": "판매 송장 전기 계정 관리",
   "auth.acl.features.scheduler.jobs.manage": "Manage schedules",
   "auth.acl.features.scheduler.jobs.trigger": "Trigger schedules",
   "auth.acl.features.scheduler.jobs.view": "View schedules",

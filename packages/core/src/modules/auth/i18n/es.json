@@ -333,6 +333,8 @@
   "auth.acl.features.sales.shipments.manage": "Administrar envíos de pedidos",
   "auth.acl.features.sales.widgets.new-orders": "Ver widget de pedidos nuevos",
   "auth.acl.features.sales.widgets.new-quotes": "Ver widget de cotizaciones nuevas",
+  "auth.acl.features.sales_invoices_gl_posting.invoices.post": "Contabilizar facturas de venta en el libro mayor",
+  "auth.acl.features.sales_invoices_gl_posting.settings.manage": "Gestionar las cuentas de contabilización de facturas de venta",
   "auth.acl.features.scheduler.jobs.manage": "Administrar tareas programadas",
   "auth.acl.features.scheduler.jobs.trigger": "Ejecutar tareas programadas",
   "auth.acl.features.scheduler.jobs.view": "Ver tareas programadas",

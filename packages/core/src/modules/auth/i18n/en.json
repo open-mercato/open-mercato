@@ -333,6 +333,8 @@
   "auth.acl.features.sales.shipments.manage": "Manage order shipments",
   "auth.acl.features.sales.widgets.new-orders": "View new orders widget",
   "auth.acl.features.sales.widgets.new-quotes": "View new quotes widget",
+  "auth.acl.features.sales_invoices_gl_posting.invoices.post": "Post sales invoices to the General Ledger",
+  "auth.acl.features.sales_invoices_gl_posting.settings.manage": "Manage sales invoice posting accounts",
   "auth.acl.features.scheduler.jobs.manage": "Manage schedules",
   "auth.acl.features.scheduler.jobs.trigger": "Trigger schedules",
   "auth.acl.features.scheduler.jobs.view": "View schedules",
