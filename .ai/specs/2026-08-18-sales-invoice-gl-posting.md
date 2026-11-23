@@ -1,26 +1,16 @@
 # Sales Invoice GL Posting
 
-**Related:** [General Ledger core engine](https://github.com/open-mercato/open-mercato/pull/5663)
-(the engine this posts into — depended on for `postJournalEntry`,
-`documentType`, `LedgerAccount`, and `JournalEntryLine.contractorSnapshot`),
-[Accounts Payable](https://github.com/open-mercato/open-mercato/pull/5962) (the closest
-structural analog — the buy-side mirror of this document, and the
-source of the posting-mechanics pattern reused here), [Contractor
-Registry](https://github.com/open-mercato/open-mercato/pull/5955) (optional peer — names
-this document as an indirect, not-yet-designed consumer; see Design
-decisions for what "indirect" actually means and what is resolved
-here)
-
-**Depends on unmerged PRs — added, maintainer-review round (M2).** All
-three documents above are open, unmerged PRs, not files in this repo's
-`.ai/specs/` yet — linked by PR number rather than by filename for
-exactly that reason. `ledger` (the module `requires` names below) is
-likewise not yet present under `packages/core/src/modules/`. This is a
-real merge-ordering dependency, not an oversight: this document cannot
-actually function until #5663 (hard dependency) merges, and its
-`contractors` integration and posting-mechanics precedent assume
-#5955/#5962 land too. Left for the maintainer to sequence merges — see
-Risks & Impact Review.
+**Dependencies and delivery (2026-11-23).** The [General Ledger design](https://github.com/open-mercato/open-mercato/pull/5663)
+and its [implementation](https://github.com/open-mercato/open-mercato/pull/9860)
+are open. Posting requires the deployed ledger command and event contract.
+[Accounts Payable](https://github.com/open-mercato/open-mercato/pull/5962) is a
+design precedent. The [Contractor Registry proposal](https://github.com/open-mercato/open-mercato/pull/5955)
+closed unmerged on 2026-11-15. Main has no `contractors` module. Phase 1 can
+ship and post invoices without it. An explicitly supplied contractor requires
+a live, scoped registry lookup (Design Decisions).
+[Multi-Currency](https://github.com/open-mercato/open-mercato/pull/6190) is
+open. Phase 1 initially posts base-currency invoices only. The planned FX
+path activates when Sales ships the stored invoice exchange rate.
 
 > **Second-round review (2026-10-09, `@adeptofvoltron`, head `40badbe9`).**
 > Found one blocker, one major, two minors and four nits. The blocker:
@@ -46,9 +36,8 @@ Accounts Payable, this module does not own or duplicate the invoice —
 `sales.SalesInvoice`/`SalesInvoiceLine` already exist as real,
 shipped entities; this document is the thin write path from that real
 data into `ledger`, plus the minimal additive bookkeeping needed to
-track what has been posted. Named and blocked-pending in #5663's Out
-of scope and referenced by #5962 and Contractor Registry since
-2026-09-06 — never written until now.
+track what has been posted. Initial delivery supports base-currency invoices.
+Foreign-currency posting requires the stored rate in Sales (Design Decisions).
 
 ## Overview
 
@@ -117,8 +106,8 @@ account assignment, it reads the invoice and its lines directly from
 to its assigned revenue account (net amount), one aggregated credit
 line to the configured output-VAT account (sum of `taxAmount`), and
 one debit line to the configured receivable control account (the
-invoice's gross total; when the invoice is in a foreign currency each line is
-converted at the invoice's stored rate and a rounding line balances the
+invoice's gross total; after the Sales invoice-rate column ships, each
+foreign-currency line is converted at the stored rate and a rounding line balances the
 entry — Design decisions, "Foreign-currency invoice"). A new, minimal `SalesInvoiceGlPosting` record
 tracks the link from the invoice to its `JournalEntry` (idempotency,
 and the lookup a reversal needs); an optional `SalesInvoiceLineRevenueAccount`
@@ -243,15 +232,14 @@ invariant already holding, since it never wrote the invoice and
 `sales` enforces no such identity. Resolution:
 `postSalesInvoiceToLedger` validates
 `grandTotalGrossAmount === Σ(line.totalNetAmount) + Σ(line.taxAmount)`
-immediately before posting — compared exactly, with both sides
-converted to integer minor units (scale 4, `BigInt`), the technique
-`ledger` already uses in `toMinorUnits`. Never with a bare `===` on the
-numeric-string columns, since Postgres returns e.g. `'0.0000'`, and
-never through `toNumber`: the `toNumber` functions in `sales` are
-private, per-file helpers that return a JS `number`, not a shared
-decimal helper, so a float comparison would reintroduce the
-rounding problem. A shared decimal library is proposed in #7324 and is
-not merged, so this module does not depend on it. The check rejects
+immediately before posting. Use the shared decimal toolkit from
+`@open-mercato/shared/lib/decimal`, merged in [#7324](https://github.com/open-mercato/open-mercato/pull/7324).
+Use `sumDecimals` and `addDecimals` for the two sums and `decimalsEqual`
+for equality at the stored invoice precision. For example, `'1.2'` and
+`'1.2000'` compare equal. Do all arithmetic on decimal inputs and serialize
+at the ledger boundary with `decimalToString`.
+
+The check rejects
 with a readable error on any mismatch. This replaces, and is
 strictly stronger than, an earlier `discountTotalAmount === 0` guard:
 that guard caught only header discounts, while the real precondition
@@ -314,16 +302,19 @@ organizationId, tenantId }` (a direct entity read, the same
 established precedent) and rejects with a readable error if no match
 exists. `currencies` joins `requires` as a third hard dependency (see
 Module Dependency) — multi-currency exchange-rate handling itself
-stays out of scope (see Out of scope).
+is gated on the stored invoice rate as described below.
 
-**Foreign-currency invoice is a Phase 1 capability, and it is the command —
-not `ledger` — that decides the amounts (revised 2026-11-19).** #5663 stores a
-currency, a rate and an original-currency amount on every `JournalEntryLine`
-(GL core engine, Design decisions, "Multi-currency"). This section is the
-single, authoritative Phase 1 FX algorithm; Commands, Invariants, API
-Contracts, Module Config and Testing Strategy implement exactly this text and
-do not restate a different one. It applies only when the invoice's currency
-differs from the tenant's base currency.
+**Foreign-currency invoice delivery.** Main has `SalesOrder.exchangeRate` and
+no `SalesInvoice.exchangeRate`. Until Sales deploys its proposed invoice
+column, Phase 1 accepts only base-currency invoices. A non-base invoice
+returns 422 `EXCHANGE_RATE_MISSING` before a journal entry, sequence number,
+posting row or event is created. This version must run against the shipped
+invoice schema without selecting the proposed column. An order rate, live FX
+quote and caller-supplied rate are all ineligible substitutes.
+
+Once Sales deploys the invoice column, enable the following Phase 1 algorithm
+for invoices with a positive stored rate. Invoices with a missing or invalid
+rate still receive the same 422, including older invoices awaiting backfill.
 
 - **Base currency.** `postSalesInvoiceToLedger` resolves the base currency by
   reading `currencies.Currency` for `{ tenantId, organizationId, isBase: true,
@@ -342,8 +333,8 @@ differs from the tenant's base currency.
 - **Per-line conversion.** Every line (revenue, output VAT, receivable) keeps
   `amountCurrency` — its amount in the invoice currency — next to
   `debit`/`credit`, which are `amountCurrency × exchangeRate` rounded half up
-  to the base currency's minor units (the half-unit rule `ledger` itself
-  applies). GL independently rejects a foreign-currency line that lacks
+  to the base currency's minor units with `multiplyDecimals` and
+  `roundDecimal` at the base currency's configured precision. GL independently rejects a foreign-currency line that lacks
   `amountCurrency` or a rate; the command never relies on that as its only
   guard, which is why the two rejections above are its own.
 - **Rounding remainder (decided by the team 2026-10-23; not yet reviewed by a
@@ -364,9 +355,10 @@ differs from the tenant's base currency.
   `currencyId` (controller, e-mail of 2026-10-23: settlement accounts are kept
   in the base currency); setting a currency on it would reject every line in
   another currency.
-- **A base-currency invoice bypasses all of this**: no `amountCurrency`, no
-  rate, no rounding line, and the posted amounts are the invoice amounts
-  unchanged.
+- **Base-currency input.** Supply the source currency and unchanged debit/credit
+  amounts. The command can omit the rate and original amount in its input.
+  Ledger resolves each result/event line to the base currency, rate `'1'` and
+  `amountCurrency` equal to its nonzero side. No rounding line is needed.
 
 **Update (2026-09-17, revised 2026-10-15):** the Multi-Currency spec
 ([#6190](https://github.com/open-mercato/open-mercato/pull/6190)) proposes adding
@@ -430,25 +422,17 @@ a `SalesCustomerContractorLink` table, or a new column on either
 entity this module doesn't own — would be exactly the kind of
 speculative design this project's own discipline avoids (no confirmed
 consumer need for *automatic* resolution has been named anywhere).
-Resolution: `postSalesInvoiceToLedger` accepts an optional
-`contractorId` (FK-id to `contractors.Contractor`, resolved via
-`tryResolve` — the same optional-peer mechanism
-`accounts_payable_payments` (the sibling of the AP document cited
-above, not that document itself — corrected citation) already uses for
-its own `contractorBankWhitelistCheck`, since `contractors` may not be
-installed for every tenant). **The policy differs deliberately, not by
-oversight**: `accounts_payable_payments` fails *closed* — a missing
-module or a failed live check blocks the payment outright, because
-that call is a fraud-prevention control gating a real money transfer.
-This module's use of `contractorId` is an audit-trail snapshot, not a
-control gating anything; failing closed here would block a legitimate
-sales posting over a missing optional module for no safety reason, so
-this module fails *open* instead (see next). When supplied, the
-receivable line's `contractorSnapshot` is populated the same way AP
-populates its own lines' snapshot. When omitted (no link exists, or
-`contractors` isn't
-installed), the line simply has no `contractorSnapshot` — a real,
-named gap (see Risks), not a silently-guessed one.
+An omitted `contractorId` is always valid. Leave the posting's contractor
+link null and omit the receivable-line snapshot. When an ID is supplied, use
+the optional registry's authorized lookup with **all** of `id`, the posting's
+authenticated `tenantId`, active `organizationId` and `deletedAt: null`,
+and require the contractor to be active. Only then copy its permitted name
+and NIP to the receivable-line snapshot and persist the verified ID. A
+missing, inactive, deleted or out-of-scope contractor, or an unavailable
+registry for an explicit ID, returns the same 422 `CONTRACTOR_OUT_OF_SCOPE`
+before any write or event. Never load or expose a foreign contractor's
+identity to distinguish these cases. With the registry absent on main the
+normal Phase 1 posting omits the ID.
 
 **No subsidiary ledger in Phase 1 — and `sales.SalesInvoice.outstandingAmount`/
 `paidTotalAmount` are not one.** (Corrected in the second-round review;
@@ -481,7 +465,7 @@ document:
 
 **Contract with Cash & Bank Management (#6055): who owns what.** #6055 as
 written posts the receipt itself (DR `BankAccount.ledgerAccountId`, CR this
-module's `receivableAccountId`, read through `ModuleConfigService`) and
+module's `receivableAccountId`, read for the same tenant and organization) and
 emits `cash_bank_management.statement_line.matched`. It then assumes a
 subscriber "owned by `sales_invoice_gl_posting`" that calls
 `sales.payments.create` to keep the invoice's balances right. This document
@@ -514,8 +498,8 @@ only, never the invoice's `outstandingAmount`/`paidTotalAmount`. Resolution:
   only financial module with a hard dependency on `sales`; a `sales`-owned
   subscriber would make `sales` depend on a financial module's event, the
   reverse of the dependency direction, and #6055 deliberately has no `sales`
-  dependency. Phase 1 stays read-only toward `sales`, with no events and no
-  subscribers; until the bridge exists a payment is recorded in `sales`
+  dependency. Phase 1 stays read-only toward `sales` and has no payment
+  subscriber; until the bridge exists a payment is recorded in `sales`
   manually (`POST /api/sales/payments`).
 - **Invoice-balance maintenance — `sales` (OM Core).** The payments commands
   must recompute the invoice's `outstandingAmount`/`paidTotalAmount` from
@@ -590,7 +574,7 @@ this document's scope can fix.
    Management (#6055) has posted against it.** Until #6055 is deployed
    nothing credits the account and the balance equals that sum. For a
    base-currency invoice the debit is `grandTotalGrossAmount`; for a
-   foreign-currency invoice it is the converted base amount per Design
+   foreign-currency invoice posted after the FX dependency ships, it is the converted base amount per Design
    decisions ("Foreign-currency invoice"), and the rounding line stays on
    `roundingAccountId`, not on the receivable. It is deliberately *not*
    compared to `outstandingAmount`, nor to a raw invoice-currency
@@ -703,6 +687,21 @@ Matrix from an earlier independent review pass. No gaps found.
 
 ## Architecture
 
+### Money by layer
+
+`SalesInvoiceGlPosting` and `SalesInvoiceLineRevenueAccount` have no amount
+columns. The posting and settings HTTP responses carry identifiers and
+timestamps only. Sales retains the source invoice amounts. The input to
+`ledger.postJournalEntry` uses ledger's decimal strings for base
+`debit`/`credit` and original-currency `amountCurrency`, with `currencyId`
+and decimal-string `exchangeRate` on each foreign-currency line. Posted
+result/event lines include all five fields even for a base-currency posting.
+Compare amounts numerically with the shared decimal toolkit.
+[Ledger OQ-3](https://github.com/open-mercato/open-mercato/pull/5663)
+records the Phase 1 Money exception. The [Money follow-up](https://github.com/open-mercato/open-mercato/issues/10431)
+adds `Money` alongside the stable fields. This module introduces no competing
+amount type and requires no rewrite of posted entries.
+
 ### Entities (`data/entities.ts`)
 
 - `SalesInvoiceGlPosting` — `salesInvoiceId` (FK-id to
@@ -752,11 +751,9 @@ export const metadata: ModuleInfo = {
 }
 ```
 
-`contractors` is a soft/optional peer, resolved via `tryResolve`, not
-listed in `requires` — the same optional-dependency *shape*
-`accounts_payable_payments` already uses for its own
-`contractorBankWhitelistCheck` (this module's own policy on a missing
-peer differs — fail open, not fail closed — see Design decisions).
+The optional `contractors` service is resolved only for an explicit
+`contractorId`. Base posting requires no contractor service or table.
+See Cross-module integration for the scoped lookup.
 
 ### Encryption (`encryption.ts`)
 
@@ -799,8 +796,7 @@ before the first posting (see Migration & Deployment).
   readable error on the first failure: `issueDate` is not null (see
   Design decisions, "`operationDate` requires a non-null `issueDate`");
   `grandTotalGrossAmount === Σ(line.totalNetAmount) + Σ(line.taxAmount)`,
-  compared exactly in integer minor units (not `===` on the raw
-  numeric-string columns, not `toNumber`)
+  compared using the shared decimal toolkit at the invoice's stored precision
   (see Design decisions, "Header-level discounts are out of scope");
   every `SalesInvoiceLine.kind` is `'product'`, `'service'`, or
   `'shipping'` (see Design decisions, "Line-kind scope");
@@ -809,7 +805,7 @@ before the first posting (see Migration & Deployment).
   an assignment (no fallback account, matching AP's own "manual
   per-line, no default" Phase 1 stance). Resolves
   `receivableAccountId`/`vatOutputAccountId` (and, on demand,
-  `roundingAccountId`) from `ModuleConfigService` through `lib/moduleConfig.ts`
+  `roundingAccountId`) from one scoped settings snapshot through `lib/moduleConfig.ts`
   using the **organization-qualified keys** Module Config defines (rejects
   with a readable configuration error if either required value is unset for
   the active organization, mirroring Accounts Payable's own
@@ -817,9 +813,10 @@ before the first posting (see Migration & Deployment).
   `currencies.Currency` for `{ code: invoice.currencyCode, organizationId,
   tenantId }` (rejects if no match — see Design decisions, "Currency
   resolution"). It then applies the FX step: a base-currency invoice posts
-  its own amounts; for a foreign-currency invoice it resolves the base
-  currency (`isBase: true`), requires `invoice.exchangeRate`, converts each
-  line per Design decisions ("Foreign-currency invoice"), and computes the
+  its own amounts. Until Sales ships the invoice rate, reject a foreign
+  currency with 422 `EXCHANGE_RATE_MISSING`. Once available, read the
+  stored rate, require it to be positive, convert each
+  line per Design decisions ("Foreign-currency invoice"), and compute the
   rounding remainder. Calls
   `commandBus.execute('ledger.postJournalEntry', { input, ctx })` with
   one credit line per `lineAccounts` entry (that line's `totalNetAmount`,
@@ -839,10 +836,11 @@ before the first posting (see Migration & Deployment).
   is validated above, the debit and credit sides of this posting are
   guaranteed equal before `ledger.postJournalEntry` ever sees them —
   a checked precondition on `sales`'s own, unvalidated data, not an
-  assumption (see Design decisions). If
-  `contractorId` is supplied and `contractors` resolves, populates
-  the receivable line's `contractorSnapshot` with that contractor's
-  point-in-time data (name, NIP — same shape AP already uses).
+  assumption (see Design decisions). An explicit `contractorId` must resolve
+  to a live, active contractor in the authenticated tenant and organization
+  before snapshotting (422 `CONTRACTOR_OUT_OF_SCOPE`). Omission leaves the
+  link null and the snapshot absent.
+
   Persists `SalesInvoiceGlPosting` and every `SalesInvoiceLineRevenueAccount`
   row in the same transaction as the `postJournalEntry` call, by this
   mechanism: the command runs inside `em.transactional(tx => …)`, writes
@@ -852,8 +850,9 @@ before the first posting (see Migration & Deployment).
   roll back together. A plain `execute` without `transactionalEm` would
   run in its own unit of work. Because the call is composed,
   `postJournalEntry` does not emit `ledger.journal_entry.posted` itself
-  (#5663: the composing caller emits it); this command emits it after the
-  transaction commits, never before. **Double-click protection** rests on
+  (#5663). Return the ledger command result and validated header from the
+  transaction callback. Only after the outer transaction has successfully
+  committed, publish the existing persistent ledger event as described in Events. **Double-click protection** rests on
   the unique index over `(tenantId, organizationId, salesInvoiceId)`, not
   on the "already posted?" pre-check, which is only a fast path: two
   concurrent requests can both pass the pre-check, and the second one's
@@ -864,12 +863,25 @@ before the first posting (see Migration & Deployment).
 
 ### Events (`events.ts`)
 
-None in Phase 1, and no subscribers (the Phase 2 payment bridge adds one;
-see Design decisions, "Contract with Cash & Bank Management"). No downstream consumer has been named for "a sales
-invoice was posted to the ledger" — adding an event now would be
-speculative (see this project's own discipline against designing
-ahead of a real consumer, applied consistently across every document
-in this family).
+Phase 1 declares no AR-specific event or subscriber. It publishes ledger's
+existing `ledger.journal_entry.posted` for its composed posting. Take
+`journalEntryId`, `sequenceNumber` and the complete serialized `lines` from
+the nested command's `PostJournalEntryResult` (the `result` of
+`commandBus.execute`). Use the same validated input for `type` (`NORMAL`),
+`operationDate` (ISO YYYY-MM-DD), `tenantId`, `organizationId`,
+`referenceType` and `referenceId`. Build the existing
+`LedgerJournalEntryPostedPayload` and call
+`emitLedgerEvent('ledger.journal_entry.posted', payload, { persistent: true })`
+once after the outer commit. The ledger's `emitPostedEvent` takes an internal
+result containing entities. Reusing the public result lines preserves their
+IDs and resolved currency fields without a database reread or a cast.
+
+A rollback or losing duplicate request publishes nothing. Report a post-commit
+enqueue failure with the entry ID and scope for reconciliation. Delivery uses
+the ledger's existing contract. Its planned reconciliation reader (ledger spec
+#5663) uses the committed journal and sequence cursor to recover missed events.
+The accounting entry is already durable and must never be posted again to
+retry delivery. The Phase 2 payment bridge adds a separate subscriber.
 
 ### Cross-module integration
 
@@ -888,20 +900,14 @@ in this family).
   Reads `LedgerAccount` directly (to validate `lineAccounts`/config
   account ids resolve to real accounts) via the same direct-read
   precedent.
-- **`contractors` (optional peer).** Resolved via a per-module local
-  `tryResolve` helper wrapping `container.resolve('contractorRegistryService')`
-  in a try/catch — the exact mechanism `packages/core/AGENTS.md` →
-  Cross-Module Coupling specifies (citing `inbox_ops/subscribers/
-  extractionWorker.ts` as precedent), not a raw
-  `ctx.container.tryResolve(...)` call. The same optional-dependency
-  mechanism `accounts_payable_payments` already documents for its own
-  `contractorBankWhitelistCheck`, deliberately used here with the
-  opposite failure policy (fail open, not fail closed — see Design
-  decisions, since this module has no fraud-prevention control to
-  protect). If `contractors` isn't installed, the helper returns
-  `undefined` and `contractorSnapshot` is simply omitted — no error,
-  no degraded posting (the posting itself never depends on
-  `contractors`).
+- **`contractors` (optional peer).** With no `contractorId`, skip registry
+  resolution entirely. When supplied, resolve the optional scoped registry
+  service via the module-local `tryResolve` pattern. Accept only an active,
+  non-deleted record matching that ID, tenant and organization. If the
+  provider is absent or cannot verify the record, reject the supplied
+  identity with 422 `CONTRACTOR_OUT_OF_SCOPE` and no posting. Registry lookup
+  errors must never cause an unverified ID or snapshot to be persisted.
+
 - **This module is never imported or resolved by `sales`, `ledger`, or
   `contractors`.** One-way dependency direction only, matching
   `packages/core/AGENTS.md`.
@@ -977,7 +983,7 @@ constraint elsewhere in the repo (e.g.
 
 ### Module Config
 
-Three configuration values via `ModuleConfigService`, organized
+Three configuration values in `ModuleConfig`, organized
 **per organization** because the accounts they name are organization-scoped:
 `receivableAccountId` (FK-id to `ledger.LedgerAccount`),
 `vatOutputAccountId` (FK-id to `ledger.LedgerAccount`) and
@@ -1010,14 +1016,35 @@ contract:
   chart of accounts differs, so both required keys start unset for every
   organization until an admin saves them (Migration & Deployment).
 
-The settings page and its GET/PUT route (API Contracts) read and write
-exactly these keys; no other module reads them, so the naming scheme is this
-module's private storage detail rather than a shared contract.
+**Atomic settings read and save.** The module-owned `lib/moduleConfig.ts`
+reads the three qualified rows in **one scoped database query** for GET and
+for posting. This gives each reader one committed configuration snapshot.
+The generic `ModuleConfigService` reads keys individually, supports an
+instance fallback, and its `setValue` flushes one row and updates its cache
+immediately. It offers no atomic batch or compare-and-set.
+
+For PUT, open one database transaction and acquire a PostgreSQL
+transaction-scoped advisory lock keyed by this module, tenant and
+organization **before reading the version**. Use that transaction's
+`EntityManager` throughout. The lock exists even on the first save when
+there are no rows to lock. Read all three qualified rows directly from the
+database, compare their newest `updatedAt` to the request (null requires
+zero rows), and return 409 `CONFLICT` on mismatch. Validate the selected
+accounts and write all three values, including a null rounding account,
+through the same transaction. Assign all three a common millisecond
+timestamp strictly greater than the previous version, including consecutive
+saves in the same millisecond. Set this timestamp explicitly in all three
+row updates so ORM timestamp hooks cannot collapse successive versions.
+Return that version only upon commit. Any
+failure rolls back the complete write. These private keys use the aggregate
+accessor for GET, PUT and invoice posting. Invalidate the three qualified
+keys through the existing service after commit for any other config-service
+readers. No cache operation publishes uncommitted values.
 
 ## API Contracts
 
 - `POST /api/sales_invoices_gl_posting/postings/:salesInvoiceId/post`
-  — the only mutating route. A custom write route, mapped to `update`
+  — the invoice posting route. A custom write route, mapped to `update`
   in the mutation guard registry per `packages/core/AGENTS.md` → API
   Routes (this isn't a field edit, so it doesn't go through
   `makeCrudRoute`) — the same construction Accounts Payable's own
@@ -1038,7 +1065,8 @@ module's private storage detail rather than a shared contract.
   references a line not on the invoice, `receivableAccountId`/
   `vatOutputAccountId`/`currencyId` cannot be resolved for the active
   organization, no live base currency exists (`BASE_CURRENCY_UNRESOLVED`),
-  a foreign-currency invoice has no `exchangeRate` (`EXCHANGE_RATE_MISSING`),
+  a foreign-currency invoice lacks a shipped, positive stored rate (`EXCHANGE_RATE_MISSING`),
+  an explicit contractor ID cannot be verified in scope (`CONTRACTOR_OUT_OF_SCOPE`),
   a rounding difference exists without `roundingAccountId`
   (`ROUNDING_ACCOUNT_UNSET`) or exceeds the tolerance
   (`ROUNDING_DIFFERENCE_TOO_LARGE`), an account id is outside the posting's
@@ -1086,7 +1114,8 @@ module's private storage detail rather than a shared contract.
   `resourceKind: 'sales_invoices_gl_posting.settings'`,
   `resourceId: '<organizationId>'`, `operation: 'update'`. Writes go through
   `lib/moduleConfig.ts` so the organization-qualified keys stay in one place.
-  **Optimistic locking:** when `updatedAt` is supplied it must equal the
+  **Optimistic locking:** apply the Module Config transaction and lock before
+  checking the required `updatedAt` value. A non-null version must equal the
   current version, else 409 `CONFLICT` (surfaced by `CrudForm`'s standard
   conflict bar; the page must send `initialValues.updatedAt`); when it is
   `null` the write is only accepted while no row exists yet, so two admins
@@ -1100,11 +1129,10 @@ module's private storage detail rather than a shared contract.
   for both settings routes is part of the Testing Strategy and ships with the
   implementation.
 
-**Caching:** none in Phase 1. The one read route is a point lookup
+**Caching:** neither Phase 1 read route requires caching. The posting status route is a point lookup
 keyed by the same unique index (`organization_id, tenant_id,
-sales_invoice_id`) that backs the idempotency check in the command —
-low cardinality, no list/aggregate query — so no cache layer, tags, or
-TTL are declared; see the Compliance Matrix below.
+sales_invoice_id`) that backs the idempotency check in the command.
+The settings route reads one organization's three keys in one query.
 
 ## Migration & Deployment
 
@@ -1124,14 +1152,15 @@ configuration is in place.
 1. `SalesInvoiceGlPosting`/`SalesInvoiceLineRevenueAccount` entities +
    migration.
 2. `data/validators.ts` for `postSalesInvoiceToLedger`'s input.
-3. `ModuleConfigService` registration for `receivableAccountId`/
+3. Implement the transaction-scoped settings accessor for `receivableAccountId`/
    `vatOutputAccountId`/`roundingAccountId` through `lib/moduleConfig.ts`'s
    organization-qualified keys, plus the `GET`/`PUT`
    `/api/sales_invoices_gl_posting/settings` routes and the settings page
    (API Contracts, Backend Pages).
 4. `postSalesInvoiceToLedger` command (inside `em.transactional`,
    passing `ctx.transactionalEm`; unique-violation mapped to `409`; the FX
-   conversion and rounding step from Design decisions included) +
+   conversion and rounding step from Design decisions activated only after
+   Sales ships the invoice-rate column) +
    `acl.ts` + `setup.ts`.
 5. `GET /api/sales_invoices_gl_posting/postings/:salesInvoiceId` route
    and `POST /api/sales_invoices_gl_posting/postings/:salesInvoiceId/post`
@@ -1157,8 +1186,8 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
 | `data/entities.ts` | Create | `SalesInvoiceGlPosting`, `SalesInvoiceLineRevenueAccount` |
 | `data/validators.ts` | Create | Zod schema for `postSalesInvoiceToLedger` |
 | `commands/postSalesInvoiceToLedger.ts` | Create | The only mutating command |
-| `lib/moduleConfig.ts` | Create | Registers `receivableAccountId`/`vatOutputAccountId`/`roundingAccountId` |
-| `acl.ts` | Create | One feature |
+| `lib/moduleConfig.ts` | Create | Reads one settings snapshot and atomically saves the three organization-scoped account IDs |
+| `acl.ts` | Create | Invoice posting and settings management features |
 | `setup.ts` | Create | `defaultRoleFeatures`, no seed data |
 | `index.ts` | Create | `requires: ['ledger', 'sales', 'currencies']` |
 | `api/postings/[salesInvoiceId]/route.ts` | Create | `openApi`-documented read route, served at `/api/sales_invoices_gl_posting/postings/:salesInvoiceId` |
@@ -1182,9 +1211,13 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   `receivableAccountId` or `vatOutputAccountId` is unset.
 - Assert a locked `FiscalPeriod` rejects the posting (delegated
   entirely to `ledger.postJournalEntry` — Invariant 4).
-- Assert `contractorSnapshot` is populated when `contractorId` is
-  supplied and `contractors` is installed, and is absent (not
-  guessed) when either is missing.
+- Post without a contractor ID while the peer is absent. Verify the null
+  link and absent snapshot. With a registered peer and a live, active
+  contractor in scope, verify the ID and the receivable-line name/NIP.
+  Repeat with another tenant, another organization, and missing, inactive
+  and soft-deleted records. Also submit an explicit ID with no provider.
+  Each invalid case returns the identical 422 `CONTRACTOR_OUT_OF_SCOPE`,
+  exposes no name/NIP and creates no posting, journal entry or event.
 - Tenant/org-isolation: `SalesInvoiceGlPosting`/
   `SalesInvoiceLineRevenueAccount` reads and writes never cross
   tenant/organization boundaries.
@@ -1217,6 +1250,14 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   no `SalesInvoiceGlPosting` or `SalesInvoiceLineRevenueAccount` row is
   left behind, and when the posting rows fail to insert, no
   `JournalEntry` is left behind (`ctx.transactionalEm` is passed).
+- Capture a committed posting's persistent ledger emission and compare its
+  header and serialized lines with the ledger contract, including line IDs,
+  currencies, rates and decimal amounts. Assert no publication before commit
+  or after a forced rollback. In a duplicate race only the winner publishes.
+  Simulate a rejected enqueue after commit and check diagnostics and the
+  single durable journal entry.
+- Use numerically equal amounts with different trailing zeroes and a
+  mismatch of `'0.0001'` to verify exact header/line comparison.
 - Assert double-click protection under concurrency: two simultaneous
   `POST`s for the same invoice produce exactly one `JournalEntry`, one
   `200` and one `409 ALREADY_POSTED` (the unique index, not the
@@ -1246,10 +1287,19 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   organization (422 `ORGANIZATION_REQUIRED`), and rejects a stale `updatedAt`
   with 409 without partial writes. Saving organization A's accounts must not
   change organization B's, and a posting in each organization must use its
-  own accounts (the multi-organization regression this design exists for).
-- Assert a base-currency invoice posts with no `amountCurrency`, no rate and
-  no rounding line — the pre-FX Phase 1 behavior is unchanged.
-- Assert a foreign-currency invoice with a stored `exchangeRate` posts every
+  own accounts. Race two initial writes with null versions, then repeat with
+  two writers holding the same existing version and different complete account
+  sets. Each race yields exactly one 200 and one 409. GET and posting must
+  see a complete committed set. Force an error on the second or third write,
+  verify all prior values and the version survive, then save concurrently
+  for a different organization to confirm independent configuration.
+- Run against the current Sales schema without an invoice-rate column. A
+  base-currency invoice posts with unchanged amounts and no rounding line.
+  Assert the ledger result and event carry rate `'1'` and the resolved
+  `amountCurrency`. A foreign-currency invoice returns 422
+  `EXCHANGE_RATE_MISSING` before any journal/AR writes or emission.
+- With the Sales invoice-rate column deployed, assert a foreign-currency
+  invoice with a positive stored `exchangeRate` posts every
   line with `amountCurrency` in the invoice currency and `debit`/`credit`
   converted to the base currency (half-up), balances exactly, and — when its
   converted lines leave a remainder — adds exactly one rounding line on
@@ -1266,19 +1316,12 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
 
 ## Risks & Impact Review
 
-- **Merge-ordering dependency — added, maintainer-review round (M2).**
-  This document's hard dependency, `ledger` (#5663), and its
-  posting-mechanics precedent/optional peer, Accounts Payable (#5962)
-  and Contractor Registry (#5955), are all open, unmerged PRs at the
-  time of writing. This document cannot function — and its
-  `requires: ['ledger', 'sales', 'currencies']` names a module that
-  doesn't yet exist under `packages/core/src/modules/` — until #5663
-  merges first; #5955/#5962 are needed for the `contractors` soft
-  dependency and posting-mechanics parity to hold as designed. Not a
-  design defect, but a real merge-ordering constraint for whoever
-  sequences these PRs — named explicitly (see the header's
-  "Related"/"Depends on unmerged PRs" note) rather than left for a
-  reader on `develop` to discover via a dead link.
+- **Delivery dependencies.** Posting depends on the ledger contract in #5663
+  and deployed implementation in #9860. Both PRs are open. #5962 is a
+  precedent. The registry proposal #5955 closed unmerged on 2026-11-15 and
+  main has no `contractors` module. No Phase 1 deployment depends on the
+  registry. Without it, omit the optional contractor ID.
+
 - **Data integrity.** The main risk mirrors Accounts Payable's own
   named one: a wrong `accountId` in `lineAccounts` posts revenue to
   the wrong place — silently wrong numbers, not a crash. Mitigated by
@@ -1286,8 +1329,8 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   before posting, and by `ledger.postJournalEntry`'s own balance
   check catching any amount mismatch.
 - **Cascading failures.** None distinct from any other single,
-  synchronous `postJournalEntry` caller — no subscriber, no fire-and-
-  forget step, unlike Posting Rules Engine.
+  synchronous `postJournalEntry` caller. Failure to enqueue its post-commit
+  notification requires reconciliation (Events).
 - **Tenant & data isolation.** Same profile as every other module in
   this family — both new entities are tenant/org-scoped, and the
   command never crosses tenant/organization boundaries.
@@ -1295,7 +1338,7 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   no change to `sales` or `ledger` schema.
 - **The `customers` ↔ `contractors` gap (see Design decisions) is
   real and unresolved.** For most invoices (no `contractorId`
-  supplied, or no order, or `contractors` not installed),
+  supplied),
   `contractorSnapshot` will simply be absent — a real audit-trail gap
   on the sell side that Accounts Payable does not have on the buy
   side. Not fixed here; named explicitly so it isn't rediscovered
@@ -1400,8 +1443,8 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   distinct accounting treatments (trade discount, settlement
   discount, invoice-time allowance) a generic `kind` value represents
   (see Design decisions, "Line-kind scope").
-- FX gain/loss, revaluation and rate sourcing — Phase 1 *does* post a
-  foreign-currency invoice, converting each line at the invoice's single
+- FX gain/loss, revaluation and rate sourcing — after Sales deploys the
+  invoice-rate column, the Phase 1 algorithm posts a foreign-currency invoice, converting each line at the invoice's single
   stored booking-day `SalesInvoice.exchangeRate` (Design decisions,
   "Foreign-currency invoice"). What stays out of scope: computing or
   backfilling that rate (Multi-Currency #6190 owns the column, its backfill
@@ -1486,9 +1529,9 @@ review above hasn't already covered.
 | packages/core/AGENTS.md | All user input validated with zod before persistence | Compliant | `postSalesInvoiceToLedger`'s input shape and the settings `PUT` body are validated via `data/validators.ts` before any business-rule check or write (Commands, API Contracts) |
 | packages/core/AGENTS.md → Encryption | Encryption maps for PII/GDPR columns | N/A | Neither new entity carries a free-text or PII field (FK-ids + timestamps only); the one PII value in this flow (`contractorSnapshot`: name, NIP) is written onto `ledger.JournalEntryLine.contractorSnapshot` — that module's own column and encryption surface, not this module's, mirroring Accounts Payable's established precedent exactly |
 | packages/core/AGENTS.md | Optimistic locking (`updatedAt`) on user-editable entities | N/A for the two entities; Compliant for the settings write | Both new posting entities are write-once/append-only — no `updatedAt`, matching `JournalEntry`'s immutable-posting precedent. The one user-editable surface is the module configuration, and the settings `PUT` compares the supplied `ModuleConfig.updatedAt` and returns 409 `CONFLICT` on a stale save (API Contracts, Backend Pages), which `CrudForm` surfaces as the standard conflict bar |
-| packages/core/AGENTS.md | Cross-module touchpoints name mechanism, owner, and module-absent behavior | Compliant | `sales`/`ledger` (hard `requires`, direct-entity-read / `commandBus`) and `contractors` (optional peer, `tryResolve`, fails open, degrades to "no `contractorSnapshot`") are all named explicitly in Cross-module integration |
-| packages/events/AGENTS.md | No direct cross-module calls; events for side effects | Compliant | No direct cross-module *service* calls; writes into `ledger` go through `commandBus.execute('ledger.postJournalEntry', ...)`; reads of `sales.SalesInvoice`/`SalesInvoiceLine` and `ledger.LedgerAccount` are the sanctioned hard-dependency direct-entity-read pattern (see Cross-module integration), not a rule violation; no events declared in Phase 1 since no downstream consumer exists yet (named explicitly, not silently skipped) |
-| packages/cache/AGENTS.md | Cache resolved via DI; tenant-scoped tags; invalidation declared per write path | N/A | No caching declared — the one read route is a point lookup on the same unique index backing the idempotency check (`tenant_id, organization_id, sales_invoice_id`), not a list/aggregate query (added explicitly to API Contracts this revision) |
+| packages/core/AGENTS.md | Cross-module touchpoints name mechanism, owner, and module-absent behavior | Compliant | `sales`/`ledger` (hard `requires`, direct-entity-read / `commandBus`) and `contractors` (optional peer, `tryResolve`, omitted ID works without a registry, explicit ID requires a scoped live match) are all named explicitly in Cross-module integration |
+| packages/events/AGENTS.md | No direct cross-module calls; events for side effects | Compliant | No direct cross-module *service* calls; writes into `ledger` go through `commandBus.execute('ledger.postJournalEntry', ...)`; reads of `sales.SalesInvoice`/`SalesInvoiceLine` and `ledger.LedgerAccount` are the sanctioned hard-dependency direct-entity-read pattern (see Cross-module integration), not a rule violation; Phase 1 declares no AR event and publishes the existing persistent ledger event after commit |
+| packages/cache/AGENTS.md | Cache resolved via DI; tenant-scoped tags; invalidation declared per write path | N/A | Both GETs read the database. The status route uses the unique posting index and the settings route fetches three qualified keys in one snapshot. |
 | packages/ui/AGENTS.md | Backend forms use `<CrudForm>`; non-`CrudForm` writes use `useGuardedMutation` | Compliant | Backend Pages: the settings page uses `<CrudForm>`/`<FormField>`; the posting widget (`useGuardedMutation(...).runMutation(...)`) is Phase 2, so Phase 1 has no non-`CrudForm` UI write |
 | packages/ui/src/backend/AGENTS.md | All HTTP goes through `apiCall`/`apiCallOrThrow` (never raw `fetch`) | Compliant | The settings page is a `<CrudForm>` loading `GET /api/sales_invoices_gl_posting/settings` and saving through the `PUT`, with its submit path on `apiCall` (the Phase 2 widget's reads and trigger will too) — no raw `fetch` |
 | root AGENTS.md (Design System Rules) | Semantic status tokens, Tailwind text scale, shared primitives, `aria-label` on icon-only buttons | N/A in Phase 1 (applies to the Phase 2 widget) | `<StatusBadge>` for posted/not-posted status (semantic tokens only, e.g. `bg-status-success-bg`, never `bg-green-*`); neither new control is icon-only, so no `aria-label` gap applies |
@@ -1502,7 +1545,7 @@ review above hasn't already covered.
 | Data models match API contracts | Pass | Every field the `GET` route returns traces to a `SalesInvoiceGlPosting` column; no field appears in one section and not the other |
 | API contracts match UI/UX section | Pass (corrected 2026-10-09, 2026-11-19) | Phase 1 has no posting UI: the `POST`/`GET` posting routes are called by API clients, and the widget that would call them is Phase 2 (Backend Pages); the settings page maps 1:1 to the three Module Config values and to the settings `GET`/`PUT` routes. The earlier "Pass" assumed an invoice detail page that `sales` does not have; the earlier settings-save endpoint did not exist |
 | Risks cover all write operations | Pass | The sole mutating command (`postSalesInvoiceToLedger`) has named Risk entries covering wrong-account misposting, the discount rejection, post-posting `sales`-side edits desyncing the entry, and the VAT per-rate aggregation gap |
-| Commands defined for all mutations | Pass | `postSalesInvoiceToLedger` is the only mutation; both new entities are written exclusively by it, in one transaction |
+| Commands defined for all mutations | Pass | The posting command writes both new entities in one transaction. The settings PUT uses the separate compare-and-write transaction defined in Module Config. |
 | Cache strategy covers all read APIs | N/A | No caching declared (see Compliance Matrix) |
 
 ### Non-Compliant Items
@@ -1892,3 +1935,18 @@ implementation is added by this document):
   posting, the rounding line and every rejection.
 
 Not yet re-reviewed after these edits.
+
+
+### 2026-11-23 — Ledger-owner review of #9903
+
+- Distinguished the module's amount-free tables and HTTP responses from
+  ledger's decimal-string command and event contracts, and adopted the
+  merged shared decimal toolkit (#7324).
+- Kept manual contractor attribution optional, with a scoped live lookup
+  and uniform rejection of unverified IDs. Corrected the status of #5955.
+- Specified a transaction and organization-scoped lock for the settings
+  version check and three writes, including concurrent first saves.
+- Documented base-currency initial delivery and activation of the planned FX
+  path only after Sales ships its invoice-rate column.
+- Matched the existing persistent post-commit ledger event to #9860's
+  public command result and covered rollback, duplicates and enqueue errors.
