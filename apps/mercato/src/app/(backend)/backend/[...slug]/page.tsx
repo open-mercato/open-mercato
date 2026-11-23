@@ -9,6 +9,7 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -57,6 +58,10 @@ export async function generateMetadata(props: BackendParams): Promise<Metadata> 
 }
 
 export default async function BackendCatchAll(props: BackendParams) {
+  return runInOwnedRequestScope(() => renderBackendCatchAll(props))
+}
+
+async function renderBackendCatchAll(props: BackendParams) {
   const params = await props.params
   const pathname = '/backend/' + (params.slug?.join('/') ?? '')
   const match = findRouteManifestMatch(getBackendRouteManifests(), pathname)

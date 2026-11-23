@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
@@ -182,6 +184,12 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const { organizationId: defaultOrganizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
+  try {
+    resolveSingleOrganizationIdOrDeny(scope, auth)
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
 
   const rbac = (container.resolve('rbacService') as RbacService)
   const actionLogs = (container.resolve('actionLogService') as ActionLogService)
@@ -387,7 +395,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid filter values', schema: errorSchema },
         { status: 401, description: 'Authentication required', schema: errorSchema },
-        { status: 403, description: 'Caller has no resolved tenant scope and is not a superadmin', schema: errorSchema },
+        { status: 403, description: 'Caller has no resolved tenant scope and is not a superadmin, or its organization scope is explicitly empty', schema: errorSchema },
       ],
     },
   },

@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -45,12 +46,14 @@ export function register(container: AppContainer) {
       }
       return createIntegrationOAuthGrantService({ em: cradle.em, kms, encryptionService })
     }).scoped().proxy(),
-    integrationHealthService: asFunction(({ integrationStateService, integrationLogService }: Cradle) =>
+    integrationHealthService: asScopedService((container) => (asFunction(({ integrationStateService, integrationLogService }: Cradle) =>
       createHealthService(container, integrationStateService, integrationLogService),
-    ).scoped().proxy(),
+    ).scoped().proxy()).resolve(container)),
     SyncExternalIdMapping: asValue(SyncExternalIdMapping),
     IntegrationCredentials: asValue(IntegrationCredentials),
     IntegrationState: asValue(IntegrationState),
     IntegrationLog: asValue(IntegrationLog),
   })
 }
+
+defineProcessDiRegistrar(register)
