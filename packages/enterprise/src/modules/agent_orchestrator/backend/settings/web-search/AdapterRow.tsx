@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { HealthStateBadge } from '../../../components/health/HealthStateBadge'
+import { localizeAdapterDetail } from './adapterDetail'
 
 export type OptionField = {
   name: string
@@ -244,7 +245,7 @@ export function AdapterRow({
           </div>
           <p className="truncate text-xs text-muted-foreground">
             <span className="font-mono">{meta?.packageName ?? '—'}</span>
-            {statusDetail ? <span className="ml-2">{statusDetail}</span> : null}
+            {statusDetail ? <span className="ml-2">{localizeAdapterDetail(statusDetail, t)}</span> : null}
           </p>
         </div>
 

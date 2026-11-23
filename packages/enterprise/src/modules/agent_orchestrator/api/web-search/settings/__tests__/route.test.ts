@@ -3,6 +3,7 @@ import { CONTRACT_VERSION, SECRET_PLACEHOLDER, defineAdapterModule } from '@open
 import { createFakeAdapter } from '@open-mercato/web-research/testing/fakeAdapter'
 
 const mockSetValue = jest.fn().mockResolvedValue(undefined)
+const mockGetRecord = jest.fn().mockResolvedValue(null)
 const mockEncrypt = jest.fn(async (_container: unknown, _tenant: string, options: unknown) => ({
   adapterOptions: options,
   encrypted: true,
@@ -12,7 +13,7 @@ const mockResolveSettings = jest.fn()
 const mockGetAuth = jest.fn()
 const mockContainer = {
   resolve: (name: string) => {
-    if (name === 'moduleConfigService') return { setValue: mockSetValue }
+    if (name === 'moduleConfigService') return { setValue: mockSetValue, getRecord: mockGetRecord }
     if (name === 'webResearchAdapterEntries') return adapters
     throw new Error(`[internal] Unexpected service: ${name}`)
   },
@@ -45,6 +46,7 @@ jest.mock('../../../../lib/webSearch/secretStorage', () => ({
 }))
 
 import { PUT } from '../route'
+import { buildSettingsPatch } from '../../../../backend/settings/web-search/settingsPatch'
 
 const adapters = ['tavily', 'firecrawl', 'exa'].map((id) => ({
   packageName: `fixture-${id}`,
@@ -83,6 +85,7 @@ function expectNoWrite() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockGetRecord.mockResolvedValue(null)
   mockGetAuth.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1' })
   mockResolveSettings.mockResolvedValue({
     policy: {},
@@ -185,5 +188,24 @@ describe('web-search credential destination binding', () => {
     expect((await save()).status).toBe(400)
     expect(mockResolveSettings).not.toHaveBeenCalled()
     expectNoWrite()
+  })
+})
+
+
+describe('partial settings saves after another manager writes', () => {
+  it('preserves the other manager minResults change when a stale screen edits concurrency', async () => {
+    const baseline = { concurrency: 2, minResults: 5 }
+    mockGetRecord.mockResolvedValue({ value: { ...baseline, minResults: 6 } })
+    const response = await PUT(new Request('http://localhost/api/agent_orchestrator/web-search/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildSettingsPatch({ ...baseline, concurrency: 4 }, baseline)),
+    }))
+    expect(response.status).toBe(200)
+    expect(mockSetValue).toHaveBeenCalledWith('agent_orchestrator', 'web_search', expect.objectContaining({
+      concurrency: 4,
+      minResults: 6,
+    }), { tenantId: 'tenant-1' })
+    expect(mockEncrypt.mock.calls[0][2]).toEqual({ tavily: original, firecrawl: original, exa: original })
   })
 })

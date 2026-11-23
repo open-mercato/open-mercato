@@ -6,8 +6,7 @@
  * tenant override, so a fresh tenant inherits until someone deliberately diverges.
  *
  * optimistic-lock-exempt — the target is a single ModuleConfigService value, not
- * a versioned entity: there is no `updatedAt` to send, and the surface is a
- * single-admin settings screen rather than a collaborative-edit record.
+ * a versioned entity: there is no `updatedAt` to send. Saves submit only edited fields through the partial-update API.
  */
 
 import * as React from 'react'
@@ -44,6 +43,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { AdapterRow, type AdapterHealth, type InstalledAdapter } from './AdapterRow'
 import { WebSearchPreview } from './WebSearchPreview'
+import { buildSettingsPatch, reconcileSavedAdapterSecrets } from './settingsPatch'
 
 const SETTINGS_URL = '/api/agent_orchestrator/web-search/settings'
 const HEALTH_URL = '/api/agent_orchestrator/web-search/health'
@@ -95,8 +95,7 @@ type AdapterOptions = Record<string, Record<string, unknown>>
 /**
  * A unit of dirty-tracking. `'all'` is the single Save the page now presents;
  * the narrower ids remain because dirtiness is still reported per card (an
- * adapter row shows whether IT differs), even though every commit writes the
- * whole document.
+ * adapter row shows whether IT differs).
  */
 type SectionId = 'all' | 'adapters' | 'tuning' | `adapter:${string}`
 
@@ -431,15 +430,32 @@ export default function WebSearchSettingsPage() {
           const call = await apiCall(SETTINGS_URL, { method: 'PUT', body: JSON.stringify(patch) })
           if (!call.ok) {
             flash(
-              t('agent_orchestrator.settings.webSearch.saveError', 'Could not save web search settings.'),
+              typeof call.result?.error === 'string'
+                ? call.result.error
+                : t('agent_orchestrator.settings.webSearch.saveError', 'Could not save web search settings.'),
               'error',
             )
             return
           }
           setSource('tenant')
+          const refreshed = isSettings(call.result) && Array.isArray(call.result.installed) ? call.result.installed : []
+          const submittedOptions = (patch.adapterOptions ?? {}) as AdapterOptions
+          const savedOptions = Object.fromEntries(refreshed
+            .filter((adapter) => Object.hasOwn(submittedOptions, adapter.id))
+            .map((adapter) => [adapter.id, adapter.options]))
+          if (refreshed.length) {
+            setInstalled(refreshed)
+            setAdapterOptions((current) => reconcileSavedAdapterSecrets(current, submittedOptions, refreshed))
+          }
           // Moves only for what was actually written, so every other card keeps
           // showing its own unsaved changes.
-          setBaseline((current) => ({ ...current, ...nextBaseline }))
+          setBaseline((current) => ({
+            ...current,
+            ...nextBaseline,
+            ...(Object.keys(savedOptions).length ? {
+              adapterOptions: { ...((nextBaseline.adapterOptions ?? current.adapterOptions ?? {}) as AdapterOptions), ...savedOptions },
+            } : {}),
+          }))
           flash(t('agent_orchestrator.settings.webSearch.saved', 'Saved.'), 'success')
         },
       })
@@ -524,15 +540,6 @@ export default function WebSearchSettingsPage() {
     [sectionPatch, baseline, adapterOptions, policy],
   )
 
-  /**
-   * Everything the screen owns, in the shape the PUT accepts.
-   *
-   * With one Save there is no longer a reason to send a narrowed patch: the
-   * operator commits when the screen as a whole is how they want it, so the
-   * roster, each adapter's tuning and credentials, and the tuning block all go
-   * together. That also removes the per-section baseline bookkeeping that a
-   * partial write needed.
-   */
   const wholePatch = React.useCallback((): Record<string, unknown> => {
     if (!policy) return {}
     return {
@@ -567,9 +574,10 @@ export default function WebSearchSettingsPage() {
   }, [policy, isDirty])
 
   const saveAll = React.useCallback(() => {
-    const patch = wholePatch()
-    void saveSection('all', patch)
-  }, [wholePatch, saveSection])
+    const values = wholePatch()
+    const patch = buildSettingsPatch(values, baseline)
+    void saveSection('all', patch, values)
+  }, [wholePatch, baseline, saveSection])
 
 
   const update = (patch: Partial<Policy>) => {

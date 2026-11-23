@@ -442,6 +442,16 @@ fixtures and mocked persistence/encryption; they do not claim live egress or bro
 coverage. `packages/web-research/src/loader/__tests__/describe.test.ts` covers URL
 format discovery through wrapped string schemas.
 
+The Settings page submits edited policy fields, guardrail fields and adapter documents
+through the existing partial-update API. A stale screen therefore preserves another
+manager's untouched settings. Successful saves replace unchanged entered secrets with
+the returned masked values; edits made while the request is pending remain local.
+A later destination change requires credential re-entry and displays the server's
+localized refusal. Known provider readiness hints use the page locale. Page, handler
+and helper regressions cover these paths; personal current-head browser QA and the
+named compatibility waiver remain required. Concurrent edits to the same settings
+value retain the existing last-save behavior; this adds no versioned API contract.
+
 ## Final Compliance Report (to complete at implementation)
 
 | MUST | Status |
@@ -488,6 +498,8 @@ Decisions honored: web egress lives ONLY in the centrally-registered, MCP/ACL-ga
 Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no `@types/node` transitively (unlike sibling provider packages), so node builtins (`node:dns/promises`, `node:net`) need the explicit reference. Internal `WebSearchProviderError` messages stay developer-facing; Phase 2 maps error `code`s to user-facing i18n keys in the tool wrappers.
 
 ## Changelog
+
+- **2026-11-23** — #9438 QA follow-up: preserve untouched settings on stale saves, re-mask saved credentials before later retargeting, surface the re-entry refusal and localize provider readiness. Added page and handler regressions; protected approval remains pending.
 
 - **2026-11-13** — #9118: reject masked credential reuse when an adapter URL changes; preserve unchanged destinations and require fresh credentials on retarget. Added route regressions and wrapped string URL discovery. Human emergency compatibility waiver remains required.
 
