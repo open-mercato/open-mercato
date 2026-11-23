@@ -269,8 +269,10 @@ describeWithPostgres('credentials route and the reserved __oauth_grant suffix ag
     expect(putBody).toEqual({ ok: true })
     expectNoIssuedToken(putBody)
     expect(await readRawRows(owner, GRANT_ROW_ID)).toEqual(grantBefore)
-    expect(mockEmitIntegrationsEvent).toHaveBeenCalledWith('integrations.credentials.updated', expect.objectContaining({
-      integrationId: INTEGRATION_ID,
-    }))
+    expect(mockEmitIntegrationsEvent).toHaveBeenCalledWith(
+      'integrations.credentials.updated',
+      expect.objectContaining({ integrationId: INTEGRATION_ID }),
+      { tenantId: owner.tenantId, organizationId: owner.organizationId },
+    )
   }, CASE_TIMEOUT_MS)
 })

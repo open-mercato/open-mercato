@@ -92,10 +92,10 @@ describeWithPostgres('MfaService concurrent mutations on PostgreSQL', () => {
     return new MfaService(em, registry)
   }
 
-  async function pending(setupId: string, label?: string) {
+  async function pending(setupId: string, label?: string, organizationId?: string) {
     const em = orm.em.fork()
     const method = em.create(UserMfaMethod, {
-      userId, tenantId, type: 'totp', secret: setupId, label, isActive: false,
+      userId, tenantId, organizationId, type: 'totp', secret: setupId, label, isActive: false,
       createdAt: new Date(), updatedAt: new Date(),
     })
     em.persist(method)
@@ -177,12 +177,17 @@ describeWithPostgres('MfaService concurrent mutations on PostgreSQL', () => {
     expect(results.find((result) => result.status === 'rejected')).toMatchObject({ reason: { statusCode, message } })
     expect(await orm.em.fork().count(UserMfaMethod, { userId, isActive: true })).toBe(1)
     expect(emitted).toHaveBeenCalledTimes(1)
-    expect(emitted).toHaveBeenCalledWith('security.mfa.enrolled', expect.objectContaining({ userId, tenantId, methodType: 'totp' }))
+    expect(emitted).toHaveBeenCalledWith(
+      'security.mfa.enrolled',
+      expect.objectContaining({ userId, tenantId, organizationId: null, methodType: 'totp' }),
+      { tenantId: null, organizationId: null },
+    )
   })
 
   test('multi-instance providers can confirm distinct labels concurrently', async () => {
     const setupIds = [randomUUID(), randomUUID()]
-    await Promise.all(setupIds.map((setupId) => pending(setupId)))
+    const organizationId = randomUUID()
+    await Promise.all(setupIds.map((setupId) => pending(setupId, undefined, organizationId)))
     const results = await race('user_mfa_methods', setupIds.map((setupId, index) => {
       const enrollment = service(orm.em.fork(), true, `Device ${index}`)
       return () => enrollment.confirmMethod(userId, setupId, {})
@@ -190,7 +195,14 @@ describeWithPostgres('MfaService concurrent mutations on PostgreSQL', () => {
 
     expect(results.every((result) => result.status === 'fulfilled')).toBe(true)
     expect(await orm.em.fork().count(UserMfaMethod, { userId, isActive: true })).toBe(2)
-    expect(emitted).toHaveBeenCalledTimes(2)
+    expect(emitted.mock.calls).toHaveLength(2)
+    for (const call of emitted.mock.calls) {
+      expect(call).toEqual([
+        'security.mfa.enrolled',
+        expect.objectContaining({ userId, tenantId, organizationId, methodType: 'totp' }),
+        { tenantId, organizationId },
+      ])
+    }
   })
 
   function routeContext() {
