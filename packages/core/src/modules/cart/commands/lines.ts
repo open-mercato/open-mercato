@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Reference } from '@mikro-orm/postgresql'
 import { asValue } from 'awilix'
@@ -155,7 +156,7 @@ export async function emitVisibilityRejectedEvent(
     tenantId: cart.tenantId,
     rejectedCount,
     triggeredBy,
-  })
+  }, organizationEventScope(cart))
 }
 
 // ---------------------------------------------------------------------------

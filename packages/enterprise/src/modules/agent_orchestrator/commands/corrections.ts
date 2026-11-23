@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -89,7 +90,7 @@ const createCorrectionCommand: CommandHandler<CreateCorrectionCommandInput, Crea
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(input) },
     )
     await emitAgentOrchestratorEvent(
       'agent_orchestrator.eval_case.created',
@@ -101,7 +102,7 @@ const createCorrectionCommand: CommandHandler<CreateCorrectionCommandInput, Crea
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(input) },
     )
 
     return result
@@ -177,7 +178,7 @@ const createEvalCaseFromRunCommand: CommandHandler<
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(input) },
     )
 
     return { evalCaseId: evalCase.id, status: evalCase.status, created: true }
@@ -273,7 +274,7 @@ const approveEvalCaseCommand: CommandHandler<ApproveEvalCaseCommandInput, Approv
         tenantId: evalCase.tenantId,
         organizationId: evalCase.organizationId,
       },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(evalCase) },
     )
 
     return { evalCaseId: evalCase.id, status: evalCase.status, updatedAt: evalCase.updatedAt.toISOString() }

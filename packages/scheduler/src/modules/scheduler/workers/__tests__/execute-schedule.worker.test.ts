@@ -238,6 +238,7 @@ describe('executeScheduleWorker command actor attribution', () => {
     expect(emitSchedulerEvent).toHaveBeenCalledWith(
       'scheduler.job.failed',
       expect.objectContaining({ id: scheduleId, error: 'Scheduled command actor is not authorized' }),
+      { tenantId: 'tenant-a', organizationId: 'org-a' },
     )
   })
 
@@ -249,7 +250,7 @@ describe('executeScheduleWorker command actor attribution', () => {
     const { promise } = runWorker(schedule, {}, context)
 
     await expect(promise).rejects.toThrow('rbac store unavailable')
-    expect(emitSchedulerEvent).not.toHaveBeenCalledWith('scheduler.job.failed', expect.anything())
+    expect(jest.mocked(emitSchedulerEvent).mock.calls.map(([event]) => event)).not.toContain('scheduler.job.failed')
   })
 
   it('falls back to the creator when a manual trigger carries no user (API-key caller)', async () => {

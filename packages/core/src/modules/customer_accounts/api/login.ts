@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { compare as bcryptCompare } from 'bcryptjs'
 import { z } from 'zod'
@@ -91,26 +92,26 @@ export async function POST(req: Request) {
   // conveyed out-of-band (e.g. email), never in the synchronous response.
   if (!user || !user.passwordHash || !(await isCustomerTenantActive(container.resolve('em') as EntityManager, tenantId))) {
     await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_credentials', tenantId }).catch(reportLoginEventError)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_credentials', tenantId }, organizationEventScope(user)).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   if (!user.isActive) {
     await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'inactive', tenantId }).catch(reportLoginEventError)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'inactive', tenantId }, organizationEventScope(user)).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   if (customerUserService.checkLockout(user)) {
     await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch(reportLoginEventError)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }, organizationEventScope(user)).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   const passwordValid = await customerUserService.verifyPassword(user, password)
   if (!passwordValid) {
     await customerUserService.incrementFailedAttempts(user)
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_password', tenantId }).catch(reportLoginEventError)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_password', tenantId }, organizationEventScope(user)).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
@@ -119,12 +120,12 @@ export async function POST(req: Request) {
       email,
       reason: 'email_not_verified',
       tenantId,
-    }).catch(reportLoginEventError)
+    }, organizationEventScope(user)).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   if (!(await customerUserService.resetFailedAttemptsUnlessLocked(user))) {
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch(reportLoginEventError)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }, organizationEventScope(user)).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
   await customerUserService.updateLastLoginAt(user)

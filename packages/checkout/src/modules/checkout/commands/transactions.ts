@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -130,7 +131,7 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       currency: transaction.currencyCode,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(scope)).catch(() => undefined)
     await emitCheckoutEvent('checkout.transaction.customerDataCaptured', {
       transactionId: transaction.id,
       linkId: transaction.linkId,
@@ -297,9 +298,9 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       } else if (parsed.status === 'failed') {
         await emitCheckoutEvent('checkout.transaction.failed', terminalEventPayload).catch(() => undefined)
       } else if (parsed.status === 'cancelled') {
-        await emitCheckoutEvent('checkout.transaction.cancelled', terminalEventPayload).catch(() => undefined)
+        await emitCheckoutEvent('checkout.transaction.cancelled', terminalEventPayload, organizationEventScope(scope)).catch(() => undefined)
       } else if (parsed.status === 'expired') {
-        await emitCheckoutEvent('checkout.transaction.expired', terminalEventPayload).catch(() => undefined)
+        await emitCheckoutEvent('checkout.transaction.expired', terminalEventPayload, organizationEventScope(scope)).catch(() => undefined)
       }
     }
     if (emitUsageLimitReached && usageLimitReachedLinkId && usageLimitReachedLinkSlug) {

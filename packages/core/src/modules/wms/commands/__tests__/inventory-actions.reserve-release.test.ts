@@ -654,6 +654,7 @@ describe('wms inventory release command', () => {
     expect(emitWmsEvent).toHaveBeenCalledWith(
       'wms.inventory.balance_drift',
       expect.objectContaining({ balanceId: BALANCE_ID, field: 'quantityReserved' }),
+      { tenantId: TENANT, organizationId: ORG },
     )
   })
 })

@@ -18,6 +18,7 @@
  *   The handler's own transaction boundary (typically a command) is the
  *   unit of atomicity for the underlying data change.
  */
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { AiPendingActionStateError } from './pending-action-types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AiPendingActionRepository } from '../data/repositories/AiPendingActionRepository'
@@ -100,9 +101,7 @@ type ConfirmedEmitter = (
 ) => Promise<void>
 
 const defaultConfirmedEmitter: ConfirmedEmitter = async (eventId, payload) => {
-  await emitAiAssistantEvent(eventId, payload as unknown as Record<string, unknown>, {
-    persistent: true,
-  })
+  await emitAiAssistantEvent(eventId, payload as unknown as Record<string, unknown>, { persistent: true, ...organizationEventScope(payload) })
 }
 
 async function emitConfirmed(

@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { createHash } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -393,9 +394,7 @@ export function buildAgentRunCompletedPayload(payload: AgentRunRecordPayload): A
 
 async function emitAgentRunCompleted(payload: AgentRunRecordPayload): Promise<void> {
   try {
-    await emitAiAssistantEvent(AGENT_RUN_COMPLETED_EVENT_ID, { ...buildAgentRunCompletedPayload(payload) }, {
-      persistent: true,
-    })
+    await emitAiAssistantEvent(AGENT_RUN_COMPLETED_EVENT_ID, { ...buildAgentRunCompletedPayload(payload) }, { persistent: true, ...organizationEventScope(payload) })
   } catch (error) {
     logger.warn('agent_run.completed emit failed (run persisted)', {
       agentId: payload.agentId,

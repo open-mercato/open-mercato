@@ -8,6 +8,7 @@
  * Every call resolves the caller's project access before it touches the task —
  * see `../access.ts` for why that lookup and the 404 are shaped the way they are.
  */
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -182,7 +183,7 @@ async function handle(
     id: input.taskId,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
-  }, { persistent: true }).catch((err) => {
+  }, { persistent: true, ...organizationEventScope(scope) }).catch((err) => {
     logger.error('staff.timesheets emit time_task.updated failed', { err })
   })
 

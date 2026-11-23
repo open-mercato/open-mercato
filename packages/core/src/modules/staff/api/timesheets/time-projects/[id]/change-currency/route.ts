@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { resolveFeatureAccess } from '../../../../../lib/time-tracking/featureAccess'
 import { z } from 'zod'
@@ -148,7 +149,7 @@ export async function POST(req: Request) {
       currencyCode: result?.currencyCode ?? effective.currencyCode,
       previousCurrencyCode: result?.previousCurrencyCode ?? null,
       converted: false,
-    }, { persistent: true }).catch((err) => {
+    }, { persistent: true, ...organizationEventScope({ tenantId, organizationId }) }).catch((err) => {
       logger.error('staff.timesheets emit time_project.currency_changed failed', { err })
     })
 

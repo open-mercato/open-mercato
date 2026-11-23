@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -163,8 +164,8 @@ export async function readHighestSupportSequence(em: EntityManager, tenantId: st
   return highest?.supportSequenceNumber ?? 0
 }
 
-function emitSupportEvent(eventId: Parameters<typeof emitStaffEvent>[0], payload: Record<string, unknown>): void {
-  void emitStaffEvent(eventId, payload, { persistent: true }).catch((err) => {
+function emitSupportEvent(eventId: Parameters<typeof emitStaffEvent>[0], payload: Record<string, unknown>, task: Pick<StaffTimeTask, 'tenantId' | 'organizationId'>): void {
+  void emitStaffEvent(eventId, payload, { persistent: true, ...organizationEventScope(task) }).catch((err) => {
     logger.error('staff support event emit failed', { err, eventId })
     getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.support_event_emit_failed' })
   })
@@ -313,14 +314,14 @@ const createFromPortalCommand: CommandHandler<SupportTicketCreateFromPortalInput
       customerId: parsed.customerId,
       supportReference: ticket.supportReference,
       categoryValue: ticket.categoryValue,
-    })
+    }, task)
     emitSupportEvent('staff.support_ticket.activity_recorded', {
       ...basePayload,
       id: ticket.id,
       taskId: task.id,
       projectId: task.timeProjectId,
       kind: 'created',
-    })
+    }, task)
     if (task.assigneeStaffMemberId) emitTaskAssigneeChanged(task, null, 'default', null)
 
     return {
@@ -492,14 +493,14 @@ const portalMessageCommand: CommandHandler<SupportTicketPortalMessageInput, Supp
       projectId: task.timeProjectId,
       commentId: record.id,
       supportReference: ticket.supportReference,
-    })
+    }, task)
     emitSupportEvent('staff.support_ticket.activity_recorded', {
       ...basePayload,
       id: ticket.id,
       taskId: task.id,
       projectId: task.timeProjectId,
       kind: 'customer_replied',
-    })
+    }, task)
 
     return {
       commentId: record.id,

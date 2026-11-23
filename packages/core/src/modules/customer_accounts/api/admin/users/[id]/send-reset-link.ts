@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
@@ -41,7 +42,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     tenantId: user.tenantId,
     organizationId: user.organizationId,
     resetBy: auth.sub,
-  }).catch(() => undefined)
+  }, organizationEventScope(user)).catch(() => undefined)
 
   return NextResponse.json({ ok: true, resetLink })
 }

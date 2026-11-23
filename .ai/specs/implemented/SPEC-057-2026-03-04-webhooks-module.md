@@ -891,6 +891,31 @@ Checkout Pay Links is the reference use case for this rule set:
 - `checkout.transaction.completed` / `checkout.transaction.failed` fire after the terminal state commit
 - these events are intended to drive external system calls smoothly through generic webhook subscriptions such as `checkout.transaction.**`
 
+#### Wildcard producer compatibility
+
+Outbound delivery uses the scope on the event-bus envelope. An organization-scoped producer supplies both identifiers from its persisted record, authorized operation, or a parent subscriber's matching trusted context. The webhook payload and event ID remain the event's public data. Senders that already explicitly publish a tenant-wide event retain their existing contract. A newly migrated producer with only one identifier does not opt into tenant-wide delivery.
+
+| Shipped producer families | Source of the routing decision |
+| --- | --- |
+| Customer accounts, authentication and sales | Persisted account, order or consumed login session. Includes administrator and customer-portal user deletion, role mutations, known-account login failures, reset requests, email verification and post-login/password lifecycle events. |
+| Checkout, cart, payment gateways, promotions and phone calls | Scoped link, template, cart, transaction, reservation, code or call. Pay Links submission and terminal-state commands preserve their existing payload and commit ordering. |
+| Customers, communication channels, integrations, data sync, devices, translations and inbox operations | Scoped command record, authorized API context, integration configuration, or persisted sync run. Dynamic interaction, assignment, execution and integration-state events carry the scope of the operation that produced them. |
+| Warehouse management, EUDR, staff, workflows, business rules and progress | Persisted warehouse records, order projection, statement or assessment, ticket or task, workflow instance, rule, or progress job. Covers direct bus publishers and worker emissions as well as typed module publishers. |
+| Notifications, push delivery and search | Notification record or authorized preference scope, delivery row, or index source row. A derived event can use its parent subscriber's trusted scope when it matches the event's data. Index deletion without a remaining source row uses this comparison. |
+| AI assistant, agent orchestration, record locks, enterprise security, SSO and scheduler | Authorized agent operation, persisted run/pending action, scoped mutation or lock, user or MFA method, validated identity configuration, or loaded schedule. Shared/global configurations and jobs may lack an organization. |
+| Example modules and create-app template | Persisted sync mapping, validated sync scope or matching subscriber envelope. The template ships the same producer behavior. |
+| Generic ORM/CRUD, explicitly scoped module events, and browser-broadcast module events | The data engine emits persisted identifiers. Existing emitters that already supply options retain them. The typed browser-broadcast factory preserves the module emitter's existing scope contract. The outbound subscriber has no payload fallback. |
+
+**Owner inventory.** These paths require a separate decision if a customer depends on receiving them. No event ID or subscription pattern is retired here.
+
+- An unknown or ambiguous login, an SSO callback failure before configuration is resolved, or an unverified public request cannot identify a destination organization. A known customer account supplies its persisted scope even on failed login. Customer email verification uses the token's populated account.
+- Tenant-wide notifications, customer groups, policy/configuration changes, system schedules, AI usage and locks can legitimately lack an organization. Previously trusted tenant-wide emitters remain a separate contract. The event owner must decide whether other tenant-wide events should fan out, require an organization, or have a dedicated tenant-wide subscription.
+- Forms lifecycle payloads contain record identifiers, occasionally an organization, and no tenant. Several staff authentication failures, security enforcement/recovery/configuration signals, SSO failure signals and cart adoption likewise never carried a tenant on those paths. The former payload-based dispatcher could not deliver these events there. Adding a new outbound channel for one requires a defined audience.
+- A missing index source row and a mismatched or missing subscriber envelope cannot establish the destination. The same applies to notifications derived from an unverified parent event. Applications and integrations that call the bus directly, including the CLI's free-form event command, must provide an independently verified envelope. Third-party modules and external deployments have their own producer catalogs.
+- Application lifecycle, internal query-index events, webhook self-events and declarations with `excludeFromTriggers` remain outside outbound dispatch. Browser notification handler events run in the frontend. A declaration with no shipped emitting path has no historical delivery to migrate.
+
+For any remaining public sender, the event owner should identify affected event IDs and subscriptions, choose the permitted audience, provide client and operator migration steps, and sign off before changing its delivery contract. A wildcard subscription alone does not authorize routing across organization boundaries.
+
 ### 6.2 Event Pattern Matching
 
 Reuse the existing `matchEventPattern()` from `packages/events/src/bus.ts`. The function already supports:

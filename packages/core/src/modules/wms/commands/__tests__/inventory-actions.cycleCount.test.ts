@@ -284,6 +284,7 @@ describe('wms inventory cycle count command', () => {
       expect(emitWmsEvent).toHaveBeenCalledWith(
         'wms.inventory.reconciled',
         expect.objectContaining({ adjustmentDelta: '-92' }),
+        { tenantId: TENANT, organizationId: ORG },
       )
     })
 

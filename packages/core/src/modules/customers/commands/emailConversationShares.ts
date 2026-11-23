@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
@@ -250,7 +251,7 @@ async function emitShareEvent(
       shared,
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
-    })
+    }, organizationEventScope(parsed))
   } catch {
     /* swallow — audit emission must not block a committed write */
   }

@@ -63,7 +63,7 @@ export class CustomerTokenService {
     return rawToken
   }
 
-  async verifyEmailToken(token: string, purpose: string, tenantId?: string): Promise<{ userId: string; tenantId: string } | null> {
+  async verifyEmailToken(token: string, purpose: string, tenantId?: string): Promise<{ userId: string; tenantId: string; organizationId?: string | null } | null> {
     const tokenHashed = hashToken(token)
     const record = await this.em.findOne(CustomerUserEmailVerification, {
       token: tokenHashed,
@@ -90,7 +90,11 @@ export class CustomerTokenService {
 
     const resolvedUserId = typeof user === 'string' ? user : user.id
     const resolvedTenantId = typeof user === 'string' ? '' : user.tenantId
-    return { userId: resolvedUserId, tenantId: resolvedTenantId }
+    return {
+      userId: resolvedUserId,
+      tenantId: resolvedTenantId,
+      ...(purpose === 'email_verification' && typeof user !== 'string' ? { organizationId: user.organizationId } : {}),
+    }
   }
 
   async verifyPasswordResetToken(token: string, tenantId?: string): Promise<{ userId: string; tenantId: string } | null> {

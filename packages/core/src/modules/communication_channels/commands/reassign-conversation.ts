@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { z } from 'zod'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -322,7 +323,7 @@ const reassignConversationCommand: CommandHandler<
           tenantId: input.scope.tenantId,
           organizationId: input.scope.organizationId ?? null,
         },
-        { persistent: true },
+        { persistent: true, ...organizationEventScope(input.scope) },
       )
     } catch (emitErr) {
       // Best-effort lifecycle/workflow-trigger signal — a bus failure must not

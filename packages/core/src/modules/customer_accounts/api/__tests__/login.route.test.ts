@@ -221,6 +221,7 @@ describe('POST /api/customer_accounts/login — lockout under concurrent attempt
     expect(mockEmitCustomerAccountsEvent).toHaveBeenCalledWith(
       'customer_accounts.login.failed',
       { email: 'probe@example.com', reason: 'locked', tenantId },
+      { tenantId: null, organizationId: null },
     )
   })
 

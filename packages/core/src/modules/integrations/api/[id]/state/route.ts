@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -120,7 +121,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     tenantId: auth.tenantId,
     organizationId,
     userId: auth.sub,
-  })
+  }, organizationEventScope({ tenantId: auth.tenantId, organizationId }))
 
   await runIntegrationMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
       tenantId: auth.tenantId,

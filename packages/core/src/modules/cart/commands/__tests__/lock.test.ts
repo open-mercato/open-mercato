@@ -335,6 +335,7 @@ describe('cart.lock', () => {
     expect(emitCartEventMock).toHaveBeenCalledWith(
       'cart.lock.acquired',
       expect.objectContaining({ cartId: CART_ID, checkoutSessionId: 'checkout-session-1' }),
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
     )
   })
 
@@ -432,7 +433,7 @@ describe('cart.unlock', () => {
     expect(cartRow.lockExpiresAt).toBeNull()
     expect(cartRow.checkoutSessionId).toBeNull()
 
-    expect(emitCartEventMock).toHaveBeenCalledWith('cart.lock.released', expect.objectContaining({ cartId: CART_ID }))
+    expect(emitCartEventMock).toHaveBeenCalledWith('cart.lock.released', expect.objectContaining({ cartId: CART_ID }), { tenantId: TENANT_ID, organizationId: ORG_ID })
   })
 
   it('refuses to unlock a cart that is not currently locked with the generic 404', async () => {
@@ -469,7 +470,7 @@ describe('cart.markConverted', () => {
     expect(cartRow.status).toBe('converted')
     expect(cartRow.resolvedAt).toBeInstanceOf(Date)
 
-    expect(emitCartEventMock).toHaveBeenCalledWith('cart.cart.converted', expect.objectContaining({ cartId: CART_ID }))
+    expect(emitCartEventMock).toHaveBeenCalledWith('cart.cart.converted', expect.objectContaining({ cartId: CART_ID }), { tenantId: TENANT_ID, organizationId: ORG_ID })
   })
 
   // Terminal (§3.1a: "no command mutates a converted cart"): a second `cart.markConverted`

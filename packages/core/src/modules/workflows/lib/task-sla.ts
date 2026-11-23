@@ -18,6 +18,7 @@
  * scheduling arithmetic is unit-testable without a workflow.
  */
 
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { StepInstance, UserTask, WorkflowInstance } from '../data/entities'
@@ -642,7 +643,7 @@ async function emitTaskSlaEvent(
         tenantId: options.tenantId,
         organizationId: options.organizationId,
       },
-      { persistent: true }
+      { persistent: true, ...organizationEventScope(options) }
     )
   } catch (error) {
     logger.error('Failed to emit task SLA event', {

@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -68,7 +69,7 @@ export async function recordModerationFlag(
       agentId: input.agentId,
       userId: input.userId,
       categories: flaggedCategories,
-    })
+    }, organizationEventScope(input))
   } catch (error) {
     logger.error('Failed to emit moderation_flag.created (audit row persisted)', { err: error })
   }

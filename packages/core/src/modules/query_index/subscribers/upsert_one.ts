@@ -1,3 +1,4 @@
+import { matchingOrganizationEventScope, organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { upsertIndexRow, reindexSearchTokensForRecord, type UpsertIndexResult } from '../lib/indexer'
@@ -10,7 +11,7 @@ import {
 
 export const metadata = { event: 'query_index.upsert_one', persistent: false }
 
-export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
+export default async function handle(payload: any, ctx: { tenantId?: string | null; organizationId?: string | null; resolve: <T=any>(name: string) => T }) {
   // Run index maintenance on a FORKED EntityManager (fresh identity map + UnitOfWork)
   // so it can never disturb the originating CRUD write's `em`. The data engine awaits
   // this emit for read-your-writes consistency, which means the subscriber runs
@@ -42,6 +43,9 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     })
     organizationId = resolvedScope.organizationId
     tenantId = resolvedScope.tenantId
+    const searchEventScope = sourceScope.kind === 'row'
+      ? organizationEventScope(sourceScope.scope)
+      : matchingOrganizationEventScope(ctx, resolvedScope)
 
     const searchTokenDoc = typeof payload?.searchTokenDoc === 'object' && payload.searchTokenDoc && !Array.isArray(payload.searchTokenDoc)
       ? (payload.searchTokenDoc as Record<string, unknown>)
@@ -104,7 +108,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       const bus = ctx.resolve<any>('eventBus')
       const eventScope = { entityType, recordId, organizationId, tenantId }
       await bus.emitEvent('query_index.vectorize_one', eventScope, { rethrowHandlerErrors: true })
-      await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId }, { rethrowHandlerErrors: true })
+      await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId }, { rethrowHandlerErrors: true, ...searchEventScope })
       if (!suppressCoverage && coverageDelayMs !== undefined && coverageDelayMs >= 0) {
         await bus.emitEvent('query_index.coverage.refresh', {
           entityType,
@@ -182,7 +186,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
         await reindexSearchTokensForRecord(em, { ...deferredScope, doc: resolvedDoc, searchTokenDoc })
         const bus = ctx.resolve<any>('eventBus')
         await bus.emitEvent('query_index.vectorize_one', deferredScope)
-        await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId })
+        await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId }, searchEventScope)
       } catch (error) {
         await recordIndexerError(
           { em },

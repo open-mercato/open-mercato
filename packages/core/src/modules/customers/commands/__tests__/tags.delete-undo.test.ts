@@ -310,7 +310,7 @@ describe('customers.tags.delete membership undo', () => {
       action: 'created', identifiers: expect.objectContaining({ id: TAG_ID }),
       indexer: expect.objectContaining({ entityType: 'customers:customer_tag' }),
     }))
-    expect(mockEmitCustomersEvent).toHaveBeenCalledWith('customers.tag.assigned', expect.objectContaining({ tagId: TAG_ID, entityId: PERSON_ID }), { persistent: true })
+    expect(mockEmitCustomersEvent).toHaveBeenCalledWith('customers.tag.assigned', expect.objectContaining({ tagId: TAG_ID, entityId: PERSON_ID }), { persistent: true, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID })
     expect(store.cache.deleteByTags).toHaveBeenCalled()
     expect(store.eventBus.emitEvent).toHaveBeenCalledWith('query_index.upsert_one', expect.objectContaining({ entityType: 'customers:customer_entity', recordId: PERSON_ID }), expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }))
     const redoLog = await deleteTag(store)

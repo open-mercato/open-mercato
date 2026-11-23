@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -111,7 +112,7 @@ export async function recordTokenUsage(
         inputTokens: input.usage.inputTokens ?? 0,
         outputTokens: input.usage.outputTokens ?? 0,
       },
-      { persistent: false },
+      { persistent: false, ...organizationEventScope(input.authContext) },
     )
   } catch (emitError) {
     logger.warn('Token-usage event emit failed (non-fatal)', { err: emitError })

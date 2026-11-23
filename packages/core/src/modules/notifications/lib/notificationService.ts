@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -193,7 +194,7 @@ async function findScopedNotificationOrThrow(
 }
 
 async function emitNotificationSseEvents(
-  eventBus: { emit: (event: string, payload: unknown) => Promise<void> },
+  eventBus: { emit: (event: string, payload: unknown, options?: ReturnType<typeof organizationEventScope>) => Promise<void> },
   notifications: Notification[],
   ctx: NotificationServiceContext,
 ): Promise<void> {
@@ -208,7 +209,7 @@ async function emitNotificationSseEvents(
     organizationId: normalizeOrgScope(ctx.organizationId),
     recipientUserIds: visibleRecipientUserIds,
     count: visible.length,
-  })
+  }, organizationEventScope(ctx))
 
   for (const notification of visible) {
     await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
@@ -216,7 +217,7 @@ async function emitNotificationSseEvents(
       organizationId: notification.organizationId ?? null,
       recipientUserId: notification.recipientUserId,
       notification: toNotificationDto(notification),
-    })
+    }, organizationEventScope(notification))
   }
 }
 
@@ -302,7 +303,7 @@ export interface NotificationService {
 
 export interface NotificationServiceDeps {
   em: EntityManager
-  eventBus: { emit: (event: string, payload: unknown) => Promise<void> }
+  eventBus: { emit: (event: string, payload: unknown, options?: ReturnType<typeof organizationEventScope>) => Promise<void> }
   commandBus?: {
     execute: (
       commandId: string,
@@ -434,7 +435,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           organizationId: notification.organizationId ?? null,
           recipientUserId: notification.recipientUserId,
           notification: toNotificationDto(notification),
-        })
+        }, organizationEventScope(notification))
       }
 
       return notification
@@ -633,7 +634,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           notificationId: notification.id,
           userId: ctx.userId,
           tenantId: ctx.tenantId,
-        })
+        }, organizationEventScope(notification))
       }
 
       return notification
@@ -676,14 +677,14 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           notificationId: notification.id,
           userId: ctx.userId,
           tenantId: ctx.tenantId,
-        })
+        }, organizationEventScope(notification))
 
         await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
           tenantId: notification.tenantId,
           organizationId: notification.organizationId ?? null,
           recipientUserId: notification.recipientUserId,
           notification: toNotificationDto(notification),
-        })
+        }, organizationEventScope(notification))
       }
 
       return updatedRows.length
@@ -702,7 +703,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         notificationId: notification.id,
         userId: ctx.userId,
         tenantId: ctx.tenantId,
-      })
+      }, organizationEventScope(notification))
 
       return notification
     },
@@ -735,7 +736,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         userId: ctx.userId,
         tenantId: ctx.tenantId,
         status: targetStatus,
-      })
+      }, organizationEventScope(notification))
 
       return notification
     },
@@ -877,7 +878,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         actionId: input.actionId,
         userId: ctx.userId,
         tenantId: ctx.tenantId,
-      })
+      }, organizationEventScope(notification))
 
       return { notification, result }
     },
@@ -1003,7 +1004,7 @@ export function resolveNotificationService(container: {
   resolve: (name: string) => unknown
 }): NotificationService {
   const em = container.resolve('em') as EntityManager
-  const eventBus = container.resolve('eventBus') as { emit: (event: string, payload: unknown) => Promise<void> }
+  const eventBus = container.resolve('eventBus') as { emit: (event: string, payload: unknown, options?: ReturnType<typeof organizationEventScope>) => Promise<void> }
 
   // commandBus may not be registered in all contexts, so resolve it safely
   let commandBus: NotificationServiceDeps['commandBus']

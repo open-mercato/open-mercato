@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely } from 'kysely'
@@ -161,7 +162,7 @@ async function emitMappingEvent(
       lastError: mapping.lastError ?? null,
       sourceUpdatedAt: mapping.sourceUpdatedAt?.toISOString() ?? null,
     },
-    { persistent: true },
+    { persistent: true, ...organizationEventScope(mapping) },
   ).catch(() => undefined)
 }
 
@@ -184,7 +185,7 @@ async function emitSyncFailedEvent(payload: {
       direction: payload.direction,
       eventId: payload.eventId,
     },
-    { persistent: true },
+    { persistent: true, ...organizationEventScope(payload.scope) },
   ).catch(() => undefined)
 }
 

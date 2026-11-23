@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -391,7 +392,7 @@ export async function reserveInventoryForConfirmedOrder(
       shortfalls,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-    })
+    }, organizationEventScope(scope))
   }
 }
 
@@ -560,7 +561,7 @@ export async function releaseInventoryForCancelledOrder(
         clampedValue: null,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
-      }).catch(() => undefined)
+      }, organizationEventScope(scope)).catch(() => undefined)
     }
   }
 }

@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { randomUUID } from 'node:crypto'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
@@ -135,7 +136,7 @@ export const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId:
       agentId: run.agentId,
       tenantId: run.tenantId,
       organizationId: run.organizationId,
-    }, { persistent: true })
+    }, { persistent: true, ...organizationEventScope(run) })
 
     return { runId: run.id }
   },

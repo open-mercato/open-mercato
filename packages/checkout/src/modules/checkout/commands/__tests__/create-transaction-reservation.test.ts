@@ -118,7 +118,7 @@ describe('createTransactionCommand — usage slot reservation', () => {
 
     await runCreate(em)
 
-    expect(emitCheckoutEvent).not.toHaveBeenCalledWith('checkout.link.locked', expect.any(Object))
-    expect(emitCheckoutEvent).toHaveBeenCalledWith('checkout.transaction.created', expect.any(Object))
+    expect(jest.mocked(emitCheckoutEvent).mock.calls.map(([event]) => event)).not.toContain('checkout.link.locked')
+    expect(emitCheckoutEvent).toHaveBeenCalledWith('checkout.transaction.created', expect.any(Object), { tenantId: TENANT_ID, organizationId: ORG_ID })
   })
 })

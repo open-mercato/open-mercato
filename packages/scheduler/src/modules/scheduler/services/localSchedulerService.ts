@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/core'
 import type { Queue } from '@open-mercato/queue'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -167,7 +168,7 @@ export class LocalSchedulerService {
         scopeType: schedule.scopeType,
         triggerType: 'scheduled',
         startedAt: new Date(),
-      })
+      }, organizationEventScope(schedule))
 
       try {
         // Check feature flag if required
@@ -185,7 +186,7 @@ export class LocalSchedulerService {
               scopeType: schedule.scopeType,
               reason: `Missing required feature: ${schedule.requireFeature}`,
               skippedAt: new Date(),
-            })
+            }, organizationEventScope(schedule))
 
             // Still update next run time
             await this.updateNextRun(schedule)
@@ -233,7 +234,7 @@ export class LocalSchedulerService {
           scheduleName: schedule.name,
           scopeType: schedule.scopeType,
           completedAt: new Date(),
-        })
+        }, organizationEventScope(schedule))
       } catch (error: unknown) {
         scheduleLogger.error('Schedule failed', { err: error })
 
@@ -246,7 +247,7 @@ export class LocalSchedulerService {
           scopeType: schedule.scopeType,
           error: error instanceof Error ? error.message : String(error),
           failedAt: new Date(),
-        })
+        }, organizationEventScope(schedule))
 
         // Still update next run time even on failure
         await this.updateNextRun(schedule)

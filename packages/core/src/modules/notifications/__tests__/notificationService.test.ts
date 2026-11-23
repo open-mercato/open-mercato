@@ -194,7 +194,8 @@ describe('notification service', () => {
         notificationId: notification.id,
         recipientUserId: baseNotificationInput.recipientUserId,
         tenantId: baseCtx.tenantId,
-      })
+      }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -249,6 +250,7 @@ describe('notification service', () => {
     expect(eventBus.emit).toHaveBeenCalledWith(
       NOTIFICATION_EVENTS.CREATED,
       expect.objectContaining({ recipientUserId: baseNotificationInput.recipientUserId }),
+      { tenantId: null, organizationId: null },
     )
   })
 
@@ -303,6 +305,7 @@ describe('notification service', () => {
       expect.objectContaining({
         notificationId: 'note-existing',
       }),
+      { tenantId: null, organizationId: null },
     )
   })
 
@@ -337,6 +340,7 @@ describe('notification service', () => {
         recipientUserIds: ['e2c9ac54-ecdb-4d79-8d73-8328ca0f16f0', 'e2d9e79c-3f2f-4b8c-9455-6c19b671dc5c'],
         count: 2,
       }),
+      { tenantId: null, organizationId: null },
     )
   })
 
@@ -403,7 +407,7 @@ describe('notification service', () => {
     })
     expect(eventBus.emit).toHaveBeenCalledWith(NOTIFICATION_EVENTS.CREATED, expect.objectContaining({
       notificationId: result[0].id,
-    }))
+    }), { tenantId: '7f4c85ef-f8f7-4e53-9df1-42e95bd8d48e', organizationId: '05676ba5-0730-420a-b035-1855bd4484bc' })
   })
 
   it.each(['unread', 'read', 'actioned', 'dismissed'] as const)(
@@ -483,13 +487,13 @@ describe('notification service', () => {
     expect(eventBus.emit).toHaveBeenCalledWith(NOTIFICATION_SSE_EVENTS.BATCH_CREATED, expect.objectContaining({
       recipientUserIds: [thirdUserId],
       count: 1,
-    }))
+    }), { tenantId: null, organizationId: null })
     expect(eventBus.emit).toHaveBeenCalledWith(NOTIFICATION_SSE_EVENTS.CREATED, expect.objectContaining({
       recipientUserId: thirdUserId,
-    }))
+    }), { tenantId: null, organizationId: null })
     expect(eventBus.emit).toHaveBeenCalledWith(NOTIFICATION_EVENTS.CREATED, expect.objectContaining({
       recipientUserId: thirdUserId,
-    }))
+    }), { tenantId: null, organizationId: null })
   })
 
   it.each([undefined, '', ' \t\n '])('rejects invalid deduplicated group key %p before side effects', async (groupKey) => {
@@ -735,7 +739,8 @@ describe('notification service', () => {
         notificationId: notification.id,
         userId: baseCtx.userId,
         tenantId: baseCtx.tenantId,
-      })
+      }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -827,7 +832,8 @@ describe('notification service', () => {
     for (const note of notifications) {
       expect(eventBus.emit).toHaveBeenCalledWith(
         NOTIFICATION_EVENTS.READ,
-        expect.objectContaining({ notificationId: note.id, userId: baseCtx.userId, tenantId: baseCtx.tenantId })
+        expect.objectContaining({ notificationId: note.id, userId: baseCtx.userId, tenantId: baseCtx.tenantId }),
+        { tenantId: '7f4c85ef-f8f7-4e53-9df1-42e95bd8d48e', organizationId: 'org-1' }
       )
       expect(eventBus.emit).toHaveBeenCalledWith(
         NOTIFICATION_SSE_EVENTS.CREATED,
@@ -836,7 +842,8 @@ describe('notification service', () => {
           organizationId: note.organizationId,
           recipientUserId: note.recipientUserId,
           notification: expect.objectContaining({ id: note.id, status: 'read' }),
-        })
+        }),
+        { tenantId: '7f4c85ef-f8f7-4e53-9df1-42e95bd8d48e', organizationId: 'org-1' }
       )
     }
   })
@@ -1058,7 +1065,8 @@ describe('notification service', () => {
         actionId: 'approve',
         userId: baseCtx.userId,
         tenantId: baseCtx.tenantId,
-      })
+      }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -1175,7 +1183,7 @@ describe('notification service', () => {
 
     // The failed action did not persist an actioned state or emit the actioned event.
     expect(em.flush).not.toHaveBeenCalled()
-    expect(eventBus.emit).not.toHaveBeenCalledWith(NOTIFICATION_EVENTS.ACTIONED, expect.anything())
+    expect(jest.mocked(eventBus.emit).mock.calls.map(([event]) => event)).not.toContain(NOTIFICATION_EVENTS.ACTIONED)
   })
 
   it('executes the target command at most once for duplicate concurrent requests', async () => {
@@ -1272,7 +1280,7 @@ describe('notification service', () => {
 
       expect(commandBus.execute).not.toHaveBeenCalled()
       expect(notification.status).toBe(status)
-      expect(eventBus.emit).not.toHaveBeenCalledWith(NOTIFICATION_EVENTS.ACTIONED, expect.anything())
+      expect(jest.mocked(eventBus.emit).mock.calls.map(([event]) => event)).not.toContain(NOTIFICATION_EVENTS.ACTIONED)
     },
   )
 
@@ -1312,6 +1320,7 @@ describe('notification service', () => {
       expect(eventBus.emit).toHaveBeenCalledWith(
         NOTIFICATION_EVENTS.RESTORED,
         expect.objectContaining({ notificationId: notification.id, status: 'actioned' }),
+        { tenantId: null, organizationId: null },
       )
     }
   })
@@ -1346,6 +1355,7 @@ describe('notification service', () => {
     expect(eventBus.emit).toHaveBeenLastCalledWith(
       NOTIFICATION_EVENTS.RESTORED,
       expect.objectContaining({ notificationId: notification.id, status: 'read' }),
+      { tenantId: null, organizationId: null },
     )
   })
 

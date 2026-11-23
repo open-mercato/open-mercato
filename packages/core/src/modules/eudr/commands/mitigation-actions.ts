@@ -277,7 +277,7 @@ const createMitigationActionCommand: CommandHandler<ScopedMitigationActionCreate
         organizationId: record.organizationId,
         title: record.title,
         riskAssessmentId: record.riskAssessmentId,
-      })
+      }, record)
     }
 
     return { entityId: record.id }
@@ -421,6 +421,7 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
 
       const lifecycleEvent = record.status === 'completed' && !wasCompleted
         ? {
+          scope: { tenantId: record.tenantId, organizationId: record.organizationId },
           eventId: 'eudr.mitigation_action.completed' as const,
           payload: {
             id: record.id,
@@ -438,7 +439,7 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
       return { result, lifecycleEvent }
     })
     if (lifecycleEvent) {
-      await emitEudrLifecycleEvent(ctx.container, lifecycleEvent.eventId, lifecycleEvent.payload)
+      await emitEudrLifecycleEvent(ctx.container, lifecycleEvent.eventId, lifecycleEvent.payload, lifecycleEvent.scope)
     }
     return result
   },

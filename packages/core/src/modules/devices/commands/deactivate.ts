@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { createHash } from 'node:crypto'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -104,7 +105,7 @@ const deactivateDeviceCommand: CommandHandler<
         userId: device.userId,
         deviceId: device.deviceId,
       },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(device) },
     )
 
     return parsed.expectedPushToken ? { id: device.id, deactivated: true } : { id: device.id }

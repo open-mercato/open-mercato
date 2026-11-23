@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { EntityManager, type FilterQuery, type RequiredEntityData } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
 import { User, UserRole, Role } from '@open-mercato/core/modules/auth/data/entities'
@@ -90,8 +91,9 @@ export class AccountLinkingService {
 
       throw new Error('[internal] No matching user found and JIT provisioning is disabled')
     })
-    for (const { eventId, ...payload } of pendingEvents) {
-      void emitSsoEvent(eventId, payload).catch((eventError) => {
+    for (const identityEvent of pendingEvents) {
+      const { eventId, ...payload } = identityEvent
+      void emitSsoEvent(eventId, payload, organizationEventScope(identityEvent)).catch((eventError) => {
         logger.error('SSO event emit failed', { err: eventError })
         try {
           getTelemetryRuntime()?.reportError(eventError, { module: 'sso', code: 'sso.event_emit_failed' })

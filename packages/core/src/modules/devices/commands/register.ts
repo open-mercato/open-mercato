@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
@@ -135,7 +136,7 @@ const registerDeviceCommand: CommandHandler<RegisterDeviceCommandInput, { id: st
         platform: device.platform,
         revived,
       },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(device) },
     )
 
     return { id: device.id, deviceId: device.deviceId, revived }

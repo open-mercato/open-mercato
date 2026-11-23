@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
@@ -152,7 +153,7 @@ export async function POST(req: Request) {
     slug: role.slug,
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
-  }).catch(() => undefined)
+  }, organizationEventScope({ tenantId: auth.tenantId, organizationId: auth.orgId })).catch(() => undefined)
 
   return NextResponse.json({
     ok: true,

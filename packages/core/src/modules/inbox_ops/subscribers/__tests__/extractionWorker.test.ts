@@ -302,6 +302,7 @@ describe('extractionWorker', () => {
       expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
         'inbox_ops.email.processed',
         expect.objectContaining({ emailId: 'email-1' }),
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
       )
       expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
         'inbox_ops.proposal.created',
@@ -309,6 +310,7 @@ describe('extractionWorker', () => {
           emailId: 'email-1',
           actionCount: 3,
         }),
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
       )
     })
   })
@@ -332,6 +334,7 @@ describe('extractionWorker', () => {
           emailId: 'email-1',
           error: expect.stringContaining('API rate limit exceeded'),
         }),
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
       )
     })
   })
@@ -900,6 +903,7 @@ describe('extractionWorker', () => {
       expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
         'inbox_ops.email.processed',
         expect.objectContaining({ emailId: 'email-1' }),
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
       )
 
       consoleSpy.mockRestore()

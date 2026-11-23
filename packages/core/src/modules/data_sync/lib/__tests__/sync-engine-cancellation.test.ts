@@ -246,7 +246,7 @@ describe('data sync engine cancellation reaches the adapter mid-batch', () => {
       expect(syncRunService.commitBatchProgress as jest.Mock).not.toHaveBeenCalled()
       expect(progressService.markCancelled).toHaveBeenCalledWith('job-cancel-1', expect.objectContaining({ tenantId: 'tenant-1' }))
       expect(progressService.completeJob).not.toHaveBeenCalled()
-      expect(mockEmitDataSyncEvent).toHaveBeenCalledWith('data_sync.run.cancelled', expect.objectContaining({ runId: 'run-cancel-1' }))
+      expect(mockEmitDataSyncEvent).toHaveBeenCalledWith('data_sync.run.cancelled', expect.objectContaining({ runId: 'run-cancel-1' }), { tenantId: 'tenant-1', organizationId: 'org-1' })
     })
 
     it('aborts the signal while a batch is still in flight', async () => {
@@ -429,7 +429,7 @@ describe('data sync engine cancellation reaches the adapter mid-batch', () => {
       expect(syncRunService.commitBatchProgress as jest.Mock).not.toHaveBeenCalled()
       expect(progressService.markCancelled).toHaveBeenCalledWith('job-cancel-1', expect.objectContaining({ tenantId: 'tenant-1' }))
       expect(progressService.completeJob).not.toHaveBeenCalled()
-      expect(mockEmitDataSyncEvent).toHaveBeenCalledWith('data_sync.run.cancelled', expect.objectContaining({ runId: 'run-cancel-1' }))
+      expect(mockEmitDataSyncEvent).toHaveBeenCalledWith('data_sync.run.cancelled', expect.objectContaining({ runId: 'run-cancel-1' }), { tenantId: 'tenant-1', organizationId: 'org-1' })
     })
 
     it('aborts the signal while a batch is still in flight', async () => {

@@ -190,6 +190,7 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
       1,
       'inbox_ops.email.reprocessed',
       expect.objectContaining({ emailId: 'email-1' }),
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
     expect(mockEmitInboxOpsEvent).toHaveBeenNthCalledWith(
       2,

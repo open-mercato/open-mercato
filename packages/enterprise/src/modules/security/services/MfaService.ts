@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { randomBytes } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
@@ -164,7 +165,7 @@ export class MfaService {
       methodType: method.type,
       methodId: method.id,
       enrolledAt: new Date().toISOString(),
-    })
+    }, organizationEventScope(method))
 
     return {}
   }

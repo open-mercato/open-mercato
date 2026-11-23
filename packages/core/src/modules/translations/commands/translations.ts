@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
@@ -135,7 +136,7 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string }> = {
       entityId: input.entityId,
       organizationId: input.organizationId,
       tenantId: input.tenantId,
-    }, { persistent: true }).catch(() => undefined)
+    }, { persistent: true, ...organizationEventScope(input) }).catch(() => undefined)
 
     return { rowId }
   },
@@ -238,7 +239,7 @@ const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean }
       entityId: input.entityId,
       organizationId: input.organizationId,
       tenantId: input.tenantId,
-    }, { persistent: true }).catch(() => undefined)
+    }, { persistent: true, ...organizationEventScope(input) }).catch(() => undefined)
 
     return { deleted: count > 0 }
   },

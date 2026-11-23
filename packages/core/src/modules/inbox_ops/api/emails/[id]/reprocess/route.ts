@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -68,7 +69,7 @@ export async function POST(req: Request) {
         emailId: email.id,
         tenantId: email.tenantId,
         organizationId: email.organizationId,
-      })
+      }, organizationEventScope(email))
       await emitInboxOpsEvent('inbox_ops.email.received', {
         emailId: email.id,
         tenantId: email.tenantId,

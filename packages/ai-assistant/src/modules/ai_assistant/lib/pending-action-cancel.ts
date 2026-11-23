@@ -18,6 +18,7 @@
  * BEFORE invoking this helper so the event is emitted exactly once per
  * cancellation.
  */
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AiPendingActionRepository } from '../data/repositories/AiPendingActionRepository'
 import type { AiPendingAction } from '../data/entities'
@@ -72,9 +73,7 @@ const CANCELLED_EVENT_ID = 'ai.action.cancelled' as const
 const EXPIRED_EVENT_ID = 'ai.action.expired' as const
 
 const defaultCancelEmitter: CancelEmitter = async (eventId, payload) => {
-  await emitAiAssistantEvent(eventId, payload as unknown as Record<string, unknown>, {
-    persistent: true,
-  })
+  await emitAiAssistantEvent(eventId, payload as unknown as Record<string, unknown>, { persistent: true, ...organizationEventScope(payload) })
 }
 
 async function emitEventSafe(

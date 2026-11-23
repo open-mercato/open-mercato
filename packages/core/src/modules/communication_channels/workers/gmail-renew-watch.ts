@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -107,7 +108,7 @@ export default async function handle(
             tenantId: channel.tenantId,
             organizationId,
           },
-          { persistent: false },
+          { persistent: false, ...organizationEventScope({ tenantId: channel.tenantId, organizationId }) },
         )
       } else {
         failed += 1

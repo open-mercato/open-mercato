@@ -221,7 +221,7 @@ describe('MfaService', () => {
     expect(mockedEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.enrolled', expect.objectContaining({
       userId: 'user-1',
       methodType: 'totp',
-    }))
+    }), { tenantId: 'tenant-1', organizationId: 'org-1' })
   })
 
   test('setupMethod rejects duplicate single-instance provider enrollment', async () => {

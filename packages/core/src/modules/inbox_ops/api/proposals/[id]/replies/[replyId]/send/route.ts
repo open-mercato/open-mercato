@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { raw } from '@mikro-orm/core'
 import { Resend } from 'resend'
@@ -212,7 +213,7 @@ export async function POST(req: Request) {
         toAddress,
         sentMessageId,
         messageRecordId: messagesResult?.messageId ?? null,
-      })
+      }, organizationEventScope(ctx))
     } catch (eventError) {
       logger.error('Failed to emit event', { err: eventError })
     }

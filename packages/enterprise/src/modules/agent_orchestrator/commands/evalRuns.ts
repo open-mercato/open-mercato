@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { randomUUID } from 'node:crypto'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
@@ -256,7 +257,7 @@ const startEvalRunCommand: CommandHandler<StartEvalRunCommandInput, StartEvalRun
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(scope) },
     )
 
     return { suiteRunId, caseRunCount }

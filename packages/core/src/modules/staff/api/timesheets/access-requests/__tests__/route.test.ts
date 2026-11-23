@@ -183,6 +183,7 @@ describe('staff timesheets access-requests route', () => {
         timeProjectId: projectId,
         timeProjectName: 'Fintechly Portal',
       }),
+      { tenantId: tenantA, organizationId },
     )
   })
 
@@ -214,6 +215,7 @@ describe('staff timesheets access-requests route', () => {
     expect(emitStaffEvent).toHaveBeenCalledWith(
       'staff.timesheets.project_access.requested',
       expect.objectContaining({ ...selectedScope, timeProjectId: projectId, requesterName: 'Selected requester' }),
+      { tenantId: tenantA, organizationId: selectedOrganizationId },
     )
     const payload = emitStaffEvent.mock.calls[0][1] as Parameters<typeof notifyAccessRequest>[0]
     await notifyAccessRequest(payload, { resolve: <Value,>() => ({}) as Value })
@@ -256,6 +258,7 @@ describe('staff timesheets access-requests route', () => {
     expect(emitStaffEvent).toHaveBeenCalledWith(
       'staff.timesheets.project_access.requested',
       expect.objectContaining({ timeProjectId: null, timeProjectName: null }),
+      { tenantId: tenantA, organizationId },
     )
   })
 
@@ -267,6 +270,7 @@ describe('staff timesheets access-requests route', () => {
     expect(emitStaffEvent).toHaveBeenCalledWith(
       'staff.timesheets.project_access.requested',
       expect.objectContaining({ requesterName: 'tomasz@example.test' }),
+      { tenantId: tenantA, organizationId },
     )
   })
 
@@ -282,6 +286,7 @@ describe('staff timesheets access-requests route', () => {
     expect(emitStaffEvent).toHaveBeenCalledWith(
       'staff.timesheets.project_access.requested',
       expect.objectContaining({ timeProjectId: null, timeProjectName: null }),
+      { tenantId: tenantA, organizationId },
     )
   })
 

@@ -980,7 +980,8 @@ describe('Rule Engine (Unit Tests)', () => {
           errorMessage: 'Evaluation error',
           tenantId: testTenantId,
           organizationId: testOrgId,
-        })
+        }),
+        { tenantId: '00000000-0000-4000-8000-000000000001', organizationId: '00000000-0000-4000-8000-000000000002' }
       )
     })
   })

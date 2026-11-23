@@ -9,6 +9,7 @@
  * Functional API (no classes) following Open Mercato conventions.
  */
 
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { EntityManager } from '@mikro-orm/core'
 import {
   WorkflowInstance,
@@ -886,7 +887,7 @@ async function emitTaskAssignedEvent(
         tenantId: instance.tenantId,
         organizationId: instance.organizationId ?? null,
       },
-      { persistent: true }
+      { persistent: true, ...organizationEventScope(instance) }
     )
   } catch (error) {
     logger.error('Failed to emit workflows.task.assigned', {

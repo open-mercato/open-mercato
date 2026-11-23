@@ -545,6 +545,7 @@ describe('RecordLockService.acquire', () => {
       expect.objectContaining({
         joinedUserId: '40000000-0000-4000-8000-000000000001',
       }),
+      { tenantId: '60000000-0000-4000-8000-000000000001', organizationId: '70000000-0000-4000-8000-000000000001' },
     )
   })
 
@@ -597,6 +598,7 @@ describe('RecordLockService.acquire', () => {
         lockedByUserId: '40000000-0000-4000-8000-000000000099',
         attemptedByUserId: '40000000-0000-4000-8000-000000000001',
       }),
+      { tenantId: '60000000-0000-4000-8000-000000000001', organizationId: '70000000-0000-4000-8000-000000000001' },
     )
   })
 
@@ -806,6 +808,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
         changedFields: expect.stringContaining('Display Name'),
       }),
+      { tenantId: '60000000-0000-4000-8000-000000000001', organizationId: '70000000-0000-4000-8000-000000000001' },
     )
   })
 
@@ -853,6 +856,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         changedFields: expect.stringContaining('Display Name'),
         changedRowsJson: expect.stringContaining('Acme Incoming'),
       }),
+      { tenantId: '60000000-0000-4000-8000-000000000001', organizationId: '70000000-0000-4000-8000-000000000001' },
     )
   })
 
@@ -893,6 +897,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         incomingActionLogId: '80000000-0000-4000-8000-000000000777',
         recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
       }),
+      { tenantId: '60000000-0000-4000-8000-000000000001', organizationId: '70000000-0000-4000-8000-000000000001' },
     )
   })
 
@@ -926,6 +931,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
         changedFields: '-',
       }),
+      { tenantId: '60000000-0000-4000-8000-000000000001', organizationId: '70000000-0000-4000-8000-000000000001' },
     )
   })
 
@@ -981,6 +987,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
         incomingActionLogId: '80000000-0000-4000-8000-000000000555',
       }),
+      { tenantId: null, organizationId: null },
     )
   })
 
@@ -1036,6 +1043,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
         incomingActionLogId: '80000000-0000-4000-8000-000000000556',
       }),
+      { tenantId: '60000000-0000-4000-8000-000000000001', organizationId: '70000000-0000-4000-8000-000000000777' },
     )
   })
 
@@ -1087,6 +1095,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
         incomingActionLogId: '80000000-0000-4000-8000-000000000557',
       }),
+      { tenantId: '60000000-0000-4000-8000-000000000001', organizationId: '70000000-0000-4000-8000-000000000001' },
     )
   })
 
@@ -1144,6 +1153,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         incomingActorUserId: '90000000-0000-4000-8000-000000000001',
         incomingActionLogId: '80000000-0000-4000-8000-000000000558',
       }),
+      { tenantId: '60000000-0000-4000-8000-000000000001', organizationId: '70000000-0000-4000-8000-000000000001' },
     )
   })
 })
@@ -1273,6 +1283,7 @@ describe('RecordLockService.forceRelease', () => {
         lockId: oldest.id,
         releasedByUserId: '40000000-0000-4000-8000-000000000001',
       }),
+      { tenantId: '60000000-0000-4000-8000-000000000001', organizationId: '70000000-0000-4000-8000-000000000001' },
     )
   })
 })

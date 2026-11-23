@@ -423,7 +423,7 @@ const createRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentCreateInpu
       statementId: record.statementId,
       statementTitle,
       conclusion: record.conclusion,
-    })
+    }, record)
 
     return { entityId: record.id }
   },
@@ -574,6 +574,7 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
 
       const lifecycleEvent = record.conclusion !== previousConclusion
         ? {
+          scope: { tenantId: record.tenantId, organizationId: record.organizationId },
           eventId: 'eudr.risk_assessment.concluded' as const,
           payload: {
             id: record.id,
@@ -592,7 +593,7 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
       return { result, lifecycleEvent }
     })
     if (lifecycleEvent) {
-      await emitEudrLifecycleEvent(ctx.container, lifecycleEvent.eventId, lifecycleEvent.payload)
+      await emitEudrLifecycleEvent(ctx.container, lifecycleEvent.eventId, lifecycleEvent.payload, lifecycleEvent.scope)
     }
     return result
   },

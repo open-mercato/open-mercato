@@ -140,7 +140,7 @@ describe('TOTP setup confirmation through the PUT route', () => {
     expect(accepted.status).toBe(200)
     expect(method.isActive).toBe(true)
     expect(em.flush).toHaveBeenCalledTimes(1)
-    expect(emitSecurityEvent).toHaveBeenCalledWith('security.mfa.enrolled', expect.objectContaining({ methodId: method.id }))
+    expect(emitSecurityEvent).toHaveBeenCalledWith('security.mfa.enrolled', expect.objectContaining({ methodId: method.id }), { tenantId: null, organizationId: null })
   })
 
   test('returns a localized 404 when the provider no longer holds the setup session', async () => {

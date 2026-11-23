@@ -93,7 +93,8 @@ describe('progress service', () => {
         jobType: 'import',
         name: 'Import contacts',
         tenantId: baseCtx.tenantId,
-      })
+      }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -206,7 +207,8 @@ describe('progress service', () => {
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_STARTED,
-      expect.objectContaining({ jobId: 'job-1', jobType: 'import', tenantId: baseCtx.tenantId })
+      expect.objectContaining({ jobId: 'job-1', jobType: 'import', tenantId: baseCtx.tenantId }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -242,7 +244,7 @@ describe('progress service', () => {
     // a queue retry restarts the whole unit of work, so a genuine failure is restartable.
     const [, filter] = em.nativeUpdate.mock.calls[0]
     expect(filter.errorMessage).toBeUndefined()
-    expect(eventBus.emit).toHaveBeenCalledWith(PROGRESS_EVENTS.JOB_STARTED, expect.objectContaining({ jobId: 'job-1' }))
+    expect(eventBus.emit).toHaveBeenCalledWith(PROGRESS_EVENTS.JOB_STARTED, expect.objectContaining({ jobId: 'job-1' }), { tenantId: null, organizationId: null })
   })
 
   it('startJob — lost transition race returns the fresh row without emitting', async () => {
@@ -289,7 +291,8 @@ describe('progress service', () => {
     expect(eventBus.emit).toHaveBeenCalledTimes(1)
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_STARTED,
-      expect.objectContaining({ jobId: 'job-1' })
+      expect.objectContaining({ jobId: 'job-1' }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -323,7 +326,8 @@ describe('progress service', () => {
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_UPDATED,
-      expect.objectContaining({ jobId: 'job-1', processedCount: 50, progressPercent: 50 })
+      expect.objectContaining({ jobId: 'job-1', processedCount: 50, progressPercent: 50 }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -454,7 +458,8 @@ describe('progress service', () => {
     expect(typeof data.processedCount).not.toBe('number')
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_UPDATED,
-      expect.objectContaining({ jobId: 'job-1', processedCount: 50, progressPercent: 50 })
+      expect.objectContaining({ jobId: 'job-1', processedCount: 50, progressPercent: 50 }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -489,7 +494,8 @@ describe('progress service', () => {
     expect(typeof data.progressPercent).not.toBe('number')
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_UPDATED,
-      expect.objectContaining({ jobId: 'job-1', processedCount: 100, progressPercent: 100 })
+      expect.objectContaining({ jobId: 'job-1', processedCount: 100, progressPercent: 100 }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -527,7 +533,8 @@ describe('progress service', () => {
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_COMPLETED,
-      expect.objectContaining({ jobId: 'job-1', jobType: 'import', tenantId: baseCtx.tenantId })
+      expect.objectContaining({ jobId: 'job-1', jobType: 'import', tenantId: baseCtx.tenantId }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -542,7 +549,7 @@ describe('progress service', () => {
     const result = await service.completeJob('job-1', undefined, baseCtx)
 
     expect(result.status).toBe('completed')
-    expect(eventBus.emit).toHaveBeenCalledWith(PROGRESS_EVENTS.JOB_COMPLETED, expect.objectContaining({ jobId: 'job-1' }))
+    expect(eventBus.emit).toHaveBeenCalledWith(PROGRESS_EVENTS.JOB_COMPLETED, expect.objectContaining({ jobId: 'job-1' }), { tenantId: null, organizationId: null })
   })
 
   it('completeJob — never overwrites a cancelled job and stays idempotent when already completed', async () => {
@@ -615,7 +622,8 @@ describe('progress service', () => {
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,
-      expect.objectContaining({ jobId: 'job-1', errorMessage: 'Network error', tenantId: baseCtx.tenantId })
+      expect.objectContaining({ jobId: 'job-1', errorMessage: 'Network error', tenantId: baseCtx.tenantId }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -660,7 +668,8 @@ describe('progress service', () => {
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_CANCELLED,
-      expect.objectContaining({ jobId: 'job-1', tenantId: baseCtx.tenantId })
+      expect.objectContaining({ jobId: 'job-1', tenantId: baseCtx.tenantId }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -691,7 +700,8 @@ describe('progress service', () => {
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_CANCELLED,
-      expect.objectContaining({ jobId: 'job-1' })
+      expect.objectContaining({ jobId: 'job-1' }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -765,7 +775,8 @@ describe('progress service', () => {
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_CANCELLED,
-      expect.objectContaining({ jobId: 'job-1', tenantId: baseCtx.tenantId })
+      expect.objectContaining({ jobId: 'job-1', tenantId: baseCtx.tenantId }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -847,11 +858,13 @@ describe('progress service', () => {
     expect(eventBus.emit).toHaveBeenCalledTimes(2)
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,
-      expect.objectContaining({ jobId: 'stale-1', stale: true })
+      expect.objectContaining({ jobId: 'stale-1', stale: true }),
+      { tenantId: null, organizationId: null }
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,
-      expect.objectContaining({ jobId: 'stale-2', stale: true })
+      expect.objectContaining({ jobId: 'stale-2', stale: true }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -872,7 +885,8 @@ describe('progress service', () => {
     expect(eventBus.emit).toHaveBeenCalledTimes(1)
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,
-      expect.objectContaining({ jobId: 'stale-2' })
+      expect.objectContaining({ jobId: 'stale-2' }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -905,7 +919,8 @@ describe('progress service', () => {
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,
-      expect.objectContaining({ jobId: 'orphan-1', stale: true })
+      expect.objectContaining({ jobId: 'orphan-1', stale: true }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -1549,7 +1564,8 @@ describe('progress service — broadcast coalescing (#2972)', () => {
     expect(eventBus.emit).toHaveBeenCalledTimes(2)
     expect(eventBus.emit).toHaveBeenLastCalledWith(
       PROGRESS_EVENTS.JOB_UPDATED,
-      expect.objectContaining({ jobId: 'job-1', processedCount: 1, progressPercent: 1 })
+      expect.objectContaining({ jobId: 'job-1', processedCount: 1, progressPercent: 1 }),
+      { tenantId: null, organizationId: null }
     )
   })
 
@@ -1617,7 +1633,8 @@ describe('progress service — broadcast coalescing (#2972)', () => {
     )
     expect(eventBus.emit).toHaveBeenLastCalledWith(
       PROGRESS_EVENTS.JOB_COMPLETED,
-      expect.objectContaining({ jobId: 'job-1', processedCount: 7, progressPercent: 100 })
+      expect.objectContaining({ jobId: 'job-1', processedCount: 7, progressPercent: 100 }),
+      { tenantId: null, organizationId: null }
     )
   })
 })
@@ -1719,6 +1736,7 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_STARTED,
       expect.objectContaining({ jobId: 'job-1', status: 'running', tenantId: baseCtx.tenantId }),
+      { tenantId: null, organizationId: null },
     )
   })
 
@@ -1781,10 +1799,12 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_STARTED,
       expect.objectContaining({ jobId: 'job-1', status: 'running' }),
+      { tenantId: null, organizationId: null },
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_UPDATED,
       expect.objectContaining({ jobId: 'job-1', processedCount: 300 }),
+      { tenantId: null, organizationId: null },
     )
   })
 
@@ -1921,6 +1941,7 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_STARTED,
       expect.objectContaining({ jobId: 'job-1' }),
+      { tenantId: null, organizationId: null },
     )
   })
 
@@ -1966,10 +1987,11 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
     expect(persistFilter).toEqual(expect.objectContaining({ status: { $in: ['pending', 'running'] } }))
     expect(typeof persistData.processedCount).not.toBe('number')
     // The heartbeat that won the race already emitted JOB_STARTED; this call must not double it.
-    expect(eventBus.emit).not.toHaveBeenCalledWith(PROGRESS_EVENTS.JOB_STARTED, expect.anything())
+    expect(jest.mocked(eventBus.emit).mock.calls.map(([event]) => event)).not.toContain(PROGRESS_EVENTS.JOB_STARTED)
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_UPDATED,
       expect.objectContaining({ jobId: 'job-1', processedCount: 60 }),
+      { tenantId: null, organizationId: null },
     )
   })
 
@@ -2078,10 +2100,12 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_STARTED,
       expect.objectContaining({ jobId: 'job-1' }),
+      { tenantId: null, organizationId: null },
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_UPDATED,
       expect.objectContaining({ jobId: 'job-1', processedCount: 50 }),
+      { tenantId: null, organizationId: null },
     )
   })
   it('markCancelled — flushes the throttled meta so a producer\'s partial summary survives the cancel', async () => {
@@ -2170,6 +2194,7 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
         status: 'cancelled',
         meta: expect.objectContaining({ resultSummary: { createdCount: 40 } }),
       }),
+      { tenantId: null, organizationId: null },
     )
   })
 })

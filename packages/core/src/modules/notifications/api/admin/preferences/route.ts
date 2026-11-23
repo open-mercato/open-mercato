@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
@@ -153,7 +154,7 @@ export async function PUT(req: Request) {
         tenantId: auth.tenantId,
         organizationId: auth.orgId ?? null,
         userId: parsed.data.userId,
-      })
+      }, organizationEventScope({ tenantId: auth.tenantId, organizationId: auth.orgId ?? null }))
     }
 
     return NextResponse.json({ ok: true })

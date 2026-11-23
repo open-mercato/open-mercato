@@ -183,7 +183,7 @@ describe('agent disposition SLA breach', () => {
     expect(mockEmit).toHaveBeenCalledWith(
       'workflows.task.assigned',
       expect.objectContaining({ taskId }),
-      { persistent: true },
+      { persistent: true, tenantId, organizationId },
     )
   })
 

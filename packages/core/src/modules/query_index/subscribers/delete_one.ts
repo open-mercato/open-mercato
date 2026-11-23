@@ -1,3 +1,4 @@
+import { matchingOrganizationEventScope, organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { sql } from 'kysely'
@@ -29,7 +30,7 @@ function shouldAllowDeleteCoverageRefresh(entityType: string, tenantId: string |
   return true
 }
 
-export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
+export default async function handle(payload: any, ctx: { tenantId?: string | null; organizationId?: string | null; resolve: <T=any>(name: string) => T }) {
   // Forked EntityManager — this awaited subscriber runs synchronously on the request
   // `em`; isolating it prevents our queries/writes from resetting the originating CRUD
   // write's UnitOfWork and dropping its pending changes. See upsert_one.ts for detail.
@@ -59,6 +60,9 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     })
     organizationId = resolvedScope.organizationId
     tenantId = resolvedScope.tenantId
+    const searchEventScope = sourceScope.kind === 'row'
+      ? organizationEventScope(sourceScope.scope)
+      : matchingOrganizationEventScope(ctx, resolvedScope)
 
     if (alwaysConsistent) {
       const db = (em as any).getKysely()
@@ -122,7 +126,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
           delayMs: coverageRefreshDelay,
         }, { rethrowHandlerErrors: true })
       }
-      await bus.emitEvent('search.delete_record', { entityId: entityType, recordId, organizationId, tenantId }, { rethrowHandlerErrors: true })
+      await bus.emitEvent('search.delete_record', { entityId: entityType, recordId, organizationId, tenantId }, { rethrowHandlerErrors: true, ...searchEventScope })
       return
     }
 
@@ -196,7 +200,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
             delayMs: coverageRefreshDelay,
           })
         }
-        await bus.emitEvent('search.delete_record', { entityId: entityType, recordId, organizationId, tenantId })
+        await bus.emitEvent('search.delete_record', { entityId: entityType, recordId, organizationId, tenantId }, searchEventScope)
       } catch (error) {
         await recordIndexerError(
           { em },

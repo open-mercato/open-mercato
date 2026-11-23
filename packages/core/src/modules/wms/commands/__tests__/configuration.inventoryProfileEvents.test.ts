@@ -99,7 +99,7 @@ describe('WMS inventory profile events', () => {
     await handler.execute({ id: 'profile-1' }, buildCtx(record))
 
     expect(record.deletedAt).toBeInstanceOf(Date)
-    expect(emitWmsEvent).toHaveBeenCalledWith('wms.inventory_profile.deleted', expectedPayload)
+    expect(emitWmsEvent).toHaveBeenCalledWith('wms.inventory_profile.deleted', expectedPayload, { tenantId: TENANT, organizationId: ORG })
   })
 
   it('routes the deleted event to the enricher and availability cache invalidation subscribers', () => {
@@ -120,7 +120,7 @@ describe('WMS inventory profile events', () => {
     } as any)
 
     expect(record.deletedAt).toBeInstanceOf(Date)
-    expect(emitWmsEvent).toHaveBeenCalledWith('wms.inventory_profile.deleted', expectedPayload)
+    expect(emitWmsEvent).toHaveBeenCalledWith('wms.inventory_profile.deleted', expectedPayload, { tenantId: TENANT, organizationId: ORG })
   })
 
   it('emits wms.inventory_profile.created when a profile delete is undone', async () => {
@@ -136,7 +136,7 @@ describe('WMS inventory profile events', () => {
     } as any)
 
     expect(record.deletedAt).toBeNull()
-    expect(emitWmsEvent).toHaveBeenCalledWith('wms.inventory_profile.created', expectedPayload)
+    expect(emitWmsEvent).toHaveBeenCalledWith('wms.inventory_profile.created', expectedPayload, { tenantId: TENANT, organizationId: ORG })
   })
 
   it('emits wms.inventory_profile.updated when a profile update is undone', async () => {
@@ -152,6 +152,6 @@ describe('WMS inventory profile events', () => {
     } as any)
 
     expect(record.defaultStrategy).toBe('fifo')
-    expect(emitWmsEvent).toHaveBeenCalledWith('wms.inventory_profile.updated', expectedPayload)
+    expect(emitWmsEvent).toHaveBeenCalledWith('wms.inventory_profile.updated', expectedPayload, { tenantId: TENANT, organizationId: ORG })
   })
 })

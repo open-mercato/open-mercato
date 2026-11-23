@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -193,7 +194,7 @@ export async function PATCH(req: Request) {
     timeEntryId: updatedSegment.timeEntryId,
     tenantId,
     organizationId,
-  }, { persistent: true }).catch((err) => {
+  }, { persistent: true, ...organizationEventScope({ tenantId, organizationId }) }).catch((err) => {
     logger.error('staff.timesheets emit time_entry_segment.updated failed', { err })
   })
 

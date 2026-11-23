@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -175,7 +176,7 @@ async function ingestBatch(calls: NormalizedPhoneCall[], deps: IngestDeps): Prom
         externalCallId: call.externalCallId,
         organizationId: deps.scope.organizationId,
         tenantId: deps.scope.tenantId,
-      }).catch(() => undefined)
+      }, organizationEventScope(deps.scope)).catch(() => undefined)
     }
   }
 

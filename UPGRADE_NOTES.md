@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Outbound webhooks from custom or tenant-wide producers (#9524)
+
+For a custom producer that needs to reach an organization’s webhook subscriptions, pass the tenant and organization from the record loaded by the server, or from the authorized operation, in the third argument to the event emitter. Keep the existing event ID and payload. For example, use `emitOrderEvent(id, payload, { tenantId: order.tenantId, organizationId: order.organizationId })` after the order write commits.
+
+Operators should compare their active wildcard subscriptions with their custom event producers, verify delivery for the intended organization, and verify that another organization and tenant receive no delivery. The outbound dispatcher logs scoped payloads that arrive without a trusted tenant. Route any intentionally tenant-wide producer or producer with an unknown audience to the event owner before enabling fan-out. [Producer inventory and owner decisions](.ai/specs/implemented/SPEC-057-2026-03-04-webhooks-module.md#wildcard-producer-compatibility)
+
 ## Fullapp development agent authentication (#9116)
 
 Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibility copy, or the standalone `docker-compose.fullapp.dev.yml`, generate a strong `OPENCODE_PASSWORD` (for example, `openssl rand -hex 32`) and export it or save it in the compose `.env`. Missing or empty passwords now stop startup. The same value configures native OpenCode server authentication and the existing app client. Direct OpenCode clients must send HTTP Basic credentials with username `opencode`; healthchecks authenticate automatically. Recreate the app and OpenCode services together after changing the password.

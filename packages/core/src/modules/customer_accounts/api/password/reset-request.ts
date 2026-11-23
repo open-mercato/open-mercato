@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
@@ -81,7 +82,7 @@ export async function POST(req: Request) {
       emitCustomerAccountsEvent('customer_accounts.password_reset.requested', {
         userId: user.id,
         tenantId,
-      })
+      }, organizationEventScope(user))
     ).catch(() => undefined)
   }
 

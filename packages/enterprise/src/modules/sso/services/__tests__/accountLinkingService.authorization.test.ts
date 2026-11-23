@@ -162,7 +162,7 @@ describe('SSO account authority enforcement', () => {
     expect(emitSsoEvent).toHaveBeenCalledTimes(1)
     expect(emitSsoEvent).toHaveBeenCalledWith(flow === 'email' ? 'sso.identity.linked' : 'sso.identity.created', {
       id: 'identity-created', tenantId: 'tenant-1', organizationId: 'org-1',
-    })
+    }, { tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(jest.mocked(emitSsoEvent).mock.invocationCallOrder[0]).toBeGreaterThan(committed.mock.invocationCallOrder[0])
   })
 

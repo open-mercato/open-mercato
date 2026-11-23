@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
@@ -360,7 +361,7 @@ export async function POST(req: Request) {
         tenantId: settings.tenantId,
         organizationId: settings.organizationId,
         toAddress,
-      })
+      }, organizationEventScope(settings))
     } catch (eventError) {
       logger.error('Failed to emit deduplicated event', { err: eventError })
     }

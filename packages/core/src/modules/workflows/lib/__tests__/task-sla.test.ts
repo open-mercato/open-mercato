@@ -244,7 +244,7 @@ describe('runTaskSlaJob', () => {
     expect(mockEmit).toHaveBeenCalledWith(
       'workflows.task.deadline_breached',
       expect.objectContaining({ taskId, dueDate: jobOptions.deadlineAt }),
-      { persistent: true }
+      { persistent: true, tenantId, organizationId }
     )
   })
 
@@ -304,7 +304,7 @@ describe('runTaskSlaJob', () => {
     expect(mockEmit).toHaveBeenCalledWith(
       'workflows.task.reminder_due',
       expect.objectContaining({ taskId }),
-      { persistent: true }
+      { persistent: true, tenantId, organizationId }
     )
   })
 
@@ -499,7 +499,7 @@ describe('breach routing (spec §6.1 §4)', () => {
     expect(mockEmit).toHaveBeenCalledWith(
       'workflows.task.assigned',
       expect.objectContaining({ taskId }),
-      { persistent: true }
+      { persistent: true, tenantId, organizationId }
     )
   })
 
@@ -564,7 +564,7 @@ describe('breach routing (spec §6.1 §4)', () => {
     expect(mockEmit).toHaveBeenCalledWith(
       'workflows.task.deadline_breached',
       expect.objectContaining({ taskId }),
-      { persistent: true }
+      { persistent: true, tenantId, organizationId }
     )
   })
 })
@@ -743,7 +743,7 @@ describe('breach handling on a closed run', () => {
       expect(mockEmit).toHaveBeenCalledWith(
         'workflows.task.deadline_breached',
         expect.objectContaining({ taskId }),
-        { persistent: true }
+        { persistent: true, tenantId, organizationId }
       )
     }
   )
@@ -793,7 +793,7 @@ describe('breach handling on a closed run', () => {
     expect(mockEmit).toHaveBeenCalledWith(
       'workflows.task.assigned',
       expect.objectContaining({ taskId }),
-      { persistent: true }
+      { persistent: true, tenantId, organizationId }
     )
   })
 
@@ -821,7 +821,7 @@ describe('breach handling on a closed run', () => {
     expect(mockEmit).toHaveBeenCalledWith(
       'workflows.task.reminder_due',
       expect.objectContaining({ taskId }),
-      { persistent: true }
+      { persistent: true, tenantId, organizationId }
     )
   })
 

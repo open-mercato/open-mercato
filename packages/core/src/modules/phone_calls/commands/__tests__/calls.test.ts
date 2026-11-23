@@ -127,11 +127,13 @@ describe('phone_calls.call.ingest', () => {
       1,
       'phone_calls.call.ingested',
       expect.objectContaining({ id: first.phoneCallId, organizationId, tenantId }),
+      { tenantId, organizationId },
     )
     expect(emitPhoneCallsEventMock).toHaveBeenNthCalledWith(
       2,
       'phone_calls.call.updated',
       expect.objectContaining({ id: first.phoneCallId, organizationId, tenantId }),
+      { tenantId, organizationId },
     )
   })
 

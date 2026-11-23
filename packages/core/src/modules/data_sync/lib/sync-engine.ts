@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
@@ -625,7 +626,7 @@ export function createSyncEngine(deps: EngineDeps) {
         updatedCount: run.updatedCount,
         skippedCount: run.skippedCount,
         failedCount: run.failedCount,
-      })
+      }, organizationEventScope(scope))
       return
     }
 
@@ -637,7 +638,7 @@ export function createSyncEngine(deps: EngineDeps) {
         direction: run.direction,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
-      })
+      }, organizationEventScope(scope))
       return
     }
 
@@ -649,7 +650,7 @@ export function createSyncEngine(deps: EngineDeps) {
       error: error ?? null,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-    })
+    }, organizationEventScope(scope))
   }
 
   return {
@@ -699,7 +700,7 @@ export function createSyncEngine(deps: EngineDeps) {
         resumed,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
-      })
+      }, organizationEventScope(scope))
       await updateOperationalState({
         integrationId: run.integrationId,
         status: 'degraded',
@@ -933,7 +934,7 @@ export function createSyncEngine(deps: EngineDeps) {
         resumed,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
-      })
+      }, organizationEventScope(scope))
       await updateOperationalState({
         integrationId: run.integrationId,
         status: 'degraded',

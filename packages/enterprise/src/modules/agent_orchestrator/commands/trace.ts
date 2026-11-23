@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -89,7 +90,7 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
           tenantId: input.tenantId,
           organizationId: input.organizationId,
         },
-        { persistent: true },
+        { persistent: true, ...organizationEventScope(input) },
       )
     }
 

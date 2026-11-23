@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
@@ -374,7 +375,8 @@ function inapplicableFieldError(fields: string[], message: string): CrudHttpErro
 async function emitLifecycleEvent(
   ctx: CommandRuntimeContext,
   eventId: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  scope: { tenantId?: string | null; organizationId?: string | null },
 ): Promise<void> {
   let bus: { emitEvent(event: string, payload: unknown, options?: unknown): Promise<void> } | null = null
   try {
@@ -385,7 +387,7 @@ async function emitLifecycleEvent(
   }
   if (!bus) return
   await bus
-    .emitEvent(eventId, payload, { persistent: true })
+    .emitEvent(eventId, payload, { persistent: true, ...organizationEventScope(scope) })
     .catch((err) => {
       logger.warn('Event emit failed', { component: 'commands.interactions', eventId, err })
       return undefined
@@ -406,7 +408,7 @@ async function emitInteractionRevertedEvent(
     status: interaction.status,
     occurredAt: interaction.occurredAt?.toISOString() ?? null,
     ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
-  })
+  }, interaction)
 }
 
 type InteractionIdentifiers = {
@@ -490,7 +492,7 @@ async function emitNextInteractionUpdatedEvent(
     nextInteractionId: projection.nextInteractionId,
     organizationId: identifiers.organizationId,
     tenantId: identifiers.tenantId,
-  })
+  }, identifiers)
 }
 
 // ─── Create ─────────────────────────────────────────────────────────
@@ -1297,7 +1299,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       source: interaction.source ?? null,
       occurredAt: interaction.occurredAt?.toISOString() ?? null,
       ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
-    })
+    }, identifiers)
     await emitNextInteractionUpdatedEvent(ctx, { entityId, nextInteractionId }, identifiers)
 
     return { interactionId: interaction.id }
@@ -1437,7 +1439,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
       status: interaction.status,
       source: interaction.source ?? null,
       ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
-    })
+    }, identifiers)
     await emitNextInteractionUpdatedEvent(ctx, { entityId, nextInteractionId }, identifiers)
 
     return { interactionId: interaction.id }

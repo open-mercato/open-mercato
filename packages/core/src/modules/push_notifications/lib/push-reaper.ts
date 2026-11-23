@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { PushNotificationDelivery } from '../data/entities'
 import { emitPushNotificationsEvent } from '../events'
@@ -42,7 +43,7 @@ async function emitFailed(delivery: PushNotificationDelivery, willRetry: boolean
       status: delivery.status,
       ...(willRetry ? { willRetry: true } : {}),
     },
-    { persistent: true },
+    { persistent: true, ...organizationEventScope(delivery) },
   )
 }
 

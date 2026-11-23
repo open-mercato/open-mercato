@@ -22,6 +22,7 @@
 // The audit log still captures the full before/after via `buildLog`, so any
 // reversing counter-action is fully traceable.
 // =============================================================================
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { LockMode } from '@mikro-orm/core'
 import { randomUUID } from 'crypto'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -581,7 +582,7 @@ async function emitLowStockEventIfNeeded(
     state: lowStock.state,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
-  })
+  }, organizationEventScope(scope))
 }
 
 async function loadReceivedAtByBucket(
@@ -939,7 +940,7 @@ async function emitBalanceDriftIfNeeded(
     clampedValue: '0',
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
-  }).catch(() => undefined)
+  }, organizationEventScope(scope)).catch(() => undefined)
 }
 
 function enforceNonNegativeBalance(
@@ -1121,7 +1122,7 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
         quantity: toNumericString(result.quantity),
         tenantId: result.tenantId,
         organizationId: result.organizationId,
-      }).catch(() => undefined)
+      }, organizationEventScope(result)).catch(() => undefined)
       void emitLowStockEventIfNeeded(
         resolveEm(ctx),
         ctx,
@@ -1226,7 +1227,7 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
       quantity: result.quantity,
       tenantId: result.tenantId,
       organizationId: result.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(result)).catch(() => undefined)
     void emitLowStockEventIfNeeded(
       resolveEm(ctx),
       ctx,
@@ -1332,7 +1333,7 @@ const allocateInventoryReservationCommand: CommandHandler<InventoryReservationAl
       quantity: result.quantity,
       tenantId: result.tenantId,
       organizationId: result.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(result)).catch(() => undefined)
     return { reservationId: result.reservationId, allocationState: result.allocationState }
   },
   buildLog: async ({ input, result, ctx }) =>
@@ -1469,7 +1470,7 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
         quantity: toNumericString(result.quantity),
         tenantId: result.tenantId,
         organizationId: result.organizationId,
-      }).catch(() => undefined)
+      }, organizationEventScope(result)).catch(() => undefined)
       void emitLowStockEventIfNeeded(
         resolveEm(ctx),
         ctx,
@@ -1651,7 +1652,7 @@ export async function emitInventoryReceiveSideEffects(
     quantity: toNumericString(result.quantity),
     tenantId: result.tenantId,
     organizationId: result.organizationId,
-  }).catch(() => undefined)
+  }, organizationEventScope(result)).catch(() => undefined)
   void emitLowStockEventIfNeeded(
     resolveEm(ctx),
     ctx,
@@ -1859,7 +1860,7 @@ export async function emitInventoryMoveSideEffects(
     quantity: toNumericString(result.quantity),
     tenantId: result.tenantId,
     organizationId: result.organizationId,
-  }).catch(() => undefined)
+  }, organizationEventScope(result)).catch(() => undefined)
   void emitLowStockEventIfNeeded(
     resolveEm(ctx),
     ctx,
@@ -2067,7 +2068,7 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
           adjustmentDelta: result.adjustmentDelta,
           tenantId: result.tenantId,
           organizationId: result.organizationId,
-        }).catch(() => undefined)
+        }, organizationEventScope(result)).catch(() => undefined)
         void emitLowStockEventIfNeeded(
           resolveEm(ctx),
           ctx,

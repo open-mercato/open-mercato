@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
     userId: result.userId,
     recipientUserId: result.userId,
     tenantId: result.tenantId,
-  }).catch(() => undefined)
+  }, organizationEventScope(result)).catch(() => undefined)
 
   return NextResponse.json({ ok: true })
 }

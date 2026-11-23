@@ -47,6 +47,7 @@ describe('recordModerationFlag', () => {
     expect(emitMock).toHaveBeenCalledWith(
       'ai_assistant.moderation_flag.created',
       expect.objectContaining({ id: 'flag-1', tenantId: 'tenant-1', categories: ['hate'] }),
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
   })
 

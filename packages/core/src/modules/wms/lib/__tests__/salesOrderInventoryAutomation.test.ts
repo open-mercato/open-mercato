@@ -194,6 +194,7 @@ describe('reserveInventoryForConfirmedOrder', () => {
           }),
         ],
       }),
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
   })
 
@@ -285,6 +286,7 @@ describe('reserveInventoryForConfirmedOrder', () => {
           expect.objectContaining({ catalogVariantId: 'variant-short', shortfallQuantity: 5 }),
         ]),
       }),
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
   })
 })

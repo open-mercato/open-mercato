@@ -112,7 +112,7 @@ describe('SSO configuration authority', () => {
       tenantId: scope.tenantId, organizationId: scope.organizationId, appRoleMappings: createInput.appRoleMappings,
     }), scope.actorUserId)
     expect(em.create).toHaveBeenCalledWith(SsoConfig, expect.objectContaining({ authorizationUserId: scope.actorUserId }))
-    expect(emitSsoEvent).toHaveBeenCalledWith('sso.config.created', expect.objectContaining({ id: 'config-1' }))
+    expect(emitSsoEvent).toHaveBeenCalledWith('sso.config.created', expect.objectContaining({ id: 'config-1' }), { tenantId: 'tenant-1', organizationId: 'org-1' })
   })
 
   it('rejects denied mappings on update without changing the managed config', async () => {

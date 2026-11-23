@@ -16,6 +16,14 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/di/container'),
   createRequestContainer: jest.fn(),
 }))
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/auth/server'),
+  getAuthFromRequest: jest.fn(),
+}))
+jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerAuth', () => ({
+  getCustomerAuthFromRequest: jest.fn(),
+  requireCustomerFeature: jest.fn(),
+}))
 jest.mock('@open-mercato/checkout/modules/checkout/lib/rateLimiter', () => ({
   enforceCheckoutRateLimit: jest.fn(async () => null),
 }))
@@ -47,18 +55,92 @@ jest.mock('../../lib/integration-state', () => ({
   isWebhookIntegrationEnabled: jest.fn(),
 }))
 
-import handler from '../outbound-dispatch'
+import handler, { metadata as dispatchMetadata } from '../outbound-dispatch'
+import { createEventBus } from '@open-mercato/events/bus'
+import { DELETE as deleteAdminUser } from '@open-mercato/core/modules/customer_accounts/api/admin/users/[id]'
+import { DELETE as deletePortalUser } from '@open-mercato/core/modules/customer_accounts/api/portal/users/[id]'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { POST as submitPayLink } from '@open-mercato/checkout/modules/checkout/api/pay/[slug]/submit/route'
 import '@open-mercato/checkout/modules/checkout/commands/transactions'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { emitOrderLifecycleEventsForTransition } from '@open-mercato/core/modules/sales/commands/documents'
-import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
+import { setGlobalEventBus, type EventModuleConfig, type EventPayload, type EmitOptions } from '@open-mercato/shared/modules/events'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createWebhookDelivery } from '../../lib/delivery'
 import { enqueueWebhookDelivery } from '../../lib/queue'
 import { isWebhookIntegrationEnabled } from '../../lib/integration-state'
+
+import AiAssistantEvents from '@open-mercato/ai-assistant/modules/ai_assistant/events'
+import CheckoutEvents from '@open-mercato/checkout/modules/checkout/events'
+import CartEvents from '@open-mercato/core/modules/cart/events'
+import CommunicationChannelsEvents from '@open-mercato/core/modules/communication_channels/events'
+import CustomerAccountsEvents from '@open-mercato/core/modules/customer_accounts/events'
+import CustomersEvents from '@open-mercato/core/modules/customers/events'
+import DataSyncEvents from '@open-mercato/core/modules/data_sync/events'
+import DevicesEvents from '@open-mercato/core/modules/devices/events'
+import InboxOpsEvents from '@open-mercato/core/modules/inbox_ops/events'
+import IntegrationsEvents from '@open-mercato/core/modules/integrations/events'
+import NotificationsEvents from '@open-mercato/core/modules/notifications/events'
+import PaymentGatewaysEvents from '@open-mercato/core/modules/payment_gateways/events'
+import PhoneCallsEvents from '@open-mercato/core/modules/phone_calls/events'
+import PromotionsEvents from '@open-mercato/core/modules/promotions/events'
+import PushNotificationsEvents from '@open-mercato/core/modules/push_notifications/events'
+import StaffEvents from '@open-mercato/core/modules/staff/events'
+import TranslationsEvents from '@open-mercato/core/modules/translations/events'
+import WmsEvents from '@open-mercato/core/modules/wms/events'
+import WorkflowsEvents from '@open-mercato/core/modules/workflows/events'
+import AgentOrchestratorEvents from '@open-mercato/enterprise/modules/agent_orchestrator/events'
+import RecordLocksEvents from '@open-mercato/enterprise/modules/record_locks/events'
+import SecurityEvents from '@open-mercato/enterprise/modules/security/events'
+import SsoEvents from '@open-mercato/enterprise/modules/sso/events'
+import SchedulerEvents from '@open-mercato/scheduler/modules/scheduler/events'
+import EudrEvents from '@open-mercato/core/modules/eudr/events'
+import BusinessRulesEvents from '@open-mercato/core/modules/business_rules/events'
+import ProgressEvents from '@open-mercato/core/modules/progress/events'
+import ExampleCustomersSyncEvents from '@/modules/example_customers_sync/events'
+import ExampleEvents from '@/modules/example/events'
+import SearchEvents from '@open-mercato/search/modules/search/events'
+
+function eventCase<Id extends string>(events: EventModuleConfig<Id>, id: NoInfer<Id>) {
+  return [id, (payload: EventPayload, options: EmitOptions) => events.emit(id, payload, options)] as const
+}
+
+const eventFamilies = [
+  eventCase(AiAssistantEvents, 'ai_assistant.moderation_flag.created'),
+  eventCase(CheckoutEvents, 'checkout.link.created'),
+  eventCase(CartEvents, 'cart.lock.acquired'),
+  eventCase(CommunicationChannelsEvents, 'communication_channels.conversation.created'),
+  eventCase(CustomerAccountsEvents, 'customer_accounts.user.deleted'),
+  eventCase(CustomersEvents, 'customers.email.conversation_visibility_changed'),
+  eventCase(DataSyncEvents, 'data_sync.run.completed'),
+  eventCase(DevicesEvents, 'devices.user_device.registered'),
+  eventCase(InboxOpsEvents, 'inbox_ops.action.edited'),
+  eventCase(IntegrationsEvents, 'integrations.credentials.updated'),
+  eventCase(NotificationsEvents, 'notifications.preference.updated'),
+  eventCase(PaymentGatewaysEvents, 'payment_gateways.session.created'),
+  eventCase(PhoneCallsEvents, 'phone_calls.call.ingest_failed'),
+  eventCase(PromotionsEvents, 'promotions.generated_code.created'),
+  eventCase(PushNotificationsEvents, 'push_notifications.delivery.sent'),
+  eventCase(StaffEvents, 'staff.timesheets.time_entry.locked'),
+  eventCase(TranslationsEvents, 'translations.translation.updated'),
+  eventCase(WmsEvents, 'wms.inventory.reserved'),
+  eventCase(WorkflowsEvents, 'workflows.task.assigned'),
+  eventCase(AgentOrchestratorEvents, 'agent_orchestrator.run.created'),
+  eventCase(RecordLocksEvents, 'record_locks.lock.acquired'),
+  eventCase(SecurityEvents, 'security.password.changed'),
+  eventCase(SsoEvents, 'sso.config.created'),
+  eventCase(SchedulerEvents, 'scheduler.job.completed'),
+  eventCase(EudrEvents, 'eudr.mitigation_action.completed'),
+  eventCase(BusinessRulesEvents, 'business_rules.rule.execution_failed'),
+  eventCase(ProgressEvents, 'progress.job.started'),
+  eventCase(ExampleCustomersSyncEvents, 'example_customers_sync.mapping.updated'),
+  eventCase(ExampleEvents, 'example.todo_announcement.published'),
+  eventCase(SearchEvents, 'search.index_record'),
+] as const
 
 const dispatchLoggerWarn = createLogger('webhooks').warn as jest.Mock
 
@@ -104,6 +186,34 @@ function createDispatchEntityManagers() {
     flush: jest.fn(async () => undefined),
   } as unknown as EntityManager
   return { rootEm, handlerEm, webhookEm }
+}
+
+function setUpIsolatedSubscriptions(scope: { tenantId: string; organizationId: string }) {
+  const subscriptions = [
+    { ...scope, id: 'matching', subscribedEvents: ['*'] },
+    { ...scope, id: 'other-org', organizationId: 'outside-org', subscribedEvents: ['*'] },
+    { ...scope, id: 'other-tenant', tenantId: 'outside-tenant', subscribedEvents: ['*'] },
+  ]
+  const { rootEm } = createDispatchEntityManagers()
+  const bus = createEventBus({
+    queueStrategy: 'local',
+    resolve: <T,>(key: string): T => {
+      if (key === 'em') return rootEm as T
+      throw new Error(`Unexpected dependency: ${key}`)
+    },
+  })
+  bus.on(dispatchMetadata.event, (payload, ctx) => handler(payload as Record<string, unknown>, ctx), {
+    persistent: dispatchMetadata.persistent,
+    id: dispatchMetadata.id,
+  })
+  setGlobalEventBus(bus)
+  ;(findWithDecryption as jest.Mock).mockImplementation(async (_em, _entity, where: EmitOptionsLike) =>
+    subscriptions.filter((subscription) =>
+      (!where.tenantId || where.tenantId === subscription.tenantId)
+      && (!where.organizationId || where.organizationId === subscription.organizationId)),
+  )
+  ;(isWebhookIntegrationEnabled as jest.Mock).mockResolvedValue(true)
+  ;(createWebhookDelivery as jest.Mock).mockResolvedValue({ ...scope, id: 'delivery' })
 }
 
 const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve))
@@ -185,6 +295,48 @@ describe('outbound dispatch through a real producer', () => {
       expect.stringContaining('no trusted scope'),
       expect.objectContaining({ eventId: 'sales.order.confirmed' }),
     )
+  })
+
+  it.each(eventFamilies)('keeps the %s webhook in its verified organization', async (id, emit) => {
+    const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+    setUpIsolatedSubscriptions(scope)
+    const payload = { id: 'fixture', tenantId: 'outside-tenant', organizationId: 'outside-org' }
+    await emit(payload, organizationEventScope(scope))
+    await emit(payload, organizationEventScope({ tenantId: scope.tenantId }))
+    expect(jest.mocked(createWebhookDelivery).mock.calls.map(([delivery]) => [
+      delivery.eventId, delivery.webhook.id,
+    ])).toEqual([[id, 'matching']])
+    expect(enqueueWebhookDelivery).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['admin', deleteAdminUser],
+    ['portal', deletePortalUser],
+  ] as const)('delivers customer deletion from the %s route only in the deleted account scope', async (_role, remove) => {
+    const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+    const user = { ...scope, id: 'user', email: 'user@example.test' }
+    const identity = { tenantId: scope.tenantId, orgId: scope.organizationId, sub: 'admin', customerEntityId: 'company' }
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue(identity)
+    ;(getCustomerAuthFromRequest as jest.Mock).mockResolvedValue(identity)
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(user)
+    const services = {
+      em: { findOne: jest.fn(async () => user) },
+      rbacService: { userHasAllFeatures: jest.fn(async () => true) },
+      customerRbacService: {},
+      customerUserService: { softDelete: jest.fn() },
+      customerSessionService: { revokeAllUserSessions: jest.fn() },
+    }
+    ;(createRequestContainer as jest.Mock).mockResolvedValue({ resolve: (name: keyof typeof services) => services[name] })
+    setUpIsolatedSubscriptions(scope)
+
+    const response = await remove(new Request('https://merchant.example', { method: 'DELETE' }), { params: { id: user.id } })
+    await flushMicrotasks()
+    expect(response.status).toBe(200)
+    expect(services.customerUserService.softDelete).toHaveBeenCalled()
+    expect(jest.mocked(createWebhookDelivery).mock.calls.map(([delivery]) => [
+      delivery.eventId, delivery.webhook.id, delivery.payload.id,
+    ])).toEqual([['customer_accounts.user.deleted', 'matching', user.id]])
+    expect(enqueueWebhookDelivery).toHaveBeenCalledTimes(1)
   })
 
   it('dispatches both Pay Links events only to subscriptions in the persisted checkout scope', async () => {

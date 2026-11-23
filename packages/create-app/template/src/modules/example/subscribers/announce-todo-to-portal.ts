@@ -1,3 +1,4 @@
+import { matchingOrganizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitExampleEvent } from '../events'
 
@@ -67,6 +68,8 @@ export function buildTodoAnnouncement(
 }
 
 export type PortalAnnouncementContext = {
+  tenantId?: string | null
+  organizationId?: string | null
   eventName?: string | null
 }
 
@@ -78,7 +81,7 @@ export default async function handler(
   if (!announcement) return
 
   try {
-    await emitExampleEvent('example.todo_announcement.published', announcement)
+    await emitExampleEvent('example.todo_announcement.published', announcement, matchingOrganizationEventScope(ctx, announcement))
   } catch (error) {
     // Best effort: the domain write already committed and the portal reconciles on
     // reconnect, so a failed announcement must not surface as a write failure.

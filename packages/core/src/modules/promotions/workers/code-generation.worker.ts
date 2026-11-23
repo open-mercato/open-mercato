@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { randomInt } from 'crypto'
 import type { AwilixContainer } from 'awilix'
 import { LockMode } from '@mikro-orm/core'
@@ -190,7 +191,7 @@ export default async function handle(
     await emitPromotionsEvent(
       'promotions.generated_code.created',
       { codeId: code.id, tenantId, organizationId, generated: actualCountAfter, amount: code.amount },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(scope) },
     )
   } catch (err) {
     logger.warn('[internal] promotions.generated_code.created emit failed', { codeId, err })

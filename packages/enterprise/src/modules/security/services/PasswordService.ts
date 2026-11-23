@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -79,7 +80,7 @@ export class PasswordService {
       organizationId: user.organizationId ?? null,
       changedAt,
     }
-    await emitSecurityEvent('security.password.changed', eventPayload)
+    await emitSecurityEvent('security.password.changed', eventPayload, organizationEventScope(user))
     await emitSecurityEvent('security.password.notification_requested', eventPayload)
   }
 
