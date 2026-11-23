@@ -254,6 +254,7 @@
   "entities.userEntities.help.description": "사용자 지정 데이터베이스 테이블과 유사한 고유한 데이터 유형인 사용자 엔티티를 만들고 관리하세요. 레코드를 저장하고 관리 UI 및 API에서 활용할 수 있습니다.",
   "entities.userEntities.help.fields": "필드와 양식을 한 번 정의하면 필터와 입력에 자동으로 사용됩니다.",
   "entities.userEntities.help.title": "사용자 엔티티 직접 설계",
+  "entities.userEntities.records.actions.editDefinition": "엔터티 정의 편집",
   "entities.userEntities.records.errors.deleteFailed": "레코드 삭제에 실패했습니다",
   "entities.userEntities.records.errors.entityIdRequired": "엔터티 식별자는 필수입니다",
   "entities.userEntities.records.errors.notFound": "레코드를 찾을 수 없습니다",
@@ -263,5 +264,6 @@
   "entities.userEntities.records.form.editTitle": "레코드 편집",
   "entities.userEntities.records.form.submitCreate": "생성",
   "entities.userEntities.records.form.submitSave": "저장",
-  "entities.userEntities.records.loading": "레코드를 불러오는 중..."
+  "entities.userEntities.records.loading": "레코드를 불러오는 중...",
+  "entities.userEntities.records.title": "레코드: {{entityId}}"
 }

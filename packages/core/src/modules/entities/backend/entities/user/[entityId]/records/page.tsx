@@ -280,13 +280,13 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     <>
       <Button asChild variant="outline" size="sm">
         <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}`}>
-          Edit Entity Definition
+          {t('entities.userEntities.records.actions.editDefinition', 'Edit Entity Definition')}
         </Link>
       </Button>
       {hasAnyFormFields && (
         <Button asChild>
           <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}/records/create`}>
-            Create
+            {t('entities.userEntities.records.form.submitCreate', 'Create')}
           </Link>
         </Button>
       )}
@@ -397,7 +397,7 @@ export RECORD_ID="<record uuid>"`}</code></pre>
         <RelationDisplaysProvider displaysByField={relationDisplaysByField}>
           <DataTable
             stickyActionsColumn
-          title={`Records: ${entityId}`}
+          title={t('entities.userEntities.records.title', 'Records: {{entityId}}', { entityId })}
           titleHeadingLevel={1}
             entityId={entityId}
             actions={actions}

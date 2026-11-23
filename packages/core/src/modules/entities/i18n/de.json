@@ -254,6 +254,7 @@
   "entities.userEntities.help.description": "Erstellen und verwalten Sie Benutzerentitäten — eigene Datentypen, ähnlich wie benutzerdefinierte Datenbanktabellen. Speichern Sie Datensätze und nutzen Sie diese in der Verwaltungsoberfläche und über APIs.",
   "entities.userEntities.help.fields": "Definieren Sie Felder und Formulare einmal; sie werden automatisch für Filter und Eingaben verwendet.",
   "entities.userEntities.help.title": "Eigene Benutzerentitäten gestalten",
+  "entities.userEntities.records.actions.editDefinition": "Entitätsdefinition bearbeiten",
   "entities.userEntities.records.errors.deleteFailed": "Datensatz konnte nicht gelöscht werden",
   "entities.userEntities.records.errors.entityIdRequired": "Entitätskennung ist erforderlich",
   "entities.userEntities.records.errors.notFound": "Datensatz nicht gefunden",
@@ -263,5 +264,6 @@
   "entities.userEntities.records.form.editTitle": "Datensatz bearbeiten",
   "entities.userEntities.records.form.submitCreate": "Erstellen",
   "entities.userEntities.records.form.submitSave": "Speichern",
-  "entities.userEntities.records.loading": "Datensatz wird geladen..."
+  "entities.userEntities.records.loading": "Datensatz wird geladen...",
+  "entities.userEntities.records.title": "Datensätze: {{entityId}}"
 }
