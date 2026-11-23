@@ -36,24 +36,26 @@ The trace-ingest webhook verifies an HMAC that proves the tenant, but the organi
 
 ### Phase 1: Scope guard + schema bounds
 
-- [ ] 1.1 Add `lib/trace/ingestScope.ts` guard (org-in-tenant + workflow-instance-in-scope checks)
-- [ ] 1.2 Tighten `traceIngestSchema`: confidence 0-1, costMinor upper bound, stepId-requires-workflowInstanceId
+- [x] 1.1 Add `lib/trace/ingestScope.ts` guard (org-in-tenant + workflow-instance-in-scope checks) — 1f94fdc2dd
+- [x] 1.2 Tighten `traceIngestSchema`: confidence 0-1, costMinor upper bound, stepId-requires-workflowInstanceId — 1f94fdc2dd
 
 ### Phase 2: Wire the guard into the ingest command
 
-- [ ] 2.1 Call the guard from `commands/trace.ts` before `ingestTrace`; update route doc/openapi copy
+- [x] 2.1 Call the guard from `commands/trace.ts` before `ingestTrace`; update route doc/openapi copy — 1f94fdc2dd
 
 ### Phase 3: Tests
 
-- [ ] 3.1 New `__tests__/trace-ingest-scope.test.ts` covering the guard (foreign org, instance mismatch, instance missing, happy path, absent peer)
-- [ ] 3.2 Schema-bound regressions (confidence/costMinor/stepId) including prior-behavior proofs
+- [x] 3.1 New `__tests__/trace-ingest-scope.test.ts` covering the guard (foreign org, instance mismatch, instance missing, happy path, absent peer) — 1f94fdc2dd
+- [x] 3.2 Schema-bound regressions (confidence/costMinor/stepId) including prior-behavior proofs — 1f94fdc2dd
 
 ### Phase 4: Validation and PR
 
-- [ ] 4.1 Targeted enterprise suites + lint
+- [x] 4.1 Targeted enterprise suites + lint — 1f94fdc2dd
 - [ ] 4.2 Full configured validation gate (local runner)
 - [ ] 4.3 Draft PR open, labels applied, summary comment, review pass
 
 ## Progress
+
+PR: #10493 (link: https://github.com/open-mercato/open-mercato/pull/10493)
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
