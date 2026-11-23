@@ -310,10 +310,11 @@ export function convertAdvancedFilterToWhere(state: AdvancedFilterState): Record
       clauses = [...clauses, entry.filter]
       continue
     }
-    clauses = clauses.map((clause) => ({
-      ...clause,
-      ...entry.filter,
-    }))
+    clauses = clauses.map((clause) => (
+      Object.keys(entry.filter).some((field) => Object.hasOwn(clause, field))
+        ? { $and: [clause, entry.filter] }
+        : { ...clause, ...entry.filter }
+    ))
   }
 
   return clauses.length > 1 ? { $or: clauses } : clauses[0]

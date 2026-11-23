@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 /**
  * Workflows Module - Dependency Injection
  *
@@ -64,6 +65,8 @@ export function register(container: AwilixContainer): void {
     workInboxService: asFunction(() => workInboxService).scoped(),
     // Lets another module own a real workflow definition instead of building a
     // second executor for its simple case — see lib/owned-definition.ts.
-    workflowDefinitionAuthoring: asFunction(() => createWorkflowDefinitionAuthoring(container)).scoped(),
+    workflowDefinitionAuthoring: asScopedService((scope) => createWorkflowDefinitionAuthoring(scope)),
   })
 }
+
+defineProcessDiRegistrar(register)

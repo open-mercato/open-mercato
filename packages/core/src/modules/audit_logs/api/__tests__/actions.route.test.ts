@@ -86,6 +86,7 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
     customersModuleEnabled = true
+    delete (mockEm as Record<string, unknown>).find
     const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
     ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
       organizationId: 'org-1',
@@ -193,10 +194,16 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
       orgId: 'org-1',
     })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    ;(mockEm as Record<string, unknown>).find = jest.fn(async (_entity: unknown, where: { id?: { $in?: string[] } }) =>
+      where.id?.$in?.includes('verified-interaction')
+        ? [{ id: 'verified-interaction', visibility: 'private', authorUserId: 'user-1', channelId: null, entity: 'person-1' }]
+        : [],
+    )
     mockActionLogs.list.mockResolvedValue({
       items: [
         makeActionLogEntry({
           resourceKind: 'customers.interaction',
+          resourceId: 'verified-interaction',
           snapshotBefore: {
             interaction: {
               entityId: 'person-1',
@@ -274,10 +281,16 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
       orgId: 'org-1',
     })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    ;(mockEm as Record<string, unknown>).find = jest.fn(async (_entity: unknown, where: { id?: { $in?: string[] } }) =>
+      where.id?.$in?.includes('verified-interaction')
+        ? [{ id: 'verified-interaction', visibility: 'private', authorUserId: 'user-1', channelId: null, entity: 'person-1' }]
+        : [],
+    )
     mockActionLogs.list.mockResolvedValue({
       items: [
         makeActionLogEntry({
           resourceKind: 'customers.interaction',
+          resourceId: 'verified-interaction',
           snapshotBefore: {
             interaction: {
               entityId: 'person-1',
@@ -420,9 +433,9 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
       expect(data.items[0].snapshotBefore.interaction.title).toBe('Old shared subject')
     })
 
-    it('fails closed when the live-authority lookup finds nothing (interaction deleted since)', async () => {
+    it.each(['user-1', 'user-2'])('hides unverified historical ownership from viewer %s when live authority is unavailable', async (viewerUserId) => {
       const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
-      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: viewerUserId, tenantId: 'tenant-1', orgId: 'org-1' })
       mockRbac.userHasAllFeatures.mockResolvedValue(true)
       mockLiveInteraction(null)
       mockActionLogs.list.mockResolvedValue({
@@ -827,6 +840,47 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
 
       expect(res.status).toBe(403)
       expect(mockActionLogs.list).not.toHaveBeenCalled()
+    })
+  })
+
+  // An `audit_logs.view_tenant` holder whose organization visibility list is explicitly empty
+  // resolves to no default organization, which used to drop the organization predicate and
+  // read every organization's action logs in the tenant. Deny it the way undo/redo do.
+  describe('explicitly empty organization scope', () => {
+    const emptyScopes: Array<[string, Record<string, unknown>]> = [
+      ['allowedIds: []', { selectedId: null, filterIds: null, allowedIds: [] }],
+      ['filterIds: []', { selectedId: null, filterIds: [], allowedIds: null }],
+    ]
+
+    it.each(emptyScopes)('is rejected with 403 before the action-log service is reached (%s)', async (_label, scope) => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({ organizationId: null, scope })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+
+      expect(res.status).toBe(403)
+      expect(mockActionLogs.list).not.toHaveBeenCalled()
+    })
+
+    it('keeps the unrestricted all-organizations read unnarrowed', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
+        organizationId: null,
+        scope: { selectedId: null, filterIds: null, allowedIds: null },
+      })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+
+      expect(res.status).toBe(200)
+      expect(mockActionLogs.list).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'tenant-1', organizationId: undefined, actorSubject: undefined }),
+      )
     })
   })
 
