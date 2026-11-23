@@ -6,6 +6,7 @@ import {
   deleteGeneralEntityIfExists,
   getTokenScope,
 } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
 import { createCrudFixture, ensureRoleFeatures } from './helpers/wmsFixtures'
 import { ensureEnglishLocale } from './helpers/wmsUi'
 
@@ -66,7 +67,7 @@ test('TC-WMS-10467: ASN status and receiving queue filters preserve search', asy
     const decoyRow = page.getByRole('link', { name: decoyReference, exact: true })
     const urlParam = (key: string) => new URL(page.url()).searchParams.get(key)
 
-    await searchBox.fill(searchTerm)
+    await fillControlledInput(searchBox, searchTerm)
     await expect.poll(() => urlParam('search')).toBe(searchTerm)
     await expect(transitRow).toBeVisible()
     await expect(draftRow).toBeVisible()

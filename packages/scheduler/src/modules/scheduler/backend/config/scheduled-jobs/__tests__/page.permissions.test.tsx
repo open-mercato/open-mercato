@@ -26,7 +26,11 @@ const mockSchedule = {
   sourceType: 'user',
 }
 
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }) }))
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush, replace: jest.fn() }),
+  usePathname: () => '/backend/config/scheduled-jobs',
+  useSearchParams: () => new URLSearchParams(),
+}))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useOptionalLocale: () => mockLocale,
   useT: () => mockTranslate,
