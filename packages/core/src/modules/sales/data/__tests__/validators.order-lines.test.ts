@@ -1,7 +1,10 @@
 import {
   orderCreateSchema,
+  orderLineBulkUpsertEntrySchema,
+  orderLineCreateSchema,
   orderUpdateSchema,
   quoteCreateSchema,
+  quoteLineCreateSchema,
   SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY,
 } from '../validators'
 
@@ -106,5 +109,27 @@ describe('sales order line invariant', () => {
       lines: [{ ...LINE, productVariantId: 'not-a-uuid' }],
     })
     expect(result.success).toBe(false)
+  })
+
+  it('reads a null snapshot amount on document creation as omitted', () => {
+    const result = orderCreateSchema.parse({
+      ...SCOPE,
+      currencyCode: 'USD',
+      lines: [{ ...LINE, discountAmount: null, taxRate: null }],
+    })
+    expect(result.lines[0].discountAmount).toBeNull()
+    expect(result.lines[0].taxRate).toBeNull()
+  })
+
+  // Line write entry points keep the pre-existing `null` → `0` coercion, so a caller
+  // clearing a stored discount with `discountAmount: null` still sends a zero.
+  it.each([
+    ['orderLineCreateSchema', orderLineCreateSchema, { orderId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }],
+    ['quoteLineCreateSchema', quoteLineCreateSchema, { quoteId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }],
+    ['orderLineBulkUpsertEntrySchema', orderLineBulkUpsertEntrySchema, {}],
+  ] as const)('%s coerces a null discount to zero', (_label, schema, parent) => {
+    const result = schema.parse({ ...SCOPE, ...parent, ...LINE, discountAmount: null, discountPercent: null })
+    expect(result.discountAmount).toBe(0)
+    expect(result.discountPercent).toBe(0)
   })
 })

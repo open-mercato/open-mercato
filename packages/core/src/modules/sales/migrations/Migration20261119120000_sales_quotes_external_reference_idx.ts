@@ -8,6 +8,14 @@ import { Migration } from '@mikro-orm/migrations';
 // it; the uniqueness checkout relies on comes from the
 // `'checkout:' + sessionId + ':' + attempt` string itself, not a DB constraint.
 //
+// A hash index, not a B-tree: `external_reference` is unrestricted `text` and the
+// document update path accepts any length, while a B-tree entry is capped at about a
+// third of a page. One long, poorly compressible historical reference would fail the
+// B-tree build, and once built every such write would fail. A hash index stores only
+// the 4-byte hash of the value, so no stored or future reference can exceed it, and
+// it serves the lookup's equality match; `tenant_id` is applied as a filter on the
+// few rows that share the hash.
+//
 // Built CONCURRENTLY, like Migration20260806120000/20260821120000/20260916120000.
 // CREATE INDEX CONCURRENTLY cannot run inside a transaction, hence
 // isTransactional() => false. Drop first so a retried concurrent build removes a
@@ -19,12 +27,12 @@ export class Migration20261119120000_sales_quotes_external_reference_idx extends
   }
 
   override up(): void | Promise<void> {
-    this.addSql(`drop index concurrently if exists "sales_quotes_tenant_external_reference_idx";`);
-    this.addSql(`create index concurrently "sales_quotes_tenant_external_reference_idx" on "sales_quotes" ("tenant_id", "external_reference");`);
+    this.addSql(`drop index concurrently if exists "sales_quotes_external_reference_hash_idx";`);
+    this.addSql(`create index concurrently "sales_quotes_external_reference_hash_idx" on "sales_quotes" using hash ("external_reference");`);
   }
 
   override down(): void | Promise<void> {
-    this.addSql(`drop index concurrently if exists "sales_quotes_tenant_external_reference_idx";`);
+    this.addSql(`drop index concurrently if exists "sales_quotes_external_reference_hash_idx";`);
   }
 
 }

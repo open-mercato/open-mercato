@@ -335,6 +335,10 @@ const adjustmentKindSchema = z.string().trim().min(1).max(150)
 
 export const amountsModeSchema = z.enum(['computed', 'external'])
 
+// Numeric line fields keep `z.coerce.number()`'s `null` → `0` coercion on the line
+// write entry points (order-lines / quote-lines routes, the per-line and bulk
+// upserts): an existing caller clearing a discount with `discountAmount: null`
+// still writes an explicit zero rather than falling back to the stored value.
 const linePricingSchema = z.object({
   quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
   // Nullable: entity-to-snapshot mappers (e.g. toCartTotalsLineSnapshot) emit an
@@ -342,25 +346,40 @@ const linePricingSchema = z.object({
   // see SalesLineSnapshot's own nullability — and checkout's document creation
   // spreads that snapshot verbatim into this schema.
   quantityUnit: z.string().trim().max(25).nullable().optional(),
-  normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).nullable().optional(),
+  normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
   normalizedUnit: z.string().trim().max(25).nullable().optional(),
-  unitPriceNet: decimal({ min: 0 }).nullable().optional(),
-  unitPriceGross: decimal({ min: 0 }).nullable().optional(),
+  unitPriceNet: decimal({ min: 0 }).optional(),
+  unitPriceGross: decimal({ min: 0 }).optional(),
   priceId: uuid().optional(),
   priceMode: z.enum(['net', 'gross']).optional(),
   taxRateId: uuid().optional(),
-  discountAmount: decimal({ min: 0 }).nullable().optional(),
+  discountAmount: decimal({ min: 0 }).optional(),
   // How to read a supplied `discountAmount`. Omitting it reproduces the meaning
   // the API has always documented — per unit — so no existing caller changes.
   discountAmountBasis: z.enum(['unit', 'line']).nullable().optional(),
+  discountPercent: percentage().optional(),
+  taxRate: percentage().optional(),
+  taxAmount: decimal({ min: 0 }).optional(),
+  totalNetAmount: decimal({ min: 0 }).optional(),
+  totalGrossAmount: decimal({ min: 0 }).optional(),
+  // Omitted (or `null`) inherits the document's mode; defaulting to `computed` would
+  // make an external order mixed. Order lines only — quote commands reject a value.
+  amountsMode: amountsModeSchema.nullable().optional(),
+})
+
+// Document creation only (`orderCreateSchema.lines` / `quoteCreateSchema.lines`):
+// a SalesLineSnapshot spread into a new document carries `null` for the numeric
+// fields it has no value for, and there `null` means the same as omitting the field.
+const lineSnapshotNumericsSchema = z.object({
+  normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).nullable().optional(),
+  unitPriceNet: decimal({ min: 0 }).nullable().optional(),
+  unitPriceGross: decimal({ min: 0 }).nullable().optional(),
+  discountAmount: decimal({ min: 0 }).nullable().optional(),
   discountPercent: percentage().nullable().optional(),
   taxRate: percentage().nullable().optional(),
   taxAmount: decimal({ min: 0 }).nullable().optional(),
   totalNetAmount: decimal({ min: 0 }).nullable().optional(),
   totalGrossAmount: decimal({ min: 0 }).nullable().optional(),
-  // Omitted (or `null`) inherits the document's mode; defaulting to `computed` would
-  // make an external order mixed. Order lines only — quote commands reject a value.
-  amountsMode: amountsModeSchema.nullable().optional(),
 })
 
 const uomSnapshotSchema = z.object({
@@ -423,6 +442,8 @@ export const orderLineUpdateSchema = z
     id: uuid(),
   })
   .merge(orderLineCreateSchema.partial())
+
+export const orderDocumentLineCreateSchema = orderLineCreateSchema.extend(lineSnapshotNumericsSchema.shape)
 
 /**
  * Translation keys for the bulk-line schema refusals. The schema runs outside a
@@ -508,6 +529,8 @@ export const quoteLineUpdateSchema = z
     id: uuid(),
   })
   .merge(quoteLineCreateSchema.partial())
+
+export const quoteDocumentLineCreateSchema = quoteLineCreateSchema.extend(lineSnapshotNumericsSchema.shape)
 
 // Each adjustment kind has an intrinsic sign convention so the grand total
 // stays semantically correct regardless of operator input. The calculation
@@ -823,7 +846,7 @@ export const orderCreateSchema = scoped.extend({
   customFieldSetId: uuid().optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
   lines: z
-    .array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true }), {
+    .array(orderDocumentLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true }), {
       error: SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY,
     })
     .min(1, SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY),
@@ -875,7 +898,7 @@ export const quoteCreateSchema = scoped.extend({
   customFieldSetId: uuid().optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
   lines: z
-    .array(quoteLineCreateSchema.omit({ organizationId: true, tenantId: true, quoteId: true }))
+    .array(quoteDocumentLineCreateSchema.omit({ organizationId: true, tenantId: true, quoteId: true }))
     .optional(),
   adjustments: z
     .array(quoteAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, quoteId: true }))
@@ -1218,12 +1241,14 @@ export type OrderUpdateInput = Omit<
   OrderPaymentLedgerField
 > & DeprecatedOrderPaymentLedgerInput
 export type OrderLineCreateInput = z.infer<typeof orderLineCreateSchema>
+export type OrderDocumentLineCreateInput = z.infer<typeof orderDocumentLineCreateSchema>
 export type OrderLineUpdateInput = z.infer<typeof orderLineUpdateSchema>
 export type OrderAdjustmentCreateInput = z.infer<typeof orderAdjustmentCreateSchema>
 export type OrderAdjustmentUpdateInput = z.infer<typeof orderAdjustmentUpdateSchema>
 export type QuoteCreateInput = z.infer<typeof quoteCreateSchema>
 export type QuoteUpdateInput = z.infer<typeof quoteUpdateSchema>
 export type QuoteLineCreateInput = z.infer<typeof quoteLineCreateSchema>
+export type QuoteDocumentLineCreateInput = z.infer<typeof quoteDocumentLineCreateSchema>
 export type QuoteLineUpdateInput = z.infer<typeof quoteLineUpdateSchema>
 export type QuoteAdjustmentCreateInput = z.infer<typeof quoteAdjustmentCreateSchema>
 export type QuoteAdjustmentUpdateInput = z.infer<typeof quoteAdjustmentUpdateSchema>

@@ -6370,14 +6370,14 @@
         },
         {
           "columnNames": [
-            "tenant_id",
             "external_reference"
           ],
-          "composite": true,
+          "composite": false,
           "constraint": false,
-          "keyName": "sales_orders_tenant_external_reference_idx",
+          "keyName": "sales_orders_external_reference_hash_idx",
           "primary": false,
-          "unique": false
+          "unique": false,
+          "type": "hash"
         }
       ],
       "checks": [],
@@ -9348,14 +9348,14 @@
         },
         {
           "columnNames": [
-            "tenant_id",
             "external_reference"
           ],
-          "composite": true,
+          "composite": false,
           "constraint": false,
-          "keyName": "sales_quotes_tenant_external_reference_idx",
+          "keyName": "sales_quotes_external_reference_hash_idx",
           "primary": false,
-          "unique": false
+          "unique": false,
+          "type": "hash"
         }
       ],
       "checks": [],
