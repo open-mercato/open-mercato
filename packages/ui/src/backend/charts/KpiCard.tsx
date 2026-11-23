@@ -160,7 +160,7 @@ export function KpiCard({
           height={32}
         />
       )}
-      {deltaTrend && comparisonLabel && (
+      {comparisonLabel && (
         <p className="mt-1 text-xs text-muted-foreground">{comparisonLabel}</p>
       )}
       {footer != null && <div className="mt-3">{footer}</div>}

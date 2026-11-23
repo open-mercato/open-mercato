@@ -1,3 +1,5 @@
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { defineProcessDiRegistrar, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
 import { registerTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
 import { registerTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
 import { registerSupportedLocalesResolver } from '@open-mercato/shared/lib/i18n/locale-registry'
@@ -26,3 +28,5 @@ export function register() {
   registerTranslatableFields(resourcesFields)
   registerTranslationOverlayPlugin(applyTranslationOverlays, resolveLocaleFromRequest)
 }
+
+defineProcessDiRegistrar((container: AppContainer) => registerProcessActivation(container, register), { legacy: register })

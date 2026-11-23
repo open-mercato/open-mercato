@@ -35,6 +35,7 @@ export async function POST(req: Request) {
   // Rate limit — two layers, both checked before validation and DB work
   const { error: rateLimitError } = await checkAuthRateLimit({
     req, ipConfig: resetIpRateLimitConfig, compoundConfig: resetRateLimitConfig, compoundIdentifier: email,
+    isolateByIdentifierWithoutTrustedIp: true,
   })
   if (rateLimitError) return rateLimitError
   const parsed = requestPasswordResetSchema.safeParse({ email })

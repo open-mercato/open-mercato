@@ -60,6 +60,27 @@ describe('document history changed-field labels', () => {
   test('still humanizes fields that have no declared label', () => {
     const translate = translatorFor('en')
     expect(translateChangedField(translate, 'some_unmapped_column')).toBe('Some Unmapped Column')
+    expect(translateChangedField(translate, 'some_unmapped_column_exact')).toBe('Some Unmapped Column Exact')
+  })
+
+  test.each(Object.keys(dictionaries))('reuses existing labels for exact money fields in %s', (locale) => {
+    const translate = translatorFor(locale)
+    const fields = [
+      'subtotalNetAmount', 'subtotalGrossAmount', 'discountTotalAmount', 'taxTotalAmount',
+      'grandTotalNetAmount', 'grandTotalGrossAmount', 'paidTotalAmount', 'outstandingAmount',
+      'unitPriceNet', 'unitPriceGross', 'discountAmount', 'exchangeRate',
+    ]
+    for (const field of fields) {
+      const expected = dictionaries[locale][CHANGED_FIELD_LABELS[field].key]
+      const snakeCase = field.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
+      for (const variant of [`${field}Exact`, `${snakeCase}_exact`, `order.${snakeCase}_exact`]) {
+        expect(translateChangedField(translate, variant)).toBe(expected)
+      }
+    }
+  })
+
+  test.each(Object.keys(dictionaries))('reuses the items label for lines in %s', (locale) => {
+    expect(translateChangedField(translatorFor(locale), 'lines')).toBe(dictionaries[locale]['sales.documents.items.title'])
   })
 })
 

@@ -105,6 +105,10 @@ Record the owner and evidence for each item. Do not paste secret values into tic
    - [ ] Alert on certificate expiry, failed backups, repeated application errors, queue growth, worker absence, resource saturation, and disk exhaustion.
    - [ ] Put dashboards, alert owners, and first-response runbooks in one discoverable location.
 
+   **New Relic APM agent:** when `NEW_RELIC_LICENSE_KEY` is configured, the repository's `newrelic.js` keeps request parameters out of the agent's default attributes and disables application log forwarding. Existing deployments that rely on forwarded logs must explicitly set `NEW_RELIC_FORWARD_LOGS=true` and restart the instrumented process. Review application logs for personal data and secrets before opting in; forwarding sends their content to New Relic. Sensitive request-header exclusions remain in place.
+
+   For an EU-region New Relic account, set `NEW_RELIC_HOST=collector.eu01.nr-data.net` in the instrumented process environment. Review the account region, retention, access controls, and any international transfers before enabling monitoring; do not assume the destination meets your deployment's data-residency requirements. `NEW_RELIC_HOST` selects the APM agent collector, while the separate OTLP integration uses `OTEL_EXPORTER_OTLP_ENDPOINT`. See New Relic's [Node.js agent host setting](https://docs.newrelic.com/docs/apm/agents/nodejs-agent/installation-configuration/nodejs-agent-configuration-general-settings/) and [EU collector endpoints](https://docs.newrelic.com/docs/new-relic-solutions/get-started/networks/).
+
    Open Mercato provides guidance for [structured logging](../framework/runtime/logging), [OTLP telemetry](../framework/runtime/telemetry), and [system-status variables](../framework/operations/system-status).
 
 9. **Validate the release before production traffic.**
