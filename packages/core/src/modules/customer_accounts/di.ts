@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 import { asClass, asFunction } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -27,7 +28,7 @@ export function register(container: AppContainer) {
   container.register({ customerRbacService: asClass(CustomerRbacService).scoped() })
   container.register({ customerInvitationService: asClass(CustomerInvitationService).scoped() })
   container.register({
-    domainMappingService: asFunction(
+    domainMappingService: asScopedService((container) => (asFunction(
       function domainMappingServiceFactory(cradle: { em: EntityManager }) {
         // Resolve the cache lazily so registrations from `bootstrap(container)` (which runs after
         // module DI registrars) are visible. Awilix CLASSIC mode would fail to resolve a
@@ -44,6 +45,8 @@ export function register(container: AppContainer) {
         }
         return new DomainMappingService(cradle.em, cacheService ? { cacheService } : undefined)
       },
-    ).scoped().proxy(),
+    ).scoped().proxy()).resolve(container)),
   })
 }
+
+defineProcessDiRegistrar(register)

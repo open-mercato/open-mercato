@@ -7,7 +7,7 @@ jest.mock('../lib/omnibusBackfill', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: jest.fn(async () => ({ resolve: () => null })),
+  createRequestContainer: jest.fn(async () => ({ resolve: () => ({}) })),
 }))
 
 import catalogCli from '../cli'

@@ -1,16 +1,8 @@
 /** @jest-environment node */
-/**
- * `Todo.notes` is an encrypted field, so this module's rule — and the repository
- * rule the module exists to demonstrate — is that every `Todo` read goes through
- * `findWithDecryption` rather than a raw `em.find`.
- *
- * These tests hold that as a behavioral contract, not a grep: the encryption
- * helper is mocked, so a regression back to `em.find(Todo, …)` makes the helper
- * assertions fail AND makes the counts stop tracking what the helper returned.
- */
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { enrichers } from '../data/enrichers'
-import { ExampleCustomerPriority, Todo } from '../data/entities'
+import { ExampleCustomerPriority } from '../data/entities'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(async () => []),
@@ -22,26 +14,23 @@ const findWithDecryptionMock = findWithDecryption as jest.MockedFunction<typeof 
 
 const TENANT = '00000000-0000-4000-8000-00000000000a'
 const ORG = '00000000-0000-4000-8000-0000000000a1'
-
-type StubTodo = { id: string; isDone: boolean }
+const PERSON_ID = '00000000-0000-4000-8000-000000000000'
+const SAME_BUCKET_ID = '00000000-0000-4000-8000-000000000011'
+const OTHER_BUCKET_ID = '00000000-0000-4000-8000-000000000001'
 
 function createContext() {
-  const find = jest.fn(async (entity: unknown) => {
-    if (entity === Todo) throw new Error('[internal] Todo must not be read with a raw em.find')
-    return []
-  })
+  const execute = jest.fn<Promise<Array<{ bucket: number; todoCount: string; openTodoCount: string }>>, [string, unknown[]]>().mockResolvedValue([])
+  const find = jest.fn(async () => [])
   const findOne = jest.fn(async () => null)
-  const forkedEm = { find, findOne }
-  const context = {
+  const forkedEm = { execute, find, findOne }
+  const context: EnricherContext = {
     em: { fork: () => forkedEm },
     tenantId: TENANT,
     organizationId: ORG,
+    userId: 'user-1',
+    container: {},
   }
-  return { context, forkedEm, find, findOne }
-}
-
-function stubTodos(todos: StubTodo[]) {
-  findWithDecryptionMock.mockImplementation(async (_em, entity) => (entity === Todo ? todos : []) as never)
+  return { context, forkedEm, execute, find, findOne }
 }
 
 const enricher = enrichers[0]
@@ -52,86 +41,69 @@ beforeEach(() => {
   findWithDecryptionMock.mockImplementation(async () => [])
 })
 
-describe('example customer-todo-count enricher reads Todo through the decryption helper', () => {
+describe('example customer-todo-count enricher', () => {
   it('is the enricher this module registers for customers.person', () => {
     expect(enricher.id).toBe('example.customer-todo-count')
     expect(enricher.targetEntity).toBe('customers.person')
   })
 
-  it('routes the enrichOne Todo read through findWithDecryption with the request scope', async () => {
-    const { context, forkedEm, find } = createContext()
+  it('counts only the requested bucket for enrichOne and keeps the priority read scoped', async () => {
+    const { context, forkedEm, execute, find } = createContext()
+    execute.mockResolvedValue([{ bucket: 12, todoCount: '3', openTodoCount: '2' }])
 
-    await enricher.enrichOne!({ id: 'person-1' }, context as never)
+    const result = await enricher.enrichOne({ id: PERSON_ID }, context)
 
-    expect(findWithDecryptionMock).toHaveBeenCalledTimes(1)
-    expect(findWithDecryptionMock).toHaveBeenCalledWith(
-      forkedEm,
-      Todo,
-      { organizationId: ORG, tenantId: TENANT, deletedAt: null },
-      undefined,
-      { tenantId: TENANT, organizationId: ORG },
-    )
-    expect(find.mock.calls.map((call) => call[0])).not.toContain(Todo)
-  })
-
-  it('routes batched Todo and priority reads through scoped decryption helpers', async () => {
-    const { context, forkedEm, find } = createContext()
-
-    await enricher.enrichMany!([{ id: 'person-1' }], context as never)
-
-    expect(findWithDecryptionMock).toHaveBeenCalledTimes(2)
-    // Asserts the FULL call, mirroring the enrichOne sibling above. Checking only
-    // `calls[0][1] === Todo` left the where-clause, the decryption scope and the
-    // EntityManager handle unasserted — two independent mutations to this call site
-    // passed it, so the tenant/organization scope was unpinned on the list path.
-    expect(findWithDecryptionMock).toHaveBeenCalledWith(
-      forkedEm,
-      Todo,
-      { organizationId: ORG, tenantId: TENANT, deletedAt: null },
-      undefined,
-      { tenantId: TENANT, organizationId: ORG },
+    expect(result).toMatchObject({ id: PERSON_ID, _example: { todoCount: 3, openTodoCount: 2 } })
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledWith(expect.stringContaining('where bucket in (?)'), [TENANT, ORG, 12])
+    expect(findWithDecryptionMock).not.toHaveBeenCalled()
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
+      forkedEm, ExampleCustomerPriority, { customerId: PERSON_ID, organizationId: ORG, tenantId: TENANT, deletedAt: null },
+      expect.any(Object), { tenantId: TENANT, organizationId: ORG },
     )
     expect(find).not.toHaveBeenCalled()
   })
 
-  it('derives its counts from the rows the decryption helper returned, not from em.find', async () => {
-    const { context } = createContext()
-    stubTodos([
-      { id: 'todo-shared', isDone: false },
-      { id: 'todo-shared', isDone: false },
-      { id: 'todo-shared', isDone: true },
+  it('fetches one aggregate per requested bucket and shares counts across bucket collisions', async () => {
+    const { context, forkedEm, execute, find } = createContext()
+    execute.mockResolvedValue([{ bucket: 12, todoCount: '3', openTodoCount: '2' }])
+    const records = [PERSON_ID, SAME_BUCKET_ID, OTHER_BUCKET_ID].map((id) => ({ id }))
+
+    const result = await enricher.enrichMany!(records, context)
+
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledWith(expect.stringContaining('where bucket in (?, ?)'), [TENANT, ORG, 12, 11])
+    const [[query]] = execute.mock.calls
+    expect(query).toContain('where tenant_id = ? and organization_id = ? and deleted_at is null')
+    expect(query).toContain('group by bucket')
+    expect(query).not.toContain('notes')
+    expect(result).toMatchObject([
+      { id: PERSON_ID, _example: { todoCount: 3, openTodoCount: 2 } },
+      { id: SAME_BUCKET_ID, _example: { todoCount: 3, openTodoCount: 2 } },
+      { id: OTHER_BUCKET_ID, _example: { todoCount: 0, openTodoCount: 0 } },
     ])
-
-    const candidates = Array.from({ length: 200 }, (_, index) => ({ id: `person-${index}` }))
-    const enriched = await enricher.enrichMany!(candidates, context as never)
-    const counted = enriched.filter((record) => (record as never as { _example: { todoCount: number } })._example.todoCount > 0)
-
-    expect(counted.length).toBeGreaterThan(0)
-    for (const record of counted) {
-      const summary = (record as never as { _example: { todoCount: number; openTodoCount: number } })._example
-      expect(summary.todoCount).toBe(3)
-      expect(summary.openTodoCount).toBe(2)
-    }
+    expect(findWithDecryptionMock).toHaveBeenCalledTimes(1)
+    expect(findWithDecryptionMock).toHaveBeenCalledWith(
+      forkedEm, ExampleCustomerPriority,
+      { customerId: { $in: records.map(({ id }) => id) }, organizationId: ORG, tenantId: TENANT, deletedAt: null },
+      expect.any(Object), { tenantId: TENANT, organizationId: ORG },
+    )
+    expect(find).not.toHaveBeenCalled()
   })
 
-  it('reports zero when the decryption helper returns no rows', async () => {
-    const { context } = createContext()
-    stubTodos([])
+  it('skips both reads for an empty list', async () => {
+    const { context, execute } = createContext()
 
-    const candidates = Array.from({ length: 200 }, (_, index) => ({ id: `person-${index}` }))
-    const enriched = await enricher.enrichMany!(candidates, context as never)
-
-    for (const record of enriched) {
-      const summary = (record as never as { _example: { todoCount: number; openTodoCount: number } })._example
-      expect(summary).toEqual({ todoCount: 0, openTodoCount: 0, priority: 'normal', priorityId: null, priorityUpdatedAt: null })
-    }
+    await expect(enricher.enrichMany!([], context)).resolves.toEqual([])
+    expect(execute).not.toHaveBeenCalled()
+    expect(findWithDecryptionMock).not.toHaveBeenCalled()
   })
 
   it('returns a stored nonfallback customer priority', async () => {
     const { context } = createContext()
     findWithDecryptionMock.mockImplementation(async (_em, entity) => entity === ExampleCustomerPriority ? [{ id: 'priority-1', customerId: 'person-1', priority: 'critical', updatedAt: new Date('2026-10-01T10:00:00.000Z') }] as never : [])
 
-    const [record] = await enricher.enrichMany!([{ id: 'person-1' }], context as never)
+    const [record] = await enricher.enrichMany!([{ id: 'person-1' }], context)
 
     expect((record as never as { _example: { priority: string } })._example.priority).toBe('critical')
   })
@@ -143,7 +115,7 @@ describe('priority hydration on additional CRM semantic targets', () => {
     const { context, forkedEm, find, findOne } = createContext()
     const contributor = enrichers.find((entry) => entry.targetEntity === target)
     findOneWithDecryptionMock.mockResolvedValue({ id: 'priority-1', customerId: 'record-1', priority: 'high', updatedAt: new Date('2026-10-01T10:00:00.000Z') } as never)
-    const result = await contributor?.enrichOne({ id: 'record-1' }, context as never)
+    const result = await contributor?.enrichOne({ id: 'record-1' }, context)
     expect(result).toMatchObject({ _example: { priority: 'high', priorityId: 'priority-1', priorityUpdatedAt: '2026-10-01T10:00:00.000Z' } })
     expect(findOneWithDecryptionMock).toHaveBeenCalledWith(forkedEm, ExampleCustomerPriority, { customerId: 'record-1', tenantId: TENANT, organizationId: ORG, deletedAt: null }, expect.any(Object), { tenantId: TENANT, organizationId: ORG })
     expect(findWithDecryptionMock).not.toHaveBeenCalled()
