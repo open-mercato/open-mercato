@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { PortalLayoutShell } from '@open-mercato/ui/portal/PortalLayoutShell'
 import { getCustomerAuthFromCookies } from '@open-mercato/core/modules/customer_accounts/lib/customerAuthServer'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
@@ -67,7 +68,7 @@ export default async function FrontendLayout({ children }: LayoutProps) {
   const isPublic = isPublicPortalRoute(pathname)
   const isPortalRoot = isPortalRootRoute(pathname)
 
-  const customerAuth = await getCustomerAuthFromCookies()
+  const customerAuth = await runInOwnedRequestScope(() => getCustomerAuthFromCookies())
 
   let orgName: string | null = null
   let tenantId: string | null = null
@@ -79,54 +80,56 @@ export default async function FrontendLayout({ children }: LayoutProps) {
   let customerAuthMatchesUrlOrg = false
 
   try {
-    const container = await createRequestContainer()
-    const em = container.resolve('em') as EntityManager
+    await runInOwnedRequestScope(async () => {
+      const container = await createRequestContainer()
+      const em = container.resolve('em') as EntityManager
 
-    const authOrg = customerAuth
-      ? await em.findOne(Organization, {
-          id: customerAuth.orgId,
-          slug: orgSlug,
-          deletedAt: null,
-        } as any)
-      : null
-    customerAuthMatchesUrlOrg = !!customerAuth
-      && !!authOrg
-      && String(authOrg.id) === customerAuth.orgId
-
-    const org = customerAuthMatchesUrlOrg
-      ? authOrg
-      : (!customerAuth || isPublic)
-        ? await em.findOne(Organization, { slug: orgSlug, deletedAt: null }, { populate: ['tenant'] })
+      const authOrg = customerAuth
+        ? await em.findOne(Organization, {
+            id: customerAuth.orgId,
+            slug: orgSlug,
+            deletedAt: null,
+          } as any)
         : null
+      customerAuthMatchesUrlOrg = !!customerAuth
+        && !!authOrg
+        && String(authOrg.id) === customerAuth.orgId
 
-    if (org) {
-      orgName = org.name
-      organizationId = String(org.id)
-      tenantId = customerAuthMatchesUrlOrg && customerAuth ? customerAuth.tenantId : getOrganizationTenantId(org)
-    }
+      const org = customerAuthMatchesUrlOrg
+        ? authOrg
+        : (!customerAuth || isPublic)
+          ? await em.findOne(Organization, { slug: orgSlug, deletedAt: null }, { populate: ['tenant'] })
+          : null
 
-    if (customerAuth && !isPublic && !customerAuthMatchesUrlOrg) {
-      portalAccessDenied = true
-    }
-
-    if (!portalAccessDenied && tenantId) {
-      const featureTogglesService = container.resolve('featureTogglesService') as FeatureTogglesService
-      const result = await featureTogglesService.getBoolConfig('portal_enabled', tenantId)
-      if (result.ok && result.value === false) {
-        portalEnabled = false
+      if (org) {
+        orgName = org.name
+        organizationId = String(org.id)
+        tenantId = customerAuthMatchesUrlOrg && customerAuth ? customerAuth.tenantId : getOrganizationTenantId(org)
       }
-    }
 
-    if (!portalAccessDenied && customerAuthMatchesUrlOrg && customerAuth) {
-      const user = await em.findOne(CustomerUser, { id: customerAuth.sub } as any)
-      if (user) {
-        userName = user.displayName || customerAuth.email
-        userEmail = user.email || customerAuth.email
-      } else {
-        userName = customerAuth.displayName || customerAuth.email
-        userEmail = customerAuth.email
+      if (customerAuth && !isPublic && !customerAuthMatchesUrlOrg) {
+        portalAccessDenied = true
       }
-    }
+
+      if (!portalAccessDenied && tenantId) {
+        const featureTogglesService = container.resolve('featureTogglesService') as FeatureTogglesService
+        const result = await featureTogglesService.getBoolConfig('portal_enabled', tenantId)
+        if (result.ok && result.value === false) {
+          portalEnabled = false
+        }
+      }
+
+      if (!portalAccessDenied && customerAuthMatchesUrlOrg && customerAuth) {
+        const user = await em.findOne(CustomerUser, { id: customerAuth.sub } as any)
+        if (user) {
+          userName = user.displayName || customerAuth.email
+          userEmail = user.email || customerAuth.email
+        } else {
+          userName = customerAuth.displayName || customerAuth.email
+          userEmail = customerAuth.email
+        }
+      }
+    })
   } catch {
     if (customerAuth && !isPublic && !organizationId) {
       portalAccessDenied = true
