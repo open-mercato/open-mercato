@@ -681,10 +681,10 @@ export class HybridQueryEngine implements QueryEngine {
       }
 
       const qualify = (col: string) => `b.${col}`
-      const columns = await this.getBaseColumnsForEntity(entity)
       const hasOrganizationColumn = await this.columnExists(baseTable, 'organization_id')
       const hasTenantColumn = await this.columnExists(baseTable, 'tenant_id')
       const hasDeletedColumn = await this.columnExists(baseTable, 'deleted_at')
+      const columns = await this.getBaseColumnsForEntity(entity)
 
       if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
 

@@ -3213,6 +3213,27 @@ describe('HybridQueryEngine process-wide metadata caches (#2967)', () => {
     expect(chainCount(db, 'information_schema.columns')).toBe(2)
   })
 
+  test('uses the refreshed organization column for the first query after a schema change', async () => {
+    const columns = [
+      { table_name: 'todos', column_name: 'id' },
+      { table_name: 'todos', column_name: 'tenant_id' },
+      { table_name: 'todos', column_name: 'deleted_at' },
+    ]
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 1, indexCount: 0, columns })
+    await newEngine(db).getBaseColumnsForEntity('example:todo')
+    columns.push({ table_name: 'todos', column_name: 'organization_id' })
+
+    await newEngine(db).query('example:todo', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'organization_id'],
+      sort: [{ field: 'organization_id', dir: 'asc' }],
+    })
+
+    const orders = (db._chains as ChainLog[]).flatMap((chain) => chain.orderBys)
+    expect(orders).toContainEqual(['b.organization_id', 'asc'])
+  })
+
   test('does not cache the empty column map of a table that does not exist yet', async () => {
     const db = createFakeKysely({
       baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0,
