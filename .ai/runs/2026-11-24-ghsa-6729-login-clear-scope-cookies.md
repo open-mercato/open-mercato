@@ -43,10 +43,12 @@ Stop a stale `om_selected_tenant` / `om_selected_org` browser selection from sil
 
 ### Phase 3: Validation and PR
 
-- [ ] 3.1 Targeted tests (core auth login suite, onboarding suites), lint
-- [ ] 3.2 Full configured validation gate (local runner)
-- [ ] 3.3 Draft PR open, labels applied, summary comment, review pass
+- [x] 3.1 Targeted tests (core auth login suite, onboarding suites), lint — 66afd8c949
+- [x] 3.2 Full configured validation gate (local runner) — 66afd8c949
+- [ ] 3.3 Draft PR open, labels applied, summary comment, review pass (PR #10490 open as draft; labels applied; review pending)
 
 ## Progress
+
+PR: #10490 (link: https://github.com/open-mercato/open-mercato/pull/10490)
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
