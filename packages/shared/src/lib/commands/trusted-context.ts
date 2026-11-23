@@ -6,13 +6,16 @@ import type { CommandLogMetadata, CommandRuntimeContext } from './types'
  * `CommandRuntimeContext` NOT derived from an HTTP request goes through this helper instead of
  * hand-rolling the shape — the three Release 5 call sites are D-R5-14 (re-authoring a superseded
  * proposal as its original author), D-R5-19 (seeding a pay-link cart with a trusted in-process
- * context) and D-R5-22/X15 (`storeContextService.resolveForBuyer` and checkout recovery
- * re-locking a cart from its stored identity).
+ * context) and X15 (checkout recovery unlocking, converting or extending — never freshly
+ * taking — the cart lock its own checkout session already holds).
  *
  * The production shapes below already exist, unlabeled, at several call sites:
  * - `actorType: 'system'` mirrors `packages/core/src/modules/warranty_claims/workers/
  *   sla-escalation-sweep.ts` and `packages/core/src/modules/push_notifications/lib/
- *   push-delivery.ts` (`auth: null`, `systemActor: true`).
+ *   push-delivery.ts` (`auth: null`, `systemActor: true`), with the trusted tenant carried on an
+ *   explicit `organizationScope` the way `packages/core/src/modules/warranty_claims/subscribers/
+ *   return-shipment-tracking.ts` does, so `ensureTenantScope` can refuse a handler input naming
+ *   another tenant.
  * - `actorType: 'user'` mirrors `packages/enterprise/src/modules/agent_orchestrator/workers/
  *   eval-suite-runner.ts` (`auth: { sub, tenantId, orgId }`, no `systemActor` flag — the command
  *   bus already derives `actorUserId` from `auth.sub` for that case).
@@ -115,7 +118,12 @@ export function buildTrustedCommandContext(input: TrustedCommandContextInput): T
         }
       : {
           auth: null,
-          organizationScope: null,
+          organizationScope: {
+            selectedId: organizationId,
+            filterIds: [organizationId],
+            allowedIds: [organizationId],
+            tenantId,
+          },
           selectedOrganizationId: organizationId,
           organizationIds: [organizationId],
           systemActor: true,

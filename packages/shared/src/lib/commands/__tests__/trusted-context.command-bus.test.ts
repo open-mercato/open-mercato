@@ -54,6 +54,7 @@ describe('buildTrustedCommandContext through the command bus', () => {
 
     expect(result).toEqual({ ok: true })
     expect(execute.mock.calls[0][1].systemActor).toBe(true)
+    expect(execute.mock.calls[0][1].organizationScope?.tenantId).toBe('tenant-1')
     expect(logMock).toHaveBeenCalledTimes(1)
     expect(logMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -122,8 +123,11 @@ describe('buildTrustedCommandContext through the command bus', () => {
     expect(logMock).not.toHaveBeenCalled()
   })
 
-  it('denies a system context targeting another organization and writes no audit entry', async () => {
-    registerScopedCommand()
+  it.each([
+    ['another organization', { tenantId: 'tenant-1', organizationId: 'org-2' }],
+    ['another tenant', { tenantId: 'tenant-2', organizationId: 'org-1' }],
+  ])('denies a system context targeting %s and writes no audit entry', async (_label, input) => {
+    const execute = registerScopedCommand()
     const { container, logMock, bus } = createRuntime()
     const { ctx, auditMetadata } = buildTrustedCommandContext({
       tenantId: 'tenant-1',
@@ -133,12 +137,9 @@ describe('buildTrustedCommandContext through the command bus', () => {
     })
 
     await expect(
-      bus.execute(COMMAND_ID, {
-        input: { tenantId: 'tenant-1', organizationId: 'org-2' },
-        ctx: { ...ctx, container },
-        metadata: auditMetadata,
-      }),
+      bus.execute(COMMAND_ID, { input, ctx: { ...ctx, container }, metadata: auditMetadata }),
     ).rejects.toMatchObject({ status: 403 })
+    expect(execute).toHaveBeenCalledTimes(1)
     expect(logMock).not.toHaveBeenCalled()
   })
 })

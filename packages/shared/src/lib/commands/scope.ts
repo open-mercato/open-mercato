@@ -148,7 +148,9 @@ export function ensureOrganizationScope(ctx: CommandRuntimeContext, organization
 
 export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
   const isSuperAdmin = ctx.auth?.isSuperAdmin === true
-  const currentTenant = ctx.auth?.tenantId ?? null
+  const scopedSystemTenant =
+    !ctx.auth && ctx.systemActor === true ? ctx.organizationScope?.tenantId ?? null : null
+  const currentTenant = ctx.auth?.tenantId ?? scopedSystemTenant
   if (!currentTenant) {
     if (tenantId && ctx.auth && !isSuperAdmin) {
       logTenantScopeViolation(ctx, tenantId, currentTenant)

@@ -68,6 +68,26 @@ describe('ensureTenantScope', () => {
     expect(() => ensureTenantScope(ctx, 'tenant-2')).not.toThrow()
   })
 
+  it('denies an explicitly scoped system context acting on another tenant', () => {
+    const ctx = { ...buildCtx({ systemActor: true, organizationScope: buildScope({ tenantId: 'tenant-1' }) }), auth: null }
+    expect(() => ensureTenantScope(ctx, 'tenant-2')).toThrow(CrudHttpError)
+  })
+
+  it('allows an explicitly scoped system context acting inside its own tenant', () => {
+    const ctx = { ...buildCtx({ systemActor: true, organizationScope: buildScope({ tenantId: 'tenant-1' }) }), auth: null }
+    expect(() => ensureTenantScope(ctx, 'tenant-1')).not.toThrow()
+  })
+
+  it('preserves legacy request-less contexts whose scope tenant is not a system grant', () => {
+    const ctx = { ...buildCtx({ organizationScope: buildScope({ tenantId: 'tenant-1' }) }), auth: null }
+    expect(() => ensureTenantScope(ctx, 'tenant-2')).not.toThrow()
+  })
+
+  it('preserves legacy system contexts that resolved no organization scope', () => {
+    const ctx = { ...buildCtx({ systemActor: true }), auth: null }
+    expect(() => ensureTenantScope(ctx, 'tenant-2')).not.toThrow()
+  })
+
   it('denies authenticated tenant-less systemActor contexts unless they are superadmin (#3910)', () => {
     const ctx = buildCtx({ tenantId: null, isSuperAdmin: false, systemActor: true })
     expect(() => ensureTenantScope(ctx, 'tenant-2')).toThrow(CrudHttpError)

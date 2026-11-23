@@ -16,7 +16,12 @@ describe('buildTrustedCommandContext', () => {
 
     expect(ctx.auth).toBeNull()
     expect(ctx.systemActor).toBe(true)
-    expect(ctx.organizationScope).toBeNull()
+    expect(ctx.organizationScope).toEqual({
+      selectedId: 'org-1',
+      filterIds: ['org-1'],
+      allowedIds: ['org-1'],
+      tenantId: 'tenant-1',
+    })
     expect(ctx.selectedOrganizationId).toBe('org-1')
     expect(ctx.organizationIds).toEqual(['org-1'])
     expect(ctx.request).toBeUndefined()
