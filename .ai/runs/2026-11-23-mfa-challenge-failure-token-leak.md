@@ -70,6 +70,8 @@ not committed. Related spec: `.ai/specs/enterprise/implemented/SPEC-ENT-007-2026
 
 ## Progress
 
+PR: #10456
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Fail-closed MFA challenge handling
