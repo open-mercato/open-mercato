@@ -77,3 +77,7 @@ PR: #10129
 - [x] 6.3 Integration tests for #9197 #9191 #9194 #9201 (core) — c305db186b
 - [x] 6.4 Integration tests for #9217 #9205 (workflows, record_locks) — bb7292bddc
 - [x] 6.2 File umbrella issue for #9678 implementation — #10144
+
+### Phase 7: Review follow-up
+
+- [x] 7.1 Explain the dictionary translation scope requirement in All Organizations — a13679179c
