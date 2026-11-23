@@ -180,6 +180,8 @@ Integration (Playwright, per-module under `__integration__/`):
 
 ## 11. Changelog
 
+- 2026-11-20 - Delete coverage probes support registered source tables without a `deleted_at` column. A live hard-delete row keeps its base count; a missing or soft-deleted row decrements it. Both consistency modes retain tenant/organization predicates, and synchronous index removal no longer rolls back when cleaning document-section projections. Unit coverage exercises all four source-row states in both modes; `TC-ATT-STRUCT-006` covers partition toggle-off cleanup through the real queue and API.
+
 - _Unreleased_ — Spec drafted (follow-up to PR #2549).
 
 - 2026-06-18 - Implemented `OM_CACHE_SAFETY_ALWAYS_CONSISTENT`: flag helper, transaction-threaded query-index tail, flag-gated error propagation, docs/env updates, and focused unit coverage.
