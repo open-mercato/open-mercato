@@ -507,6 +507,22 @@ it('keeps active field errors and does not render a hidden composition error', a
   expect(onSubmit).not.toHaveBeenCalled()
 })
 
+it.each([
+  ['mutation_guard_rejected', { details: { fieldErrors: { replacement: 'test.active' } } }],
+  ['validation_failed', { fieldErrors: { replacement: 'test.active' } }],
+])('summarizes a configured %s rejection beside its field error', async (code, body) => {
+  publishWritePolicy([], [], [parentUpdate], true)
+  const onSubmit = jest.fn().mockRejectedValue({ error: code, code, ...body })
+  const { container } = render(configured('actual-id', { onSubmit }), { wrapper: Providers })
+
+  await screen.findByRole('textbox', { name: 'Replacement name' })
+  fireEvent.submit(container.querySelector('form')!)
+
+  expect(await screen.findByText('test.active')).toBeInTheDocument()
+  expect(screen.getByText('ui.forms.errors.highlighted')).toBeInTheDocument()
+  expect(screen.queryByText(code)).not.toBeInTheDocument()
+})
+
 it('does not mount controls for a configured all custom-field definition set without a scoped binding', async () => {
   const customRuntime = defineCrudFormSectionRuntime({
     id: 'test.replacement', roundTripId: 'test.replacement@v1',
