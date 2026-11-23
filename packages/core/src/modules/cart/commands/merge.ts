@@ -478,7 +478,7 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
       throw notFound('[internal] cart not found')
     }
 
-    const now = new Date()
+    let now = new Date()
     // §8.3: "rotated on merge and on adoption" — read as: the cart that ends up being the
     // LIVE one after ANY `cart.merge` call gets its token rotated, always, not only in the
     // adoption sub-case. Documented judgment call: rotating unconditionally is the simplest
@@ -606,6 +606,7 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
       [sessionCart.id, guestCart.id],
       [
         async () => {
+          now = new Date()
           await em.refresh(sessionCart)
           await em.refresh(guestCart)
           // §8.3: a concurrent merge or adoption that rotated the TARGET's token leaves the
@@ -915,7 +916,8 @@ async function restoreSelectedCartMerge(
   const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(options.container, survivorCart)
   const deletedLineIds: string[] = []
   const restoredLines: CartLine[] = []
-  const now = new Date()
+  // Taken again once both locks are held, so the window is judged at the time the undo runs.
+  let now = new Date()
   const locked: { log: CartMergeLog; newerLog?: CartMergeLog; reprice?: CartRepricePlan } = { log: mergeLog }
 
   await withCartLineMutationLock(
@@ -926,6 +928,7 @@ async function restoreSelectedCartMerge(
         // §8.1 (rev 10.1 — I1): the pre-checks above ran before the locks; a token rotation,
         // a `cart.lock`, a newer merge or a second undo that committed meanwhile is judged
         // here, before anything is restored.
+        now = new Date()
         await em.refresh(survivorCart)
         assertCartTokenHashUnchanged(survivorCart, options.expectedTokenHash)
         assertCartNotLocked(survivorCart)

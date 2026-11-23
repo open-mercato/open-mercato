@@ -134,8 +134,8 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
       trigger: 'lock',
       routeContext: input.routeContext,
     }
-    const now = new Date()
-    const lockExpiresAt = new Date(now.getTime() + resolveCartLockTimeoutMs())
+    // Taken again once the lock is held, so a wait for the lock never shortens the lock's TTL.
+    let now = new Date()
     const locked: { plan?: CartRepricePlan; hasUnavailableLines: boolean } = { hasUnavailableLines: false }
 
     // §8.1 (rev 10.1 — I1): the re-price, the flagged-line check and the transition all run
@@ -147,6 +147,7 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
       cart.id,
       [
         async () => {
+          now = new Date()
           await em.refresh(cart)
           assertCartNotLocked(cart)
           if (cart.status !== 'active') throw notFound('[internal] cart not found')
@@ -165,6 +166,7 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
           // Compare-and-set on `status = 'active'`: a writer that changes status without this
           // lock (a sweeper, a concurrent unlock/convert path) still cannot be overwritten. A
           // lost race rolls the whole attempt back, re-price included, and emits nothing.
+          const lockExpiresAt = new Date(now.getTime() + resolveCartLockTimeoutMs())
           const affected = await em.nativeUpdate(
             Cart,
             { id: cart.id, tenantId: scope.tenantId, organizationId: scope.organizationId, status: 'active' },

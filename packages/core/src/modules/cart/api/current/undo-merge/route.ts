@@ -135,7 +135,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 404, description: 'No `X-Cart-Token` header, the token does not resolve a cart, or no merge exists to undo for this cart' },
         { status: 409, description: 'Optimistic-lock conflict, or `merge_undo_window_expired` (the 15-minute window has passed)' },
         { status: 429, description: 'Rate limited' },
-        { status: 503, description: 'No store context resolvable for this request (§6a.1a), or cart_busy after 15 seconds waiting for the cart lock. The locked merge undo phases did not run; earlier activity/context/repricing may have persisted. Retry the same request after Retry-After: 1 second.' },
+        { status: 503, description: 'No store context resolvable for this request (§6a.1a), or cart_busy after 15 seconds waiting for the cart locks or after newer merges kept changing the cart pair to lock. The locked merge undo phases did not run; earlier activity/context/repricing may have persisted. Retry the same request after Retry-After: 1 second.' },
       ],
     },
   },
