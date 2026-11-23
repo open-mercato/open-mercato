@@ -4,8 +4,14 @@ Adopted from the [QA report](https://github.com/open-mercato/open-mercato/pull/9
 
 ## Progress
 
-### Phase 1. Contain long contact values
+### Phase 1. Save and display address contact values
 
-- [ ] 1.1 Correct the shared address tile layout and exercise both reported viewport widths in the CRM browser regression.
+- [x] 1.1 Verify the person and company create forms persist both address contact fields — 4c336e681b
+
+### Phase 2. Contain long contact values
+
+- [x] 2.1 Correct the shared address tile layout and exercise both reported viewport widths in the CRM browser regression — 72a753f4a7
+
+On the local runner, Chromium reproduced overflow with a 200-character recipient name and a 50-character phone. After the repair the rendered address component fit in both the 390 px and 1440 px viewports. All ten focused component tests passed. The full application browser regression runs in hosted CI.
 
 Independent review and human QA cover the broader address-book feature. The previous QA run verified the person and company create paths and identified the contact line as the remaining PR-specific layout defect.
