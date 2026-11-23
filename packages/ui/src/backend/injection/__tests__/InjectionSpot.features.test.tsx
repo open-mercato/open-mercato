@@ -17,6 +17,7 @@ let backendChromePayload: { grantedFeatures: string[] } | null = {
   grantedFeatures: [],
 }
 let backendChromeReady = true
+let portalContextValue: { auth: { resolvedFeatures: string[]; loading: boolean } } | null = null
 
 jest.mock('@open-mercato/shared/modules/widgets/injection-loader', () => ({
   getInjectionRegistryVersion: () => 0,
@@ -34,6 +35,10 @@ jest.mock('../../BackendChromeProvider', () => ({
     isReady: backendChromeReady,
     refresh: jest.fn(),
   }),
+}))
+
+jest.mock('../../../portal/PortalContext', () => ({
+  useOptionalPortalContext: () => portalContextValue,
 }))
 
 jest.mock('../WidgetSharedState', () => ({
@@ -61,6 +66,11 @@ function setBackendChromeLoading() {
 function setNoBackendChromeProvider() {
   backendChromePayload = null
   backendChromeReady = true
+}
+
+function setPortalSession(resolvedFeatures: string[], loading = false) {
+  setNoBackendChromeProvider()
+  portalContextValue = { auth: { resolvedFeatures, loading } }
 }
 
 function visualWidget(
@@ -121,6 +131,7 @@ function dataWidget(id: string, features?: string[]): LoadedInjectionDataWidget 
 describe('Injection widget feature gating', () => {
   beforeEach(() => {
     setGrantedFeatures([])
+    portalContextValue = null
     loadInjectionWidgetsForSpotMock.mockReset()
     loadInjectionDataWidgetsForSpotMock.mockReset()
     onLoadVisibleMock.mockReset()
@@ -312,6 +323,91 @@ describe('Injection widget feature gating', () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false))
     expect(result.current.widgets.map((widget) => widget.metadata.id)).toEqual(['always-visible'])
+  })
+
+  it('renders portal-feature-gated component widgets for a portal session holding the grant, but never staff-gated ones', async () => {
+    loadInjectionWidgetsForSpotMock.mockResolvedValueOnce([
+      visualWidget('portal-granted-widget', ['portal.account.manage'], onLoadVisibleMock),
+      visualWidget('staff-only-widget', ['record_locks.view'], onLoadHiddenMock),
+    ])
+    setPortalSession(['portal.account.manage'])
+
+    const { findByTestId, queryByTestId } = render(
+      <InjectionSpot spotId={SPOT_ID} context={{}} />,
+    )
+
+    await findByTestId('portal-granted-widget')
+    expect(queryByTestId('staff-only-widget')).toBeNull()
+    expect(onLoadVisibleMock).toHaveBeenCalledTimes(1)
+    expect(onLoadHiddenMock).not.toHaveBeenCalled()
+  })
+
+  it('excludes portal-feature-gated component widgets for a portal session without the grant', async () => {
+    loadInjectionWidgetsForSpotMock.mockResolvedValueOnce([
+      visualWidget('unguarded-widget', undefined, onLoadVisibleMock),
+      visualWidget('portal-gated-widget', ['portal.account.manage'], onLoadHiddenMock),
+    ])
+    setPortalSession(['portal.orders.view'])
+
+    const { findByTestId, queryByTestId } = render(
+      <InjectionSpot spotId={SPOT_ID} context={{}} />,
+    )
+
+    await findByTestId('unguarded-widget')
+    expect(queryByTestId('portal-gated-widget')).toBeNull()
+    expect(onLoadHiddenMock).not.toHaveBeenCalled()
+  })
+
+  it('honours portal wildcard grants but never lets a bare "*" portal grant satisfy a staff feature', async () => {
+    loadInjectionDataWidgetsForSpotMock.mockResolvedValueOnce([
+      dataWidget('portal-wildcard-data-widget', ['portal.account.manage']),
+      dataWidget('staff-only-data-widget', ['record_locks.view']),
+    ])
+    setPortalSession(['portal.*', '*'])
+
+    const { result } = renderHook(() => useInjectionDataWidgets(SPOT_ID))
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.widgets.map((widget) => widget.metadata.id)).toEqual(['portal-wildcard-data-widget'])
+  })
+
+  it('excludes staff-gated lifecycle widgets inside a portal session', async () => {
+    const onBeforeSaveStaffOnlyMock = jest.fn()
+    const onBeforeSavePortalMock = jest.fn()
+    setPortalSession(['portal.account.manage'])
+    const prefetched = [
+      loadedSpotWidget(lifecycleWidget('staff-only-lifecycle-widget', ['record_locks.view'], onBeforeSaveStaffOnlyMock)),
+      loadedSpotWidget(lifecycleWidget('portal-lifecycle-widget', ['portal.account.manage'], onBeforeSavePortalMock)),
+    ]
+
+    const { result } = renderHook(() =>
+      useInjectionSpotEvents<Record<string, unknown>, Record<string, unknown>>(SPOT_ID, prefetched)
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    await result.current.triggerEvent('onBeforeSave', {}, {})
+
+    expect(onBeforeSaveStaffOnlyMock).not.toHaveBeenCalled()
+    expect(onBeforeSavePortalMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('holds portal-gated data widgets while the portal session is still loading', async () => {
+    loadInjectionDataWidgetsForSpotMock.mockResolvedValue([dataWidget('portal-data-widget', ['portal.account.manage'])])
+    setPortalSession([], true)
+
+    const { result, rerender } = renderHook(() => useInjectionDataWidgets(SPOT_ID))
+
+    expect(result.current.isLoading).toBe(true)
+    expect(loadInjectionDataWidgetsForSpotMock).not.toHaveBeenCalled()
+
+    setPortalSession(['portal.account.manage'])
+    rerender()
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.widgets.map((widget) => widget.metadata.id)).toEqual(['portal-data-widget'])
   })
 })
 
