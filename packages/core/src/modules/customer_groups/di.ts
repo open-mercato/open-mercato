@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import { asFunction, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -22,21 +23,17 @@ function softCradle<T>(cradle: AppCradle, name: string): T | null {
 
 export function register(container: AppContainer) {
   container.register({
-    // `em` is registered per request (`createRequestContainer()` in
-    // packages/shared/src/lib/di/container.ts forks a fresh EntityManager and
-    // builds a brand-new Awilix container for every request), so `.singleton()`
-    // here resolves to "one instance per request container", not one instance for
-    // the process — same pattern as `warrantyClaimNumberGenerator` in
-    // `warranty_claims/di.ts`.
     // D-R5-37: `currencies` is a soft peer (not in `index.ts`'s `requires`), so
     // `baseCurrencyService` resolves to `null` when it is not registered and the
     // base-currency fallback of `resolveTerms` is skipped.
     customerGroupsService: asFunction((cradle: AppCradle) =>
       createCustomerGroupsService(cradle.em, softCradle<BaseCurrencyService>(cradle, 'baseCurrencyService')),
     )
-      .singleton()
+      .scoped()
       .proxy(),
     CustomerGroup: asValue(CustomerGroup),
     CustomerGroupMembership: asValue(CustomerGroupMembership),
   })
 }
+
+defineProcessDiRegistrar(register)
