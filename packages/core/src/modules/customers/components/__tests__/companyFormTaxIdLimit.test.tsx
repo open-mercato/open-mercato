@@ -76,12 +76,15 @@ describe.each(forms)('company $name form — VAT ID length', ({ fields, schema, 
 
   it('refuses a value one character over the limit with the translated message and submits nothing', async () => {
     const onSubmit = jest.fn()
-    const { container, findByText } = renderForm(onSubmit)
+    const { container } = renderForm(onSubmit)
 
     typeTaxId(container, 'X'.repeat(COMPANY_TAX_ID_MAX_LENGTH + 1))
     fireEvent.submit(container.querySelector('form') as HTMLFormElement)
 
-    expect(await findByText(tooLongMessage)).toBeInTheDocument()
+    await waitFor(() => expect(container.querySelector('[data-crud-field-id="taxId"]')).toHaveTextContent(tooLongMessage))
+    const summary = container.querySelector('[data-crud-form-error]')
+    expect(summary).toHaveTextContent(tooLongMessage)
+    await waitFor(() => expect(summary).toHaveFocus())
     expect(onSubmit).not.toHaveBeenCalled()
   })
 
