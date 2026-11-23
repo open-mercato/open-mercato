@@ -468,7 +468,9 @@ Rather than inverting the dependency (ledger must not import
 `posting_rules`), `ledger` exposes an optional
 `FiscalPeriodCloseGuard` port — a typed service with
 `assertPeriodClosable(periodId, ctx)` — and its Lock action resolves it
-with `tryResolve` and awaits it before locking. `posting_rules`
+with `tryResolve` and awaits it inside its own transaction, after reading
+the period row `for update` and before setting `isLocked`, passing that
+transaction as `ctx.transactionalEm` (see the next decision). `posting_rules`
 registers its implementation in `di.ts`; when the module is not
 installed the port resolves to nothing and the button behaves exactly
 as today. This is a named **Phase 1 delivery dependency on the ledger
@@ -484,17 +486,30 @@ risk.
 **The guarded close and the source posting share one serialization
 protocol (added 2026-11-19, re-review M4).** Checking completion in one
 transaction and locking in a second leaves a window in which a zespół 4
-posting commits between them. The guard therefore takes the period's
-write lock — `pg_advisory_xact_lock(hashtextextended('fiscal-period:' ||
-periodId, 0))` through `ctx.transactionalEm`, the primitive #5663
-already uses in `fiscalPeriods.ts` — runs the completion finder, and
-calls `ledger.lockFiscalPeriod` with the same `ctx.transactionalEm`, so
-the guard's read and the lock commit as one unit.
-`ledger.postJournalEntry` takes the same per-period advisory lock for
-every posting into that period. Honouring `ctx.transactionalEm` in
-`lockFiscalPeriod` and taking that lock in `postJournalEntry` are
-**delivery dependencies on `ledger` (#5663/#6340)**, tracked here as
-required work rather than assumed; until they land, Invariant 4 holds
+posting commits between them. The shared lock is the period row itself
+(**corrected 2026-11-23** against the ledger code in PR 9860 at
+`a679e1f9ae`; the earlier text named an advisory lock that the ledger
+does not take for postings). `postJournalEntry` reads the covering
+period `for share` inside its transaction
+(`requireCoveringUnlockedFiscalPeriod`, `postJournalEntry.ts`
+l.155-170), and the dimension write in `journal_entry_line_dimensions`
+does the same; `ledger.lockFiscalPeriod` reads the period `for update`
+inside its transaction (`toggleFiscalPeriodLock`, `fiscalPeriods.ts`
+l.271-280). The guard therefore runs in one transaction: it reads the
+period row `for update`, runs the completion finder, and calls
+`ledger.lockFiscalPeriod` with the same `ctx.transactionalEm`, so the
+guard's read and the lock commit as one unit. A posting already holding
+`for share` makes the guard wait until it commits, and the finder then
+sees its line; a posting that starts after the guard holds the row waits
+and then finds the period locked (422). No advisory lock is involved:
+the advisory lock in `fiscalPeriods.ts` (l.106-109, 179-182) serializes
+period creation per scope and is unrelated. The one ledger change is
+that `lockFiscalPeriod` honours `ctx.transactionalEm` (today it always
+opens its own transaction, `fiscalPeriods.ts` l.258 and 271), together
+with the port being awaited inside that transaction; both are
+**delivery dependencies on the ledger changes** (Implementation Plan,
+"Three deliveries"), tracked here as required work rather than assumed.
+`postJournalEntry` needs no change. Until they land, Invariant 4 holds
 under the operational mitigation in Risks, and the integration suite
 includes a concurrent close-and-post case that must pass once the
 ledger side ships.
@@ -740,10 +755,12 @@ tenant with `posting_rules` installed:
    — or through the user-facing Lock action while the module is
    installed — while `reconcileCostRing` would find incomplete
    reclassifications in it.** The read and the lock share one
-   transaction and the same per-period advisory lock as
-   `postJournalEntry` (**restated 2026-11-19**, re-reviews M3/M4: the
-   user-facing path is covered by the ledger port, and the check/lock
-   race is closed by the shared advisory lock). The invariant does not
+   transaction that holds the period row `for update`, the lock that
+   conflicts with the `for share` every posting takes on its covering
+   period (**restated 2026-11-19**, re-reviews M3/M4: the user-facing
+   path is covered by the ledger port, and the check/lock race is closed
+   by that row lock; **corrected 2026-11-23**: row lock, not an advisory
+   lock). The invariant does not
    hold when a caller reaches `ledger.lockFiscalPeriod` without the
    port — e.g. a raw ops call — and that residual case is disclosed in
    Risks until the ledger delivery dependency lands.
@@ -1024,7 +1041,8 @@ stay `null` until an admin configures them, exactly like
   its named error (422) rather than reporting every line as failed.
   Requires `posting_rules.reconcile.run`.
 - `lockFiscalPeriod` (this module's own, distinct from `ledger`'s) —
-  the period-close guard. Takes the period's advisory write lock, then
+  the period-close guard. Reads the period row `for update` in its
+  transaction (**corrected 2026-11-23**: not an advisory lock), then
   calls `reconcileCostRing`'s underlying completion finder
   (`findIncompleteReclassifications(periodId)`, which applies the
   intent-and-tag predicate above and reports the entry id of each
@@ -1215,7 +1233,8 @@ stay `null` until an admin configures them, exactly like
 - **Fiscal-period close port (added 2026-11-19, re-review M3).**
   `ledger`'s Fiscal Periods Lock action resolves an optional
   `FiscalPeriodCloseGuard` service with `tryResolve` and awaits
-  `assertPeriodClosable(periodId, ctx)` before locking.
+  `assertPeriodClosable(periodId, ctx)` inside its transaction, after
+  reading the period row `for update` and before setting `isLocked`.
   `posting_rules` registers the implementation in `di.ts` (a thin
   wrapper over this module's guarded `lockFiscalPeriod`). Absent
   module → absent port → unchanged ledger behaviour. The port is a
@@ -1412,16 +1431,22 @@ proposed on this PR (https://github.com/open-mercato/open-mercato/pull/6015#issu
   merges).** Three additive changes inside `ledger`, owned by that PR
   and not by this module:
   - the optional `FiscalPeriodCloseGuard` port, resolved with
-    `tryResolve` and awaited by the Fiscal Periods Lock action. This
-    closes the ledger side of **M3** (Design Decisions, "The only
-    user-facing Lock action must consult the guard");
+    `tryResolve` and awaited by the Fiscal Periods Lock action inside
+    its transaction, after the period row is read `for update` and with
+    that transaction passed as `ctx.transactionalEm`. This closes the
+    ledger side of **M3** (Design Decisions, "The only user-facing Lock
+    action must consult the guard") and, for the button path, of **M4**;
   - `ledger.lockFiscalPeriod` running in the caller's transaction when
-    `ctx.transactionalEm` is set, as `postJournalEntry` already does.
-    This closes the ledger side of **M4**: the guard locks the period
-    row, evaluates completion and locks the period in one transaction.
-    In PR 9860 at `a679e1f9ae`, posting reads the covering period
-    `for share` and `lockFiscalPeriod` takes it `for update`, so that
-    row lock is the lock M4 needs and no new advisory lock is required;
+    `ctx.transactionalEm` is set, as `postJournalEntry` already does
+    (today `toggleFiscalPeriodLock` always forks the manager and opens
+    its own transaction, `fiscalPeriods.ts` l.258 and 271). This closes
+    the ledger side of **M4** for the guard command: it reads the period
+    row `for update`, evaluates completion and locks the period in one
+    transaction. In PR 9860 at `a679e1f9ae`, posting reads the covering
+    period `for share` (`postJournalEntry.ts` l.155-170) and
+    `lockFiscalPeriod` takes it `for update` (`fiscalPeriods.ts`
+    l.271-280), so that row lock is the lock M4 needs: no advisory lock
+    and no change to `postJournalEntry`;
   - `listPostedEntriesSince`, the reconciliation read of the ledger
     spec (https://github.com/open-mercato/open-mercato/pull/5663 at
     `dba7953603`, Events → Delivery contract and Queries / API).
@@ -1461,9 +1486,10 @@ proposed on this PR (https://github.com/open-mercato/open-mercato/pull/6015#issu
 6. `reconcileCostRing` command, reusing the subscriber's reclassify-one-line
    logic as a shared internal helper (not duplicated), selecting
    incomplete lines (no intent row or no tag) (**revised 2026-11-19**).
-7. `posting_rules.lockFiscalPeriod` guard command, taking the period
-   advisory lock and sharing the transaction with `ledger.lockFiscalPeriod`
-   (**revised 2026-11-19**, re-review M4).
+7. `posting_rules.lockFiscalPeriod` guard command, reading the period
+   row `for update` and sharing the transaction with `ledger.lockFiscalPeriod`
+   (**revised 2026-11-19**, re-review M4; **corrected 2026-11-23**: row
+   lock, not an advisory lock).
 8. `commands/interceptors.ts` — refuse direct reversal of an
    engine-derived entry (**added 2026-11-19**, re-review M2); `di.ts`
    — register the `FiscalPeriodCloseGuard` implementation for the
@@ -1503,7 +1529,7 @@ proposed on this PR (https://github.com/open-mercato/open-mercato/pull/6015#issu
 | `commands/defaultAccountPostingRules.ts` | Create | `createDefaultAccountPostingRule`/`updateDefaultAccountPostingRule` (Phase 1, **corrected 2026-09-14**) |
 | `commands/postingRulesSettings.ts` | Create | `updatePostingRulesSettings` |
 | `commands/reconcileCostRing.ts` | Create | The sweeper, sharing reclassify-one-line logic with the subscriber |
-| `commands/lockFiscalPeriod.ts` | Create | The guarded period-close, taking the period advisory lock and calling `ledger.lockFiscalPeriod` in the same transaction on success (**revised 2026-11-19**) |
+| `commands/lockFiscalPeriod.ts` | Create | The guarded period-close, reading the period row `for update` and calling `ledger.lockFiscalPeriod` in the same transaction on success (**revised 2026-11-19**; row lock **corrected 2026-11-23**) |
 | `commands/interceptors.ts` | Create | `CommandInterceptor` refusing a direct `ledger.reverseJournalEntry` of an engine-derived mirror (**added 2026-11-19**, re-review M2) |
 | `di.ts` | Create | Registers the `FiscalPeriodCloseGuard` implementation for the ledger-side optional port (**added 2026-11-19**, re-review M3) |
 | `lib/reclassify.ts` | Create | `reclassifyLine`, the shared per-line helper (subscriber and sweeper): trigger-set check, advisory lock, existence check, post, ensure tag (**added 2026-10-09**) |
@@ -1705,8 +1731,8 @@ proposed on this PR (https://github.com/open-mercato/open-mercato/pull/6015#issu
   before) when the module is not installed. Once the ledger delivery
   dependency lands, assert a posting that commits concurrently with the
   close either lands before the completion read (and blocks the lock) or
-  waits on the shared advisory lock — never a locked period with an
-  incomplete line.
+  waits on the period row lock and is then refused because the period is
+  locked — never a locked period with an incomplete line.
 - **Reverse-journal-entry and close port are pure read/decision paths.**
   Assert neither the interceptor nor the port writes ledger data, and
   that both are covered by the module's `posting_rules` ACL features for
@@ -1844,12 +1870,14 @@ or residual risk.
   without it needs a recorded maintainer waiver. Residual risk: medium
   until the ledger port lands.
 - **Period-close guard race (lock vs. posting) (rewritten 2026-11-19,
-  re-review M4).** The guard now takes the same per-period advisory lock
-  as `postJournalEntry` and calls `ledger.lockFiscalPeriod` in the same
+  re-review M4).** The guard reads the period row `for update`, the lock
+  that conflicts with the `for share` `postJournalEntry` takes on the
+  covering period, and calls `ledger.lockFiscalPeriod` in the same
   transaction, so a source posting cannot slip between the completion
-  read and the lock **once the ledger side honors `ctx.transactionalEm`
-  and takes the advisory lock** — both are named delivery dependencies
-  on #5663/#6340. Until they land, a posting that commits into the
+  read and the lock **once `ledger.lockFiscalPeriod` honors
+  `ctx.transactionalEm`** — a named delivery dependency on the ledger
+  changes (**corrected 2026-11-23**: no advisory lock and no change to
+  `postJournalEntry` are needed). Until it lands, a posting that commits into the
   period after the finder has read is still unseen, and the line's
   reclassification is rejected (locked period) until the period is
   unlocked. Severity: medium (Invariant 4 can be violated by timing; no
@@ -1943,10 +1971,12 @@ or residual risk.
   `journal_entry_line_dimensions` API accepts an array, so this is an
   engine limitation, not a schema one.
 - The ledger-side mechanics behind the Fiscal Periods Lock port and the
-  shared advisory lock (`tryResolve` port definition, `ctx.transactionalEm`
-  in `lockFiscalPeriod`, the per-period advisory lock in
-  `postJournalEntry`) — these are delivery dependencies on
-  #5663/#6340, named here but implemented there (**added 2026-11-19**,
+  shared period row lock (`tryResolve` port definition awaited inside the
+  lock transaction, `ctx.transactionalEm` in `lockFiscalPeriod`; the
+  `for share`/`for update` row locks already exist in PR 9860) — these
+  are delivery dependencies on the ledger changes, named here but
+  implemented there (**corrected 2026-11-23**: no advisory lock in
+  `postJournalEntry`; **added 2026-11-19**,
   re-reviews M3/M4; replaces the earlier "wiring the Lock button"
   out-of-scope bullet, which this revision promotes to a Phase 1
   requirement).
@@ -2368,3 +2398,9 @@ Not yet reviewed by a maintainer.
 - **M3 and M4.** The ledger PR closes the ledger side of both: the `FiscalPeriodCloseGuard` port (M3) and `ledger.lockFiscalPeriod` in the caller's transaction (M4). It also delivers `listPostedEntriesSince`; `{ persistent: true }` is already in PR 9860 (`fbc3ee15d3`). Recorded that in PR 9860 the shared lock M4 needs is the period row lock (`for share` on posting, `for update` on lock). Design Decisions, Cross-module integration and Risks point at the ledger PR instead of the core engine PR.
 - **Moved to PR-B.** The engine rows of the integration matrix (new Delivery column), the required BDD scenarios, the CLI `reconcile-cost-ring` and `lock-fiscal-period`, the sweeper run on the first settings save and the 2026-10-23 note on copying a line's currency and rate. The 2026-09-29 entry is marked superseded. The scheduler decision keeps ⚠ NEEDS HUMAN CONFIRMATION.
 - Not changed: the content of M1, M2, m1, n1 and n2 beyond the delivery each now belongs to.
+
+### 2026-11-23 (cont.) — M4 lock mechanism aligned with the ledger code
+
+- **Checked against PR 9860 at `a679e1f9ae`.** `postJournalEntry` reads the covering period `for share` (`postJournalEntry.ts` l.155-170, called at l.383) and takes no advisory lock; `ledger.lockFiscalPeriod` reads the period `for update` in its own transaction (`fiscalPeriods.ts` l.249-322, lock at l.271-280); the advisory lock in `fiscalPeriods.ts` (l.106-109, 179-182) serializes period creation only.
+- **Text aligned.** Design Decisions (the port and the serialization protocol), Invariant 4, Commands (`lockFiscalPeriod`), Cross-module integration, the ledger changes under Implementation Plan, step 7, File Manifest, Testing Strategy, Risks and Out of scope now say that M4 rests on the period row lock: the guard reads the row `for update`, checks completion and locks in one transaction; postings hold `for share`. The ledger changes are `lockFiscalPeriod` honouring `ctx.transactionalEm` and the port being awaited inside the lock transaction; no advisory lock and no change to `postJournalEntry`.
+- Not changed: the engine's own per-source-line advisory lock (Design Decisions, subscriber and sweeper), and the historical changelog entries.
