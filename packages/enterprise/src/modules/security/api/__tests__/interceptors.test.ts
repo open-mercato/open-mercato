@@ -20,12 +20,21 @@ jest.mock('@open-mercato/shared/lib/logger', () => ({
 
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
+import { MFA_NO_METHODS_CONFIGURED_CODE } from '../../lib/mfa-error-codes'
 import { interceptors } from '../interceptors'
 
 type CreateChallengeMock = jest.Mock<
   Promise<{ challengeId: string; availableMethods: Array<{ type: string; label: string; icon: string }> }>,
   [string]
 >
+
+function createNoMfaMethodsError(): Error {
+  return Object.assign(new Error('No MFA methods configured'), {
+    name: 'MfaVerificationServiceError',
+    statusCode: 400,
+    code: MFA_NO_METHODS_CONFIGURED_CODE,
+  })
+}
 
 function buildContext(createChallenge: CreateChallengeMock) {
   return {
@@ -113,11 +122,28 @@ describe('security auth/login api interceptor', () => {
     })
   })
 
-  test('fails closed to no-op when challenge creation fails', async () => {
+  test('fails closed when challenge creation fails for an account with MFA methods', async () => {
     if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
 
     const createChallenge = jest.fn(async () => {
       throw new Error('db unavailable')
+    }) as CreateChallengeMock
+
+    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    await expect(
+      interceptor.after(
+        { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
+        { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
+        buildContext(createChallenge),
+      ),
+    ).rejects.toThrow('db unavailable')
+  })
+
+  test('returns no-op when the account has no MFA methods configured', async () => {
+    if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
+
+    const createChallenge = jest.fn(async () => {
+      throw createNoMfaMethodsError()
     }) as CreateChallengeMock
 
     const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
@@ -128,6 +154,31 @@ describe('security auth/login api interceptor', () => {
     )
 
     expect(result).toEqual({})
+  })
+
+  test('fails closed when the MFA verification service is unavailable', async () => {
+    if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
+
+    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    const context = {
+      userId: '',
+      organizationId: '',
+      tenantId: '',
+      em: {} as InterceptorContext['em'],
+      container: {
+        resolve: () => {
+          throw new Error('no service')
+        },
+      },
+    } as unknown as InterceptorContext
+
+    await expect(
+      interceptor.after(
+        { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
+        { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
+        context,
+      ),
+    ).rejects.toThrow('[internal] MFA verification service unavailable')
   })
 
   test('skips MFA challenge injection when emergency bypass is enabled', async () => {
@@ -182,7 +233,7 @@ describe('security auth/login api interceptor', () => {
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
-  test('does not emit warning when bypass is enabled but verification service is unavailable', async () => {
+  test('keeps the emergency bypass working when the verification service is unavailable', async () => {
     if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
 
     process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
@@ -206,8 +257,12 @@ describe('security auth/login api interceptor', () => {
     )
 
     expect(result).toEqual({})
-    expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
-    expect(mockLoggerWarn).not.toHaveBeenCalled()
+    expect(mockEmitSecurityEvent).toHaveBeenCalledWith(
+      'security.mfa.emergency_bypass_detected',
+      expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+      { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+    expect(mockLoggerWarn).toHaveBeenCalled()
   })
 
   test('does not emit warning when bypass is disabled', async () => {
