@@ -62,7 +62,7 @@ export async function GET(req: Request) {
       CheckoutTransaction,
       where,
       {
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: 'desc', id: 'desc' },
         offset: (page - 1) * pageSize,
         limit: pageSize,
       },
