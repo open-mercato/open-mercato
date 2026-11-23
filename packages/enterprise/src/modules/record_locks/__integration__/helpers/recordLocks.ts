@@ -455,6 +455,20 @@ export async function getDealTitle(
   );
 }
 
+export async function getDealUpdatedAt(
+  request: APIRequestContext,
+  token: string,
+  dealId: string,
+): Promise<string | null> {
+  return readRowField(
+    request,
+    token,
+    `/api/customers/deals?id=${encodeURIComponent(dealId)}&pageSize=5`,
+    dealId,
+    ['updatedAt', 'updated_at'],
+  );
+}
+
 export async function listNotificationsByType(
   request: APIRequestContext,
   token: string,
