@@ -473,9 +473,6 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
 
-
-## 0.9.0 → 0.9.1 (unreleased)
-
 ### Money and exchange-rate amounts are arbitrary precision (exact decimals)
 
 Money columns and `exchange_rates.rate` are now unconstrained `numeric`, and all built-in money math
