@@ -78,11 +78,11 @@ Modules own their upgrade actions in a server-only `upgrades.ts` manifest plus o
 
 ### Phase 1: Module ownership
 
-- [ ] 1.1 Characterize the post-#10129 catalog
-- [ ] 1.2 Add the shared upgrade-action contract
-- [ ] 1.3 Discover upgrades.ts in the generator
-- [ ] 1.4 Build the configs catalog resolver
-- [ ] 1.5 Add transaction-aware scheduler registration
+- [x] 1.1 Characterize the post-#10129 catalog — 8a78cd2064
+- [x] 1.2 Add the shared upgrade-action contract — b951eb402c
+- [x] 1.3 Discover upgrades.ts in the generator — c17728fbca
+- [x] 1.4 Build the configs catalog resolver — c9d5c5240d
+- [x] 1.5 Add transaction-aware scheduler registration — 19d8f3f578
 - [ ] 1.6 Move actions into owner modules
 - [ ] 1.7 Lock, scope and revert in the runner
 - [ ] 1.8 Extend upgrade-actions API integration coverage
