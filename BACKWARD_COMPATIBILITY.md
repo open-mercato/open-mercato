@@ -693,28 +693,7 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
-<<<<<<< HEAD
-=======
 
-## 2026-11-19 — Entity translation authorization (#9139)
+## Extension headers and analytics identifiers (2026-11-23, #10331, #10332)
 
-The STABLE entity translation route and localization resolver require target
-permissions and registered text fields. Continuing to accept or render
-unregistered translations would preserve the vulnerability. See
-[upgrade notes](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139)
-for client and operator migration guidance. Piotr Karwatka (@pkarw) acknowledged
-the emergency waiver of steps 1–3 on 2026-11-20:
-[human approval](https://github.com/open-mercato/open-mercato/pull/9970#issuecomment-7042760775).
-
-## SSO authority (2026-11-15, #9014)
-
-STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
-
-## 2026-11-22 — Attachment assignment label authorization (#10336)
-
-The STABLE attachment library API response and the enrichment helper signature retain their shapes. Referenced records contribute optional labels and links only for an authorized read in the selected tenant and organization. Retaining an unrestricted fallback would keep the unauthorized read available. Server callers can supply verified request authorization and clients can fall back to existing assignment metadata. See the [upgrade notes](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [implementation spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
-
-## #10331 #10332 (2026-11-23)
-
-STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
->>>>>>> df0354a726 (fix(security): harden extension header parsing and analytics SQL identifiers (#10331, #10332) (#10450))
+STABLE parser and analytics config contracts require own keys, plain SQL identifiers and explicit entity permission declarations. Retaining the old parsing or query paths preserves the authorization and input-validation flaws. [Migration](UPGRADE_NOTES.md#extension-header-parsing-and-analytics-sql-identifier-hardening-10331-10332).

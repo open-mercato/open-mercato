@@ -319,6 +319,9 @@ const direction = determineChangeDirection(current, previous)
 
 ## Changelog
 
+### 2026-11-23
+- Enforced plain analytics identifiers and explicit entity permissions (#10332).
+
 ### 2026-08-01
 - Added optional `metadata.currency` propagation for money widgets.
 - Moved base-currency lookup ownership into the currencies module and made dashboard/customer consumers soft-optional.
