@@ -72,9 +72,11 @@
   "sync_xero.result.account_pending": "Połączono z Xero. Wybierz organizację do synchronizacji.",
   "sync_xero.result.client_misconfigured": "Xero odrzuciło Client ID lub Client Secret. Sprawdź je na karcie Dane uwierzytelniające.",
   "sync_xero.result.connect_cancelled": "Anulowano łączenie z Xero.",
+  "sync_xero.result.connect_client_changed": "Client ID lub Client Secret zmieniły się w trakcie łączenia z Xero, więc połączenie nie zostało zapisane. Połącz ponownie; do tego czasu Xero może nadal pokazywać aplikację wśród połączonych aplikacji.",
   "sync_xero.result.connect_exchange_failed": "Xero nie dokończyło łączenia. Spróbuj ponownie.",
   "sync_xero.result.connect_failed": "Łączenie z Xero nie powiodło się. Spróbuj ponownie.",
   "sync_xero.result.connect_grant_unreadable": "Istniejącego połączenia z Xero nie można odczytać. Użyj opcji Zastąp nieczytelne połączenie.",
+  "sync_xero.result.connect_interrupted": "Rozłączanie wciąż kończyło poprzednie połączenie z Xero, więc to połączenie nie zostało zapisane. Połącz ponownie.",
   "sync_xero.result.connect_origin_rejected": "Otwórz Open Mercato pod skonfigurowanym adresem (APP_URL), aby połączyć się z Xero.",
   "sync_xero.result.connect_persist_failed": "Nie udało się zapisać połączenia z Xero. Spróbuj ponownie.",
   "sync_xero.result.connect_state_invalid": "Próba połączenia wygasła lub została już użyta. Zacznij od nowa na tej karcie.",
@@ -131,5 +133,6 @@
   "sync_xero.tab.unavailable.message": "Tego połączenia nie można teraz odczytać.",
   "sync_xero.tab.unavailable.replace": "Zastąp nieczytelne połączenie",
   "sync_xero.tab.unavailable.replaceText": "Zapisanego połączenia z Xero nie da się odszyfrować. Ponowne połączenie je zastąpi. Open Mercato nie może odwołać starego połączenia, więc jeśli go nie używasz, usuń aplikację z listy Connected apps organizacji w Xero.",
-  "sync_xero.tab.unavailable.replaceTitle": "Zastąpić nieczytelne połączenie?"
+  "sync_xero.tab.unavailable.replaceTitle": "Zastąpić nieczytelne połączenie?",
+  "sync_xero.tab.writeBlocked": "Reguła tej organizacji zablokowała tę zmianę."
 }

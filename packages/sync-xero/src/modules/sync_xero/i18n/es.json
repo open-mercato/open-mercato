@@ -72,9 +72,11 @@
   "sync_xero.result.account_pending": "Conectado a Xero. Elige la organización que se sincronizará.",
   "sync_xero.result.client_misconfigured": "Xero rechazó el Client ID o el Client Secret. Revísalos en la pestaña Credenciales.",
   "sync_xero.result.connect_cancelled": "Se canceló la conexión con Xero.",
+  "sync_xero.result.connect_client_changed": "El Client ID o el Client Secret cambió mientras Xero se conectaba, así que la conexión no se guardó. Vuelve a conectar; hasta entonces Xero puede seguir mostrando la app entre las apps conectadas.",
   "sync_xero.result.connect_exchange_failed": "Xero no completó la conexión. Inténtalo de nuevo.",
   "sync_xero.result.connect_failed": "La conexión con Xero falló. Inténtalo de nuevo.",
   "sync_xero.result.connect_grant_unreadable": "La conexión existente con Xero no se puede leer. Usa Reemplazar la conexión ilegible.",
+  "sync_xero.result.connect_interrupted": "Una desconexión todavía estaba cerrando la conexión anterior con Xero, así que esta no se guardó. Vuelve a conectar.",
   "sync_xero.result.connect_origin_rejected": "Abre Open Mercato desde su dirección configurada (APP_URL) para conectar con Xero.",
   "sync_xero.result.connect_persist_failed": "No se pudo guardar la conexión con Xero. Inténtalo de nuevo.",
   "sync_xero.result.connect_state_invalid": "El intento de conexión caducó o ya se usó. Vuelve a empezar desde esta pestaña.",
@@ -131,5 +133,6 @@
   "sync_xero.tab.unavailable.message": "Esta conexión no se puede leer en este momento.",
   "sync_xero.tab.unavailable.replace": "Reemplazar la conexión ilegible",
   "sync_xero.tab.unavailable.replaceText": "La conexión con Xero guardada no se puede descifrar. Al conectar de nuevo se reemplaza. Open Mercato no puede revocar la anterior, así que elimina la app de las Connected apps de la organización en Xero si ya no la usas.",
-  "sync_xero.tab.unavailable.replaceTitle": "¿Reemplazar la conexión ilegible?"
+  "sync_xero.tab.unavailable.replaceTitle": "¿Reemplazar la conexión ilegible?",
+  "sync_xero.tab.writeBlocked": "Una regla de esta organización bloqueó este cambio."
 }

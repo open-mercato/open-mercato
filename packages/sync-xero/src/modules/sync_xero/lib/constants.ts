@@ -41,6 +41,8 @@ export const XERO_CALLBACK_RESULTS = [
   'connect_cancelled',
   'connect_state_invalid',
   'client_misconfigured',
+  'connect_client_changed',
+  'connect_interrupted',
   'connect_exchange_failed',
   'connect_persist_failed',
   'connect_grant_unreadable',

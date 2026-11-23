@@ -72,9 +72,11 @@
   "sync_xero.result.account_pending": "Connected to Xero. Choose the Organisation to sync.",
   "sync_xero.result.client_misconfigured": "Xero rejected the Client ID or Secret. Check them on the Credentials tab.",
   "sync_xero.result.connect_cancelled": "The connection to Xero was cancelled.",
+  "sync_xero.result.connect_client_changed": "The Client ID or Secret changed while Xero was connecting, so the connection was not saved. Connect again; Xero may still list the app under Connected apps until then.",
   "sync_xero.result.connect_exchange_failed": "Xero did not complete the connection. Try again.",
   "sync_xero.result.connect_failed": "The connection to Xero failed. Try again.",
   "sync_xero.result.connect_grant_unreadable": "The existing Xero connection cannot be read. Use Replace unreadable connection.",
+  "sync_xero.result.connect_interrupted": "A Disconnect was still ending the previous Xero connection, so this one was not saved. Connect again.",
   "sync_xero.result.connect_origin_rejected": "Open Open Mercato from its configured address (APP_URL) to connect to Xero.",
   "sync_xero.result.connect_persist_failed": "The Xero connection could not be stored. Try again.",
   "sync_xero.result.connect_state_invalid": "The connection attempt expired or was already used. Start again from this tab.",
@@ -131,5 +133,6 @@
   "sync_xero.tab.unavailable.message": "This connection can't be read right now.",
   "sync_xero.tab.unavailable.replace": "Replace unreadable connection",
   "sync_xero.tab.unavailable.replaceText": "The stored Xero connection cannot be decrypted. Connecting again replaces it. Open Mercato cannot revoke the old one, so remove the app from the Organisation's Connected apps in Xero if you no longer use it.",
-  "sync_xero.tab.unavailable.replaceTitle": "Replace the unreadable connection?"
+  "sync_xero.tab.unavailable.replaceTitle": "Replace the unreadable connection?",
+  "sync_xero.tab.writeBlocked": "A rule of this organization blocked this change."
 }

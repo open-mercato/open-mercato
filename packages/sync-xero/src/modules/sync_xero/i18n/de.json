@@ -72,9 +72,11 @@
   "sync_xero.result.account_pending": "Mit Xero verbunden. Wählen Sie die Organisation für die Synchronisierung.",
   "sync_xero.result.client_misconfigured": "Xero hat die Client ID oder das Client Secret abgelehnt. Prüfen Sie sie auf dem Tab „Zugangsdaten“.",
   "sync_xero.result.connect_cancelled": "Die Verbindung mit Xero wurde abgebrochen.",
+  "sync_xero.result.connect_client_changed": "Client ID oder Client Secret wurden während der Verbindung mit Xero geändert, daher wurde die Verbindung nicht gespeichert. Verbinden Sie erneut; bis dahin kann Xero die App noch unter den verbundenen Apps anzeigen.",
   "sync_xero.result.connect_exchange_failed": "Xero hat die Verbindung nicht abgeschlossen. Versuchen Sie es erneut.",
   "sync_xero.result.connect_failed": "Die Verbindung mit Xero ist fehlgeschlagen. Versuchen Sie es erneut.",
   "sync_xero.result.connect_grant_unreadable": "Die bestehende Xero-Verbindung kann nicht gelesen werden. Verwenden Sie „Unlesbare Verbindung ersetzen“.",
+  "sync_xero.result.connect_interrupted": "Eine Trennung beendete noch die vorherige Xero-Verbindung, daher wurde diese Verbindung nicht gespeichert. Verbinden Sie erneut.",
   "sync_xero.result.connect_origin_rejected": "Öffnen Sie Open Mercato über die konfigurierte Adresse (APP_URL), um Xero zu verbinden.",
   "sync_xero.result.connect_persist_failed": "Die Xero-Verbindung konnte nicht gespeichert werden. Versuchen Sie es erneut.",
   "sync_xero.result.connect_state_invalid": "Der Verbindungsversuch ist abgelaufen oder wurde bereits verwendet. Starten Sie ihn auf diesem Tab neu.",
@@ -131,5 +133,6 @@
   "sync_xero.tab.unavailable.message": "Diese Verbindung kann gerade nicht gelesen werden.",
   "sync_xero.tab.unavailable.replace": "Unlesbare Verbindung ersetzen",
   "sync_xero.tab.unavailable.replaceText": "Die gespeicherte Xero-Verbindung kann nicht entschlüsselt werden. Ein erneutes Verbinden ersetzt sie. Open Mercato kann die alte Verbindung nicht widerrufen; entfernen Sie die App daher unter „Connected apps“ der Organisation in Xero, wenn Sie sie nicht mehr nutzen.",
-  "sync_xero.tab.unavailable.replaceTitle": "Unlesbare Verbindung ersetzen?"
+  "sync_xero.tab.unavailable.replaceTitle": "Unlesbare Verbindung ersetzen?",
+  "sync_xero.tab.writeBlocked": "Eine Regel dieser Organisation hat diese Änderung blockiert."
 }

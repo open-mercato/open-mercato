@@ -194,8 +194,9 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
     if (known && known.entityId === entityId) {
       if (!diffAddress(address, known)) return false
       const current = await loadXeroAddressRow(deps.em.fork(), scope, known.id)
+      if (current) pageAddresses.addresses.set(current.id, current)
+      else pageAddresses.addresses.delete(known.id)
       if (current && current.entityId === entityId) {
-        pageAddresses.addresses.set(current.id, current)
         const update = diffAddress(address, current)
         if (!update) return false
         if (await updateExistingAddress(current.id, update)) {

@@ -487,10 +487,27 @@ describe('GET /api/sync_xero/oauth/callback', () => {
   ])('stores no grant when the Client ID and Secret were %s after the code exchange', async (_label, lockedConfiguration) => {
     const started = await startConnect()
     mockLockedCredentials.mockImplementation(async () => lockedConfiguration)
-    expect(resultOf(await finishConnect(started))).toBe('client_misconfigured')
+    expect(resultOf(await finishConnect(started))).toBe('connect_client_changed')
     expect(authorizationServer.counters().token.authorizationCode).toBe(1)
     expect(grants.calls.some((call) => call.method === 'completeConnect')).toBe(false)
     expect(grants.state.status).toBe('none')
+  })
+
+  it('stores no grant while a Disconnect revoke that started within the last minute is pending', async () => {
+    const started = await startConnect()
+    grants.state.lastDisconnect = { at: new Date(Date.now() - 5_000), disconnectId: 'd-1', revocation: 'pending' }
+    expect(resultOf(await finishConnect(started))).toBe('connect_interrupted')
+    expect(grants.calls.some((call) => call.method === 'completeConnect')).toBe(false)
+    expect(grants.state.status).toBe('none')
+  })
+
+  it.each([
+    ['a pending revoke older than a minute', { at: new Date(Date.now() - 5 * 60_000), disconnectId: 'd-1', revocation: 'pending' as const }],
+    ['a finished revoke', { at: new Date(), disconnectId: 'd-1', revocation: 'confirmed' as const }],
+  ])('stores the grant after %s', async (_label, lastDisconnect) => {
+    const started = await startConnect()
+    grants.state.lastDisconnect = lastDisconnect
+    expect(resultOf(await finishConnect(started))).toBe('connected')
   })
 
   it('stores no grant when the Xero connection lock is unavailable', async () => {

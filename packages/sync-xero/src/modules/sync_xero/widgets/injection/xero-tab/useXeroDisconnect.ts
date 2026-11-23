@@ -62,7 +62,7 @@ export function useXeroDisconnect({ revisedAt, confirm, run, onDone }: UseXeroDi
       if (failed.length > 0) {
         flash(t('sync_xero.disconnect.stepsFailed', { steps: failed.map((step) => t(`sync_xero.disconnect.step.${step}`)).join(', ') }), 'warning')
       }
-      if (result.reconnected) flash(t('sync_xero.disconnect.reconnected'), 'info')
+      if (result.reconnected) flash(t('sync_xero.disconnect.reconnected'), 'warning')
       else if (result.steps.disable === 'skipped') flash(t('sync_xero.disconnect.disableSkipped'), 'warning')
     },
     [t],

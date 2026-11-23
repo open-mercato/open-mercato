@@ -67,7 +67,7 @@ jest.mock('next/navigation', () => ({
 }))
 
 import { useSearchParams } from 'next/navigation'
-import { GLOBAL_MUTATION_INJECTION_SPOT_ID } from '@open-mercato/ui/backend/injection/mutationEvents'
+import { BACKEND_MUTATION_ERROR_EVENT, GLOBAL_MUTATION_INJECTION_SPOT_ID } from '@open-mercato/ui/backend/injection/mutationEvents'
 import { resolveRequestedIntegrationDetailTab } from '@open-mercato/core/modules/integrations/backend/integrations/detail-page-widgets'
 import XeroTabWidget from '../widgets/injection/xero-tab/widget.client'
 import { resolveXeroTabState, revocationUnconfirmed } from '../widgets/injection/xero-tab/ConnectionStatePanel'
@@ -236,6 +236,32 @@ describe('Xero tab', () => {
     fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.tab.connect'] }))
     await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(expect.any(String), 'error'))
     expect(mockApiCallOrThrow).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a failed request', () => {
+      mockApiCallOrThrow.mockRejectedValue(Object.assign(new Error('Conflict'), { status: 409 }))
+    }],
+    ['an integration detail block', () => {
+      mockSpotWidgets.set(syncXeroDetailWidgetSpotId, [lifecycleWidget('test_guards.detail', { onBeforeSave: async () => false })])
+    }],
+  ])('reports %s through the mutation error event once', async (_label, arrange) => {
+    serve(connectionView({ schedules: [{ entityType: 'xero.contacts', exists: false, isEnabled: false, fullSync: false, scheduleValue: null }] }))
+    arrange()
+    const errorEvents: Event[] = []
+    const listener = (event: Event) => {
+      errorEvents.push(event)
+    }
+    window.addEventListener(BACKEND_MUTATION_ERROR_EVENT, listener)
+    try {
+      renderTab({ integrationDetailWidgetSpotId: syncXeroDetailWidgetSpotId, state: { isEnabled: true } })
+      fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.schedules.create'] }))
+      await waitFor(() => expect(errorEvents).toHaveLength(1))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(errorEvents).toHaveLength(1)
+    } finally {
+      window.removeEventListener(BACKEND_MUTATION_ERROR_EVENT, listener)
+    }
   })
 
   it('runs the global and the integration detail lifecycles around the write, with both handlers\' headers', async () => {
@@ -474,7 +500,7 @@ describe('Xero tab', () => {
     fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
     const dialog = await screen.findByTestId('sync-xero-disconnect-dialog')
     fireEvent.click(within(dialog).getByRole('button', { name: enDict['sync_xero.disconnect.confirm'] }))
-    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.disconnect.reconnected'], 'info'))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.disconnect.reconnected'], 'warning'))
     expect(mockFlash).not.toHaveBeenCalledWith(enDict['sync_xero.disconnect.disableSkipped'], 'warning')
   })
 

@@ -5,6 +5,7 @@ import ko from '../i18n/ko.json'
 import pl from '../i18n/pl.json'
 import { translateCredentialFields } from '@open-mercato/core/modules/integrations/backend/integrations/credential-translations'
 import { integration } from '../integration'
+import { XERO_CALLBACK_RESULTS } from '../lib/constants'
 import { XERO_ROUTE_ERROR_FALLBACKS, xeroErrorTranslationKey } from '../lib/route-errors'
 
 const locales: Record<string, Record<string, string>> = { de, en, es, ko, pl }
@@ -32,6 +33,12 @@ describe('sync_xero translations', () => {
       if (locale === 'en') {
         expect(translated.map(({ label, helpText }) => ({ label, helpText }))).toEqual(fields.map(({ label, helpText }) => ({ label, helpText })))
       }
+    }
+  })
+
+  it('translates every OAuth callback result in every locale', () => {
+    for (const result of XERO_CALLBACK_RESULTS) {
+      for (const dictionary of Object.values(locales)) expect(dictionary[`sync_xero.result.${result}`]).toEqual(expect.any(String))
     }
   })
 

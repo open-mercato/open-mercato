@@ -72,9 +72,11 @@
   "sync_xero.result.account_pending": "Xero에 연결되었습니다. 동기화할 조직을 선택하세요.",
   "sync_xero.result.client_misconfigured": "Xero가 Client ID 또는 Client Secret을 거부했습니다. 자격 증명 탭에서 확인하세요.",
   "sync_xero.result.connect_cancelled": "Xero 연결이 취소되었습니다.",
+  "sync_xero.result.connect_client_changed": "Xero에 연결하는 동안 Client ID 또는 Client Secret이 변경되어 연결을 저장하지 않았습니다. 다시 연결하세요. 그 전까지 Xero의 연결된 앱 목록에 앱이 계속 표시될 수 있습니다.",
   "sync_xero.result.connect_exchange_failed": "Xero가 연결을 완료하지 않았습니다. 다시 시도하세요.",
   "sync_xero.result.connect_failed": "Xero 연결에 실패했습니다. 다시 시도하세요.",
   "sync_xero.result.connect_grant_unreadable": "기존 Xero 연결을 읽을 수 없습니다. 읽을 수 없는 연결 교체를 사용하세요.",
+  "sync_xero.result.connect_interrupted": "연결 해제가 아직 이전 Xero 연결을 종료하는 중이어서 이 연결을 저장하지 않았습니다. 다시 연결하세요.",
   "sync_xero.result.connect_origin_rejected": "Xero에 연결하려면 구성된 주소(APP_URL)로 Open Mercato를 여세요.",
   "sync_xero.result.connect_persist_failed": "Xero 연결을 저장하지 못했습니다. 다시 시도하세요.",
   "sync_xero.result.connect_state_invalid": "연결 시도가 만료되었거나 이미 사용되었습니다. 이 탭에서 다시 시작하세요.",
@@ -131,5 +133,6 @@
   "sync_xero.tab.unavailable.message": "지금은 이 연결을 읽을 수 없습니다.",
   "sync_xero.tab.unavailable.replace": "읽을 수 없는 연결 교체",
   "sync_xero.tab.unavailable.replaceText": "저장된 Xero 연결을 복호화할 수 없습니다. 다시 연결하면 이 연결이 교체됩니다. Open Mercato는 기존 연결을 해지할 수 없으므로 더 이상 사용하지 않는다면 Xero에서 조직의 Connected apps 목록에서 앱을 제거하세요.",
-  "sync_xero.tab.unavailable.replaceTitle": "읽을 수 없는 연결을 교체할까요?"
+  "sync_xero.tab.unavailable.replaceTitle": "읽을 수 없는 연결을 교체할까요?",
+  "sync_xero.tab.writeBlocked": "이 조직의 규칙이 이 변경을 차단했습니다."
 }
