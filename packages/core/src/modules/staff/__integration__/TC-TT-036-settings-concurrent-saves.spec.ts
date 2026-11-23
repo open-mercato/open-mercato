@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import { apiRequest, getAuthToken, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { acknowledgeGlobalNotices } from '@open-mercato/core/helpers/integration/auth'
 import {
   createOrganizationFixture,
@@ -27,13 +27,13 @@ async function readSettings(request: APIRequestContext, token: string): Promise<
   return await response.json() as TimeTrackingSettings
 }
 
-test('TC-TT-036: a Polish settings editor preserves a second editor’s saved change', async ({ page, request }) => {
+test('TC-TT-036: a Polish settings editor preserves a second editor’s saved change', async ({ page, request, browser, baseURL }) => {
   const superadmin = await getAuthToken(request, 'superadmin')
   const suffix = randomUUID()
   const password = `QA-${suffix}!aA1`
   let tenantId: string | null = null
   let organizationId: string | null = null
-  let roleId: string | null = null
+  const roleIds: string[] = []
   const userIds: string[] = []
 
   try {
@@ -46,7 +46,8 @@ test('TC-TT-036: a Polish settings editor preserves a second editor’s saved ch
     organizationId = await createOrganizationFixture(request, superadmin, {
       name: `QA TT036 editor organization ${suffix}`, tenantId,
     })
-    roleId = await createRoleFixture(request, superadmin, { name: `qa-tt036-${suffix}`, tenantId })
+    const roleId = await createRoleFixture(request, superadmin, { name: `qa-tt036-${suffix}`, tenantId })
+    roleIds.push(roleId)
     await setRoleAclFeatures(request, superadmin, {
       roleId,
       organizations: [organizationId],
@@ -73,18 +74,29 @@ test('TC-TT-036: a Polish settings editor preserves a second editor’s saved ch
     const nextDailyHours = editorBaseline.targets.dailyHours === 7.5 ? 6.5 : 7.5
     const localizedDailyHours = String(nextDailyHours).replace('.', ',')
 
-    await withCredentialIsolatedRequest(async (secondRequest) => {
-      const secondEditorToken = await getAuthToken(secondRequest, secondEditorEmail, password)
-      const secondBaseline = await readSettings(secondRequest, secondEditorToken)
-      const changed = await apiRequest(secondRequest, 'PUT', `${SETTINGS}?changedKeys=defaults.chainStartFromPreviousEnd`, {
-        token: secondEditorToken,
-        data: {
-          ...secondBaseline,
-          defaults: { ...secondBaseline.defaults, chainStartFromPreviousEnd: !originallyChains },
-        },
-      })
-      expect(changed.status(), 'Second editor saves the switch while the first editor’s page stays open').toBe(200)
-    })
+    const secondContext = await browser.newContext({ baseURL })
+    try {
+      const secondPage = await secondContext.newPage()
+      await getAuthToken(secondPage.request, secondEditorEmail, password)
+      await acknowledgeGlobalNotices(secondPage)
+      const secondLocale = await secondPage.request.post('/api/auth/locale', { data: { locale: 'en' } })
+      expect(secondLocale.status()).toBe(200)
+      await secondPage.goto(SETTINGS_PAGE)
+      const secondSwitch = secondPage.getByRole('switch', { name: 'Start = end of the previous entry', exact: true })
+      await expect(secondSwitch).toHaveAttribute('aria-checked', String(originallyChains))
+      await secondSwitch.click()
+
+      const secondSave = secondPage.waitForResponse((response) =>
+        new URL(response.url()).pathname === SETTINGS && response.request().method() === 'PUT',
+      )
+      await secondPage.getByRole('button', { name: 'Save', exact: true }).click()
+      const secondSaveResponse = await secondSave
+      expect(secondSaveResponse.status()).toBe(200)
+      expect(new URL(secondSaveResponse.url()).searchParams.get('changedKeys')).toBe('defaults.chainStartFromPreviousEnd')
+      await expect(secondSwitch).toHaveAttribute('aria-checked', String(!originallyChains))
+    } finally {
+      await secondContext.close()
+    }
 
     await expect(chainStart).toHaveAttribute('aria-checked', String(originallyChains))
     await dailyHours.fill(localizedDailyHours)
@@ -96,13 +108,57 @@ test('TC-TT-036: a Polish settings editor preserves a second editor’s saved ch
     expect(saveResponse.status()).toBe(200)
     expect(new URL(saveResponse.url()).searchParams.get('changedKeys')).toBe('targets.dailyHours')
 
-    const stored = await readSettings(page.request, editorToken)
-    expect(stored.defaults.chainStartFromPreviousEnd).toBe(!originallyChains)
-    expect(stored.targets.dailyHours).toBe(nextDailyHours)
+    const expectedSettings = {
+      ...editorBaseline,
+      defaults: { ...editorBaseline.defaults, chainStartFromPreviousEnd: !originallyChains },
+      targets: { ...editorBaseline.targets, dailyHours: nextDailyHours },
+    }
+    await expect(readSettings(page.request, editorToken)).resolves.toEqual(expectedSettings)
     await page.reload()
     await expect(dailyHours).toHaveValue(localizedDailyHours)
     await expect(chainStart).toHaveAttribute('aria-checked', String(!originallyChains))
     await test.info().attach('settings-reload-pl', { body: await page.screenshot(), contentType: 'image/png' })
+
+    const mismatchedTenant = new URLSearchParams({ changedKeys: 'targets.dailyHours', expectedTenantId: randomUUID() })
+    const rejected = await apiRequest(page.request, 'PUT', `${SETTINGS}?${mismatchedTenant}`, {
+      token: editorToken,
+      data: { targets: { dailyHours: 9 } },
+    })
+    expect(rejected.status()).toBe(409)
+    await expect(rejected.json()).resolves.toMatchObject({ code: 'tenant_scope_changed' })
+
+    const viewerRole = await createRoleFixture(request, superadmin, { name: `qa-tt036-viewer-${suffix}`, tenantId })
+    roleIds.push(viewerRole)
+    await setRoleAclFeatures(request, superadmin, {
+      roleId: viewerRole,
+      organizations: [organizationId],
+      features: ['staff.view', 'staff.timesheets.view'],
+    })
+    const viewerEmail = `qa-tt036-viewer-${suffix}@example.com`
+    userIds.push(await createUserFixture(request, superadmin, {
+      email: viewerEmail, password, organizationId, roles: [viewerRole],
+    }))
+
+    const viewerContext = await browser.newContext({ baseURL })
+    try {
+      const viewerPage = await viewerContext.newPage()
+      const viewerToken = await getAuthToken(viewerPage.request, viewerEmail, password)
+      await acknowledgeGlobalNotices(viewerPage)
+      const viewerLocale = await viewerPage.request.post('/api/auth/locale', { data: { locale: 'pl' } })
+      expect(viewerLocale.status()).toBe(200)
+      await viewerPage.goto(SETTINGS_PAGE)
+      await expect(viewerPage.getByText('Brak dostępu', { exact: true })).toBeVisible()
+      await expect(viewerPage.getByRole('textbox', { name: 'Dzienny cel godzin', exact: true })).toHaveCount(0)
+      const forbidden = await apiRequest(viewerPage.request, 'PUT', `${SETTINGS}?changedKeys=targets.dailyHours`, {
+        token: viewerToken,
+        data: { targets: { dailyHours: 9 } },
+      })
+      expect(forbidden.status()).toBe(403)
+    } finally {
+      await viewerContext.close()
+    }
+
+    await expect(readSettings(page.request, editorToken)).resolves.toEqual(expectedSettings)
   } finally {
     try {
       if (tenantId) {
@@ -112,7 +168,7 @@ test('TC-TT-036: a Polish settings editor preserves a second editor’s saved ch
       }
     } finally {
       for (const userId of userIds) await deleteUserIfExists(request, superadmin, userId)
-      await deleteRoleIfExists(request, superadmin, roleId)
+      for (const roleId of roleIds) await deleteRoleIfExists(request, superadmin, roleId)
       await deleteOrganizationIfExists(request, superadmin, organizationId)
       await deleteGeneralEntityIfExists(request, superadmin, TENANTS, tenantId)
     }

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { NextResponse } from 'next/server'
 import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
 import { z } from 'zod'
@@ -19,6 +20,7 @@ import {
 } from '../_shared/withTimesheetInterceptors'
 import {
   preserveOmittedSupportSettings,
+  listTimeTrackingSettingKeys,
   readTimeTrackingSettingValue,
   readTimeTrackingSettings,
   STAFF_TIME_TRACKING_MODULE_ID,
@@ -205,15 +207,38 @@ async function PUT(req: Request) {
     })
     if (!guardResult.ok) return guardResult.response
 
-    const effective = guardResult.modifiedPayload
-      ? settingsSchema.parse({ ...parsed, ...guardResult.modifiedPayload }) as TimeTrackingSettings
-      : parsed
+    const guardPayload = guardResult.modifiedPayload
+    let effective = parsed
+    if (guardPayload) {
+      const merged = { ...parsed, ...guardPayload }
+      if (changedKeys) {
+        for (const [group, value] of Object.entries(guardPayload)) {
+          if (value && typeof value === 'object' && !Array.isArray(value)) {
+            merged[group] = { ...parsed[group], ...value }
+          }
+        }
+      }
+      effective = settingsSchema.parse(merged) as TimeTrackingSettings
+    }
 
     let settings: TimeTrackingSettings
     if (changedKeys) {
-      if (!configService.setTenantValues) throw new Error('[internal] Config service does not support tenant batch writes')
-      const updates = Object.fromEntries(changedKeys.map(({ id }) => [id, readTimeTrackingSettingValue(effective, id)]))
-      await configService.setTenantValues(STAFF_TIME_TRACKING_MODULE_ID, updates, context.tenantId)
+      const writeKeys = new Set(changedKeys.map(({ id }) => id))
+      if (guardPayload) {
+        for (const { id } of listTimeTrackingSettingKeys()) {
+          if (!isDeepStrictEqual(readTimeTrackingSettingValue(parsed, id), readTimeTrackingSettingValue(effective, id))) {
+            writeKeys.add(id)
+          }
+        }
+      }
+      const updates = Object.fromEntries(Array.from(writeKeys, (id) => [id, readTimeTrackingSettingValue(effective, id)]))
+      if (configService.setTenantValues) {
+        await configService.setTenantValues(STAFF_TIME_TRACKING_MODULE_ID, updates, context.tenantId)
+      } else {
+        for (const [name, value] of Object.entries(updates)) {
+          await configService.setValue(STAFF_TIME_TRACKING_MODULE_ID, name, value, configScope)
+        }
+      }
       settings = await readTimeTrackingSettings(configService, configScope)
     } else {
       settings = await writeTimeTrackingSettings(configService, configScope, effective)

@@ -1,4 +1,5 @@
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 
 const tenantA = '11111111-1111-4111-8111-111111111111'
@@ -38,12 +39,15 @@ const moduleConfigService = {
   },
 }
 
+const defaultConfigService = moduleConfigService
+let activeConfigService: Pick<ModuleConfigService, 'getRecord' | 'setValue' | 'setTenantValues'> = defaultConfigService
+
 let grantedFeatures: string[] = ['staff.timesheets.view', 'staff.timesheets.settings.manage']
 
 const container = {
   hasRegistration: (name: string) => name === 'moduleConfigService' || name === 'rbacService',
   resolve: jest.fn((name: string) => {
-    if (name === 'moduleConfigService') return moduleConfigService
+    if (name === 'moduleConfigService') return activeConfigService
     if (name === 'rbacService') {
       return {
       getGrantedFeatures: async () => grantedFeatures,
@@ -101,6 +105,7 @@ const fullSettings = {
 
 describe('staff time tracking settings route', () => {
   beforeEach(() => {
+    activeConfigService = defaultConfigService
     configStore.clear()
     setValueSpy.mockClear()
     setTenantValuesSpy.mockClear()
@@ -188,6 +193,46 @@ describe('staff time tracking settings route', () => {
     expect(setTenantValuesSpy).toHaveBeenCalledWith(STAFF_TIME_TRACKING_MODULE_ID, { 'targets.dailyHours': null }, tenantA)
     expect(setValueSpy).not.toHaveBeenCalled()
     expect(configStore.get(storeKey(tenantB, 'targets.dailyHours'))).toBe(9)
+  })
+
+  it('persists guard-modified keys from a masked save without replaying stale data or resetting sibling keys', async () => {
+    configStore.set(storeKey(tenantA, 'defaults.chainStartFromPreviousEnd'), false)
+    configStore.set(storeKey(tenantA, 'warnings.runningTimer'), false)
+    const guard: MutationGuard = {
+      id: 'test.settings-transform',
+      targetEntity: 'staff.timesheets.settings',
+      operations: ['update'],
+      validate: async () => ({ ok: true, modifiedPayload: { warnings: { overlap: false } } }),
+    }
+    registerMutationGuards([{ moduleId: 'test', guards: [guard] }])
+
+    const response = await PUT(putRequest({ targets: { dailyHours: 7.5 } }, '?changedKeys=targets.dailyHours'))
+
+    expect(response.status).toBe(200)
+    expect(setTenantValuesSpy).toHaveBeenCalledWith(STAFF_TIME_TRACKING_MODULE_ID, {
+      'targets.dailyHours': 7.5,
+      'warnings.overlap': false,
+    }, tenantA)
+    await expect(response.json()).resolves.toMatchObject({
+      defaults: { chainStartFromPreviousEnd: false },
+      targets: { dailyHours: 7.5 },
+      warnings: { overlap: false, runningTimer: false },
+    })
+  })
+
+  it('applies only selected keys with a Configs service that implements the original contract', async () => {
+    activeConfigService = { getRecord: defaultConfigService.getRecord, setValue: defaultConfigService.setValue }
+    configStore.set(storeKey(tenantA, 'defaults.chainStartFromPreviousEnd'), false)
+
+    const response = await PUT(putRequest({ targets: { dailyHours: 7.5 } }, '?changedKeys=targets.dailyHours'))
+
+    expect(response.status).toBe(200)
+    expect(setValueSpy).toHaveBeenCalledTimes(1)
+    expect(setValueSpy).toHaveBeenCalledWith(STAFF_TIME_TRACKING_MODULE_ID, 'targets.dailyHours', 7.5, { tenantId: tenantA })
+    await expect(response.json()).resolves.toMatchObject({
+      defaults: { chainStartFromPreviousEnd: false },
+      targets: { dailyHours: 7.5 },
+    })
   })
 
   it.each(['', 'unknown.key', 'targets.dailyHours,warnings.overlap'])(
