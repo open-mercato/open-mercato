@@ -133,7 +133,7 @@ export function mapDealDrawerPayload(detail: unknown, listItem: unknown): DealDr
     expectedCloseAt: toUtcDateKey(readString(deal.expectedCloseAt)),
     ownerUserId: readString(deal.ownerUserId),
     ownerName: readString(owner?.name),
-    updatedAt: readString(listRecord?.updated_at) ?? readString(listRecord?.updatedAt) ?? readString(deal.updatedAt),
+    updatedAt: readString(deal.updatedAt),
     primaryCompany: readFirstAssociation(detailRecord.companies),
     primaryPerson: readFirstAssociation(detailRecord.people),
     pipelineState: readPipelineState(listRecord?._pipeline),
@@ -164,13 +164,17 @@ export function useDealDrawerData(dealId: string | null): {
   const scopeVersion = useOrganizationScopeVersion()
   const [state, setState] = React.useState<DealDrawerLoadState>({ status: 'idle', deal: null })
   const requestRef = React.useRef(0)
-  const loadedScopeVersionRef = React.useRef(scopeVersion)
+  const selection = React.useMemo(() => ({ dealId, scopeVersion }), [dealId, scopeVersion])
+  const currentSelectionRef = React.useRef<typeof selection | null>(selection)
+  const loadedSelectionRef = React.useRef(selection)
+  currentSelectionRef.current = selection
 
   const load = React.useCallback(async (): Promise<DealDrawerDeal | null> => {
+    if (currentSelectionRef.current !== selection) return null
+    const scopeChanged = loadedSelectionRef.current.scopeVersion !== scopeVersion
+    loadedSelectionRef.current = selection
     const requestId = requestRef.current + 1
     requestRef.current = requestId
-    const scopeChanged = loadedScopeVersionRef.current !== scopeVersion
-    loadedScopeVersionRef.current = scopeVersion
     if (!dealId) {
       setState({ status: 'idle', deal: null })
       return null
@@ -182,7 +186,7 @@ export function useDealDrawerData(dealId: string | null): {
     }))
     try {
       const result = await fetchDealDrawerDeal(dealId)
-      if (requestRef.current !== requestId) return null
+      if (requestRef.current !== requestId || currentSelectionRef.current !== selection) return null
       if (result === 'missing') {
         setState({ status: 'missing', deal: null })
         return null
@@ -190,17 +194,25 @@ export function useDealDrawerData(dealId: string | null): {
       setState({ status: 'ready', deal: result, requestedAt })
       return result
     } catch {
-      if (requestRef.current !== requestId) return null
+      if (requestRef.current !== requestId || currentSelectionRef.current !== selection) return null
       setState((previous) => ({ status: 'error', deal: previous.deal }))
       return null
     }
-  }, [dealId, scopeVersion])
+  }, [dealId, scopeVersion, selection])
 
   React.useEffect(() => {
+    currentSelectionRef.current = selection
     void load()
-  }, [load])
+    return () => {
+      if (currentSelectionRef.current === selection) currentSelectionRef.current = null
+      requestRef.current += 1
+    }
+  }, [load, selection])
 
-  return { state, reload: load }
+  return {
+    state: loadedSelectionRef.current === selection ? state : { status: dealId ? 'loading' : 'idle', deal: null },
+    reload: load,
+  }
 }
 
 const permissionsPromises = new Map<number, Promise<string[]>>()
