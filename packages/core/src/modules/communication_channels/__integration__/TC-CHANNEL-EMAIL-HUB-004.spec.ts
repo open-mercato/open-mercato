@@ -5,6 +5,7 @@ import type { MailboxComposeTransaction } from '@open-mercato/shared/modules/mes
 import type { sendAsUser } from '../lib/send-as-user'
 import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot'
 import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
+import { withNextRuntime } from '@open-mercato/core/helpers/integration/nextRuntime'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
   createRoleFixture,
@@ -154,7 +155,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
     }
   })
 
-  test('rolls back an unsuccessful link write and preserves a subsequently accepted delivery', async ({ request }) => {
+  test('rolls back an unsuccessful link write and preserves a subsequently accepted delivery', async ({ request }) => withNextRuntime(async () => {
     test.slow()
     const token = await getAuthToken(request)
     test.skip(!await isChannelSeedingAvailable(request, token), 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
@@ -162,12 +163,15 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
     const recordId = `messages-composer:${stamp}`
     const scope = getTokenScope(token)
     const auth = { sub: scope.userId, orgId: scope.organizationId, tenantId: scope.tenantId }
-    const [{ bootstrapFromAppRoot }, { createRequestContainer }, hubQueue] = await Promise.all([
+    const [{ bootstrapFromAppRoot }, { createRequestContainer }, hubQueue, objectRegistry, customers] = await Promise.all([
       importFromAppRuntime<typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')>('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
       importFromAppRuntime<typeof import('@open-mercato/shared/lib/di/container')>('@open-mercato/shared/lib/di/container'),
       importFromAppRuntime<typeof import('@open-mercato/core/modules/communication_channels/lib/queue')>('@open-mercato/core/modules/communication_channels/lib/queue'),
+      importFromAppRuntime<typeof import('@open-mercato/core/modules/messages/lib/message-objects-registry')>('@open-mercato/core/modules/messages/lib/message-objects-registry'),
+      importFromAppRuntime<typeof import('@open-mercato/core/modules/customers/message-objects')>('@open-mercato/core/modules/customers/message-objects'),
     ])
     await bootstrapFromAppRoot(resolveAppRoot())
+    const previousObjectTypes = objectRegistry.getAllMessageObjectTypes()
     const container = await createRequestContainer()
     const queue = hubQueue.getCommunicationChannelsQueue(hubQueue.COMMUNICATION_CHANNELS_QUEUES.outbound)
     const originalEnqueue = queue.enqueue
@@ -178,6 +182,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
     let messageId: string | null = null
 
     try {
+      objectRegistry.registerMessageObjectTypes(customers.messageObjectTypes)
       channelId = await seedConnectedChannel(request, token, { displayName: `Recovery ${stamp}` })
       personId = await createPersonFixture(request, token, { firstName: 'Mailbox', lastName: stamp, displayName: `Recovery ${stamp}` })
       const upload = await uploadAttachmentFixture(request, token, {
@@ -249,13 +254,14 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
       })
     } finally {
       queue.enqueue = originalEnqueue
+      objectRegistry.registerMessageObjectTypes(previousObjectTypes, { replace: true })
       await deleteAttachmentIfExists(request, token, attachmentId)
       await deleteMessageIfExists(request, token, messageId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
       await deleteChannelIfExists(request, token, channelId)
       await container.dispose()
     }
-  })
+  }))
 
   test('no mailbox selected keeps the platform path free of channel rows', async ({ request }) => {
     const stamp = Date.now()
