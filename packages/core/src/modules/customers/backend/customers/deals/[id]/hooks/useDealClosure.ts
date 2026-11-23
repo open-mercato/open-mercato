@@ -5,6 +5,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getCurrentOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import type { DealStatsPayload, GuardedMutationRunner } from './types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -60,7 +61,9 @@ export function useDealClosure({
 
   const handleWon = React.useCallback(async () => {
     if (!currentDealId) return
+    const scopeVersion = getCurrentOrganizationScopeVersion()
     if (!(await confirmDiscardIfDirty())) return
+    if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
     try {
       await runMutationWithContext(
         () => withScopedApiRequestHeaders(
@@ -70,12 +73,15 @@ export function useDealClosure({
         { id: currentDealId, closureOutcome: 'won', status: 'win', operation: 'closeWon' },
       )
     } catch (err) {
+      if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
       if (!surfaceRecordConflict(err, t, { onRefresh: () => { void onClosed() } })) {
         flash(t('customers.deals.detail.closeWonError', 'Failed to mark deal as won.'), 'error')
       }
       return
     }
+    if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
     const stats = await fetchDealStats()
+    if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
     setWonStats(stats)
     setWonPopupOpen(true)
     await onClosed()
@@ -84,7 +90,9 @@ export function useDealClosure({
   const handleLostConfirm = React.useCallback(
     async (input: { lossReasonId: string; lossNotes?: string }) => {
       if (!currentDealId) return
+      const scopeVersion = getCurrentOrganizationScopeVersion()
       if (!(await confirmDiscardIfDirty())) return
+      if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
       const lossPayload = {
         id: currentDealId,
         closureOutcome: 'lost' as const,
@@ -104,13 +112,16 @@ export function useDealClosure({
           },
         )
       } catch (err) {
+        if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
         if (!surfaceRecordConflict(err, t, { onRefresh: () => { void onClosed() } })) {
           flash(t('customers.deals.detail.closeLostError', 'Failed to mark deal as lost.'), 'error')
         }
         return
       }
+      if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
       setLostDialogOpen(false)
       const stats = await fetchDealStats()
+      if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
       setLostStats(stats)
       setLostPopupOpen(true)
       await onClosed()

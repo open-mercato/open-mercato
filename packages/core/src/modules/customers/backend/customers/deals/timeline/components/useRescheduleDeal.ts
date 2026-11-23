@@ -15,9 +15,13 @@ import type {
   DealTimelineItem,
   DealTimelineResponse,
 } from '../../../../../lib/dealsTimelineTypes'
-import { isTimelineScopeCurrent, runTimelineScopedWrite } from './timelineWriteScope'
+import { isTimelineScopeCurrent } from './timelineWriteScope'
 
 export const TIMELINE_QUERY_ROOT = ['customers', 'deals', 'timeline'] as const
+
+export function timelineScopeQueryKey(scopeVersion: number) {
+  return [...TIMELINE_QUERY_ROOT, `scope:${scopeVersion}`] as const
+}
 
 export type TimelineDealLocation = {
   laneKey: string
@@ -220,7 +224,8 @@ export function useRescheduleDeal(queryKey: QueryKey, scopeVersion: number) {
           cancel: (key) => queryClient.cancelQueries({ queryKey: key }),
           send: ({ item, expectedCloseAt }) =>
             runMutation({
-              operation: () => runTimelineScopedWrite(scopeVersion, () =>
+              isCurrent: () => isTimelineScopeCurrent(scopeVersion),
+              operation: () =>
                 withScopedApiRequestHeaders(buildOptimisticLockHeader(item.updatedAt), () =>
                   apiCallOrThrow(
                     '/api/customers/deals',
@@ -232,12 +237,11 @@ export function useRescheduleDeal(queryKey: QueryKey, scopeVersion: number) {
                     { errorMessage },
                   ),
                 ),
-              ),
               context: {
                 formId: RESCHEDULE_CONTEXT_ID,
                 resourceKind: 'customers.deal',
                 resourceId: item.id,
-                retryLastMutation: () => isTimelineScopeCurrent(scopeVersion) ? retryLastMutation() : Promise.resolve(false),
+                retryLastMutation,
               },
               mutationPayload: { id: item.id, expectedCloseAt },
             }),
@@ -252,7 +256,7 @@ export function useRescheduleDeal(queryKey: QueryKey, scopeVersion: number) {
       )
       if (!isTimelineScopeCurrent(scopeVersion)) return outcome
       options?.onSettled?.(outcome)
-      await queryClient.invalidateQueries({ queryKey: [...TIMELINE_QUERY_ROOT, `scope:${scopeVersion}`] })
+      await queryClient.invalidateQueries({ queryKey: timelineScopeQueryKey(scopeVersion) })
       return outcome
     },
     [queryClient, queryKey, retryLastMutation, runMutation, scopeVersion, t],

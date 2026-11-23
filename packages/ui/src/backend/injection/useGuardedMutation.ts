@@ -16,18 +16,13 @@ type GuardedMutationRunInput<TResult, TContext extends GuardedMutationContext> =
   operation: () => Promise<TResult>
   context: TContext
   mutationPayload?: Record<string, unknown>
+  isCurrent?: () => boolean
 }
 
 type UseGuardedMutationOptions = {
   contextId: string
   blockedMessage?: string
   spotId?: string
-}
-
-type StoredMutation<TContext extends GuardedMutationContext> = {
-  operation: () => Promise<unknown>
-  context: TContext
-  mutationPayload: Record<string, unknown>
 }
 
 export function useGuardedMutation<TContext extends GuardedMutationContext>({
@@ -37,7 +32,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
 }: UseGuardedMutationOptions) {
   const t = useT()
   const { triggerEvent } = useInjectionSpotEvents<TContext, Record<string, unknown>>(spotId)
-  const lastMutationRef = React.useRef<StoredMutation<TContext> | null>(null)
+  const lastMutationRef = React.useRef<GuardedMutationRunInput<unknown, TContext> | null>(null)
 
   const emitMutationSaveError = React.useCallback((error: unknown) => {
     dispatchBackendMutationError({
@@ -63,15 +58,24 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
     operation,
     context,
     mutationPayload,
+    isCurrent,
   }: GuardedMutationRunInput<TResult, TContext>): Promise<TResult> => {
+    const assertCurrent = () => {
+      if (isCurrent?.() === false) {
+        throw new DOMException('[internal] The mutation context changed.', 'AbortError')
+      }
+    }
+    assertCurrent()
     const payload = mutationPayload ?? {}
     lastMutationRef.current = {
-      operation: operation as () => Promise<unknown>,
+      operation,
       context,
       mutationPayload: payload,
+      isCurrent,
     }
 
     const beforeSave = await triggerEvent('onBeforeSave', payload, context)
+    assertCurrent()
     if (!beforeSave.ok) {
       emitMutationSaveError(beforeSave.details ?? beforeSave)
       throw new Error(beforeSave.message || blockedMessage)
@@ -83,6 +87,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
           ? await withScopedApiRequestHeaders(beforeSave.requestHeaders, operation)
           : await operation()
 
+      if (isCurrent?.() === false) return result
       try {
         await triggerEvent('onAfterSave', payload, context)
       } catch (error) {
@@ -91,7 +96,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
 
       return result
     } catch (error) {
-      emitMutationSaveError(error)
+      if (isCurrent?.() !== false) emitMutationSaveError(error)
       throw error
     }
   }, [blockedMessage, emitMutationSaveError, triggerEvent])
@@ -101,11 +106,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
     if (!lastMutation) return false
 
     try {
-      await runMutation({
-        operation: lastMutation.operation,
-        context: lastMutation.context,
-        mutationPayload: lastMutation.mutationPayload,
-      })
+      await runMutation(lastMutation)
       return true
     } catch {
       return false

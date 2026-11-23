@@ -844,3 +844,8 @@ Implemented (Phases 1 and 2, 2026-11-05) and revised through four code-review ro
 - The board resets its local state and pending presentation when the organization changes. TC-CRM-TL-002 holds the next organization's timeline request and checks that the previous organization's cards are absent during loading.
 - Pending saved-view, drag and drawer close-date or stage writes keep their original scope. After a switch, they stop refreshing the old board or publishing its write notices and conflicts. Saved-view unit tests cover successful and failed writes that settle after the switch.
 - Timeline totals aggregate stored decimal amounts before rounding. Route tests cover fractional amounts and distinguish the list count cap from the amount scan cap.
+
+### 2026-11-23
+
+- A timeline write that completes after an organization switch no longer publishes Undo, triggers save-completion hooks, or loads deal-closure statistics in the newly selected organization. The shared mutation guard accepts a validity check for the originating context. Regular writes continue to dispatch their completion hooks and expose Undo.
+- Rescheduling and drawer edits invalidate both the timeline grid and paged cell results in the current organization.

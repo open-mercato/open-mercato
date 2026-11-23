@@ -86,7 +86,7 @@ import { TimelineSavedViews } from './TimelineSavedViews'
 import { TimelineDealCardPreview, formatTimelineDate } from './TimelineDealCard'
 import { TimelineAmounts } from './TimelineAmounts'
 import { TimelineDealDrawer } from './TimelineDealDrawer'
-import { TIMELINE_QUERY_ROOT, findTimelineDeal, useRescheduleDeal } from './useRescheduleDeal'
+import { findTimelineDeal, timelineScopeQueryKey, useRescheduleDeal } from './useRescheduleDeal'
 import { isTimelineScopeCurrent } from './timelineWriteScope'
 import {
   EMPTY_DEAL_WRITE_LOCKS,
@@ -316,7 +316,7 @@ function ScopedDealsTimelineBoard({
   const fromKey = resolveTimelineFrom(state, todayKey)
 
   const apiParams = React.useMemo(() => buildTimelineApiParams(state, todayKey).toString(), [state, todayKey])
-  const queryKey = React.useMemo(() => [...TIMELINE_QUERY_ROOT, `scope:${scopeVersion}`, apiParams], [apiParams, scopeVersion])
+  const queryKey = React.useMemo(() => [...timelineScopeQueryKey(scopeVersion), apiParams], [apiParams, scopeVersion])
   const timelineQuery = useQuery<DealTimelineResponse>({
     queryKey,
     placeholderData: keepPreviousData,
@@ -632,7 +632,7 @@ function ScopedDealsTimelineBoard({
   )
 
   const invalidateTimeline = React.useCallback(
-    () => queryClient.invalidateQueries({ queryKey: [...TIMELINE_QUERY_ROOT, `scope:${scopeVersion}`] }),
+    () => queryClient.invalidateQueries({ queryKey: timelineScopeQueryKey(scopeVersion) }),
     [queryClient, scopeVersion],
   )
 

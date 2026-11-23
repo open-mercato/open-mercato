@@ -4,6 +4,8 @@ import * as React from 'react'
 import { Users, Phone, Check, Mail, Calendar, X, StickyNote } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getCurrentOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -136,6 +138,11 @@ export function ScheduleActivityDialog({
   defaultCountryIso2,
 }: ScheduleActivityDialogProps) {
   const t = useT()
+  const scopeVersion = useOrganizationScopeVersion()
+  const isCurrentScope = React.useCallback(
+    () => getCurrentOrganizationScopeVersion() === scopeVersion,
+    [scopeVersion],
+  )
   const needsTypeCatalog = Boolean(editData?.interactionType && !TYPE_TABS.some(({ type }) => type === editData.interactionType))
   const catalog = useEventTypeCatalog(open && needsTypeCatalog)
   const definition = needsTypeCatalog ? selectedEventType(catalog.items, editData!.interactionType!) : null
@@ -337,10 +344,11 @@ export function ScheduleActivityDialog({
     async <T,>(operation: () => Promise<T>, mutationPayload: Record<string, unknown>) =>
       runMutation({
         operation,
+        isCurrent: isCurrentScope,
         mutationPayload,
         context: mutationContext,
       }),
-    [mutationContext, runMutation],
+    [isCurrentScope, mutationContext, runMutation],
   )
 
   // Conflict detection -- debounced check when date/time/duration changes
@@ -407,7 +415,7 @@ export function ScheduleActivityDialog({
     recurrenceEndsBeforeStart
 
   const handleSave = React.useCallback(async () => {
-    if (catalogPending) return
+    if (catalogPending || !isCurrentScope()) return
     if (!state.title.trim()) return
     if (isDateMissing) {
       flash(t('customers.activities.errors.dateRequired', 'Date is required'), 'error')
@@ -524,11 +532,13 @@ export function ScheduleActivityDialog({
           interactionType: payload.interactionType,
         },
       )
+      if (!isCurrentScope()) return
       flash(t('customers.schedule.saved', 'Activity scheduled'), 'success')
       onClose()
       // Delay data reload so the dialog can unmount cleanly and Radix restores body scroll
-      requestAnimationFrame(() => { onActivityCreated?.() })
+      requestAnimationFrame(() => { if (isCurrentScope()) onActivityCreated?.() })
     } catch (err) {
+      if (!isCurrentScope()) return
       // An optimistic-lock 409 was already surfaced as the persistent conflict
       // bar by `runGuardedMutation` (useGuardedMutation → surfaceRecordConflict).
       // Do NOT additionally flash the raw `record_modified` code here — that
@@ -552,7 +562,7 @@ export function ScheduleActivityDialog({
     } finally {
       state.setSaving(false)
     }
-  }, [callDirection, callPhoneInvalidMessage, callPhoneNumber, catalogPending, keepsCustomType, isDateMissing, isRecurrenceCountInvalid, recurrenceEndsBeforeStart, isTimeMissing, presentationType, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, recurrenceCountValue, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [callDirection, callPhoneInvalidMessage, callPhoneNumber, catalogPending, isCurrentScope, keepsCustomType, isDateMissing, isRecurrenceCountInvalid, recurrenceEndsBeforeStart, isTimeMissing, presentationType, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, recurrenceCountValue, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave })
 

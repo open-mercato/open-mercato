@@ -16,6 +16,7 @@ informational; no migration or configuration is required.
 - `GET /api/customers/deals` accepts an optional `hasExpectedCloseAt` boolean
   (`false` = no close date). Combining `hasExpectedCloseAt=false` with a close-date range,
   or with `isOverdue` while `needsAttention` is not `true`, returns `400`.
+
 ## Fullapp development agent authentication (#9116)
 
 Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibility copy, or the standalone `docker-compose.fullapp.dev.yml`, generate a strong `OPENCODE_PASSWORD` (for example, `openssl rand -hex 32`) and export it or save it in the compose `.env`. Missing or empty passwords now stop startup. The same value configures native OpenCode server authentication and the existing app client. Direct OpenCode clients must send HTTP Basic credentials with username `opencode`; healthchecks authenticate automatically. Recreate the app and OpenCode services together after changing the password.

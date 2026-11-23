@@ -115,4 +115,40 @@ describe('useGuardedMutation — surfaces optimistic-lock conflict on the unifie
 
     expect(getRecordConflictForTest()).toBeNull()
   })
+
+  it('skips hooks and prevents retry when the write completes after its context changes', async () => {
+    setupTriggerEventOk()
+    const { result } = renderHook(() => useGuardedMutation({ contextId: 'test-form' }))
+    let current = true
+    await act(async () => {
+      await expect(result.current.runMutation({
+        operation: async () => {
+          current = false
+          return 'saved'
+        },
+        context: {},
+        isCurrent: () => current,
+      })).resolves.toBe('saved')
+      await expect(result.current.retryLastMutation()).resolves.toBe(false)
+    })
+    expect(triggerEventMock).toHaveBeenCalledTimes(1)
+    expect(triggerEventMock).toHaveBeenCalledWith('onBeforeSave', {}, {})
+  })
+
+  it('does not dispatch a write after its context changes during the before-save hook', async () => {
+    let current = true
+    triggerEventMock.mockImplementation(async () => {
+      current = false
+      return { ok: true }
+    })
+    const { result } = renderHook(() => useGuardedMutation({ contextId: 'test-form' }))
+    const operation = jest.fn(async () => 'saved')
+
+    await expect(result.current.runMutation({
+      operation,
+      context: {},
+      isCurrent: () => current,
+    })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(operation).not.toHaveBeenCalled()
+  })
 })

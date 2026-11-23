@@ -17,7 +17,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { isTimelineScopeCurrent, runTimelineScopedWrite } from './timelineWriteScope'
+import { isTimelineScopeCurrent } from './timelineWriteScope'
 import {
   buildDealTimelinePerspectiveSettings,
   parseDealTimelineSavedView,
@@ -142,7 +142,8 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
       if (input.perspectiveId) body.perspectiveId = input.perspectiveId
       else body.createOnly = true
       return runMutation({
-        operation: () => runTimelineScopedWrite(scopeVersion, () =>
+        isCurrent: () => isTimelineScopeCurrent(scopeVersion),
+        operation: () =>
           withScopedApiRequestHeaders(
             input.perspectiveId ? buildOptimisticLockHeader(input.updatedAt ?? null) : {},
             () =>
@@ -162,12 +163,11 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
                 },
               ),
           ),
-        ),
         context: {
           formId: SAVED_VIEWS_CONTEXT_ID,
           resourceKind: 'perspectives.perspective',
           resourceId: input.perspectiveId ?? TIMELINE_PERSPECTIVE_TABLE_ID,
-          retryLastMutation: () => isTimelineScopeCurrent(scopeVersion) ? retryLastMutation() : Promise.resolve(false),
+          retryLastMutation,
         },
         mutationPayload: body,
       })
@@ -288,7 +288,8 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
       setDeletingId(perspective.id)
       try {
         await runMutation({
-          operation: () => runTimelineScopedWrite(scopeVersion, () =>
+          isCurrent: () => isTimelineScopeCurrent(scopeVersion),
+          operation: () =>
             withScopedApiRequestHeaders(buildOptimisticLockHeader(perspective.updatedAt ?? null), () =>
               apiCallOrThrow(
                 `${PERSPECTIVES_URL}/${encodeURIComponent(perspective.id)}`,
@@ -302,12 +303,11 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
                 },
               ),
             ),
-          ),
           context: {
             formId: SAVED_VIEWS_CONTEXT_ID,
             resourceKind: 'perspectives.perspective',
             resourceId: perspective.id,
-            retryLastMutation: () => isTimelineScopeCurrent(scopeVersion) ? retryLastMutation() : Promise.resolve(false),
+            retryLastMutation,
           },
           mutationPayload: { id: perspective.id },
         })

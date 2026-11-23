@@ -20,7 +20,7 @@ import {
   timelineClosedKind,
   timelineClosedLabel,
 } from './TimelineDealCard'
-import { TIMELINE_QUERY_ROOT } from './useRescheduleDeal'
+import { timelineScopeQueryKey } from './useRescheduleDeal'
 import { formatTimelineDealCount } from './TimelineLane'
 
 const CELL_PAGE_SIZE = 50
@@ -59,7 +59,7 @@ export function TimelineCellPopover({
   const listRef = React.useRef<HTMLUListElement | null>(null)
   const errorRef = React.useRef<HTMLParagraphElement | null>(null)
   const query = useInfiniteQuery({
-    queryKey: [...TIMELINE_QUERY_ROOT, 'cell', `scope:${scopeVersion}`, baseParams, laneKey, column],
+    queryKey: [...timelineScopeQueryKey(scopeVersion), 'cell', baseParams, laneKey, column],
     enabled: open,
     initialPageParam: 1,
     queryFn: async ({ pageParam }) => {

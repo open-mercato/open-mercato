@@ -35,7 +35,7 @@ import { useDealClosure } from '../../[id]/hooks/useDealClosure'
 import type { GuardedMutationRunner } from '../../[id]/hooks/types'
 import { ChangeCloseDateDialog, formatUtcDateKey } from './ChangeCloseDateDialog'
 import { useDealDrawerData, useDealDrawerPermissions, type DealDrawerDeal } from './useDealDrawerData'
-import { isTimelineScopeCurrent, runTimelineScopedWrite } from './timelineWriteScope'
+import { isTimelineScopeCurrent } from './timelineWriteScope'
 
 const TIMELINE_DRAWER_LAYER_STYLE: React.CSSProperties = { zIndex: 'var(--z-index-modal)' }
 
@@ -219,13 +219,14 @@ export function TimelineDealDrawer({
       if (currentDealId && isTimelineScopeCurrent(scopeVersion)) onWriteStarted?.(currentDealId)
       try {
         return await runMutation({
-          operation: () => runTimelineScopedWrite(scopeVersion, operation),
+          operation,
+          isCurrent: () => isTimelineScopeCurrent(scopeVersion),
           mutationPayload,
           context: {
             formId: MUTATION_CONTEXT_ID,
             resourceKind: 'customers.deal',
             resourceId: currentDealId ?? '',
-            retryLastMutation: () => isTimelineScopeCurrent(scopeVersion) ? retryLastMutation() : Promise.resolve(false),
+            retryLastMutation,
           },
         })
       } catch (error) {
