@@ -371,9 +371,11 @@ export async function bootstrapProcessRoot(root: AwilixContainer): Promise<() =>
         ...bus,
         emit,
         emitEvent: emit,
-        dispatchQueued: (event, payload, options, resolve, container) => resolve || container
-          ? bus.dispatchQueued!(event, payload, options, resolve, container)
-          : runWithRequestScopeContainer(caller, () => bus.dispatchQueued!(event, payload, options)),
+        dispatchQueued: (event, payload, options, resolve, container) => {
+          const dispatch = () => bus.dispatchQueued!(event, payload, options, resolve, container)
+          if (container) return runWithRequestScopeContainer(container, dispatch)
+          return resolve ? dispatch() : runWithRequestScopeContainer(caller, dispatch)
+        },
       }
     }),
   })

@@ -1,27 +1,8 @@
-/**
- * #8268 review Major 1 (re-review, M1). `promotions/di.ts` registers `promotionsService`
- * with `asFunction(() => new PromotionsServiceImpl(container)).scoped().proxy()`, closing
- * over the exact `container` its own `register(container)` call received — never
- * whatever container a LATER caller happens to resolve from. `PromotionsServiceImpl`
- * reads the caller's trusted auth scope with `this.container.resolve('auth')`
- * (`lib/promotions-service.ts`'s `resolvePromotionsServiceScope`), so a caller that wants
- * `promotionsService.evaluate()` to see a scope it supplies MUST call `.register({ auth:
- * ... })` on that SAME container object — never on a local resolver-overlay shim
- * (`@open-mercato/shared/lib/di/scopedContainer#buildScopedContainerFromResolve`), whose
- * `.register()` only shadows resolution for its OWN direct callers and is invisible to
- * `promotionsService`'s already-bound closure.
- *
- * This is the real promotions DI registration end to end (no mock in place of
- * `promotions/di.ts` or `PromotionsServiceImpl`) — the exact gap `assisted_selling`'s
- * `reauthorOnMerge.ts` and `checkout`'s `recover-stuck-submits.worker.ts` hit when their
- * own container was only ever a bound `resolve` function (no real Awilix container to
- * `.register()` against).
- */
 import { asValue, createContainer, InjectionMode, type AwilixContainer } from 'awilix'
 import { register as registerPromotionsDi } from '../di'
 import { buildScopedContainerFromResolve } from '@open-mercato/shared/lib/di/scopedContainer'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { PromotionsService } from '../lib/types'
+import type { EvaluateInput, PromotionsService } from '../lib/types'
 
 const SCOPE_REQUIRED_ERROR = '[internal] Tenant and organization scope are required to evaluate promotions'
 
@@ -48,12 +29,15 @@ async function captureThrown(run: () => Promise<unknown>): Promise<unknown> {
   }
 }
 
-function evaluateInput() {
+function evaluateInput(): EvaluateInput {
   return {
-    items: [] as const,
+    items: [],
     currency: 'USD',
     evaluatedAt: new Date().toISOString(),
-    buyer: { customerIds: [], customerGroupIds: [] } as any,
+    buyer: { customerId: null, customerIds: [], customerGroupIds: [] },
+    customerOrderCount: null,
+    cartWeight: null,
+    codes: [],
   }
 }
 
@@ -70,6 +54,23 @@ describe('promotionsService auth-scope visibility across container shapes (M1)',
     expect(isCrudHttpError(error)).toBe(true)
     expect((error as { status: number }).status).toBe(400)
     expect((error as { body?: { error?: string } }).body?.error).toBe(SCOPE_REQUIRED_ERROR)
+  })
+
+  test('a real child scope supplies private auth to its promotions service', async () => {
+    const parent = buildRealContainer()
+    const child = parent.createScope()
+    const sibling = parent.createScope()
+    try {
+      child.register({ auth: asValue({ tenantId: 'tenant-1', orgId: 'org-1' }) })
+      await expect(child.resolve<PromotionsService>('promotionsService').evaluate(evaluateInput())).resolves.toBeDefined()
+      for (const scope of [parent, sibling]) {
+        await expect(scope.resolve<PromotionsService>('promotionsService').evaluate(evaluateInput()))
+          .rejects.toMatchObject({ status: 400, body: { error: SCOPE_REQUIRED_ERROR } })
+      }
+    } finally {
+      await Promise.all([child.dispose(), sibling.dispose()])
+      await parent.dispose()
+    }
   })
 
   test('register() on the REAL container IS visible to promotionsService — the fix', async () => {

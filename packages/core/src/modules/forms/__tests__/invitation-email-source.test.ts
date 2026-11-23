@@ -1,10 +1,11 @@
 import 'reflect-metadata'
 
-const emitted: Array<{ eventId: string; payload: Record<string, unknown> }> = []
+type Scope = { tenantId: string; organizationId: string }
+const emitted: Array<{ eventId: string; payload: Record<string, unknown>; scope?: Scope }> = []
 
 jest.mock('../events', () => ({
-  emitFormsEvent: jest.fn(async (eventId: string, payload: Record<string, unknown>) => {
-    emitted.push({ eventId, payload })
+  emitFormsEvent: jest.fn(async (eventId: string, payload: Record<string, unknown>, scope?: Scope) => {
+    emitted.push({ eventId, payload, scope })
   }),
 }))
 
@@ -14,16 +15,20 @@ jest.mock('@open-mercato/shared/lib/email/send', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => ({
-    translate: (_key: string, fallback: string) => fallback,
+    translate: jest.requireActual('@open-mercato/shared/lib/i18n/translate').createFallbackTranslator({
+      'forms.invitation.email.greeting': 'Hi {name},',
+    }),
   })),
 }))
 
 const invitationStore = new Map<string, Record<string, unknown>>()
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: jest.fn(async (_em: unknown, _entity: unknown, where: { id: string }) =>
-    invitationStore.get(where.id) ?? null,
-  ),
+  findOneWithDecryption: jest.fn(async (_em: unknown, _entity: unknown, where: Record<string, unknown>) => {
+    const row = invitationStore.get(String(where.id))
+    if (!row) return null
+    return Object.entries(where).every(([key, value]) => (row[key] ?? null) === value) ? row : null
+  }),
 }))
 
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -74,7 +79,7 @@ async function deliverSentEvents(em: ReturnType<typeof buildEntityManager>): Pro
   for (const entry of sent) {
     await handleInvitationSent(
       entry.payload as { invitationId: string; distributionId: string; source?: 'create' | 'send' },
-      { container: { resolve: <T,>(name: string) => (name === 'em' ? em : undefined) as T } },
+      { ...entry.scope, container: { resolve: <T,>(name: string) => (name === 'em' ? em : undefined) as T } },
     )
   }
 }
@@ -115,6 +120,7 @@ describe('forms invitation e-mail (RL-11)', () => {
     expect(sendEmailMock).toHaveBeenCalledTimes(1)
     const element = sendEmailMock.mock.calls[0][0].react
     expect(JSON.stringify(element.props)).toContain('https://forms.example.test/i/')
+    expect(JSON.stringify(element.props)).toContain('Hi Recipient,')
   })
 
   it.each([1, 2])('sends a reminder without a link on send #%i (send and resend)', async (sendCount) => {
@@ -146,19 +152,38 @@ describe('forms invitation e-mail (RL-11)', () => {
     expect(sendEmailMock).toHaveBeenCalledTimes(sendCount)
     for (const call of sendEmailMock.mock.calls) {
       expect(JSON.stringify(call[0].react.props)).not.toContain('/i/')
+      expect(JSON.stringify(call[0].react.props)).toContain('Hi recipient@example.test,')
     }
   })
 
-  it('still sends the reminder for a legacy event without a source', async () => {
+  it('still sends the scoped reminder when the optional source is absent', async () => {
     const em = buildEntityManager()
     const invitationId = '55555555-5555-4555-8555-555555555555'
-    invitationStore.set(invitationId, { id: invitationId, recipientEmail: 'legacy@example.test' })
+    invitationStore.set(invitationId, { id: invitationId, tenantId, organizationId, distributionId, recipientEmail: 'legacy@example.test' })
 
     await handleInvitationSent(
       { invitationId, distributionId },
-      { container: { resolve: <T,>(name: string) => (name === 'em' ? em : undefined) as T } },
+      { tenantId, organizationId, container: { resolve: <T,>(name: string) => (name === 'em' ? em : undefined) as T } },
     )
 
     expect(sendEmailMock).toHaveBeenCalledTimes(1)
   })
+  it.each([
+    {},
+    { tenantId },
+    { organizationId },
+    { tenantId, organizationId: 'another-organization' },
+    { tenantId: 'another-tenant', organizationId },
+  ])('skips reminders outside the invitation scope', async (scope) => {
+    const em = buildEntityManager()
+    const invitationId = '55555555-5555-4555-8555-555555555555'
+    invitationStore.set(invitationId, { id: invitationId, distributionId, tenantId, organizationId, recipientEmail: 'qa@example.test' })
+    await handleInvitationSent({ invitationId, distributionId, source: 'send' }, {
+      ...scope,
+      container: { resolve: <T,>() => em as T },
+    })
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
 })

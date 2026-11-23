@@ -43,6 +43,8 @@ type ResolveContainer = {
 }
 
 type SubscriberContext = {
+  tenantId?: string | null
+  organizationId?: string | null
   container: ResolveContainer
 }
 
@@ -125,7 +127,7 @@ export async function enqueueInvitationEmail(args: {
     const copy: InvitationEmailCopy = {
       subject: translate('forms.invitation.email.subject', 'You have a form to complete'),
       heading: translate('forms.invitation.email.heading', 'A form is waiting for you'),
-      greeting: translate('forms.invitation.email.greeting', `Hi ${name},`),
+      greeting: translate('forms.invitation.email.greeting', 'Hi {name},', { name }),
       body: link
         ? translate(
             'forms.invitation.email.body',
@@ -158,7 +160,8 @@ export default async function handleInvitationSent(
   ctx: SubscriberContext,
 ): Promise<void> {
   // The create command already delivered the personal-link e-mail inline.
-  if (payload.source === 'create') return
+  const { tenantId, organizationId } = ctx
+  if (payload.source === 'create' || !tenantId || !organizationId) return
 
   let em: EntityManager
   try {
@@ -170,9 +173,9 @@ export default async function handleInvitationSent(
   const invitation = await findOneWithDecryption(
     em,
     FormInvitation,
-    { id: payload.invitationId, deletedAt: null },
+    { id: payload.invitationId, distributionId: payload.distributionId, tenantId, organizationId, deletedAt: null },
     undefined,
-    {},
+    { tenantId, organizationId },
   )
   if (!invitation) return
 

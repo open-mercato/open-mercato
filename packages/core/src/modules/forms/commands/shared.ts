@@ -172,11 +172,12 @@ export async function findFormVersionInScope(
 export async function emitForms<TId extends FormsEventId>(
   eventId: TId,
   payload: unknown,
+  scope?: { tenantId: string; organizationId: string },
 ): Promise<void> {
   const schema =
     formsEventPayloadSchemas[eventId as keyof typeof formsEventPayloadSchemas]
   const validated = schema ? schema.parse(payload) : payload
-  await emitFormsEvent(eventId, validated as never)
+  await emitFormsEvent(eventId, validated as never, scope)
 }
 
 /**

@@ -368,7 +368,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
   return createEventBusWithState(opts, createEventBusGenerationState())
 }
 
-export function createScopedEventBusFactory(options: Omit<CreateBusOptions, 'resolve'> = {}) {
+export function createScopedEventBusFactory(options: Omit<CreateBusOptions, 'resolve' | 'container'> = {}) {
   const state = createEventBusGenerationState()
   return Object.assign(
     (resolve: CreateBusOptions['resolve'], container?: ScopedResolveContainer): EventBus =>

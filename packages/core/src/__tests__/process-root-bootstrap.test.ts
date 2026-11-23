@@ -301,7 +301,11 @@ it('binds process-root subscriber containers to the resolving caller and forward
   const seen: unknown[] = []
   registerProcessEventSetup(root, (bus) => {
     bus.on('probe.created', (_payload, context) => { seen.push(context.container) })
-    bus.on('probe.queued', (_payload, context) => { seen.push(context.container) }, { persistent: true })
+    bus.on('probe.queued', async (_payload, context) => {
+      seen.push(context.container)
+      await getRequestScopeContainer()?.resolve<EventBus>('eventBus').emit('probe.nested', {})
+    }, { persistent: true })
+    bus.on('probe.nested', (_payload, context) => { seen.push(context.resolve('identity')) })
   })
   await prepareProcessRoot(root)
   const first = root.createScope().register({ identity: asValue('first') })
@@ -310,8 +314,10 @@ it('binds process-root subscriber containers to the resolving caller and forward
 
   await first.resolve<EventBus>('eventBus').emit('probe.created', {})
   await second.resolve<EventBus>('eventBus').emit('probe.created', {})
-  await first.resolve<EventBus>('eventBus')
-    .dispatchQueued!('probe.queued', {}, undefined, job.resolve.bind(job), job)
+  await runWithRequestScopeContainer(second, async () => {
+    await first.resolve<EventBus>('eventBus').dispatchQueued!('probe.queued', {}, undefined, job.resolve.bind(job), job)
+    expect(getRequestScopeContainer()).toBe(second)
+  })
 
-  expect(seen).toEqual([first, second, job])
+  expect(seen).toEqual([first, second, job, 'job'])
 })

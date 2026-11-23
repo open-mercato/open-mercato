@@ -207,7 +207,7 @@ const createInvitationCommand: CommandHandler<FormInvitationCreateCommandInput, 
           invitationId: entry.invitation.id,
           distributionId: distribution.id,
           source: 'create',
-        })
+        }, { tenantId: entry.invitation.tenantId, organizationId: entry.invitation.organizationId })
       }
     }
 
@@ -306,7 +306,7 @@ const sendInvitationCommand: CommandHandler<FormInvitationSendCommandInput, { in
       invitationId: invitation.id,
       distributionId: invitation.distributionId,
       source: 'send',
-    })
+    }, { tenantId: invitation.tenantId, organizationId: invitation.organizationId })
 
     await invalidateFormsCacheTags(ctx, [
       DISTRIBUTION_CACHE_TAGS.distribution(invitation.distributionId),
