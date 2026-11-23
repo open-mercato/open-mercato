@@ -2,9 +2,9 @@ import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { tryNormalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
 import type { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { DOMAIN_LIMIT_MESSAGE, DOMAIN_UNAVAILABLE_MESSAGE, MAX_DOMAINS_PER_ORG } from '../lib/domainMappingLifecycle'
 
 const DOMAIN_MAPPING_ENTITY = 'customer_accounts.domain_mapping'
-const MAX_DOMAINS_PER_ORG = 2
 
 function readHostnameField(payload: Record<string, unknown> | null | undefined): string | null {
   if (!payload || typeof payload !== 'object') return null
@@ -75,7 +75,7 @@ const hostnameUniqueGuard: MutationGuard = {
       return {
         ok: false,
         status: 409,
-        message: 'This domain is not available. Please choose a different hostname.',
+        message: DOMAIN_UNAVAILABLE_MESSAGE,
       }
     }
     return { ok: true }
@@ -107,7 +107,7 @@ const orgLimitGuard: MutationGuard = {
       return {
         ok: false,
         status: 409,
-        message: `Each organization can have at most ${MAX_DOMAINS_PER_ORG} custom domains (one active and one pending replacement). Remove an existing domain or finish the swap first.`,
+        message: DOMAIN_LIMIT_MESSAGE,
       }
     }
     return { ok: true }

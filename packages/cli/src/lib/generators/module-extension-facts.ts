@@ -846,16 +846,11 @@ function apiExtensionHostIds(moduleId: string, moduleRoot: string): ApiExtension
           }
         }
       }
-      if (
-        ts.isCallExpression(node)
-        && ts.isIdentifier(node.expression)
-        && node.expression.text === 'validateCrudMutationGuard'
-      ) {
-        const input = node.arguments[1] ? staticValue(node.arguments[1], context) : undefined
-        const entityId = isStaticObject(input) ? stringValue(input.resourceKind) : undefined
-        if (entityId) {
-          entityIds.add(entityId)
-          if (!entitySourceFiles[entityId]) entitySourceFiles[entityId] = filePath
+      if (ts.isCallExpression(node)) {
+        const bridge = readMutationGuardBridge(node, context)
+        if (bridge) {
+          entityIds.add(bridge.entityId)
+          if (!entitySourceFiles[bridge.entityId]) entitySourceFiles[bridge.entityId] = filePath
         }
       }
       node.forEachChild(visit)

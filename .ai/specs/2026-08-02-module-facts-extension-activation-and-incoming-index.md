@@ -439,3 +439,9 @@ No non-compliant item or required human confirmation was identified.
 - Mutation-guard extraction parses each bridge shape with its own adapter — the canonical `runRouteMutationGuards({ …, input: { resourceKind, operation } })` nests the resource under `input` — and scans `lib/**` as well as `api/**` because wrappers commonly live there. Activations carry the guarded operations (`'custom'` mapped onto `update`) and correlation requires an operation intersection.
 - The dashboard adapter is reachable: correlation consults the framework host catalog (exact ids, then patterned entries such as `dashboard:*`) with a traceable framework source and bridge fact-ref. Framework hosts own no module surface, so the activation is recorded on the contributor and emits no incoming row; a per-adapter family gate keeps a dashboard target from being claimed by the generic widget-injection adapter.
 - Added a behavioral coverage test that drives one fixture through all eight activation adapters and asserts each produces a bound activation, alongside the existing structural closed-registry gate.
+
+
+### 2026-11-21 — Keep canonical guard resource discovery aligned (#9146)
+
+- Reuse the existing mutation-guard bridge parser when collecting API resource hosts, so canonical `runRouteMutationGuards` and legacy bridge shapes declare the same supported logical resource IDs. Synthetic custom-route resources remain valid without an ORM entity declaration; public resource IDs and fact schemas are unchanged.
+- Literal and function-local constant canonical inputs fail correlation before the repair and bind after it. The real first-party module-facts compatibility guard also verifies the domain mapping guard contributions across the complete module inventory.

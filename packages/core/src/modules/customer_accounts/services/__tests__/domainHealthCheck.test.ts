@@ -158,7 +158,7 @@ describe('default domain health check DNS safety', () => {
     lookupMock.mockResolvedValueOnce([{ address: '93.184.216.34', family: 4 }])
       .mockResolvedValue([{ address: '127.0.0.1', family: 4 }])
     const entity = { id: 'domain-id', hostname: 'shop.example.com', status: 'tls_failed', tlsRetryCount: 1 }
-    const em = { findOne: jest.fn(async () => entity), persist: jest.fn(() => ({ flush: async () => undefined })) }
+    const em = { findOne: jest.fn(async () => entity), transactional: async (work: (tx: EntityManager) => unknown) => work(em as unknown as EntityManager) }
     const service = new DomainMappingService(em as unknown as EntityManager)
     await expect(service.healthCheck(entity.id)).resolves.toMatchObject({ status: 'tls_failed', tlsRetryCount: 2 })
     expect(lookupMock).toHaveBeenCalledTimes(3)
@@ -183,7 +183,7 @@ describe('default domain health check DNS safety', () => {
   it('moves a verified mapping with blocked DNS to tls_failed after retries', async () => {
     lookupMock.mockResolvedValue([{ address: '127.0.0.1', family: 4 }])
     const entity = { id: 'domain-id', hostname: 'shop.example.com', status: 'verified', tlsRetryCount: 0 }
-    const em = { findOne: jest.fn(async () => entity), persist: jest.fn(() => ({ flush: async () => undefined })) }
+    const em = { findOne: jest.fn(async () => entity), transactional: async (work: (tx: EntityManager) => unknown) => work(em as unknown as EntityManager) }
     const service = new DomainMappingService(em as unknown as EntityManager)
     const result = await service.healthCheck(entity.id)
     expect(result).toMatchObject({ status: 'tls_failed', tlsRetryCount: 1, tlsFailureReason: failed.reason })

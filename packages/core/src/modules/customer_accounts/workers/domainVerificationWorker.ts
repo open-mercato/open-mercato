@@ -23,6 +23,7 @@ export default async function handle(_job: QueuedJob, ctx: HandlerContext): Prom
   const intervalSeconds = parseSeconds(process.env.DOMAIN_AUTO_VERIFY_INTERVAL_SECONDS, 300)
   const olderThanMs = intervalSeconds * 1000
 
+  await service.pruneExpiredMappings()
   const candidates = await service.findPendingVerification({ olderThanMs })
   if (candidates.length === 0) return
 

@@ -1,6 +1,11 @@
 import { GET, POST, DELETE } from '../domain-mappings'
 import { POST as verify } from '../domain-mappings/[id]/verify'
 import { POST as healthCheck } from '../domain-mappings/[id]/health-check'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (key: string) => key === 'customer_accounts.domainMapping.dns.txtNameTooLong' ? 'localized TXT hostname guidance' : key }),
+}))
 
 const mockGetAuth = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
@@ -28,6 +33,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
         userHasAllFeatures: mockUserHasAllFeatures,
         resolveFeatureOrganizationAccess: mockResolveFeatureOrganizationAccess,
       }
+      if (name === 'crudMutationGuardService') return null
       if (name === 'em') return { find: mockFind }
       if (name === 'domainMappingService') return mockService
       throw new Error(`[internal] Unexpected service: ${name}`)
@@ -39,13 +45,14 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => mockFind(...args),
 }))
 
-jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
-  validateCrudMutationGuard: (...args: unknown[]) => mockGuard(...args),
-  runCrudMutationGuardAfterSuccess: (...args: unknown[]) => mockAfterSuccess(...args),
+jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
+  runRouteMutationGuards: (...args: unknown[]) => mockGuard(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/customer_accounts/services/domainMappingService', () => ({
   DomainMappingOrgScopeError: class extends Error {},
+  DomainMappingRegistrationConflict: class extends Error {},
+  DomainMappingUnavailableError: class extends Error {},
 }))
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -115,7 +122,7 @@ beforeEach(() => {
     unrestricted: false, filterOrganizationIds: mockFilterOrganizationIds,
   })
   mockFind.mockResolvedValue([])
-  mockGuard.mockResolvedValue(null)
+  mockGuard.mockResolvedValue({ ok: true, runAfterSuccess: mockAfterSuccess })
   mockService.findById.mockResolvedValue(mapping())
   mockService.register.mockResolvedValue(mapping())
   mockService.verify.mockResolvedValue({ domainMapping: mapping(), diagnostics: null })
@@ -133,6 +140,10 @@ describe('domain mapping list authorization', () => {
     expect(response.status).toBe(200)
     expect(body.domainMappings).toHaveLength(1)
     expect(body.domainMappings[0].organizationId).toBe(organizationA)
+    expect(body.domainMappings[0]).toMatchObject({
+      ownershipRecord: { name: '_om-verify.portal.example.test', value: `open-mercato-verification=${mappingId}` },
+      verificationExpiresAt: '2026-10-03T00:00:00.000Z',
+    })
     expect(mockResolveFeatureOrganizationAccess).toHaveBeenCalledTimes(1)
     expect(mockResolveFeatureOrganizationAccess).toHaveBeenCalledWith(userId, [feature], { tenantId })
     expect(mockUserHasAllFeatures).toHaveBeenCalledTimes(1)
@@ -142,7 +153,7 @@ describe('domain mapping list authorization', () => {
     )
     expect(mockFilterOrganizationIds).toHaveBeenCalledWith(organizations)
     expect(mockFind).toHaveBeenNthCalledWith(2,
-      expect.anything(), expect.anything(), { tenantId, organizationId: { $in: [organizationA] } },
+      expect.anything(), expect.anything(), expect.objectContaining({ tenantId, organizationId: { $in: [organizationA] }, deletedAt: null, $or: expect.any(Array) }),
       { orderBy: { createdAt: 'desc' } }, { tenantId, organizationId: null },
     )
   })
@@ -157,7 +168,7 @@ describe('domain mapping list authorization', () => {
     expect((await response.json()).domainMappings).toHaveLength(2)
     expect(mockFind).toHaveBeenCalledTimes(1)
     expect(mockFind).toHaveBeenCalledWith(
-      expect.anything(), expect.anything(), { tenantId }, { orderBy: { createdAt: 'desc' } },
+      expect.anything(), expect.anything(), expect.objectContaining({ tenantId, deletedAt: null }), { orderBy: { createdAt: 'desc' } },
       { tenantId, organizationId: null },
     )
   })
@@ -170,7 +181,7 @@ describe('domain mapping list authorization', () => {
     expect(response.status).toBe(200)
     expect((await response.json()).domainMappings).toEqual([])
     expect(mockFind).toHaveBeenLastCalledWith(
-      expect.anything(), expect.anything(), { tenantId, organizationId: { $in: [] } },
+      expect.anything(), expect.anything(), expect.objectContaining({ tenantId, organizationId: { $in: [] }, deletedAt: null }),
       { orderBy: { createdAt: 'desc' } }, { tenantId, organizationId: null },
     )
   })
@@ -190,7 +201,7 @@ describe('domain mapping list authorization', () => {
     expect(response.status).toBe(200)
     expect(mockResolveFeatureOrganizationAccess).not.toHaveBeenCalled()
     expect(mockFind).toHaveBeenCalledWith(
-      expect.anything(), expect.anything(), { tenantId, organizationId: organizationA },
+      expect.anything(), expect.anything(), expect.objectContaining({ tenantId, organizationId: organizationA, deletedAt: null }),
       { orderBy: { createdAt: 'desc' } }, { tenantId, organizationId: organizationA },
     )
   })
@@ -214,19 +225,17 @@ describe('domain registration authorization', () => {
   })
 
   it('preserves authorized registration and mutation guard callbacks', async () => {
-    mockGuard.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { checked: true } })
+    mockGuard.mockResolvedValue({ ok: true, runAfterSuccess: mockAfterSuccess })
 
     expect((await POST(createRequest(organizationA))).status).toBe(201)
     expect(mockService.register).toHaveBeenCalledWith({
       hostname: 'portal.example.test', tenantId, organizationId: organizationA, replacesDomainId: undefined,
     })
-    expect(mockAfterSuccess).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      organizationId: organizationA, resourceId: mappingId, operation: 'create',
-    }))
+    expect(mockAfterSuccess).toHaveBeenCalledTimes(1)
   })
 
   it('honors mutation guard rejection for an authorized organization', async () => {
-    mockGuard.mockResolvedValue({ ok: false, status: 409, body: { error: 'Conflict' } })
+    mockGuard.mockResolvedValue({ ok: false, response: Response.json({ error: 'Conflict' }, { status: 409 }) })
 
     expect((await POST(createRequest(organizationA))).status).toBe(409)
     expect(mockService.register).not.toHaveBeenCalled()
@@ -246,12 +255,12 @@ describe.each(actions)('domain $name authorization', ({ invoke, mutation }) => {
   })
 
   it('preserves authorized operations and guard callbacks', async () => {
-    mockGuard.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: null })
+    mockGuard.mockResolvedValue({ ok: true, runAfterSuccess: mockAfterSuccess })
 
     expect((await invoke()).status).toBe(200)
     expect(mutation).toHaveBeenCalled()
-    expect(mockGuard).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ organizationId: organizationA }))
-    expect(mockAfterSuccess).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ organizationId: organizationA }))
+    expect(mockGuard).toHaveBeenCalledWith(expect.objectContaining({ auth: expect.objectContaining({ organizationId: organizationA }) }))
+    expect(mockAfterSuccess).toHaveBeenCalledTimes(1)
   })
 
   it('preserves tenant-scoped not-found handling', async () => {
@@ -263,10 +272,120 @@ describe.each(actions)('domain $name authorization', ({ invoke, mutation }) => {
   })
 
   it('honors guard rejection before the authorized operation', async () => {
-    mockGuard.mockResolvedValue({ ok: false, status: 409, body: { error: 'Conflict' } })
+    mockGuard.mockResolvedValue({ ok: false, response: Response.json({ error: 'Conflict' }, { status: 409 }) })
 
     expect((await invoke()).status).toBe(409)
     expect(mutation).not.toHaveBeenCalled()
     expect(mockAfterSuccess).not.toHaveBeenCalled()
+  })
+})
+
+describe('domain action lifecycle refusals', () => {
+  it('passes the client version to locked removal and preserves its standard conflict', async () => {
+    const expectedUpdatedAt = '2026-10-01T00:00:00.000Z'
+    const conflict = {
+      error: 'record_modified', code: 'optimistic_lock_conflict',
+      currentUpdatedAt: '2026-10-01T00:00:01.000Z', expectedUpdatedAt,
+    }
+    mockService.remove.mockRejectedValueOnce(new CrudHttpError(409, conflict))
+    mockGuard.mockResolvedValue({ ok: true, runAfterSuccess: mockAfterSuccess })
+
+    const response = await DELETE(new Request(`${baseUrl}?id=${mappingId}`, {
+      method: 'DELETE', headers: { 'x-om-ext-optimistic-lock-expected-updated-at': expectedUpdatedAt },
+    }))
+
+    expect(mockService.remove).toHaveBeenCalledWith(mappingId, { tenantId, expectedUpdatedAt, container: expect.anything() })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual(conflict)
+    expect(mockAfterSuccess).not.toHaveBeenCalled()
+  })
+
+  it('returns a documented conflict when the domain is not ready for a TLS check', async () => {
+    mockService.healthCheck.mockRejectedValueOnce(Object.assign(new Error('[internal] Pending mapping'), {
+      [Symbol.for('@open-mercato/CrudHttpError')]: true,
+      status: 409,
+      body: { error: '[internal] Pending mapping', code: 'domain_mapping_not_verified' },
+    }))
+    mockGuard.mockResolvedValue({ ok: true, runAfterSuccess: mockAfterSuccess })
+
+    const response = await healthCheck(new Request(`${baseUrl}/${mappingId}/health-check`, { method: 'POST' }), {
+      params: Promise.resolve({ id: mappingId }),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      ok: false, error: 'customer_accounts.domainMapping.dns.txtUnverified', code: 'domain_mapping_not_verified',
+    })
+    expect(mockAfterSuccess).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('domain registry-only guards', () => {
+  const operations = [
+    { name: 'create', invoke: () => POST(createRequest(organizationA)), mutation: mockService.register, operation: 'create' },
+    ...actions.map((action) => ({ ...action, operation: action.name === 'delete' ? 'delete' : 'update' })),
+  ]
+
+  it.each(operations)('blocks $name before writes using a registered guard', async ({ invoke, mutation, operation }) => {
+    const { registerMutationGuards } = jest.requireActual<typeof import('@open-mercato/shared/lib/crud/mutation-guard-store')>('@open-mercato/shared/lib/crud/mutation-guard-store')
+    const { runRouteMutationGuards } = jest.requireActual<typeof import('@open-mercato/shared/lib/crud/route-mutation-guard')>('@open-mercato/shared/lib/crud/route-mutation-guard')
+    const validate = jest.fn(async () => ({ ok: false as const, status: 409, body: { error: 'domain locked' } }))
+    registerMutationGuards([{ moduleId: 'customer_accounts', guards: [{
+      id: 'customer_accounts.domain-regression', targetEntity: 'customer_accounts.domain_mapping',
+      operations: ['create', 'update', 'delete'], validate,
+    }] }])
+    mockGuard.mockImplementationOnce(runRouteMutationGuards)
+    try {
+      const response = await invoke()
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ error: 'domain locked' })
+      expect(validate).toHaveBeenCalledWith(expect.objectContaining({ tenantId, organizationId: organizationA, operation }))
+      expect(mutation).not.toHaveBeenCalled()
+    } finally {
+      registerMutationGuards([])
+    }
+  })
+
+  it.each(operations)('runs registered $name success callbacks after the service mutation', async ({ invoke, mutation }) => {
+    const { registerMutationGuards } = jest.requireActual<typeof import('@open-mercato/shared/lib/crud/mutation-guard-store')>('@open-mercato/shared/lib/crud/mutation-guard-store')
+    const { runRouteMutationGuards } = jest.requireActual<typeof import('@open-mercato/shared/lib/crud/route-mutation-guard')>('@open-mercato/shared/lib/crud/route-mutation-guard')
+    const afterSuccess = jest.fn(async () => {
+      expect(mutation).toHaveBeenCalledTimes(1)
+    })
+    registerMutationGuards([{ moduleId: 'customer_accounts', guards: [{
+      id: 'customer_accounts.domain-success-regression', targetEntity: 'customer_accounts.domain_mapping',
+      operations: ['create', 'update', 'delete'],
+      validate: async () => ({ ok: true, shouldRunAfterSuccess: true }), afterSuccess,
+    }] }])
+    mockGuard.mockImplementationOnce(runRouteMutationGuards)
+    try {
+      expect((await invoke()).status).toBe(mutation === mockService.register ? 201 : 200)
+      expect(afterSuccess).toHaveBeenCalledWith(expect.objectContaining({ tenantId, organizationId: organizationA, resourceId: mappingId }))
+    } finally {
+      registerMutationGuards([])
+    }
+  })
+
+  it('uses a validated transformed hostname without changing the authorized organization', async () => {
+    mockGuard.mockResolvedValueOnce({ ok: true, modifiedPayload: { hostname: 'updated.example.test' }, runAfterSuccess: mockAfterSuccess })
+    expect((await POST(createRequest(organizationA))).status).toBe(201)
+    expect(mockService.register).toHaveBeenCalledWith(expect.objectContaining({ hostname: 'updated.example.test', organizationId: organizationA, tenantId }))
+    expect(mockAfterSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses a guard transformation into an unauthorized organization', async () => {
+    mockGuard.mockResolvedValueOnce({ ok: true, modifiedPayload: { organizationId: organizationB }, runAfterSuccess: mockAfterSuccess })
+    expect((await POST(createRequest(organizationA))).status).toBe(400)
+    expect(mockService.register).not.toHaveBeenCalled()
+    expect(mockAfterSuccess).not.toHaveBeenCalled()
+  })
+
+  it('translates the overlong TXT name field error before returning it', async () => {
+    const hostname = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(51)].join('.')
+    const response = await POST(new Request(baseUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ hostname, organizationId: organizationA }) }))
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ issues: { fieldErrors: { hostname: ['localized TXT hostname guidance'] } } })
+    expect(mockService.register).not.toHaveBeenCalled()
   })
 })

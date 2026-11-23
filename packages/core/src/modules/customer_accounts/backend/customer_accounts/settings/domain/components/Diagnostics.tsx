@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Alert, AlertTitle, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { DomainMappingRow } from './types'
+import { DOMAIN_OWNERSHIP_UNVERIFIED } from '@open-mercato/core/modules/customer_accounts/lib/domainMappingLifecycle'
 
 export type DiagnosticsProps = {
   mapping: DomainMappingRow
@@ -12,6 +13,13 @@ export type DiagnosticsProps = {
 export function DnsDiagnostics({ mapping }: DiagnosticsProps) {
   const t = useT()
   if (mapping.status !== 'dns_failed') return null
+  const ownershipUnverified = mapping.dnsFailureReason === DOMAIN_OWNERSHIP_UNVERIFIED
+  let reason = mapping.dnsFailureReason
+  if (ownershipUnverified) {
+    reason = mapping.ownershipRecord
+      ? t('customer_accounts.domainMapping.dns.txtUnverified', 'Publish the TXT record shown below, then check DNS again.')
+      : t('customer_accounts.domainMapping.dns.txtNameTooLong', 'Register a shorter hostname to make room for the TXT record name.')
+  }
   return (
     <Alert status="error">
       <AlertTitle>
@@ -19,8 +27,8 @@ export function DnsDiagnostics({ mapping }: DiagnosticsProps) {
       </AlertTitle>
       <AlertDescription>
         <div className="space-y-2">
-          {mapping.dnsFailureReason ? <p>{mapping.dnsFailureReason}</p> : null}
-          {mapping.cnameTarget ? (
+          {reason ? <p>{reason}</p> : null}
+          {mapping.cnameTarget && !ownershipUnverified ? (
             <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
               <dt className="text-muted-foreground">
                 {t('customer_accounts.domainMapping.dns.diagnostics.expected', 'Expected target')}

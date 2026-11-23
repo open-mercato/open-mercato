@@ -10,6 +10,8 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -237,6 +239,15 @@ export default function CustomerDomainSettingsPage() {
     [refresh, registerMode, replaceTargetId, runMutationWithContext, selectedOrgId, t],
   )
 
+  const reportDomainActionFailure = React.useCallback((call: { status: number; result: { error?: string } | null }) => {
+    if (call.status === 404) {
+      refresh()
+      flash(t('customer_accounts.domainMapping.dns.noLongerAvailable', 'This domain mapping is no longer available.'), 'error')
+      return
+    }
+    flash(call.result?.error || t('customer_accounts.domainMapping.error.load', 'Could not load custom-domain configuration'), 'error')
+  }, [refresh, t])
+
   const handleCheckNow = React.useCallback(
     async (mapping: DomainMappingRow) => {
       setIsMutating(true)
@@ -248,8 +259,7 @@ export default function CustomerDomainSettingsPage() {
             { method: 'POST' },
           )
           if (!call.ok || !call.result?.ok) {
-            const message = call.result?.error || t('customer_accounts.domainMapping.error.load', 'Could not load custom-domain configuration')
-            flash(message, 'error')
+            reportDomainActionFailure(call)
             return
           }
           refresh()
@@ -258,7 +268,7 @@ export default function CustomerDomainSettingsPage() {
         setIsMutating(false)
       }
     },
-    [refresh, runMutationWithContext, t],
+    [refresh, reportDomainActionFailure, runMutationWithContext],
   )
 
   const handleRetryTls = React.useCallback(
@@ -272,8 +282,7 @@ export default function CustomerDomainSettingsPage() {
             { method: 'POST' },
           )
           if (!call.ok || !call.result?.ok) {
-            const message = call.result?.error || t('customer_accounts.domainMapping.error.load', 'Could not load custom-domain configuration')
-            flash(message, 'error')
+            reportDomainActionFailure(call)
             return
           }
           refresh()
@@ -282,7 +291,7 @@ export default function CustomerDomainSettingsPage() {
         setIsMutating(false)
       }
     },
-    [refresh, runMutationWithContext, t],
+    [refresh, reportDomainActionFailure, runMutationWithContext],
   )
 
   const handleRemove = React.useCallback(
@@ -311,18 +320,23 @@ export default function CustomerDomainSettingsPage() {
             ),
           )
           if (!call.ok || !call.result?.ok) {
-            const message = call.result?.error || t('customer_accounts.domainMapping.error.load', 'Could not load custom-domain configuration')
-            flash(message, 'error')
-            return
+            await raiseCrudError(call.response, t('customer_accounts.domainMapping.error.load'))
           }
           flash(t('customer_accounts.domainMapping.removed', 'Domain removed'), 'success')
           refresh()
         })
+      } catch (error: unknown) {
+        if (!surfaceRecordConflict(error, t)) {
+          reportDomainActionFailure({
+            status: error && typeof error === 'object' && 'status' in error && typeof error.status === 'number' ? error.status : 0,
+            result: { error: error instanceof Error ? error.message : undefined },
+          })
+        }
       } finally {
         setIsMutating(false)
       }
     },
-    [confirm, orderedMappings, refresh, runMutationWithContext, t],
+    [confirm, orderedMappings, refresh, reportDomainActionFailure, runMutationWithContext, t],
   )
 
   const replaceTargetHostname = React.useMemo(() => {
