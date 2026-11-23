@@ -26,7 +26,7 @@ const iconSchema = z.string().trim().min(1).max(64)
 export const upsertDictionarySchema = z.object({
   key: dictionaryKeySchema,
   name: z.string().trim().min(1).max(200),
-  description: z.string().trim().max(2000).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
   isSystem: z.boolean().optional(),
   isActive: z.boolean().optional(),
   entrySortMode: dictionaryEntrySortModeSchema.optional(),
