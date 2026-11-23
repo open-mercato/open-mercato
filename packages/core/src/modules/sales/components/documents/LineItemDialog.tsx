@@ -66,7 +66,12 @@ import {
   extractCustomFieldValues,
 } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
-import { parseLocaleDecimal, parseLocaleNumber } from "@open-mercato/shared/lib/number";
+import {
+  formatLocaleDecimalInput,
+  formatLocaleNumberInput,
+  parseLocaleDecimal,
+  parseLocaleNumber,
+} from "@open-mercato/shared/lib/number";
 import {
   compareDecimals,
   decimalToString,
@@ -2187,7 +2192,7 @@ export function LineItemDialog({
                     ) ?? null)
                   : null;
                 if (isShippedOrderLine) {
-                  const lockedAmount = toExactAmount(values?.unitPrice);
+                  const lockedAmount = parseUserDecimal(values?.unitPrice);
                   const lockedCurrency =
                     selectedPrice?.currencyCode ??
                     (typeof values?.currencyCode === "string"
@@ -2792,6 +2797,7 @@ export function LineItemDialog({
     selectPriceAfterRefresh,
     hasTaxMetadata,
     isShippedOrderLine,
+    parseUserDecimal,
     parseUserNumber,
   ]);
 
@@ -2848,17 +2854,18 @@ export function LineItemDialog({
           : undefined;
     nextForm.productId = initialLine.productId;
     nextForm.variantId = initialLine.productVariantId;
-    nextForm.quantity = initialLine.quantity.toString();
+    nextForm.quantity = formatLocaleNumberInput(initialLine.quantity, locale);
     nextForm.quantityUnit = normalizeUnitCode(initialLine.quantityUnit) ?? null;
     const metaMode = metaRec?.priceMode;
     const resolvedPriceMode =
       metaMode === "net" || metaMode === "gross"
         ? metaMode
         : (initialLine.priceMode ?? "gross");
-    nextForm.unitPrice =
+    const savedUnitPrice =
       resolvedPriceMode === "net"
-        ? (initialLine.unitPriceNetExact ?? initialLine.unitPriceNet.toString())
-        : (initialLine.unitPriceGrossExact ?? initialLine.unitPriceGross.toString());
+        ? (initialLine.unitPriceNetExact ?? initialLine.unitPriceNet)
+        : (initialLine.unitPriceGrossExact ?? initialLine.unitPriceGross);
+    nextForm.unitPrice = formatLocaleDecimalInput(savedUnitPrice, locale);
     nextForm.priceMode = resolvedPriceMode;
     nextForm.taxRate = Number.isFinite(initialLine.taxRate)
       ? initialLine.taxRate
@@ -2895,14 +2902,6 @@ export function LineItemDialog({
     let resolvedVariantOption: VariantOption | null = null;
     if (metaRec) {
       const metaRecord = metaRec;
-      const mode = metaRecord.priceMode;
-      if (mode === "net" || mode === "gross") {
-        nextForm.priceMode = mode;
-        nextForm.unitPrice =
-          mode === "net"
-            ? (initialLine.unitPriceNetExact ?? initialLine.unitPriceNet.toString())
-            : (initialLine.unitPriceGrossExact ?? initialLine.unitPriceGross.toString());
-      }
       nextForm.priceId =
         typeof metaRecord.priceId === "string"
           ? metaRecord.priceId
@@ -3130,6 +3129,7 @@ export function LineItemDialog({
     loadPrices,
     loadProductUnits,
     loadVariantOptions,
+    locale,
     open,
     resetForm,
   ]);
