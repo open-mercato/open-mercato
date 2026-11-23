@@ -1,5 +1,27 @@
 # Upgrade Notes
 
+## API handlers reuse the dispatcher's auth resolution (#2958)
+
+The API dispatcher (`app/api/[...slug]/route.ts`) already resolves the caller's auth before
+it checks route permissions. It now hands that result to the route handler, so
+`getAuthFromRequest(req)` and `resolveAuthFromRequestDetailed(req)` inside the handler,
+including the CRUD factory's `ensureAuth`, return it instead of building another request
+container and re-running the session, role and super-admin checks. Every authenticated API
+request saves one full auth pass.
+
+- **Behavior:** handlers see the same auth object they received before, including the
+  super-admin tenant and organization cookie scope. Only `authenticated` resolutions are
+  shared. Requests with missing, invalid or temporarily unverifiable credentials still
+  re-resolve inside the handler.
+- **Who should check:** a custom handler that changes the caller's own session or roles
+  and then calls `getAuthFromRequest(req)` again in the same request now gets the
+  dispatcher's result, not a fresh one. Resolve the new state from the database directly,
+  or pass a new `Request`.
+- **Kill switch:** set `OM_DISPATCHER_TRUSTED_AUTH=off` to re-resolve auth on every call, as
+  before. App code: `shareDispatcherAuthResolution` from
+  `@open-mercato/shared/lib/auth/server`. Standalone apps keep their own copy of the
+  dispatcher, so copy the one-line call from the template to get the saving.
+
 ## Extension header parsing and analytics SQL identifier hardening (#10331, #10332)
 
 Two security-hardening narrowings landed on shared request-header parsing and dashboard analytics SQL construction:

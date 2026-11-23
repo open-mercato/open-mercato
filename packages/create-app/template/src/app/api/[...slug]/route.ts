@@ -3,7 +3,7 @@ import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManife
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiRouteFacades } from '@/.mercato/generated/api-route-shards.generated'
-import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
+import { resolveAuthFromRequestDetailed, shareDispatcherAuthResolution } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap-api'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -529,6 +529,7 @@ async function dispatchRequest(
   }
   const authResolution = await resolveAuthFromRequestDetailed(req)
   const auth = authResolution.auth
+  shareDispatcherAuthResolution(req, authResolution)
   await emitLifecycleEvent(applicationLifecycleEvents.requestAuthResolved, {
     ...receivedPayload,
     authenticated: !!auth,
