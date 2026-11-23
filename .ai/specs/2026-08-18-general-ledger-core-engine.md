@@ -1143,22 +1143,91 @@ on `journal_entries` (`journal_entries_reference_idx`) backs the `referenceType`
   command but is the same kind of committed `JournalEntry` and must
   fire the same event — a downstream subscriber otherwise cannot
   tell "nothing was reversed today" from "the event for a reversal
-  was silently never sent." **Corrected 2026-09-18** (an independent
-  review's M2 finding): persistence is a property the *subscriber*
-  declares (`metadata.persistent`), not the event — `packages/
-  events/AGENTS.md`'s Subscription Types make this explicit. This
-  document previously called the event itself "ephemeral... not a
-  durability guarantee," which is a category error: `ledger` only
-  declares the event; whether a given subscriber needs at-least-once
-  delivery is that subscriber's own choice. #6015 (Posting Rules
-  Engine)'s reversal-mirroring subscriber is a write-side, idempotent
-  consumer and so must subscribe with `persistent: true` — it inherits
-  no "lost on restart" risk from this event, provided it declares that
-  itself. This module has no subscribers of its own; it exists so a
-  downstream module (e.g. Posting Rules Engine) can react without
-  `ledger` importing or resolving that module — `ledger` stays fully
-  generic and has no knowledge of zespoły, konto 490, or any
+  was silently never sent." This module has no subscribers of its own;
+  it exists so a downstream module (e.g. Posting Rules Engine) can react
+  without `ledger` importing or resolving that module — `ledger` stays
+  fully generic and has no knowledge of zespoły, konto 490, or any
   jurisdiction-specific concept.
+
+  **Delivery contract (revised 2026-11-23, review of 2026-11-20 by
+  @pkarw on #5663, High; also Major 4 of the 2026-11-22 review on
+  #9860).** The 2026-09-18 correction said durability is a property the
+  subscriber declares (`metadata.persistent`). That does not match the
+  event bus: `packages/events/src/bus.ts` (at `53310bc683`) enqueues an
+  event for the persistent worker only when the *emitter* passes
+  `{ persistent: true }` (`if (options?.persistent)`, lines 681–696); a
+  subscriber's `metadata.persistent` only marks it for inline delivery,
+  and a handler that fails there, or a process that stops before
+  delivery, loses the event. #9860 at `5a13f37d3c` emits without options
+  from both paths (`commands/postJournalEntry.ts`, `emitPostedEvent`;
+  `commands/reverseJournalEntry.ts`). The contract is therefore:
+  - **Both emitters pass `{ persistent: true }`.** `postJournalEntry`
+    and `reverseJournalEntry` emit `ledger.journal_entry.posted` with
+    `{ persistent: true }` after their own transaction commits.
+  - **Composed calls.** When the command runs inside a caller's
+    transaction (`ctx.transactionalEm`), it does not emit; the caller
+    emits the same event, built with the exported `emitPostedEvent`
+    helper (or the same payload shape for a reversal), with
+    `{ persistent: true }`, after its own commit. A caller that rolls
+    back emits nothing.
+  - **The event is a notification; the ledger is the source of truth.**
+    A consumer must not treat the event as the only record that an entry
+    exists. Delivery is **at-least-once**: the persistent queue retries,
+    and the reconciliation read below may surface an entry the consumer
+    already handled.
+  - **Consumers are idempotent by `(journalEntryId, kind)`**, where
+    `kind` is `post` for `type` `NORMAL`/`OPENING`/`CLOSING` and
+    `reversal` for `type` `REVERSAL`. Handling the same pair twice must
+    have no further effect.
+  - **Reconciliation read.** An event can still be lost between the
+    commit and the enqueue (a crash in that window, or an enqueue that
+    fails). To close that gap without an outbox, `ledger` exposes a
+    read of committed entries after a cursor: per
+    `(tenantId, organizationId)`, entries with
+    `sequenceNumber > afterSequenceNumber`, ordered by `sequenceNumber`
+    ascending, in pages, each entry with its lines in the same shape as
+    the event payload and `REVERSAL` entries included. A consumer keeps
+    its own high-water mark per organization and replays from it; the
+    idempotency key above makes the overlap harmless. The cursor is
+    safe: `sequenceNumber` is allocated by the counter-row upsert in the
+    posting transaction, which holds that row's lock until commit, so
+    within one organization entries become visible in `sequenceNumber`
+    order and a lower number cannot commit after a higher one. The
+    Posting Rules Engine (#6015) is the expected first user of this read.
+  - **Who runs the reconciliation.** Not `ledger`: the ledger only
+    offers the read. Each consumer runs its own reconciliation, and for
+    the Posting Rules Engine when and how it runs is a decision of #6015,
+    not of this spec. #6015 already has the repair path: its sweeper
+    `ReconcileCostRingCommand` (Design Decisions, "A repair mechanism:
+    `ReconcileCostRingCommand` (a sweeper)"), invoked through the
+    `reconcile-cost-ring` CLI with no schedule in Phase 1 and the
+    scheduling pattern left as an open question (Implementation Plan,
+    step 11). That sweeper selects incomplete lines by its own intent rows
+    rather than by this cursor; whether it moves to this read is also
+    #6015's choice. What this spec asks of any consumer, #6015 included,
+    is that reconciliation runs at three moments: when the consumer
+    starts or is enabled for an organization (to catch entries posted
+    before it listened), periodically (to catch an event lost between
+    commit and enqueue), and after an emission failure is reported (the
+    emitters log and report a failed emission instead of only swallowing
+    it, so operations can trigger a run). Until #6015 adds a schedule,
+    the periodic run is the CLI invoked by operations.
+  - **Scope for #9860.** ⚠ NEEDS HUMAN CONFIRMATION (OM Core). The merge
+    condition for #9860 is only this: both emitters pass
+    `{ persistent: true }` (post and reverse), and a composed call does
+    not emit while the caller emits after its own commit (as #9860
+    already does). `lib/postedEntriesSince.ts` is a Phase 1 requirement
+    but does not block #9860: it ships with #6015's engine PR (PR-B) or
+    before it, because the engine is its first consumer and nothing reads
+    it earlier.
+  - **Outbox: deferred.** A transactional outbox (an outbox row written
+    in the posting transaction and relayed by a worker) would remove the
+    commit-to-enqueue window entirely. It is not part of Phase 1: the
+    event bus has no outbox today, adding one is a cross-module platform
+    change, and the reconciliation read already bounds a lost event to
+    "handled at the next sweep" for the one consumer this phase has. It
+    becomes worth doing when a consumer cannot tolerate that delay or
+    cannot keep a cursor.
 
   **Payload** (added 2026-09-18): `{ journalEntryId: string,
   sequenceNumber: number, type: 'NORMAL' | 'OPENING' | 'CLOSING' |
@@ -1210,6 +1279,18 @@ on `journal_entries` (`journal_entries_reference_idx`) backs the `referenceType`
   field-level CRUD edit. No delete route ships for `FiscalPeriod` in
   Phase 1; its `deletedAt` column exists for column-contract
   consistency only (see Design decisions).
+- `lib/postedEntriesSince.ts` — `listPostedEntriesSince({ tenantId,
+  organizationId, afterSequenceNumber, limit })` (**added 2026-11-23**,
+  Events → Delivery contract): the reconciliation read for event
+  consumers. In-process only (no HTTP route in Phase 1); returns
+  committed entries of that organization with `sequenceNumber >
+  afterSequenceNumber`, ascending, at most `limit` (≤ 100) per call,
+  each with its lines in the `ledger.journal_entry.posted` payload shape,
+  `REVERSAL` entries included. Scoped by the arguments, never by a
+  caller's selected organization.
+  Phase 1 requirement delivered with #6015's engine PR (PR-B) or before
+  it; not a merge condition for #9860 (Events → Delivery contract,
+  "Scope for #9860", ⚠ NEEDS HUMAN CONFIRMATION).
 
 ### Backend Pages (`backend/ledger/`)
 
@@ -1484,6 +1565,7 @@ Queries / API).
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `ledger:journal_entry_line.contractor_snapshot` (PII duplicated from Contractor Registry — see Design decisions) |
 | `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for the entities above plus the deferred balance-check constraint trigger and the per-organization `journal_entry_sequences` counter table |
 | `lib/lineCurrency.ts` | Create | `resolveLineCurrency` (write-time currency, rate and original amount of a line) and `isLineConsistent` (the tolerance check), used by `postJournalEntry` and `reverseJournalEntry` |
+| `lib/postedEntriesSince.ts` | Create | `listPostedEntriesSince` — the reconciliation read for `ledger.journal_entry.posted` consumers (Events → Delivery contract, added 2026-11-23). Phase 1, delivered with #6015's engine PR (PR-B) or before it; not part of #9860's merge condition (⚠ NEEDS HUMAN CONFIRMATION) |
 | `data/validators.ts` | Create | zod validators for `postJournalEntry`, `reverseJournalEntry`, `createFiscalPeriod`, `lockFiscalPeriod`/`unlockFiscalPeriod`, `createLedgerAccount`/`updateLedgerAccount`, `createLedgerAccountType`/`updateLedgerAccountType` command inputs (**added 2026-09-18** — m4: root `AGENTS.md` requires input validators live here, not inline in commands) |
 | `i18n/<locale>.json` (en/pl/es/de/ko, matching every other module) | Create | User-facing strings for the four backend pages below and any command-rejection messages surfaced to the UI — never hard-coded (**added 2026-09-18** — m4) |
 | `acl.ts` | Create | Six `ledger.*` features |
@@ -1642,6 +1724,22 @@ Queries / API).
   not start with the type number is refused with 409
   `ledger.errors.accountTypeGroupAccountsPrefix`, and accepted when every
   live account fits (unit tests of `updateLedgerAccountType` in #6340).
+- **Added 2026-11-23** (event delivery, review of 2026-11-20): both
+  emitters pass `{ persistent: true }` (unit tests on `postJournalEntry`
+  and `reverseJournalEntry`), and a composed call emits nothing until its
+  caller commits; `listPostedEntriesSince` returns committed entries of
+  one organization after the cursor, in `sequenceNumber` order, with
+  `REVERSAL` entries and their lines, and nothing from another
+  organization (real database). **Failure case:** the reversal of an
+  entry commits and the publication of its `ledger.journal_entry.posted`
+  event fails after the commit (the emitter throws or the enqueue is
+  lost); the entry stays reversed (one `REVERSAL` row, the
+  single-reversal index unchanged), and the consumer's reconciliation
+  run over `listPostedEntriesSince` creates the reversal mirror exactly
+  once — a second reconciliation run and a late delivery of the same
+  event change nothing. The mirroring side of this case is an
+  integration test in the Posting Rules Engine (#6015, PR-B); the ledger
+  side (entry stays reversed, the read returns it) is tested here.
 
 ## Risks & Impact Review
 
@@ -1669,6 +1767,28 @@ nothing about same-module FK-id fields already populated in Phase 1 —
 no database-level FK either, so each write command validates
 existence, non-deleted status, and same organization/tenant scope at
 the application layer before persisting.
+
+**Added 2026-11-23** (event delivery, review of 2026-11-20):
+- *Scenario:* an entry commits and its `ledger.journal_entry.posted`
+  event never reaches the persistent queue (the process stops between
+  the commit and the enqueue, or the enqueue fails).
+- *Severity:* Medium. The entry itself is correct and complete; only a
+  downstream reaction (for example the Posting Rules Engine mirror) is
+  missing, so the books are right but a derived posting is late.
+- *Affected area:* consumers of the event; the ledger is not affected.
+- *Mitigation:* both emitters use `{ persistent: true }`, consumers are
+  idempotent by `(journalEntryId, kind)`, and `listPostedEntriesSince`
+  lets a consumer reconcile from its cursor (Events → Delivery contract).
+- *Residual risk:* a lost event is handled at the consumer's next
+  reconciliation run, not immediately. A transactional outbox would
+  remove this window and is deferred (Events → Delivery contract).
+  Between the merge of #9860 and the delivery of
+  `lib/postedEntriesSince.ts` with #6015's engine PR, there is no
+  cursor read: persistent emission covers handler failures and restarts
+  after the enqueue, but an event lost between commit and enqueue is not
+  recoverable through the ledger in that window. No consumer of the
+  event exists before the engine PR, so nothing depends on it yet
+  (⚠ NEEDS HUMAN CONFIRMATION, together with "Scope for #9860").
 
 ### Tenant & data isolation
 
@@ -1705,7 +1825,7 @@ backfill.
 
 ## Decisions on the review of 2026-10-26 (OQ-1 to OQ-3)
 
-Three findings of the 2026-10-26 re-review (@wojciechszyjka, PR #5663, head `d65bbf17b`) were first recorded as open questions (2026-10-29) and are settled below by the author after checking the code and the statute text. Owner confirmation was not requested. *(2026-11-20: OQ-3 gains one open item, the Money rule of #9978, marked ⚠ NEEDS HUMAN CONFIRMATION.)*
+Three findings of the 2026-10-26 re-review (@wojciechszyjka, PR #5663, head `d65bbf17b`) were first recorded as open questions (2026-10-29) and are settled below by the author after checking the code and the statute text. Owner confirmation was not requested. *(2026-11-20: OQ-3 gained an open item on the Money rule of #9978. 2026-11-23: OQ-3 is closed by one Phase 1 decision; its merge condition and migration contract are marked ⚠ NEEDS HUMAN CONFIRMATION.)*
 
 ### OQ-1 — encrypted `contractorSnapshot` under the append-only trigger, and the retention basis
 
@@ -1727,9 +1847,13 @@ Three findings of the 2026-10-26 re-review (@wojciechszyjka, PR #5663, head `d65
 - **What #7795 says** (`2026-10-22-money-value-object.md`, merged 2026-10-26 as a spec). *(Updated 2026-11-20: `packages/shared/src/lib/decimal.ts` is on `main` since #7324 merged on 2026-11-19. `packages/shared/src/lib/money/` and `packages/shared/src/lib/db/moneyColumns.ts` are not on `main` yet (checked at `c0dab1c596`); they come with #9978, the implementation of #7795, which is open and approved but not merged. When this section was first written, on `main` at `9cb1f164c4`, neither `lib/money/` nor `lib/decimal.ts` existed.)* New monetary values use `Money`/`Currency`, are stored through `MoneyColumns` (`<prefix>amount` unconstrained `numeric`, `<prefix>currency_code`, `<prefix>currency_decimal_places`), and nothing rounds implicitly: `convertMoney(m, rate, target, rounding)` takes an explicit `MoneyRounding`. It applies to new code only. Before 2026-10-29 this spec referenced neither.
 - **The difference in numbers.** A rate rounded half-up to 8 dp is off by up to `5 × 10^−9` base units per foreign unit. With a 2-dp base currency, the tolerance is `0.005`. Above `0.005 / 5 × 10^−9 = 1,000,000` foreign units, a base amount computed from the unrounded rate can fall outside the tolerance against the stored 8-dp rate; the reviewer's example is 1e9 IDR × a 5e-9 rate error ≈ 5 PLN. Going the other way, a caller with an exact rate of more than 8 dp is rejected outright. `amountCurrency` at 4 dp also cannot hold a currency with more decimals (BTC uses 8), which #7324 sets out to support.
 - **Options.** (A) Align with #7324 and #7795: unconstrained `numeric` rates and amounts, explicit `MoneyRounding`, and possibly `MoneyColumns`. That depends on #7324 merging, and `MoneyColumns` stores a currency code and decimal places, while this spec stores `currencyId`. (B) Record a deliberate exception: keep `numeric(18,8)` and `numeric(19,4)`, with a rounding rule — the caller rounds the rate to 8 dp half-up and derives the base amount from the rounded rate, rounded half-up to `d` places. (C) Widen the tolerance to `½ unit + amountCurrency × 5 × 10^−9`, raised in the #6340 review of 2026-10-26 as a decision for this spec.
-- **Decision.** Option (B) until #7324 merges, recorded as a deliberate exception to #7795: keep `numeric(18,8)` for rates and `numeric(19,4)` for amounts; the caller rounds the rate to 8 decimal places half-up and derives the base amount from that rounded (stored) rate, rounded half-up to the base currency's `d` places; the tolerance stays `0.5 × 10^−d` (option (C) is not adopted, because computing from the stored rate removes the gap it would compensate). Revisit (A) once the decimal toolkit and `MoneyColumns` exist on `main`.
-- **State of the revisit trigger (added 2026-11-20).** The decimal toolkit is on `main` (#7324, merged 2026-11-19). `MoneyColumns` is not yet: it ships with #9978. If #9978 merges, both conditions of the revisit trigger are met, and (A) has to be decided, not deferred. Two facts bear on that decision. First, after #7324 `exchange_rates.rate` is unconstrained and accepts more than 8 fractional digits, while this spec still rejects a line rate with more than 8, so a caller copying a stored rate may be rejected and has to round it first, as (B) requires. Second, the rate direction already matches #9978: this spec stores base-currency units per one unit of the line's currency, and `convertMoney` takes "target units per one source unit" with one explicit rounding, so `convertMoney(amountCurrency, exchangeRate, base, { decimalPlaces: d, mode: 'halfUp' })` gives the (B) rounding rule exactly.
-- **Money rule of #9978 and this module.** ⚠ NEEDS HUMAN CONFIRMATION (OM Core). Once #9978 merges, the repository rules (`AGENTS.md` Always and Never, `.ai/review-checklist.md` "New monetary values use the Money shapes", rated High in the anti-pattern table) require `Money`/`MoneyColumns` for every new monetary value and forbid new bare decimal-string money fields; "code that only touches existing money fields is exempt". This module is not on `main`, so formally it would count as new code: `debit`, `credit` and `amountCurrency` are `numeric(19,4)` strings with `currencyId`, and the `ledger.journal_entry.posted` payload carries them as strings (OQ-2). Rates are outside the rule (`packages/shared/AGENTS.md`: `decimal.ts` covers non-monetary FX math). **Working proposal, not a settled decision:** a time-bound exception. This module keeps option (B) and its decimal columns until #9978 and #9860 are both merged; after that, a dedicated follow-up PR moves the ledger to `Money`/`MoneyColumns` (the authors of this spec offer to take it). Until then the exception is visible to reviewers, not only to `yarn money:check-new-code`: an entry in `.ai/money-allowlist.json` that points at this section, this paragraph, and a sentence in the #9860 description. The follow-up PR has to decide how `MoneyColumns` (currency code and decimal places) relates to this module's `currencyId`, which the event payload, the API and Journal Entry Line Dimension also use. Until OM Core confirms or rejects this, it is an open question, not a decision.
+- **First decision (2026-10-29, superseded on 2026-11-23 by the Phase 1 decision below).** Option (B) until #7324 merges, recorded as a deliberate exception to #7795: keep `numeric(18,8)` for rates and `numeric(19,4)` for amounts; the caller rounds the rate to 8 decimal places half-up and derives the base amount from that rounded (stored) rate, rounded half-up to the base currency's `d` places; the tolerance stays `0.5 × 10^−d` (option (C) is not adopted, because computing from the stored rate removes the gap it would compensate). Revisit (A) once the decimal toolkit and `MoneyColumns` exist on `main`.
+- **State of the revisit trigger (added 2026-11-20).** The decimal toolkit is on `main` (#7324, merged 2026-11-19). `MoneyColumns` is not yet: it ships with #9978. If #9978 merges, both conditions of the revisit trigger are met; the Phase 1 decision below settles what happens then. Two facts bear on it. First, after #7324 `exchange_rates.rate` is unconstrained and accepts more than 8 fractional digits, while this spec still rejects a line rate with more than 8, so a caller copying a stored rate may be rejected and has to round it first, as (B) requires. Second, the rate direction already matches #9978: this spec stores base-currency units per one unit of the line's currency, and `convertMoney` takes "target units per one source unit" with one explicit rounding, so `convertMoney(amountCurrency, exchangeRate, base, { decimalPlaces: d, mode: 'halfUp' })` gives the (B) rounding rule exactly.
+- **Money rule of #9978 and this module (facts).** Once #9978 merges, the repository rules (`AGENTS.md` Always and Never, `.ai/review-checklist.md` "New monetary values use the Money shapes", rated High in the anti-pattern table) require `Money`/`MoneyColumns` for every new monetary value and forbid new bare decimal-string money fields; "code that only touches existing money fields is exempt". This module is not on `main`, so formally it would count as new code: `debit`, `credit` and `amountCurrency` are `numeric(19,4)` strings with `currencyId`, and the `ledger.journal_entry.posted` payload carries them as strings (OQ-2). Rates are outside the rule (`packages/shared/AGENTS.md`: `decimal.ts` covers non-monetary FX math). The decision for this module is the Phase 1 decision below.
+- **Decision for Phase 1 (2026-11-23, review of 2026-11-20 by @pkarw on #5663, Medium).** One decision replaces the "until #7324" condition and the open proposal above:
+  - **Exception (B) is accepted for Phase 1.** Rates stay `numeric(18,8)` (a rate with more than 8 decimal places is rejected; the caller rounds it half-up first) and amounts stay `numeric(19,4)` with `currencyId`, with the rounding rule and tolerance of the first decision. The exception is recorded in `.ai/money-allowlist.json` with a pointer to this section and stated in the #9860 description.
+  - **Merge condition.** ⚠ NEEDS HUMAN CONFIRMATION (OM Core). #9860 may merge independently of #9978, in either order, provided an issue tracking the ledger's move to `Money` exists before it merges. The owner of that issue is Commerce Weavers; the move is a separate PR opened after #9978 merges.
+  - **Migration contract.** ⚠ NEEDS HUMAN CONFIRMATION (OM Core). Posted rows are never rewritten: the append-only trigger stays as it is, and existing `debit`, `credit`, `amountCurrency` and `exchangeRate` values keep their stored form. The representation changes only at the API and event boundary. The numeric-string fields with the currency next to them (`debit`, `credit`, `amountCurrency`, `currencyId`, `exchangeRate` on lines and in the `ledger.journal_entry.posted` payload) stay stable; a `Money` object (`MoneyInput` in responses, `MoneySnapshot` in the event) is added next to them, additively, so no consumer breaks. How `MoneyColumns` (currency code and decimal places) relates to `currencyId` is decided in that follow-up PR.
 
 ## Out of scope (tracked separately)
 
@@ -3048,3 +3172,15 @@ code. Not yet reviewed by a maintainer.
 - **OQ-3, facts updated.** #7324 merged on 2026-11-19 (`2066fc61cd`), so `lib/decimal.ts` is on `main`; `lib/money/` and `MoneyColumns` come with #9978, open and approved but not merged. The revisit trigger is now stated conditionally: both conditions are met if #9978 merges. Recorded that `exchange_rates.rate` accepts more than 8 fractional digits after #7324 while line rates here are still capped at 8, and that the rate direction matches `convertMoney`.
 - **OQ-3, Money rule of #9978.** Added as an open item marked ⚠ NEEDS HUMAN CONFIRMATION, not as a decision: working proposal of a time-bound exception: the module keeps option (B) and its decimal columns until #9978 and #9860 are both merged, then a dedicated follow-up PR moves the ledger to `Money`/`MoneyColumns`; visible through an allowlist entry pointing at OQ-3, the OQ-3 paragraph and a sentence in the #9860 description. *(Wording aligned on 2026-11-20 with the reply on #9978; it first said "a follow-up after the MVP".)*
 - **Not changed here.** The 👍 from the owner of #7795 on OQ-3 (Nit of 2026-11-01) is for that owner to give.
+
+### 2026-11-23 — review of 2026-11-20 (@pkarw): event delivery and the Money decision
+
+- **High, event delivery.** Checked against the code: `packages/events/src/bus.ts` at `53310bc683` enqueues for the persistent worker only when the emitter passes `{ persistent: true }` (lines 681–696), and #9860 at `5a13f37d3c` emits without options from `postJournalEntry` (`emitPostedEvent`) and `reverseJournalEntry`. Events now states a delivery contract: both emitters pass `{ persistent: true }`; a composed call does not emit and its caller emits after its own commit; the event is a notification and the ledger the source of truth; at-least-once delivery with consumers idempotent by `(journalEntryId, kind)`; a reconciliation read `listPostedEntriesSince` (cursor on `sequenceNumber`, safe because the counter-row lock is held until commit) that the Posting Rules Engine uses; a transactional outbox deferred, with the reason. Added to Queries / API, File Manifest (`lib/postedEntriesSince.ts`), Testing Strategy (including the case of a reversal whose event fails after commit: the entry stays reversed and reconciliation creates the mirror exactly once) and Risks. The 2026-09-18 correction that durability is the subscriber's choice is replaced. The same finding is Major 4 of the 2026-11-22 review on #9860.
+- **Medium, OQ-3.** Closed by one decision for Phase 1: exception (B) accepted; #9860 may merge independently of #9978 if an issue tracking the move to `Money` exists (owner Commerce Weavers, a separate PR after #9978); posted rows are never rewritten and `Money` is added next to the stable numeric-string fields at the API and event boundary. The merge condition and the migration contract are marked ⚠ NEEDS HUMAN CONFIRMATION. The 2026-10-29 decision is kept as superseded.
+- **Implementation guide.** Two new items under "Things that will bite you": the decimal columns as a recorded Money exception, and persistent emission with the reconciliation read.
+- **Low, PR description.** The description of #5663 still calls account types hierarchical; the spec and the guide describe a flat chart. A corrected description is prepared separately; the spec text needs no change.
+
+### 2026-11-23 (cont.) — who runs the reconciliation, and the merge scope for #9860
+
+- **Who runs the reconciliation.** Events → Delivery contract now says that `ledger` only offers the read and each consumer runs its own reconciliation. For the Posting Rules Engine this is a decision of #6015 (Design Decisions, "A repair mechanism: `ReconcileCostRingCommand` (a sweeper)"; Implementation Plan, step 11: CLI only, schedule open). This spec asks for runs at consumer start or enablement, periodically, and after a reported emission failure. The earlier sentence that the engine "uses this read for its sweeper" is replaced: #6015's sweeper selects by its own intent rows today, and moving to the cursor is its choice.
+- **Merge scope for #9860.** ⚠ NEEDS HUMAN CONFIRMATION. The merge condition is only `{ persistent: true }` on both emitters plus emission after commit by a composing caller. `lib/postedEntriesSince.ts` stays a Phase 1 requirement but ships with #6015's engine PR (PR-B) or before it and does not block #9860. Queries / API, File Manifest and Risks (the window without a cursor read between #9860 and the engine PR) are updated accordingly.

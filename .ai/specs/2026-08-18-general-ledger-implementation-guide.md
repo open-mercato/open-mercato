@@ -142,6 +142,34 @@ anything else compiles or is reachable. High-level shape:
   `data/validators.ts`, never for storage or in API payloads.)
   The worked example above (`debit: 500`) is illustrative only; treat
   it as `"500.0000"`, not `500`.
+- **These decimal columns are a recorded exception to the Money rule,
+  not an oversight.** Phase 1 keeps `numeric(19,4)` amounts and
+  `numeric(18,8)` rates with `currencyId` (full spec → OQ-3, Decision
+  for Phase 1). Add the `.ai/money-allowlist.json` entry that points at
+  OQ-3, and don't convert the columns to `MoneyColumns` in this PR: the
+  move to `Money` is a separate PR after #9978, posted rows are never
+  rewritten, and `Money` objects will be added next to the existing
+  numeric-string fields in API responses and the event payload, never
+  in place of them.
+- **Emit `ledger.journal_entry.posted` with `{ persistent: true }`, from
+  both `postJournalEntry` and `reverseJournalEntry`.** The event bus
+  queues an event for the persistent worker only when the emitter asks
+  for it; a subscriber's `metadata.persistent` alone does not. When the
+  command runs inside a caller's transaction (`ctx.transactionalEm`), it
+  emits nothing and the caller emits the same event (`emitPostedEvent`)
+  with `{ persistent: true }` after its own commit. Treat the event as a
+  notification, not as the record: delivery is at-least-once, consumers
+  dedupe by `(journalEntryId, post | reversal)`, and an event lost
+  between commit and enqueue is recovered through
+  `listPostedEntriesSince` (`lib/postedEntriesSince.ts`: committed
+  entries of one organization after a `sequenceNumber` cursor, ascending,
+  `REVERSAL` entries included). The ledger only offers that read; the
+  consumer (first of all the Posting Rules Engine) decides when to run
+  its reconciliation. The persistent flag and the composed-call rule are
+  what the first ledger PR must have; `listPostedEntriesSince` ships with
+  the Posting Rules Engine PR or before it, not as a condition for
+  merging the ledger. No outbox in this phase (full spec → Events →
+  Delivery contract).
 
 ## When you're done with this spec
 
