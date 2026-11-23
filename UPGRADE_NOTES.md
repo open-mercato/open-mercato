@@ -24,6 +24,8 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.10.0 (Unreleased)
 
+Companion skill: [`om-auto-upgrade-0.9.0-to-0.10.0`](.ai/skills/om-auto-upgrade-0.9.0-to-0.10.0/SKILL.md).
+
 ### Outbound email attachments: the hub fills `attachments` with bytes; `assembleRfc2822` is deprecated (#7098)
 
 `send-as-user` accepts `attachments` (attachments-module ids with their owning record), and the
