@@ -21,9 +21,11 @@ import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encrypti
 import {
   type AggregateFunction,
   type DateGranularity,
+  MAX_GROUP_LIMIT,
   buildAggregationQuery,
   buildDistinctCurrencyQuery,
   buildGroupSourceRowsQuery,
+  resolveGroupByLimit,
   resolveGroupExpression,
 } from '../lib/aggregations'
 import {
@@ -544,6 +546,11 @@ export class WidgetDataService {
         value: row.value !== null ? Number(row.value) : null,
       }))
 
+      // The query carries a LIMIT, but the service bounds its own materialization too so an
+      // in-process caller that bypasses the builder — or a result set larger than the bound —
+      // cannot turn into an unbounded response or an unbounded label lookup (#10333).
+      data = data.slice(0, resolveGroupByLimit(request.groupBy.limit))
+
       if (request.groupBy.resolveLabels) {
         data = await this.resolveGroupLabels(data, request.entityType, request.groupBy.field)
       }
@@ -701,9 +708,10 @@ export class WidgetDataService {
       .map(([groupKey, bucket]) => ({ groupKey, value: aggregateBucket(request.metric.aggregate, bucket) }))
       .sort(compareWidgetDataItemsByValueDesc)
 
-    if (request.groupBy?.limit && request.groupBy.limit > 0) {
-      data = data.slice(0, Math.min(request.groupBy.limit, 100))
-    }
+    // The decrypted buckets are bounded by the same seam as the SQL path: an omitted limit
+    // resolves to the documented default instead of returning every distinct bucket, keeping the
+    // encrypted and plaintext output bounds identical (#10333).
+    data = data.slice(0, resolveGroupByLimit(request.groupBy?.limit))
 
     if (request.groupBy?.resolveLabels) {
       data = await this.resolveGroupLabels(data, request.entityType, request.groupBy.field)
@@ -772,6 +780,9 @@ export class WidgetDataService {
     }
 
     const uniqueIds = [...new Set(ids)]
+    // Label resolution runs after the group bound, and its ID list is bounded to the same maximum
+    // so the label lookup itself can never grow with group cardinality (#10333).
+    const boundedUniqueIds = uniqueIds.slice(0, MAX_GROUP_LIMIT)
 
     const table = assertSafeIdentifier(readOwnProperty(config, 'table'), 'table name')
     const idColumn = assertSafeIdentifier(readOwnProperty(config, 'idColumn'), 'id column')
@@ -790,7 +801,7 @@ export class WidgetDataService {
 
     if (meta && idProp && labelProp && tenantProp && entityName) {
       const where: Record<string, unknown> = {
-        [idProp]: { $in: uniqueIds },
+        [idProp]: { $in: boundedUniqueIds },
         [tenantProp]: this.scope.tenantId,
       }
       if (organizationProp && this.scope.organizationIds && this.scope.organizationIds.length > 0) {
@@ -847,7 +858,7 @@ export class WidgetDataService {
     }
 
     const clauses = [`"${idColumn}" = ANY(?::uuid[])`, 'tenant_id = ?']
-    const params: unknown[] = [`{${uniqueIds.join(',')}}`, this.scope.tenantId]
+    const params: unknown[] = [`{${boundedUniqueIds.join(',')}}`, this.scope.tenantId]
 
     if (this.scope.organizationIds && this.scope.organizationIds.length > 0) {
       clauses.push('organization_id = ANY(?::uuid[])')

@@ -8,6 +8,34 @@ export type DateGranularity = 'day' | 'week' | 'month' | 'quarter' | 'year'
 const VALID_GRANULARITIES: readonly DateGranularity[] = ['day', 'week', 'month', 'quarter', 'year']
 const VALID_AGGREGATES: readonly AggregateFunction[] = ['count', 'sum', 'avg', 'min', 'max']
 
+/**
+ * Upper bound on how many groups a grouped widget-data aggregation may return (#10333). The HTTP
+ * boundary rejects an explicit limit above it and the query builder clamps in-process callers to
+ * it, so neither can materialize an unbounded grouping.
+ */
+export const MAX_GROUP_LIMIT = 100
+
+/**
+ * Limit applied when a request omits `groupBy.limit` (#10333). An omitted limit used to remove
+ * the bound entirely, letting a high-cardinality column return every distinct group — and feed all
+ * of them into label resolution. Omission now normalizes to the documented maximum, so the
+ * default and the widest explicit request return the same bounded shape.
+ */
+export const DEFAULT_GROUP_LIMIT = MAX_GROUP_LIMIT
+
+/**
+ * Normalizes a group limit from any caller — HTTP-validated or in-process — into the bounded
+ * positive integer enforced at the service/builder seam. An omitted, null, non-finite or
+ * non-positive limit resolves to the documented default; a larger explicit limit keeps its
+ * historical clamp to the maximum (#10333).
+ */
+export function resolveGroupByLimit(limit: number | undefined | null): number {
+  if (typeof limit !== 'number' || !Number.isFinite(limit) || limit < 1) {
+    return DEFAULT_GROUP_LIMIT
+  }
+  return Math.min(Math.floor(limit), MAX_GROUP_LIMIT)
+}
+
 export function isValidGranularity(value: unknown): value is DateGranularity {
   return typeof value === 'string' && VALID_GRANULARITIES.includes(value as DateGranularity)
 }
@@ -361,9 +389,10 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
       // encrypted path can mirror the same ordering (#4622).
       orderByClause = `ORDER BY value DESC NULLS LAST`
 
-      if (options.groupBy.limit && options.groupBy.limit > 0) {
-        limitClause = `LIMIT ${Math.min(options.groupBy.limit, 100)}`
-      }
+      // Every grouped query leaves the builder with a LIMIT (#10333): an omitted or invalid
+      // limit resolves to the documented default instead of dropping the bound, and an explicit
+      // value keeps its clamp to the maximum.
+      limitClause = `LIMIT ${resolveGroupByLimit(options.groupBy.limit)}`
     }
   }
 

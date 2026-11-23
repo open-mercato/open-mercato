@@ -51,6 +51,7 @@ import {
   WidgetDataValidationError,
 } from '../../../../services/widgetDataService'
 import { MAX_SET_FILTER_VALUES } from '../schema'
+import { DEFAULT_GROUP_LIMIT, MAX_GROUP_LIMIT } from '../../../../lib/aggregations'
 import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import type { Module } from '@open-mercato/shared/modules/registry'
 
@@ -59,7 +60,12 @@ type OpenApiSchemaNode = {
   enum?: string[]
   maxItems?: number
   minItems?: number
+  minimum?: number
+  maximum?: number
+  default?: number
+  required?: string[]
   properties?: Record<string, OpenApiSchemaNode>
+  allOf?: OpenApiSchemaNode[]
   items?: OpenApiSchemaNode
   oneOf?: OpenApiSchemaNode[]
 }
@@ -229,6 +235,77 @@ describe('widget data set filter bound (#4852)', () => {
     expect(setFilterBranch?.properties?.operator?.enum).toEqual(['in', 'not_in'])
     expect(setFilterBranch?.properties?.value?.maxItems).toBe(MAX_SET_FILTER_VALUES)
     expect(setFilterBranch?.properties?.value?.minItems).toBeUndefined()
+  })
+})
+
+describe('widget data groupBy limit default (#10333)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    analyticsRegistry.getRequiredFeatures.mockReturnValue(null)
+    fetchWidgetData.mockResolvedValue({
+      value: 0,
+      data: [],
+      metadata: { fetchedAt: '2026-11-24T00:00:00.000Z', recordCount: 0 },
+    })
+  })
+
+  test('normalizes an omitted groupBy.limit to the documented default before calling the service', async () => {
+    const response = await POST(
+      buildRequest({
+        entityType: 'sales:orders',
+        metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+        groupBy: { field: 'status' },
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(fetchWidgetData).toHaveBeenCalledTimes(1)
+    expect(fetchWidgetData.mock.calls[0][0].groupBy.limit).toBe(DEFAULT_GROUP_LIMIT)
+  })
+
+  test('still rejects an oversized explicit limit with a 400 that names the field', async () => {
+    const response = await POST(
+      buildRequest({
+        entityType: 'sales:orders',
+        metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+        groupBy: { field: 'status', limit: MAX_GROUP_LIMIT + 1 },
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('Invalid request payload')
+    expect(body.issues[0].path).toEqual(['groupBy', 'limit'])
+    expect(fetchWidgetData).not.toHaveBeenCalled()
+  })
+
+  test('publishes the default and the maximum in the generated OpenAPI schema', () => {
+    const modules: Module[] = [
+      {
+        id: 'dashboards',
+        apis: [
+          {
+            path: '/dashboards/widgets/data',
+            metadata: { POST: { requireAuth: true } },
+            handlers: { POST },
+            docs: openApi,
+          },
+        ],
+      },
+    ]
+
+    const doc = buildOpenApiDocument(modules)
+    const post = doc.paths['/dashboards/widgets/data']?.post as unknown as OpenApiOperationNode
+    const bodySchema = post.requestBody?.content?.['application/json']?.schema
+    const groupBySchema = bodySchema?.properties?.groupBy
+    const limitSchema = groupBySchema?.properties?.limit
+
+    // A defaulted property renders as `{ allOf: [base], default }`; the numeric min/max checks are
+    // not rendered by the generator for any number field, so the published artifact here is the
+    // default plus the field staying optional in the request.
+    expect(limitSchema?.allOf?.[0]?.type).toBe('number')
+    expect(limitSchema?.default).toBe(DEFAULT_GROUP_LIMIT)
+    expect(groupBySchema?.required ?? []).not.toContain('limit')
   })
 })
 

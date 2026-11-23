@@ -102,6 +102,9 @@ type WidgetDataRequest = {
   groupBy?: {
     field: string
     granularity?: 'day' | 'week' | 'month' | 'quarter' | 'year'
+    // Optional in the request; an omitted limit normalizes to the documented
+    // default of 100 (#10333). Explicit values keep the 1..100 range and
+    // oversized or invalid limits remain client errors.
     limit?: number
     resolveLabels?: boolean
   }
@@ -164,6 +167,18 @@ must migrate to plain SQL identifiers or views.
 An analytics entity is queryable only when it declares `requiredFeatures` as an own
 array of nonempty feature IDs. An explicit empty array keeps the route's baseline
 dashboard permission without adding entity-specific requirements.
+
+Grouping cardinality bound (#10333): a request that omits `groupBy.limit` normalizes to
+the documented default of 100 — the same bound an explicit request is held to — and the
+service/builder seam enforces it for in-process callers on both the plaintext and
+encrypted group paths, so label-ID lookups are bounded to the same maximum. No route,
+request, or response field changes shape, and every explicit in-range limit keeps its
+exact prior behavior; oversized or invalid explicit limits remain client errors. Only
+the previously unbounded omitted-limit response narrows: a grouping that used to return
+every distinct group now returns at most the documented 100 highest-value buckets, and
+its `value` is the total over those returned buckets, matching the explicit-limit
+semantics. Internal callers that grouped over bounded domains (pipeline stages, order
+statuses, date granularity buckets) are unaffected.
 
 ## Caching
 
@@ -318,6 +333,11 @@ const direction = determineChangeDirection(current, previous)
 ```
 
 ## Changelog
+
+### 2026-11-24
+- Normalized an omitted `groupBy.limit` to the documented default of 100 across the single and batch widget-data endpoints (#10333); explicit limits keep the 1..100 range, oversized/invalid values remain client errors.
+- Enforced the bound at the service/builder seam (query builder LIMIT, service-side materialization slice, encrypted-path slice) so in-process callers cannot omit protection.
+- Bounded label-ID lookups to the same maximum after limiting groups, keeping plaintext and encrypted output bounds identical.
 
 ### 2026-08-01
 - Added optional `metadata.currency` propagation for money widgets.

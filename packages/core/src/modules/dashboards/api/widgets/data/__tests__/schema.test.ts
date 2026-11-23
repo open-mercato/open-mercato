@@ -2,6 +2,7 @@
  * @jest-environment node
  */
 import { MAX_SET_FILTER_VALUES, filterOperatorSchema, widgetDataRequestSchema } from '../schema'
+import { DEFAULT_GROUP_LIMIT, MAX_GROUP_LIMIT } from '../../../../lib/aggregations'
 
 function buildRequest(filters: Array<Record<string, unknown>>): Record<string, unknown> {
   return {
@@ -118,6 +119,57 @@ describe('widget data scalar filters are unaffected by the set bound', () => {
     const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'status', operator: 'like', value: 'a%' }]))
 
     expect(parsed.success).toBe(false)
+  })
+})
+
+describe('widget data groupBy limit defaults to a bounded value (#10333)', () => {
+  function buildGroupedRequest(groupBy: Record<string, unknown>): Record<string, unknown> {
+    return {
+      entityType: 'sales:orders',
+      metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+      groupBy,
+    }
+  }
+
+  test('normalizes an omitted limit to the documented default', () => {
+    const parsed = widgetDataRequestSchema.safeParse(buildGroupedRequest({ field: 'status' }))
+
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data.groupBy?.limit).toBe(DEFAULT_GROUP_LIMIT)
+    expect(DEFAULT_GROUP_LIMIT).toBe(MAX_GROUP_LIMIT)
+  })
+
+  test('keeps an explicit in-range limit untouched', () => {
+    const parsed = widgetDataRequestSchema.safeParse(buildGroupedRequest({ field: 'status', limit: 10 }))
+
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data.groupBy?.limit).toBe(10)
+  })
+
+  test.each([MAX_GROUP_LIMIT + 1, 1000])('still rejects an oversized explicit limit of %i as a client error', (limit) => {
+    const parsed = widgetDataRequestSchema.safeParse(buildGroupedRequest({ field: 'status', limit }))
+
+    expect(parsed.success).toBe(false)
+    const issue = parsed.success ? undefined : parsed.error.issues[0]
+    expect(issue?.path).toEqual(['groupBy', 'limit'])
+    expect(issue?.code).toBe('too_big')
+  })
+
+  test.each([0, -1, 1.5])('still rejects the invalid explicit limit %i', (limit) => {
+    const parsed = widgetDataRequestSchema.safeParse(buildGroupedRequest({ field: 'status', limit }))
+
+    expect(parsed.success).toBe(false)
+    expect(parsed.success ? undefined : parsed.error.issues[0]?.path).toEqual(['groupBy', 'limit'])
+  })
+
+  test('keeps the groupBy object itself optional', () => {
+    const parsed = widgetDataRequestSchema.safeParse({
+      entityType: 'sales:orders',
+      metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+    })
+
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data.groupBy).toBeUndefined()
   })
 })
 
