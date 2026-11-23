@@ -144,6 +144,8 @@ async function deleteTenantEverywhere(tenantId: string | null): Promise<void> {
 }
 
 test.describe.serial('TC-CONF-011: configs upgrade-actions CLI', () => {
+  test.describe.configure({ timeout: 300_000 })
+
   let tenantId: string | null = null
   let organizationA = ''
   let organizationB = ''

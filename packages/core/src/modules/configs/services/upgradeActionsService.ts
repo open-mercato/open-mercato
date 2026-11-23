@@ -269,7 +269,7 @@ export async function executeUpgradeAction(
         organizationId,
       }))
       await tem.flush()
-      logger.info('Upgrade action completed', { component: 'upgrade-actions', actionId: definition.id, version, tenantId, organizationId })
+      logger.info('Upgrade action completed', { component: 'upgrade-actions', actionId: definition.id, version: definition.version, tenantId, organizationId })
       return 'completed' as const
     }, LOCK_OPTIONS)
   } catch (error) {
