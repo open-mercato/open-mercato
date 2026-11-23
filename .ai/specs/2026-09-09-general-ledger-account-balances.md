@@ -1431,19 +1431,26 @@ top of the live query.
   Use different base currencies in two organizations and post a foreign line
   in one. Check the reported units, retained scale and scope. The panel
   renders the base amount and treats the account-currency figure as unavailable.
-- Post under base A, promote B, post under B with the
-  same accounting date, then undo the promotion to restore A. Both routes
-  must reject the mixed range with `422 accounting_policy_unavailable` and
-  no amounts, even though today's base is A. In the fenced alternative,
-  assert that promotion is refused before any B posting can commit. Exercise
-  the import and undo/redo paths enabled for the scope. An unmodified second
-  organization must retain its coverage and revision throughout.
-- Obtain page one, then promote B and undo it between pages.
-  A page-two request with the old token must yield no rows. With invalid
-  coverage, the existing accounting-policy error takes precedence. After
-  coverage for the requested range is re-attested, the old token must yield
-  `409 report_changed`, even if the figures and base ID again match page one.
-  A new page-one request uses the fresh revision.
+- **Durable posting evidence.** Post under A, promote B, post under B with the
+  same accounting date and undo the promotion. Both routes must reject the
+  mixed range with `422 accounting_policy_unavailable` and no figures, even
+  after A is restored. Separately, obtain page one of a single-base range,
+  promote B and restore A without any intervening posting. Each committed
+  transition must advance the revision. A continuation yields no rows while
+  its coverage is invalid. After re-attestation proves the range still uses A,
+  the old token yields `409 report_changed` and a new page one succeeds.
+- **Continuous fence.** Get page one with A as the attested base. Try to
+  promote B through each enabled writer. The fence refuses the change before
+  it commits. With no other contributing write and a still-valid token, the
+  base, coverage and revision stay unchanged and page two succeeds with the
+  original token. In a separate run, lose the fence after page one. Both
+  report routes must withhold figures throughout the coverage gap. Restoring
+  the fence alone must not reopen reporting. Reconcile the gap, re-attest a
+  proven single-base range and publish a fresh revision. Page two with the
+  old token then yields `409 report_changed`. A new page one succeeds.
+- Run the applicable currency scenario through the scope's promotion, import
+  and undo/redo paths. An untouched second organization must keep its
+  coverage and revision in both designs.
 - Phase 2 only, after human approval: balance in the account's currency
   (Design decisions, "Balance in the account's currency"):
   - a foreign-currency account (`currencyId` EUR): debit EUR 100 and credit
@@ -2089,8 +2096,11 @@ following continuity guarantees. [Currency commands](https://github.com/open-mer
   active through reporting. Drain or exclude concurrent postings during
   attestation. Every later posting must enforce the attested base through
   commit. Existing history needs independent evidence at the initial
-  cutoff. Losing the fence invalidates coverage and blocks reporting until
-  the gap is reconciled and a fresh revision published.
+  cutoff. A rejected promotion has no committed reporting effect and
+  preserves the revision used by an otherwise valid continuation. Losing
+  the fence invalidates coverage and blocks reporting until the fence is
+  restored, the gap reconciled, coverage re-attested and a fresh revision
+  published. Only fresh tokens can continue against that revision.
 
 Both alternatives cover currency creation with base promotion, updates,
 undo/redo, imports, posting and restore paths. An import or administrative
@@ -2724,3 +2734,6 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
   restore, scoped currency promotion followed by undo, and a base change
   between report pages. Documented the currency and posting writer evidence
   needed to keep a historical attestation and continuation token valid.
+- Split the continuation tests by currency guarantee. Committed base
+  transitions invalidate old tokens. A refused promotion preserves a valid
+  continuation, while loss and recovery of the fence require a fresh revision.
