@@ -272,9 +272,9 @@ except registered MFA completion routes.
 
 ## Amendment 2026-11-23 — Challenge creation failures deny login
 
-Unexpected MFA method reads, challenge writes, timeouts, and service-resolution failures must deny `POST /api/auth/login`. The core login handler revokes the provisional session and returns the interceptor runner's failure without access tokens, refresh tokens, or authentication cookies. If revocation itself fails, the handler reports `auth.login_revoke_failed` through the shared telemetry bridge and still returns no credentials.
+Unexpected MFA method reads, unregistered MFA providers, challenge writes, timeouts, and service-resolution failures must deny `POST /api/auth/login`. Registered MFA providers are validated before persisting a new `MfaChallenge` row so unregistered-provider failures leave no orphaned challenge rows. The core login handler logs and reports the failure (`auth.login_interceptor_failed`, alongside `security.mfa_service_unavailable` / `security.mfa_challenge_creation_failed`), revokes the provisional session, emits `auth.login.failed` (`reason: 'after_interceptor_failed'`) instead of `auth.login.success`, and returns the localized generic login error (`{ ok: false, error }`) with the interceptor's failure status and without access tokens, refresh tokens, or authentication cookies. If revocation itself fails, the handler reports `auth.login_revoke_failed` through the shared telemetry bridge (defensively wrapped so telemetry faults never alter the denied response) and still returns no credentials.
 
-Only `MfaVerificationServiceError` with code `MFA_NO_METHODS_CONFIGURED` permits the ordinary no-MFA login. The explicit emergency bypass is evaluated before service resolution, retaining its existing warning and notification behavior during an MFA outage. This amendment supersedes the original error no-op wording.
+Only an `Error` instance of `MfaVerificationServiceError` with code `MFA_NO_METHODS_CONFIGURED` permits the ordinary no-MFA login. The explicit emergency bypass is evaluated before service resolution, retaining its existing warning and notification behavior during an MFA outage. This amendment supersedes the original error no-op wording.
 
 ### Migration & Backward Compatibility
 

@@ -1,7 +1,11 @@
 import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig, requestMfaEmergencyBypassNotification } from '../lib/security-config'
 import { MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
+
+const logger = createLogger('security').child({ component: 'auth-login-mfa-interceptor' })
 
 type JwtClaims = {
   sub: string
@@ -51,9 +55,30 @@ function resolveMfaVerificationService(container: { resolve: (name: string) => u
 }
 
 function isNoMfaMethodsConfiguredError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false
-  const candidate = error as { name?: unknown; code?: unknown }
+  if (!(error instanceof Error)) return false
+  const candidate = error as Error & { code?: unknown }
   return candidate.name === 'MfaVerificationServiceError' && candidate.code === MFA_NO_METHODS_CONFIGURED_CODE
+}
+
+function reportMfaLoginFailure(
+  error: unknown,
+  code: 'security.mfa_service_unavailable' | 'security.mfa_challenge_creation_failed',
+  message: string,
+): void {
+  try {
+    logger.error(message, { err: error, code })
+  } catch {
+    // Never let a logger fault mask the fail-closed throw.
+  }
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'security', code })
+  } catch (telemetryError) {
+    try {
+      logger.warn('Failed to report MFA login error to telemetry', { err: telemetryError, code })
+    } catch {
+      // Never let a telemetry fault mask the fail-closed throw.
+    }
+  }
 }
 
 export const interceptors: ApiInterceptor[] = [
@@ -82,7 +107,13 @@ export const interceptors: ApiInterceptor[] = [
       if (!mfaVerificationService) {
         // Fail closed: without the MFA service we cannot know whether this account needs a
         // second factor, so the already-issued full staff token must not reach the caller.
-        throw new Error('[internal] MFA verification service unavailable for auth/login')
+        const unavailableError = new Error('[internal] MFA verification service unavailable for auth/login')
+        reportMfaLoginFailure(
+          unavailableError,
+          'security.mfa_service_unavailable',
+          'MFA verification service unavailable during auth/login; denying login',
+        )
+        throw unavailableError
       }
 
       try {
@@ -115,6 +146,11 @@ export const interceptors: ApiInterceptor[] = [
         // failure (reading methods, persisting the challenge, provider resolution) must
         // abort the login instead of returning the full JWT and refresh token.
         if (isNoMfaMethodsConfiguredError(error)) return {}
+        reportMfaLoginFailure(
+          error,
+          'security.mfa_challenge_creation_failed',
+          'MFA challenge creation failed during auth/login; denying login',
+        )
         throw error
       }
     },

@@ -15,6 +15,7 @@ const organizationId = '058fda92-9934-4e2f-b733-83584214e3f2'
 const userId = '3074be34-5dd8-44ca-acb3-3cb30e9086c1'
 const sessionId = '5185a109-c950-414d-a889-5d2f3c3fb619'
 const mockReportError = jest.fn()
+const mockEmitAuthEvent = jest.fn(async () => undefined)
 const methods = [{ userId, tenantId, type: 'totp' }]
 const mockEm = {
   find: jest.fn(async () => methods),
@@ -60,7 +61,9 @@ jest.mock('@open-mercato/core/modules/auth/lib/rateLimitCheck', () => ({
   checkAuthRateLimit: async () => ({ error: null, compoundKey: null }),
   resetAuthRateLimit: async () => undefined,
 }))
-jest.mock('@open-mercato/core/modules/auth/events', () => ({ emitAuthEvent: async () => undefined }))
+jest.mock('@open-mercato/core/modules/auth/events', () => ({
+  emitAuthEvent: (...args: unknown[]) => mockEmitAuthEvent(...(args as [])),
+}))
 jest.mock('../../events', () => ({ emitSecurityEvent: async () => undefined }))
 
 function login(remember: boolean) {
@@ -75,11 +78,20 @@ function login(remember: boolean) {
 async function expectDenied(response: Response, status = 500) {
   expect(response.status).toBe(status)
   const body = await response.json()
+  expect(body).toEqual({
+    ok: false,
+    error: 'An error occurred. Please try again.',
+  })
   expect(body.token).toBeUndefined()
   expect(body.refreshToken).toBeUndefined()
   expect(response.headers.get('set-cookie')).toBeNull()
   expect(mockAuthService.deleteSessionById).toHaveBeenCalledTimes(1)
   expect(mockAuthService.deleteSessionById).toHaveBeenCalledWith(sessionId)
+  expect(mockEmitAuthEvent).not.toHaveBeenCalledWith('auth.login.success', expect.anything())
+  expect(mockEmitAuthEvent).toHaveBeenCalledWith(
+    'auth.login.failed',
+    expect.objectContaining({ email: 'mfa-test@example.com', reason: 'after_interceptor_failed' }),
+  )
 }
 
 describe('login route with the registered MFA interceptor and verification service', () => {
@@ -128,12 +140,31 @@ describe('login route with the registered MFA interceptor and verification servi
     mockEm.find.mockRejectedValueOnce(new Error('[internal] Method store unavailable'))
     await expectDenied(await login(remember))
     expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[internal] Method store unavailable' }),
+      { module: 'security', code: 'security.mfa_challenge_creation_failed' },
+    )
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ module: 'auth', code: 'auth.login_interceptor_failed', attributes: { statusCode: 500 } }),
+    )
   })
 
   test.each([false, true])('denies challenge persistence failure with remember=%s', async (remember) => {
     mockEm.flush.mockRejectedValueOnce(new Error('[internal] Challenge store unavailable'))
     await expectDenied(await login(remember))
     expect(mockEm.persist).toHaveBeenCalledTimes(1)
+  })
+
+  test('denies login without persisting an orphaned challenge when no registered MFA provider matches', async () => {
+    mockEm.find.mockResolvedValueOnce([{ userId, tenantId, type: 'hardware_token' }])
+    await expectDenied(await login(true))
+    expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(mockEm.flush).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'No registered MFA providers are available for the configured methods' }),
+      { module: 'security', code: 'security.mfa_challenge_creation_failed' },
+    )
   })
 
   test('does not mistake an untyped no-methods error for a verified no-MFA account', async () => {
@@ -144,6 +175,10 @@ describe('login route with the registered MFA interceptor and verification servi
   test('denies login when the MFA service cannot be resolved', async () => {
     serviceUnavailable = true
     await expectDenied(await login(true))
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[internal] MFA verification service unavailable for auth/login' }),
+      { module: 'security', code: 'security.mfa_service_unavailable' },
+    )
   })
 
   test('revokes the provisional session when challenge persistence times out', async () => {
@@ -151,6 +186,10 @@ describe('login route with the registered MFA interceptor and verification servi
     const pendingResponse = login(true)
     await jest.advanceTimersByTimeAsync(5000)
     await expectDenied(await pendingResponse, 504)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ module: 'auth', code: 'auth.login_interceptor_failed', attributes: { statusCode: 504 } }),
+    )
   })
 
   test('preserves the emergency bypass when the MFA service cannot be resolved', async () => {
@@ -164,6 +203,7 @@ describe('login route with the registered MFA interceptor and verification servi
     expect(body.refreshToken).toBe('provisional-refresh')
     expect(mockEm.find).not.toHaveBeenCalled()
     expect(mockAuthService.deleteSessionById).not.toHaveBeenCalled()
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
   })
 
   test('reports revocation failure and still returns no credentials', async () => {
@@ -174,6 +214,19 @@ describe('login route with the registered MFA interceptor and verification servi
     expect(mockReportError).toHaveBeenCalledWith(revocationError, {
       module: 'auth', code: 'auth.login_revoke_failed',
     })
+  })
+
+  test('still denies login cleanly when telemetry reporting itself throws', async () => {
+    mockEm.flush.mockRejectedValueOnce(new Error('[internal] Challenge store unavailable'))
+    mockAuthService.deleteSessionById.mockRejectedValueOnce(new Error('[internal] Session store unavailable'))
+    mockReportError.mockImplementation(() => {
+      throw new Error('telemetry sink offline')
+    })
+    try {
+      await expectDenied(await login(true))
+    } finally {
+      mockReportError.mockReset()
+    }
   })
 
   test.each([false, true])('preserves non-MFA login with remember=%s', async (remember) => {
@@ -187,6 +240,7 @@ describe('login route with the registered MFA interceptor and verification servi
     expect(response.headers.get('set-cookie')).toContain('auth_token=')
     expect(response.headers.get('set-cookie')).toContain('session_token=provisional-refresh')
     expect(mockAuthService.deleteSessionById).not.toHaveBeenCalled()
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
   })
 
   test.each([false, true])('issues only pending credentials for an MFA account with remember=%s', async (remember) => {
@@ -204,6 +258,7 @@ describe('login route with the registered MFA interceptor and verification servi
       userId, isActive: true, deletedAt: null,
     }, expect.anything())
     expect(mockAuthService.deleteSessionById).not.toHaveBeenCalled()
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
   })
 
   test('rejects invalid credentials before invoking MFA or creating a session', async () => {

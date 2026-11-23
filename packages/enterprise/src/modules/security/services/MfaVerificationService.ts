@@ -55,16 +55,6 @@ export class MfaVerificationService {
       throw new MfaVerificationServiceError('No MFA methods configured', 400, MFA_NO_METHODS_CONFIGURED_CODE)
     }
 
-    const challenge = this.em.create(MfaChallenge, {
-      userId,
-      tenantId: methods[0].tenantId,
-      expiresAt: new Date(Date.now() + this.securityConfig.mfa.challengeTtlMs),
-      attempts: 0,
-      createdAt: new Date(),
-    })
-    this.em.persist(challenge)
-    await this.em.flush()
-
     const availableMethods = methods
       .map((method) => {
         const provider = this.mfaProviderRegistry.get(method.type)
@@ -80,6 +70,16 @@ export class MfaVerificationService {
     if (availableMethods.length === 0) {
       throw new MfaVerificationServiceError('No registered MFA providers are available for the configured methods', 400)
     }
+
+    const challenge = this.em.create(MfaChallenge, {
+      userId,
+      tenantId: methods[0].tenantId,
+      expiresAt: new Date(Date.now() + this.securityConfig.mfa.challengeTtlMs),
+      attempts: 0,
+      createdAt: new Date(),
+    })
+    this.em.persist(challenge)
+    await this.em.flush()
 
     return {
       challengeId: challenge.id,

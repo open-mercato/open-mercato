@@ -2,20 +2,26 @@ const mockEmitSecurityEvent = jest.fn().mockResolvedValue(undefined)
 jest.mock('../../events', () => ({ emitSecurityEvent: mockEmitSecurityEvent }))
 
 const mockLoggerWarn = jest.fn()
+const mockLoggerError = jest.fn()
+const mockReportError = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => ({
     warn: mockLoggerWarn,
-    error: jest.fn(),
+    error: mockLoggerError,
     info: jest.fn(),
     debug: jest.fn(),
     child: () => ({
       warn: mockLoggerWarn,
-      error: jest.fn(),
+      error: mockLoggerError,
       info: jest.fn(),
       debug: jest.fn(),
     }),
   }),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
 }))
 
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
@@ -125,8 +131,9 @@ describe('security auth/login api interceptor', () => {
   test('fails closed when challenge creation fails for an account with MFA methods', async () => {
     if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
 
+    const failure = new Error('db unavailable')
     const createChallenge = jest.fn(async () => {
-      throw new Error('db unavailable')
+      throw failure
     }) as CreateChallengeMock
 
     const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
@@ -137,6 +144,37 @@ describe('security auth/login api interceptor', () => {
         buildContext(createChallenge),
       ),
     ).rejects.toThrow('db unavailable')
+
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      'MFA challenge creation failed during auth/login; denying login',
+      expect.objectContaining({ err: failure, code: 'security.mfa_challenge_creation_failed' }),
+    )
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      module: 'security',
+      code: 'security.mfa_challenge_creation_failed',
+    })
+  })
+
+  test('fails closed on a plain non-Error object mimicking the no-MFA error code', async () => {
+    if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
+
+    const spoofedError = {
+      name: 'MfaVerificationServiceError',
+      statusCode: 400,
+      code: MFA_NO_METHODS_CONFIGURED_CODE,
+    }
+    const createChallenge = jest.fn(async () => {
+      throw spoofedError
+    }) as CreateChallengeMock
+
+    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    await expect(
+      interceptor.after(
+        { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
+        { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
+        buildContext(createChallenge),
+      ),
+    ).rejects.toBe(spoofedError)
   })
 
   test('returns no-op when the account has no MFA methods configured', async () => {
@@ -154,6 +192,7 @@ describe('security auth/login api interceptor', () => {
     )
 
     expect(result).toEqual({})
+    expect(mockReportError).not.toHaveBeenCalled()
   })
 
   test('fails closed when the MFA verification service is unavailable', async () => {
@@ -179,6 +218,35 @@ describe('security auth/login api interceptor', () => {
         context,
       ),
     ).rejects.toThrow('[internal] MFA verification service unavailable')
+
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      'MFA verification service unavailable during auth/login; denying login',
+      expect.objectContaining({ code: 'security.mfa_service_unavailable' }),
+    )
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[internal] MFA verification service unavailable for auth/login' }),
+      { module: 'security', code: 'security.mfa_service_unavailable' },
+    )
+  })
+
+  test('still throws the fail-closed error when telemetry reporting throws', async () => {
+    if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
+
+    mockReportError.mockImplementationOnce(() => {
+      throw new Error('telemetry collector offline')
+    })
+    const createChallenge = jest.fn(async () => {
+      throw new Error('db unavailable')
+    }) as CreateChallengeMock
+
+    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    await expect(
+      interceptor.after(
+        { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
+        { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
+        buildContext(createChallenge),
+      ),
+    ).rejects.toThrow('db unavailable')
   })
 
   test('skips MFA challenge injection when emergency bypass is enabled', async () => {
