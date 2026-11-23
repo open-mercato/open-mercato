@@ -39,6 +39,7 @@ test('TC-CRM-WRITE-GUARD-UI-001: completed call edits preserve its data and reje
   const dialog = page.getByRole('dialog')
   const phone = dialog.locator('#schedule-call-phone')
   const schedulePickers = dialog.locator('button[aria-haspopup="dialog"]')
+  const historyRow = (callTitle: string) => page.getByRole('button').filter({ hasText: callTitle }).filter({ hasText: notes })
 
   try {
     await login(page, 'admin')
@@ -68,7 +69,7 @@ test('TC-CRM-WRITE-GUARD-UI-001: completed call edits preserve its data and reje
     await expect.poll(async () => (await readCall(request, token, companyId!)).status).toBe('done')
     const completed = await readCall(request, token, companyId)
     expect(completed.occurredAt).toEqual(expect.any(String))
-    await page.getByText(title, { exact: true }).first().click()
+    await historyRow(title).press('Enter')
     const displayedPhone = await phone.inputValue()
     expect(displayedPhone.replace(/\D/g, '')).toMatch(/2125551234$/)
     const displayedSchedule = await schedulePickers.allTextContents()
@@ -79,7 +80,7 @@ test('TC-CRM-WRITE-GUARD-UI-001: completed call edits preserve its data and reje
     await expect(dialog).toBeHidden()
     await page.reload()
     await page.getByRole('tab', { name: 'Activity log' }).click()
-    await page.getByText(editedTitle, { exact: true }).first().click()
+    await historyRow(editedTitle).press('Enter')
     await expect(phone).toHaveValue(displayedPhone)
     await expect(schedulePickers).toHaveText(displayedSchedule)
     const saved = await readCall(request, token, companyId)
@@ -91,7 +92,8 @@ test('TC-CRM-WRITE-GUARD-UI-001: completed call edits preserve its data and reje
     await page.setViewportSize({ width: 390, height: 844 })
     await page.reload()
     await page.getByRole('tab', { name: 'Dziennik aktywności' }).click()
-    await page.getByText(editedTitle, { exact: true }).first().click()
+    await historyRow(editedTitle).press('Enter')
+    await phone.scrollIntoViewIfNeeded()
     await expect(phone).toBeInViewport()
     const polishTitle = dialog.getByPlaceholder('Tytuł aktywności...')
     await phone.fill('12')
@@ -102,7 +104,7 @@ test('TC-CRM-WRITE-GUARD-UI-001: completed call edits preserve its data and reje
     await expect(dialog).toBeHidden()
     expect(await readCall(request, token, companyId)).toEqual(saved)
 
-    await page.getByText(editedTitle, { exact: true }).first().click()
+    await historyRow(editedTitle).press('Enter')
     await polishTitle.fill(`Conflicting edit ${fixtureId}`)
     const email = `crm-write-guard-${fixtureId}@example.com`
     const password = `Aa1!${fixtureId}`
