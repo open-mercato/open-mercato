@@ -48,10 +48,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const container = await createRequestContainer()
   const scope = await resolveProgressRequestScope(container, auth, req)
-  if (!hasReadableProgressScope(scope)) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-  if (!jobIdSchema.safeParse(params.id).success) {
+  if (!hasReadableProgressScope(scope) || !jobIdSchema.safeParse(params.id).success) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
   const progressService = container.resolve('progressService') as ProgressService
@@ -118,10 +115,9 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     organizationIds: scope.filterIds,
     userId: auth.sub,
   }
-  if (!jobIdSchema.safeParse(params.id).success) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-  const existing = await progressService.getJob(params.id, progressContext)
+  const existing = jobIdSchema.safeParse(params.id).success
+    ? await progressService.getJob(params.id, progressContext)
+    : null
   if (!existing || !(await canMutateProgressJob(container, auth, existing))) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
