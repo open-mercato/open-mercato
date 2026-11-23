@@ -33,13 +33,13 @@ Stop a stale `om_selected_tenant` / `om_selected_org` browser selection from sil
 
 ### Phase 1: Core login fix
 
-- [ ] 1.1 Expire `om_selected_tenant` + `om_selected_org` on the login success response in `packages/core/src/modules/auth/api/login.ts`
-- [ ] 1.2 Unit/regression coverage: success clears both; failure leaves both; refresh/profile untouched (guard tests)
+- [x] 1.1 Expire `om_selected_tenant` + `om_selected_org` on the login success response in `packages/core/src/modules/auth/api/login.ts` — 66afd8c949
+- [x] 1.2 Unit/regression coverage: success clears both; failure leaves both; refresh/profile untouched (guard tests) — 66afd8c949
 
 ### Phase 2: Onboarding defence in depth
 
-- [ ] 2.1 Add both scope-cookie clears to `clearAuthCookies` in `packages/onboarding/src/modules/onboarding/lib/verify-redirects.ts`
-- [ ] 2.2 Regression coverage for the onboarding helper
+- [x] 2.1 Add both scope-cookie clears to `clearAuthCookies` in `packages/onboarding/src/modules/onboarding/lib/verify-redirects.ts` — 66afd8c949
+- [x] 2.2 Regression coverage for the onboarding helper — 66afd8c949
 
 ### Phase 3: Validation and PR
 
