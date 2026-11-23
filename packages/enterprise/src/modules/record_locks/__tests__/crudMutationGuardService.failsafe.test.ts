@@ -130,3 +130,103 @@ describe('record-lock CRUD guard decorator — fail-safe (H1–H3)', () => {
     expect(result.body.code).toBe('record_lock_conflict')
   })
 })
+
+describe('record-lock CRUD guard decorator — Keep my changes vs the floor', () => {
+  const conflictId = 'a0000000-0000-4000-8000-000000000001'
+  const keepMineInput = {
+    ...baseInput,
+    requestHeaders: new Headers({
+      'x-om-record-lock-kind': 'catalog.product',
+      'x-om-record-lock-resolution': 'accept_mine',
+      'x-om-record-lock-conflict-id': conflictId,
+    }),
+  }
+  const enrichmentPass = {
+    ok: true,
+    enabled: true,
+    resourceEnabled: true,
+    strategy: 'optimistic',
+    shouldReleaseOnSuccess: false,
+    lock: null,
+    latestActionLogId: 'log-incoming',
+  }
+
+  function keepMineService(options: { verified?: boolean | Error; enrichment?: unknown } = {}) {
+    const canKeepMineOverrideStaleVersion = options.verified instanceof Error
+      ? jest.fn().mockRejectedValue(options.verified)
+      : jest.fn().mockResolvedValue(options.verified ?? true)
+    const validateMutation = options.enrichment instanceof Error
+      ? jest.fn().mockRejectedValue(options.enrichment)
+      : jest.fn().mockResolvedValue(options.enrichment ?? enrichmentPass)
+    const recordLockService = {
+      getSettings: jest.fn().mockResolvedValue(ENABLED_SETTINGS),
+      validateMutation,
+      canKeepMineOverrideStaleVersion,
+    } as unknown as RecordLockService
+    return { recordLockService, validateMutation, canKeepMineOverrideStaleVersion }
+  }
+
+  test('a verified keep-mine retry passes the floor and the enrichment resolves the conflict', async () => {
+    const { recordLockService, validateMutation, canKeepMineOverrideStaleVersion } = keepMineService()
+    const result = await createRecordLockCrudMutationGuardService(recordLockService, floor409()).validateMutation(keepMineInput)
+
+    expect(result).toEqual({ ok: true, shouldRunAfterSuccess: true, metadata: null })
+    expect(canKeepMineOverrideStaleVersion).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-2',
+      resourceKind: 'catalog.product',
+      resourceId: 'product-1',
+      headers: expect.objectContaining({ resolution: 'accept_mine', conflictId }),
+    }))
+    expect(validateMutation).toHaveBeenCalledTimes(1)
+  })
+
+  test('an unverified keep-mine retry keeps the floor 409 and skips the enrichment', async () => {
+    const { recordLockService, validateMutation } = keepMineService({ verified: false })
+    const result = await createRecordLockCrudMutationGuardService(recordLockService, floor409()).validateMutation(keepMineInput)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('expected floor 409')
+    expect(result.body.code).toBe('optimistic_lock_conflict')
+    expect(validateMutation).not.toHaveBeenCalled()
+  })
+
+  test('a failing keep-mine check keeps the floor 409 (fail-closed)', async () => {
+    const { recordLockService, validateMutation } = keepMineService({ verified: new Error('record_locks down') })
+    const result = await createRecordLockCrudMutationGuardService(recordLockService, floor409()).validateMutation(keepMineInput)
+
+    expect(result.ok).toBe(false)
+    expect(validateMutation).not.toHaveBeenCalled()
+  })
+
+  test('a floor failure other than a version conflict is never overridden', async () => {
+    const { recordLockService, canKeepMineOverrideStaleVersion } = keepMineService()
+    const floor: OssCrudMutationGuardServiceLike = {
+      validateMutation: jest.fn().mockResolvedValue({ ok: false, status: 400, body: { code: 'invalid_version_token' } }),
+      afterMutationSuccess: jest.fn().mockResolvedValue(undefined),
+    }
+    const result = await createRecordLockCrudMutationGuardService(recordLockService, floor).validateMutation(keepMineInput)
+
+    expect(result.ok).toBe(false)
+    expect(canKeepMineOverrideStaleVersion).not.toHaveBeenCalled()
+  })
+
+  test('an enrichment that throws after a keep-mine override degrades to the floor 409, not to allow', async () => {
+    const { recordLockService } = keepMineService({ enrichment: new Error('record_locks down') })
+    const result = await createRecordLockCrudMutationGuardService(recordLockService, floor409()).validateMutation(keepMineInput)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('expected floor 409')
+    expect(result.body.code).toBe('optimistic_lock_conflict')
+  })
+
+  test('an enrichment conflict after a keep-mine override still wins', async () => {
+    const { recordLockService } = keepMineService({
+      enrichment: { ok: false, status: 409, error: 'Record conflict requires resolution before saving', code: 'record_lock_conflict', lock: null, conflict: { id: 'conflict-1' } },
+    })
+    const result = await createRecordLockCrudMutationGuardService(recordLockService, floor409()).validateMutation(keepMineInput)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('expected record_lock_conflict')
+    expect(result.body.code).toBe('record_lock_conflict')
+  })
+})

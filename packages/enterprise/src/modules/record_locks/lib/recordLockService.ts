@@ -940,6 +940,40 @@ export class RecordLockService {
     return { ok: true, released: true, lock: nextInQueue ? this.toLockView(nextInQueue, false, remainingLocks) : null }
   }
 
+  /**
+   * Whether a "Keep my changes" retry may pass the OSS `updated_at` floor even
+   * though it still carries the version the page loaded.
+   *
+   * The retry cannot send a fresh version (the host owns that header), so
+   * without this the floor rejects every keep-mine save. It is allowed only for
+   * a conflict this server raised for the requesting user on this record, when
+   * the user may override incoming changes, and when nobody has written the
+   * record since the conflict was shown (the latest action log is still the
+   * incoming one). A write without these headers, or after a third change,
+   * keeps the floor's 409.
+   */
+  async canKeepMineOverrideStaleVersion(input: RecordLockMutationValidationInput): Promise<boolean> {
+    const settings = await this.getSettings()
+    if (!isRecordLockingEnabledForResource(settings, input.resourceKind)) return false
+
+    const parsedHeaders = this.normalizeMutationHeaders(input.headers)
+    const resolution = parsedHeaders.resolution
+    if ((resolution !== 'accept_mine' && resolution !== 'merged') || !parsedHeaders.conflictId) return false
+
+    const conflict = await this.findConflictById(parsedHeaders.conflictId, input)
+    if (!conflict || conflict.conflictActorUserId !== input.userId || !conflict.incomingActionLogId) return false
+
+    const resolvedByRequester = conflict.status !== 'pending'
+      && conflict.resolution === resolution
+      && conflict.resolvedByUserId === input.userId
+    if (conflict.status !== 'pending' && !resolvedByRequester) return false
+
+    if (!(await this.canUserOverrideIncoming(input, settings))) return false
+
+    const latest = await this.findLatestActionLogWithScopeFallback(input)
+    return latest?.id === conflict.incomingActionLogId
+  }
+
   async validateMutation(input: RecordLockMutationValidationInput): Promise<RecordLockValidationResult> {
     this.scheduleCleanup(input.tenantId)
     const settings = await this.getSettings()
