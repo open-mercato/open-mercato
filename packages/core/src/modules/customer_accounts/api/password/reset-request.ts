@@ -32,6 +32,7 @@ export async function POST(req: Request) {
     ipConfig: customerPasswordResetIpRateLimitConfig,
     compoundConfig: customerPasswordResetRateLimitConfig,
     compoundIdentifier: rateLimitEmail,
+    isolateByIdentifierWithoutTrustedIp: true,
   })
   if (rateLimitError) return rateLimitError
 

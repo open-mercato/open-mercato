@@ -7,6 +7,7 @@
 // without running the expensive decryption sweeps.
 
 const mockGetAuthFromRequest = jest.fn()
+const mockGetGrantedFeatures = jest.fn(async () => ['customers.*', 'example.*'])
 const mockResolveOrganizationScopeForRequest = jest.fn()
 const mockResolveCustomerInteractionFeatureFlags = jest.fn()
 const mockLoadCustomFieldValues = jest.fn()
@@ -34,6 +35,7 @@ const cache = {
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
+    if (token === 'rbacService') return { getGrantedFeatures: mockGetGrantedFeatures }
     if (token === 'cache') return cache
     if (token === 'queryEngine') return { query: jest.fn(async () => ({ items: [] })) }
     return null
@@ -185,7 +187,7 @@ describe('GET /api/customers/people/[id] — caching (issue #3663)', () => {
 
     const [getKey] = cache.get.mock.calls[0]
     expect(getKey).toBe(
-      `customers:person-detail:${PERSON_ID}:tenant=${TENANT_ID}:org=${ORG_ID}:caller=${USER_ID}:selOrg=${ORG_ID}:scope=${ORG_ID}:mode=legacy:include=comments`,
+      `customers:person-detail:v2:${PERSON_ID}:tenant=${TENANT_ID}:org=${ORG_ID}:caller=${USER_ID}:selOrg=${ORG_ID}:scope=${ORG_ID}:mode=legacy:include=comments:view=activities,deals,interactions,people`,
     )
 
     const [setKey, setValue, setOpts] = cache.set.mock.calls[0]
@@ -218,6 +220,66 @@ describe('GET /api/customers/people/[id] — caching (issue #3663)', () => {
     const [setKey] = cache.set.mock.calls[0]
     expect(setKey).toContain('caller=api_key:abc')
     expect(setKey).toContain('include=none')
+  })
+
+  it.each([false, true])('skips restricted related reads when unified interactions are %s', async (unified) => {
+    mockGetGrantedFeatures.mockResolvedValueOnce(['customers.people.view'])
+    mockResolveCustomerInteractionFeatureFlags.mockResolvedValue({ unified })
+    mockFindOneWithDecryption.mockReset().mockResolvedValueOnce({
+      ...buildPerson(),
+      nextInteractionAt: new Date('2026-01-01T00:00:00Z'),
+      nextInteractionName: 'Scheduled follow-up',
+      nextInteractionRefId: 'follow-up',
+    }).mockResolvedValue(null)
+    mockEm.count.mockResolvedValue(7)
+    const { GET } = await loadRoute()
+
+    const response = await GET(makeRequest('?include=addresses,notes,activities,interactions,tasks,deals'), {
+      params: { id: PERSON_ID },
+    })
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toMatchObject({
+      person: { id: PERSON_ID, nextInteractionAt: null, nextInteractionName: null, nextInteractionRefId: null },
+      addresses: [], comments: [], activities: [], interactions: [], todos: [], deals: [],
+      counts: { addresses: 0, comments: 0, activities: 0, interactions: 0, todos: 0, deals: 0 },
+    })
+    expect(body).not.toHaveProperty('plannedActivitiesPreview')
+    expect(mockEm.count).not.toHaveBeenCalled()
+    const relatedEntities = [
+      'CustomerAddress', 'CustomerComment', 'CustomerActivity', 'CustomerInteraction',
+      'CustomerTodoLink', 'CustomerDealCompanyLink', 'CustomerDealPersonLink',
+    ]
+    const loadedEntities = mockFindWithDecryption.mock.calls.map(([, entity]) => entity.name)
+    expect(loadedEntities.filter((entity) => relatedEntities.includes(entity))).toEqual([])
+  })
+
+  it('does not reuse cached summaries after related-record permissions are revoked', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const stored = new Map<string, unknown>()
+    cache.get.mockImplementation(async (key: string) => stored.get(key))
+    cache.set.mockImplementation(async (key: string, payload: unknown) => stored.set(key, payload))
+    mockFindOneWithDecryption.mockReset().mockResolvedValueOnce(buildPerson()).mockResolvedValue(null)
+    const { GET } = await loadRoute()
+
+    const authorized = await GET(makeRequest(), { params: { id: PERSON_ID } })
+    expect(authorized.status).toBe(200)
+    expect(await authorized.json()).toHaveProperty('plannedActivitiesPreview')
+
+    mockGetGrantedFeatures.mockResolvedValueOnce(['customers.people.view'])
+    mockFindOneWithDecryption.mockResolvedValueOnce(buildPerson())
+    mockEm.count.mockClear()
+
+    const restricted = await GET(makeRequest(), { params: { id: PERSON_ID } })
+    expect(restricted.status).toBe(200)
+    const body = await restricted.json()
+    expect(body).not.toHaveProperty('plannedActivitiesPreview')
+    expect(body.counts).toMatchObject({
+      activities: 0, addresses: 0, comments: 0, deals: 0, interactions: 0, todos: 0,
+    })
+    expect(mockEm.count).not.toHaveBeenCalled()
+    expect(cache.get.mock.calls[0][0]).not.toBe(cache.get.mock.calls[1][0])
   })
 
   it('serves a cache hit without running the decryption sweeps', async () => {

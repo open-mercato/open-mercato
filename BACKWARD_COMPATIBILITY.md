@@ -720,3 +720,11 @@ STABLE HTTP: disabled portals deny customer auth/APIs (403); a bridge preserves 
 bypass. Enable the portal for API access; clients handle 403.
 [Migration/spec](UPGRADE_NOTES.md#portal-api-access-9162).
 Named human waiver of steps 1–3 pending.
+
+## 2026-11-22 — Attachment assignment label authorization (#10336)
+
+The STABLE attachment library API response and the enrichment helper signature retain their shapes. Referenced records contribute optional labels and links only for an authorized read in the selected tenant and organization. Retaining an unrestricted fallback would keep the unauthorized read available. Server callers can supply verified request authorization and clients can fall back to existing assignment metadata. See the [upgrade notes](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [implementation spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
+
+## #10331 #10332 (2026-11-23)
+
+STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).

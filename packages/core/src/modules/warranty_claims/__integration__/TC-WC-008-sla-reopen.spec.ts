@@ -164,8 +164,10 @@ test.describe('TC-WC-008: warranty claim SLA v2 and reopen', () => {
         resolutionSummary: `Resolved before reopen ${stamp}`,
       })
       closed = await transitionAndExpect(request, token, closed, 'closed')
+      timestamp(closed.closedAt, 'closedAt after close')
       closed = await transitionAndExpect(request, token, closed, 'in_review')
       expect(closed.status, 'closed -> in_review should be the supported reopen transition').toBe('in_review')
+      expect(closed.closedAt, 'reopening a closed claim should clear closedAt').toBeNull()
 
       let cancelled = await createClaimFixture(request, token, {
         claimType: 'return',

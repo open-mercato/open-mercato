@@ -74,6 +74,7 @@ export async function POST(req: Request) {
     ipConfig: customerLoginIpRateLimitConfig,
     compoundConfig: customerLoginRateLimitConfig,
     compoundIdentifier: email,
+    isolateByIdentifierWithoutTrustedIp: true,
   })
   if (rateLimitError) return rateLimitError
 
