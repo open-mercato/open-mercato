@@ -35,6 +35,8 @@ A portal user should show the display name declared by its module. The code fixe
 
 - [x] 2.3 Fix the hosted ComboboxInput autofocus regression and refresh main — 616eadaecf
 
+- [x] 2.4 Register the cross-package ACL guard and fix the payment-menu focus race — b0ca30f483
+
 ## Verification
 
 - The targeted ephemeral Playwright run passed 9 of 9 tests. It confirmed the corrected picker labels and search, the three reworked integration assertions, and the existing access controls.
@@ -44,3 +46,5 @@ A portal user should show the display name declared by its module. The code fixe
 - Hosted CI exposed a second suggestions request after autofocus. The timer-controlled regression fails before the fix and verifies that ArrowDown still loads suggestions after the fix. All 86 focused UI tests and the component design-system lint passed.
 
 - The next main refresh kept both repeated AND predicates and grouped all-of filters. The focused shared filter and CRUD suites passed 328 checks.
+
+- The next hosted run passed 14 integration shards. The last shard exposed a row-menu hover timer closing a keyboard-opened menu. The regression fails before the fix. The CI guard now registers the cross-package ACL audit. The UI suites and both repo-wide guard commands passed.
