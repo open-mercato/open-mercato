@@ -1327,6 +1327,11 @@ Surfaces it consumes or helps freeze elsewhere:
 
 ## 13) Changelog
 
+### 2026-11-23 (AS1 review fixes)
+
+- Check settings permissions in the store's organization, record saves in that organization's audit log, and serialize version checks with existing-row updates.
+- Reject invalid JSON bodies and non-integer settings without writing. Add a rollback for the settings table and localize the role editor's permission group.
+
 ### 2026-11-20 (AS1 implemented — PR #10036)
 
 - AS1 landed: module registration, the six §6.9 features, the §6.8 event ids, `AssistedSellingStoreSettings` and `GET/PUT /settings/:storeId`. The `employee` role also receives `cart.proposals.view` from `assisted_selling/setup.ts` (D-R5-AS1).
