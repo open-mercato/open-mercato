@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 195 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 197 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -18,11 +18,15 @@ This catalog indexes 195 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+- [Preserve peer resolution when copying test dependencies](lessons/preserve-peer-resolution-when-copying-test-dependencies.md) — area:testing,debugging; module:platform; topic:package-runtime,worktrees,peer-dependencies,lockfile
+
 - [Queue triage stops do not complete a fix quota](lessons/queue-triage-stops-do-not-complete-a-fix-quota.md) — area:ai-workflow; module:platform; topic:autofix,triage,completion
+
 - [Redact URL authority credentials before telemetry export](lessons/redact-url-authority-credentials-before-telemetry-export.md) — area:architecture,testing; module:telemetry; topic:network-security,telemetry,testing
+
 - [Replay covers SDK preprocessing and trial state](lessons/replay-covers-sdk-preprocessing-and-trial-state.md) — area:ai-workflow,testing; module:agent_orchestrator,ai_assistant; topic:offline-replay,fixtures,sdk-preprocessing,file-io
 
-- [Request-path work runs per call, not per request](lessons/request-path-work-runs-per-call.md) — area:architecture,module-data; module:shared,core,query_index,customers,auth; topic:performance,dependency-injection,auth-context
+- [Request-path work runs per call, not per request](lessons/request-path-work-runs-per-call.md) — area:architecture,module-data; module:shared,core,query_index,customers,auth; topic:performance,dependency-injection,auth-context,service-lifetimes,resource-disposal,request-lifecycle
 
 - [Stabilization CI must not follow label churn](lessons/stabilization-ci-must-not-follow-label-churn.md) — area:ai-workflow,testing; module:platform; topic:ci-scheduling,stabilization,required-checks,regression-testing
 
@@ -41,6 +45,8 @@ This catalog indexes 195 focused lessons. Route the task first, then read only r
 - [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso; topic:testing,api-contracts,redirects,session-revocation
 - [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims,channel_discord,catalog,workflows; topic:testing,fixture-cleanup,fixture-setup,api-contracts,proposal-origin,error-handling
 - [Realtime detail refreshes must preserve drafts and reject stale responses](lessons/realtime-detail-refreshes-preserve-drafts-and-response-order.md) — area:backend-ui,testing; module:warranty_claims,ui,events; topic:events,realtime,request-ordering,testing,telemetry
+
+- [Bounded trackers need per-admission identity](lessons/bounded-trackers-need-per-admission-identity.md) — area:architecture,testing; module:shared,audit_logs; topic:concurrency,observability,testing,security,tenant-isolation
 
 ### architecture
 
@@ -260,3 +266,4 @@ This catalog indexes 195 focused lessons. Route the task first, then read only r
 
 - [Resolve script entrypoints through symlinks](lessons/resolve-script-entrypoints-through-symlinks.md) — area:debugging,testing; module:starter,create_app; topic:symlinks,script-entrypoints,encryption,setup
 - [Handle timestamp ties when filtering undone price history](lessons/catalog-history-undo-timestamp-ties.md) — area:module-data,testing; module:catalog; topic:undo-redo,data-integrity,timestamp-ordering
+- [Route URL-bearing test fixtures by exact structured values](lessons/url-fixture-routing-needs-exact-structured-values.md) — area:testing; module:agent_orchestrator; topic:network-security,codeql,fixtures

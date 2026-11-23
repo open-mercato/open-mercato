@@ -717,3 +717,10 @@ STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/to
 ## #9118 (2026-11-13)
 
 STABLE settings PUT rejects masked keys on URL changes; bridges retain key disclosure. Clients/operators migrate per [spec](.ai/specs/enterprise/2026-07-11-agent-web-search-tool.md). Named human waiver pending.
+## 2026-11-22 — Attachment assignment label authorization (#10336)
+
+The STABLE attachment library API response and the enrichment helper signature retain their shapes. Referenced records contribute optional labels and links only for an authorized read in the selected tenant and organization. Retaining an unrestricted fallback would keep the unauthorized read available. Server callers can supply verified request authorization and clients can fall back to existing assignment metadata. See the [upgrade notes](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [implementation spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
+
+## #10331 #10332 (2026-11-23)
+
+STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).

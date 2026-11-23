@@ -74,7 +74,8 @@ it('masks a just-saved key so a subsequent URL edit requires credential re-entry
     installed: [adapter], source: 'tenant',
   }
   mockApiCall.mockImplementation(async (url: string, options?: { body?: string; method?: string }) => {
-    if (options?.method === 'PUT' && options.body?.includes('https://new.example')) {
+    const payload = options?.body ? JSON.parse(options.body) as { adapterOptions?: { exa?: { baseUrl?: string } } } : null
+    if (options?.method === 'PUT' && payload?.adapterOptions?.exa?.baseUrl === 'https://new.example') {
       return { ok: false, result: { error: 'Re-enter credentials when changing an adapter URL.' } }
     }
     return { ok: true, result: url.includes('/health') ? { adapters: [] } : settings }

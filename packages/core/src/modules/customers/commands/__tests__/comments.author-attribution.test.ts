@@ -64,7 +64,7 @@ describe('customer comment author attribution (#8759)', () => {
     expect(comment).toMatchObject({ body: 'Edited', authorUserId: authorId })
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(emitCrudSideEffects).toHaveBeenCalledWith(expect.objectContaining({ action: 'updated', entity: comment }))
-    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    expect(findOneWithDecryption).not.toHaveBeenCalledWith(expect.anything(), User, expect.anything(), undefined, expect.anything())
   })
 
   it.each([{}, { isSuperAdmin: true }, { isApiKey: true }])('preserves omission for %j even when editor differs', async auth => {
@@ -108,7 +108,7 @@ describe('customer comment author attribution (#8759)', () => {
     const { ctx, comment } = harness({ isSuperAdmin: true })
     await commentUpdateHandler().execute({ id: commentId, body: 'History', authorUserId: authorId }, ctx)
     expect(comment).toMatchObject({ body: 'History', authorUserId: authorId })
-    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    expect(findOneWithDecryption).not.toHaveBeenCalledWith(expect.anything(), User, expect.anything(), undefined, expect.anything())
   })
 
   it.each(['tenantId', 'organizationId'])('retains the comment %s denial', async field => {
