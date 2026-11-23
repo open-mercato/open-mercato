@@ -1,10 +1,10 @@
 # Upgrade Notes
 
-## Outbound webhooks from custom or tenant-wide producers (#9524)
+## Attachment assignment label authorization (#10336)
 
-For a custom producer that needs to reach an organization’s webhook subscriptions, pass the tenant and organization from the record loaded by the server, or from the authorized operation, in the third argument to the event emitter. Keep the existing event ID and payload. For example, use `emitOrderEvent(id, payload, { tenantId: order.tenantId, organizationId: order.organizationId })` after the order write commits.
+The attachment library automatically fills in assignment labels and links only when the caller can read the referenced entity in the selected tenant and organization. Existing assignment IDs and saved labels and links stay available under the attachment's existing access policy. Supported built-in targets use their owning module's read grants. Custom records require the custom-record view grant and any entity-specific grant. When a target cannot be safely resolved, clients can display the stored label or ID.
 
-Operators should compare their active wildcard subscriptions with their custom event producers, verify delivery for the intended organization, and verify that another organization and tenant receive no delivery. The outbound dispatcher logs scoped payloads that arrive without a trusted tenant. Route any intentionally tenant-wide producer or producer with an unknown audience to the event owner before enabling fan-out. [Producer inventory and owner decisions](.ai/specs/implemented/SPEC-057-2026-03-04-webhooks-module.md#wildcard-producer-compatibility)
+Server callers of `resolveAssignmentEnrichments` that want automatic enrichment must pass `authorization: { auth, container }` from the verified request and a matching tenant and organization. Calls without that context return an empty enrichment map. Operators should use existing target-module grants for roles that already need that data and adjust custom record grants separately. No data migration is required.
 
 ## Fullapp development agent authentication (#9116)
 
@@ -332,6 +332,12 @@ customized copy of the catch-all API route should wrap their request handling in
 global bus exactly as before. Code outside a scope (CLI commands, scheduler timers,
 RSC pages) is unchanged. No configuration, database, route, event or DI-key change
 is needed.
+
+## Outbound webhooks from custom or tenant-wide producers (#9524)
+
+For a custom producer that needs to reach an organization’s webhook subscriptions, pass the tenant and organization from the record loaded by the server, or from the authorized operation, in the third argument to the event emitter. Keep the existing event ID and payload. For example, use `emitOrderEvent(id, payload, { tenantId: order.tenantId, organizationId: order.organizationId })` after the order write commits.
+
+Operators should compare their active wildcard subscriptions with their custom event producers, verify delivery for the intended organization, and verify that another organization and tenant receive no delivery. The outbound dispatcher logs scoped payloads that arrive without a trusted tenant. Route any intentionally tenant-wide producer or producer with an unknown audience to the event owner before enabling fan-out. [Producer inventory and owner decisions](.ai/specs/implemented/SPEC-057-2026-03-04-webhooks-module.md#wildcard-producer-compatibility)
 
 ## Event-triggered workflow execution identity (#9137)
 
