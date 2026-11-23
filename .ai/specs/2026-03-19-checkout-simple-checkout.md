@@ -1019,7 +1019,7 @@ Every refusal body is `{ error: <code>, message, details? }`, with a translated 
 | `cart_requires_approval` | 409 | Submit (passthrough from cart) | Request approval |
 | `approval_requires_identified_buyer` | 409 | Submit (passthrough from cart) | Guest above threshold; sign in (D-R5-12) |
 | `cart_has_unavailable_lines` | 409 | Submit (passthrough from cart) | A line left the buyer's assortment; remove it (US-B4) |
-| `cart_not_active` | 409 | Create, submit (passthrough) | Cart merged, expired or converted (cart §9.1); start from the current cart. An `abandoned` basket is not refused: the lock reactivates it |
+| `cart_not_active` | 409 | Create, submit (passthrough) | Cart merged, expired or converted (cart §9.1); start from the current cart. An `abandoned` basket never answers this code: the cart's next mutation, the submit lock included, reactivates it (cart §9.1) |
 | `cart_locked` | 423 | Create, submit (passthrough) | Another session, or another attempt of this session, holds the cart |
 | `cart_lock_conflict` | 409 | Submit (passthrough from cart) | A concurrent cart write won the lock's compare-and-set; nothing was taken; submit again |
 | `cart_buyer_unresolvable` | 409 | Submit (passthrough from cart) | The cart's buyer or store no longer resolves at the lock's re-price (SPEC-029 §6.3) |
