@@ -1276,19 +1276,51 @@ describe('init command failure output', () => {
     }
   })
 
-  it('passes valid production credentials to auth setup without bypassing policy', async () => {
+  it.each(['environment', 'argument', 'normalized production'])('keeps supplied production passwords out of init output (%s)', async (source) => {
     const previousEnv = { ...process.env }
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+    process.env.NODE_ENV = source === 'normalized production' ? ' Production ' : 'production'
+    process.env.LC_ALL = 'en'
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = source === 'argument' ? 'unused-environment-password' : 'Unique-Owner-937!'
+    const passwordArgs = source === 'argument' ? ['--password=Unique-Owner-937!'] : []
+    try {
+      const mercato = await import('../mercato')
+      expect(await mercato.run(['node', 'mercato', 'init', '--no-demo-users', '--skip-password-policy', ...passwordArgs])).toBe(0)
+      expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--password', 'Unique-Owner-937!']))
+      expect(authSetup.mock.calls[0][0]).not.toContain('--skip-password-policy')
+      const output = [...consoleLogSpy.mock.calls, ...consoleErrorSpy.mock.calls].map((args) => args.join(' ')).join('\n')
+      expect(output).not.toContain('Unique-Owner-937!')
+      expect(output).not.toContain('unused-environment-password')
+      expect(output).toContain('Password:  as provided')
+    } finally {
+      process.env = previousEnv
+    }
+  })
+
+  it('still displays generated demo passwords while redacting the production superadmin password', async () => {
+    const previousEnv = { ...process.env }
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
     jest.spyOn(console, 'error').mockImplementation()
-    jest.spyOn(console, 'log').mockImplementation()
     const authSetup = jest.fn().mockResolvedValue(undefined)
     mockInitDependencies({ authSetup })
     process.env.NODE_ENV = 'production'
+    process.env.LC_ALL = 'en'
     process.env.OM_INIT_SUPERADMIN_PASSWORD = 'Unique-Owner-937!'
+    delete process.env.OM_INIT_ADMIN_PASSWORD
+    delete process.env.OM_INIT_EMPLOYEE_PASSWORD
     try {
       const mercato = await import('../mercato')
-      expect(await mercato.run(['node', 'mercato', 'init', '--no-demo-users', '--skip-password-policy'])).toBe(0)
-      expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--password', 'Unique-Owner-937!']))
-      expect(authSetup.mock.calls[0][0]).not.toContain('--skip-password-policy')
+      expect(await mercato.run(['node', 'mercato', 'init'])).toBe(0)
+      const output = consoleLogSpy.mock.calls.map((args) => args.join(' ')).join('\n')
+      expect(output).not.toContain('Unique-Owner-937!')
+      expect(output).toContain('Password:  as provided')
+      expect(process.env.OM_INIT_ADMIN_PASSWORD).toEqual(expect.any(String))
+      expect(process.env.OM_INIT_EMPLOYEE_PASSWORD).toEqual(expect.any(String))
+      expect(output).toContain(`Password:  ${process.env.OM_INIT_ADMIN_PASSWORD}`)
+      expect(output).toContain(`Password:  ${process.env.OM_INIT_EMPLOYEE_PASSWORD}`)
     } finally {
       process.env = previousEnv
     }

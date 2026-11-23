@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Production init summary redacts the superadmin password (#10217)
+
+With `NODE_ENV=production`, `mercato init` now displays a translated “as provided” marker instead of the superadmin password. Keep the credential supplied through `--password` or `OM_INIT_SUPERADMIN_PASSWORD`; scripts must no longer retrieve it from production stdout. Initialization, password requirements, flags and configuration are unchanged. Non-production summaries and generated admin/employee password display remain unchanged.
+
+Previous production init output may persist in container or aggregated logs. Rotate any exposed superadmin password and restrict or expire retained log copies according to your deployment policy. No database migration or automatic credential rotation is performed.
+
 ## Fullapp development agent authentication (#9116)
 
 Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibility copy, or the standalone `docker-compose.fullapp.dev.yml`, generate a strong `OPENCODE_PASSWORD` (for example, `openssl rand -hex 32`) and export it or save it in the compose `.env`. Missing or empty passwords now stop startup. The same value configures native OpenCode server authentication and the existing app client. Direct OpenCode clients must send HTTP Basic credentials with username `opencode`; healthchecks authenticate automatically. Recreate the app and OpenCode services together after changing the password.

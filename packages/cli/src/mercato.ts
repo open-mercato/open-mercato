@@ -10,7 +10,7 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { formatInitSummary } from './lib/init-summary'
-import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from './lib/init-secrets'
+import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials, resolveInitSuperadminDisplayPassword } from './lib/init-secrets'
 import { decideExistingDatabase, formatSkipIfInitializedMessage } from './lib/init-existing-database'
 import {
   resolveAutoSpawnWorkersMode,
@@ -1485,7 +1485,7 @@ export async function run(argv = process.argv) {
         createdUsers.push({ label, icon, email: value })
         createdPasswords.set(value.toLowerCase(), passwordValue)
       }
-      pushUser('Superadmin', '👑', email, password)
+      pushUser('Superadmin', '👑', email, resolveInitSuperadminDisplayPassword(password))
       if (!skipDemoUsers) {
         pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
         pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
