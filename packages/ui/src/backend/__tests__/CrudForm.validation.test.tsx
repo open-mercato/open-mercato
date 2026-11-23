@@ -23,8 +23,76 @@ import { act, fireEvent, waitFor } from '@testing-library/react'
 import { z } from 'zod'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
+import { createCrudFormError } from '../utils/serverErrors'
 
 describe('CrudForm validation state', () => {
+  it.each(['submit', 'blur'])('localizes structured client schema errors on %s', async (validationTrigger) => {
+    const onSubmit = jest.fn()
+    const { container, getByLabelText, findByText, queryByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        schema={z.object({ description: z.string().max(20) })}
+        fields={[{ id: 'description', label: 'Description', type: 'text' }]}
+        initialValues={{ description: '' }}
+        onSubmit={onSubmit}
+      />,
+      { dict: { 'ui.forms.errors.tooBig': 'Wartość przekracza maksimum {{maximum}}.' } },
+    )
+
+    await act(async () => {
+      fireEvent.change(getByLabelText('Description'), { target: { value: 'A description exceeding twenty characters' } })
+    })
+    await act(async () => {
+      if (validationTrigger === 'blur') fireEvent.blur(getByLabelText('Description'))
+      else fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+    })
+
+    expect(await findByText('Wartość przekracza maksimum 20.')).toBeInTheDocument()
+    expect(queryByText('Too big: expected string to have <=20 characters')).toBeNull()
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('localizes nested client schema errors without losing their complete paths', async () => {
+    const { container, findByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        schema={z.object({ labels: z.array(z.object({ value: z.string().max(3) })) })}
+        fields={[]}
+        initialValues={{ labels: [{ value: 'Long label' }] }}
+        groups={[{ id: 'labels', component: ({ errors }) => <div>{errors['labels.0.value']}</div> }]}
+        onSubmit={jest.fn()}
+      />,
+      { dict: { 'ui.forms.errors.tooBig': 'Value exceeds {{maximum}}.' } },
+    )
+
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+    })
+
+    expect(await findByText('Value exceeds 3.')).toBeInTheDocument()
+  })
+
+  it('preserves explicit client schema messages that start with default wording', async () => {
+    const message = 'Too big: use a shorter description'
+    const { container, findByText, queryByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        schema={z.object({ description: z.string().max(3, message) })}
+        fields={[{ id: 'description', label: 'Description', type: 'text' }]}
+        initialValues={{ description: 'Long description' }}
+        onSubmit={jest.fn()}
+      />,
+      { dict: { 'ui.forms.errors.tooBig': 'Value exceeds {{maximum}}.' } },
+    )
+
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+    })
+
+    expect(await findByText(message)).toBeInTheDocument()
+    expect(queryByText('Value exceeds 3.')).toBeNull()
+  })
+
   it('renders each custom field error through exactly one declared owner', async () => {
     const fields: CrudField[] = [
       {
@@ -250,6 +318,116 @@ describe('CrudForm validation state', () => {
     })
 
     expect(await findByText('This field is required')).toBeInTheDocument()
+  })
+
+  it('shows a top-level banner and a localized field message when the server rejects with field details', async () => {
+    const fields: CrudField[] = [
+      { id: 'lastName', label: 'Last name', type: 'text' },
+    ]
+
+    const serverError = createCrudFormError('Invalid input', undefined, {
+      status: 400,
+      details: [
+        {
+          origin: 'string',
+          code: 'too_big',
+          maximum: 120,
+          path: ['lastName'],
+          message: 'Too big: expected string to have <=120 characters',
+        },
+      ],
+    })
+
+    const { container, getByText, queryByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        onSubmit={() => {
+          throw serverError
+        }}
+      />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.errors.highlighted': 'Please fix the highlighted errors.',
+          'ui.forms.errors.tooBig': 'Value exceeds the maximum of {{maximum}}.',
+          'ui.forms.flash.saveError': 'Save failed',
+        },
+      },
+    )
+
+    const form = container.querySelector('form')
+    expect(form).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.submit(form as HTMLFormElement)
+    })
+
+    // The banner stays visible even though a field error exists — it must not
+    // be hidden by `formError && !Object.keys(errors).length`.
+    await waitFor(() => {
+      expect(container.querySelector('.text-sm.text-status-error-text')).toHaveTextContent(
+        'Please fix the highlighted errors.',
+      )
+    })
+    expect(getByText('Value exceeds the maximum of 120.')).toBeInTheDocument()
+    // The raw, untranslatable Zod message must not leak to the UI.
+    expect(queryByText('Too big: expected string to have <=120 characters')).toBeNull()
+  })
+
+  it.each([
+    {
+      name: 'a module translation key',
+      message: 'availability.policies.errors.integerTooLarge',
+      expected: 'Value is too large for this policy.',
+    },
+    {
+      name: 'custom validator text with a default-message prefix',
+      message: 'Too big: use a shorter person name',
+      expected: 'Too big: use a shorter person name',
+    },
+    {
+      name: 'custom validator text',
+      message: 'Last name is far too long for our records',
+      expected: 'Last name is far too long for our records',
+    },
+  ])('preserves $name supplied on a known Zod code instead of the generic message', async ({ message, expected }) => {
+    const fields: CrudField[] = [
+      { id: 'lastName', label: 'Last name', type: 'text' },
+    ]
+
+    const serverError = createCrudFormError('Invalid input', undefined, {
+      status: 400,
+      details: [{ origin: 'number', code: 'too_big', maximum: 120, path: ['lastName'], message }],
+    })
+
+    const { container, getByText, queryByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        onSubmit={() => {
+          throw serverError
+        }}
+      />,
+      {
+        dict: {
+          'availability.policies.errors.integerTooLarge': 'Value is too large for this policy.',
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.errors.highlighted': 'Please fix the highlighted errors.',
+          'ui.forms.errors.tooBig': 'Value exceeds the maximum of {{maximum}}.',
+          'ui.forms.flash.saveError': 'Save failed',
+        },
+      },
+    )
+
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+    })
+
+    await waitFor(() => {
+      expect(getByText(expected)).toBeInTheDocument()
+    })
+    expect(queryByText('Value exceeds the maximum of 120.')).toBeNull()
   })
 
   it('does not validate date picker fields when the trigger blurs', async () => {
