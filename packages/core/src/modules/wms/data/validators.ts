@@ -187,7 +187,7 @@ type InventoryLotDateKey = 'manufacturedAt' | 'bestBeforeAt' | 'expiresAt'
 
 const inventoryLotDateKeys: InventoryLotDateKey[] = ['manufacturedAt', 'bestBeforeAt', 'expiresAt']
 
-export function keepClearedInventoryLotDates<T extends Partial<Record<InventoryLotDateKey, Date>>>(
+export function keepClearedInventoryLotDates<T extends Partial<Record<InventoryLotDateKey, Date | null>>>(
   raw: unknown,
   parsed: T,
 ): Omit<T, InventoryLotDateKey> & Partial<Record<InventoryLotDateKey, Date | null>> {

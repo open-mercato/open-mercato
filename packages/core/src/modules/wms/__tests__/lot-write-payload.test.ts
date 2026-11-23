@@ -1,5 +1,5 @@
 import { parseScopedCommandInput, type ScopedContext } from '@open-mercato/shared/lib/api/scoped'
-import { inventoryLotCreateSchema, inventoryLotUpdateSchema } from '../data/validators'
+import { inventoryLotCreateSchema, inventoryLotUpdateSchema, keepClearedInventoryLotDates } from '../data/validators'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
@@ -27,5 +27,14 @@ describe('lot write aliases', () => {
     expect(() => parseScopedCommandInput(inventoryLotUpdateSchema, {
       id: lotId, manufactured_at: '2026-10-02', expires_at: '2026-10-01',
     }, ctx, translate)).toThrow()
+  })
+
+  it('preserves scope and lot fields on an update that clears a date and omits another', () => {
+    const raw = { id: lotId, lot_number: 'RENUMBERED', expires_at: null, manufactured_at: '2026-10-01' }
+    const parsed = keepClearedInventoryLotDates(raw, parseScopedCommandInput(inventoryLotUpdateSchema, raw, ctx, translate))
+    expect(parsed.id).toBe(lotId)
+    expect(parsed.lotNumber).toBe('RENUMBERED')
+    expect(parsed).toMatchObject({ tenantId, organizationId, manufacturedAt: new Date('2026-10-01'), expiresAt: null })
+    expect(parsed).not.toHaveProperty('bestBeforeAt')
   })
 })
