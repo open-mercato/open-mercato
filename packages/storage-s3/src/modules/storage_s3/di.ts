@@ -10,6 +10,7 @@ import {
 } from '@open-mercato/core/modules/attachments/lib/drivers'
 import { validateS3StorageConfiguration } from './lib/storage-validation'
 import { S3StorageDriver } from './lib/s3-driver'
+import { buildTenantS3DriverConfig } from './lib/tenant-credentials'
 import { createStorageService } from './lib/storage-service'
 import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
 import { s3HealthCheck } from './lib/health'
@@ -53,18 +54,15 @@ function registerCredentialEnhancer(
         logger.debug('No marketplace credentials found for scope', { tenantId: scope.tenantId, organizationId: scope.organizationId })
         return scopedConfig
       }
+      const tenantConfig = buildTenantS3DriverConfig(creds, scope)
+      if (!tenantConfig) throw new Error('[internal] Tenant S3 storage requires explicit access keys')
       logger.debug('Injecting marketplace credentials into S3 driver config')
       return {
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        authMode: creds.authMode,
-        bucket: config.bucket ?? (creds.bucket ? String(creds.bucket) : undefined),
-        region: config.region ?? (creds.region ? String(creds.region) : undefined),
-        endpoint: config.endpoint ?? (creds.endpoint ? String(creds.endpoint) : undefined),
-        forcePathStyle: config.forcePathStyle ?? Boolean(creds.forcePathStyle),
-        accessKeyId: creds.accessKeyId ? String(creds.accessKeyId) : undefined,
-        secretAccessKey: creds.secretAccessKey ? String(creds.secretAccessKey) : undefined,
-        sessionToken: creds.sessionToken ? String(creds.sessionToken) : undefined,
+        ...tenantConfig,
+        bucket: config.bucket ?? tenantConfig.bucket,
+        region: config.region ?? tenantConfig.region,
+        endpoint: config.endpoint ?? tenantConfig.endpoint,
+        forcePathStyle: config.forcePathStyle ?? tenantConfig.forcePathStyle,
       }
     } catch (err) {
       if (getAttachmentStoragePolicy() === 'strict') throw err
@@ -93,24 +91,13 @@ function registerServices(container: AppContainer) {
           async _resolveService(scope: { tenantId: string; organizationId: string }) {
             const creds = await integrationCredentialsService.resolve('storage_s3', scope)
             if (!creds) throw new Error('[internal] S3 storage integration is not configured for this tenant.')
+            const tenantConfig = buildTenantS3DriverConfig(creds, scope)
+            if (!tenantConfig) throw new Error('[internal] Tenant S3 storage requires explicit access keys')
             return createStorageService({
-              authMode: creds.authMode === 'ambient' || creds.authMode === 'access_keys'
-                ? (creds.authMode as 'ambient' | 'access_keys')
-                : undefined,
-              bucket: String(creds.bucket ?? ''),
-              region: creds.region ? String(creds.region) : undefined,
-              endpoint: creds.endpoint ? String(creds.endpoint) : undefined,
-              forcePathStyle: Boolean(creds.forcePathStyle),
-              accessKeyId: creds.accessKeyId ? String(creds.accessKeyId) : undefined,
-              secretAccessKey: creds.secretAccessKey ? String(creds.secretAccessKey) : undefined,
-              sessionToken: creds.sessionToken ? String(creds.sessionToken) : undefined,
+              ...tenantConfig,
               quotaService: attachmentQuotaService,
               quotaRecoveryScheduler: storageS3QuotaRecoveryScheduler,
-              organizationId: scope.organizationId,
-              tenantId: scope.tenantId,
-              // Credentials are resolved from the Integration Marketplace (encrypted at rest)
-              // and injected directly rather than via env prefix for the standalone service.
-            } as Parameters<typeof createStorageService>[0])
+            })
           },
         }
       },

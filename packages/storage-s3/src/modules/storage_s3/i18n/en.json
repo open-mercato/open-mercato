@@ -1,6 +1,7 @@
 {
   "storage_s3.errors.activeContentBlocked": "Active content uploads are not allowed.",
   "storage_s3.errors.dangerousExecutable": "Executable file types are not allowed as attachments.",
+  "storage_s3.errors.explicitCredentialsRequired": "S3 tenant integrations require explicit access keys and only declared credential fields. Ambient authentication and environment prefixes are not supported.",
   "storage_s3.errors.fileNotFound": "File not found",
   "storage_s3.errors.fileRequired": "file field is required",
   "storage_s3.errors.integrationNotConfigured": "S3 integration is not configured.",

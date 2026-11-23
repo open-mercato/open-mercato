@@ -36,7 +36,7 @@ import { GET } from '../api/get/storage-providers/s3/list'
 
 beforeEach(() => {
   jest.clearAllMocks()
-  credentialsResolveMock.mockResolvedValue({ bucket: 'bucket', region: 'eu-central-1' })
+  credentialsResolveMock.mockResolvedValue({ bucket: 'bucket', region: 'eu-central-1', accessKeyId: 'tenant-key', secretAccessKey: 'tenant-secret' })
   listObjectsMock.mockResolvedValue({
     files: [],
     truncated: false,

@@ -65,8 +65,8 @@ describe('storage_s3 process credential enhancer', () => {
     expect(mockRegisterExternalCredentialEnhancer).not.toHaveBeenCalled()
     runProcessActivations(root)
     const enhancer = mockRegisterExternalCredentialEnhancer.mock.calls.at(-1)![1] as CredentialEnhancer
-    const firstCredentials = jest.fn(async () => ({ accessKeyId: 'first-key', secretAccessKey: 'first-secret' }))
-    const secondCredentials = jest.fn(async () => ({ accessKeyId: 'second-key', secretAccessKey: 'second-secret' }))
+    const firstCredentials = jest.fn(async () => ({ accessKeyId: 'first-key', secretAccessKey: 'first-secret', bucket: 'first', region: 'eu-central-1' }))
+    const secondCredentials = jest.fn(async () => ({ accessKeyId: 'second-key', secretAccessKey: 'second-secret', bucket: 'second', region: 'eu-central-1' }))
     const first = root.createScope().register({ integrationCredentialsService: asValue({ resolve: firstCredentials }) })
     const second = root.createScope().register({ integrationCredentialsService: asValue({ resolve: secondCredentials }) })
     const firstScope = { tenantId: 'tenant-a', organizationId: 'org-a' }
@@ -95,5 +95,25 @@ describe('storage_s3 process credential enhancer', () => {
     await expect(enhancer({ bucket: 'owned' }, scope)).resolves.toEqual({ bucket: 'owned', ...scope })
     expect(credentials).toHaveBeenCalledWith('storage_s3', scope)
     expect(dispose).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('storage_s3 tenant service credentials', () => {
+  it.each([
+    { bucket: 'tenant-bucket', region: 'eu-central-1', authMode: 'ambient' },
+    { bucket: 'tenant-bucket', region: 'eu-central-1', credentialsEnvPrefix: 'AWS' },
+    { bucket: 'tenant-bucket', region: 'eu-central-1', accessKeyId: '', secretAccessKey: '' },
+  ])('rejects unsafe stored credentials through the DI service: %j', async (credentials) => {
+    const resolveCredentials = jest.fn().mockResolvedValue(credentials)
+    const container = createContainer()
+    container.register({
+      integrationCredentialsService: asValue({ resolve: resolveCredentials }),
+      attachmentQuotaService: asValue({}),
+    })
+    register(container)
+    const service = container.resolve('storageService')
+    await expect(service._resolveService({ tenantId: 'tenant-1', organizationId: 'org-1' }))
+      .rejects.toThrow(/explicit access keys/)
+    expect(resolveCredentials).toHaveBeenCalledWith('storage_s3', { tenantId: 'tenant-1', organizationId: 'org-1' })
   })
 })

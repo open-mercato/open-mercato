@@ -53,7 +53,7 @@ describe('storage_s3 quota recovery', () => {
       resolve: (name: string) => {
         if (name === 'attachmentQuotaService') return quotaService
         if (name === 'integrationCredentialsService') {
-          return { resolve: jest.fn(async () => ({ bucket: 'bucket', region: 'us-east-1' })) }
+          return { resolve: jest.fn(async () => ({ bucket: 'bucket', region: 'us-east-1', accessKeyId: 'tenant-key', secretAccessKey: 'tenant-secret' })) }
         }
         throw new Error(`Unexpected dependency: ${name}`)
       },
@@ -80,4 +80,25 @@ describe('storage_s3 quota recovery', () => {
     )
     expect(quotaService.release).not.toHaveBeenCalled()
   })
+})
+
+
+it('retains the recovery reservation without contacting S3 for injected stored configuration', async () => {
+  jest.clearAllMocks()
+  const current = reservation('recovering')
+  const quotaService = {
+    getReservation: jest.fn(async () => current),
+    claimExpired: jest.fn(async () => current),
+    release: jest.fn(),
+  }
+  const context = {
+    resolve: (name: string) => name === 'attachmentQuotaService' ? quotaService : {
+      resolve: async () => ({ bucket: 'bucket', region: 'us-east-1', credentialsEnvPrefix: 'AWS' }),
+    },
+  }
+  const payload = { reservationId: current.id, tenantId: current.tenantId, organizationId: current.organizationId }
+  await expect(handle({ payload, id: 'job-1' } as never, context as never)).rejects.toThrow(/not configured/)
+  expect(S3StorageDriver).not.toHaveBeenCalled()
+  expect(quotaService.release).not.toHaveBeenCalled()
+  expect(mockScheduleRecovery).toHaveBeenCalled()
 })

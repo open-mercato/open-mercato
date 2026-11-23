@@ -12,6 +12,7 @@ import {
 } from '@open-mercato/core/modules/attachments/lib/security'
 import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
 import { S3StorageDriver } from '../../../../../lib/s3-driver'
+import { buildTenantS3DriverConfig } from '../../../../../lib/tenant-credentials'
 
 export const metadata = {
   path: '/storage-providers/s3/signed-upload/:token',
@@ -103,16 +104,16 @@ export async function PUT(req: Request, ctx: RouteContext) {
     tenantId: reservation.tenantId,
     organizationId: reservation.organizationId,
   })
-  if (!credentials) {
+  const config = credentials ? buildTenantS3DriverConfig(credentials, {
+    tenantId: reservation.tenantId,
+    organizationId: reservation.organizationId,
+  }) : null
+  if (!config) {
     await quotaService.release(reservation.id, reservation.leaseToken).catch(() => {})
     return NextResponse.json({ error: t('storage_s3.errors.integrationNotConfigured', 'S3 integration is not configured.') }, { status: 400 })
   }
 
-  const driver = new S3StorageDriver({
-    ...credentials,
-    organizationId: reservation.organizationId,
-    tenantId: reservation.tenantId,
-  })
+  const driver = new S3StorageDriver(config)
   let objectStored = false
   try {
     await driver.putObject(reservation.storagePath, buffer, contentType)

@@ -24,6 +24,31 @@ beforeEach(() => {
 })
 
 describe('s3HealthCheck', () => {
+  it.each([
+    {},
+    { authMode: 'ambient' },
+    { authMode: 'access_keys', accessKeyId: '', secretAccessKey: '' },
+    { accessKeyId: '   ', secretAccessKey: 'tenant-secret' },
+    { credentialsEnvPrefix: 'AWS' },
+    { ...BASE_CREDENTIALS, credentialsEnvPrefix: 'AWS' },
+    { ...BASE_CREDENTIALS, authMode: 'ambient' },
+  ])('does not probe AWS with unsafe tenant credentials: %j', async (credentials) => {
+    const result = await s3HealthCheck.check({ bucket: 'test-bucket', region: 'eu-central-1', ...credentials })
+    expect(result.status).toBe('unhealthy')
+    expect(S3Client).not.toHaveBeenCalled()
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('uses only explicit keys and the optional session token for a healthy probe', async () => {
+    mockSend.mockResolvedValueOnce({})
+    const result = await s3HealthCheck.check({ ...BASE_CREDENTIALS, sessionToken: 'tenant-token' })
+    expect(result.status).toBe('healthy')
+    expect(S3Client).toHaveBeenCalledWith(expect.objectContaining({
+      credentials: { accessKeyId: 'AKID', secretAccessKey: 'SECRET', sessionToken: 'tenant-token' },
+    }))
+    expect(mockSend).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects link-local custom endpoints before probing the bucket', async () => {
     const result = await s3HealthCheck.check({
       ...BASE_CREDENTIALS,

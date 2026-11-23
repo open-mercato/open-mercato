@@ -69,7 +69,7 @@ function jsonRequest(body: unknown): Request {
 describe('storage_s3 standalone route key scope', () => {
   beforeEach(() => {
     mockGetAuthFromRequest.mockResolvedValue(AUTH)
-    mockResolveCredentials.mockResolvedValue({ bucket: 'test-bucket', region: 'eu-central-1' })
+    mockResolveCredentials.mockResolvedValue({ bucket: 'test-bucket', region: 'eu-central-1', accessKeyId: 'tenant-key', secretAccessKey: 'tenant-secret' })
     mockRead.mockReset()
     mockDelete.mockReset()
     mockGetSignedUrl.mockReset()

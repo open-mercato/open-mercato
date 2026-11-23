@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
+import { buildTenantS3DriverConfig } from '../../../../lib/tenant-credentials'
 
 export const metadata = {
   path: '/storage-providers/s3/list',
@@ -38,7 +39,8 @@ async function resolveDriver(tenantId: string, orgId: string): Promise<S3Storage
   }
   const creds = await credentialsService.resolve('storage_s3', { tenantId, organizationId: orgId })
   if (!creds) return null
-  return new S3StorageDriver({ ...creds, organizationId: orgId, tenantId })
+  const config = buildTenantS3DriverConfig(creds, { organizationId: orgId, tenantId })
+  return config ? new S3StorageDriver(config) : null
 }
 
 function buildTenantPrefix(namespace: string, tenantId: string, orgId: string): string {

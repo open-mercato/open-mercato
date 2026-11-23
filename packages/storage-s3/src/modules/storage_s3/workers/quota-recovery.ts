@@ -1,6 +1,7 @@
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
 import { S3StorageDriver } from '../lib/s3-driver'
+import { buildTenantS3DriverConfig } from '../lib/tenant-credentials'
 import { scheduleStorageS3QuotaRecovery, type StorageS3QuotaRecoveryJob } from '../lib/quota-recovery-queue'
 
 export const metadata: WorkerMeta = {
@@ -39,12 +40,12 @@ export default async function handle(
       tenantId: claimed.tenantId,
       organizationId: claimed.organizationId,
     })
-    if (!credentials) throw new Error('S3 integration is not configured for quota recovery.')
-    const driver = new S3StorageDriver({
-      ...credentials,
+    const config = credentials ? buildTenantS3DriverConfig(credentials, {
       organizationId: claimed.organizationId,
       tenantId: claimed.tenantId,
-    })
+    }) : null
+    if (!config) throw new Error('[internal] S3 integration is not configured for quota recovery.')
+    const driver = new S3StorageDriver(config)
 
     if (claimed.source === 'storage_s3_signed') {
       const listed = await driver.listObjects(claimed.storagePath, 1)
