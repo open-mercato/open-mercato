@@ -85,6 +85,7 @@ export function RolesSection(props: RolesSectionProps) {
       {...props}
       canReadRoleTypes={hasFeature(features, 'customers.people.view')}
       canManageRoleTypes={hasFeature(features, 'customers.settings.manage')}
+      canManageRoles={hasFeature(features, 'customers.roles.manage')}
       canReadRoster={hasFeature(features, 'customers.roles.manage') || hasFeature(features, 'customers.activities.manage')}
       organizationId={payload?.currentOrganization?.id ?? null}
     />
@@ -97,11 +98,13 @@ function RolesSectionContent({
   entityName,
   canReadRoleTypes,
   canManageRoleTypes,
+  canManageRoles,
   canReadRoster,
   organizationId,
 }: RolesSectionProps & {
   canReadRoleTypes: boolean
   canManageRoleTypes: boolean
+  canManageRoles: boolean
   canReadRoster: boolean
   organizationId: string | null
 }) {
@@ -322,17 +325,18 @@ function RolesSectionContent({
   )
 
   const openDialog = React.useCallback((roleType?: string | null) => {
-    if (!hasConfiguredRoleTypes) return
+    if (!canManageRoles || !hasConfiguredRoleTypes) return
     setEditingAssignment(null)
     setInitialRoleType(roleType ?? null)
     setDialogOpen(true)
-  }, [hasConfiguredRoleTypes])
+  }, [canManageRoles, hasConfiguredRoleTypes])
 
   const openReassignDialog = React.useCallback((assignment: RoleAssignment) => {
+    if (!canManageRoles) return
     setEditingAssignment(assignment)
     setInitialRoleType(assignment.roleType)
     setDialogOpen(true)
-  }, [])
+  }, [canManageRoles])
 
   if (loading) {
     return (
@@ -381,7 +385,7 @@ function RolesSectionContent({
                 entityId={entityId}
                 onRemoved={loadRoles}
                 onUpdated={loadRoles}
-                onChangeUser={() => openReassignDialog(assignment)}
+                onChangeUser={canManageRoles ? () => openReassignDialog(assignment) : undefined}
               />
             ) : (
               <div key={entry.roleType} className="flex h-full min-w-0 flex-col rounded-xl border border-dashed bg-muted/20 p-4">
@@ -392,17 +396,21 @@ function RolesSectionContent({
                   {t('customers.roles.emptySlot', 'Not assigned')}
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  {t('customers.roles.emptyState', 'No roles assigned yet. Click below to assign a person.')}
+                  {canManageRoles
+                    ? t('customers.roles.emptyState', 'No roles assigned yet. Click below to assign a person.')
+                    : t('customers.roles.emptySlot', 'Not assigned')}
                 </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-4 self-start"
-                  onClick={() => openDialog(entry.roleType)}
-                >
-                  {t('customers.roles.choosePerson', 'Choose person')}
-                </Button>
+                {canManageRoles ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-4 self-start"
+                    onClick={() => openDialog(entry.roleType)}
+                  >
+                    {t('customers.roles.choosePerson', 'Choose person')}
+                  </Button>
+                ) : null}
               </div>
             )
           })}
@@ -411,8 +419,10 @@ function RolesSectionContent({
         <EmptyState
           size="sm"
           icon={<UserCheck className="h-8 w-8" aria-hidden="true" />}
-          title={t('customers.roles.emptyState', 'No roles assigned yet. Click below to assign a person.')}
-          actions={
+          title={canManageRoles
+            ? t('customers.roles.emptyState', 'No roles assigned yet. Click below to assign a person.')
+            : t('customers.roles.emptySlot', 'Not assigned')}
+          actions={canManageRoles ? (
             <Button
               type="button"
               variant="outline"
@@ -422,7 +432,7 @@ function RolesSectionContent({
               <Plus className="h-4 w-4" aria-hidden="true" />
               {t('customers.roles.choosePerson', 'Choose person')}
             </Button>
-          }
+          ) : undefined}
         />
       ) : (
         <EmptyState
@@ -433,18 +443,18 @@ function RolesSectionContent({
             'customers.roles.noRoleTypesDescription',
             'Create role types in Customers config before assigning owners here.',
           )}
-          actions={
+          actions={canManageRoleTypes ? (
             <Button asChild type="button" variant="outline" size="sm">
               <Link href="/backend/config/customers">
                 {t('customers.roles.configureRoleTypes', 'Configure role types')}
               </Link>
             </Button>
-          }
+          ) : undefined}
         />
       )}
 
       {hasConfiguredRoleTypes ? (
-        unassignedRoleTypes.length > 0 ? (
+        canManageRoles && unassignedRoleTypes.length > 0 ? (
           <Button
             type="button"
             variant="ghost"
@@ -455,16 +465,16 @@ function RolesSectionContent({
             {t('customers.roles.assignRole', 'Assign role')}
           </Button>
         ) : null
-      ) : (
+      ) : canManageRoleTypes ? (
         <Button asChild type="button" variant="ghost" size="sm">
           <Link href="/backend/config/customers">
             {t('customers.roles.configureRoleTypes', 'Configure role types')}
           </Link>
         </Button>
-      )}
+      ) : null}
 
       <AssignRoleDialog
-        open={dialogOpen}
+        open={canManageRoles && dialogOpen}
         onClose={() => {
           setDialogOpen(false)
           setInitialRoleType(null)

@@ -97,7 +97,7 @@ jest.mock('../AssignRoleDialog', () => ({
 
 describe('RolesSection', () => {
   beforeEach(() => {
-    mockGrantedFeatures = ['customers.roles.view', 'customers.people.view']
+    mockGrantedFeatures = ['customers.roles.view', 'customers.people.view', 'customers.roles.manage', 'customers.settings.manage']
     reportErrorMock.mockReset()
     jest.mocked(flash).mockClear()
     apiCallOrThrowMock.mockReset()
@@ -114,6 +114,20 @@ describe('RolesSection', () => {
       }
       return { items: [] }
     })
+  })
+
+  it('keeps role assignments readable without exposing create actions to viewers', async () => {
+    mockGrantedFeatures = ['customers.roles.view', 'customers.people.view']
+    readApiResultOrThrowMock.mockImplementation(async (path: string) => path.endsWith('/roles')
+      ? { items: [{ id: 'role-1', roleType: 'decision_maker', userId: 'user-1', userName: 'Employee' }] }
+      : { items: [{ id: 'type-1', value: 'account_manager', label: 'Account manager' }] })
+
+    renderWithProviders(<RolesSection entityType="company" entityId="company-1" />)
+
+    expect(await screen.findByText('Employee')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Choose person' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Assign role' })).not.toBeInTheDocument()
+    expect(apiCallMock).not.toHaveBeenCalled()
   })
 
   it('resolves all assigned names in one roster request without holding the cards or dialog', async () => {
