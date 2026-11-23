@@ -7,13 +7,13 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../../data/entities'
 import { staffTimeEntrySegmentUpdateSchema } from '../../../../../../data/validators'
 import { getStaffMemberByUserId } from '../../../../../../lib/staffMemberResolver'
+import { assertTimeEntrySegmentRangeOrdered } from '../../../../../../lib/timesheets/timeEntrySegmentRange'
 import { emitStaffEvent } from '../../../../../../events'
 import { runTimesheetInterceptors } from '../../../../_shared/withTimesheetInterceptors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -156,15 +156,11 @@ export async function PATCH(req: Request) {
         throw new CrudHttpError(404, { error: 'Segment not found' })
       }
 
-      const nextStartedAt = parsed.data.startedAt ?? lockedSegment.startedAt
-      const nextEndedAt = parsed.data.endedAt !== undefined ? parsed.data.endedAt : lockedSegment.endedAt
-      const touchesRange = parsed.data.startedAt !== undefined || parsed.data.endedAt !== undefined
-      if (touchesRange && nextEndedAt && nextEndedAt.getTime() < nextStartedAt.getTime()) {
-        const { translate } = await resolveTranslations()
-        const message = translate('staff.timesheets.errors.segmentEndBeforeStart', 'A segment cannot end before it starts.')
-        const field = parsed.data.endedAt !== undefined ? 'endedAt' : 'startedAt'
-        throw new CrudHttpError(400, { code: 'segment_end_before_start', error: message, fieldErrors: { [field]: message } })
-      }
+      await assertTimeEntrySegmentRangeOrdered(
+        parsed.data.startedAt ?? lockedSegment.startedAt,
+        parsed.data.endedAt !== undefined ? parsed.data.endedAt : lockedSegment.endedAt,
+        parsed.data.startedAt !== undefined && parsed.data.endedAt === undefined ? 'startedAt' : 'endedAt',
+      )
 
       if (parsed.data.startedAt !== undefined) {
         lockedSegment.startedAt = parsed.data.startedAt

@@ -15,6 +15,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entities'
 import { staffTimeEntrySegmentCreateSchema } from '../../../../../data/validators'
 import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
+import { assertTimeEntrySegmentRangeOrdered } from '../../../../../lib/timesheets/timeEntrySegmentRange'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
   runStaffMutationGuardAfterSuccess,
@@ -101,6 +102,7 @@ export async function POST(req: Request) {
       },
       translate,
     )
+    await assertTimeEntrySegmentRangeOrdered(input.startedAt, input.endedAt, 'endedAt')
 
     const guardResult = await runStaffMutationGuards(
       container,
@@ -221,7 +223,7 @@ export const openApi: OpenApiRouteDoc = {
           }),
         },
         { status: 404, description: 'Time entry not found', schema: z.object({ error: z.string() }) },
-        { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
+        { status: 400, description: 'Invalid payload or an endedAt earlier than startedAt', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
       ],
     },

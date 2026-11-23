@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import {
   assignEmployeeToProjectFixture,
   createTimeEntryFixture,
@@ -8,35 +9,34 @@ import {
   deleteStaffEntityIfExists,
   getSelfStaffMemberId,
 } from '@open-mercato/core/helpers/integration/timesheetFixtures'
-import { createTestCustomer, type TestCustomerFixture } from './fixtures'
 
 /**
- * TC-STAFF-059: a segment PATCH never stores an endedAt earlier than startedAt.
+ * TC-STAFF-059: a time entry segment never stores an endedAt earlier than startedAt.
  *
  * Endpoints:
  *   - POST  /api/staff/timesheets/time-entries/{id}/segments
  *   - PATCH /api/staff/timesheets/time-entries/{id}/segments/{segmentId}
  */
 
-type SegmentItem = { startedAt?: string; endedAt?: string | null; segmentType?: string }
+type SegmentItem = { startedAt?: string; endedAt?: string | null }
 type ErrorBody = { code?: string; error?: string; fieldErrors?: Record<string, string> }
 
 const START = '2026-01-05T08:00:00.000Z'
 const END = '2026-01-05T10:00:00.000Z'
 
-test.describe('TC-STAFF-059: time entry segment PATCH keeps endedAt after startedAt', () => {
-  test('refuses inverted ranges and leaves the segment unchanged', async ({ request }) => {
+test.describe('TC-STAFF-059: time entry segments keep endedAt after startedAt', () => {
+  test('refuses reversed ranges on create and edit and leaves the segment unchanged', async ({ request }) => {
     let token: string | null = null
-    let customer: TestCustomerFixture | null = null
+    let companyId: string | null = null
     let projectId: string | null = null
     let memberId: string | null = null
     let entryId: string | null = null
 
     try {
       token = await getAuthToken(request, 'admin')
-      customer = await createTestCustomer(request, token)
+      companyId = await createCompanyFixture(request, token, `QA TC-STAFF-059 ${Date.now()}`)
       projectId = await createTimeProjectFixture(request, token, {
-        customerId: customer.id,
+        customerId: companyId,
         name: `QA TC-STAFF-059 ${Date.now()}`,
       })
       const staffMemberId = await getSelfStaffMemberId(request, token)
@@ -51,12 +51,19 @@ test.describe('TC-STAFF-059: time entry segment PATCH keeps endedAt after starte
       })
 
       const segmentsPath = `/api/staff/timesheets/time-entries/${encodeURIComponent(entryId)}/segments`
+      const reversedCreate = await apiRequest(request, 'POST', segmentsPath, {
+        token,
+        data: { startedAt: END, endedAt: START, segmentType: 'work' },
+      })
+      expect(reversedCreate.status(), 'creating a reversed segment is refused').toBe(400)
+      expect((await readJsonSafe<ErrorBody>(reversedCreate))?.code).toBe('segment_end_before_start')
+
       const createRes = await apiRequest(request, 'POST', segmentsPath, {
         token,
         data: { startedAt: START, endedAt: END, segmentType: 'work' },
       })
-      expect(createRes.status(), 'creating the segment succeeds').toBe(201)
-      const segmentId = ((await readJsonSafe<{ id?: string }>(createRes))?.id ?? '') as string
+      expect(createRes.status(), 'creating an ordered segment succeeds').toBe(201)
+      const segmentId = (await readJsonSafe<{ id?: string }>(createRes))?.id ?? ''
       expect(segmentId, 'the segments API returned an id').toBeTruthy()
       const segmentPath = `${segmentsPath}/${encodeURIComponent(segmentId)}`
 
@@ -72,6 +79,16 @@ test.describe('TC-STAFF-059: time entry segment PATCH keeps endedAt after starte
         expect(body?.code).toBe('segment_end_before_start')
         expect(body?.error, 'the refusal carries a message').toBeTruthy()
         expect(Object.keys(body?.fieldErrors ?? {})).toEqual([refusal.field])
+      }
+
+      if (!process.env.OM_FORCE_LOCALE) {
+        const german = await apiRequest(request, 'PATCH', segmentPath, {
+          token,
+          headers: { 'Accept-Language': 'de' },
+          data: { endedAt: '2026-01-05T07:00:00.000Z' },
+        })
+        expect(german.status()).toBe(400)
+        expect((await readJsonSafe<ErrorBody>(german))?.error).toBe('Ein Segment kann nicht enden, bevor es beginnt.')
       }
 
       const typeOnly = await apiRequest(request, 'PATCH', segmentPath, { token, data: { segmentType: 'break' } })
@@ -102,7 +119,7 @@ test.describe('TC-STAFF-059: time entry segment PATCH keeps endedAt after starte
         )
         await deleteStaffEntityIfExists(request, token, '/api/staff/timesheets/time-projects', projectId)
       }
-      await customer?.cleanup()
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
   })
 })
