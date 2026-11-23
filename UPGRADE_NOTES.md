@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Attachment assignment label authorization (#10336)
+
+The attachment library automatically fills in assignment labels and links only when the caller can read the referenced entity in the selected tenant and organization. Existing assignment IDs and saved labels and links stay available under the attachment's existing access policy. Supported built-in targets use their owning module's read grants. Custom records require the custom-record view grant and any entity-specific grant. When a target cannot be safely resolved, clients can display the stored label or ID.
+
+Server callers of `resolveAssignmentEnrichments` that want automatic enrichment must pass `authorization: { auth, container }` from the verified request and a matching tenant and organization. Calls without that context return an empty enrichment map. Operators should use existing target-module grants for roles that already need that data and adjust custom record grants separately. No data migration is required.
+
 ## Fullapp development agent authentication (#9116)
 
 Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibility copy, or the standalone `docker-compose.fullapp.dev.yml`, generate a strong `OPENCODE_PASSWORD` (for example, `openssl rand -hex 32`) and export it or save it in the compose `.env`. Missing or empty passwords now stop startup. The same value configures native OpenCode server authentication and the existing app client. Direct OpenCode clients must send HTTP Basic credentials with username `opencode`; healthchecks authenticate automatically. Recreate the app and OpenCode services together after changing the password.
