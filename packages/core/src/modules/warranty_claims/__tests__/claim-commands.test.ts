@@ -848,6 +848,52 @@ describe('warranty claim commands', () => {
     }
   })
 
+  test('transition clears closedAt when a closed claim is reopened and stamps a fresh one on re-close', async () => {
+    jest.useFakeTimers()
+    try {
+      const { ctx } = makeContext()
+      const claim = makeClaim('closed', {
+        resolvedAt: new Date('2026-07-04T10:00:00.000Z'),
+        closedAt: new Date('2026-07-06T10:00:00.000Z'),
+      })
+      mockClaims.push(claim)
+
+      jest.setSystemTime(new Date('2026-07-08T10:00:00.000Z'))
+      await transitionClaimCommand.execute({ id: CLAIM_ID, toStatus: 'in_review' }, ctx)
+
+      expect(claim.status).toBe('in_review')
+      expect(claim.closedAt).toBeNull()
+      expect(claim.resolvedAt?.toISOString()).toBe('2026-07-04T10:00:00.000Z')
+
+      jest.setSystemTime(new Date('2026-07-09T10:00:00.000Z'))
+      await transitionClaimCommand.execute({ id: CLAIM_ID, toStatus: 'rejected', rejectionReasonCode: 'out_of_warranty' }, ctx)
+      expect(claim.closedAt).toBeNull()
+
+      jest.setSystemTime(new Date('2026-07-10T10:00:00.000Z'))
+      await transitionClaimCommand.execute({ id: CLAIM_ID, toStatus: 'closed' }, ctx)
+      expect(claim.status).toBe('closed')
+      expect(claim.closedAt?.toISOString()).toBe('2026-07-10T10:00:00.000Z')
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('undoing a reopen restores the original closedAt', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('closed', {
+      resolvedAt: new Date('2026-07-04T10:00:00.000Z'),
+      closedAt: new Date('2026-07-06T10:00:00.000Z'),
+    })
+    mockClaims.push(claim)
+
+    const undo = await executeAndCaptureUndo(transitionClaimCommand, { id: CLAIM_ID, toStatus: 'in_review' }, ctx)
+    expect(claim.closedAt).toBeNull()
+
+    await undo()
+    expect(claim.status).toBe('closed')
+    expect(claim.closedAt?.toISOString()).toBe('2026-07-06T10:00:00.000Z')
+  })
+
   test('transition rejects illegal moves, rejected without a reason, and unresolved lines on resolve', async () => {
     const { ctx } = makeContext()
     const claim = makeClaim('draft')
@@ -1290,6 +1336,31 @@ describe('warranty claim commands', () => {
     expect(second).toMatchObject({ lineNo: 2, creditAmount: '20' })
     expect(first.lineNo).toBe(1)
     expect(claim.totalClaimedAmount).toBe('30')
+  })
+
+  test('line update keeps its own unchanged number despite a legacy duplicate row, but still rejects moving into it', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { totalClaimedAmount: '15' })
+    const first = makeLine(claim, { creditAmount: '10' })
+    const duplicate = makeLine(claim, { id: LINE_TWO_ID, creditAmount: '5' })
+    const third = makeLine(claim, { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', lineNo: 2, creditAmount: '1' })
+    mockClaims.push(claim)
+    mockLines.push(first, duplicate, third)
+
+    await updateClaimLineCommand.execute({ id: LINE_ID, lineNo: 1, creditAmount: 20 }, ctx)
+
+    expect(first).toMatchObject({ lineNo: 1, creditAmount: '20' })
+    expect(duplicate.lineNo).toBe(1)
+    dataEngine.markOrmEntityChange.mockClear()
+    const thirdBefore = { ...third }
+    const claimBefore = { ...claim }
+
+    await expect(updateClaimLineCommand.execute({ id: third.id, lineNo: 1, creditAmount: 99 }, ctx))
+      .rejects.toMatchObject({ status: 409, body: { code: 'warranty_claims.errors.duplicateLineNo' } })
+
+    expect(third).toEqual(thirdBefore)
+    expect(claim).toEqual(claimBefore)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
   })
 
   test.each([

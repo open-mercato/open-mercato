@@ -78,6 +78,7 @@ import { getStaffMemberByUserId } from '../lib/staffMemberResolver'
 import { restoreSegmentsForEntry, softDeleteSegmentsForEntry } from '../lib/timesheets/timeEntrySegmentCascade'
 import { lockStaffMemberTimers } from '../lib/timesheets/staffTimerLock'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveExactDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('staff')
 
@@ -206,18 +207,18 @@ async function assertTaskBelongsToProject(
   task: StaffTimeTask | null,
   projectId: string | null,
 ): Promise<void> {
-  if (timeEntryTaskMatchesProject(task, projectId)) return
+  if (!task || task.timeProjectId === projectId) return
   const { translate } = await resolveTranslations()
   const message = translate('staff.timesheets.errors.taskNotFound', 'Task not found or not accessible.')
   throw new CrudHttpError(422, { error: message, fieldErrors: { taskId: message } })
 }
 
 /**
- * The rule the assertion above enforces, as a predicate: a task belongs to
- * exactly one project, so an entry naming both must name the same one. Exported
- * because the grid bulk save validates a whole batch at once and answers with a
- * per-row error list rather than a thrown 422 — it reuses the rule and only
- * differs in how it reports a violation.
+ * Bulk-save predicate for checking a task against an explicitly resolved project.
+ * A missing project is accepted so bulk save can derive it from the task. The
+ * single-entry assertion above is stricter: a task requires its own project,
+ * including when a caller explicitly clears the project. Bulk save uses this
+ * predicate to collect per-row errors instead of throwing a 422.
  */
 export function timeEntryTaskMatchesProject(
   task: { timeProjectId?: string | null } | null | undefined,
@@ -225,6 +226,21 @@ export function timeEntryTaskMatchesProject(
 ): boolean {
   if (!task || !projectId) return true
   return task.timeProjectId === projectId
+}
+
+/**
+ * A write that moves an entry to another project without naming a task must
+ * not keep a stored task that belongs to a different project: the hours would
+ * be billed on one project while the task rollups count them on another's card.
+ * `storedTask` is the entry's current task as read from the database (deleted
+ * or not); a task that no longer resolves is left alone, exactly as before.
+ * One rule for the single-entry update and the grid bulk save.
+ */
+export function timeEntryStoredTaskLeftBehind(
+  storedTask: { timeProjectId?: string | null } | null | undefined,
+  nextProjectId: string | null | undefined,
+): boolean {
+  return !timeEntryTaskMatchesProject(storedTask, nextProjectId)
 }
 
 /**
@@ -458,8 +474,11 @@ export function resolveTimeEntryNotesInput(parsed: {
  * the validator accepts a JSON number. One conversion point keeps the two apart,
  * for the grid bulk save as much as for this file.
  */
-export function toStoredTimeEntryRateOverride(amount: number | null | undefined): string | null {
-  return amount === null || amount === undefined ? null : String(amount)
+export function toStoredTimeEntryRateOverride(
+  amount: number | null | undefined,
+  amountExact?: string | null,
+): string | null {
+  return amount === null || amount === undefined ? null : resolveExactDecimal(amountExact, amount)
 }
 
 /**
@@ -916,7 +935,7 @@ function timeEntrySeedFromSnapshot(snapshot: TimeEntrySnapshot): Record<string, 
 const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEntryId: string }> = {
   id: 'staff.timesheets.time_entries.create',
   async execute(rawInput, ctx) {
-    const parsed = staffTimeEntryCreateSchema.parse(rawInput)
+    const parsed = withExactAmounts(staffTimeEntryCreateSchema.parse(rawInput), rawInput, ['rateOverrideAmount'] as const)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
@@ -977,7 +996,7 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
         settings,
         scope: { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
       }),
-      rateOverrideAmount: toStoredTimeEntryRateOverride(parsed.rateOverrideAmount),
+      rateOverrideAmount: toStoredTimeEntryRateOverride(parsed.rateOverrideAmount, parsed.rateOverrideAmountExact),
       // Snapshotted rather than joined at read time so a later project currency
       // change cannot re-denominate money that has already been reported (D-3).
       rateCurrencyCode: project?.currencyCode ?? null,
@@ -1895,14 +1914,14 @@ const startTimerExistingCommand: CommandHandler<StaffTimeEntryStartTimerExisting
 const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEntryId: string }> = {
   id: 'staff.timesheets.time_entries.update',
   async prepare(rawInput, ctx) {
-    const parsed = staffTimeEntryUpdateSchema.parse(rawInput)
+    const parsed = withExactAmounts(staffTimeEntryUpdateSchema.parse(rawInput), rawInput, ['rateOverrideAmount'] as const)
     const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadTimeEntrySnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return {}
     return { before: snapshot }
   },
   async execute(rawInput, ctx) {
-    const parsed = staffTimeEntryUpdateSchema.parse(rawInput)
+    const parsed = withExactAmounts(staffTimeEntryUpdateSchema.parse(rawInput), rawInput, ['rateOverrideAmount'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = commandActorScope(ctx)
     const entry = await findOneWithDecryption(
@@ -1941,15 +1960,34 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
 
     // A task carries its project (screen 8), so re-pointing an entry at a task
     // moves the entry with it unless the request names a project explicitly.
-    const nextProjectId =
+    const requestedProjectId =
       parsed.timeProjectId !== undefined
         ? parsed.timeProjectId ?? null
         : task?.timeProjectId ?? entry.timeProjectId ?? null
+    // The request id is compared through the stored row, as create does: Postgres
+    // matches a uuid in any letter case, so the raw string can differ from the
+    // stored id while naming the same project.
+    const requestedProject =
+      requestedProjectId !== (entry.timeProjectId ?? null)
+        ? await requireTimeProjectInScope(em, requestedProjectId, entry.tenantId, entry.organizationId)
+        : null
+    const nextProjectId = requestedProjectId === null ? null : requestedProject?.id ?? entry.timeProjectId ?? null
     const projectChanged = nextProjectId !== (entry.timeProjectId ?? null)
-    const project = projectChanged
-      ? await requireTimeProjectInScope(em, nextProjectId, entry.tenantId, entry.organizationId)
-      : null
+    const project = projectChanged ? requestedProject : null
     await assertTaskBelongsToProject(task, nextProjectId)
+    const storedTaskLeftBehind =
+      parsed.taskId === undefined && project && entry.taskId
+        ? timeEntryStoredTaskLeftBehind(
+            await findOneWithDecryption(
+              em,
+              StaffTimeTask,
+              { id: entry.taskId, tenantId: entry.tenantId, organizationId: entry.organizationId },
+              undefined,
+              { tenantId: entry.tenantId, organizationId: entry.organizationId },
+            ),
+            project.id,
+          )
+        : false
 
     const settings = await readEntrySettings(ctx, entry.tenantId)
     const write: TimeEntryWriteAccess = {
@@ -2017,13 +2055,14 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       entry.timeProjectId = nextProjectId
       entry.rateCurrencyCode = project?.currencyCode ?? null
     }
-    if (parsed.taskId !== undefined) entry.taskId = task?.id ?? null
+    if (parsed.taskId !== undefined || parsed.timeProjectId === null) entry.taskId = task?.id ?? null
+    else if (storedTaskLeftBehind) entry.taskId = null
     if (parsed.customerId !== undefined) entry.customerId = parsed.customerId ?? null
     if (parsed.dealId !== undefined) entry.dealId = parsed.dealId ?? null
     if (parsed.orderId !== undefined) entry.orderId = parsed.orderId ?? null
     if (parsed.isBillable !== undefined) entry.isBillable = parsed.isBillable
     if (parsed.rateOverrideAmount !== undefined) {
-      entry.rateOverrideAmount = toStoredTimeEntryRateOverride(parsed.rateOverrideAmount)
+      entry.rateOverrideAmount = toStoredTimeEntryRateOverride(parsed.rateOverrideAmount, parsed.rateOverrideAmountExact)
     }
     if (notes !== undefined) entry.notes = notes
     entry.updatedAt = new Date()
@@ -2449,10 +2488,7 @@ const duplicateTimeEntryCommand: CommandHandler<StaffTimeEntryDuplicateInput, { 
         dealId: source.dealId ?? null,
         orderId: source.orderId ?? null,
         isBillable: source.isBillable,
-        rateOverrideAmount:
-          source.rateOverrideAmount === null || source.rateOverrideAmount === undefined
-            ? null
-            : Number(source.rateOverrideAmount),
+        rateOverrideAmount: source.rateOverrideAmount ?? null,
         description: source.notes ?? null,
         // A copy is typed, not timed: carrying `started_at`/`ended_at` over would
         // manufacture an overlap with the entry it was copied from (US-D7).

@@ -11,10 +11,26 @@ import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encrypt
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { E } from '#generated/entities.ids.generated'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  createBoundedPendingOperationTracker,
+  parsePendingOperationCapacity,
+  type BoundedPendingOperationTracker,
+} from '@open-mercato/shared/lib/telemetry/pending'
 
 const logger = createLogger('audit_logs').child({ component: 'access-log-service' })
 
-const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
+const DEFAULT_CORE_RESOURCE_KINDS: readonly string[] = Object.freeze(['auth.user', 'auth.role'])
+
+export function resolveCoreResourceKinds(env: Record<string, string | undefined> = process.env): Set<string> {
+  const kinds = new Set<string>(DEFAULT_CORE_RESOURCE_KINDS)
+  const extra = env.AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA
+  if (!extra) return kinds
+  for (const entry of extra.split(',')) {
+    const kind = entry.trim()
+    if (kind) kinds.add(kind)
+  }
+  return kinds
+}
 
 function toPositiveNumber(value: string | undefined, fallback: number): number {
   if (!value) return fallback
@@ -30,6 +46,7 @@ function toNonNegativeNumber(value: string | undefined, fallback: number): numbe
   return parsed
 }
 
+const CORE_RESOURCE_KINDS = resolveCoreResourceKinds(process.env)
 const CORE_RETENTION_DAYS = toPositiveNumber(process.env.AUDIT_LOGS_CORE_RETENTION_DAYS, 7)
 const NON_CORE_RETENTION_HOURS = toPositiveNumber(process.env.AUDIT_LOGS_NON_CORE_RETENTION_HOURS, 8)
 const CORE_RETENTION_MS = CORE_RETENTION_DAYS * 24 * 60 * 60 * 1000
@@ -39,7 +56,6 @@ const NON_CORE_RETENTION_MS = NON_CORE_RETENTION_HOURS * 60 * 60 * 1000
 // process — `0` opts back into rotate-on-every-write (test harnesses).
 const ROTATE_INTERVAL_MS = toNonNegativeNumber(process.env.AUDIT_LOGS_ROTATE_INTERVAL_MS, 60_000)
 
-let lastRotatedAt: number | null = null
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 // Postgres has a hard limit of 65k bind parameters per statement. Each access
 // log row uses 10 bind values (see INSERT below), so 500 rows × 10 = 5 000
@@ -49,30 +65,73 @@ const MAX_BATCH_ROWS = 500
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
 
-// Module-level registry of in-flight access-log writes. Both `log` and
-// `logMany` opt every promise they kick off into this set so that
-// `flushAccessLog()` can drain them. This is what makes the new
-// fire-and-forget CRUD path safe for test code that asserts on `access_logs`
-// rows immediately after a response — the integration harness defaults to
-// blocking via `OM_CRUD_ACCESS_LOG_BLOCKING=1`, and direct callers can opt
-// in to draining explicitly via `flushAccessLog()`.
-const pendingAccessLogWrites = new Set<Promise<unknown>>()
+const ACCESS_LOG_WRITE_TRACKER_KEY = Symbol.for('@open-mercato/core.accessLogWritePendingTracker')
+const ACCESS_LOG_ROTATION_KEY = Symbol.for('@open-mercato/core.accessLogRotation')
 
-function trackPendingAccessLogWrite<T>(promise: Promise<T>): Promise<T> {
-  pendingAccessLogWrites.add(promise as unknown as Promise<unknown>)
-  promise
-    .catch(() => undefined)
-    .finally(() => {
-      pendingAccessLogWrites.delete(promise as unknown as Promise<unknown>)
-    })
-  return promise
+type AccessLogWriteTrackerStore = {
+  tracker?: BoundedPendingOperationTracker
+}
+
+type AccessLogRotationStore = {
+  inFlight: Promise<void> | null
+  lastRotatedAt: number | null
+}
+
+function accessLogWriteTrackerStore(): AccessLogWriteTrackerStore {
+  const globalStore = globalThis as unknown as Record<symbol, AccessLogWriteTrackerStore | undefined>
+  globalStore[ACCESS_LOG_WRITE_TRACKER_KEY] ??= {}
+  return globalStore[ACCESS_LOG_WRITE_TRACKER_KEY]
+}
+
+function accessLogRotationStore(): AccessLogRotationStore {
+  const globalStore = globalThis as unknown as Record<symbol, AccessLogRotationStore | undefined>
+  globalStore[ACCESS_LOG_ROTATION_KEY] ??= { inFlight: null, lastRotatedAt: null }
+  return globalStore[ACCESS_LOG_ROTATION_KEY]
+}
+
+function getAccessLogWriteTracker(): BoundedPendingOperationTracker {
+  const current = accessLogWriteTrackerStore()
+  const configuredCapacity = parsePendingOperationCapacity(process.env.AUDIT_LOGS_MAX_PENDING)
+  const capacity = configuredCapacity >= 2 ? configuredCapacity : parsePendingOperationCapacity(undefined)
+  if (current.tracker && (current.tracker.capacity === capacity || current.tracker.pending > 0)) {
+    return current.tracker
+  }
+  current.tracker?.dispose()
+  current.tracker = createBoundedPendingOperationTracker({
+    capacity,
+    scopeCapacity: Math.floor(capacity / 2),
+    stage: 'service_write',
+    onDrop: ({ dropped, totalDropped, backlogDrained }) => {
+      logger.warn('Dropped access-log writes because pending capacity was full', {
+        backlogDrained,
+        capacity,
+        dropped,
+        totalDropped,
+        stage: 'service_write',
+      })
+    },
+    onError: (err) => {
+      logger.warn('Access-log write tracker callback failed', { err, stage: 'service_write' })
+    },
+  })
+  return current.tracker
 }
 
 export async function flushAccessLog(): Promise<void> {
-  while (pendingAccessLogWrites.size > 0) {
-    const snapshot = Array.from(pendingAccessLogWrites)
-    await Promise.allSettled(snapshot)
+  await accessLogWriteTrackerStore().tracker?.flush()
+  while (accessLogRotationStore().inFlight) {
+    await accessLogRotationStore().inFlight
   }
+}
+
+/** Test-only: dispose the write tracker and clear retention-rotation state. */
+export function resetAccessLogRuntimeStateForTests(): void {
+  const trackerState = accessLogWriteTrackerStore()
+  trackerState.tracker?.dispose()
+  trackerState.tracker = undefined
+  const rotationState = accessLogRotationStore()
+  rotationState.inFlight = null
+  rotationState.lastRotatedAt = null
 }
 
 const isZodRuntimeMissing = (err: unknown) => err instanceof TypeError && typeof err.message === 'string' && err.message.includes('_zod')
@@ -106,14 +165,20 @@ export class AccessLogService {
   constructor(private readonly em: EntityManager) {}
 
   async log(input: AccessLogCreateInput): Promise<AccessLog | null> {
-    const promise = this.logInternal(input)
-    return trackPendingAccessLogWrite(promise)
+    const admission = getAccessLogWriteTracker().tryStart(() => this.logInternal(input), [this.admissionScope(input)])
+    return admission.accepted ? admission.promise : null
   }
 
   async logMany(inputs: AccessLogCreateInput[]): Promise<number> {
     if (!Array.isArray(inputs) || inputs.length === 0) return 0
-    const promise = this.logManyInternal(inputs)
-    return trackPendingAccessLogWrite(promise)
+    const admission = getAccessLogWriteTracker().tryStart(() => this.logManyInternal(inputs), inputs.map((input) => this.admissionScope(input)))
+    return admission.accepted ? admission.promise : 0
+  }
+
+  private admissionScope(input: AccessLogCreateInput): string {
+    return typeof input?.tenantId === 'string' && UUID_REGEX.test(input.tenantId)
+      ? input.tenantId.toLowerCase()
+      : ''
   }
 
   flush(): Promise<void> {
@@ -347,24 +412,30 @@ export class AccessLogService {
       ...query,
     })
 
+    const pageSize = parsed.pageSize ?? parsed.limit ?? 50
+    const page = parsed.page ?? 1
+
     const where: FilterQuery<AccessLog> = { deletedAt: null }
     if (parsed.tenantId) where.tenantId = parsed.tenantId
-    if (parsed.organizationId) where.organizationId = parsed.organizationId
+    if (parsed.organizationId) {
+      where.organizationId = parsed.organizationId
+    } else if (parsed.organizationIds) {
+      if (parsed.organizationIds.length === 0) return { items: [], total: 0, page, pageSize, totalPages: 1 }
+      where.organizationId = { $in: Array.from(new Set(parsed.organizationIds)) }
+    }
     if (parsed.actorUserId) where.actorUserId = parsed.actorUserId
     if (parsed.resourceKind) where.resourceKind = parsed.resourceKind
     if (parsed.accessType) where.accessType = parsed.accessType
     if (parsed.before) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $lt: parsed.before } as any
     if (parsed.after) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $gt: parsed.after } as any
 
-    const pageSize = parsed.pageSize ?? parsed.limit ?? 50
-    const page = parsed.page ?? 1
     const offset = (page - 1) * pageSize
 
     const [items, total] = await this.em.findAndCount(
       AccessLog,
       where,
       {
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: 'desc', id: 'desc' },
         limit: pageSize,
         offset,
       },
@@ -393,10 +464,24 @@ export class AccessLogService {
     return { items, total, page, pageSize, totalPages }
   }
 
-  private async rotate(fork: EntityManager) {
+  private async rotate(fork: EntityManager): Promise<void> {
+    const rotationState = accessLogRotationStore()
+    if (rotationState.inFlight) return
     const now = Date.now()
-    if (ROTATE_INTERVAL_MS > 0 && lastRotatedAt !== null && now - lastRotatedAt < ROTATE_INTERVAL_MS) return
-    lastRotatedAt = now
+    if (
+      ROTATE_INTERVAL_MS > 0
+      && rotationState.lastRotatedAt !== null
+      && now - rotationState.lastRotatedAt < ROTATE_INTERVAL_MS
+    ) return
+    rotationState.lastRotatedAt = now
+    const rotation = this.performRotation(fork, now).finally(() => {
+      if (rotationState.inFlight === rotation) rotationState.inFlight = null
+    })
+    rotationState.inFlight = rotation
+    return rotation
+  }
+
+  private async performRotation(fork: EntityManager, now: number): Promise<void> {
     const coreCutoff = new Date(now - CORE_RETENTION_MS)
     const nonCoreCutoff = new Date(now - NON_CORE_RETENTION_MS)
     try {
