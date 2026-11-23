@@ -2,26 +2,57 @@
 
 ## TLDR
 
-The report design below assumes parent accounts. The ledger core has a flat
-chart. The ledger and accounting owners still need to decide how the first
-release represents synthetic accounts, and whether a narrower pilot is
-eligible. See [Chart model and first-release decision](#chart-model-and-first-release-decision).
+The ledger owner approved an optional account-create idempotency key and selected a single-organization trial-balance pilot. The pilot groups analytical accounts by account type and starts at the organization's first posting. Currency-owner agreement on the base-currency fence and accounting sign-off on statutory completeness remain outstanding. This specification records the design. Its routes, cutover and reporting pilot still require implementation.
 
-**Key Points:**
-- Adds read-only balance and turnover reporting on top of the `ledger` module specified by #5663, with an account-parent link and explicit hierarchy and fiscal-year prerequisites. Coordinated posting and account-write enforcement is required before release. **#5663 is an unmerged spec — see Prerequisites.**
-- Restores `getAccountBalance` (cut from #5663 Phase 1 as a stakeholder-directed scope reduction) and adds the ZSiO report (Zestawienie Obrotów i Sald / Trial Balance, art. 18 Ustawy o rachunkowości): opening balance, period and year-to-date debit/credit turnover, and closing balance per account, distinguishing syntetyk (an account with children under `parentAccountId`) from analityk (a leaf account), per the Event Storming Section 05 hot spot (the parent column #5663 removed on 2026-10-12 returns here as its first consumer).
-- Balances use `JournalEntryLine` as their source. The parent link, a verified historical baseline, fiscal-year authority and coordinated writer guards are prerequisites; their complete migration and compatibility plan remains to be reviewed (Data Models).
+The decision was recorded on 2026-11-23 by @mikoajp for Commerce Weavers. It refers to this specification at `1f257357f6` and the ledger implementation PR at `6e65be02c6`. [Ledger-owner decision](https://github.com/open-mercato/open-mercato/pull/9722#issuecomment-7103257601)
 
-**Scope:**
-- Per-account balance as of a date (`GET /api/ledger/accounts/:id/balance`), recursively including descendant accounts for a syntetyk account that also has direct postings of its own.
-- ZSiO: every `LedgerAccount` for a fiscal period, opening/period-turnover/YTD-turnover/closing, syntetyk and analityk rows, reconciled against the journal per art. 18.
-- Zero-sum invariant check across all accounts as a built-in report property, not a separate mechanism — a direct consequence of #5663's own dual balance enforcement (application + database trigger).
+## Phase 1 reporting pilot
 
-**Concerns:**
-- Posted-only in Phase 1 — no read of AP/AR draft/buffer state. `2026-09-06-accounts-payable.md`'s Out of scope carries a matching cross-reference back to this document.
-- Live query, not a maintained balance table — reversible later if real measurement shows it's needed; not built for a scale that isn't confirmed yet.
-- Scoped to ZSiO only, not Bilans/P&L/Cash Flow — those map accounts to statutory line items, a materially different and larger piece of work, and become their own future document(s).
-- Ships as `ledger` Phase 2, not a new module.
+**Population and figures.** The pilot covers one tenant-scoped organization. Go-live is its first posting. Reports are read-only for periods after go-live, with fiscal years taken from that organization's existing periods. The synthetic row represents a `LedgerAccountType` such as `010`. Its analytical rows represent the accounts carrying that `accountTypeId`, such as `010-1`. Keep type and account identities distinct. Calculate the type's summary from its accounts. Reconcile against the journal using each posting once, on its analytical account. Summing both the type row and its member rows would duplicate turnover. Parent accounts and an import or migration that creates them belong to Phase 2.
+
+The `GET /api/ledger/accounts/:id/balance` read takes its ID from a real account. The `GET /api/ledger/reports/trial-balance` read returns type summaries and the member accounts' opening, period, year-to-date and closing figures. Both reads use posted journal lines and the accounting date. Amounts retain four fractional digits as decimal strings with the organization's base `currencyId` alongside them. They follow the ledger's Phase 1 Money decision. [Core ledger design](https://github.com/open-mercato/open-mercato/blob/7c86ce9e42ad833296e9a7352fd977523f7c7cd8/.ai/specs/2026-08-18-general-ledger-core-engine.md) · [Additive ledger Money migration](https://github.com/open-mercato/open-mercato/issues/10431)
+
+**Currency and pagination.** The ledger owner selected a continuous base-currency fence for this pilot, conditional on agreement from the currency module owners. Once the scope has ledger postings, refuse a base change. The pilot operates without the Phase 2 durable report revision. Any posting into the reported range and any attempted base change that is refused or committed invalidates outstanding page tokens for the affected report. A continuation then returns `409 report_changed`, and the client restarts from page one. A refused promotion invalidates a pilot token even though the base and all posted amounts stay unchanged. A committed base change in a posted scope means continuity needs investigation. Withhold figures while the fence is lost and until single-base coverage is reconciled. The Phase 2 design has separate revision and continuation semantics.
+
+**Acceptance and release.**
+
+- Import a type with multiple analytical accounts, post balanced entries, and verify the type summary, each account row, and independent journal totals. Recover the same figures by traversing the report pages without double-counting. Start the pilot from its first posting, resolve the year from its periods, and exercise the first eligible period and its opening and year-to-date amounts.
+- After fetching page one, post into the reported range, then request the next page with its old token. Expect `409 report_changed` and a page-one restart. In separate cases, refuse a base change and simulate a committed base change or loss of the fence. Verify the same token invalidation on each base-change outcome, continued use of the original base after a refusal, and no figures from an unverified currency history. Exercise the applicable posting, promotion, undo/redo and import paths.
+- A working token invalidation mechanism and a continuously enforced fence must be demonstrated before enabling the pilot. Currency-owner agreement on that fence and accounting sign-off on the statutory completeness of the report are distinct gates. The latter is required before production use. The report and new account writer also wait for the per-scope migration gate below.
+
+The full opening-policy authority, fiscal-year authority and durable report revision are Phase 2 work. So are the parent-account variant and its proposed import/migration. The detailed design history below retains their data-model, query and rollout analysis for that phase.
+
+## Approved account-create migration
+
+**Current implementation.** At the implementation revision the owner examined, `POST /api/ledger/accounts` has no idempotency handling. Account numbers are unique among live rows by tenant and organization. The create command checks first and returns `409 ledger.errors.accountNumberTaken`. A concurrent duplicate can instead hit the partial unique index `ledger_accounts_scope_number_unique` and surface as `500 DATABASE_ERROR`. Mapping that race to the same 409 is a separate ledger fix. Account number lookup cannot recover a lost create response. [Ledger command](https://github.com/open-mercato/open-mercato/blob/6e65be02c6/packages/core/src/modules/ledger/commands/ledgerAccounts.ts) · [Ledger-owner decision](https://github.com/open-mercato/open-mercato/pull/9722#issuecomment-7103257601)
+
+**Key and receipt.** The client reads the current scope epoch, generates an `Idempotency-Key` of the form `<epoch>.<issue date>.<random>` with at least 128 random bits, and saves the key durably with the create intent before sending. Store the key hashed. Bind the record to tenant, organization, actor, operation `ledger.accounts.create` and canonical request digest. The same key in another scope is independent and cannot reveal the original result. Recover the saved key after restart. Never mint a second identity to resolve an uncertain first operation.
+
+Apply these decisions before reserving or writing anything for the incoming request. Check the epoch and issue-date horizon before interpreting an old receipt. Authenticate and reauthorize the scope on replay and reconciliation.
+
+| Condition | Approved client-visible result |
+| --- | --- |
+| Same key and payload, terminal result within 24 hours of **reservation commit** | Replay the original status and body with `Idempotency-Replayed: true`. This includes the original `201` account response or original terminal `4xx`. |
+| Same key and payload, original operation pending | `503 idempotency_outcome_unknown` with `Retry-After`. Retain the pending operation. |
+| Same key, different payload | `422 idempotency_key_mismatch`. |
+| Past the replay window, key verifiable and history intact | `409 idempotency_key_expired` with the original account ID or rejection code. For a successful original create, reconcile using the scoped `GET /api/ledger/accounts?id=<accountId>`. |
+| Key cannot be verified, including an issue date beyond 30 days or a superseded epoch | `409 idempotency_key_unverifiable`. Reserve nothing. The client retains its saved intent. |
+| Missing key after the per-scope cutover | `428 idempotency_key_required`. |
+
+**Retention and restore.** Keep the full terminal receipt for the 24-hour replay window. Then retain the spent-key record (hash, request digest, outcome reference and reservation time) for 30 days. The daily sweep removes receipts after the window and spent-key records after 31 days. The **30-day issue-date horizon controls admission**. A record still on disk awaiting the day-31 cleanup cannot extend client eligibility. A scope's durable key epoch increases strictly on each restore or failover. Reject a saved key from an older epoch even if its record survived the restore. Never remove an unresolved operation. Absence of a record after expiry or a restore gap cannot authorize a new create.
+
+**Per-scope cutover.** The approved header is optional during compatibility rollout. The flag `ledger.accounts.create.idempotency_key_required` defaults to off. Enable it only after at least one minor release of compatibility with deprecation in `UPGRADE_NOTES.md`, an inventory of all account-create callers, and a passing restart/recovery test for each caller. Include the account form, default chart import and every import or integration that creates accounts. The new writer and reports stay disabled in that scope until the flag is on. Commerce Weavers suggested initial tuning values of 100 pending reservations and 600 new keys per hour per actor and scope. These are suggestions for implementation, outside the approved compatibility contract.
+
+**Acceptance.** Drop the first acknowledgement after reservation, and separately lose the response after successful or rejected completion. Restart the real caller with its saved key. Assert the pending outcome or replay of the original terminal status, body and header, with one account at most. Exercise digest mismatch, foreign scope, missing key with the gate off and on, and restart on either side of the 24-hour window. After the window, assert the spent-key reference while history remains verifiable. With a key beyond the 30-day issue-date horizon, assert refusal even if the spent-key record still exists before cleanup. Repeat across the cleanup sweep, restore and failover. An old epoch or unverifiable key must create no work. An unresolved reservation survives cleanup.
+
+The bounded retention, client-visible outcomes and cutover terms above come from the [ledger owner's approval](https://github.com/open-mercato/open-mercato/pull/9722#issuecomment-7103257601).
+
+## Earlier full-report design and Phase 2 material
+
+The following record preserves the earlier end-to-end design, date semantics, report arithmetic, security analysis and history. Its parent-account schema, full authorities, durable revisions, prerequisites and historic use of “Phase 1” describe the original full-report design. For the first release, use the two sections above. Their rollout gates, response codes and token rules supersede the earlier alternatives.
+
+<details>
+<summary>Earlier full-report design, implementation notes and compliance review</summary>
 
 ## Overview
 
@@ -280,22 +311,10 @@ row for `010`. Account-number prefixes do not establish membership.
 [Ledger owner's review and example](https://github.com/open-mercato/open-mercato/pull/9722#issuecomment-7101125563)
 and [proposed import](https://github.com/open-mercato/open-mercato/pull/6439).
 
-Two designs are open. Grouping by `accountTypeId` requires separate type
-and account row identities, with journal reconciliation counting the posting
-population once. The parent-account design below instead requires a reviewed
-import and migration that establishes the parent rows and edges. Test either
-choice with the imported `010` type and its accounts, including independent
-journal reconciliation. The ledger and accounting owners must select the
-model before implementation.
-
-The ledger owner also proposed a first-release pilot for one organization
-from its first posting, using account-type groups, existing periods and
-read-only reports for periods after go-live. The proposal would defer several
-authorities, including the durable revision. It requires a decision on how
-the pilot establishes opening balances and fiscal-year boundaries, and what
-consistency it can guarantee across pages without that revision. Statutory
-completeness requires accounting sign-off before production use. The
-activation gates below continue to apply until a revised scope is approved.
+The ledger owner selected type-based grouping for Phase 1. The
+[Phase 1 reporting pilot](#phase-1-reporting-pilot) defines its release
+conditions and page semantics. The parent-account alternative below and
+the import or migration it requires are deferred to Phase 2.
 
 **Under the parent-account design, syntetyk balance is a recursive rollup
 over `parentAccountId`.** A syntetyk account (one with children) is
@@ -1003,12 +1022,12 @@ before release; it is not established by `REPEATABLE READ` alone.
 - the entity, validators, account commands and API must enforce same-scope parents, acyclicity and exact eligible type identity before activation. Every chart activation, create, attempted reparent/clear/delete/restore/undo and other hierarchy mutation takes the same exclusive transaction-scoped PostgreSQL advisory lock keyed by trusted tenant and organization before checking frozen state and ancestry. All posting paths, including imports, retries and undo/redo, take a compatible shared lock before validating account coverage and hold it through commit or rollback. Specify one global order with fiscal-period and account locks across every writer; fail closed when the lock or coverage authority is unavailable. This is a coordinated #5663 posting/account compatibility change, not a read-only addition;
 - add an accounting-date `effectiveStart` field backed by a scoped persisted date, returned in account create/list/detail and undo snapshots. A new account may omit it; after the first commit the default is the later of the next observed database UTC day and the selected parent's effective start. An explicit value must meet the same lower bound; otherwise reject the pending create without publishing an edge. Omission is a wire bridge, not proof that the changed posting behavior is compatible. Parent eligibility requires an existing, active, non-deleted same-tenant/organization account with the exact same `accountTypeId`, effective no later than the child. Different type IDs are ineligible even when their nullable `accountGroupId` values match or are both null. Reject missing or foreign parents without revealing foreign records; a same-scope inactive/deleted or different-type parent is ineligible. Preserve this predicate under concurrent delete/type change. The effective start is immutable after creation: an update may omit it or repeat the stored value, but a different value or an undo that would change it fails. Stage the nullable storage, attested baseline backfill and validation before any NOT NULL constraint; unknown legacy dates remain unverified and reporting fails closed. A dual-version deployment must fence/drain legacy writers before activation as below, and the compatibility bridge and generated API/OpenAPI contracts must be reviewed with #5663 before enforcement;
 - post-commit observation protocol: after the operation-identity lock and then the exclusive scoped hierarchy lock, the first transaction reserves a durable operation identity and pending proposal in the same database transaction; it does not publish the edge or permit posting. After that commit is known, a recoverable verifier obtains the non-regressing trusted UTC-day observation described in Queries, then in a second transaction rechecks parent eligibility, locks and identity, chooses or validates `effectiveStart` strictly after that observed day, and atomically publishes the edge and records a retained success outcome. Invalid dates or newly ineligible parents atomically record a retained rejection without publishing. Either terminal transition clears only its own pending marker in the same transaction; another operation's marker remains. A response is sent only after the terminal outcome is known. An uncertain commit acknowledgement is not evidence that a marker remains: query the durable primary for that operation's terminal or pending state; if the outcome cannot be established, return 503 and keep recovery/reporting fail-closed until it can. Reports return `503 { error: 'hierarchy_verification_pending' }` for an authorized existing resource while any scoped marker remains. A report snapshot taken before the proposal commits uses a day bound established before that snapshot, which cannot exceed the later verifier observation; it cannot successfully request the new edge's strictly later effective day. A snapshot after proposal commit sees either pending and fails closed, or a terminal result. This proof depends on the clock and snapshot ordering in Queries, and requires real concurrency and recovery tests before release;
-- reserve a tenant/organization- and actor-scoped operation ID with a canonical digest of all semantically relevant submitted inputs, including the distinction between omitted and explicit effective date. Resolve an omitted date once after the first commit and retain that result; retries must not recalculate it. Authenticate and reauthorize every reservation, replay and status lookup. Same ID and digest replay the retained pending, success or rejection outcome; reuse with a different digest returns 409 without side effects. Preserve terminal outcomes at least as long as the existing create/retry guarantee; no automatic expiry may weaken an existing lifetime guarantee. Verifier leases require fencing so a recovered worker cannot publish after a terminal decision. A client without a stable retry identity cannot safely resolve a lost response by inventing a new one: the existing #5663 create contract requires a concrete compatible bridge or an explicitly authorized alternative before activation. Until then, disable the new writer protocol and reports for that scope rather than claim old-client replay safety;
+- reserve a tenant/organization- and actor-scoped operation ID with a canonical digest of all semantically relevant submitted inputs, including the distinction between omitted and explicit effective date. Resolve an omitted date once after the first commit and retain that result; retries must not recalculate it. Authenticate and reauthorize every reservation, replay and status lookup. Same ID and digest replay the retained pending, success or rejection outcome; reuse with a different digest returns 422 `idempotency_key_mismatch` without side effects. Retain terminal receipts and scoped spent-key records under the approved account-create migration. Verifier leases require fencing so a recovered worker cannot publish after a terminal decision. A client without a stable retry identity cannot recover by issuing a new key. Apply the migration cutover gates before activating the new writer and reports;
 - before a new account-create operation reserves a marker or retained identity, enforce shared, atomic per-actor, per-scope and deployment-wide rate, pending-count, queue and retained count/byte quotas. Authenticate and look up an existing scoped ID before charging the **new-operation** quota so authorized status and exact retries can proceed at storage capacity while their receipt store is readable, subject to the separate bounded lookup admission below; mismatched digests still fail. Reject new work without a marker with `429 { error: 'account_create_capacity' }` and `Retry-After` when limits are exhausted, or `503 { error: 'account_create_admission_unavailable' }` when the authority is unavailable; retained-outcome capacity may require operator action and may not clear merely by waiting. A receipt-store outage also fails closed. Document these new responses and stage their compatibility with #5663's existing create API before activation. Retain pending and uncertain operations until reconciled and terminal outcomes for their required retry lifetime; never evict evidence merely to admit more creates. Configure and review finite limits, capacity and compatible legacy-writer enforcement before activation. Reserve bounded verifier capacity and use the scoped drain barrier below so a continuous stream of new creates cannot indefinitely starve already-admitted reports when verifiers and the database are healthy. Monitor pending age and backlog with a documented recovery objective and alert; if recovery or fencing is unavailable, keep affected reports fail-closed and surface the outage rather than clearing uncertain markers. A privileged writer or sustained verifier outage can still deny its scope service; the operator must be able to suspend new creates and recover without weakening replay or history guarantees;
 - all reservation attempts, exact retries, status requests and unknown-ID lookups require a **separate** fair, bounded global and scoped ingress/lookup admission before acquiring an operation lock or primary connection; bounded pre-auth source admission also protects any database-backed authentication. Apply per-principal limits after authentication, cap queues, connections and lock waiters, and reserve separate capacity for verifier/recovery and authorized replays. Lookup admission exhaustion returns `429 { error: 'account_lookup_busy' }` with a bounded positive integer `Retry-After` in seconds; an unavailable admission authority or receipt store returns `503 { error: 'account_lookup_unavailable' }`. Admission rejection starts no operation lock or receipt read. These responses reveal no operation existence and do not establish whether an earlier attempt committed. Clients retain and retry the same ID, never mint a replacement. Stage these responses and their client handling compatibly with #5663 before activation. A slot is not reused until its database work has stopped. Storage quota exhaustion must not itself reject a replay, but lookup admission may throttle it; inaccessible receipt storage fails closed. This boundary and its failover behavior are prerequisites, not implied by the new-operation quota;
 - writer quota accounting must survive failover without losing admitted or retained work. Keep pending, retained count/bytes, reservation identity and enforcement epoch in a durable primary ledger transactionally coupled to the operation row and its permitted cleanup, with deterministic global-to-scope quota locking and database-enforced non-bypassable writer fencing. Before granting after failover, fence old epochs, drain or reconcile in-flight reservations and unknown commits against the durable primary, reconstruct and verify charges, and preserve rate windows or conservatively deny for the full window from the last possible old admission. A stale or split-brain coordinator cannot grant or commit under an old epoch. If acknowledged database commits, old-writer termination, accounting reconstruction or window continuity cannot be proved, admit no new work and keep uncertain records pinned; same-ID lookups remain subject to the bounded ingress and primary-availability rules. Do not infer aggregate safety from the unique operation ID or an eventually consistent cache;
 - a **per-scope report drain barrier** is required for progress, not merely a fair queue. When a bounded cohort of authorized reports is waiting, atomically close that scope to new reservation commits, using a durable phase/generation that every reservation locks and rechecks through commit. Reservations that were already in flight either commit before closure and join the pending set or roll back; those seeing the closed phase return/back off outside the database transaction without committing a marker. Continue verifier and recovery work until every earlier marker is terminal and cleared. Then admit the waiting report cohort to take its trusted-day-bound repeatable-read snapshot and finish or cancel while the phase remains closed; only reopen to a bounded writer cohort after all admitted report backends are confirmed stopped. Bound each cohort and queue, alternate fairly across scopes and writers, and recover canceled/crashed waiters with a fenced phase generation; lease expiry alone cannot reopen while an old backend may run. Do not hold a database transaction or pooled connection while waiting for the drain. Under healthy dependencies and valid admitted requests within certified budgets this gives waiting reports a marker-free snapshot, not just a scheduled 503; a crashed verifier, unknown operation or unavailable fence keeps the scope fail-closed and is an explicit availability outage, never a reason to discard a marker. Define the lock order and stage legacy-writer enforcement before activation;
-- first-reservation recovery: every reservation, same-ID retry and status resolution takes the same transaction-scoped operation-identity lock before reading or inserting, backed by a real unique constraint on the full scoped ID. A retry blocks behind an in-flight original transaction; a bounded wait returns 503 with outcome unknown, never a new ID or assumed abort. After acquiring the lock, read the durable primary using a fresh read-committed snapshot: a committed row yields its pending/terminal outcome and digest check; an absent row permits reservation of the same ID only when uninterrupted, authoritative key history proves it was never committed. An expired receipt, an unknown issuance epoch or a restore gap cannot establish that fact. Refuse new work for an ambiguous key as specified in the client migration proposal. A status response reporting no committed row must not assert that an earlier request still in transit can never start; a later same-ID original and retry remain serialized by the same lock and unique constraint. If primary transaction resolution or lock acquisition cannot be established, preserve outcome-unknown and retry the same ID. Hash collisions in advisory lock keys may only add contention; the full scoped ID and database uniqueness decide identity. A primary read that sees no committed marker does not require a fictitious scope gate: reports on snapshots before the eventual first commit are safe because their pre-snapshot day bound cannot exceed the later verifier observation, and the eventual effective start is strictly later. Once committed, the pending marker gates snapshots until its own terminal transition. Test this proof; do not enable if primary ordering, failover durability or the non-regressing clock cannot be established;
+- first-reservation recovery: every reservation, same-ID retry and status resolution takes the same transaction-scoped operation-identity lock before reading or inserting, backed by a real unique constraint on the full scoped ID. A retry blocks behind an in-flight original transaction; a bounded wait returns 503 with outcome unknown, never a new ID or assumed abort. After acquiring the lock, read the durable primary using a fresh read-committed snapshot: a committed row yields its pending/terminal outcome and digest check; an absent row permits reservation of the same ID only when uninterrupted, authoritative key history proves it was never committed. An expired receipt, an unknown issuance epoch or a restore gap cannot establish that fact. Refuse new work for an ambiguous key under the approved account-create migration. A status response reporting no committed row must not assert that an earlier request still in transit can never start; a later same-ID original and retry remain serialized by the same lock and unique constraint. If primary transaction resolution or lock acquisition cannot be established, preserve outcome-unknown and retry the same ID. Hash collisions in advisory lock keys may only add contention; the full scoped ID and database uniqueness decide identity. A primary read that sees no committed marker does not require a fictitious scope gate: reports on snapshots before the eventual first commit are safe because their pre-snapshot day bound cannot exceed the later verifier observation, and the eventual effective start is strictly later. Once committed, the pending marker gates snapshots until its own terminal transition. Test this proof; do not enable if primary ordering, failover durability or the non-regressing clock cannot be established;
 - existing archived baseline ancestors remain traversable and appear as root rows where needed even without direct postings. New children cannot attach to deleted or inactive parents. Deletion of a parent with children is rejected; restoring an existing child while its parent is inactive/deleted is rejected without consuming the undo token until the parent is restored. Re-read the parent under the hierarchy lock to serialize concurrent deletion, restore and creation;
 - baseline validation applies the same exact-type predicate to every retained edge; an attested legacy chart that violates it remains unsupported until an independently reviewed correction. A shared account type's group or normal-balance change must not reinterpret any covered account, including empty descendants;
 - cutover must fence every legacy or unmanaged writer at the database boundary, drain in-flight transactions, acquire the exclusive scope lock, revalidate the full attested interval and current state, and publish the verified baseline, coverage and enforcement generation atomically in the same transaction. A process-level feature flag alone is insufficient. New and legacy readers fail closed until publication; if any writer cannot be fenced or evidence revalidated, abort activation and keep reports disabled. Rollback must retain the fence until a documented compatible state is restored; never reopen legacy writers while reports rely on frozen history;
@@ -1323,7 +1342,7 @@ top of the live query.
 
 ## Implementation Plan
 
-### Phase 1: Balance and ZSiO queries, read-only routes and page
+### Earlier full-report implementation plan (now Phase 2)
 
 0. Coordinate the fiscal-year authority and its migration, scope and
    concurrent-write rules with #5663; coordinate the opening-policy
@@ -1439,7 +1458,7 @@ top of the live query.
   transition must advance the revision. A continuation yields no rows while
   its coverage is invalid. After re-attestation proves the range still uses A,
   the old token yields `409 report_changed` and a new page one succeeds.
-- **Continuous fence.** Get page one with A as the attested base. Try to
+- **Phase 2 continuous fence with a durable report revision.** Get page one with A as the attested base. Try to
   promote B through each enabled writer. The fence refuses the change before
   it commits. With no other contributing write and a still-valid token, the
   base, coverage and revision stay unchanged and page two succeeds with the
@@ -1450,7 +1469,9 @@ top of the live query.
   old token then yields `409 report_changed`. A new page one succeeds.
 - Run the applicable currency scenario through the scope's promotion, import
   and undo/redo paths. An untouched second organization must keep its
-  coverage and revision in both designs.
+  coverage and revision in both full-report designs. The Phase 1 pilot instead
+  invalidates outstanding tokens even for a refused base change. Its test
+  expects `409 report_changed` and a page-one restart.
 - Phase 2 only, after human approval: balance in the account's currency
   (Design decisions, "Balance in the account's currency"):
   - a foreign-currency account (`currencyId` EUR): debit EUR 100 and credit
@@ -1630,7 +1651,7 @@ top of the live query.
   newer day. Repeat with a snapshot taken while a marker is pending, clock
   regression/restart, and a verifier crossing midnight.
 - Recovery identity: race identical and differing payloads on one scoped
-  operation ID; assert one outcome and 409 for digest mismatch. Inject
+  operation ID; assert one outcome and 422 `idempotency_key_mismatch` for a changed digest. Inject
   lost acknowledgements after both terminal-success and terminal-rejection
   commits, aborts before commit, verifier lease takeover and multiple
   simultaneous pending IDs. Query the durable outcome on retry, clear only
@@ -2102,11 +2123,13 @@ following continuity guarantees. [Currency commands](https://github.com/open-mer
   restored, the gap reconciled, coverage re-attested and a fresh revision
   published. Only fresh tokens can continue against that revision.
 
-Both alternatives cover currency creation with base promotion, updates,
+Both Phase 2 alternatives cover currency creation with base promotion, updates,
 undo/redo, imports, posting and restore paths. An import or administrative
 writer that cannot participate must be fenced. An asynchronous currency
 event cannot make invalidation atomic. Choosing or implementing either
-alternative requires agreement between the ledger and currency owners.
+Phase 2 alternative requires agreement between the ledger and currency owners.
+For the selected Phase 1 pilot, a refused change invalidates outstanding
+page tokens independently of whether any currency change commits.
 
 **Report revision source and restore protocol (paginated endpoint).**
 `reportRevision` and `authorityEpoch` are durable per-scope rows in the
@@ -2140,66 +2163,11 @@ only after every retained row has a verified, backfilled value. The parent
 column remains nullable: `NULL` represents a root at every stage. A stage
 that cannot prove its evidence aborts activation and leaves reports disabled.
 
-**Legacy-client behavior.** Additive response fields and no new required
-request fields are goals for existing #5663 account, journal and period
-clients, not an established account-create compatibility contract. The
-pending-create protocol still lacks a reviewed bridge for a client that
-does not supply a stable operation identity. Before activation, link a
-reviewed bridge that resolves a lost response for those clients, or an
-explicitly approved client migration with its cutover gate. Until then,
-the new writer protocol and reports remain disabled for the scope. The
-acceptance suite must lose the first create response, retry through the
-approved legacy bridge or migrated client, and prove that the original
-terminal outcome is recovered without a duplicate account or edge; include
-an uncertain first commit and verify that no new identity is invented.
-
-**Client migration proposed for review.** The [ledger owner proposed](https://github.com/open-mercato/open-mercato/pull/9722#issuecomment-7101125563)
-an optional `Idempotency-Key` for `POST /api/ledger/accounts`. A migrating
-client would durably save the key with its create intent before sending the
-first request and reuse it after a timeout or restart. The writer would
-bind the key to the authorized actor, tenant, organization, operation and
-canonical request digest. Its durable record would identify the original
-account, pending operation or terminal rejection. The cart module's
-`readIdempotencyKey`, `findIdempotencyReplay` and `recordIdempotencyResponse`
-illustrate header and response handling. Ledger creation also needs atomic
-reservation and recovery across the two transactions described in Data Models.
-
-During the proposed compatibility window, permit legacy unkeyed requests
-on the existing writer. Keep the new protocol and reports disabled for
-those scopes. Making the header mandatory would require an explicitly
-approved migration, documented deprecation for at least one minor version,
-an inventory of callers including imports and external integrations, and
-verification that each migrated caller can recover its key after restart.
-An unknown or unverified caller keeps the scope ineligible. A missing key
-after cutover would be rejected before reserving or writing anything.
-The ledger owner has proposed this migration for approval.
-
-The approval must define the supported replay window, the event from which
-it runs, and the client-visible outcome when the retained result is lost.
-Within the window a surviving terminal receipt replays its original result.
-After expiry, restore or failover, absence of a receipt does not prove that
-the saved key was never used. If the writer cannot distinguish a fresh key
-from a prior operation, it must refuse the create before reserving anything.
-The client keeps its saved intent and seeks reconciliation. A viable design
-must explain how it recognizes old keys, for example through scoped spent-key
-records or a verifiable issuance epoch fenced across restore, and the storage
-and recovery bounds of that choice. Never expire an unresolved operation to
-free capacity. The window's length and the client error contract remain open.
-
-For acceptance, use the real route and database. Drop the success response
-after the terminal transaction commits, restart the client, then retry its
-saved key and verify the original account ID, one account and one edge
-under the parent-account design. Repeat with an uncertain reservation
-commit and a delayed verifier. Finish the original operation once. A changed
-payload with the same key must conflict without writing. Reusing the key
-from another tenant or organization must never reveal that outcome.
-
-Restart the client after the eventual approved replay window using the same
-saved key, with its terminal receipt expired. Repeat after restoring a
-snapshot that omits the receipt. Verify that neither attempt reserves new
-work or creates another account or edge. On recovery, the original result
-may be replayed only when it can be established. Also restart just inside
-the window with an intact receipt and assert that the original result returns.
+**Account-create compatibility.** The [approved account-create migration](#approved-account-create-migration)
+defines key scope, outcomes, bounded retention, restore and rollout for
+existing clients. Its per-scope cutover gate applies to the new writer
+and to both reporting phases. A later parent-account implementation
+would additionally test that a retry creates at most one edge.
 
 On the report routes, `page`/`pageSize`
 stay optional (defaults unchanged), `reportVersion` is optional for the
@@ -2218,7 +2186,7 @@ revision contract requires a new, strictly greater epoch — never a
 reused one. A partial rollback that leaves a writer un-fenced disables
 reporting rather than serving a mixed history.
 
-**Pilot scopes that can establish the required history and
+**Phase 2 scopes that can establish the required history and
 fiscal-year authority.** A scope is eligible only when an independent
 review attests all of: (a) the scope was created on or after the
 authority's go-live cutover, or its complete pre-go-live source
@@ -2335,33 +2303,23 @@ designs are reviewed, reporting is disabled for every scope.
 | Scope cohesion | Pass | Applied the same test as the rest of this document family: ZSiO stands alone; Bilans/P&L do not stand without it (see Alternatives considered) |
 | UI/UX and i18n sections agree | Pass | Every string named in Internationalization has a corresponding UI element in Architecture → Backend Pages, and vice versa |
 
-### Non-Compliant Items
+### Outstanding items in the full-report design
 
-The prerequisite authorities remain unimplemented: the fiscal-year
-authority, the opening-policy authority and the durable report-revision
-store are designs this document consumes, not ships. Their consumed data
-and writer contracts, mixed-version rollout, rollback and pilot-scope
-eligibility are specified (Prerequisite contracts and rollout), but the
-account-create compatibility bridge or approved client migration remains
-unresolved, and the authorities themselves and the
-accounting-owner sign-off on the continuous-ledger mode are still
-outstanding. The prior checklist cannot be treated as a compliance
-approval until those issues are resolved and independently reviewed.
+Parent hierarchy migration, the opening-policy and fiscal-year authorities
+and the durable report revision require implementation and independent
+review before the full report can ship. They are deferred beyond the
+one-organization pilot.
 
-### Verdict
+</details>
 
-**Blocked — not ready for implementation.** The report design, the
-hierarchy/accounting-date/revision corrections and the prerequisite
-contract shapes are specified; what remains is the prerequisite
-authorities' implementation, the account-create compatibility bridge or
-approved client migration, the accounting-owner approval of the
-continuous-ledger mode and the annual-opening alternative, and a fresh
-independent and security review of the reconciled result with #5663.
-The first-release model and pilot described in
-[Chart model and first-release decision](#chart-model-and-first-release-decision)
-also require an explicit decision.
-The existing accounting references and earlier checklist do not resolve
-these issues or authorize release.
+## Current disposition
+
+The ledger owner approved the account-create migration and selected the
+Phase 1 pilot. The design is ready for independent review. Scope activation
+requires the implemented and verified account-create cutover and pilot
+invalidation semantics. Agreement from currency owners on the fence and
+accounting sign-off on statutory completeness before production remain
+outstanding. Phase 2 has separate implementation and review gates.
 
 ## Changelog
 
@@ -2737,3 +2695,8 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
 - Split the continuation tests by currency guarantee. Committed base
   transitions invalidate old tokens. A refused promotion preserves a valid
   continuation, while loss and recovery of the fence require a fresh revision.
+
+### 2026-11-23 — Commerce Weavers ledger-owner decisions
+
+- Recorded the approved key format, replay outcomes, retention, epoch and caller cutover.
+- Selected account-type reporting for the pilot. Documented the fence condition, pilot token invalidation, distinct Phase 2 guarantees and outstanding accounting sign-off. [Owner decision](https://github.com/open-mercato/open-mercato/pull/9722#issuecomment-7103257601)
