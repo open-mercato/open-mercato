@@ -132,9 +132,11 @@ export async function GET(req: Request) {
     columnsByLabel.set(property.name, column)
     columnsByLabel.set(column, column)
   }
-  const configuredColumnAlias = configuredLabel?.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+  const customLabelAliases = classification.kind === 'custom'
+    ? labelCandidates.map((field) => field.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase())
+    : []
   if (requestedLabelField && !labelCandidates.includes(requestedLabelField) &&
-    !columnsByLabel.has(requestedLabelField) && requestedLabelField !== configuredColumnAlias) {
+    !columnsByLabel.has(requestedLabelField) && !customLabelAliases.includes(requestedLabelField)) {
     return NextResponse.json({ error: translate('api.errors.badRequest', 'Bad request') }, { status: 400 })
   }
   const systemLabel = [requestedLabelField, ...labelCandidates]

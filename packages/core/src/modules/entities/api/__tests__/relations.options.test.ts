@@ -82,6 +82,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
     { id: 'catalog:catalog_product_variant', labelField: 'sku' },
     { id: 'customer_accounts:customer_user', labelField: 'displayName' },
     { id: 'third_party:entry', labelField: 'externalReference' },
+    { id: 'virtual:contacts', labelField: 'displayName' },
   ] }],
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
 }))
@@ -160,6 +161,18 @@ describe('GET /api/entities/relations/options', () => {
       expect(response.status).toBe(400)
     }
     expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('keeps the snake_case selector for a declared custom document label', async () => {
+    mockQE.query.mockResolvedValueOnce({ items: [{ id: 'contact-1', display_name: 'Ada' }] })
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=virtual:contacts&labelField=display_name'))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ items: [{ value: 'contact-1', label: 'Ada' }] })
+    expect(mockQE.query).toHaveBeenCalledWith('virtual:contacts', expect.objectContaining({
+      fields: ['id', 'display_name'],
+      forceCustomEntityStorage: true,
+    }))
   })
 
   it('uses the selected organization for target permissions and relation records', async () => {
