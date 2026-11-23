@@ -83,10 +83,10 @@ Modules own their upgrade actions in a server-only `upgrades.ts` manifest plus o
 - [x] 1.3 Discover upgrades.ts in the generator — c17728fbca
 - [x] 1.4 Build the configs catalog resolver — c9d5c5240d
 - [x] 1.5 Add transaction-aware scheduler registration — 19d8f3f578
-- [ ] 1.6 Move actions into owner modules
-- [ ] 1.7 Lock, scope and revert in the runner
-- [ ] 1.8 Extend upgrade-actions API integration coverage
-- [ ] 1.9 Document the authoring path and deprecation
+- [x] 1.6 Move actions into owner modules — 0e6f8179ba
+- [x] 1.7 Lock, scope and revert in the runner — 5086beb9cf
+- [x] 1.8 Extend upgrade-actions API integration coverage — 2ef7899b8d (live run with Phase 2)
+- [x] 1.9 Document the authoring path and deprecation — 76cef8139f
 
 ### Phase 2: Operator CLI
 
