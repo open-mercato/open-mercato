@@ -30,5 +30,5 @@ A portal user should show the display name declared by its module. The code fixe
 
 ### Phase 2: QA and CI repair
 
-- [ ] 2.1 Restore relation labels and search and update integration coverage for scoped writes and soft deletion
+- [x] 2.1 Restore relation labels and search and update integration coverage for scoped writes and soft deletion — 0bd65a0181
 - [ ] 2.2 Verify the full gate, review the final diff, and record exact-head CI evidence
