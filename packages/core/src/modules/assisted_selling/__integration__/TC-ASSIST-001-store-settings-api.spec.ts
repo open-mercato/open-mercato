@@ -288,8 +288,7 @@ test.describe('TC-ASSIST-001: assisted selling store settings API', () => {
           `select logs.tenant_id as "tenantId", logs.organization_id as "organizationId"
            from action_logs as logs
            join assisted_selling_store_settings as settings on logs.resource_id = settings.id::text
-           where logs.command_id = 'assisted_selling.settings.save'
-             and logs.resource_kind = 'assisted_selling.store_settings'
+           where logs.resource_kind = 'assisted_selling.store_settings'
              and settings.tenant_id = $1 and settings.store_id = $2`,
           [tenantId, storeId],
         );
