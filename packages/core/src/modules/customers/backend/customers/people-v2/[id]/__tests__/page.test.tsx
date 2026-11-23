@@ -11,8 +11,12 @@ const readApiResultOrThrowMock = jest.fn()
 const scopedDeleteHeaderCalls: Array<Record<string, string>> = []
 const crudFormPropsCapture: { current: Record<string, unknown> | null } = { current: null }
 const personDetailTabsPropsCapture: {
-  current: { injectedTabs?: Array<{ id: string; label: string; priority?: number }> } | null
+  current: {
+    injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+    hiddenTabIds?: string[]
+  } | null
 } = { current: null }
+let mockGrantedFeatures: string[] = []
 let activeTabParam: string | null = 'changelog'
 let injectedTabWidgets: Array<Record<string, unknown>> = []
 
@@ -20,6 +24,10 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
   useSearchParams: () => ({ get: (key: string) => (key === 'tab' ? activeTabParam : null) }),
   usePathname: () => '/backend/customers/people-v2/test',
+}))
+
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures: mockGrantedFeatures } }),
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({
@@ -105,7 +113,7 @@ jest.mock('#generated/entities.ids.generated', () => ({
 jest.mock('../../../../../components/formConfig', () => ({
   createPersonEditSchema: () => ({}),
   createPersonEditFields: () => [],
-  createPersonPersonalDataGroups: () => [],
+  createPersonPersonalDataGroups: () => [{ id: 'personalData' }, { id: 'roles' }],
   mapPersonOverviewToFormValues: () => ({}),
   buildPersonEditPayload: () => ({}),
 }))
@@ -125,11 +133,13 @@ jest.mock('../../../../../components/detail/PersonDetailTabs', () => ({
   PersonDetailTabs: ({
     children,
     injectedTabs,
+    hiddenTabIds,
   }: {
     children: React.ReactNode
     injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+    hiddenTabIds?: string[]
   }) => {
-    personDetailTabsPropsCapture.current = { injectedTabs }
+    personDetailTabsPropsCapture.current = { injectedTabs, hiddenTabIds }
     return <div>{children}</div>
   },
 }))
@@ -177,6 +187,7 @@ jest.mock('../../../../../components/detail/ChangelogTab', () => ({
 describe('PersonDetailV2Page', () => {
   beforeEach(() => {
     activeTabParam = 'changelog'
+    mockGrantedFeatures = ['customers.interactions.*', 'customers.roles.*']
     injectedTabWidgets = []
     personDetailTabsPropsCapture.current = null
     readApiResultOrThrowMock.mockReset()
@@ -264,6 +275,7 @@ describe('PersonDetailV2Page', () => {
     renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
 
     await waitFor(() => expect(screen.getByText('composer')).toBeInTheDocument())
+    expect(crudFormPropsCapture.current?.groups).toContainEqual({ id: 'roles' })
     const composer = screen.getByText('composer')
     const planned = screen.getByText('planned')
     const timeline = screen.getByText('activities')
@@ -276,6 +288,20 @@ describe('PersonDetailV2Page', () => {
       )
     })
     expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(expect.stringContaining('dealId='))
+  })
+
+  it('does not prefetch or display activities without interaction view access', async () => {
+    activeTabParam = 'activities'
+    mockGrantedFeatures = ['customers.people.view']
+    renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
+
+    await waitFor(() => expect(screen.getByText('form')).toBeInTheDocument())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/api/customers/interactions'),
+    )
+    expect(personDetailTabsPropsCapture.current?.hiddenTabIds).toContain('activities')
+    expect(screen.queryByText('activities')).not.toBeInTheDocument()
+    expect(crudFormPropsCapture.current?.groups).not.toContainEqual({ id: 'roles' })
   })
 
   it('sends no interactions request while a non-activity tab is open (#7494)', async () => {

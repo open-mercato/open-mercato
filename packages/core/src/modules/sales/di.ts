@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import { asFunction, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
@@ -138,22 +139,22 @@ export function register(container: AppContainer) {
         resolveCurrencyAmountDecimalPlaces(precisionContainer, lookup),
       )
     })
-      .singleton()
+      .scoped()
       .proxy(),
     taxCalculationService: asFunction(({ em, eventBus }: AppCradle) => {
       return new DefaultTaxCalculationService(em, eventBus ?? null)
     })
-      .singleton()
+      .scoped()
       .proxy(),
     salesDocumentNumberGenerator: asFunction(({ em }: AppCradle) => {
       return new SalesDocumentNumberGenerator(em)
     })
-      .singleton()
+      .scoped()
       .proxy(),
     salesOrderService: asFunction(({ em }: AppCradle) => {
       return new DefaultSalesOrderService(em)
     })
-      .singleton()
+      .scoped()
       .proxy(),
     // Authoritative amount-due lookup consumed by `payment_gateways` when it
     // reconciles a caller-supplied payment-session amount (#4488). Registering
@@ -195,3 +196,5 @@ export function register(container: AppContainer) {
   // hand-wired sales.order reader above already lives in the global store,
   // so this module no longer needs its own DI binding.
 }
+
+defineProcessDiRegistrar(register)
