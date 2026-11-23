@@ -108,3 +108,9 @@ export function resolveInitSuperadminCredentials(args: string[], env: NodeJS.Pro
   }
   return { email, password: suppliedPassword ?? 'secret', skipPasswordPolicy }
 }
+
+export function resolveInitSuperadminDisplayPassword(password: string, env: NodeJS.ProcessEnv = process.env): string {
+  return (env.NODE_ENV ?? '').trim().toLowerCase() === 'production'
+    ? initTranslator(env)('cli.init.passwordProvided')
+    : password
+}
