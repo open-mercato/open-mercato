@@ -16,7 +16,7 @@ import {
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { deleteAttachmentIfExists, uploadAttachmentFixture } from '@open-mercato/core/helpers/integration/attachmentsFixtures'
-import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { createPersonFixture, deleteEntityIfExists, loadCustomerMessageObjectTypes } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   deleteChannelIfExists,
@@ -163,12 +163,12 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
     const recordId = `messages-composer:${stamp}`
     const scope = getTokenScope(token)
     const auth = { sub: scope.userId, orgId: scope.organizationId, tenantId: scope.tenantId }
-    const [{ bootstrapFromAppRoot }, { createRequestContainer }, hubQueue, objectRegistry, customers] = await Promise.all([
+    const [{ bootstrapFromAppRoot }, { createRequestContainer }, hubQueue, objectRegistry, customerObjectTypes] = await Promise.all([
       importFromAppRuntime<typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')>('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
       importFromAppRuntime<typeof import('@open-mercato/shared/lib/di/container')>('@open-mercato/shared/lib/di/container'),
       importFromAppRuntime<typeof import('@open-mercato/core/modules/communication_channels/lib/queue')>('@open-mercato/core/modules/communication_channels/lib/queue'),
       importFromAppRuntime<typeof import('@open-mercato/core/modules/messages/lib/message-objects-registry')>('@open-mercato/core/modules/messages/lib/message-objects-registry'),
-      importFromAppRuntime<typeof import('@open-mercato/core/modules/customers/message-objects')>('@open-mercato/core/modules/customers/message-objects'),
+      loadCustomerMessageObjectTypes(),
     ])
     await bootstrapFromAppRoot(resolveAppRoot())
     const previousObjectTypes = objectRegistry.getAllMessageObjectTypes()
@@ -182,7 +182,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
     let messageId: string | null = null
 
     try {
-      objectRegistry.registerMessageObjectTypes(customers.messageObjectTypes)
+      objectRegistry.registerMessageObjectTypes(customerObjectTypes)
       channelId = await seedConnectedChannel(request, token, { displayName: `Recovery ${stamp}` })
       personId = await createPersonFixture(request, token, { firstName: 'Mailbox', lastName: stamp, displayName: `Recovery ${stamp}` })
       const upload = await uploadAttachmentFixture(request, token, {
