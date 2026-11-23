@@ -168,12 +168,19 @@ reclassification with its own `postJournalEntry` call (`referenceType:
 *line* — see Design Decisions, "The engine's own postings carry a
 distinct `referenceType`"). **Corrected 2026-10-09 (re-review M3):**
 an earlier version called the event "ephemeral — immediate, in-process,
-no retry". #5663 has since corrected that (core engine → Events,
-2026-09-18): persistence is a property the *subscriber* declares
-(`metadata.persistent`), not the event, and #5663 names this subscriber
-as one that "must subscribe with `persistent: true`". It therefore
-declares `persistent: true` (`packages/events/AGENTS.md` → Subscription
-Types: retried on failure). The payload is `{ journalEntryId,
+no retry". **Revised 2026-11-23** (#5663, core engine → Events →
+Delivery contract): durability is provided by the *emitter*, not by the
+subscriber's `metadata.persistent`. The event bus queues an event for
+the persistent worker only when the emitter passes `{ persistent: true }`;
+#5663's `postJournalEntry` and `reverseJournalEntry` now do, so delivery
+is at-least-once and retried. The subscriber still declares
+`persistent: true` in its metadata, but that alone does not make
+delivery durable. Consumers are idempotent by `(journalEntryId, kind)`
+(`post` or `reversal`); this engine is idempotent at a finer grain, per
+source line (see the next paragraphs), which satisfies that. An event
+lost between the ledger's commit and the enqueue is recovered by this
+module's reconciliation (the sweeper below), as #5663 requires of every
+consumer. The payload is `{ journalEntryId,
 sequenceNumber, type, operationDate, organizationId, tenantId,
 referenceType, referenceId, lines: { id, accountId, debit, credit }[]
 }`, so the subscriber uses it to decide *whether* to act (`type`,
@@ -218,7 +225,8 @@ already uses. Because the call is composed, `ledger.postJournalEntry`
 does not emit `ledger.journal_entry.posted` itself (`isComposedPostingCall`);
 the engine emits it for its own entry after its commit, with the same
 payload as the `emitPostedEvent` helper `ledger` exports for composing
-callers, and the
+callers and with `{ persistent: true }` (#5663, Delivery contract,
+revised 2026-11-23), and the
 subscriber ignores that event by the marker. The tag cannot join the
 transaction: `journal_entry_line_dimensions.dimensions.set`
 opens its own and does not honour `transactionalEm`, so tagging is a
@@ -232,7 +240,8 @@ sweeper's and the guard's result set. Only transient errors (database,
 lock timeout) are thrown, so that delivery retries them.
 
 **A repair mechanism: `ReconcileCostRingCommand` (a sweeper).** A
-scheduled / CLI-invoked command that finds *incomplete* source lines
+command, run on the triggers listed under "When the sweeper runs" below,
+that finds *incomplete* source lines
 (see "Which entries and lines the engine reacts to") and completes them
 through the same idempotent code path as the subscriber. A line is
 incomplete when it has no `PostingRulesReclassification` intent row, or
@@ -247,6 +256,45 @@ before the module was enabled or before an admin configured
 configuration error. **Corrected 2026-10-09:** this paragraph used to
 justify the sweeper by the "no-retry risk of the ephemeral
 subscriber".
+
+**When the sweeper runs (added 2026-11-23).** #5663 (Events → Delivery
+contract) leaves reconciliation to each consumer and asks for runs at
+three moments; for this engine they are:
+
+- **When the module is enabled for an organization**, i.e. when an admin
+  first saves `PostingRulesSettings` with a `clearingAccountId`: one run
+  for that organization, to complete lines posted before the engine
+  could act.
+- **Periodically**, to complete lines whose event was lost between the
+  ledger's commit and the enqueue, or whose handler stopped on a named
+  configuration error that has since been fixed.
+- **After a reported emission failure**, when operations see the
+  ledger's emission error reported and run the sweep for that
+  organization.
+
+⚠ NEEDS HUMAN CONFIRMATION (OM Core). **Proposed Phase 1:** the
+`reconcile-cost-ring` CLI (unchanged) plus the run on enablement, from
+the settings save. **Periodic run:** the platform has a scheduler module
+(`@open-mercato/scheduler`, `SchedulerService.register` with
+`scopeType: 'organization'` and `targetType: 'command'`; the
+`currencies` module registers its per-organization rate fetch the same
+way). The proposal is to register one organization-scoped schedule per
+enabled organization (id `posting_rules:reconcile-cost-ring:<organizationId>`,
+target command `posting_rules.reconcileCostRing`) when the module is
+enabled, and to unregister it when the clearing account is cleared. The
+scheduler is an optional peer: `posting_rules` resolves it with
+`tryResolve` and, when it is absent, falls back to the CLI only, so the
+module does not hard-require it. If reviewers prefer to keep Phase 1
+smaller, the periodic run moves to a follow-up and operations call the
+CLI meanwhile; either way the run on enablement stays in Phase 1.
+
+**Cursor option.** Today the sweeper selects incomplete lines by its own
+intent rows, not by the ledger's posting order. Once
+`listPostedEntriesSince` exists (#5663, delivered with this module's
+engine PR or before it), the sweeper may instead replay from a
+per-organization `sequenceNumber` cursor and keep the intent-row check
+only for completion. That is an option after the read is delivered, not
+a Phase 1 requirement.
 
 **Which entries and lines the engine reacts to — an explicit trigger
 set (added 2026-10-09, re-review M1).** #5663 produces more contra-side
@@ -1008,11 +1056,13 @@ stay `null` until an admin configures them, exactly like
 ### Events & Subscribers (`events.ts`, `subscribers/`)
 
 - **Subscribes to** `ledger.journal_entry.posted` (#5663), declared
-  `persistent: true` (**corrected 2026-10-09**, re-review M3: #5663's
-  Events section, corrected 2026-09-18, names this subscriber as a
-  write-side, idempotent consumer that must be persistent; delivery is
-  retried on failure — `packages/events/AGENTS.md` → Subscription
-  Types). The payload, as #5663 specifies it, is `{ journalEntryId,
+  `persistent: true` in its metadata (**revised 2026-11-23**: durable
+  delivery comes from #5663's emitters passing `{ persistent: true }`,
+  not from this metadata; delivery is at-least-once and this subscriber
+  is idempotent per source line, which covers #5663's
+  `(journalEntryId, kind)` key; lost events are recovered by the sweeper,
+  see Design Decisions, "When the sweeper runs"). The payload, as #5663
+  specifies it, is `{ journalEntryId,
   sequenceNumber, type, operationDate, organizationId, tenantId,
   referenceType, referenceId, lines: { id, accountId, debit, credit }[]
   }` (`debit`/`credit` as numeric strings). The subscriber uses the
@@ -1099,7 +1149,8 @@ stay `null` until an admin configures them, exactly like
     postings succeed and the two P&L views diverge until the sweeper
     runs (see Risks). The posting is composed (`ctx.transactionalEm`), so
     the engine emits `ledger.journal_entry.posted` for its own entry
-    after its commit; the trigger-set check ignores it.
+    after its commit, with `{ persistent: true }`; the trigger-set check
+    ignores it.
 
   **The payload contract is no longer an open gap.** #5663 specifies it
   (core engine → Events, added 2026-09-18) and this section follows it.
@@ -1383,13 +1434,17 @@ by the same first sweep and get their intent row then (**added
     assert the mirror entry, its `CostCenter` tag and its intent row
     exist.
 11. `cli.ts`: `reconcile-cost-ring` and `lock-fiscal-period`, the CLI the
-    sweeper and the guard are invoked through. Phase 1 ships no schedule:
-    running `reconcile-cost-ring` periodically (cron, a CI job or a
-    platform scheduler calling the CLI per tenant and organization) is an
-    operations concern. **Open question for reviewers:** which scheduling
-    pattern the platform prefers for a periodic, per-organization sweep —
-    a queue worker on the in-app scheduler, or an external cron calling the
-    CLI — before a schedule is added in a later phase.
+    sweeper and the guard are invoked through. **Revised 2026-11-23**
+    (⚠ NEEDS HUMAN CONFIRMATION): the sweeper also runs once for an
+    organization when the module is enabled there (first save of
+    `PostingRulesSettings` with a `clearingAccountId`). The periodic run is
+    proposed through `@open-mercato/scheduler` as one organization-scoped
+    schedule targeting `posting_rules.reconcileCostRing`, registered on
+    enablement and unregistered when the clearing account is cleared, with
+    the scheduler resolved as an optional peer (CLI only when it is
+    absent). If reviewers prefer, the periodic schedule becomes a
+    follow-up and operations call the CLI until then. See Design
+    Decisions, "When the sweeper runs".
 
 ## File Manifest
 
@@ -1657,9 +1712,12 @@ or residual risk.
   regardless of its specific cause.
 - **Cascading failures.** The subscriber runs after the source commit;
   a slow or failing reclassification does not roll back or block the
-  source posting (by design — see Design Decisions). Because it is
-  `persistent: true`, delivery is retried on failure (**corrected
-  2026-10-09**: it used to be described as in-process with no retry), so
+  source posting (by design — see Design Decisions). Because #5663's
+  emitters pass `{ persistent: true }`, delivery is queued and retried on
+  failure (**revised 2026-11-23**; it was first described as in-process
+  with no retry, then on 2026-10-09 as durable because of the
+  subscriber's own `persistent: true`, which the event bus does not
+  honour on its own), so
   a handler that fails on something a retry cannot fix would be retried
   pointlessly, and a non-idempotent one would post duplicates. Severity:
   medium. Affected area: AP/AR posting latency and ledger correctness
@@ -1713,8 +1771,11 @@ or residual risk.
   until a chart-of-accounts import exists (see Out of scope), since until
   then an admin must already know their `LedgerAccount` ids.
 - **The event contract (see Events & Subscribers).** **Closed
-  2026-10-09** (re-review M3): #5663 now specifies the payload and this
-  subscriber's `persistent: true`, and this module's text follows it. The
+  2026-10-09** (re-review M3) and **revised 2026-11-23**: #5663 specifies
+  the payload and a delivery contract in which the emitter passes
+  `{ persistent: true }` and every consumer reconciles; this module's
+  text follows it (the subscriber keeps `persistent: true` in its
+  metadata, and the sweeper is the reconciliation). The
   payload lacks `currencyId`, `exchangeRate` and `amountCurrency`; the
   engine loads them with the same loader as the sweeper, and #5663 is not
   asked to change. Severity: low. Affected area: #6711's
@@ -2239,3 +2300,10 @@ above:
   scope in Phase 1 (**@lchrusciel ask 4**).
 
 Not yet reviewed by a maintainer.
+
+### 2026-11-23 — event delivery aligned with #5663, and when the sweeper runs
+
+- **Event delivery.** #5663 (head `dba7953603`, core engine → Events → Delivery contract) now states that durability comes from the emitter passing `{ persistent: true }`; the event bus does not queue on the subscriber's `metadata.persistent` alone. The statements that persistence is the subscriber's property (Design Decisions, Events & Subscribers, Risks: cascading failures and the event contract) are replaced. The subscriber keeps `persistent: true` in its metadata; it is idempotent per source line, which covers #5663's `(journalEntryId, kind)` key.
+- **The engine's own entry.** Emitted after commit with `{ persistent: true }` (Design Decisions and Commands).
+- **When the sweeper runs.** New paragraph in Design Decisions and a revised Implementation Plan step 11: on enablement for an organization, periodically, and after a reported emission failure. Proposed Phase 1: CLI plus the run on enablement; the periodic run through `@open-mercato/scheduler` as an optional peer, or as a follow-up. Marked ⚠ NEEDS HUMAN CONFIRMATION. Moving the sweeper to a `sequenceNumber` cursor over `listPostedEntriesSince` is an option once that read is delivered.
+- Not changed: the re-review M1–M4 content.
