@@ -22,7 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.9.0 → 0.10.0 (Unreleased)
+## 0.9.0 → 0.10.0 (2026-11-23)
 
 Companion skill: [`om-auto-upgrade-0.9.0-to-0.10.0`](.ai/skills/om-auto-upgrade-0.9.0-to-0.10.0/SKILL.md).
 
