@@ -396,6 +396,11 @@ export class PromotionCodeService {
    * exact `(codeId, cartId, orderId)` tuple proves the use already landed durably in an
    * earlier, committed transaction — that case short-circuits before any lock, re-eval or
    * counter increment, returning the same `{ ok: true }` the original call returned.
+   *
+   * A replay still repairs the post-commit cache effect: the attempt that committed the
+   * use may have died (or its cache call failed) before invalidating the CRUD cache, so
+   * every replay path invalidates the code's record/list entries again while leaving the
+   * ledger and the counter untouched.
    */
   async useCode(em: EntityManager, input: UseCodeInput, scope: PromotionsCodeScope): Promise<CodeUseResult> {
     const priorUsage = await em.findOne(CodeUsage, {
@@ -407,6 +412,7 @@ export class PromotionCodeService {
       revertedAt: null,
     })
     if (priorUsage) {
+      await this.invalidateCodeCache(priorUsage.codeId, scope, 'promotions.code.use')
       return { ok: true }
     }
 
@@ -518,23 +524,24 @@ export class PromotionCodeService {
       { transaction: true, label: 'promotions.code.use' },
     )
 
-    if (alreadyUsed) {
-      return { ok: true }
-    }
-
     // `useCode` runs outside the command bus's own post-execute cache hook (this service
     // is called directly, not via a `CommandHandler.buildLog`), so the CRUD list cache
     // (ENABLE_CRUD_API_CACHE) never sees `code.used`/`active`/the generated code's
-    // `active` flip without an explicit invalidation here.
+    // `active` flip without an explicit invalidation here. The under-lock replay
+    // (`alreadyUsed`) invalidates too, for the same post-commit repair as the fast path.
+    await this.invalidateCodeCache(code.id, scope, 'promotions.code.use')
+
+    return { ok: true }
+  }
+
+  private async invalidateCodeCache(codeId: string, scope: PromotionsCodeScope, reason: string): Promise<void> {
     await invalidateCrudCache(
       this.container as unknown as AwilixContainer,
       'promotions.code',
-      { id: code.id, organizationId: scope.organizationId, tenantId: scope.tenantId },
+      { id: codeId, organizationId: scope.organizationId, tenantId: scope.tenantId },
       scope.tenantId,
-      'promotions.code.use',
+      reason,
     )
-
-    return { ok: true }
   }
 
   /** Deletes the `CodeReservation` for that `(code, cartId)` pair only — never another cart's. */
@@ -556,18 +563,28 @@ export class PromotionCodeService {
    * `true`, and the `CodeUsage` row is marked `revertedAt` — never deleted (append-only
    * log, see the class comment on `CodeUsage`).
    *
-   * Idempotent: a `CodeUsage` row already carrying `revertedAt` is excluded from the
-   * lookup, so calling this twice for the same cart/order reverts nothing the second
+   * Idempotent: a `CodeUsage` row already carrying `revertedAt` is never locked or
+   * reverted again, so calling this twice for the same cart/order reverts nothing the second
    * time. Scoped by `tenantId`/`organizationId` on every lookup and every lock, so an
    * id collision across tenants can never revert the wrong tenant's usage.
    *
    * Race-safe against a concurrent caller reverting the SAME `CodeUsage` row (e.g. the
    * order-cancelled subscriber and checkout's own compensation path both firing for the
-   * same order): the initial lookup above is unlocked, so each matched row is re-fetched
-   * with `PESSIMISTIC_WRITE` and re-checked for `revertedAt: null` inside its own
-   * transaction before anything is decremented. A row a concurrent caller already
-   * reverted (and committed) between the lookup and this re-fetch is simply skipped —
-   * never double-decremented, never double-counted in `revertedCount`.
+   * same order) and deadlock-free against OVERLAPPING reversals (a cart-wide and an
+   * order-only reversal touching different uses of one multi-use code): every parent
+   * `Code` row the matched uses belong to is locked first, in ascending id order — the
+   * same `Code`-before-children order `useCode` takes — and only then is each usage row
+   * re-fetched under `PESSIMISTIC_WRITE` (ascending id) and re-checked for
+   * `revertedAt: null`. A caller that touches a usage therefore already holds its parent
+   * `Code`, so two overlapping callers serialize on the first shared `Code` instead of
+   * each holding a usage the other waits for — which matters because `withAtomicFlush`
+   * joins the caller's ambient transaction and keeps every lock until it commits. A row a
+   * concurrent caller already reverted (and committed) is skipped — never
+   * double-decremented, never double-counted in `revertedCount`.
+   *
+   * Like `useCode`, a call that finds only already-reverted rows (a redelivery after a
+   * crash or a failed cache call) still invalidates those codes' CRUD cache entries, so
+   * the post-commit cache effect is repaired without touching the ledger or counters.
    */
   async revertCodeUse(em: EntityManager, input: RevertCodeUseInput, scope: PromotionsCodeScope): Promise<RevertCodeUseResult> {
     if (!input.cartId && !input.orderId) {
@@ -577,13 +594,13 @@ export class PromotionCodeService {
     // Two separate lookups, merged and de-duplicated by id, rather than a single `$or`
     // query — keeps this readable against the same plain-`findOne`/`find` MikroORM
     // surface the rest of this file already uses, with no operator-shape assumption.
+    // Already-reverted rows are kept too: their codes still get the cache repair below.
     const matches = new Map<string, CodeUsage>()
     if (input.cartId) {
       const rows = await em.find(CodeUsage, {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         cartId: input.cartId,
-        revertedAt: null,
       })
       for (const row of rows) matches.set(row.id, row)
     }
@@ -592,76 +609,88 @@ export class PromotionCodeService {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         orderId: input.orderId,
-        revertedAt: null,
       })
       for (const row of rows) matches.set(row.id, row)
     }
 
-    const usageRows = Array.from(matches.values())
-    if (usageRows.length === 0) return { ok: true, revertedCount: 0 }
+    const matchedRows = Array.from(matches.values())
+    if (matchedRows.length === 0) return { ok: true, revertedCount: 0 }
 
-    let revertedCount = 0
-    for (const seedUsage of usageRows) {
-      let reverted = false
+    const byId = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0)
+    const pendingRows = matchedRows.filter((row) => row.revertedAt == null).sort((left, right) => byId(left.id, right.id))
+    const parentCodeIds = Array.from(new Set(pendingRows.map((row) => row.codeId))).sort(byId)
+
+    const lockedCodes = new Map<string, Code>()
+    const lockedGeneratedCodes = new Map<string, GeneratedCode>()
+    const lockedUsages: CodeUsage[] = []
+
+    if (pendingRows.length > 0) {
       await withAtomicFlush(
         em,
         [
           async () => {
-            // Re-fetch under a row lock, re-checking `revertedAt: null`: a concurrent
-            // caller may have already reverted (and committed) this exact row between
-            // the lookup above and this lock being granted.
-            const lockedUsage = await em.findOne(
-              CodeUsage,
-              { id: seedUsage.id, tenantId: scope.tenantId, organizationId: scope.organizationId, revertedAt: null },
-              { lockMode: LockMode.PESSIMISTIC_WRITE },
-            )
-            if (!lockedUsage) return
-            reverted = true
-
-            if (lockedUsage.generatedCodeId) {
-              const lockedGeneratedCode = await em.findOne(
-                GeneratedCode,
-                { id: lockedUsage.generatedCodeId, tenantId: scope.tenantId, organizationId: scope.organizationId },
-                { lockMode: LockMode.PESSIMISTIC_WRITE },
-              )
-              if (lockedGeneratedCode) lockedGeneratedCode.active = true
-            } else {
+            for (const codeId of parentCodeIds) {
               const lockedCode = await em.findOne(
                 Code,
-                { id: lockedUsage.codeId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+                { id: codeId, tenantId: scope.tenantId, organizationId: scope.organizationId },
                 { lockMode: LockMode.PESSIMISTIC_WRITE },
               )
-              if (lockedCode) {
-                // Only reactivate a code this very decrement makes eligible again when
-                // the code was actually AT its limit beforehand — i.e. the inactive state
-                // can only be attributed to `useCode`'s own exhaustion flip. A code an
-                // admin deactivated while it still had headroom left (`active: false`
-                // with remaining uses) must stay deactivated: `hasRemainingGlobalUses`
-                // was already `true` before this decrement, so it never qualifies.
-                const wasExhausted = !hasRemainingGlobalUses(lockedCode)
-                lockedCode.used = Math.max(0, lockedCode.used - 1)
-                if (wasExhausted && hasRemainingGlobalUses(lockedCode)) lockedCode.active = true
+              if (lockedCode) lockedCodes.set(codeId, lockedCode)
+            }
+            for (const seedUsage of pendingRows) {
+              // Re-fetch under a row lock, re-checking `revertedAt: null`: a concurrent
+              // caller may have already reverted (and committed) this exact row between
+              // the lookup above and this lock being granted.
+              const lockedUsage = await em.findOne(
+                CodeUsage,
+                { id: seedUsage.id, tenantId: scope.tenantId, organizationId: scope.organizationId, revertedAt: null },
+                { lockMode: LockMode.PESSIMISTIC_WRITE },
+              )
+              if (!lockedUsage) continue
+              lockedUsages.push(lockedUsage)
+              if (lockedUsage.generatedCodeId && !lockedGeneratedCodes.has(lockedUsage.generatedCodeId)) {
+                const lockedGeneratedCode = await em.findOne(
+                  GeneratedCode,
+                  { id: lockedUsage.generatedCodeId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+                  { lockMode: LockMode.PESSIMISTIC_WRITE },
+                )
+                if (lockedGeneratedCode) lockedGeneratedCodes.set(lockedUsage.generatedCodeId, lockedGeneratedCode)
               }
             }
-
-            lockedUsage.revertedAt = new Date()
+          },
+          () => {
+            const revertedAt = new Date()
+            for (const lockedUsage of lockedUsages) {
+              if (lockedUsage.generatedCodeId) {
+                const lockedGeneratedCode = lockedGeneratedCodes.get(lockedUsage.generatedCodeId)
+                if (lockedGeneratedCode) lockedGeneratedCode.active = true
+              } else {
+                const lockedCode = lockedCodes.get(lockedUsage.codeId)
+                if (lockedCode) {
+                  // Only reactivate a code this very decrement makes eligible again when
+                  // the code was actually AT its limit beforehand — i.e. the inactive state
+                  // can only be attributed to `useCode`'s own exhaustion flip. A code an
+                  // admin deactivated while it still had headroom left (`active: false`
+                  // with remaining uses) must stay deactivated: `hasRemainingGlobalUses`
+                  // was already `true` before this decrement, so it never qualifies.
+                  const wasExhausted = !hasRemainingGlobalUses(lockedCode)
+                  lockedCode.used = Math.max(0, lockedCode.used - 1)
+                  if (wasExhausted && hasRemainingGlobalUses(lockedCode)) lockedCode.active = true
+                }
+              }
+              lockedUsage.revertedAt = revertedAt
+            }
           },
         ],
         { transaction: true, label: 'promotions.code.use.revert' },
       )
-
-      if (!reverted) continue
-      revertedCount += 1
-
-      await invalidateCrudCache(
-        this.container as unknown as AwilixContainer,
-        'promotions.code',
-        { id: seedUsage.codeId, organizationId: scope.organizationId, tenantId: scope.tenantId },
-        scope.tenantId,
-        'promotions.code.use.revert',
-      )
     }
 
-    return { ok: true, revertedCount }
+    const affectedCodeIds = Array.from(new Set(matchedRows.map((row) => row.codeId))).sort(byId)
+    for (const codeId of affectedCodeIds) {
+      await this.invalidateCodeCache(codeId, scope, 'promotions.code.use.revert')
+    }
+
+    return { ok: true, revertedCount: lockedUsages.length }
   }
 }

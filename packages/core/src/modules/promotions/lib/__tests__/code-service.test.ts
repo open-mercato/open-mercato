@@ -10,6 +10,8 @@
 // exactly the decision the row lock exists to make correct under real concurrency.
 
 import { randomUUID } from 'crypto'
+import { createMemoryStrategy, runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
+import { buildCollectionTags, buildRecordTag } from '@open-mercato/shared/lib/crud/cache'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Code, CodeReservation, CodeUsage, GeneratedCode, type PromotionCodeType, type PromotionCodeUsageMode } from '../../data/entities'
 import {
@@ -20,6 +22,10 @@ import {
   type PromotionCodeServiceContainer,
   type PromotionsCodeScope,
 } from '../code-service'
+
+// `isCrudCacheEnabled()` memoizes the flag on first use, so it is set before any test
+// runs. Containers without a `cache` registration resolve no cache and stay no-ops.
+process.env.ENABLE_CRUD_API_CACHE = 'true'
 
 const TENANT = 'tenant-1'
 const ORG = 'org-1'
@@ -253,9 +259,10 @@ function seedReservation(
   return row
 }
 
-function fakeContainer(rateLimiter?: unknown): PromotionCodeServiceContainer {
+function fakeContainer(rateLimiter?: unknown, cache?: CacheStrategy): PromotionCodeServiceContainer {
   return {
     resolve: <T>(name: string): T => {
+      if (name === 'cache' && cache) return cache as T
       if (name === 'rateLimiterService') {
         if (rateLimiter === undefined) throw new Error('[internal] not registered: rateLimiterService')
         return rateLimiter as T
@@ -920,6 +927,120 @@ describe('PromotionCodeService.useCode', () => {
   })
 })
 
+// Review 6019683556 finding 3: the cache invalidation runs AFTER the redemption commits,
+// so a crash or a transient cache error between the two leaves a stale record/list in
+// the CRUD cache. The retry that follows must repair it, while leaving the ledger alone.
+describe('PromotionCodeService — post-commit cache repair on replay', () => {
+  const EM = (em: FakeEm) => em as unknown as import('@mikro-orm/postgresql').EntityManager
+
+  function flakyCache(): { cache: CacheStrategy; failNext: () => void } {
+    const inner = createMemoryStrategy()
+    let failures = 0
+    const cache: CacheStrategy = {
+      ...inner,
+      get: inner.get.bind(inner),
+      set: inner.set.bind(inner),
+      deleteByTags: async (tags: string[]) => {
+        if (failures > 0) {
+          failures -= 1
+          throw new Error('[internal] cache unavailable')
+        }
+        return inner.deleteByTags(tags)
+      },
+    }
+    return { cache, failNext: () => { failures += 1 } }
+  }
+
+  async function primeCodeCache(cache: CacheStrategy, codeId: string, snapshot: Row): Promise<void> {
+    await runWithCacheTenant(TENANT, async () => {
+      await cache.set('promotions-code-list', { items: [snapshot] }, { tags: buildCollectionTags('promotions.code', TENANT, [ORG]) })
+      await cache.set(`promotions-code-${codeId}`, snapshot, { tags: [buildRecordTag('promotions.code', TENANT, codeId)] })
+    })
+  }
+
+  async function readCodeCache(cache: CacheStrategy, codeId: string) {
+    return runWithCacheTenant(TENANT, async () => ({
+      list: await cache.get('promotions-code-list'),
+      record: await cache.get(`promotions-code-${codeId}`),
+    }))
+  }
+
+  it('useCode: a retry after the first invalidation failed clears the stale list/record without consuming the code again', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'ONCE', usage: 'single', used: 0 })
+    seedReservation(tables, { codeId: code.id, cartId: 'cart-1', customerId: 'cust-1' })
+    const { cache, failNext } = flakyCache()
+    await primeCodeCache(cache, String(code.id), { id: code.id, used: 0, active: true })
+    const service = new PromotionCodeService(fakeContainer(undefined, cache))
+    const input = { codeId: String(code.id), codeString: 'ONCE', cartId: 'cart-1', orderId: 'order-1', customerId: 'cust-1', type: 'static' as const }
+
+    failNext()
+    await expect(service.useCode(EM(em), input, SCOPE)).rejects.toThrow('cache unavailable')
+    expect(code.used).toBe(1)
+    expect(code.active).toBe(false)
+    expect(await readCodeCache(cache, String(code.id))).toEqual({
+      list: { items: [{ id: code.id, used: 0, active: true }] },
+      record: { id: code.id, used: 0, active: true },
+    })
+
+    await expect(service.useCode(EM(em), input, SCOPE)).resolves.toEqual({ ok: true })
+
+    expect(await readCodeCache(cache, String(code.id))).toEqual({ list: null, record: null })
+    expect(code.used).toBe(1)
+    expect(tables.get(CodeUsage)).toHaveLength(1)
+  })
+
+  it('useCode: the under-lock replay also invalidates the cache', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'MULTI5', usage: 'multiple', usageAmount: 5, used: 0 })
+    const { cache } = flakyCache()
+    await primeCodeCache(cache, String(code.id), { id: code.id, used: 0, active: true })
+    const service = new PromotionCodeService(fakeContainer(undefined, cache))
+
+    const originalFindOne = em.findOne.bind(em)
+    let codeLookups = 0
+    em.findOne = (async (entity: Function, where: Row, options?: unknown) => {
+      if (entity === Code) {
+        codeLookups += 1
+        if (codeLookups === 1) {
+          code.used = 1
+          seedCodeUsage(tables, { codeId: String(code.id), customerId: 'cust-1', cartId: 'cart-1', orderId: 'order-1' })
+        }
+      }
+      return originalFindOne(entity, where, options)
+    }) as FakeEm['findOne']
+
+    const result = await service.useCode(
+      EM(em),
+      { codeId: String(code.id), codeString: 'MULTI5', cartId: 'cart-1', orderId: 'order-1', customerId: 'cust-1', type: 'static' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true })
+    expect(code.used).toBe(1)
+    expect(await readCodeCache(cache, String(code.id))).toEqual({ list: null, record: null })
+  })
+
+  it('revertCodeUse: a redelivery after the first invalidation failed clears the stale list/record without reverting again', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'ONCE', usage: 'single', used: 1, active: false })
+    seedCodeUsage(tables, { codeId: String(code.id), customerId: 'cust-1', cartId: 'cart-1', orderId: 'order-1' })
+    const { cache, failNext } = flakyCache()
+    await primeCodeCache(cache, String(code.id), { id: code.id, used: 1, active: false })
+    const service = new PromotionCodeService(fakeContainer(undefined, cache))
+
+    failNext()
+    await expect(service.revertCodeUse(EM(em), { orderId: 'order-1' }, SCOPE)).rejects.toThrow('cache unavailable')
+    expect(code.used).toBe(0)
+    expect(code.active).toBe(true)
+
+    await expect(service.revertCodeUse(EM(em), { orderId: 'order-1' }, SCOPE)).resolves.toEqual({ ok: true, revertedCount: 0 })
+
+    expect(await readCodeCache(cache, String(code.id))).toEqual({ list: null, record: null })
+    expect(code.used).toBe(0)
+  })
+})
+
 describe('PromotionCodeService.releaseCode', () => {
   it('deletes the reservation for its own (code, cart) pair only — never another cart\'s', async () => {
     const { em, tables } = createFakeEm()
@@ -1109,6 +1230,36 @@ describe('PromotionCodeService.revertCodeUse', () => {
     // skipped, never double-decremented and never double-counted.
     expect(result).toEqual({ ok: true, revertedCount: 0 })
     expect(code.used).toBe(1)
+  })
+
+  it('locks every parent Code in ascending id order before any usage row, so overlapping cart/order reversals cannot deadlock', async () => {
+    const { em, tables } = createFakeEm()
+    const first = seedCode(tables, { id: 'code-b', code: 'MULTIB', usage: 'multiple', usageAmount: 5, used: 2 })
+    const second = seedCode(tables, { id: 'code-a', code: 'MULTIA', usage: 'multiple', usageAmount: 5, used: 1 })
+    seedCodeUsage(tables, { codeId: String(first.id), cartId: 'cart-1', orderId: 'order-1' })
+    seedCodeUsage(tables, { codeId: String(second.id), cartId: 'cart-1', orderId: 'order-2' })
+    seedCodeUsage(tables, { codeId: String(first.id), cartId: 'cart-1', orderId: 'order-2' })
+    const service = new PromotionCodeService(fakeContainer())
+
+    const lockSequence: string[] = []
+    const originalFindOne = em.findOne.bind(em)
+    em.findOne = (async (entity: Function, where: Row, options?: unknown) => {
+      if ((options as { lockMode?: unknown } | undefined)?.lockMode) {
+        lockSequence.push(entity === Code ? `code:${String(where.id)}` : entity === CodeUsage ? 'usage' : 'other')
+      }
+      return originalFindOne(entity, where, options)
+    }) as FakeEm['findOne']
+
+    const result = await service.revertCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { cartId: 'cart-1' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, revertedCount: 3 })
+    expect(lockSequence).toEqual(['code:code-a', 'code:code-b', 'usage', 'usage', 'usage'])
+    expect(first.used).toBe(0)
+    expect(second.used).toBe(0)
   })
 
   it('reactivates the specific GeneratedCode for a dynamic use, without touching the parent Code.used', async () => {
