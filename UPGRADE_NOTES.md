@@ -1,52 +1,5 @@
 # Upgrade Notes
 
-## Module-owned upgrade actions and `configs upgrade-actions` CLI
-
-Upgrade actions now live in the module that owns them. A module declares them in a server-only
-`upgrades.ts` manifest (`export const upgradeActions = [...]`), with one action per file under
-`upgrades/` (for example `customers/upgrades/0.10.0-seed-deal-loss-reasons.ts`). The generator
-adds them to the server and CLI module registries; client, route-manifest and i18n artifacts do
-not import them. Types come from `@open-mercato/shared/modules/upgrade-actions`.
-
-- **Nothing reruns.** Every shipped action keeps its ID, version and translation keys, and the
-  `upgrade_action_runs` completion ledger is unchanged. No migration or backfill is needed.
-- **Authoring.** An action ID must start with `<moduleId>.`. The owning module is always
-  required; list only peer modules in `requiredModules`. Set `scope: 'tenant'` when the handler
-  writes tenant-wide state. Add `down` only when the inverse can tell this action's effects
-  apart from pre-existing data and later edits.
-- **Deprecated:** pushing definitions into `upgradeActions` from
-  `@open-mercato/core/modules/configs/lib/upgrade-actions` still works for one minor release,
-  with module gating and collision checks. Move those definitions to an `upgrades.ts` manifest.
-  The other exports of that file (`compareVersions`, `actionsUpToVersion`, `findUpgradeAction`,
-  the context and definition types) are unchanged.
-- **Peers.** `devices.seed-push-token-encryption-map` and `phone_calls.seed-call-encryption-maps`
-  now also require `entities`. `attachments.reconcile-organization`,
-  `cart.register-sweeper-schedules` and `promotions.register-code-reservation-sweep-schedule` are
-  declared tenant-wide; their completion is still recorded per organization.
-- **Scheduler.** `schedulerService.register(registration, { em, afterCommit })` writes through a
-  caller transaction and defers the BullMQ sync until the caller commits. Calls without the
-  second argument behave as before. If the deferred sync fails after commit, the schedule rows
-  are committed and `BullMQSchedulerService.syncAll()` (which runs on scheduler start) restores
-  the queue registrations without rerunning the upgrade action.
-- **Rollout.** Applies now take a Postgres advisory lock per action, version and scope. Let any
-  upgrade action started by an older binary finish before running the new CLI against the same
-  database.
-
-Operators can inspect and run the same actions from a deployment shell. Pass explicit UUIDs of
-an active tenant and one of its active organizations; `UPGRADE_ACTIONS_ENABLED` must be on:
-
-```bash
-yarn mercato configs upgrade-actions list --tenant <uuid> --organization <uuid>
-yarn mercato configs upgrade-actions up --tenant <uuid> --organization <uuid>
-yarn mercato configs upgrade-actions up --tenant <uuid> --organization <uuid> --action <id> --version <version> [--allow-tenant-wide]
-yarn mercato configs upgrade-actions down --tenant <uuid> --organization <uuid> --action <id> --version <version>
-```
-
-`up` without `--action` applies pending organization-scoped actions and lists the tenant-wide
-ones it skipped. A tenant-wide action runs only when targeted with `--allow-tenant-wide`. `down`
-reverts only an action that declares `down`; every shipped action is forward-only. Reverting the
-deployment binary does not undo any action.
-
 ## Fullapp development agent authentication (#9116)
 
 Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibility copy, or the standalone `docker-compose.fullapp.dev.yml`, generate a strong `OPENCODE_PASSWORD` (for example, `openssl rand -hex 32`) and export it or save it in the compose `.env`. Missing or empty passwords now stop startup. The same value configures native OpenCode server authentication and the existing app client. Direct OpenCode clients must send HTTP Basic credentials with username `opencode`; healthchecks authenticate automatically. Recreate the app and OpenCode services together after changing the password.
@@ -96,6 +49,53 @@ configuration is required. What changes when a peer is disabled:
   offered and are rejected with `UPGRADE_ACTION_NOT_AVAILABLE`.
 - **Translate actions** on dictionary entries and custom-field definitions appear only when the
   `translations` module is enabled and the user holds `translations.manage`.
+
+## Module-owned upgrade actions and `configs upgrade-actions` CLI
+
+Upgrade actions now live in the module that owns them. A module declares them in a server-only
+`upgrades.ts` manifest (`export const upgradeActions = [...]`), with one action per file under
+`upgrades/` (for example `customers/upgrades/0.10.0-seed-deal-loss-reasons.ts`). The generator
+adds them to the server and CLI module registries; client, route-manifest and i18n artifacts do
+not import them. Types come from `@open-mercato/shared/modules/upgrade-actions`.
+
+- **Nothing reruns.** Every shipped action keeps its ID, version and translation keys, and the
+  `upgrade_action_runs` completion ledger is unchanged. No migration or backfill is needed.
+- **Authoring.** An action ID must start with `<moduleId>.`. The owning module is always
+  required; list only peer modules in `requiredModules`. Set `scope: 'tenant'` when the handler
+  writes tenant-wide state. Add `down` only when the inverse can tell this action's effects
+  apart from pre-existing data and later edits.
+- **Deprecated:** pushing definitions into `upgradeActions` from
+  `@open-mercato/core/modules/configs/lib/upgrade-actions` still works for one minor release,
+  with module gating and collision checks. Move those definitions to an `upgrades.ts` manifest.
+  The other exports of that file (`compareVersions`, `actionsUpToVersion`, `findUpgradeAction`,
+  the context and definition types) are unchanged.
+- **Peers.** `devices.seed-push-token-encryption-map` and `phone_calls.seed-call-encryption-maps`
+  now also require `entities`. `attachments.reconcile-organization`,
+  `cart.register-sweeper-schedules` and `promotions.register-code-reservation-sweep-schedule` are
+  declared tenant-wide; their completion is still recorded per organization.
+- **Scheduler.** `schedulerService.register(registration, { em, afterCommit })` writes through a
+  caller transaction and defers the BullMQ sync until the caller commits. Calls without the
+  second argument behave as before. If the deferred sync fails after commit, the schedule rows
+  are committed and `BullMQSchedulerService.syncAll()` (which runs on scheduler start) restores
+  the queue registrations without rerunning the upgrade action.
+- **Rollout.** Applies now take a Postgres advisory lock per action, version and scope. Let any
+  upgrade action started by an older binary finish before running the new CLI against the same
+  database.
+
+Operators can inspect and run the same actions from a deployment shell. Pass explicit UUIDs of
+an active tenant and one of its active organizations; `UPGRADE_ACTIONS_ENABLED` must be on:
+
+```bash
+yarn mercato configs upgrade-actions list --tenant <uuid> --organization <uuid>
+yarn mercato configs upgrade-actions up --tenant <uuid> --organization <uuid>
+yarn mercato configs upgrade-actions up --tenant <uuid> --organization <uuid> --action <id> --version <version> [--allow-tenant-wide]
+yarn mercato configs upgrade-actions down --tenant <uuid> --organization <uuid> --action <id> --version <version>
+```
+
+`up` without `--action` applies pending organization-scoped actions and lists the tenant-wide
+ones it skipped. A tenant-wide action runs only when targeted with `--allow-tenant-wide`. `down`
+reverts only an action that declares `down`; every shipped action is forward-only. Reverting the
+deployment binary does not undo any action.
 
 ## Optional process DI root (#8989)
 
