@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { createDictionaryFixture } from '@open-mercato/core/helpers/integration/dictionariesFixtures'
-import { deleteEntityByPathIfExists, expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { deleteEntityByPathIfExists, expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { deleteTranslationIfExists, getLocales, setLocales } from './helpers/translationFixtures'
 
 export const integrationMeta = { dependsOnModules: ['translations', 'dictionaries'] }
@@ -32,20 +32,38 @@ test('TC-TRANS-019: injected dictionary action saves entry translations', async 
 
     await login(page, 'superadmin')
     expect(baseURL).toBeTruthy()
-    await page.context().addCookies([{ name: 'locale', value: 'en', url: baseURL! }])
+    await page.context().addCookies([
+      { name: 'locale', value: 'en', url: baseURL! },
+      { name: 'om_selected_org', value: '__all__', url: baseURL! },
+    ])
     await page.goto(`/backend/config/dictionaries?dictionaryId=${dictionaryId}`)
     const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: unique, exact: true }) })
-    await row.getByRole('button', { name: 'Translate', exact: true }).click()
+    const translate = row.getByRole('button', { name: 'Translate', exact: true })
     const dialog = page.getByRole('dialog', { name: `Translate: ${entryLabel}`, exact: true })
+    const translationPath = `/api/translations/dictionaries:dictionary_entry/${entryId}`
+
+    await translate.click()
+    await expect(dialog).toHaveAccessibleDescription(
+      'Select one organization in the organization switcher to translate this dictionary entry.',
+    )
+    await expect(dialog.getByRole('tab')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+
+    await page.context().addCookies([
+      { name: 'om_selected_org', value: getTokenScope(token).organizationId, url: baseURL! },
+    ])
+    await page.reload()
+    await translate.click()
     await expect(dialog).toBeVisible()
     await dialog.getByRole('tab', { name: 'DE', exact: true }).click()
     await dialog.getByPlaceholder(entryLabel, { exact: true }).fill('Übersetzter Wörterbucheintrag')
     const saved = page.waitForResponse((response) => response.request().method() === 'PUT'
-      && decodeURIComponent(new URL(response.url()).pathname) === `/api/translations/dictionaries:dictionary_entry/${entryId}`)
+      && decodeURIComponent(new URL(response.url()).pathname) === translationPath)
     await dialog.getByPlaceholder(entryLabel, { exact: true }).press('Control+Enter')
     expect((await saved).ok()).toBe(true)
 
-    const translated = await apiRequest(request, 'GET', `/api/translations/dictionaries:dictionary_entry/${entryId}`, { token })
+    const translated = await apiRequest(request, 'GET', translationPath, { token })
     expect(translated.ok()).toBe(true)
     const body = await readJsonSafe<{ translations?: Record<string, Record<string, string>> }>(translated)
     expect(body?.translations?.de?.label).toBe('Übersetzter Wörterbucheintrag')

@@ -55,6 +55,25 @@ describe('translation action contributions', () => {
     expect(mockTranslationManager).not.toHaveBeenCalled()
   })
 
+  it('asks for a single organization before loading dictionary translations in All Organizations', () => {
+    document.cookie = 'om_selected_org=__all__; path=/'
+    try {
+      render(
+        <DictionaryEntryTranslationAction
+          context={{ dictionaryId: 'dictionary-one', entry: { id: 'entry-one', label: 'Preferred customer' } }}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Translate' }))
+
+      expect(screen.getByRole('dialog', { name: 'Translate: Preferred customer' })).toHaveAccessibleDescription(
+        'Select one organization in the organization switcher to translate this dictionary entry.',
+      )
+      expect(mockTranslationManager).not.toHaveBeenCalled()
+    } finally {
+      document.cookie = 'om_selected_org=; Max-Age=0; path=/'
+    }
+  })
+
   it('maps field descriptions and option labels to their existing translation keys', () => {
     render(
       <FieldDefinitionTranslationAction

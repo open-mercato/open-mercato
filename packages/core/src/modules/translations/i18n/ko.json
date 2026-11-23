@@ -41,6 +41,7 @@
   "translations.manager.title": "번역",
   "translations.manager.translateEntry": "번역: {{label}}",
   "translations.manager.translateEntryDescription": "이 사전 항목의 번역을 관리합니다.",
+  "translations.manager.translateEntryOrganizationRequired": "이 사전 항목을 번역하려면 조직 전환 메뉴에서 조직 하나를 선택하세요.",
   "translations.manager.translateField": "필드 번역: {{key}}",
   "translations.module.description": "여러 로케일에서 엔터티 레코드의 번역을 관리합니다.",
   "translations.module.title": "번역",

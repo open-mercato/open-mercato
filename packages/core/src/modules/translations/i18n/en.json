@@ -41,6 +41,7 @@
   "translations.manager.title": "Translations",
   "translations.manager.translateEntry": "Translate: {{label}}",
   "translations.manager.translateEntryDescription": "Manage translations for this dictionary entry.",
+  "translations.manager.translateEntryOrganizationRequired": "Select one organization in the organization switcher to translate this dictionary entry.",
   "translations.manager.translateField": "Translate field: {{key}}",
   "translations.module.description": "Manage translations for entity records across multiple locales.",
   "translations.module.title": "Translations",

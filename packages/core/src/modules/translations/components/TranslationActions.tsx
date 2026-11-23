@@ -4,6 +4,8 @@ import * as React from 'react'
 import { Languages } from 'lucide-react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
+import { readRequestOrganizationScope } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FieldDefinition } from '@open-mercato/ui/backend/custom-fields/FieldDefinitionsEditor'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -28,12 +30,19 @@ type TranslationActionProps = {
   label: string
   title: string
   description?: string
+  organizationRequiredMessage?: string
   compact?: boolean
   disabled?: boolean
 }
 
-function TranslationAction({ label, title, description, disabled, ...managerProps }: TranslationActionProps) {
+function TranslationAction({
+  label, title, description, organizationRequiredMessage, disabled, ...managerProps
+}: TranslationActionProps) {
   const [open, setOpen] = React.useState(false)
+  const scopeMessage = open && organizationRequiredMessage && readRequestOrganizationScope()?.organizationId === null
+    ? organizationRequiredMessage
+    : undefined
+  const dialogDescription = scopeMessage ?? description
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -51,9 +60,9 @@ function TranslationAction({ label, title, description, disabled, ...managerProp
       <DialogContent className="max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          {description ? <DialogDescription>{description}</DialogDescription> : null}
+          {dialogDescription ? <DialogDescription>{dialogDescription}</DialogDescription> : null}
         </DialogHeader>
-        {open ? <TranslationManager mode="embedded" {...managerProps} /> : null}
+        {open && !scopeMessage ? <TranslationManager mode="embedded" {...managerProps} /> : null}
       </DialogContent>
     </Dialog>
   )
@@ -61,11 +70,13 @@ function TranslationAction({ label, title, description, disabled, ...managerProp
 
 export function DictionaryEntryTranslationAction({ context, disabled }: InjectionWidgetComponentProps<DictionaryEntryContext>) {
   const t = useT()
+  const scopeVersion = useOrganizationScopeVersion()
   const entry = context.entry
   if (!entry.id) return null
 
   return (
     <TranslationAction
+      key={scopeVersion}
       entityType="dictionaries:dictionary_entry"
       recordId={entry.id}
       baseValues={{ label: entry.label }}
@@ -73,6 +84,10 @@ export function DictionaryEntryTranslationAction({ context, disabled }: Injectio
       label={t('dictionaries.config.entries.actions.translate', 'Translate')}
       title={t('translations.manager.translateEntry', 'Translate: {{label}}', { label: entry.label })}
       description={t('translations.manager.translateEntryDescription', 'Manage translations for this dictionary entry.')}
+      organizationRequiredMessage={t(
+        'translations.manager.translateEntryOrganizationRequired',
+        'Select one organization in the organization switcher to translate this dictionary entry.',
+      )}
       disabled={disabled}
     />
   )

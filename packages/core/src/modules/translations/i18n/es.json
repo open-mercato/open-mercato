@@ -41,6 +41,7 @@
   "translations.manager.title": "Traducciones",
   "translations.manager.translateEntry": "Traducir: {{label}}",
   "translations.manager.translateEntryDescription": "Gestiona las traducciones de esta entrada de diccionario.",
+  "translations.manager.translateEntryOrganizationRequired": "Selecciona una organización en el selector de organizaciones para traducir esta entrada del diccionario.",
   "translations.manager.translateField": "Traducir campo: {{key}}",
   "translations.module.description": "Gestiona las traducciones de registros de entidades en múltiples idiomas.",
   "translations.module.title": "Traducciones",

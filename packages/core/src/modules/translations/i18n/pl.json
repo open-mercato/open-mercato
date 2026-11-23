@@ -41,6 +41,7 @@
   "translations.manager.title": "Tłumaczenia",
   "translations.manager.translateEntry": "Przetłumacz: {{label}}",
   "translations.manager.translateEntryDescription": "Zarządzaj tłumaczeniami tego wpisu słownika.",
+  "translations.manager.translateEntryOrganizationRequired": "Aby przetłumaczyć ten wpis słownika, wybierz jedną organizację w przełączniku organizacji.",
   "translations.manager.translateField": "Przetłumacz pole: {{key}}",
   "translations.module.description": "Zarządzaj tłumaczeniami rekordów encji w wielu językach.",
   "translations.module.title": "Tłumaczenia",

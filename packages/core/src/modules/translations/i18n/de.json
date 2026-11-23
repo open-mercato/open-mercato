@@ -41,6 +41,7 @@
   "translations.manager.title": "Übersetzungen",
   "translations.manager.translateEntry": "Übersetzen: {{label}}",
   "translations.manager.translateEntryDescription": "Verwalte Übersetzungen für diesen Wörterbucheintrag.",
+  "translations.manager.translateEntryOrganizationRequired": "Wählen Sie im Organisationswähler eine Organisation aus, um diesen Wörterbucheintrag zu übersetzen.",
   "translations.manager.translateField": "Feld übersetzen: {{key}}",
   "translations.module.description": "Verwalte Übersetzungen für Entitätsdatensätze in mehreren Sprachen.",
   "translations.module.title": "Übersetzungen",
