@@ -3,14 +3,48 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { appVersion } from '@open-mercato/shared/lib/version'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
 import { UpgradeActionRun } from '../data/entities'
 import { actionsUpToVersion, findUpgradeAction, getUpgradeActionOwner, type UpgradeActionDefinition } from '../lib/upgrade-actions'
-import { isUpgradeActionAvailable } from '../lib/upgrade-action-catalog'
+import { isUpgradeActionAvailable, resolveUpgradeActionScope } from '../lib/upgrade-action-catalog'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('configs')
 
+const LOCK_NAMESPACE = 'configs_upgrade_actions'
+
 export type UpgradeActionStatus = 'completed' | 'already_completed'
+
+export type UpgradeActionErrorCode =
+  | 'UPGRADE_ACTIONS_DISABLED'
+  | 'UPGRADE_ACTION_NOT_AVAILABLE'
+  | 'UPGRADE_ACTION_NOT_REVERSIBLE'
+  | 'UPGRADE_ACTION_NOT_APPLIED'
+
+/** The message is the code, which keeps the existing HTTP `details` values. */
+export class UpgradeActionError extends Error {
+  readonly code: UpgradeActionErrorCode
+  constructor(code: UpgradeActionErrorCode) {
+    super(code)
+    this.name = 'UpgradeActionError'
+    this.code = code
+  }
+}
+
+/**
+ * The action's data and ledger row committed, but a post-commit effect (cache
+ * invalidation, queue sync) failed. Retrying never reruns the handler.
+ */
+export class UpgradeActionPostCommitError extends Error {
+  readonly action: UpgradeActionDefinition
+  readonly failures: unknown[]
+  constructor(action: UpgradeActionDefinition, failures: unknown[]) {
+    super(`[internal] Upgrade action ${action.id}@${action.version} committed but ${failures.length} post-commit step(s) failed`)
+    this.name = 'UpgradeActionPostCommitError'
+    this.action = action
+    this.failures = failures
+  }
+}
 
 export function isUpgradeActionsEnabled(): boolean {
   return parseBooleanToken(process.env.UPGRADE_ACTIONS_ENABLED ?? '') === true
@@ -20,8 +54,58 @@ export function getCurrentVersion(): string {
   return appVersion
 }
 
-function isActionModuleEnabled(definition: UpgradeActionDefinition): boolean {
+export function isActionModuleEnabled(definition: UpgradeActionDefinition): boolean {
   return isUpgradeActionAvailable(definition, getUpgradeActionOwner(definition))
+}
+
+function upgradeActionLockKey(definition: UpgradeActionDefinition, scope: { tenantId: string; organizationId: string }): string {
+  const scopePart = resolveUpgradeActionScope(definition) === 'tenant' ? 'tenant' : scope.organizationId
+  return `${LOCK_NAMESPACE}:${scope.tenantId}:${scopePart}:${definition.version}:${definition.id}`
+}
+
+export function findExactUpgradeAction(
+  actionId: string,
+  actionVersion: string,
+  maxVersion: string = appVersion,
+): UpgradeActionDefinition | undefined {
+  return actionsUpToVersion(maxVersion).find((action) => action.id === actionId && action.version === actionVersion)
+}
+
+function resolveAvailableDefinition(
+  actionId: string,
+  actionVersion: string | undefined,
+  maxVersion: string,
+): UpgradeActionDefinition {
+  const definition = actionVersion
+    ? findExactUpgradeAction(actionId, actionVersion, maxVersion)
+    : findUpgradeAction(actionId, maxVersion)
+  if (!definition || !isActionModuleEnabled(definition)) {
+    throw new UpgradeActionError('UPGRADE_ACTION_NOT_AVAILABLE')
+  }
+  return definition
+}
+
+async function runAfterCommit(
+  definition: UpgradeActionDefinition,
+  callbacks: Array<() => void | Promise<void>>,
+): Promise<void> {
+  const failures: unknown[] = []
+  for (const callback of callbacks) {
+    try {
+      await callback()
+    } catch (error) {
+      failures.push(error)
+    }
+  }
+  if (failures.length) {
+    logger.error('Upgrade action post-commit step failed', {
+      component: 'upgrade-actions',
+      actionId: definition.id,
+      version: definition.version,
+      err: failures[0],
+    })
+    throw new UpgradeActionPostCommitError(definition, failures)
+  }
 }
 
 export async function listPendingUpgradeActions(
@@ -51,23 +135,21 @@ export async function executeUpgradeAction(
   container: AwilixContainer,
   {
     actionId,
+    actionVersion,
     tenantId,
     organizationId,
     version = appVersion,
-  }: { actionId: string; tenantId: string; organizationId: string; version?: string },
+  }: { actionId: string; actionVersion?: string; tenantId: string; organizationId: string; version?: string },
 ): Promise<{ action: UpgradeActionDefinition; status: UpgradeActionStatus }> {
   if (!isUpgradeActionsEnabled()) {
-    throw new Error('UPGRADE_ACTIONS_DISABLED')
+    throw new UpgradeActionError('UPGRADE_ACTIONS_DISABLED')
   }
-  const definition = findUpgradeAction(actionId, version)
-  if (!definition || !isActionModuleEnabled(definition)) {
-    throw new Error('UPGRADE_ACTION_NOT_AVAILABLE')
-  }
+  const definition = resolveAvailableDefinition(actionId, actionVersion, version)
   const em = container.resolve<EntityManager>('em')
   const afterCommitCallbacks: Array<() => void | Promise<void>> = []
   let status: UpgradeActionStatus
   try {
-    status = await em.transactional(async (tem) => {
+    status = await withAdvisoryXactLock(em, upgradeActionLockKey(definition, { tenantId, organizationId }), async (tem) => {
       logger.info('Executing upgrade action', {
         component: 'upgrade-actions',
         actionId: definition.id,
@@ -90,13 +172,12 @@ export async function executeUpgradeAction(
         organizationId,
         deferAfterCommit: (callback) => afterCommitCallbacks.push(callback),
       })
-      const record = tem.create(UpgradeActionRun, {
+      tem.persist(tem.create(UpgradeActionRun, {
         actionId: definition.id,
         version: definition.version,
         tenantId,
         organizationId,
-      })
-      tem.persist(record)
+      }))
       await tem.flush()
       logger.info('Upgrade action completed', { component: 'upgrade-actions', actionId: definition.id, version, tenantId, organizationId })
       return 'completed' as const
@@ -110,9 +191,61 @@ export async function executeUpgradeAction(
     }
   }
 
-  if (status === 'completed') {
-    for (const callback of afterCommitCallbacks) await callback()
-  }
+  if (status === 'completed') await runAfterCommit(definition, afterCommitCallbacks)
 
   return { action: definition, status }
+}
+
+/**
+ * Runs the action's declared compensation and deletes its exact completion row in
+ * one transaction, so it becomes pending again. Fails without touching the row
+ * when the action is unavailable, forward-only, unapplied, or its `down` throws.
+ */
+export async function revertUpgradeAction(
+  container: AwilixContainer,
+  {
+    actionId,
+    actionVersion,
+    tenantId,
+    organizationId,
+    version = appVersion,
+  }: { actionId: string; actionVersion: string; tenantId: string; organizationId: string; version?: string },
+): Promise<{ action: UpgradeActionDefinition; status: 'reverted' }> {
+  if (!isUpgradeActionsEnabled()) {
+    throw new UpgradeActionError('UPGRADE_ACTIONS_DISABLED')
+  }
+  const definition = resolveAvailableDefinition(actionId, actionVersion, version)
+  const down = definition.down
+  if (typeof down !== 'function' || resolveUpgradeActionScope(definition) !== 'organization') {
+    throw new UpgradeActionError('UPGRADE_ACTION_NOT_REVERSIBLE')
+  }
+  const em = container.resolve<EntityManager>('em')
+  const afterCommitCallbacks: Array<() => void | Promise<void>> = []
+  await withAdvisoryXactLock(em, upgradeActionLockKey(definition, { tenantId, organizationId }), async (tem) => {
+    const record = await tem.findOne(UpgradeActionRun, {
+      actionId: definition.id,
+      version: definition.version,
+      tenantId,
+      organizationId,
+    })
+    if (!record) throw new UpgradeActionError('UPGRADE_ACTION_NOT_APPLIED')
+    await down({
+      container,
+      em: tem,
+      tenantId,
+      organizationId,
+      deferAfterCommit: (callback) => afterCommitCallbacks.push(callback),
+    })
+    tem.remove(record)
+    await tem.flush()
+    logger.info('Upgrade action reverted', {
+      component: 'upgrade-actions',
+      actionId: definition.id,
+      version: definition.version,
+      tenantId,
+      organizationId,
+    })
+  })
+  await runAfterCommit(definition, afterCommitCallbacks)
+  return { action: definition, status: 'reverted' }
 }
