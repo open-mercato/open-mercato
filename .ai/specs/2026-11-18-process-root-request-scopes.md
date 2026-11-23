@@ -1,28 +1,28 @@
 # Process DI root with isolated caller scopes
 
 ## TLDR
-Issue #8989 moves repeatable registration and process infrastructure setup off the request path. One generation-owned root supplies cheap caller scopes; each legacy `createRequestContainer()` call retains its own EntityManager, mutation boundary, registrations, and services. The request context groups work without silently merging its units of work.
+The process DI root for #8989 landed in [#9628](https://github.com/open-mercato/open-mercato/pull/9628) with the implementation from [#9837](https://github.com/open-mercato/open-mercato/pull/9837). It is available behind `OM_PROCESS_CONTAINER_ROOT=on` and defaults to `off`. Each `createRequestContainer()` call keeps its own EntityManager and mutation boundary. The remaining rollout decision is whether to enable the root by default.
 
 ## Overview and problem statement
-The current builder repeats module registrars, core bootstrap, subscriber discovery and query-index subscription setup. Its opt-in bootstrap cache replays objects capturing the first caller's container or EntityManager. #9717 demonstrated that sharing the EntityManager causes unrelated dirty entities to flush, and that factories closing over a parent container cannot see caller-local auth. Reducing setup work must preserve both contracts.
+The legacy builder repeats module registrars, core bootstrap, subscriber discovery and query-index subscription setup. Its opt-in bootstrap cache can replay objects capturing the first caller's container or EntityManager. #9717 demonstrated that sharing the EntityManager causes unrelated dirty entities to flush, and that factories closing over a parent container cannot see caller-local auth. Reducing setup work must preserve both contracts.
 
-Related work: #2963/#9628 supplies execution-local event selection; #2977/#9717 demonstrates unsafe shared units of work; #8990 owns request memos and any deliberate unit-of-work consolidation; #8993 owns general performance budgets. PR #9388 supplies a separate request-cost benchmark. None is silently subsumed here.
+Related work includes execution-local event selection (#2963/#9628) and the shared-unit-of-work findings in #2977/#9717. #8990 owns request memos and deliberate unit-of-work consolidation. #8993 owns general performance budgets. PR #9388 supplies a separate request-cost benchmark.
 
 ## Resolved direction
 1. Keep one process registration root per registry generation, not one shared EntityManager. HTTP request and job contexts may contain multiple isolated caller scopes. Count root initialization, registrar execution, and scope creation separately; never label scope reuse as one unit of work.
 2. Preserve `register(container)` and existing DI import paths. Add explicit audited process-registration opt-in and a helper whose scoped factories receive the actual resolving container. Do not infer safety by executing registrars or proxying a mutable "latest container".
-3. If an enabled module or app registrar is not opted in, use the complete legacy builder, preserving original ordering and side effects. Compatibility fallback is observable. Standard first-party registrars are audited and migrated, including the app/template registrar; arbitrary third-party registrations keep working without migration.
+3. Use the complete legacy builder when an enabled module or app registrar has not opted in, any composed module DI override is present, a module or app supplies a custom event bus, or required process infrastructure sharing is disabled. Fallback preserves legacy ordering and setup side effects. `getProcessContainerStats()` reports the fallback reason.
 4. Keep #8990–#8994 independent. This change includes only the isolation, count, and integration checks necessary to validate its lifetime split.
-5. Roll out behind `OM_PROCESS_CONTAINER_ROOT`, initially off. Turn it on by default only after the validation and request-count/isolation evidence below pass; preserve an explicit off switch. If that evidence is unavailable, leave rollout incomplete and the implementation PR draft rather than assert #8989 complete.
+5. Keep `OM_PROCESS_CONTAINER_ROOT` off by default. Use the rollout acceptance criteria below for a separate maintainer decision on changing the default. Preserve the explicit off switch.
 
-## Proposed solution and architecture
+## Shipped implementation and architecture
 
 ### Registration contracts
 Add `defineProcessDiRegistrar` to mark the same registrar function with a globally stable symbol; its parameter and result conventions are unchanged. Add `asScopedService(factory)` to supply an Awilix SCOPED resolver whose factory receives the resolving caller container. It must not capture the root. No new magic DI key is required. Immutable configuration or process clients may be values; mutable/EM/auth/container-bound services must be scoped factories.
 
 An opted-in registrar performs registration only: no eager request resolution, database query, subscription, timer, or request-local side effect. Root initialization failures do not publish partial roots. Unmarked registrars run through the original builder, including asynchronous app hooks and override ordering. The fallback path must not accidentally replay cached request services.
 
-Core registration order remains core defaults, module registrations, core bootstrap unless an event bus was supplied, app registrar, module overrides, then per-EM encryption subscriber attachment. Overrides remain caller-local where they can depend on request state. Any override capability that cannot safely use the root selects compatibility mode rather than changing precedence.
+The legacy builder retains its registration order and applies module overrides before attaching encryption to the caller EntityManager. The optimized path requires an empty set of composed module DI overrides. A module- or app-provided event bus also selects the complete legacy path, preserving its subscriber order. [Fallback implementation](https://github.com/open-mercato/open-mercato/blob/8ddb50257500d64dd0055e268c4f3ace0ed19e5d/packages/shared/src/lib/di/container.ts#L374-L393).
 
 ### Lifetime inventory
 | Lifetime | Services/state |
@@ -42,18 +42,18 @@ Existing ambient `createModuleEvents().emit()` retains #9628's execution-local s
 Replace search-delete closures with event-context resolution of the indexer. Register query-index bridges once per generation, removing per-container polling timers and custom-field entity discovery. Preserve filtering and read-your-writes behavior; do not change persistent delivery, audience scoping, or event IDs. Registry refreshes replace deleted subscribers, including the zero-subscriber case. New custom-field definitions must still obtain bridge coverage without a restart.
 
 ### Initialization and invalidation
-Coalesce concurrent root initialization with a generation-owned promise. A rejection clears only that generation's promise and is retryable. Registrar/app-registrar/override/module registry replacement invalidates the generation. A slow obsolete initializer cannot replace the current root. Existing scopes retain their generation; new calls use the new one. Process clients (cache/KMS/transport pools) remain process-owned through their existing shutdown owners, never allocated again solely because of a registry generation. Generation-owned state consists of container definitions and in-memory listener registries; retiring a generation removes it from global ownership, allowing collection once callers/streams release their references. Do not add process event handlers or timers per generation. Failed initialization drops temporary definitions and listeners and never publishes them; any resource introduced during implementation must have an explicit disposer and failure cleanup test. Child scope disposal is caller-owned, never inferred from response return. Test repeated invalidation, failed initialization and stream cancellation without listener/client growth.
+Coalesce concurrent root initialization with a generation-owned promise. A rejection clears only that generation's promise and is retryable. Registrar/app-registrar/override/module registry replacement invalidates the generation. A slow obsolete initializer cannot replace the current root. Existing scopes retain their generation; new calls use the new one. Process clients (cache/KMS/transport pools) remain process-owned through their existing shutdown owners, never allocated again solely because of a registry generation. Retiring a generation prevents new scopes from being acquired from that root. Existing caller and nested scopes keep the generation alive until their owners dispose them. The retired root then disposes generation-owned singletons exactly once. Failed initialization disposes temporary resources and preserves the initialization error. [Generation lifetime implementation](https://github.com/open-mercato/open-mercato/blob/8ddb50257500d64dd0055e268c4f3ace0ed19e5d/packages/shared/src/lib/di/container.ts#L318-L365).
 
 Initialize after complete app registration, in Node instrumentation outside production build, and in the equivalent standalone path. Retain lazy initialization for tests, CLI callers and workers after `bootstrapFromAppRoot` completes. Do not import the full application graph in edge runtime. Avoid initialization from `registerDiRegistrars` itself because other registries are not complete then.
 
 ### Caller and background compatibility
-Keep fresh EM forks with clear identity maps and fresh event managers per legacy helper call. Services resolved from a caller retain that caller's registration context after another caller is created. Explicitly independent parallel/background tasks enter independent execution contexts. Streaming response work keeps valid references until it actually finishes; returning a Response is not evidence that its stream finished. Existing CLI and worker disposal/EM cleanup semantics remain intact.
+Keep fresh EM forks with clear identity maps and fresh event managers per legacy helper call. Services resolved from a caller retain that caller's registration context after another caller is created. Explicitly independent parallel/background tasks enter independent execution contexts. App and standalone API dispatchers keep authorization and handler scopes through response-body close, error or cancellation. A HEAD response starts cancellation of its suppressed body and returns without waiting for cancellation to settle. Scope ownership persists until cancellation settles. App-shell lookups own their scopes until the lookup finishes. Worker job boundaries own and dispose their caller and nested scopes. Other owners dispose every acquired caller and nested scope, including background work. [Runtime ownership contract](https://github.com/open-mercato/open-mercato/blob/8ddb50257500d64dd0055e268c4f3ace0ed19e5d/apps/docs/docs/framework/runtime/request-lifecycle.mdx#L18-L45).
 
 ## Data models, API contracts, and UI/UX
 No tables, migrations, routes, response bodies, event IDs, ACL IDs, or UI are added. The registrar opt-in, scoped-service helper, and `runWithRequestScopeContainer` are additive exported APIs. Existing generated registrar arrays remain unchanged. Instrumentation/dispatcher/template changes are mirrored; no generated file is hand edited. Default activation and performance measurements are documented separately from implementation availability.
 
 ## Migration and backward compatibility
-Unknown third-party and app registrars keep the legacy path, with diagnostics explaining why the root optimization is unavailable. Opting in requires registration-only behavior and scoped factories for request dependencies; unchanged legacy helpers remain supported. Existing `OM_BOOTSTRAP_CACHE` remains accepted but must not override the new safety rules or replay caller-bound instances on the root path. `OM_PROCESS_CONTAINER_ROOT=off` is the rollback. #9628 remains a dependency; #9717's shared-EM implementation is not a dependency and is not copied. The implementation is based on #9628, where `OM_REQUEST_CONTAINER_MEMO`/`shareContainer` are absent. If #9717 lands first, integration must remove the shared-EM branch from the process-root path and preserve `fresh` as an explicit independent-unit-of-work request; neither flag may silently reactivate a shared EM. Do not claim compatibility with the unmodified #9717 branch.
+Unknown third-party and app registrars keep the legacy path, with diagnostics explaining why the root optimization is unavailable. Opting in requires registration-only behavior and scoped factories for request dependencies. Existing registrar and container APIs stay supported. The root does not replay request-owned bootstrap cache entries or adopt #9717’s shared EntityManager. Set `OM_PROCESS_CONTAINER_ROOT=off` to restore the legacy builder.
 
 ## Research and alternatives
 Awilix scopes cache SCOPED instances separately, but inherit value registrations and root singletons. Its disposal only handles the container's cached services, not all child scopes. These semantics require explicit lifetime registration, not merely `createScope()` around existing registrations. Source: https://github.com/jeffijoe/awilix (createScope, lifetimes, disposal).
@@ -76,20 +76,19 @@ The agent workspace manager owns process-wide concurrency capacity, so its activ
 | Cold initialization race or failed startup | High | Shared generation promise, rejection eviction, stale-publication test |
 | Scope disposed before streaming/background work completes | High | Preserve caller ownership; no eager response-finally disposal; explicit task scopes |
 | KMS outage pins encryption off | Critical | Shared KMS health remains dynamic; subscriber attached by static config and tested through recovery |
-| Default rollout without workload proof | High | Remain opt-in/draft until evidence; counters distinguish roots, registrations and scopes |
+| Default rollout without workload proof | High | Keep the flag off by default until the rollout decision. Measure roots, registrations and callers separately |
 
-## Implementation plan
-### Phase 1 — Define and prove lifecycle primitives
-1. Add opt-in registrar/scoped-factory helpers and root-generation state with concurrency, failure, invalidation and compatibility tests.
-2. Integrate the root/caller builder while preserving override ordering and isolated managed entities.
-### Phase 2 — Split bootstrap and migrate registrations
-3. Separate process infrastructure from scoped encryption/search and scope-bound event dispatch; preserve subscriber semantics.
-4. Move query-index subscription work to generation ownership with dynamic entity coverage.
-5. Audit and migrate enabled first-party DI registrars and app/template hooks; unmarked external registrars keep full fallback.
-### Phase 3 — Wire execution entry points and verify
-6. Initialize after app registration in Node and standalone startup; retain lazy CLI/job paths and independent background execution scopes.
-7. Add self-contained integration coverage for company lookup/list/create/update across tenants, single-field edits preserving unrelated fields, cart/promotion auth, event side effects, and independent worker scopes. Record root/registrar/scope counters and compare enabled/disabled behavior.
-8. Run validation, independent review and workload qualification; document results and only enable the default after evidence supports it.
+## Completed implementation and rollout decision
+
+| Phase | Shipped in [#9628](https://github.com/open-mercato/open-mercato/pull/9628) |
+| --- | --- |
+| 1 · Lifecycle primitives | Audited registrar and scoped-factory helpers, generation initialization and retirement, isolated caller scopes and legacy fallback |
+| 2 · Registration and events | Process bootstrap, caller-owned encryption and search dependencies, caller-bound event resolution, generation-owned query-index setup, first-party registrar and template updates |
+| 3 · Entry points and qualification | Node and standalone startup, lazy CLI and worker support, app and API ownership boundaries, and enabled/disabled runtime coverage |
+
+The [recorded workload and isolation results](https://github.com/open-mercato/open-mercato/blob/8ddb50257500d64dd0055e268c4f3ace0ed19e5d/.ai/runs/2026-11-18-process-root-request-scopes.md#L73-L83) report 13 of 13 production-runtime scenarios passing per mode, with 120 distinct caller EntityManagers in both modes. The enabled workload executed 63 registrars for the cold generation and none across 100 warm callers. The disabled workload executed 7,560 registrars across the same 120 callers. These counts measure setup work with warm ORM and imports. The [final lifecycle checks](https://github.com/open-mercato/open-mercato/blob/8ddb50257500d64dd0055e268c4f3ace0ed19e5d/.ai/runs/2026-11-18-process-root-request-scopes.md#L138-L144) also cover response completion and cancellation in both modes.
+
+**Default-on remains a separate rollout decision.** Before proposing a default change, record the acceptance results below on the proposed rollout revision. Compare both flag modes in representative app and standalone workloads, including fallback configurations, and check that caller isolation, scope disposal and rollback hold. A maintainer must review that evidence and explicitly decide whether to change the default. The opt-in implementation is already available.
 
 ## Acceptance matrix
 - Cold concurrent initialization: 20 concurrent callers, one root initialization, each opted-in registrar invoked once per generation, 20 distinct caller EMs and scoped service sets.
@@ -98,14 +97,15 @@ The agent workspace manager owns process-wide concurrency capacity, so its activ
 - Background: two concurrent worker jobs, nested emit and explicit caller-owned emit after a sibling creation; subscriber resolve uses its bound caller and listeners do not multiply.
 - Compatibility: one unaudited module or app registrar forces the full legacy path; registration ordering, eager reads, custom event bus and app overrides match flag-off behavior.
 - Generations: invalidate twice during cold initialization, reject one initialization, replace subscribers with zero, and cancel a response stream; no stale publication, duplicate listeners or lost caller-owned references.
-- Rollout: relevant unit/integration suites and configured validation pass (or documented baseline-only failures independently verified), no functional regression on enabled/disabled workloads, and warm setup counters meet the above invariants. Missing live isolation/workload evidence blocks default-on and completion. Latency is reported, never used as a substitute for these invariants.
+- Rollout: relevant unit/integration suites and configured validation pass (or documented baseline-only failures independently verified), no functional regression on enabled/disabled workloads, and warm setup counters meet the above invariants. Missing live isolation or workload evidence blocks default-on. Report latency alongside the setup and isolation measurements.
 
 ## Final compliance report
 - Contracts: additive helpers; legacy registrar and helper semantics retained; no public route/data changes.
 - Tenant/data safety: scoped services, separate identity maps, explicit event resolution, isolation tests required.
 - Scope: DI lifetime optimization only; later artifact-roadmap capabilities remain separate.
-- Verification: unit and integration coverage ships with the implementation; missing live evidence blocks completion/default rollout.
+- Verification: the shipped unit and enabled/disabled integration coverage supports opt-in use. The default change requires the separate rollout decision above.
 - Rollback: feature off returns to compatible legacy construction.
 
 ## Changelog
 - 2026-11-18: Initial design from #8989 and the concrete isolation regressions found in #9717; separates registration reuse from unit-of-work sharing.
+- 2026-11-23 recorded the opt-in implementation shipped in #9628, the full legacy fallback and scope-disposal rules, and the outstanding default-on decision.
