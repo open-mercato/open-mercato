@@ -85,7 +85,11 @@ it does not trigger for `batch/**` bases by design.
 
 ## The fast gate (`Batch PR CI`)
 
-One job on `blacksmith-4vcpu-ubuntu-2404`, cancelled and restarted on every push to the PR:
+One job on `blacksmith-4vcpu-ubuntu-2404`, cancelled and restarted on every push to the PR.
+It also runs on every push to a `batch/**` branch: that re-checks the batch tip after each
+squash-merge and saves the caches in the batch branch's scope, which is the only place a PR
+into the batch can restore them from (besides `main`). Without it every batch PR starts cold.
+
 
 1. Restore the shared Yarn, `node_modules` and Turbo caches (same keys as `ci.yml`).
 2. `yarn build:packages && yarn generate && yarn build:packages` (Turbo cache hits for

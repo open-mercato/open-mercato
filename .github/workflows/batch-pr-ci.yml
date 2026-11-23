@@ -2,7 +2,8 @@ name: Batch PR CI
 permissions:
   contents: read
 
-# Fast gate for PRs merged into a daily batch branch (`batch/<lane>-<YYYYMMDD>`).
+# Fast gate for PRs into a daily batch branch (`batch/<lane>-<YYYYMMDD>`) and
+# for the batch tip after each merge.
 # Budget: 3–5 min wall time. The full `ci.yml` suite (app build, sharded
 # integration, docker, coverage, unfiltered guards) runs once per batch, on the
 # batch → main PR — see .ai/docs/batch-branches.md for the process.
@@ -22,13 +23,22 @@ env:
   OM_ENABLE_ENTERPRISE_MODULES_AGENTS: 'true'
   TURBO_ENV_MODE: 'loose'
 
+# The push trigger re-checks the batch tip after every squash-merge (two PRs
+# green on their own can still clash) and, more importantly for the time
+# budget, saves the node_modules and Turbo caches in the batch branch's scope.
+# A PR run can only restore caches from its own ref, its base branch or the
+# default branch, and nothing else ever runs on a `batch/**` push — without
+# this every PR into a batch starts cold (~2.5 min of reinstall and rebuild).
 on:
   pull_request:
     branches:
       - 'batch/**'
+  push:
+    branches:
+      - 'batch/**'
 
 concurrency:
-  group: batch-pr-ci-${{ github.event.pull_request.number }}
+  group: batch-pr-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -41,7 +51,9 @@ jobs:
         with:
           # A pull_request checkout is GitHub's merge commit; its first parent is
           # the batch tip the PR merges onto, so depth 2 is enough to diff exactly
-          # the PR's own changes (same reasoning as ci.yml audit-scope).
+          # the PR's own changes (same reasoning as ci.yml audit-scope). On a push
+          # HEAD^1 is the previous batch tip, so the diff is the merged squash
+          # commit (or, for a `main` sync merge, everything it brought in).
           fetch-depth: 2
 
       - name: List changed files
@@ -98,8 +110,9 @@ jobs:
 
       - name: Typecheck affected packages
         # Changed packages plus their dependents — the same filter ci.yml uses
-        # on PRs, pinned to the merge commit's first parent instead of a
-        # freshly fetched base tip.
+        # on PRs, pinned to the first parent instead of a freshly fetched base
+        # tip. Dependents whose own inputs are unchanged are Turbo cache hits
+        # once the batch branch's cache is warm.
         run: yarn turbo run typecheck --filter='[HEAD^1]...'
         env:
           NODE_OPTIONS: --max-old-space-size=5120
