@@ -243,6 +243,14 @@ async function handleLoginRequest(req: Request) {
     },
   })
   if (!interceptedResponse.ok) {
+    // The password phase created a session before the after-interceptor ran. When an
+    // interceptor rejects the login (for example an MFA challenge that could not be
+    // created), that provisional session must not outlive the failed response.
+    try {
+      await auth.deleteSessionById(String(loginSession.id))
+    } catch {
+      // Revocation is best-effort; the failure response never carries the token either way.
+    }
     return NextResponse.json(interceptedResponse.body, { status: interceptedResponse.statusCode })
   }
 
