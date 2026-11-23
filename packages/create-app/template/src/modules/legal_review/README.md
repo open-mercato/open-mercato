@@ -108,13 +108,27 @@ Signing with a status line such as "Avery Lin is reviewing · due in 3 days".
 
 ## Try it
 
-1. Create a document with an NDA and a playbook with code `nda` (Documents →
-   Review playbooks).
-2. `POST /api/legal_review/matters` with `{ documentId, reference: 'LG-1042', counterparty: 'Northwind Traders', jurisdiction: 'DE', assigneeUserId }`.
-3. Start `legal_review_nda_review_v1` with `{ documentId, matterId, playbookCode: 'nda' }`
-   and correlation key `legal_review:<documentId>`.
-4. Decide the blocking findings in the Changes panel; the matter moves to
-   Released.
+`seedExamples` (run by `yarn initialize` unless `--no-examples` is passed) adds
+the demo data. For an organization that already exists, run:
+
+```bash
+yarn mercato legal_review seed-demo --tenant <tenantId> --org <organizationId>
+```
+
+It creates, once per organization:
+
+- the `nda-standard` playbook with 12 rules (`lib/demoContent.ts`);
+- four guidance notes, linked to the playbook as references;
+- four sample agreements: red lines (`LG-2001`), a clean agreement on our paper
+  (`LG-2002`), warnings only (`LG-2003`) and edge cases (`LG-2004`);
+- matter `LG-2001` in the Requested stage, assigned to the organization's first
+  user.
+
+The seed writes rows directly, so it fires no events and starts no agent run.
+Open the `LG-2001` document and choose **Start legal review** in the matter
+header. The review runs the `legal_review_nda_review_v1` workflow with
+correlation key `legal_review:<documentId>`. Decide the blocking findings in the
+Changes panel and the matter moves to Released.
 
 ## Known limits
 
@@ -129,6 +143,7 @@ Signing with a status line such as "Avery Lin is reviewing · due in 3 days".
 
 ## Tests
 
+- `__tests__/demo-seeds.test.ts` — demo content consistency, seed contents, idempotency.
 - `__tests__/validators.test.ts` — matter input schemas.
 - `__tests__/matter-header.test.ts` — header helpers, stage tracker, user labels.
 - `__tests__/nda-review-workflow.test.ts` — the definition passes the workflows

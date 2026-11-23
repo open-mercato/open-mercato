@@ -2,6 +2,7 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { enableNdaReviewWorkflowCommands, seedNdaReviewWorkflowDefinition } from './lib/seeds'
+import { seedLegalReviewDemoData } from './lib/demoSeeds'
 
 const logger = createLogger('legal_review').child({ component: 'setup' })
 
@@ -15,6 +16,7 @@ export const setup: ModuleSetupConfig = {
   seedExamples: async (ctx) => {
     const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
     await seedNdaReviewWorkflowDefinition(ctx.em, scope)
+    await seedLegalReviewDemoData(ctx.em, scope)
     try {
       await enableNdaReviewWorkflowCommands(ctx.container, ctx.tenantId)
     } catch (error) {
