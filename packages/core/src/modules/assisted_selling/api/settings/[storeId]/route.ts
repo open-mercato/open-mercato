@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -53,10 +54,6 @@ type SettingsRouteContext = {
   storeId: string
 }
 
-function toRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-}
-
 function toIso(value: Date | string | null | undefined): string | null {
   if (!value) return null
   const date = value instanceof Date ? value : new Date(value)
@@ -73,7 +70,7 @@ function tryResolveStoreReader(container: AppContainer): StoreByIdReader | null 
 
 async function resolveSettingsContext(req: Request, routeCtx: RouteParams): Promise<SettingsRouteContext> {
   const auth = routeCtx.auth ?? null
-  if (!auth || !auth.tenantId) {
+  if (!auth?.sub || !auth.tenantId) {
     throw new CrudHttpError(401, { error: 'assisted_selling.errors.unauthorized' })
   }
   const container = await createRequestContainer()
@@ -92,8 +89,16 @@ async function resolveSettingsContext(req: Request, routeCtx: RouteParams): Prom
         storeId: storeIdResult.data,
       })
     : null
-  if (!store) {
+  if (!store || store.tenantId !== auth.tenantId) {
     throw new CrudHttpError(404, { error: 'assisted_selling.errors.store_not_found' })
+  }
+  const rbacService = container.resolve<RbacService>('rbacService')
+  const allowed = await rbacService.userHasAllFeatures(auth.sub, metadata.GET.requireFeatures, {
+    tenantId: store.tenantId,
+    organizationId: store.organizationId,
+  })
+  if (!allowed) {
+    throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
   }
   const ctx: CommandRuntimeContext = {
     container,
@@ -108,7 +113,7 @@ async function resolveSettingsContext(req: Request, routeCtx: RouteParams): Prom
     em: container.resolve('em') as EntityManager,
     tenantId: auth.tenantId,
     organizationId: store.organizationId,
-    userId: auth.sub ?? '',
+    userId: auth.sub,
     storeId: store.id,
   }
 }
@@ -149,7 +154,7 @@ export async function GET(req: Request, routeCtx: RouteParams) {
 export async function PUT(req: Request, routeCtx: RouteParams) {
   try {
     const { ctx, em, tenantId, organizationId, userId, storeId } = await resolveSettingsContext(req, routeCtx)
-    const payload = toRecord(await readJsonSafe(req, {}))
+    const payload = await readJsonSafe<unknown>(req)
     const parsed = assistedSellingStoreSettingsUpdateSchema.parse(payload)
     const existing = await loadAssistedSellingStoreSettings(em, { tenantId, organizationId, storeId })
     const guarded = await runRouteMutationGuards({
@@ -234,6 +239,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Current assisted selling settings for the store', schema: settingsResponseSchema },
         { status: 400, description: 'Invalid store id', schema: settingsErrorSchema },
         { status: 401, description: 'Unauthorized', schema: settingsErrorSchema },
+        { status: 403, description: 'Settings permission missing in the store organization', schema: settingsErrorSchema },
         { status: 404, description: 'Store not found within the caller\'s organizations', schema: settingsErrorSchema },
       ],
     },
@@ -248,6 +254,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Updated assisted selling settings for the store', schema: settingsResponseSchema },
         { status: 400, description: 'Invalid payload or store id', schema: settingsErrorSchema },
         { status: 401, description: 'Unauthorized', schema: settingsErrorSchema },
+        { status: 403, description: 'Settings permission missing in the store organization', schema: settingsErrorSchema },
         { status: 404, description: 'Store not found within the caller\'s organizations', schema: settingsErrorSchema },
         { status: 409, description: 'Optimistic lock conflict', schema: settingsErrorSchema },
       ],

@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AssistedSellingStoreSettings, type AssistedSellingStoreMode } from '../data/entities'
 
@@ -27,12 +28,13 @@ export const ASSISTED_SELLING_STORE_SETTINGS_DEFAULTS: AssistedSellingEffectiveS
 export async function loadAssistedSellingStoreSettings(
   em: EntityManager,
   scope: AssistedSellingSettingsScope,
+  lockForUpdate = false,
 ): Promise<AssistedSellingStoreSettings | null> {
   return findOneWithDecryption(
     em,
     AssistedSellingStoreSettings,
     { tenantId: scope.tenantId, organizationId: scope.organizationId, storeId: scope.storeId, deletedAt: null },
-    undefined,
+    lockForUpdate ? { lockMode: LockMode.PESSIMISTIC_WRITE } : undefined,
     { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
 }

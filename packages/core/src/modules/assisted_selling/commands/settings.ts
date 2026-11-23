@@ -76,58 +76,59 @@ const saveAssistedSellingStoreSettingsCommand: CommandHandler<
     ensureOrganizationScope(ctx, input.organizationId)
 
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId, storeId: input.storeId }
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await loadAssistedSellingStoreSettings(em, scope)
-
-    if (existing) {
-      await enforceAssistedSellingOptimisticLock(ctx, existing, ASSISTED_SELLING_STORE_SETTINGS_RESOURCE_KIND)
-    }
-
-    const now = new Date()
-    const settings =
-      existing ??
-      em.create(AssistedSellingStoreSettings, {
-        ...scope,
-        ...ASSISTED_SELLING_STORE_SETTINGS_DEFAULTS,
-        createdAt: now,
-        updatedAt: now,
-      })
+    const rootEm = ctx.container.resolve<EntityManager>('em')
+    // Isolate the locked read from the route's earlier settings lookup.
+    const em = rootEm.fork()
+    let settings!: AssistedSellingStoreSettings
+    let attemptedCreationAt: Date | undefined
 
     try {
       await withAtomicFlush(
         em,
         [
-          () => {
-            if (!existing) em.persist(settings)
+          async () => {
+            const existing = await loadAssistedSellingStoreSettings(em, scope, true)
+            if (existing) {
+              await enforceAssistedSellingOptimisticLock(ctx, existing)
+              settings = existing
+              settings.updatedAt = new Date(Math.max(Date.now(), existing.updatedAt.getTime() + 1))
+            } else {
+              attemptedCreationAt = new Date()
+              settings = em.create(AssistedSellingStoreSettings, {
+                ...scope,
+                ...ASSISTED_SELLING_STORE_SETTINGS_DEFAULTS,
+                createdAt: attemptedCreationAt,
+                updatedAt: attemptedCreationAt,
+              })
+              em.persist(settings)
+            }
             applySettingsUpdate(settings, input)
-            if (existing) settings.updatedAt = now
           },
         ],
         { transaction: true, label: 'assisted_selling.settings.save' },
       )
     } catch (error) {
-      if (existing || !isUniqueViolation(error)) throw error
-      const winner = await loadAssistedSellingStoreSettings(
-        (ctx.container.resolve('em') as EntityManager).fork(),
-        scope,
-      )
+      if (!attemptedCreationAt || !isUniqueViolation(error)) throw error
+      // Read the committed winner with a clean identity map after rollback.
+      const winner = await loadAssistedSellingStoreSettings(rootEm.fork(), scope)
       if (!winner) throw error
       const currentUpdatedAt = toIso(winner.updatedAt)
-      const expectedUpdatedAt = toIso(settings.updatedAt)
-      if (currentUpdatedAt && expectedUpdatedAt) {
-        throw new CrudHttpError(409, buildOptimisticLockConflictBody(currentUpdatedAt, expectedUpdatedAt))
+      if (currentUpdatedAt) {
+        throw new CrudHttpError(409, buildOptimisticLockConflictBody(currentUpdatedAt, attemptedCreationAt.toISOString()))
       }
       throw new CrudHttpError(409, { error: 'assisted_selling.errors.conflict' })
     }
 
     return buildResult(settings)
   },
-  buildLog: async ({ result }) => {
+  buildLog: async ({ input, result }) => {
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('assisted_selling.audit.settings.save', 'Save assisted selling settings'),
       resourceKind: ASSISTED_SELLING_STORE_SETTINGS_RESOURCE_KIND,
       resourceId: result.settingsId,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
     }
   },
 }

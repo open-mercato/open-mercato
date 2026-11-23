@@ -452,6 +452,7 @@
   "auth.acl.modules.ai_assistant": "Asystent AI",
   "auth.acl.modules.api_docs": "Dokumentacja API",
   "auth.acl.modules.api_keys": "Klucze API",
+  "auth.acl.modules.assisted_selling": "Sprzedaż wspomagana",
   "auth.acl.modules.attachments": "Załączniki",
   "auth.acl.modules.audit_logs": "Dzienniki audytu i operacji",
   "auth.acl.modules.auth": "Uwierzytelnianie i konta",

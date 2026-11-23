@@ -36,6 +36,7 @@ type Services = Record<string, unknown>
 
 function setup(services: Services = {}) {
   const findStoreForOrganizations = jest.fn(async () => ({ id: STORE_ID, tenantId: TENANT_ID, organizationId: STORE_ORG_ID }))
+  const userHasAllFeatures = jest.fn(async () => true)
   const execute = jest.fn(async (_id: string, { input }: { input: Record<string, unknown> }) => ({
     result: {
       settingsId: '55555555-5555-4555-8555-555555555555',
@@ -51,6 +52,7 @@ function setup(services: Services = {}) {
   const registry: Services = {
     em: {},
     storeContextService: { findStoreForOrganizations },
+    rbacService: { userHasAllFeatures },
     commandBus: { execute },
     ...services,
   }
@@ -60,7 +62,7 @@ function setup(services: Services = {}) {
       return registry[name]
     },
   })
-  return { findStoreForOrganizations, execute }
+  return { findStoreForOrganizations, userHasAllFeatures, execute }
 }
 
 type TestAuth = { sub: string; tenantId: string | null; orgId: string | null } | null
@@ -71,12 +73,16 @@ function routeCtx(storeId: string = STORE_ID) {
   return { params: Promise.resolve({ storeId }), auth: currentAuth }
 }
 
-function putRequest(body: unknown) {
+function rawPutRequest(body: string | undefined) {
   return new Request(`http://localhost/api/assisted_selling/settings/${STORE_ID}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body,
   })
+}
+
+function putRequest(body: unknown) {
+  return rawPutRequest(JSON.stringify(body))
 }
 
 const getRequest = () => new Request(`http://localhost/api/assisted_selling/settings/${STORE_ID}`)
@@ -98,6 +104,21 @@ describe('assisted_selling settings route metadata', () => {
     expect(metadata.GET.requireFeatures).toEqual(['assisted_selling.settings.manage'])
     expect(metadata.PUT.requireFeatures).toEqual(['assisted_selling.settings.manage'])
   })
+})
+
+it.each(['GET', 'PUT'] as const)('checks the store organization grant before %s', async (method) => {
+  const { userHasAllFeatures, execute } = setup()
+  userHasAllFeatures.mockResolvedValue(false)
+  const res = method === 'GET'
+    ? await GET(getRequest(), routeCtx())
+    : await PUT(putRequest({ mode: 'rep' }), routeCtx())
+  expect(res.status).toBe(403)
+  expect(userHasAllFeatures).toHaveBeenCalledWith('user-1', ['assisted_selling.settings.manage'], {
+    tenantId: TENANT_ID,
+    organizationId: STORE_ORG_ID,
+  })
+  expect(loadMock).not.toHaveBeenCalled()
+  expect(execute).not.toHaveBeenCalled()
 })
 
 describe('GET /api/assisted_selling/settings/:storeId', () => {
@@ -180,6 +201,24 @@ describe('GET /api/assisted_selling/settings/:storeId', () => {
 })
 
 describe('PUT /api/assisted_selling/settings/:storeId', () => {
+  it.each([undefined, '{', '[]', 'null', 'true', '123', '"settings"'])(
+    'answers 400 without touching settings when the raw body is %j',
+    async (body) => {
+      const { execute } = setup()
+      const res = await PUT(rawPutRequest(body), routeCtx())
+      expect(res.status).toBe(400)
+      expect(loadMock).not.toHaveBeenCalled()
+      expect(execute).not.toHaveBeenCalled()
+    },
+  )
+
+  it('accepts a valid empty JSON object', async () => {
+    const { execute } = setup()
+    const res = await PUT(putRequest({}), routeCtx())
+    expect(res.status).toBe(200)
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
   it('writes under the store\'s organization, not the caller\'s selected one', async () => {
     const { execute } = setup()
     const res = await PUT(putRequest({ mode: 'rep' }), routeCtx())

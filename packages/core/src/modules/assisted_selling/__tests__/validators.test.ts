@@ -40,7 +40,7 @@ describe('assisted_selling store settings update schema (§5.6)', () => {
     expect(upper.success).toBe(true)
   })
 
-  test('accepts an empty body', () => {
+  test('accepts an empty JSON object', () => {
     expect(assistedSellingStoreSettingsUpdateSchema.safeParse({}).success).toBe(true)
   })
 
@@ -73,6 +73,17 @@ describe('assisted_selling store settings update schema (§5.6)', () => {
 
   test('rejects a non-integer value', () => {
     expect(assistedSellingStoreSettingsUpdateSchema.safeParse({ maxProposalLines: 10.5 }).success).toBe(false)
+  })
+
+  test.each([
+    ['proposalTtlSeconds', 3600],
+    ['maxProposalLines', 1],
+    ['conversationRetentionDays', 1],
+    ['idleCloseDays', 1],
+  ])('requires a JSON number for %s', (field, value) => {
+    for (const invalid of [true, [value], String(value), null]) {
+      expect(assistedSellingStoreSettingsUpdateSchema.safeParse({ [field]: invalid }).success).toBe(false)
+    }
   })
 })
 

@@ -9,4 +9,8 @@ export class Migration20261119231459_assisted_selling extends Migration {
     this.addSql(`alter table "assisted_selling_store_settings" add constraint "assisted_selling_store_settings_scope_unique" unique ("tenant_id", "organization_id", "store_id");`);
   }
 
+  override down(): void {
+    this.addSql(`drop table "assisted_selling_store_settings";`);
+  }
+
 }

@@ -13,10 +13,10 @@ export type AssistedSellingReleaseMode = z.infer<typeof assistedSellingReleaseMo
 export const assistedSellingStoreSettingsUpdateSchema = z
   .object({
     mode: assistedSellingReleaseModeSchema.optional(),
-    proposalTtlSeconds: z.coerce.number().int().min(3600).max(1209600).optional(),
-    maxProposalLines: z.coerce.number().int().min(1).max(100).optional(),
-    conversationRetentionDays: z.coerce.number().int().min(1).max(3650).optional(),
-    idleCloseDays: z.coerce.number().int().min(1).max(365).optional(),
+    proposalTtlSeconds: z.number().int().min(3600).max(1209600).optional(),
+    maxProposalLines: z.number().int().min(1).max(100).optional(),
+    conversationRetentionDays: z.number().int().min(1).max(3650).optional(),
+    idleCloseDays: z.number().int().min(1).max(365).optional(),
   })
   .strict()
 export type AssistedSellingStoreSettingsUpdateInput = z.infer<typeof assistedSellingStoreSettingsUpdateSchema>

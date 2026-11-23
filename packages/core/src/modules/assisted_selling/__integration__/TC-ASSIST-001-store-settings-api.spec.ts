@@ -3,8 +3,14 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import {
   apiRequestWithSelectedOrg,
   createOrganizationFixture,
+  createRoleFixture,
+  createUserFixture,
   deleteOrganizationIfExists,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures';
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
 import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
   STORES_PATH,
@@ -27,6 +33,22 @@ import {
  */
 const SETTINGS_PATH = (storeId: string) => `/api/assisted_selling/settings/${storeId}`;
 const LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at';
+
+async function deleteSettingsFixture(storeId: string | null) {
+  if (!storeId) return;
+  await withClient(async (client) => {
+    await client.query(
+      `with settings as (
+         delete from assisted_selling_store_settings where store_id = $1 returning id, tenant_id
+       )
+       delete from action_logs as logs using settings
+       where logs.tenant_id = settings.tenant_id
+         and logs.resource_kind = 'assisted_selling.store_settings'
+         and logs.resource_id = settings.id::text`,
+      [storeId],
+    );
+  });
+}
 
 type SettingsBody = {
   ok?: boolean;
@@ -76,10 +98,18 @@ test.describe('TC-ASSIST-001: assisted selling store settings API', () => {
         { conversationRetentionDays: 3651 },
         { idleCloseDays: 0 },
         { idleCloseDays: 366 },
+        { proposalTtlSeconds: [3600] },
+        { maxProposalLines: true },
+        { idleCloseDays: '7' },
+        Buffer.from('{'),
+        Buffer.from('[]'),
+        Buffer.from('null'),
       ]) {
         const refused = await apiRequest(request, 'PUT', SETTINGS_PATH(storeId), { token, data: body });
         expect(refused.status(), `PUT ${JSON.stringify(body)} must be 400`).toBe(400);
       }
+      const afterInvalid = await apiRequest(request, 'GET', SETTINGS_PATH(storeId), { token });
+      expect((await readJsonSafe<SettingsBody>(afterInvalid))?.result?.updatedAt).toBeNull();
 
       const saved = await apiRequest(request, 'PUT', SETTINGS_PATH(storeId), {
         token,
@@ -98,23 +128,38 @@ test.describe('TC-ASSIST-001: assisted selling store settings API', () => {
         updatedAt: savedResult?.updatedAt,
       });
 
-      const current = await apiRequest(request, 'PUT', SETTINGS_PATH(storeId), {
+      const rejected = await apiRequest(request, 'PUT', SETTINGS_PATH(storeId), {
         token,
-        data: { mode: 'off' },
-        headers: { [LOCK_HEADER]: savedResult!.updatedAt! },
+        data: Buffer.from('{invalid'),
       });
-      expect(current.status()).toBe(200);
+      expect(rejected.status()).toBe(400);
+      const afterInvalidUpdate = await apiRequest(request, 'GET', SETTINGS_PATH(storeId), { token });
+      expect((await readJsonSafe<SettingsBody>(afterInvalidUpdate))?.result).toEqual(savedResult);
 
-      const stale = await apiRequest(request, 'PUT', SETTINGS_PATH(storeId), {
-        token,
-        data: { mode: 'rep' },
-        headers: { [LOCK_HEADER]: savedResult!.updatedAt! },
+      const updates = await Promise.all(
+        [11, 12].map((idleCloseDays) => apiRequest(request, 'PUT', SETTINGS_PATH(storeId!), {
+          token,
+          data: { idleCloseDays },
+          headers: { [LOCK_HEADER]: savedResult!.updatedAt! },
+          retryTransport: false,
+        })),
+      );
+      expect(updates.map((update) => update.status()).sort()).toEqual([200, 409]);
+      const winner = updates.find((update) => update.status() === 200)!;
+      const loser = updates.find((update) => update.status() === 409)!;
+      const winningSettings = (await readJsonSafe<SettingsBody>(winner))?.result;
+      expect(winningSettings?.updatedAt).toBeTruthy();
+      expect(winningSettings?.updatedAt).not.toBe(savedResult?.updatedAt);
+      expect(await loser.json()).toMatchObject({
+        code: 'optimistic_lock_conflict',
+        expectedUpdatedAt: savedResult?.updatedAt,
+        currentUpdatedAt: winningSettings?.updatedAt,
       });
-      expect(stale.status(), 'a stale version must be refused').toBe(409);
 
       const afterConflict = await apiRequest(request, 'GET', SETTINGS_PATH(storeId), { token });
-      expect((await readJsonSafe<SettingsBody>(afterConflict))?.result?.mode).toBe('off');
+      expect((await readJsonSafe<SettingsBody>(afterConflict))?.result).toEqual(winningSettings);
     } finally {
+      await deleteSettingsFixture(storeId);
       await deleteStoreIfExists(request, token, storeId);
     }
   });
@@ -160,8 +205,11 @@ test.describe('TC-ASSIST-001: assisted selling store settings API', () => {
     const stamp = uniqueStamp();
     let storeOrganizationId: string | null = null;
     let storeId: string | null = null;
+    let homeStoreId: string | null = null;
     let homeActor: ScopedActor | null = null;
     let storeOrgActor: ScopedActor | null = null;
+    let storeVisibilityRoleId: string | null = null;
+    let dualOrgUserId: string | null = null;
     try {
       storeOrganizationId = await createOrganizationFixture(request, superadminToken, {
         name: `QA TC-ASSIST-001 Store Org ${stamp}`,
@@ -198,11 +246,56 @@ test.describe('TC-ASSIST-001: assisted selling store settings API', () => {
       });
       expect(foreignWrite.status(), 'a home-org actor writing another organization\'s store must 404').toBe(404);
 
-      const saved = await apiRequest(request, 'PUT', SETTINGS_PATH(storeId), {
+      storeVisibilityRoleId = await createRoleFixture(request, superadminToken, {
+        name: `QA ASSIST store visibility ${stamp}`,
+        tenantId,
+      });
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId: storeVisibilityRoleId,
+        features: ['ecommerce.stores.view'],
+        organizations: [storeOrganizationId],
+      });
+      const email = `qa-assist-dual-${stamp}@test.invalid`;
+      const password = 'Valid1!Pass';
+      dualOrgUserId = await createUserFixture(request, superadminToken, {
+        email,
+        password,
+        organizationId: homeOrganizationId,
+        roles: [homeActor.roleId, storeVisibilityRoleId],
+      });
+      const dualOrgToken = await getAuthToken(request, email, password);
+      homeStoreId = await createStoreFixture(request, adminToken, { stamp: `${stamp}-home` });
+      for (const method of ['GET', 'PUT']) {
+        const requestOptions = {
+          token: dualOrgToken,
+          selectedOrgId: homeOrganizationId,
+          ...(method === 'PUT' ? { data: { mode: 'off' } } : {}),
+        };
+        const allowed = await apiRequestWithSelectedOrg(request, method, SETTINGS_PATH(homeStoreId), requestOptions);
+        expect(allowed.status()).toBe(200);
+        const denied = await apiRequestWithSelectedOrg(request, method, SETTINGS_PATH(storeId), requestOptions);
+        expect(denied.status(), `${method} requires manage permission in the visible store organization`).toBe(403);
+      }
+
+      const saved = await apiRequestWithSelectedOrg(request, 'PUT', SETTINGS_PATH(storeId), {
         token: adminToken,
+        selectedOrgId: homeOrganizationId,
         data: { mode: 'rep', idleCloseDays: 9 },
       });
       expect(saved.status(), 'admin with the home organization selected may save the store\'s settings').toBe(200);
+      const auditOwnership = await withClient(async (client) => {
+        const { rows } = await client.query<{ tenantId: string; organizationId: string }>(
+          `select logs.tenant_id as "tenantId", logs.organization_id as "organizationId"
+           from action_logs as logs
+           join assisted_selling_store_settings as settings on logs.resource_id = settings.id::text
+           where logs.command_id = 'assisted_selling.settings.save'
+             and logs.resource_kind = 'assisted_selling.store_settings'
+             and settings.tenant_id = $1 and settings.store_id = $2`,
+          [tenantId, storeId],
+        );
+        return rows;
+      });
+      expect(auditOwnership).toEqual([{ tenantId, organizationId: storeOrganizationId }]);
 
       storeOrgActor = await createScopedActor(request, superadminToken, {
         stamp,
@@ -221,6 +314,11 @@ test.describe('TC-ASSIST-001: assisted selling store settings API', () => {
         'the row is owned by the store\'s organization, not the saving caller\'s selected one',
       ).toMatchObject({ mode: 'rep', idleCloseDays: 9 });
     } finally {
+      await deleteSettingsFixture(homeStoreId);
+      await deleteSettingsFixture(storeId);
+      await deleteStoreIfExists(request, adminToken, homeStoreId);
+      await deleteUserIfExists(request, superadminToken, dualOrgUserId);
+      await deleteRoleIfExists(request, superadminToken, storeVisibilityRoleId);
       await cleanupScopedActor(request, superadminToken, storeOrgActor);
       await cleanupScopedActor(request, superadminToken, homeActor);
       if (storeId && storeOrganizationId) {

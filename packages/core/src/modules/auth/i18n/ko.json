@@ -452,6 +452,7 @@
   "auth.acl.modules.ai_assistant": "AI Assistant",
   "auth.acl.modules.api_docs": "API 문서",
   "auth.acl.modules.api_keys": "API Keys",
+  "auth.acl.modules.assisted_selling": "지원 판매",
   "auth.acl.modules.attachments": "Attachments",
   "auth.acl.modules.audit_logs": "Audit & Action Logs",
   "auth.acl.modules.auth": "Authentication & Accounts",

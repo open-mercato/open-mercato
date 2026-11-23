@@ -104,7 +104,10 @@ describe('assisted_selling.settings.save', () => {
   })
 
   test('writes through withAtomicFlush in a transaction', async () => {
-    loadAssistedSellingStoreSettingsMock.mockResolvedValueOnce(existingRow())
+    loadAssistedSellingStoreSettingsMock.mockImplementationOnce(async () => {
+      expect(withAtomicFlushMock).toHaveBeenCalledTimes(1)
+      return existingRow()
+    })
     const em = { flush: jest.fn(async () => undefined) } as unknown as EntityManager
     const rootEm = { fork: jest.fn(() => em) } as unknown as EntityManager
 
@@ -117,6 +120,9 @@ describe('assisted_selling.settings.save', () => {
       em,
       expect.any(Array),
       expect.objectContaining({ transaction: true }),
+    )
+    expect(loadAssistedSellingStoreSettingsMock).toHaveBeenCalledWith(
+      em, { tenantId: TENANT_ID, organizationId: ORG_ID, storeId: STORE_ID }, true,
     )
   })
 
@@ -134,6 +140,22 @@ describe('assisted_selling.settings.save', () => {
     expect(result.mode).toBe('rep')
     expect(result.maxProposalLines).toBe(25)
     expect(result.proposalTtlSeconds).toBe(72000)
+  })
+
+  test('advances the version when the clock is at the current version', async () => {
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(ATTEMPTED_AT.getTime())
+    loadAssistedSellingStoreSettingsMock.mockResolvedValueOnce(existingRow())
+    const em = { flush: jest.fn(async () => undefined) } as unknown as EntityManager
+    const rootEm = { fork: jest.fn(() => em) } as unknown as EntityManager
+    try {
+      const result = await saveAssistedSellingStoreSettingsCommand.execute(
+        { tenantId: TENANT_ID, organizationId: ORG_ID, storeId: STORE_ID },
+        makeCtx({ container: containerFor(rootEm) }),
+      )
+      expect(result.updatedAt).toBe(new Date(ATTEMPTED_AT.getTime() + 1).toISOString())
+    } finally {
+      clock.mockRestore()
+    }
   })
 
   test('refuses a stale version on an existing row with 409', async () => {
@@ -164,7 +186,7 @@ describe('assisted_selling.settings.save', () => {
     })
     const winner = existingRow({ id: '44444444-4444-4444-8444-444444444444', updatedAt: WINNER_AT })
     const firstEm = {
-      create: jest.fn(() => attempted),
+      create: jest.fn((_entity, data: { updatedAt: Date }) => Object.assign(attempted, data)),
       persist: jest.fn(),
       flush: jest.fn(async () => { throw Object.assign(new Error('duplicate key'), { code: '23505' }) }),
     } as unknown as EntityManager
@@ -174,19 +196,19 @@ describe('assisted_selling.settings.save', () => {
     } as unknown as EntityManager
     loadAssistedSellingStoreSettingsMock.mockResolvedValueOnce(null).mockResolvedValueOnce(winner)
 
-    await expect(
-      saveAssistedSellingStoreSettingsCommand.execute(
-        { tenantId: TENANT_ID, organizationId: ORG_ID, storeId: STORE_ID, mode: 'rep' },
-        makeCtx({ container: containerFor(rootEm) }),
-      ),
-    ).rejects.toMatchObject({
+    const outcome = saveAssistedSellingStoreSettingsCommand.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, storeId: STORE_ID, mode: 'rep' },
+      makeCtx({ container: containerFor(rootEm) }),
+    )
+    await expect(outcome).rejects.toMatchObject({
       status: 409,
       body: {
         code: 'optimistic_lock_conflict',
         currentUpdatedAt: WINNER_AT.toISOString(),
-        expectedUpdatedAt: ATTEMPTED_AT.toISOString(),
+        expectedUpdatedAt: expect.any(String),
       },
     })
+    await expect(outcome).rejects.toMatchObject({ body: { expectedUpdatedAt: attempted.updatedAt.toISOString() } })
     expect(retryEm.flush).not.toHaveBeenCalled()
   })
 
@@ -240,7 +262,7 @@ describe('assisted_selling.settings.save', () => {
 
   test('logs the save under assisted_selling.settings.save with the settings row', async () => {
     const log = await saveAssistedSellingStoreSettingsCommand.buildLog!({
-      input: { tenantId: TENANT_ID, organizationId: ORG_ID, storeId: STORE_ID },
+      input: { tenantId: TENANT_ID, organizationId: OTHER_ORG_ID, storeId: STORE_ID },
       result: {
         settingsId: '55555555-5555-4555-8555-555555555555',
         storeId: STORE_ID,
@@ -258,6 +280,8 @@ describe('assisted_selling.settings.save', () => {
       actionLabel: 'Save assisted selling settings',
       resourceKind: 'assisted_selling.store_settings',
       resourceId: '55555555-5555-4555-8555-555555555555',
+      tenantId: TENANT_ID,
+      organizationId: OTHER_ORG_ID,
     })
   })
 })
