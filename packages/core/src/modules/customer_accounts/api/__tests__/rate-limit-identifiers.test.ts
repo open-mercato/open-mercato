@@ -50,6 +50,7 @@ describe('customer account auth rate-limit identifiers', () => {
       ipConfig: signupIpConfig,
       compoundConfig: signupCompoundConfig,
       compoundIdentifier: 'buyer@example.com',
+      isolateByIdentifierWithoutTrustedIp: true,
     })
   })
 
@@ -64,6 +65,7 @@ describe('customer account auth rate-limit identifiers', () => {
       ipConfig: passwordResetIpConfig,
       compoundConfig: passwordResetCompoundConfig,
       compoundIdentifier: 'reset@example.com',
+      isolateByIdentifierWithoutTrustedIp: true,
     })
   })
 
@@ -78,6 +80,7 @@ describe('customer account auth rate-limit identifiers', () => {
       ipConfig: magicLinkIpConfig,
       compoundConfig: magicLinkCompoundConfig,
       compoundIdentifier: 'magic@example.com',
+      isolateByIdentifierWithoutTrustedIp: true,
     })
   })
 
@@ -92,6 +95,7 @@ describe('customer account auth rate-limit identifiers', () => {
       ipConfig: passwordResetIpConfig,
       compoundConfig: passwordResetCompoundConfig,
       compoundIdentifier: undefined,
+      isolateByIdentifierWithoutTrustedIp: true,
     })
   })
 })

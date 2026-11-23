@@ -7,6 +7,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import {
   CustomerEntity,
   CustomerPersonCompanyLink,
@@ -60,12 +61,24 @@ type PersonCompanyLinkUndoPayload = {
   before?: PersonCompanyLinkSnapshot | null
   after?: PersonCompanyLinkSnapshot | null
   createBefore?: PersonCompanyLinkCreateBefore
+  promotionBefore?: PersonCompanyLinkPromotionBefore
 }
 
 type PersonCompanyLinkCreateBefore = {
   link: PersonCompanyLinkSnapshot | null
   primaryLinkIds: string[]
   profileCompanyId: string | null
+}
+
+type PersonCompanyLinkPromotionBefore = {
+  primaryLinkIds: string[]
+  profileCompanyId: string | null
+  profileCompanyLinkId: string | null
+}
+
+type PersonCompanyLinkUpdateResult = {
+  linkId: string
+  promotionBefore?: PersonCompanyLinkPromotionBefore
 }
 
 type PersonCompanyLinkCreateResult = {
@@ -600,7 +613,35 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
   },
 }
 
-const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInput, { linkId: string }> = {
+type PersonCompanyLinkLockDatabase = {
+  customer_entities: {
+    id: string
+    kind: string
+    tenant_id: string
+    organization_id: string
+    deleted_at: Date | null
+  }
+}
+
+async function lockPersonForCompanyLinkUpdate(
+  em: EntityManager,
+  personId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<boolean> {
+  const locked = await em.getKysely<PersonCompanyLinkLockDatabase>()
+    .selectFrom('customer_entities')
+    .select('id')
+    .where('id', '=', personId)
+    .where('kind', '=', 'person')
+    .where('tenant_id', '=', scope.tenantId)
+    .where('organization_id', '=', scope.organizationId)
+    .where('deleted_at', 'is', null)
+    .forNoKeyUpdate()
+    .executeTakeFirst()
+  return Boolean(locked)
+}
+
+const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInput, PersonCompanyLinkUpdateResult> = {
   id: 'customers.personCompanyLinks.update',
   async prepare(rawInput, ctx) {
     const parsed = personCompanyLinkUpdateSchema.parse(rawInput)
@@ -617,37 +658,45 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const link = await findOneWithDecryption(
-      em,
-      CustomerPersonCompanyLink,
-      {
-        id: parsed.linkId,
-        tenantId: parsed.tenantId,
-        organizationId: parsed.organizationId,
-        deletedAt: null,
-      },
-      undefined,
-      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
-    )
-    if (!link) {
-      throw notFound('Company link not found')
-    }
+    const scope = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
+    const linkFilter = { id: parsed.linkId, ...scope, deletedAt: null }
+    const link = await findOneWithDecryption(em, CustomerPersonCompanyLink, linkFilter, undefined, scope)
+    if (!link) throw notFound('Company link not found')
 
     const personId = typeof link.person === 'string' ? link.person : link.person.id
     const companyId = typeof link.company === 'string' ? link.company : link.company.id
-    const person = await requirePersonEntity(em, personId, parsed.tenantId, parsed.organizationId)
-    const profile = await requirePersonProfile(em, person)
-    const linkedCompany = await requireCompanyEntity(em, companyId, parsed.tenantId, parsed.organizationId)
+    let person!: CustomerEntity
+    let profile!: CustomerPersonProfile
+    let linkWasPrimary = false
+    let promotionBefore: PersonCompanyLinkPromotionBefore | undefined
 
-    const linkWasPrimary = link.isPrimary
     await withAtomicFlush(em, [
       async () => {
+        if (!await lockPersonForCompanyLinkUpdate(em, personId, scope)) throw notFound('Person not found')
+        person = await requirePersonEntity(em, personId, scope.tenantId, scope.organizationId)
+        const currentLink = await findOneWithDecryption(em, CustomerPersonCompanyLink, linkFilter, { refresh: true }, scope)
+        if (!currentLink || currentLink.deletedAt) throw notFound('Company link not found')
+
+        profile = await requirePersonProfile(em, person)
+        const linkedCompany = await requireCompanyEntity(em, companyId, parsed.tenantId, parsed.organizationId)
+        linkWasPrimary = currentLink.isPrimary
         if (parsed.isPrimary) {
+          if (!linkWasPrimary) {
+            const links = await loadPersonCompanyLinks(em, person)
+            const profileCompanyId = typeof profile.company === 'string' ? profile.company : profile.company?.id ?? null
+            promotionBefore = {
+              primaryLinkIds: links.filter((entry) => entry.isPrimary).map((entry) => entry.id),
+              profileCompanyId,
+              profileCompanyLinkId: links.find((entry) =>
+                (typeof entry.company === 'string' ? entry.company : entry.company.id) === profileCompanyId,
+              )?.id ?? null,
+            }
+          }
           await clearPrimaryFlagsForPerson(em, person)
-          link.isPrimary = true
+          currentLink.isPrimary = true
           profile.company = linkedCompany
-        } else if (!parsed.isPrimary) {
-          link.isPrimary = false
+        } else {
+          currentLink.isPrimary = false
           if (!linkWasPrimary && profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {
             profile.company = null
           }
@@ -672,7 +721,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
       indexer: { entityType: 'customers:customer_person_company_link' },
     })
 
-    return { linkId: link.id }
+    return { linkId: link.id, promotionBefore }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = ctx.container.resolve('em') as EntityManager
@@ -699,6 +748,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
         undo: {
           before: before ?? null,
           after: after ?? null,
+          ...(result.promotionBefore ? { promotionBefore: result.promotionBefore } : {}),
         } satisfies PersonCompanyLinkUndoPayload,
       },
     }
@@ -707,31 +757,35 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
     const payload = extractUndoPayload<PersonCompanyLinkUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const promotionBefore = payload?.promotionBefore
+    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const link = await findOneWithDecryption(
-      em,
-      CustomerPersonCompanyLink,
-      { id: before.id },
-      undefined,
-      { tenantId: before.tenantId, organizationId: before.organizationId },
-    )
-    if (!link) return
-
+    const state: { link?: CustomerPersonCompanyLink; restoredPromotion?: boolean } = {}
     let person: CustomerEntity | null = null
     let profile: CustomerPersonProfile | null = null
     let company: CustomerEntity | null = null
 
     await withAtomicFlush(em, [
       async () => {
+        if (!await lockPersonForCompanyLinkUpdate(em, before.personEntityId, scope)) return
         person = await findOneWithDecryption(
           em,
           CustomerEntity,
           { id: before.personEntityId, kind: 'person', tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
           undefined,
-          { tenantId: before.tenantId, organizationId: before.organizationId },
+          scope,
         )
         if (!person) return
+        const link = await findOneWithDecryption(
+          em,
+          CustomerPersonCompanyLink,
+          { id: before.id, person: before.personEntityId, ...scope },
+          promotionBefore ? { lockMode: LockMode.PESSIMISTIC_WRITE } : undefined,
+          scope,
+        )
+        if (!link) return
+        state.link = link
         profile = await findOneWithDecryption(
           em,
           CustomerPersonProfile,
@@ -739,7 +793,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
           { populate: ['company'] },
           { tenantId: person.tenantId, organizationId: person.organizationId },
         )
-        if (!profile || !before.isPrimary) return
+        if (!profile || promotionBefore || !before.isPrimary) return
         company = await findOneWithDecryption(
           em,
           CustomerEntity,
@@ -749,8 +803,36 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
         )
       },
       async () => {
-        if (!person || !profile) return
-        if (before.isPrimary) {
+        const { link } = state
+        if (!person || !profile || !link) return
+        if (promotionBefore) {
+          const profileCompanyId = typeof profile.company === 'string' ? profile.company : profile.company?.id ?? null
+          if (link.deletedAt || !link.isPrimary || profileCompanyId !== before.companyEntityId) return
+
+          const { primaryLinkIds, profileCompanyId: previousCompanyId, profileCompanyLinkId } = promotionBefore
+          const previousLinkStillExists = !profileCompanyLinkId
+            || (await loadPersonCompanyLinks(em, person)).some((entry) => entry.id === profileCompanyLinkId)
+          const previousCompany = previousCompanyId && previousLinkStillExists
+            ? await findOneWithDecryption(
+                em,
+                CustomerEntity,
+                { id: previousCompanyId, kind: 'company', ...scope, deletedAt: null },
+                undefined,
+                scope,
+              )
+            : null
+
+          if (primaryLinkIds.length) {
+            await em.nativeUpdate(
+              CustomerPersonCompanyLink,
+              { person, ...scope, id: { $in: primaryLinkIds }, deletedAt: null },
+              { isPrimary: true },
+            )
+          }
+          link.isPrimary = false
+          profile.company = previousCompany
+          state.restoredPromotion = true
+        } else if (before.isPrimary) {
           await clearPrimaryFlagsForPerson(em, person)
           link.isPrimary = true
           if (company) profile.company = company
@@ -759,6 +841,9 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
         }
       },
     ], { transaction: true })
+
+    const { link, restoredPromotion } = state
+    if (!link || (promotionBefore && !restoredPromotion)) return
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudUndoSideEffects({
