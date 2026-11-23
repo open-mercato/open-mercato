@@ -60,6 +60,11 @@ jest.mock('@open-mercato/ui/backend/filters/ListEmptyState', () => ({
   ListEmptyState: ({ createHref }: { createHref?: string }) =>
     createHref ? <a href={createHref}>Create from empty state</a> : null,
 }))
+jest.mock('@open-mercato/ui/backend/detail', () => ({
+  LoadingMessage: ({ label }: { label: string }) => <div role="status">{label}</div>,
+  ErrorMessage: ({ label }: { label: string }) => <div role="alert">{label}</div>,
+  RecordNotFoundState: () => <div role="alert" />,
+}))
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({ confirm: jest.fn(), ConfirmDialogElement: null }),
