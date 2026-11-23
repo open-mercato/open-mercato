@@ -405,7 +405,7 @@
     <div class="note"><b>2</b><span>Removed from the first version: "Start times every" (starts follow the meeting length), "Saved in CRM as" (always a meeting), "Buffer before", "Respond within" (fixed at 24 h), the self-service cutoff (fixed at 1 h before the meeting), "Max new requests per day" (an admin/system abuse limit, not a per-user setting), date overrides (block a day off with a calendar event), multiple ranges per day and "Copy Monday to all weekdays".</span></div>
     <div class="note"><b>3</b><span>Advanced is collapsed by default and its summary line shows the current values, so the whole configuration reads without opening anything. The two booking-window values are edited in place inside the sentence. Save uses optimistic locking (conflict bar on 409).</span></div>
     <div class="note"><b>4</b><span>The info alert answers the external-calendar question. This phase is for people who manage their calendar wholly in Open Mercato, or who block their Google or Microsoft calendar time by hand. Integration with external calendar providers is out of scope until calendar connectors exist in the codebase; once a connector syncs events into the CRM, they block times without changes here.</span></div>
-    <div class="note"><b>5</b><span>The page needs <code>customers.booking.manage_own</code>, not <code>customers.interactions.manage</code>. Not drawn: the warning alert shown here and on Meeting requests when booking maintenance is not scheduled.</span></div>
+    <div class="note"><b>5</b><span>The page needs <code>customers.booking.manage_own</code>, not <code>customers.interactions.manage</code>. Not drawn: the warning alert shown here and on Meeting requests when booking maintenance is not scheduled. Also not drawn: while the page is off, the Next available times card says "Turn on your booking page and save to see your next available times."</span></div>
     <div class="note"><b>6</b><span>On a phone (below 640px) the page is one column with no horizontal scroll: the link wraps onto its own line with full-width Copy and Open, each label sits above its summary and control, and the info alert and next times follow the form. Cancel and Save stay pinned to the bottom.</span></div>
   </div>
 </section>
@@ -1409,7 +1409,7 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>After the cutoff both buttons are disabled with "This meeting can no longer be changed online. Reply to the invite e-mail." Cancelled bookings and meetings that have ended show read-only with their badge and no buttons (not drawn).</span></div>
+    <div class="note"><b>1</b><span>After the cutoff both buttons are disabled with "This meeting can no longer be changed online. Reply to the invite e-mail." A pending request shows "Awaiting confirmation" with Cancel request only. Cancelled, declined and expired requests and meetings that have ended show read-only with their badge and no buttons (not drawn).</span></div>
     <div class="note"><b>2</b><span>The token is shown masked; an unknown, revoked or anonymised link renders its own card, "This link isn't valid. Reply to the invite e-mail to change your meeting." (404 <code>booking_link_invalid</code>). Served with <code>Referrer-Policy: no-referrer</code>.</span></div>
     <div class="note"><b>3</b><span>While a reschedule waits for Anna's approval this card reads "Reschedule requested for {time}, waiting for confirmation" and Reschedule is disabled.</span></div>
   </div>
