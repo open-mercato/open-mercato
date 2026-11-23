@@ -620,180 +620,147 @@ function applyCartRepriceTriggerFields(cart: Cart, input: CartRepriceInput): voi
 
 const cartLineRepriceIndexer: CrudIndexerConfig<CartLine> = { entityType: E.cart.cart_line }
 
+export type CartRepricePlan = {
+  /** Mutation phases for `withAtomicFlush`; they join the caller's transaction when one is open. */
+  phases: Array<() => Promise<void>>
+  /** Every non-deleted line the plan reprices, gift lines it adds or removes included. */
+  lines: CartLine[]
+  /** Fires the reprice's side effects and events; call only after the phases' transaction commits. */
+  emitSideEffects: () => Promise<void>
+  buildResult: () => CartRepriceResult
+}
+
 /**
- * Re-snapshots every non-deleted `CartLine` and recomputes `Cart.totals` as a real
- * whole-cart aggregate (§3.2) — closing the gap flagged in NOTIFY.md since Step 4.7/4.9.
- *
- * Per §3.1a's command-undo table: **not undoable**. Re-pricing to a stale price is never a
- * state a client would want restored — no `undo` handler and, consistent with
- * `commands/lines.ts`'s identical treatment of `cart.lines.update` (also non-undoable, also
- * no `buildLog`), no audit log entry either.
+ * The phases of `cart.reprice` for a cart and lines the caller has just read — under the
+ * cart's advisory lock for `cart.lock`, `cart.merge` and `cart.mergeUndo` (§8.1), so the
+ * re-price and the transition it protects judge the same committed cart.
  */
-const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = {
-  id: 'cart.reprice',
-  isUndoable: false,
-  async execute(input, ctx) {
-    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+export function prepareCartReprice(args: {
+  em: EntityManager
+  container: CommandRuntimeContext['container']
+  cart: Cart
+  lines: CartLine[]
+  input: CartRepriceInput
+  now: Date
+  currencyDecimalPlaces: number | null
+}): CartRepricePlan {
+  const { em, container, cart, lines, input, now, currencyDecimalPlaces } = args
+  const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+  const changes: CartPriceChange[] = []
+  const touched: CartLine[] = []
+  const adjustments: SalesAdjustmentDraft[] = []
+  const promotionWarnings: CartPromotionWarning[] = []
+  const createdGiftLines: CartLine[] = []
+  const removedGiftLines: CartLine[] = []
+  // Step 7.4 — §6a.2's whole-cart re-visibility pass accumulators.
+  const revisibilityFlagged: CartLine[] = []
+  const revisibilityCleared: CartLine[] = []
 
-    const cart = await findOneWithDecryption(
-      em,
-      Cart,
-      { id: input.cartId, tenantId: scope.tenantId, organizationId: scope.organizationId, kind: 'basket' as const },
-      {},
-      scope,
-    )
-    if (!cart) throw notFound('[internal] cart not found')
-    // Review finding: this command never checked cart status at all — every internal
-    // dispatcher (`cart.get`'s trigger 2-4, `cart.lock` pre-checking `active` before
-    // dispatching `trigger: 'lock'`, `cart.merge`/`cart.mergeUndo` repricing the survivor,
-    // `cart.promotions.apply`/`.remove` now requiring `active` before they ever reach here)
-    // already only reprices an active, unlocked cart by convention — this enforces that
-    // invariant here too, so a stale token cannot reprice a converted/merged/expired/locked
-    // cart directly and drift its stored totals away from the order it became.
-    assertCartNotLocked(cart)
-    if (cart.status !== 'active') {
-      throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
-    }
+  const applyTriggerFieldsPhase = async () => {
+    applyCartRepriceTriggerFields(cart, input)
+  }
 
-    const lines = (await findWithDecryption(
-      em,
-      CartLine,
-      { cartId: cart.id, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
-      {},
-      scope,
-    )) as CartLine[]
+  // Step 7.1 — §6/§6a: `promotionsService.evaluate()` resolves tenant/org scope from
+  // whatever is registered under the `auth` DI token on ITS OWN container
+  // (`promotions/lib/promotions-service.ts`'s `resolvePromotionsServiceScope`), the same
+  // convention that module's own HTTP routes already follow (`api/evaluate/route.ts`).
+  // `cart.reprice` is the one internal caller that mirrors it: register BEFORE resolving
+  // the service, inside the command rather than at a route edge, since this command runs
+  // from multiple entry points (`cart.get`'s internal dispatch today, `cart.lock` in a
+  // later step) and an internal caller should not have to remember to do it itself.
+  //
+  // Moved ahead of `linePhases`/`promotionsPhase` at Step 7.4: §6a.2's whole-cart
+  // re-visibility pass below needs this SAME resolved scope — reused, never re-derived.
+  container.register({ auth: asValue({ tenantId: cart.tenantId, orgId: cart.organizationId }) })
+  const rawAssortmentScope = input.routeContext?.assortmentScope
+  const assortmentScope = shouldEnforceAssortmentScope(cart.channel, rawAssortmentScope) ? rawAssortmentScope : undefined
 
-    const now = new Date()
-    const changes: CartPriceChange[] = []
-    const touched: CartLine[] = []
-    const adjustments: SalesAdjustmentDraft[] = []
-    const promotionWarnings: CartPromotionWarning[] = []
-    const createdGiftLines: CartLine[] = []
-    const removedGiftLines: CartLine[] = []
-    // Step 7.4 — §6a.2's whole-cart re-visibility pass accumulators.
-    const revisibilityFlagged: CartLine[] = []
-    const revisibilityCleared: CartLine[] = []
+  // Step 7.4 — §6a.2: gated to trigger 2 (`buyer_context_changed`) and the mandatory
+  // post-merge reprice (`trigger: 'merge'`, §7.3's own "this is exactly the case trigger 2
+  // exists for"). The `'merge'` half closes a real residual R13 bypass found during this
+  // step's own review: §6a.5's pass in `commands/merge.ts` only re-checks INCOMING lines
+  // during a `sum`/`union`/`conflict` merge (rows 3-5) — it is never reached at all for
+  // an ADOPT (row 1, target empty) merge, where the SURVIVOR is the source cart itself and
+  // its pre-existing lines are carried over untouched. An `agent`/`api`-channel cart's
+  // lines never passed the add-time per-line check (§6a.4's exemption) — if such a cart's
+  // token were ever presented as `cart.merge`'s `sourceToken` against an empty session
+  // cart, adoption would make it the live, scope-enforced cart with its own unchecked
+  // lines still in it, exactly R13's attack shape via a different row of the policy table.
+  // Running this phase on every `'merge'`-triggered reprice closes that gap for free: a
+  // rejected-row-3-5 incoming line was never added to `lines` in the first place (nothing
+  // to double-process), rows 1/2's survivor lines ARE now re-checked, and §6a.2's own
+  // "whole-cart" framing is honored literally (every line, not just the ones a particular
+  // merge happened to add this cycle) as a bonus defense-in-depth property.
+  // §6a.2 also names trigger 5 (checkout requests a lock) as a third call site — Step 7.5
+  // closes it: `commands/lock.ts`'s `cart.lock` dispatches this command with
+  // `trigger: 'lock'` specifically so this SAME pass runs with a freshly-resolved buyer
+  // context (§9, D-R4-22) before `cart.lock` ever checks for a still-flagged line.
+  const runWholeCartRevisibilityPass =
+    (input.trigger === 'buyer_context_changed' || input.trigger === 'merge' || input.trigger === 'lock') &&
+    assortmentScope !== undefined
+  const wholeCartRevisibilityPhases: Array<() => Promise<void>> = runWholeCartRevisibilityPass
+    ? [
+        buildWholeCartRevisibilityPhase({
+          em,
+          container: container,
+          lines,
+          scope: assortmentScope,
+          tenantScope: scope,
+          flagged: revisibilityFlagged,
+          cleared: revisibilityCleared,
+        }),
+      ]
+    : []
 
-    const applyTriggerFieldsPhase = async () => {
-      applyCartRepriceTriggerFields(cart, input)
-    }
+  // Runs AFTER the re-visibility pass above (array order) so a line this cycle just
+  // flagged is excluded from its own re-pricing (§4.2/§6a.2) — `buildCartLineRepricePhases`
+  // checks `flagState` again at each line's own EXECUTION time (not only via its eager
+  // `origin` filter), so this composes correctly regardless of whether the re-visibility
+  // phase actually ran for this call.
+  const linePhases = buildCartLineRepricePhases(
+    em,
+    container,
+    cart,
+    lines,
+    input.trigger,
+    now,
+    changes,
+    touched,
+    currencyDecimalPlaces,
+  )
 
-    // Step 7.1 — §6/§6a: `promotionsService.evaluate()` resolves tenant/org scope from
-    // whatever is registered under the `auth` DI token on ITS OWN container
-    // (`promotions/lib/promotions-service.ts`'s `resolvePromotionsServiceScope`), the same
-    // convention that module's own HTTP routes already follow (`api/evaluate/route.ts`).
-    // `cart.reprice` is the one internal caller that mirrors it: register BEFORE resolving
-    // the service, inside the command rather than at a route edge, since this command runs
-    // from multiple entry points (`cart.get`'s internal dispatch today, `cart.lock` in a
-    // later step) and an internal caller should not have to remember to do it itself.
-    //
-    // Moved ahead of `linePhases`/`promotionsPhase` at Step 7.4: §6a.2's whole-cart
-    // re-visibility pass below needs this SAME resolved scope — reused, never re-derived.
-    ctx.container.register({ auth: asValue({ tenantId: cart.tenantId, orgId: cart.organizationId }) })
-    const rawAssortmentScope = input.routeContext?.assortmentScope
-    const assortmentScope = shouldEnforceAssortmentScope(cart.channel, rawAssortmentScope) ? rawAssortmentScope : undefined
+  // Step 7.4 — trigger 6 (§5.2: "a promotion is applied or removed — effects only, not
+  // unit prices"): `linePhases` re-resolves every line's CATALOG unit price via
+  // `catalogBuyerPricingService.resolveLinePrice`, which is exactly what trigger 6 says
+  // must NOT happen. The promotions phase (discount/effects) and the totals phase still
+  // run unconditionally below — only this catalog-price re-resolution phase is skipped.
+  const effectiveLinePhases: Array<() => Promise<void>> =
+    input.trigger === 'promotion_applied' || input.trigger === 'promotion_removed' ? [] : linePhases
 
-    // Step 7.4 — §6a.2: gated to trigger 2 (`buyer_context_changed`) and the mandatory
-    // post-merge reprice (`trigger: 'merge'`, §7.3's own "this is exactly the case trigger 2
-    // exists for"). The `'merge'` half closes a real residual R13 bypass found during this
-    // step's own review: §6a.5's pass in `commands/merge.ts` only re-checks INCOMING lines
-    // during a `sum`/`union`/`conflict` merge (rows 3-5) — it is never reached at all for
-    // an ADOPT (row 1, target empty) merge, where the SURVIVOR is the source cart itself and
-    // its pre-existing lines are carried over untouched. An `agent`/`api`-channel cart's
-    // lines never passed the add-time per-line check (§6a.4's exemption) — if such a cart's
-    // token were ever presented as `cart.merge`'s `sourceToken` against an empty session
-    // cart, adoption would make it the live, scope-enforced cart with its own unchecked
-    // lines still in it, exactly R13's attack shape via a different row of the policy table.
-    // Running this phase on every `'merge'`-triggered reprice closes that gap for free: a
-    // rejected-row-3-5 incoming line was never added to `lines` in the first place (nothing
-    // to double-process), rows 1/2's survivor lines ARE now re-checked, and §6a.2's own
-    // "whole-cart" framing is honored literally (every line, not just the ones a particular
-    // merge happened to add this cycle) as a bonus defense-in-depth property.
-    // §6a.2 also names trigger 5 (checkout requests a lock) as a third call site — Step 7.5
-    // closes it: `commands/lock.ts`'s `cart.lock` dispatches this command with
-    // `trigger: 'lock'` specifically so this SAME pass runs with a freshly-resolved buyer
-    // context (§9, D-R4-22) before `cart.lock` ever checks for a still-flagged line.
-    const runWholeCartRevisibilityPass =
-      (input.trigger === 'buyer_context_changed' || input.trigger === 'merge' || input.trigger === 'lock') &&
-      assortmentScope !== undefined
-    const wholeCartRevisibilityPhases: Array<() => Promise<void>> = runWholeCartRevisibilityPass
-      ? [
-          buildWholeCartRevisibilityPhase({
-            em,
-            container: ctx.container,
-            lines,
-            scope: assortmentScope,
-            tenantScope: scope,
-            flagged: revisibilityFlagged,
-            cleared: revisibilityCleared,
-          }),
-        ]
-      : []
+  const promotionsPhase = buildPromotionsEffectsPhase({
+    em,
+    container: container,
+    cart,
+    lines,
+    assortmentScope,
+    tenantScope: scope,
+    now,
+    adjustments,
+    warnings: promotionWarnings,
+    createdGiftLines,
+    removedGiftLines,
+    amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
+  })
 
-    // Runs AFTER the re-visibility pass above (array order) so a line this cycle just
-    // flagged is excluded from its own re-pricing (§4.2/§6a.2) — `buildCartLineRepricePhases`
-    // checks `flagState` again at each line's own EXECUTION time (not only via its eager
-    // `origin` filter), so this composes correctly regardless of whether the re-visibility
-    // phase actually ran for this call.
-    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, cart)
-    const linePhases = buildCartLineRepricePhases(
-      em,
-      ctx.container,
-      cart,
-      lines,
-      input.trigger,
-      now,
-      changes,
-      touched,
-      currencyDecimalPlaces,
-    )
+  // `lines` is mutated in place by `promotionsPhase` (gift lines pushed/removed) — the
+  // totals phase closes over the SAME array reference and filters/maps it at its own
+  // execution time (after `promotionsPhase` has already run), so it always sees the
+  // current set without a second DB round trip.
+  const totalsPhase = buildRecomputeCartTotalsPhase(container, cart, lines, now, changes, adjustments, currencyDecimalPlaces)
 
-    // Step 7.4 — trigger 6 (§5.2: "a promotion is applied or removed — effects only, not
-    // unit prices"): `linePhases` re-resolves every line's CATALOG unit price via
-    // `catalogBuyerPricingService.resolveLinePrice`, which is exactly what trigger 6 says
-    // must NOT happen. The promotions phase (discount/effects) and the totals phase still
-    // run unconditionally below — only this catalog-price re-resolution phase is skipped.
-    const effectiveLinePhases: Array<() => Promise<void>> =
-      input.trigger === 'promotion_applied' || input.trigger === 'promotion_removed' ? [] : linePhases
 
-    const promotionsPhase = buildPromotionsEffectsPhase({
-      em,
-      container: ctx.container,
-      cart,
-      lines,
-      assortmentScope,
-      tenantScope: scope,
-      now,
-      adjustments,
-      warnings: promotionWarnings,
-      createdGiftLines,
-      removedGiftLines,
-      amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
-    })
-
-    // `lines` is mutated in place by `promotionsPhase` (gift lines pushed/removed) — the
-    // totals phase closes over the SAME array reference and filters/maps it at its own
-    // execution time (after `promotionsPhase` has already run), so it always sees the
-    // current set without a second DB round trip.
-    const totalsPhase = buildRecomputeCartTotalsPhase(ctx.container, cart, lines, now, changes, adjustments, currencyDecimalPlaces)
-
-    // §3.1a: "mutates Cart/CartLine/CartPromotionApplication inside
-    // withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })" — one
-    // transaction spanning the buyer-context field update, the re-visibility pass, every
-    // line's re-price, the promotions phase, and the final totals recompute, so a partial
-    // re-price (some lines priced, the totals pass never ran) can never persist.
-    await withAtomicFlush(
-      em,
-      [applyTriggerFieldsPhase, ...wholeCartRevisibilityPhases, ...effectiveLinePhases, promotionsPhase, totalsPhase],
-      {
-        transaction: true,
-        label: 'cart.reprice',
-      },
-    )
-
-    // Side effects fire after the atomic flush commits, never inside it.
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+  const emitSideEffects = async (): Promise<void> => {
+    const dataEngine = container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
       dataEngine,
       action: 'updated',
@@ -895,12 +862,81 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
         promotionId: warning.promotionId,
       })
     }
+  }
 
-    return {
+  return {
+    phases: [applyTriggerFieldsPhase, ...wholeCartRevisibilityPhases, ...effectiveLinePhases, promotionsPhase, totalsPhase],
+    lines,
+    emitSideEffects,
+    buildResult: () => ({
       cart: toCartSummary(cart),
       priceChanges: changes,
       ...(promotionWarnings.length > 0 ? { warnings: promotionWarnings } : {}),
+    }),
+  }
+}
+
+export async function loadCartRepriceLines(em: EntityManager, cart: Cart): Promise<CartLine[]> {
+  const scope = { tenantId: cart.tenantId, organizationId: cart.organizationId }
+  return (await findWithDecryption(
+    em,
+    CartLine,
+    { cartId: cart.id, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    {},
+    scope,
+  )) as CartLine[]
+}
+
+/**
+ * Re-snapshots every non-deleted `CartLine` and recomputes `Cart.totals` as a real
+ * whole-cart aggregate (§3.2) — closing the gap flagged in NOTIFY.md since Step 4.7/4.9.
+ *
+ * Per §3.1a's command-undo table: **not undoable**. Re-pricing to a stale price is never a
+ * state a client would want restored — no `undo` handler and, consistent with
+ * `commands/lines.ts`'s identical treatment of `cart.lines.update` (also non-undoable, also
+ * no `buildLog`), no audit log entry either.
+ */
+const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = {
+  id: 'cart.reprice',
+  isUndoable: false,
+  async execute(input, ctx) {
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    const cart = await findOneWithDecryption(
+      em,
+      Cart,
+      { id: input.cartId, tenantId: scope.tenantId, organizationId: scope.organizationId, kind: 'basket' as const },
+      {},
+      scope,
+    )
+    if (!cart) throw notFound('[internal] cart not found')
+    // Review finding: this command never checked cart status at all — every internal
+    // dispatcher (`cart.get`'s trigger 2-4, `cart.lock` pre-checking `active` before
+    // dispatching `trigger: 'lock'`, `cart.merge`/`cart.mergeUndo` repricing the survivor,
+    // `cart.promotions.apply`/`.remove` now requiring `active` before they ever reach here)
+    // already only reprices an active, unlocked cart by convention — this enforces that
+    // invariant here too, so a stale token cannot reprice a converted/merged/expired/locked
+    // cart directly and drift its stored totals away from the order it became.
+    assertCartNotLocked(cart)
+    if (cart.status !== 'active') {
+      throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
     }
+
+    const lines = await loadCartRepriceLines(em, cart)
+    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, cart)
+    const plan = prepareCartReprice({ em, container: ctx.container, cart, lines, input, now: new Date(), currencyDecimalPlaces })
+
+    // §3.1a: "mutates Cart/CartLine/CartPromotionApplication inside
+    // withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })" — one
+    // transaction spanning the buyer-context field update, the re-visibility pass, every
+    // line's re-price, the promotions phase, and the final totals recompute, so a partial
+    // re-price (some lines priced, the totals pass never ran) can never persist.
+    await withAtomicFlush(em, plan.phases, { transaction: true, label: 'cart.reprice' })
+
+    // Side effects fire after the atomic flush commits, never inside it.
+    await plan.emitSideEffects()
+    return plan.buildResult()
   },
 }
 

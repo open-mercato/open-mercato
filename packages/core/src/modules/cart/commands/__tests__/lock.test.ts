@@ -180,10 +180,17 @@ function makeEm() {
     persist: jest.fn(),
     remove: jest.fn(),
     flush: jest.fn(async () => undefined),
-    begin: jest.fn(async () => undefined),
-    commit: jest.fn(async () => undefined),
-    rollback: jest.fn(async () => undefined),
-    isInTransaction: jest.fn(() => false),
+    begin: jest.fn(async () => {
+      em.inTransaction = true
+    }),
+    commit: jest.fn(async () => {
+      em.inTransaction = false
+    }),
+    rollback: jest.fn(async () => {
+      em.inTransaction = false
+    }),
+    inTransaction: false,
+    isInTransaction: jest.fn(() => em.inTransaction),
     // `cart.lock` takes `cart:lines:<cartId>` through `withCartLineMutationLock` and moves
     // `active -> locked` with a `nativeUpdate` guarded on `status = 'active'`. The mock
     // mutates the SAME `seededCarts` row `findOneWithDecryption` returned as `cart`, so
@@ -349,12 +356,16 @@ describe('cart.lock', () => {
   async function runLockWithRefreshRace(
     mutateOnRefresh: (row: FakeRow) => void,
     ctxOptions: Omit<Parameters<typeof makeCtx>[0], 'em'> = {},
+    onLockAcquired?: () => void,
   ): Promise<{ captured: unknown; em: any; result: CartLockResult | undefined }> {
     const handler = getHandler<CartLockInput, CartLockResult>('cart.lock')
     const em = makeEm()
     let armed = false
     em.execute.mockImplementation(async (sql: string) => {
-      if (sql.includes('pg_try_advisory_xact_lock')) armed = true
+      if (sql.includes('pg_try_advisory_xact_lock')) {
+        armed = true
+        onLockAcquired?.()
+      }
       return [{ locked: true }]
     })
     em.refresh.mockImplementation(async (row: FakeRow) => {
@@ -398,32 +409,72 @@ describe('cart.lock', () => {
     expect(emitCartEventMock).not.toHaveBeenCalledWith('cart.lock.acquired', expect.anything())
   })
 
-  it('re-reads the lines inside the advisory lock and refuses when one became flagged', async () => {
+  it('reads the lines inside the advisory lock and refuses when one was flagged before the lock was held', async () => {
     seededCartLines = [makeLineFixture()]
-    const { captured, em } = await runLockWithRefreshRace((row) => {
-      if (row.id === 'line-1') row.flagState = 'unavailable'
+    const { captured, em } = await runLockWithRefreshRace(() => undefined, {}, () => {
+      seededCartLines[0].flagState = 'product_unavailable'
     })
 
     expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_has_unavailable_lines' })
     expect(lockTransitionCalls(em)).toHaveLength(0)
   })
 
-  it('recomputes totals inside the advisory lock from a line committed after the forced re-price', async () => {
+  it('re-prices and recomputes totals inside the advisory lock from a line committed before the lock was held', async () => {
     seededCartLines = [makeLineFixture({ quantity: '2' })]
+    const catalogBuyerPricingService = { resolveLinePrice: jest.fn(async () => makeResolvedLinePrice()) }
     let injected = false
     const { captured, result } = await runLockWithRefreshRace(
+      () => undefined,
+      { salesCalculationService: makeSummingSalesCalculationService(), catalogBuyerPricingService },
       () => {
         if (injected) return
         injected = true
         seededCartLines.push(makeLineFixture({ id: 'line-2', lineNumber: 2, productId: 'product-2', quantity: '3' }))
       },
-      { salesCalculationService: makeSummingSalesCalculationService() },
     )
 
     expect(captured).toBeUndefined()
     expect(result?.cart.status).toBe('locked')
     const cartRow = seededCarts.find((row) => row.id === CART_ID)!
     expect((cartRow.totals as Record<string, number>).grandTotalGrossAmount).toBe(60)
+    expect(catalogBuyerPricingService.resolveLinePrice).toHaveBeenCalledTimes(2)
+  })
+
+  it('never writes prices, promotions or totals when another contender locked the cart first', async () => {
+    seededCartLines = [makeLineFixture()]
+    const catalogBuyerPricingService = { resolveLinePrice: jest.fn(async () => makeResolvedLinePrice({ amountGross: 99 })) }
+    const promotionsService = { evaluate: jest.fn(async () => ({ appliedPromotions: [] })) }
+    const totalsBefore = { ...(seededCarts[0].totals as Record<string, number>) }
+    const { captured, em } = await runLockWithRefreshRace(
+      (row) => {
+        if (row.id !== CART_ID) return
+        row.status = 'locked'
+        row.checkoutSessionId = 'other-session'
+      },
+      { catalogBuyerPricingService, promotionsService },
+    )
+
+    expect((captured as { status: number }).status).toBe(423)
+    expect(catalogBuyerPricingService.resolveLinePrice).not.toHaveBeenCalled()
+    expect(promotionsService.evaluate).not.toHaveBeenCalled()
+    expect(seededCarts[0].totals).toEqual(totalsBefore)
+    expect(seededCartLines[0].unitPriceGross).toBe('12')
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('returns the warnings of the promotions pass that set the locked totals', async () => {
+    const promotionsService = {
+      evaluate: jest.fn(async () => ({
+        appliedPromotions: [
+          { promotionId: 'promo-gift', effects: [{ type: 'ADD_FREE_ITEM', productId: 'gift-missing', variantId: null, quantity: 1 }] },
+        ],
+      })),
+    }
+    const { captured, result } = await runLockWithRefreshRace(() => undefined, { promotionsService })
+
+    expect(captured).toBeUndefined()
+    expect(promotionsService.evaluate).toHaveBeenCalledTimes(1)
+    expect(result?.warnings).toEqual([{ code: 'product_unavailable', productId: 'gift-missing', variantId: null }])
   })
 
   it('answers 409 cart_lock_conflict, rolls back and emits nothing when the guarded active -> locked update matches no row', async () => {
@@ -456,6 +507,35 @@ describe('cart.lock', () => {
     expect(seededCarts.find((row) => row.id === CART_ID)!.status).toBe('active')
   })
 
+  it.each([
+    ['locked by another session', { status: 'locked', checkoutSessionId: 'winner-session' }, 423, { code: 'cart_locked', checkoutSessionId: 'winner-session' }],
+    ['merged', { status: 'merged' }, 409, { code: 'cart_not_active', status: 'merged' }],
+    ['abandoned', { status: 'abandoned' }, 409, { code: 'cart_lock_conflict' }],
+  ] as const)('answers a lost compare-and-set by the row found on the re-read: %s', async (_name, rowFound, status, body) => {
+    const handler = getHandler<CartLockInput, CartLockResult>('cart.lock')
+    const em = makeEm()
+    em.nativeUpdate.mockImplementation(async (_entity: unknown, _where: Record<string, unknown>, data: FakeRow) => {
+      if (data?.status !== 'locked') return 0
+      Object.assign(seededCarts[0], rowFound)
+      return 0
+    })
+
+    let captured: unknown
+    try {
+      await handler.execute(
+        { cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID, checkoutSessionId: 'checkout-session-1' },
+        makeCtx({ em }),
+      )
+    } catch (err) {
+      captured = err
+    }
+
+    expect((captured as { status: number }).status).toBe(status)
+    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject(body)
+    expect(em.rollback).toHaveBeenCalled()
+    expect(emitCartEventMock).not.toHaveBeenCalledWith('cart.lock.acquired', expect.anything())
+  })
+
   it('backs off and retries when the cart lock is busy, never re-checking or transitioning before it is held', async () => {
     const handler = getHandler<CartLockInput, CartLockResult>('cart.lock')
     const em = makeEm()
@@ -476,11 +556,23 @@ describe('cart.lock', () => {
     expect(result.cart.status).toBe('locked')
   })
 
-  it('succeeds on a clean cart: sets status/lockedAt/lockExpiresAt/checkoutSessionId, and dispatches cart.reprice with trigger "lock"', async () => {
+  it('succeeds on a clean cart: sets status/lockedAt/lockExpiresAt/checkoutSessionId, and re-prices with trigger "lock" under the lock', async () => {
+    seededCartLines = [makeLineFixture()]
     const handler = getHandler<CartLockInput, CartLockResult>('cart.lock')
     const em = makeEm()
     const commandBus = makeFakeCommandBus()
-    const ctx = makeCtx({ em, commandBus })
+    const order: string[] = []
+    em.execute.mockImplementation(async (sql: string) => {
+      if (sql.includes('pg_try_advisory_xact_lock')) order.push('lock')
+      return [{ locked: true }]
+    })
+    const catalogBuyerPricingService = {
+      resolveLinePrice: jest.fn(async () => {
+        order.push('reprice')
+        return makeResolvedLinePrice()
+      }),
+    }
+    const ctx = makeCtx({ em, commandBus, catalogBuyerPricingService })
 
     const result = await handler.execute(
       { cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID, checkoutSessionId: 'checkout-session-1' },
@@ -497,9 +589,8 @@ describe('cart.lock', () => {
     expect(cartRow.status).toBe('locked')
     expect(cartRow.checkoutSessionId).toBe('checkout-session-1')
 
-    const repriceCalls = (commandBus.execute as jest.Mock).mock.calls.filter(([id]) => id === 'cart.reprice')
-    expect(repriceCalls).toHaveLength(1)
-    expect((repriceCalls[0][1] as { input: CartRepriceInput }).input.trigger).toBe('lock')
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(order).toEqual(['lock', 'reprice'])
 
     expect(emitCartEventMock).toHaveBeenCalledWith(
       'cart.lock.acquired',
@@ -514,7 +605,7 @@ describe('cart.lock', () => {
   // line, rather than pre-seeding `flagState` directly (which `cart.reprice`'s own
   // re-visibility pass could otherwise just as easily clear again before `cart.lock` ever
   // gets to check).
-  it('refuses with 409 cart_has_unavailable_lines when a line is flagged after the forced re-price', async () => {
+  it('refuses with 409 cart_has_unavailable_lines, keeping the flag, when the forced re-price flags a line', async () => {
     seededCarts = [makeCartFixture({ channel: 'storefront' })]
     seededCartLines = [makeLineFixture()]
     const handler = getHandler<CartLockInput, CartLockResult>('cart.lock')

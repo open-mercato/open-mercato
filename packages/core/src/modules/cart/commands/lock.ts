@@ -1,25 +1,22 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandBus, CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
-import { Cart, CartLine } from '../data/entities'
+import { Cart } from '../data/entities'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
-import { shouldEnforceAssortmentScope } from '../lib/routeContext'
-import type { CartPromotionWarning } from '../lib/promotionContext'
 import { resolveCartCurrencyDecimalPlaces } from '../lib/exactPricing'
 import { withCartLineMutationLock } from '../lib/lineMutationLock'
 import { resolveCartLockTimeoutMs } from '../lib/sweepConfig'
 import { assertCartNotLocked } from '../lib/lockGuard'
 import { emitCartEvent } from '../events'
-import { repriceCartCommand, toCartSummary } from './cart'
-import type { CartRepriceInput, CartRepriceResult, CartSummary } from './cart'
-import { buildCartPromotionsAndTotalsPhases, emitCartPromotionsAndTotalsSideEffects } from './lines'
+import { loadCartRepriceLines, prepareCartReprice, toCartSummary } from './cart'
+import type { CartRepriceInput, CartRepricePlan, CartRepriceResult, CartSummary } from './cart'
 
 // Step 7.5 — §9's `active -> locked`, `locked -> active` and `locked -> converted` rows:
 // `cart.lock`, `cart.unlock`, `cart.markConverted`. §10 is explicit that none of the three
@@ -96,34 +93,40 @@ export type CartLockResult = {
   warnings?: CartRepriceResult['warnings']
 }
 
+const TERMINAL_LOCK_STATUSES = new Set(['merged', 'expired', 'converted'])
+
+/** §9.1 losing acquisition (rev 10.4 — D-R5-CA17): answered by the row the re-read finds. */
+async function refuseLostLockAcquisition(em: EntityManager, cart: Cart): Promise<never> {
+  await em.refresh(cart)
+  assertCartNotLocked(cart)
+  if (TERMINAL_LOCK_STATUSES.has(cart.status)) {
+    throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
+  }
+  throw new CrudHttpError(409, { error: '[internal] cart_lock_conflict', code: 'cart_lock_conflict' })
+}
+
 const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
   id: 'cart.lock',
   isUndoable: false,
   async execute(input, ctx) {
     const scope: CartLockScope = { tenantId: input.tenantId, organizationId: input.organizationId }
 
-    // Pre-check on its own short-lived `em` fork — never reused below. `cart.reprice`
-    // (dispatched next) runs its own write in a SEPARATE fork/transaction and commits
-    // independently, so any entity loaded on THIS fork would go stale the moment that
-    // commit lands; discarding this fork after the pre-check, rather than carrying it
-    // forward, is what keeps the final write (below) reading genuinely fresh state instead
-    // of a pre-reprice identity-mapped snapshot.
-    const precheckEm = (ctx.container.resolve('em') as EntityManager).fork()
-    const existingCart = await loadBasketCart(precheckEm, scope, input.cartId)
-    if (!existingCart) throw notFound('[internal] cart not found')
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const cart = await loadBasketCart(em, scope, input.cartId)
+    if (!cart) throw notFound('[internal] cart not found')
     // §9: a locked cart's own re-lock attempt is itself a "client tries to mutate" case —
     // the blanket 423 rule has no stated carve-out for `cart.lock` calling itself.
-    assertCartNotLocked(existingCart)
+    assertCartNotLocked(cart)
     // Every OTHER non-active status (converted/merged/expired/abandoned) collapses to the
     // same generic 404 `commands/lines.ts`'s `loadMutableCart` already uses for a
     // `requireActive` caller — `cart.lock` only ever fires `active -> locked` (§9).
-    if (existingCart.status !== 'active') throw notFound('[internal] cart not found')
+    if (cart.status !== 'active') throw notFound('[internal] cart not found')
+    // Resolved before the locked transaction, so it never needs a second pooled connection.
+    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, cart)
 
-    // §9/§6a.2/§6a.5/D-R4-22: forces a whole-cart re-price AND (via this step's own
-    // extension of `commands/cart.ts`'s `runWholeCartRevisibilityPass`) the whole-cart
-    // re-visibility pass, with a freshly-resolved buyer context, BEFORE this command ever
-    // checks for a still-flagged line.
-    const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    // §9/§6a.2/§6a.5/D-R4-22: forces a whole-cart re-price AND (via `prepareCartReprice`'s
+    // `runWholeCartRevisibilityPass`) the whole-cart re-visibility pass, with a
+    // freshly-resolved buyer context, BEFORE this command ever checks for a still-flagged line.
     const repriceInput: CartRepriceInput = {
       cartId: input.cartId,
       tenantId: scope.tenantId,
@@ -131,82 +134,55 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
       trigger: 'lock',
       routeContext: input.routeContext,
     }
-    const { result: repriceResult } = await commandBus.execute<CartRepriceInput, CartRepriceResult>(
-      repriceCartCommand.id,
-      { input: repriceInput, ctx },
-    )
-
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const cart = await loadBasketCart(em, scope, input.cartId)
-    if (!cart) throw notFound('[internal] cart not found')
-
-    // §8.1 (rev 10.1 — I1): a line write, merge or undo can commit between the forced
-    // re-price above and this transition, so the cart, its lines and its totals are judged
-    // again under the same `cart:lines:<cartId>` lock every such writer takes.
-    const assertLockableUnderLock = async (): Promise<void> => {
-      await em.refresh(cart)
-      assertCartNotLocked(cart)
-      if (cart.status !== 'active') throw notFound('[internal] cart not found')
-      const lines = (await findWithDecryption(
-        em,
-        CartLine,
-        { cartId: input.cartId, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
-        {},
-        scope,
-      )) as CartLine[]
-      for (const line of lines) await em.refresh(line)
-      if (lines.some((line) => line.flagState != null)) {
-        throw new CrudHttpError(409, { error: '[internal] cart_has_unavailable_lines', code: 'cart_has_unavailable_lines' })
-      }
-    }
-
     const now = new Date()
-    const rawAssortmentScope = input.routeContext?.assortmentScope
-    const createdGiftLines: CartLine[] = []
-    const removedGiftLines: CartLine[] = []
-    const promotionWarnings: CartPromotionWarning[] = []
-    // Resolved before the locked transaction, so it never needs a second pooled connection.
-    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, cart)
-    const recomputeTotalsPhases = buildCartPromotionsAndTotalsPhases({
-      em,
-      container: ctx.container,
-      cart,
-      scope,
-      assortmentScope: shouldEnforceAssortmentScope(cart.channel, rawAssortmentScope) ? rawAssortmentScope : undefined,
-      now,
-      createdGiftLines,
-      removedGiftLines,
-      promotionWarnings,
-      currencyDecimalPlaces,
-    })
-
     const lockExpiresAt = new Date(now.getTime() + resolveCartLockTimeoutMs())
-    // Compare-and-set on `status = 'active'`: a writer that changes status without this lock
-    // (a sweeper, a concurrent unlock/convert path) still cannot be overwritten. A lost race
-    // rolls the whole attempt back, recomputed totals included, and emits nothing.
+    const locked: { plan?: CartRepricePlan; hasUnavailableLines: boolean } = { hasUnavailableLines: false }
+
+    // §8.1 (rev 10.1 — I1): the re-price, the flagged-line check and the transition all run
+    // from one read taken under the `cart:lines:<cartId>` lock every line write, merge and
+    // undo takes, so a contender that loses the lock never writes prices, promotions or
+    // totals onto a cart another contender has already locked.
     await withCartLineMutationLock(
       em,
       cart.id,
       [
-        assertLockableUnderLock,
-        ...recomputeTotalsPhases,
         async () => {
+          await em.refresh(cart)
+          assertCartNotLocked(cart)
+          if (cart.status !== 'active') throw notFound('[internal] cart not found')
+          const lines = await loadCartRepriceLines(em, cart)
+          const plan = prepareCartReprice({ em, container: ctx.container, cart, lines, input: repriceInput, now, currencyDecimalPlaces })
+          locked.plan = plan
+          await withAtomicFlush(em, plan.phases, { transaction: true, label: 'cart.lock' })
+        },
+        async () => {
+          // A line the re-visibility pass just flagged keeps its flag: the re-price commits
+          // and the lock is refused after it, as when the re-price ran on its own.
+          if (locked.plan?.lines.some((line) => line.flagState != null)) {
+            locked.hasUnavailableLines = true
+            return
+          }
+          // Compare-and-set on `status = 'active'`: a writer that changes status without this
+          // lock (a sweeper, a concurrent unlock/convert path) still cannot be overwritten. A
+          // lost race rolls the whole attempt back, re-price included, and emits nothing.
           const affected = await em.nativeUpdate(
             Cart,
             { id: cart.id, tenantId: scope.tenantId, organizationId: scope.organizationId, status: 'active' },
             { status: 'locked', lockedAt: now, lockExpiresAt, checkoutSessionId: input.checkoutSessionId },
           )
-          if (affected === 0) {
-            throw new CrudHttpError(409, { error: '[internal] cart_lock_conflict', code: 'cart_lock_conflict' })
-          }
+          if (affected === 0) await refuseLostLockAcquisition(em, cart)
           await em.refresh(cart)
         },
       ],
       'cart.lock',
     )
+    const plan = locked.plan
+    if (!plan) throw new Error('[internal] cart.lock finished without a reprice plan')
 
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    await emitCartPromotionsAndTotalsSideEffects(dataEngine, cart, { createdGiftLines, removedGiftLines, promotionWarnings })
+    await plan.emitSideEffects()
+    if (locked.hasUnavailableLines) {
+      throw new CrudHttpError(409, { error: '[internal] cart_has_unavailable_lines', code: 'cart_has_unavailable_lines' })
+    }
     await emitCartEvent('cart.lock.acquired', {
       cartId: cart.id,
       tenantId: cart.tenantId,
@@ -214,6 +190,7 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
       checkoutSessionId: cart.checkoutSessionId,
     })
 
+    const repriceResult = plan.buildResult()
     return {
       cart: toCartSummary(cart),
       priceChanges: repriceResult.priceChanges,
