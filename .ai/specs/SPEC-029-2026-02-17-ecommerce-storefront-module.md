@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v4.14 — the pay-link resolution owned by `cart.create` 2026-11-21; v4.13 — one trusted-context import path, the proposal `buyerContext` callers 2026-11-21; v4.12 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, review fixes, the deleted default sales channel, the Release 5 `resolveForBuyer` contract, and its re-landing audit fixes) |
+| **Status** | Specification (v4.15 — the lock refresh passes the cart's store 2026-11-23; v4.14 — the pay-link resolution owned by `cart.create` 2026-11-21; v4.13 — one trusted-context import path, the proposal `buyerContext` callers 2026-11-21; v4.12 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, review fixes, the deleted default sales channel, the Release 5 `resolveForBuyer` contract, and its re-landing audit fixes) |
 | **Created** | 2026-02-17 |
 | **Rescoped** | 2026-08-14 |
 | **Pre-implementation fixes** | 2026-08-17 — see §21 |
@@ -437,7 +437,7 @@ The error carries the marker `Symbol.for('@open-mercato/ecommerce/StorefrontReso
 | `assisted_selling` re-author on merge (assisted-selling §8.1) | The thread's store | The new target basket's identity (refresh rule) | Re-author a live proposal for the merged basket (D-R5-14) |
 | Cart proposals route, `cart.proposal.create` against a storefront target (cart §7a) | The target cart's store | The target cart's identity (refresh rule) | Scope and price the proposal under the resolved target buyer: the route passes the result as the command's `buyerContext`, never the target cart's stored customer fields, price kind or digest |
 | Cart admin re-price, `POST /api/cart/carts/:id/reprice` (cart §10.2) | `cart.storeId` when set | The cart's identity (refresh rule) | Refresh identity, and scope for a storefront cart, before the whole-cart re-price |
-| Whole-cart re-price at lock of a non-storefront cart with a buyer (cart §6a.4) | None | The cart's identity (refresh rule) | Refresh identity before the lock's re-price and approval gate. A storefront cart locks with the route context from the buyer's request instead (cart §9.1) |
+| Whole-cart re-price at lock of a non-storefront cart with a buyer (cart §6a.4) | `cart.storeId` when set, as at `cart.create` and the admin re-price (cart §6a.4: the same call), so the refresh resolves the same channel price kind the cart was created under; the scope it returns is not applied | The cart's identity (refresh rule) | Refresh identity before the lock's re-price and approval gate. A storefront cart locks with the route context from the buyer's request instead (cart §9.1) |
 | `cart.create` trusted path, `api`/`agent` carts with a customer (cart §6a.4) | The cart's store, when it has one | Authenticated command input | Same identity as a storefront buyer, so the approval gate (D-R5-29) and credit see the company. A `pay_link` cart is the next row, not this one |
 | Checkout pay-link cart seeding with a logged-in buyer (D-R5-19), resolved inside `cart.create` for `channel: 'pay_link'` (cart §6a.4 step 3) | None | The session's `customerUserId` alone, which checkout passes to `cart.create` when the session's tenant and organization equal the link's. Checkout never calls `resolveForBuyer` itself (checkout §4.3 step 3) | Template lines without `unit_price_override` price at the buyer's own rate; terms, credit and approval resolve to the company |
 
@@ -1009,6 +1009,10 @@ Open:
 ---
 
 ## 21) Changelog
+
+### 2026-11-23 — v4.15 (lock refresh with the cart's store)
+
+- §6.3 callers table: the whole-cart re-price at lock of a non-storefront cart passes `cart.storeId` when set, as `cart.create` and the admin re-price do (cart §6a.4, "the same call"). Without it the refresh could resolve a different channel price kind than the one the cart was created under, and the lock's re-price would move prices. The scope it returns is still not applied to a non-storefront cart.
 
 ### 2026-11-21 — v4.14 (pay-link resolution owned by `cart.create`)
 
