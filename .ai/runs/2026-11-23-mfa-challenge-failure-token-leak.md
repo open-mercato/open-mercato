@@ -74,16 +74,16 @@ not committed. Related spec: `.ai/specs/enterprise/implemented/SPEC-ENT-007-2026
 
 ### Phase 1: Fail-closed MFA challenge handling
 
-- [ ] 1.1 Add a typed `MFA_NO_METHODS_CONFIGURED` error code constant and tag the service error
-- [ ] 1.2 Fail closed in the login MFA after-interceptor on unexpected challenge failures
-- [ ] 1.3 Revoke the provisional session when the login after-interceptor fails
+- [x] 1.1 Add a typed `MFA_NO_METHODS_CONFIGURED` error code constant and tag the service error — 1650720d07
+- [x] 1.2 Fail closed in the login MFA after-interceptor on unexpected challenge failures — aa0346bee0
+- [x] 1.3 Revoke the provisional session when the login after-interceptor fails — 2002b3cffa
 
 ### Phase 2: Regression coverage
 
-- [ ] 2.1 Update the enterprise interceptor unit tests
-- [ ] 2.2 Add core login regression tests for the fail-closed response
+- [x] 2.1 Update the enterprise interceptor unit tests — 2cd56abfcf
+- [x] 2.2 Add core login regression tests for the fail-closed response — 6897d02e63
 
 ### Phase 3: Validation
 
-- [ ] 3.1 Run targeted tests and typecheck
+- [x] 3.1 Run targeted tests and typecheck — interceptor (9), login (19), MfaVerificationService + challenge route (30) pass; enterprise + core `tsc --noEmit` pass
 - [ ] 3.2 Run the configured validation gate and record limits
