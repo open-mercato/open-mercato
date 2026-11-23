@@ -17,19 +17,21 @@ jest.mock('@open-mercato/core/modules/ecommerce/lib/seedDraftStore', () => ({
 }))
 
 import { seedDraftStore } from '@open-mercato/core/modules/ecommerce/lib/seedDraftStore'
-import { actionsUpToVersion, findUpgradeAction, upgradeActions } from '../upgrade-actions'
+import { actionsUpToVersion, findUpgradeAction, getUpgradeActionOwner, upgradeActions } from '../upgrade-actions'
+import { registerShippedUpgradeActionModules } from './helpers/shippedUpgradeActions'
 
 const mockedSeed = seedDraftStore as jest.Mock
 
 const ACTION_ID = 'ecommerce.seed-draft-store'
 
 describe('ecommerce.seed-draft-store upgrade action', () => {
+  beforeAll(() => registerShippedUpgradeActionModules())
   beforeEach(() => mockedSeed.mockClear())
 
   it('is registered and gated on the ecommerce module', () => {
     const action = upgradeActions.find((entry) => entry.id === ACTION_ID)
     expect(action).toBeDefined()
-    expect(action?.requiredModules).toEqual(['ecommerce'])
+    expect(getUpgradeActionOwner(action!)).toBe('ecommerce')
     expect(action?.messageKey).toBe('configs.upgrades.ecommerceDraftStore.message')
     expect(action?.ctaKey).toBe('configs.upgrades.ecommerceDraftStore.cta')
     expect(action?.successKey).toBe('configs.upgrades.ecommerceDraftStore.success')

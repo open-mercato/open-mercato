@@ -11,7 +11,12 @@ import { dirname, join, relative, resolve } from 'node:path'
  */
 
 const coreSrcRoot = resolve(__dirname, '..', '..', '..', '..')
-const entryFile = resolve(__dirname, '..', 'upgrade-actions.ts')
+const configsEntryFiles = [
+  resolve(__dirname, '..', 'upgrade-actions.ts'),
+  resolve(__dirname, '..', 'upgrade-action-catalog.ts'),
+  resolve(__dirname, '..', '..', 'services', 'upgradeActionsService.ts'),
+]
+const OWNER_MANIFESTS = ['attachments', 'cart', 'customers', 'devices', 'ecommerce', 'payment_gateways', 'phone_calls', 'promotions']
 const GENERATED_ENTITY_IDS = '#generated/entities.ids.generated'
 const CORE_PREFIX = '@open-mercato/core/'
 const IMPORT_SPECIFIER = /(?:\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)['"]([^'"]+)['"]/g
@@ -38,9 +43,13 @@ function resolveSpecifier(fromFile: string, specifier: string): string | null {
   return null
 }
 
-function collectReachableCoreFiles(entry: string): Map<string, string[]> {
+function moduleOf(file: string): string {
+  return relative(join(coreSrcRoot, 'modules'), file).split('/')[0]
+}
+
+function collectReachableCoreFiles(entries: string[]): Map<string, string[]> {
   const reachable = new Map<string, string[]>()
-  const queue = [entry]
+  const queue = [...entries]
   while (queue.length) {
     const file = queue.shift() as string
     if (reachable.has(file)) continue
@@ -55,25 +64,28 @@ function collectReachableCoreFiles(entry: string): Map<string, string[]> {
 }
 
 describe('configs upgrade-action catalog optional-module compile boundary', () => {
-  const reachable = collectReachableCoreFiles(entryFile)
-
-  it('follows the lazy imports of cross-module actions', () => {
-    const reachedModules = new Set(
-      Array.from(reachable.keys(), (file) => relative(join(coreSrcRoot, 'modules'), file).split('/')[0]),
-    )
-    expect(reachedModules.has('customers')).toBe(true)
-    expect(reachedModules.has('attachments')).toBe(true)
+  it('keeps the configs facade, catalog and runner free of business-module code', () => {
+    const reachable = collectReachableCoreFiles(configsEntryFiles)
+    const reachedModules = new Set(Array.from(reachable.keys(), moduleOf))
+    expect([...reachedModules].filter((moduleId) => moduleId !== 'configs')).toEqual([])
   })
 
-  it('does not reach the generated entity id registry from another module', () => {
+  it.each(OWNER_MANIFESTS)('lets the %s manifest reach other modules only through registry-free files', (ownerModuleId) => {
+    const manifest = join(coreSrcRoot, 'modules', ownerModuleId, 'upgrades.ts')
+    expect(existsSync(manifest)).toBe(true)
+    const reachable = collectReachableCoreFiles([manifest])
     const offenders = Array.from(reachable.entries())
+      .filter(([file]) => moduleOf(file) !== ownerModuleId)
       .filter(([, specifiers]) => specifiers.includes(GENERATED_ENTITY_IDS))
       .map(([file]) => relative(coreSrcRoot, file))
     expect(offenders).toEqual([])
   })
 
-  it('does not reach the customers CLI', () => {
+  it('does not reach the customers CLI from any upgrade manifest', () => {
     const customersCli = join(coreSrcRoot, 'modules', 'customers', 'cli.ts')
+    const reachable = collectReachableCoreFiles(
+      OWNER_MANIFESTS.map((moduleId) => join(coreSrcRoot, 'modules', moduleId, 'upgrades.ts')),
+    )
     expect(reachable.has(customersCli)).toBe(false)
   })
 })

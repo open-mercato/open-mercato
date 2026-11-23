@@ -7,6 +7,7 @@ process.env.UPGRADE_ACTIONS_ENABLED = 'true'
 import { getEnabledModuleIds } from '@open-mercato/shared/security/enabledModulesRegistry'
 import { listPendingUpgradeActions, executeUpgradeAction } from '../upgradeActionsService'
 import { upgradeActions, type UpgradeActionDefinition } from '../../lib/upgrade-actions'
+import { registerShippedUpgradeActionModules } from '../../lib/__tests__/helpers/shippedUpgradeActions'
 
 const getEnabledModuleIdsMock = getEnabledModuleIds as jest.Mock
 
@@ -19,6 +20,8 @@ function createEm(runs: unknown[] = []) {
     find: jest.fn().mockResolvedValue(runs),
   } as any
 }
+
+beforeAll(() => registerShippedUpgradeActionModules())
 
 describe('listPendingUpgradeActions module gating', () => {
   afterEach(() => {

@@ -17,8 +17,11 @@ jest.mock('@open-mercato/core/modules/customers/lib/dealLossReasons', () => ({
   seedDealLossReasons: jest.fn().mockResolvedValue(undefined),
 }))
 
-import { compareVersions, actionsUpToVersion, findUpgradeAction, upgradeActions } from '../upgrade-actions'
+import { compareVersions, actionsUpToVersion, findUpgradeAction, getUpgradeActionOwner, upgradeActions } from '../upgrade-actions'
+import { registerShippedUpgradeActionModules } from './helpers/shippedUpgradeActions'
 import { seedDealLossReasons } from '@open-mercato/core/modules/customers/lib/dealLossReasons'
+
+beforeAll(() => registerShippedUpgradeActionModules())
 
 describe('compareVersions', () => {
   describe('basic comparisons', () => {
@@ -151,21 +154,22 @@ describe('interaction-statuses seed upgrade action', () => {
 
 describe('cross-module upgrade action gating', () => {
   it.each([
-    ['customers.seed-interaction-statuses', ['customers']],
-    ['attachments.reconcile-organization', ['attachments']],
-    ['devices.seed-push-token-encryption-map', ['devices']],
-    ['phone_calls.seed-call-encryption-maps', ['phone_calls']],
-  ])('gates %s on its owning module', (actionId, expectedModules) => {
+    ['customers.seed-interaction-statuses', 'customers', []],
+    ['attachments.reconcile-organization', 'attachments', []],
+    ['devices.seed-push-token-encryption-map', 'devices', ['entities']],
+    ['phone_calls.seed-call-encryption-maps', 'phone_calls', ['entities']],
+  ])('gates %s on its owning module', (actionId, owner, peers) => {
     const action = upgradeActions.find((candidate) => candidate.id === actionId)
-    expect(action?.requiredModules).toEqual(expectedModules)
+    expect(action).toBeDefined()
+    expect(getUpgradeActionOwner(action!)).toBe(owner)
+    expect(action?.requiredModules ?? []).toEqual(peers)
   })
 
-  it('declares an owning module for every action whose id names another module', () => {
-    const ungated = upgradeActions
-      .filter((action) => !action.id.startsWith('configs.'))
-      .filter((action) => !action.requiredModules?.length)
+  it('binds every action to the module its id names', () => {
+    const mismatched = upgradeActions
+      .filter((action) => getUpgradeActionOwner(action) !== action.id.split('.')[0])
       .map((action) => action.id)
-    expect(ungated).toEqual([])
+    expect(mismatched).toEqual([])
   })
 })
 
@@ -175,7 +179,7 @@ describe('deal loss-reasons seed upgrade action', () => {
   it('is offered from 0.10.0 to apps with the customers module', () => {
     const action = upgradeActions.find((candidate) => candidate.id === ACTION_ID)
     expect(action?.version).toBe('0.10.0')
-    expect(action?.requiredModules).toEqual(['customers'])
+    expect(getUpgradeActionOwner(action!)).toBe('customers')
     expect(action?.messageKey).toBe('customers.config.upgradeActions.dealLossReasons.message')
     expect(findUpgradeAction(ACTION_ID, '0.9.0')).toBeUndefined()
     expect(findUpgradeAction(ACTION_ID, '0.10.0')).toBe(action)
@@ -219,11 +223,14 @@ describe('payment-session initialization prune upgrade action', () => {
       organizationId: '20000000-0000-4000-8000-000000000001',
     })
 
-    expect(register).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: '10000000-0000-4000-8000-000000000001',
-      organizationId: '20000000-0000-4000-8000-000000000001',
-      targetQueue: 'payment-gateway-session-initialization-prune',
-    }))
+    expect(register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: '10000000-0000-4000-8000-000000000001',
+        organizationId: '20000000-0000-4000-8000-000000000001',
+        targetQueue: 'payment-gateway-session-initialization-prune',
+      }),
+      expect.objectContaining({ em: {} }),
+    )
   })
 })
 

@@ -1,4 +1,6 @@
-import { actionsUpToVersion, upgradeActions } from '../upgrade-actions'
+import { actionsUpToVersion, getUpgradeActionOwner, upgradeActions } from '../upgrade-actions'
+import { resolveUpgradeActionScope } from '../upgrade-action-catalog'
+import { registerShippedUpgradeActionModules } from './helpers/shippedUpgradeActions'
 
 const FROZEN_CATALOG = [
   {
@@ -8,6 +10,7 @@ const FROZEN_CATALOG = [
     ctaKey: 'customers.config.upgradeActions.interactionStatuses.cta',
     successKey: 'customers.config.upgradeActions.interactionStatuses.success',
     loadingKey: 'customers.config.upgradeActions.interactionStatuses.loading',
+    scope: 'organization',
     requiredModules: ['customers'],
   },
   {
@@ -17,6 +20,7 @@ const FROZEN_CATALOG = [
     ctaKey: 'configs.upgrades.attachmentsOrgReconcile.cta',
     successKey: 'configs.upgrades.attachmentsOrgReconcile.success',
     loadingKey: 'configs.upgrades.attachmentsOrgReconcile.loading',
+    scope: 'tenant',
     requiredModules: ['attachments'],
   },
   {
@@ -26,7 +30,8 @@ const FROZEN_CATALOG = [
     ctaKey: 'configs.upgrades.devicesPushTokenEncryption.cta',
     successKey: 'configs.upgrades.devicesPushTokenEncryption.success',
     loadingKey: 'configs.upgrades.devicesPushTokenEncryption.loading',
-    requiredModules: ['devices'],
+    scope: 'organization',
+    requiredModules: ['devices', 'entities'],
   },
   {
     id: 'payment_gateways.register-session-initialization-prune',
@@ -35,6 +40,7 @@ const FROZEN_CATALOG = [
     ctaKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.cta',
     successKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.success',
     loadingKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.loading',
+    scope: 'organization',
     requiredModules: ['payment_gateways'],
   },
   {
@@ -44,7 +50,8 @@ const FROZEN_CATALOG = [
     ctaKey: 'phone_calls.config.upgradeActions.encryptionMaps.cta',
     successKey: 'phone_calls.config.upgradeActions.encryptionMaps.success',
     loadingKey: 'phone_calls.config.upgradeActions.encryptionMaps.loading',
-    requiredModules: ['phone_calls'],
+    scope: 'organization',
+    requiredModules: ['phone_calls', 'entities'],
   },
   {
     id: 'cart.register-sweeper-schedules',
@@ -53,6 +60,7 @@ const FROZEN_CATALOG = [
     ctaKey: 'configs.upgrades.cartSweeperSchedules.cta',
     successKey: 'configs.upgrades.cartSweeperSchedules.success',
     loadingKey: 'configs.upgrades.cartSweeperSchedules.loading',
+    scope: 'tenant',
     requiredModules: ['cart'],
   },
   {
@@ -62,6 +70,7 @@ const FROZEN_CATALOG = [
     ctaKey: 'configs.upgrades.ecommerceDraftStore.cta',
     successKey: 'configs.upgrades.ecommerceDraftStore.success',
     loadingKey: 'configs.upgrades.ecommerceDraftStore.loading',
+    scope: 'organization',
     requiredModules: ['ecommerce'],
   },
   {
@@ -71,6 +80,7 @@ const FROZEN_CATALOG = [
     ctaKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.cta',
     successKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.success',
     loadingKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.loading',
+    scope: 'tenant',
     requiredModules: ['promotions'],
   },
   {
@@ -80,6 +90,7 @@ const FROZEN_CATALOG = [
     ctaKey: 'customers.config.upgradeActions.dealLossReasons.cta',
     successKey: 'customers.config.upgradeActions.dealLossReasons.success',
     loadingKey: 'customers.config.upgradeActions.dealLossReasons.loading',
+    scope: 'organization',
     requiredModules: ['customers'],
   },
 ]
@@ -92,11 +103,17 @@ function identityOf(action: (typeof upgradeActions)[number]) {
     ctaKey: action.ctaKey,
     successKey: action.successKey,
     loadingKey: action.loadingKey,
-    requiredModules: action.requiredModules,
+    scope: resolveUpgradeActionScope(action),
+    requiredModules: [
+      ...[getUpgradeActionOwner(action)].filter((owner): owner is string => owner !== null),
+      ...(action.requiredModules ?? []),
+    ],
   }
 }
 
 describe('upgrade action catalog characterization', () => {
+  beforeAll(() => registerShippedUpgradeActionModules())
+
   it('keeps every shipped action identity, translation key and required module in execution order', () => {
     expect(actionsUpToVersion('99.0.0').map(identityOf)).toEqual(FROZEN_CATALOG)
   })
