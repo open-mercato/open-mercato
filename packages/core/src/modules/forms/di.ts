@@ -123,12 +123,12 @@ export function register(container: AppContainer): void {
         formVersionCompiler,
         encryptionService: formsEncryptionService,
         rolePolicyService,
-        emitEvent: async (eventId, payload, scope) => {
+        emitEvent: async (eventId, payload, ...eventOptions) => {
           // Validate against catalogued payload schema before forwarding to the
           // global event bus. Keeps the event contract tight per AGENTS.md.
           const schema = formsEventPayloadSchemas[eventId as keyof typeof formsEventPayloadSchemas]
           const validated = schema ? schema.parse(payload) : payload
-          await emitFormsEvent(eventId, validated as never, scope)
+          await emitFormsEvent(eventId, validated as never, ...eventOptions)
         },
         auditAccess: async (args) => {
           // Phase 2b — replaces the no-op hook from phase 1c. Writes one

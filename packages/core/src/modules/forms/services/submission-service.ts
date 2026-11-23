@@ -1121,10 +1121,10 @@ export class SubmissionService {
   private async safeEmit<K extends keyof SubmissionEvents>(
     eventId: K,
     payload: Parameters<SubmissionEvents[K]>[0],
-    scope?: Scope,
+    ...eventOptions: [scope?: Scope]
   ): Promise<void> {
     try {
-      await this.emitEvent(eventId, payload, scope)
+      await this.emitEvent(eventId, payload, ...eventOptions)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown emit error'
       this.logger.warn({ event: 'forms.submission.event_emit_failed', eventId, message }, 'forms event emission failed')
