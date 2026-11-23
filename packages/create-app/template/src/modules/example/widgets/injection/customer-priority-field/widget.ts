@@ -32,6 +32,7 @@ async function savePriority(data: Record<string, unknown>, context: InjectionCon
   const t = translator(context)
   const priorityId = typeof namespace.priorityId === 'string' ? namespace.priorityId : null
   const priorityUpdatedAt = typeof namespace.priorityUpdatedAt === 'string' ? namespace.priorityUpdatedAt : null
+  if (context.operation !== 'create' && !priorityId && priority === namespace.priority) return
   try {
     if (priorityId && !priorityUpdatedAt) throw createCrudFormError(t('example.priority.detail.error.load'))
     if (!priorityId) {
