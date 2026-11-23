@@ -718,7 +718,7 @@ export function AssignRoleDialog({
             <p className="text-xs text-muted-foreground sm:max-w-2xs">
               {t(
                 'customers.roles.dialog.footerNote',
-                'One person per role · can be changed at any time',
+                'One person per role. Can be changed at any time.',
               )}
             </p>
           }
