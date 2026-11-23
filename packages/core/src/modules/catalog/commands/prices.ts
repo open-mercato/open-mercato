@@ -340,6 +340,29 @@ function exactTaxAmount(exact: string | undefined, legacy: number | null): strin
   return resolveExactDecimal(exact, legacy)
 }
 
+async function throwPriceValidityWindowError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate('catalog.prices.validation.validityWindow', 'End date must be after the start date.')
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { endsAt: message },
+    details: [{ path: ['endsAt'], message, code: 'custom', origin: 'validation' }],
+  })
+}
+
+async function throwPriceQuantityRangeError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate(
+    'catalog.prices.validation.quantityRange',
+    'Maximum quantity must be greater than or equal to the minimum quantity.',
+  )
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { maxQuantity: message },
+    details: [{ path: ['maxQuantity'], message, code: 'custom', origin: 'validation' }],
+  })
+}
+
 function numericStringToNumber(value: string | null | undefined): number | null {
   if (value === undefined || value === null) return null
   const numeric = Number(value)
@@ -694,6 +717,30 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       throw new CrudHttpError(400, { error: 'Price kind is required.' })
     }
     ensureSameTenant(targetPriceKind, targetProduct.tenantId)
+
+    const hasStartsAtInput = Object.prototype.hasOwnProperty.call(parsed, 'startsAt')
+    const hasEndsAtInput = Object.prototype.hasOwnProperty.call(parsed, 'endsAt')
+    if (hasStartsAtInput || hasEndsAtInput) {
+      const effectiveStartsAt = hasStartsAtInput ? parsed.startsAt ?? null : record.startsAt ?? null
+      const effectiveEndsAt = hasEndsAtInput ? parsed.endsAt ?? null : record.endsAt ?? null
+      if (effectiveStartsAt && effectiveEndsAt && effectiveEndsAt < effectiveStartsAt) {
+        await throwPriceValidityWindowError()
+      }
+    }
+
+    const hasMinQuantityInput = Object.prototype.hasOwnProperty.call(parsed, 'minQuantity')
+    const hasMaxQuantityInput = Object.prototype.hasOwnProperty.call(parsed, 'maxQuantity')
+    if (hasMinQuantityInput || hasMaxQuantityInput) {
+      const effectiveMinQuantity = hasMinQuantityInput ? parsed.minQuantity ?? 1 : record.minQuantity ?? 1
+      const effectiveMaxQuantity = hasMaxQuantityInput ? parsed.maxQuantity ?? null : record.maxQuantity ?? null
+      if (
+        effectiveMinQuantity != null &&
+        effectiveMaxQuantity != null &&
+        effectiveMaxQuantity < effectiveMinQuantity
+      ) {
+        await throwPriceQuantityRangeError()
+      }
+    }
 
     const amountInput = resolveAmountInputForUpdate(parsed, record)
     const hasNetInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceNet')
