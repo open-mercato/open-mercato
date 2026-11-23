@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Attachment assignment label authorization (#10336)
+
+The attachment library automatically fills in assignment labels and links only when the caller can read the referenced entity in the selected tenant and organization. Existing assignment IDs and saved labels and links stay available under the attachment's existing access policy. Supported built-in targets use their owning module's read grants. Custom records require the custom-record view grant and any entity-specific grant. When a target cannot be safely resolved, clients can display the stored label or ID.
+
+Server callers of `resolveAssignmentEnrichments` that want automatic enrichment must pass `authorization: { auth, container }` from the verified request and a matching tenant and organization. Calls without that context return an empty enrichment map. Operators should use existing target-module grants for roles that already need that data and adjust custom record grants separately. No data migration is required.
+
 ## CRM admission for inbound email (#5468)
 
 Ordinary inbound email now imports senders who match a CRM person in the receiving channel's tenant and organization, plus replies that match an existing thread in that channel. The ingest command returns `skipped` for other email, and provider workers consume the skip as they advance their cursor. Custom callers of `communication_channels.message.ingest_inbound` can handle `skipped` alongside `created` and `duplicate`.
