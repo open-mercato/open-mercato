@@ -34,6 +34,7 @@ jest.mock('../../../admin-context', () => ({
       this.name = 'SsoAdminAuthError'
     }
   },
+  isSsoAdminAuthError: (error: unknown) => error instanceof Error && error.name === 'SsoAdminAuthError',
 }))
 
 describe('SCIM logs route', () => {

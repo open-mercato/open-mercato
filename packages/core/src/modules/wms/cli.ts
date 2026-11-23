@@ -1,26 +1,11 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { repairBalanceDrift, verifyBalances } from './lib/inventoryReconciliation'
 
 function parseArgs(rest: string[]) {
-  const args: Record<string, string | boolean> = {}
-  for (let index = 0; index < rest.length; index += 1) {
-    const part = rest[index]
-    if (!part) continue
-    if (part.startsWith('--')) {
-      const [rawKey, rawValue] = part.slice(2).split('=')
-      if (rawValue !== undefined) {
-        args[rawKey] = rawValue
-      } else if (rest[index + 1] && !rest[index + 1]!.startsWith('--')) {
-        args[rawKey] = rest[index + 1]!
-        index += 1
-      } else {
-        args[rawKey] = true
-      }
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest)
 }
 
 const verifyBalancesCommand: ModuleCli = {

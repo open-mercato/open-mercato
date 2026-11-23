@@ -152,6 +152,14 @@ function resolvePromotionCodeService(container: PromotionsServiceContainer): Pro
   return container.resolve<PromotionCodeService>('promotionCodeService')
 }
 
+function isCatalogAvailable(container: PromotionsServiceContainer): boolean {
+  try {
+    return Boolean(container.resolve('catalogScopedProductService'))
+  } catch {
+    return false
+  }
+}
+
 // D-R4-21/C11 batch category resolution — reuses `catalog`'s own `computeProductScopeKeys`
 // exactly (the same function catalog's search-index enricher uses for "category
 // membership including ancestors"), then narrows its combined `cat:<id>`/`tag:<id>` key
@@ -164,7 +172,7 @@ async function resolveCategoryIdsForProducts(
   scope: PromotionsServiceScope,
 ): Promise<Map<string, string[]>> {
   const result = new Map<string, string[]>()
-  if (productIds.length === 0) return result
+  if (productIds.length === 0 || !isCatalogAvailable(container)) return result
   const em = resolvePromotionsEm(container)
   const db = em.getKysely<any>()
   const scopeKeys = await computeProductScopeKeys(db, productIds, scope)
