@@ -13,4 +13,4 @@ The November 22 maintainer review identifies an incorrect success flash after cr
 ## Progress
 
 - [x] 1.1 Adopt the scoped legacy row on reconnect and cover the persisted result — 28e4e2e23a
-- [ ] 2.1 Return an OAuth error when the callback cannot link the credentials and assert both failure cases.
+- [x] 2.1 Return an OAuth error when the callback cannot link the credentials and assert both failure cases — 860feb66af
