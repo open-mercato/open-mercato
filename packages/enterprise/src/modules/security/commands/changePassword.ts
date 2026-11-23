@@ -14,6 +14,7 @@ type CommandInput = z.infer<typeof commandSchema>
 type PasswordServiceErrorLike = Error & {
   statusCode: number
   errors?: string[]
+  field?: string
 }
 
 function isPasswordServiceError(error: unknown): error is PasswordServiceErrorLike {
@@ -48,6 +49,9 @@ registerCommand({
         const payload: Record<string, unknown> = { error: error.message }
         if (Array.isArray(error.errors)) {
           payload.errors = error.errors
+        }
+        if (typeof error.field === 'string') {
+          payload.issues = [{ path: [error.field], message: error.message }]
         }
         throw new CrudHttpError(statusCode, payload)
       }
