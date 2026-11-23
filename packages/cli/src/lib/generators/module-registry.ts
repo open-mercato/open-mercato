@@ -3685,6 +3685,27 @@ function resolveConventionFile(
   return { importName, importPath, fromApp: resolved.fromApp }
 }
 
+function resolveUpgradeActionsFile(
+  resolved: ResolvedFile | null,
+  modId: string,
+  importTargets: string[][],
+): string | null {
+  if (!resolved) return null
+  const importName = `UPGRADES_${toVar(modId)}`
+  const statement = buildImportStatement(`* as ${importName}`, sanitizeGeneratedModuleSpecifier(resolved.importPath))
+  for (const target of importTargets) target.push(statement)
+  return importName
+}
+
+function buildUpgradeActionsValue(importName: string): WriterFunction {
+  return namespaceFallback({
+    importName,
+    members: ['default', 'upgradeActions'],
+    fallback: emptyArray(),
+    castType: "import('@open-mercato/shared/modules/upgrade-actions').UpgradeActionDefinition[]",
+  })
+}
+
 type ModuleRegistryRenderOptions = ModuleRegistryOptions & {
   discovery: ModuleRegistryDiscovery
 }
@@ -3909,6 +3930,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       if (encryption) encryptionImportName = encryption.importName
     }
 
+    const upgradeActionsImportName = resolveUpgradeActionsFile(discovered.resolve('upgrades.ts'), modId, [imports, runtimeImports])
+
     // 11b. Integration manifest: integration.ts
     {
       const resolved = discovered.resolve('integration.ts')
@@ -4104,6 +4127,9 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
           castType: "import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]",
         }),
       })
+    }
+    if (upgradeActionsImportName) {
+      setupAndBeyondEntries.push({ name: 'upgradeActions', value: buildUpgradeActionsValue(upgradeActionsImportName) })
     }
     if (integrationExports) {
       setupAndBeyondEntries.push({
@@ -4521,6 +4547,8 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
       if (encryption) encryptionImportName = encryption.importName
     }
 
+    const upgradeActionsImportName = resolveUpgradeActionsFile(discovered.resolve('upgrades.ts'), modId, [imports, bootstrapImports])
+
     {
       const resolved = discovered.resolve('integration.ts')
       if (resolved) {
@@ -4728,6 +4756,9 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
         }),
       })
     }
+    if (upgradeActionsImportName) {
+      moduleEntries.push({ name: 'upgradeActions', value: buildUpgradeActionsValue(upgradeActionsImportName) })
+    }
     if (integrationImportName) {
       moduleEntries.push({
         name: 'integrations',
@@ -4929,6 +4960,8 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
       if (encryption) encryptionImportName = encryption.importName
     }
 
+    const upgradeActionsImportName = resolveUpgradeActionsFile(discovered.resolve('upgrades.ts'), modId, [imports])
+
     // Integration manifest: integration.ts
     {
       const resolved = discovered.resolve('integration.ts')
@@ -5113,6 +5146,9 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
           castType: "Module['defaultEncryptionMaps']",
         }),
       })
+    }
+    if (upgradeActionsImportName) {
+      moduleEntries.push({ name: 'upgradeActions', value: buildUpgradeActionsValue(upgradeActionsImportName) })
     }
     if (integrationImportName) {
       moduleEntries.push({
