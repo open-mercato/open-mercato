@@ -497,6 +497,38 @@ describe('resolveStorefrontPrices — tax mode', () => {
     expect(gross.get('p1')?.price).toBeNull()
   })
 
+  it('leaves only the price whose derived amount is out of the decimal range unresolved', async () => {
+    const largestIntegerAmount = '9'.repeat(300)
+    installFixture({
+      rows: [
+        priceRow({ id: 'p1-net', productId: 'p1', net: largestIntegerAmount, gross: null, taxRate: '23' }),
+        priceRow({ id: 'p2-net', productId: 'p2', net: '100.00', gross: null, taxRate: '23' }),
+        priceRow({ id: 'p3-net', productId: 'p3', net: '9'.repeat(299), gross: null, taxRate: '23' }),
+      ],
+    })
+    const gross = await resolveStorefrontPrices(makeContainer({ omnibus: null }), makeContext({ taxMode: 'gross' }), [
+      { productId: 'p1', variantIds: [] },
+      { productId: 'p2', variantIds: [] },
+      { productId: 'p3', variantIds: [] },
+    ])
+    expect(gross.get('p1')?.price).toBeNull()
+    expect(gross.get('p2')?.price?.amount).toBe(123)
+    expect(Number.isFinite(gross.get('p3')?.price?.amount)).toBe(true)
+
+    installFixture({
+      rows: [
+        priceRow({ id: 'p1-gross', productId: 'p1', net: null, gross: largestIntegerAmount, taxRate: '-99.9999' }),
+        priceRow({ id: 'p2-gross', productId: 'p2', net: null, gross: '123.00', taxRate: '23' }),
+      ],
+    })
+    const net = await resolveStorefrontPrices(makeContainer({ omnibus: null }), makeContext({ taxMode: 'net' }), [
+      { productId: 'p1', variantIds: [] },
+      { productId: 'p2', variantIds: [] },
+    ])
+    expect(net.get('p1')?.price).toBeNull()
+    expect(net.get('p2')?.price?.amount).toBe(100)
+  })
+
   it('formats amounts with the shared currency formatter for the effective locale', async () => {
     installFixture({ rows: [priceRow({ id: 'p1', productId: 'p1', gross: '129.00', net: '104.88', currencyCode: 'PLN' })] })
     const result = await resolveStorefrontPrices(

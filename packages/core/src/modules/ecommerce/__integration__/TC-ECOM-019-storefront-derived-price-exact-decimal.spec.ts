@@ -164,4 +164,75 @@ test.describe('TC-ECOM-019: storefront derives a missing gross side with exact d
       await cleanupStorefrontFixture(request, token, holder.store);
     }
   });
+
+  test('a net-only row whose derived gross amount is out of the decimal range does not hide other prices on the listing', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin');
+    const tracker = createStorefrontFixtureTracker();
+    const holder: { store: StorefrontFixture | null } = { store: null };
+    try {
+      const stamp = uniqueStamp();
+      const priceKindId = await createPriceKindFixture(request, token, {
+        stamp,
+        suffix: 'range',
+        displayMode: 'including-tax',
+      });
+      tracker.priceKindIds.push(priceKindId);
+      const categoryId = await createCategoryFixture(request, token, tracker, { name: `QA ECOM 019 Range ${stamp}` });
+      holder.store = await createStorefrontFixture(request, token, {
+        stamp,
+        channelPriceKindId: priceKindId,
+        channelAssortmentScope: { categoryIds: [categoryId] },
+      });
+      const store = holder.store;
+      const handle = `qa-ecom-019-range-${stamp}`;
+      const outOfRangeProductId = await createProductFixture(request, token, tracker, {
+        title: `QA ECOM 019 Range ${stamp}`,
+        handle,
+        sku: `QA-ECOM-019-RANGE-${stamp}`,
+        categoryIds: [categoryId],
+      });
+      const pricedProductId = await createProductFixture(request, token, tracker, {
+        title: `QA ECOM 019 Priced ${stamp}`,
+        handle: `qa-ecom-019-priced-${stamp}`,
+        sku: `QA-ECOM-019-PRICED-${stamp}`,
+        categoryIds: [categoryId],
+      });
+      const outOfRangePriceId = await createPriceRowFixture(request, token, tracker, {
+        productId: outOfRangeProductId,
+        priceKindId,
+        channelId: store.salesChannelId,
+        unitPriceNet: NET_PRICE,
+        unitPriceGross: EXPECTED_GROSS,
+        taxRate: TAX_RATE,
+      });
+      await createPriceRowFixture(request, token, tracker, {
+        productId: pricedProductId,
+        priceKindId,
+        channelId: store.salesChannelId,
+        unitPriceNet: NET_PRICE,
+        unitPriceGross: EXPECTED_GROSS,
+        taxRate: TAX_RATE,
+      });
+      await withClient(async (client) => {
+        const result = await client.query(
+          'update catalog_product_variant_prices set unit_price_net = $4::numeric, unit_price_gross = null where id = $1 and tenant_id = $2 and organization_id = $3',
+          [outOfRangePriceId, store.tenantId, store.organizationId, '9'.repeat(300)],
+        );
+        expect(result.rowCount).toBe(1);
+      });
+
+      const detail = await getStorefrontProduct(store.hostname, handle);
+      expect(detail.status, detail.text).toBe(200);
+      expect(detail.detail?.price).toBeNull();
+
+      const list = await getStorefrontProducts(store.hostname);
+      expect(list.status, list.text).toBe(200);
+      expect(list.list?.items.map((item) => item.id)).toContain(outOfRangeProductId);
+      expect(itemPrice(list.list, outOfRangeProductId)).toBeNull();
+      expect(itemPrice(list.list, pricedProductId)?.amount).toBe(EXPECTED_GROSS);
+    } finally {
+      await cleanupStorefrontCatalogFixtures(request, token, tracker);
+      await cleanupStorefrontFixture(request, token, holder.store);
+    }
+  });
 });
