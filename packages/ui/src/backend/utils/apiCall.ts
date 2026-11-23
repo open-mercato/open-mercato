@@ -53,6 +53,10 @@ function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, strin
   return { ...(base as Record<string, string>), ...extra }
 }
 
+export function readScopedApiRequestHeaders(): Readonly<Record<string, string>> {
+  return scopedRequestHeaders.resolveScopedHeaders()
+}
+
 export async function withScopedApiRequestHeaders<T>(
   headers: Record<string, string>,
   run: () => Promise<T>,

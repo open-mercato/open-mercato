@@ -12,9 +12,12 @@ import {
   type CrudCustomFieldRenderProps,
 } from "@open-mercato/ui/backend/CrudForm";
 import { collectCustomFieldValues } from "@open-mercato/ui/backend/utils/customFieldValues";
-import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
-import { useSalesDocumentMutation } from "./useSalesDocumentMutation";
-import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
+import {
+  apiCall,
+  readScopedApiRequestHeaders,
+  withScopedApiRequestHeaders,
+} from "@open-mercato/ui/backend/utils/apiCall";
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { createCrud, updateCrud } from "@open-mercato/ui/backend/utils/crud";
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { handleSectionMutationError } from "./optimisticLock";
@@ -501,7 +504,6 @@ export function LineItemDialog({
   onDraftSaved,
 }: SalesLineDialogProps) {
   const t = useT();
-  const runDocumentMutation = useSalesDocumentMutation(kind, documentId);
   const locale = useLocale();
   // These fields are hand-rolled text inputs, so the raw string a user typed reaches the
   // submit handler. It carries the separator the surrounding UI displays, which follows the
@@ -1471,6 +1473,12 @@ export function LineItemDialog({
         typeof documentId === "string" && documentId.trim().length
           ? documentId
           : null;
+      const resolutionHeaders = readScopedApiRequestHeaders();
+      const isKeepMine =
+        Boolean(resolvedDocumentId) &&
+        resolutionHeaders["x-om-record-lock-resolution"] === "accept_mine" &&
+        resolutionHeaders["x-om-record-lock-kind"] === `sales.${kind}` &&
+        resolutionHeaders["x-om-record-lock-resource-id"] === resolvedDocumentId;
       const resolvedOrg = resolvedOrganizationId;
       const resolvedTenant = resolvedTenantId;
 
@@ -1751,35 +1759,35 @@ export function LineItemDialog({
           return;
         }
         const action = editingId ? updateCrud : createCrud;
-        const result = await runDocumentMutation(() => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(documentUpdatedAt),
-          () =>
-            action(
-              resourcePath,
-              editingId
-                ? { id: editingId, ...submittedPayload }
-                : submittedPayload,
-              {
-                errorMessage: t(
-                  "sales.documents.items.errorSave",
-                  "Failed to save line.",
-                ),
-              },
-            ),
-        ), editingId ? { id: editingId, ...submittedPayload } : submittedPayload);
+        const requestBody = editingId ? { id: editingId, ...submittedPayload } : submittedPayload;
+        const errorMessage = t("sales.documents.items.errorSave", "Failed to save line.");
+        const save = (expectedUpdatedAt: string | null | undefined) =>
+          withScopedApiRequestHeaders(
+            {
+              ...(isKeepMine ? resolutionHeaders : {}),
+              ...buildOptimisticLockHeader(expectedUpdatedAt),
+            },
+            () => action(resourcePath, requestBody, { errorMessage }),
+          );
+
+        const result = await save(documentUpdatedAt).catch((err: unknown) => {
+          const conflict = isKeepMine ? extractOptimisticLockConflict(err) : null;
+          if (
+            !conflict ||
+            Date.parse(conflict.expectedUpdatedAt) !== Date.parse(documentUpdatedAt ?? "") ||
+            conflict.currentUpdatedAt === conflict.expectedUpdatedAt ||
+            !Number.isFinite(Date.parse(conflict.currentUpdatedAt))
+          ) throw err;
+          return save(conflict.currentUpdatedAt);
+        });
         if (result.ok) {
           if (onSaved) await onSaved();
           closeDialog();
         }
       } catch (err) {
-        if (
-          handleSectionMutationError(err, t, () => {
-            if (onSaved) void onSaved();
-          })
-        ) {
-          closeDialog();
-          return;
-        }
+        handleSectionMutationError(err, t, () => {
+          if (onSaved) void onSaved();
+        });
         throw err;
       }
     },
@@ -1791,6 +1799,7 @@ export function LineItemDialog({
       editingId,
       initialLine,
       isShippedOrderLine,
+      kind,
       loadDecimalPlacesForCurrency,
       onDraftSaved,
       priceOptions,
@@ -1808,7 +1817,6 @@ export function LineItemDialog({
       parseUserNumber,
       resolvedOrganizationId,
       resolvedTenantId,
-      runDocumentMutation,
     ],
   );
 
@@ -3177,6 +3185,9 @@ export function LineItemDialog({
         ) : null}
         <CrudForm<LineFormState>
           key={formResetKey}
+          formId={`record-lock:sales.${kind}:${documentId ?? "pending"}`}
+          resourceKind={`sales.${kind}`}
+          resourceId={documentId ?? undefined}
           embedded
           fields={fields}
           groups={groups}

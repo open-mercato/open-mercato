@@ -295,6 +295,7 @@ Sales is command-pattern, not `CrudForm`. The order/quote aggregate version is a
 | Config dialogs | `api/channels|payment-methods|shipping-methods|tax-rates/route.ts`; `components/*Settings.tsx` | `sales:sales_channel`/`…payment_method`/`…shipping_method` | enable on CRUD route | enabled; status enums exempt |
 
 Extend coverage guard for `sales`; integration TC-LOCK-SALES-{order,quote,payment,shipment,channel}.
+`TC-LOCK-SALES-line-retry` covers draft retention, override permissions, and a single persisted line after an authorized order or quote retry against the current parent version.
 
 ### Phase 4 — Catalog
 
