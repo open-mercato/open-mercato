@@ -1,5 +1,21 @@
 # Upgrade Notes
 
+## Extension header parsing and analytics SQL identifier hardening (#10331, #10332)
+
+Two security-hardening narrowings landed on shared request-header parsing and dashboard analytics SQL construction:
+
+- **UMES extension headers (#10331):** `parseExtensionHeaders` now stores parsed modules and keys in null-prototype objects (`Object.create(null)`) and ignores headers whose module or key segment is empty or one of `__proto__`, `prototype`, or `constructor` (case-insensitive).
+  - **Module / client migration:** Legitimate `x-om-ext-<module_id>-<key>` headers (including `record_locks`, `business_rules`, and optimistic-lock headers) work unchanged. If an interceptor called `Object.prototype` methods directly on `context.extensionHeaders` or `context.extensionHeaders[moduleId]` (for example `extensionHeaders.hasOwnProperty(...)`), switch to `Object.prototype.hasOwnProperty.call(...)` or direct key access, and rename any custom module or key segment named `constructor` or `prototype`.
+- **Dashboard analytics SQL identifiers (#10332):** `DefaultAnalyticsRegistry`, `aggregations.ts`, and `WidgetDataService` now validate every SQL identifier (`tableName`, optional `schema`, mapped `dbColumn`, and `labelResolvers` `table`/`idColumn`/`labelColumn`) against `^[a-zA-Z_][a-zA-Z0-9_]*$` and ignore inherited prototype properties on `entityConfig`, `fieldMappings`, and `labelResolvers`.
+  - **Module / operator migration:** All first-party `analytics.ts` configurations already conform, including schema-qualified tables and JSONB dot-path grouping. Custom or third-party `analytics.ts` modules that placed SQL expressions, spaces, quotes, or punctuation in `tableName`, `schema`, `dbColumn`, or `labelResolvers` must replace them with plain SQL identifiers (or expose a dedicated column/view). No database migration or runtime configuration change is required.
+  - **Analytics entity permissions:** Declare `requiredFeatures` as an own array of feature IDs on each entity config. Use an explicit empty array for entities that require only the dashboard route's baseline permission. An entity without a valid declaration is unavailable to analytics queries.
+
+## Attachment assignment label authorization (#10336)
+
+The attachment library automatically fills in assignment labels and links only when the caller can read the referenced entity in the selected tenant and organization. Existing assignment IDs and saved labels and links stay available under the attachment's existing access policy. Supported built-in targets use their owning module's read grants. Custom records require the custom-record view grant and any entity-specific grant. When a target cannot be safely resolved, clients can display the stored label or ID.
+
+Server callers of `resolveAssignmentEnrichments` that want automatic enrichment must pass `authorization: { auth, container }` from the verified request and a matching tenant and organization. Calls without that context return an empty enrichment map. Operators should use existing target-module grants for roles that already need that data and adjust custom record grants separately. No data migration is required.
+
 ## `ecommerce` treats `customer_groups` and `customer_accounts` as optional peers (#9196)
 
 `ecommerce` now declares `requires: ['catalog', 'sales']`. With `customer_groups` disabled,
