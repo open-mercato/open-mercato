@@ -7,6 +7,7 @@ import type { MfaEnforcementService } from './MfaEnforcementService'
 import type { MfaProviderRuntimeContext, MfaVerifyContext } from '../lib/mfa-provider-interface'
 import type { SecurityModuleConfig } from '../lib/security-config'
 import { readSecurityModuleConfig } from '../lib/security-config'
+import { MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
 
 type AvailableMethod = {
   type: string
@@ -32,6 +33,7 @@ export class MfaVerificationServiceError extends Error {
   constructor(
     message: string,
     public readonly statusCode: number,
+    public readonly code?: string,
   ) {
     super(message)
     this.name = 'MfaVerificationServiceError'
@@ -50,7 +52,7 @@ export class MfaVerificationService {
   async createChallenge(userId: string): Promise<ChallengeCreationResult> {
     const methods = await this.getActiveMethods(userId)
     if (methods.length === 0) {
-      throw new MfaVerificationServiceError('No MFA methods configured', 400)
+      throw new MfaVerificationServiceError('No MFA methods configured', 400, MFA_NO_METHODS_CONFIGURED_CODE)
     }
 
     const challenge = this.em.create(MfaChallenge, {
