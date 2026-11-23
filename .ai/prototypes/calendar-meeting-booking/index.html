@@ -406,7 +406,7 @@
     <div class="note"><b>3</b><span>Advanced is collapsed by default and its summary line shows the current values, so the whole configuration reads without opening anything. The two booking-window values are edited in place inside the sentence. Save uses optimistic locking (conflict bar on 409).</span></div>
     <div class="note"><b>4</b><span>The info alert answers the external-calendar question. This phase is for people who manage their calendar wholly in Open Mercato, or who block their Google or Microsoft calendar time by hand. Integration with external calendar providers is out of scope until calendar connectors exist in the codebase; once a connector syncs events into the CRM, they block times without changes here.</span></div>
     <div class="note"><b>5</b><span>The page needs <code>customers.booking.manage_own</code>, not <code>customers.interactions.manage</code>. Not drawn: the warning alert shown here and on Meeting requests when booking maintenance is not scheduled. Also not drawn: while the page is off, the Next available times card says "Turn on your booking page and save to see your next available times."</span></div>
-    <div class="note"><b>6</b><span>On a phone (below 640px) the page is one column with no horizontal scroll: the link wraps onto its own line with full-width Copy and Open, each label sits above its summary and control, and the info alert and next times follow the form. Cancel and Save stay pinned to the bottom.</span></div>
+    <div class="note"><b>6</b><span>On a phone (below 640px) the page is one column with no horizontal scroll: the link wraps onto its own line with Copy and Open side by side underneath, each label sits above its summary and control, and the info alert and next times follow the form. Cancel and Save stay pinned to the bottom.</span></div>
   </div>
 </section>
 
@@ -835,7 +835,7 @@
                   <tr>
                     <td><div class="cell-lines"><strong>Thu, 5 Nov</strong><span class="t-hint">15:00 to 15:30</span><span class="badge badge-info" style="align-self:flex-start">Reschedule</span></div></td>
                     <td><div class="cell-lines"><span>Sam Ortega</span><span class="t-hint">sam.ortega@contoso.example</span></div></td>
-                    <td><div class="cell-lines"><span class="req-note">Our team is travelling on Wednesday, can we move it?</span><span class="t-hint">Currently Wed, 4 Nov, 11:00</span></div></td>
+                    <td><div class="cell-lines"><span class="req-note">Rollout plan for the support team.</span><span class="t-hint">Currently Wed, 4 Nov, 11:00</span></div></td>
                     <td class="num">Fri, 30 Oct, 10:30</td>
                     <td>23 h left</td>
                     <td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end;flex-wrap:nowrap"><button class="btn btn-ghost btn-sm">Decline</button><button class="btn btn-outline btn-sm" data-goto="s16">Accept</button></div></td>
@@ -961,12 +961,13 @@
             </div>
             <div class="scroll-x">
               <table class="table">
-                <thead><tr><th><button class="th-sort" type="button">Meeting <svg><use href="#ic-sort"/></svg></button></th><th>Booker</th><th>About</th><th aria-sort="ascending"><button class="th-sort is-active" type="button">Respond by <svg><use href="#ic-arrow-up"/></svg></button></th><th class="right"><span class="sr-only">Actions</span></th></tr></thead>
+                <thead><tr><th><button class="th-sort" type="button">Meeting <svg><use href="#ic-sort"/></svg></button></th><th>Booker</th><th>About</th><th><button class="th-sort" type="button">Requested <svg><use href="#ic-sort"/></svg></button></th><th aria-sort="ascending"><button class="th-sort is-active" type="button">Respond by <svg><use href="#ic-arrow-up"/></svg></button></th><th class="right"><span class="sr-only">Actions</span></th></tr></thead>
                 <tbody>
                   <tr class="is-expired">
                     <td><div class="cell-lines"><strong>Mon, 2 Nov</strong><span class="t-hint">13:00 to 13:30</span></div></td>
                     <td><div class="cell-lines"><span>Jordan Doe</span><span class="t-hint">j.doe@example.com</span></div></td>
                     <td><span class="req-note">Pricing for 40 seats and moving over from our current CRM.</span></td>
+                    <td class="num">Thu, 29 Oct, 13:40</td>
                     <td><span class="badge badge-neutral">Expired</span></td>
                     <td class="right"><button class="btn btn-ghost btn-sm">Dismiss</button></td>
                   </tr>
@@ -974,6 +975,7 @@
                     <td><div class="cell-lines"><strong>Tue, 3 Nov</strong><span class="t-hint">09:30 to 10:00</span></div></td>
                     <td><div class="cell-lines"><span>Riley Novak</span><span class="t-hint">riley@fabrikam.example</span></div></td>
                     <td><span class="muted" style="font-size:0.875rem">No message</span></td>
+                    <td class="num">Fri, 30 Oct, 05:30</td>
                     <td>16 h left</td>
                     <td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end;flex-wrap:nowrap"><button class="btn btn-ghost btn-sm">Decline</button><button class="btn btn-outline btn-sm">Accept</button></div></td>
                   </tr>
@@ -987,7 +989,7 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>Accepting a request past its deadline returns <code>409</code>; the alert replaces the generic conflict bar because the outcome is final. The row stays greyed with Dismiss until the list refreshes, then lives in History as Expired.</span></div>
-    <div class="note"><b>2</b><span>A request that expires while the page is open greys out the same way without the alert. Jordan can book again from the public page; the expiry e-mail links to it.</span></div>
+    <div class="note"><b>2</b><span>A request that expires while the page is open greys out the same way without the alert. Jordan can book again from the public page.</span></div>
   </div>
 </section>
 
@@ -1102,7 +1104,7 @@
             <span class="badge badge-info">Reschedule</span>
           </div>
           <div class="cell-lines"><span style="font-size:0.875rem">Sam Ortega</span><span class="t-hint">sam.ortega@contoso.example</span></div>
-          <span class="req-note">Our team is travelling on Wednesday, can we move it?</span>
+          <span class="req-note">Rollout plan for the support team.</span>
           <div class="req-acts"><button class="btn btn-ghost">Decline</button><button class="btn btn-outline" data-goto="s16">Accept</button></div>
         </div>
       </div>
@@ -1118,7 +1120,7 @@
 <section class="screen" id="s15">
   <div class="screen-meta">
     <h2>15. CRM Calendar with pending requests</h2>
-    <p>Pending requests appear in Anna's week view as hatched blocks; clicking one opens the request.</p>
+    <p>Pending requests appear in Anna's week view as hatched blocks; clicking one offers the same one-click Accept or Decline.</p>
     <div class="screen-refs"><span class="ref">§UI/UX Meeting requests</span><span class="ref">US-C3</span></div>
   </div>
   <div class="frame">
@@ -1158,7 +1160,7 @@
 <section class="screen" id="s16">
   <div class="screen-meta">
     <h2>16. Upcoming, right after accepting</h2>
-    <p>Riley's request was accepted in one click. Alex Rivera booked instantly and became a new person; Anna opens the row menu to link Alex to an existing person.</p>
+    <p>Riley's request was accepted in one click. Alex Rivera's request was accepted earlier and Alex became a new person; Anna opens the row menu to link Alex to an existing person.</p>
     <div class="screen-refs"><span class="ref">§UI/UX Meeting requests</span><span class="ref">US-C1</span><span class="ref">US-C2</span></div>
   </div>
   <div class="frame">
@@ -1440,7 +1442,7 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>Escape keeps the meeting, Cmd/Ctrl+Enter cancels. After cancelling, the manage page shows the Cancelled badge, a METHOD:CANCEL e-mail is sent, and a "Book a new time" link returns to the public page. If Anna moved or cancelled the meeting meanwhile, a 409 reloads the card with the current state.</span></div>
+    <div class="note"><b>1</b><span>Escape keeps the meeting, Cmd/Ctrl+Enter cancels. After cancelling, the manage page shows the Cancelled badge, a METHOD:CANCEL e-mail is sent, and a "Book a new time" link returns to the public page. If Anna moved or cancelled the meeting meanwhile, a 409 shows "This booking was changed. Reload to see the latest details" with a Reload button.</span></div>
   </div>
 </section>
 
@@ -1499,7 +1501,7 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>Selecting a slot splits it into time and Confirm; the booker's details and message are kept. Instant mode: the meeting moves and an updated .ics (same UID, SEQUENCE+1) is sent.</span></div>
+    <div class="note"><b>1</b><span>Selecting a slot splits it into time and Confirm; the booker's details and message are kept. Instant mode: the banner reads "Your meeting moves as soon as you confirm the new time.", the meeting moves, and an updated .ics (same UID, SEQUENCE+1) is sent.</span></div>
     <div class="note"><b>2</b><span>Approval mode: a new pending request is created and shown to Anna as "Reschedule"; the original stays booked until she accepts. On decline or expiry the original time stays.</span></div>
   </div>
 </section>
