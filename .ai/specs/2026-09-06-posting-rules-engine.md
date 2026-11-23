@@ -471,8 +471,9 @@ Rather than inverting the dependency (ledger must not import
 with `tryResolve` and awaits it before locking. `posting_rules`
 registers its implementation in `di.ts`; when the module is not
 installed the port resolves to nothing and the button behaves exactly
-as today. This is a named **Phase 1 delivery dependency on #5663/#6340**
-(the port is a small, additive ledger change) and an acceptance gate
+as today. This is a named **Phase 1 delivery dependency on the ledger
+changes** (Implementation Plan, "Three deliveries"; the port is a small,
+additive ledger change) and an acceptance gate
 for this module: the integration suite must click the real Lock action
 on a period with an incomplete reclassification and prove the period
 stays unlocked. Shipping without the port requires an explicit
@@ -1218,8 +1219,9 @@ stay `null` until an admin configures them, exactly like
   `posting_rules` registers the implementation in `di.ts` (a thin
   wrapper over this module's guarded `lockFiscalPeriod`). Absent
   module → absent port → unchanged ledger behaviour. The port is a
-  named Phase 1 delivery dependency on #5663/#6340, not work this
-  document performs inside `ledger`.
+  named Phase 1 delivery dependency on the ledger changes
+  (Implementation Plan, "Three deliveries"), not work this document
+  performs inside `ledger`.
 - **Correction path for a derived mirror.** Because a mirror cannot be
   reversed directly (previous bullet), a correction always reverses or
   voids the source; the subscriber then mirrors that reversal, and the
@@ -1394,6 +1396,48 @@ by the same first sweep and get their intent row then (**added
 
 ## Implementation Plan
 
+**Three deliveries (added 2026-11-23).** The steps below ship in three
+pull requests, not one. The split follows the configuration matrix
+proposed on this PR (https://github.com/open-mercato/open-mercato/pull/6015#issuecomment-7042611819).
+
+- **PR-A, configuration (PR 6711).** Steps 1 (`CostCenter`,
+  `DefaultAccountPostingRule`, `PostingRulesSettings` and their
+  migration; not the intent table), 2, 3, 4 and 9 (the three pages and
+  the `cost-centers`, `default-account-posting-rules` and `settings`
+  routes; not `api/reconcile`), plus `lib/accountGroups.ts` and a
+  `cli.ts` with `dev-seed-defaults` only. No subscriber, no event
+  handling, no interceptor, no Lock button integration. Depends on the
+  ledger (PR 9860) and on `journal_entry_line_dimensions` (PR 6708).
+- **Ledger changes (a separate PR against `ledger`, after PR 9860
+  merges).** Three additive changes inside `ledger`, owned by that PR
+  and not by this module:
+  - the optional `FiscalPeriodCloseGuard` port, resolved with
+    `tryResolve` and awaited by the Fiscal Periods Lock action. This
+    closes the ledger side of **M3** (Design Decisions, "The only
+    user-facing Lock action must consult the guard");
+  - `ledger.lockFiscalPeriod` running in the caller's transaction when
+    `ctx.transactionalEm` is set, as `postJournalEntry` already does.
+    This closes the ledger side of **M4**: the guard locks the period
+    row, evaluates completion and locks the period in one transaction.
+    In PR 9860 at `a679e1f9ae`, posting reads the covering period
+    `for share` and `lockFiscalPeriod` takes it `for update`, so that
+    row lock is the lock M4 needs and no new advisory lock is required;
+  - `listPostedEntriesSince`, the reconciliation read of the ledger
+    spec (https://github.com/open-mercato/open-mercato/pull/5663 at
+    `dba7953603`, Events → Delivery contract and Queries / API).
+  `{ persistent: true }` on both ledger emitters is already in PR 9860
+  (`fbc3ee15d3`); nothing is left to do there.
+- **PR-B, engine.** Steps 1 (the `PostingRulesReclassification` intent
+  table and its migration), 5, 6, 7, 8, 9 (`api/reconcile`), 10 and 11:
+  the subscriber, `reconcileCostRing`, the guard, the interceptors
+  (including the refusal to reverse a mirror directly, **M2**), the
+  `FiscalPeriodCloseGuard` implementation in `di.ts`, the Lock button
+  acceptance test, the engine rows of the integration matrix and the
+  required BDD scenarios (Testing Strategy), the CLI and the sweeper run
+  on enablement. Depends on this spec, PR-A and the ledger changes. The
+  engine code from the earlier full-module branch is kept on
+  `feat/posting-rules-engine-wip` as its starting point.
+
 1. `CostCenter`, `DefaultAccountPostingRule`,
    `PostingRulesSettings` and `PostingRulesReclassification` entities +
    migration (**corrected 2026-09-14**; the intent table **added
@@ -1433,11 +1477,13 @@ by the same first sweep and get their intent row then (**added
 10. Integration test: post a zespół 4 `VendorInvoice` line through AP,
     assert the mirror entry, its `CostCenter` tag and its intent row
     exist.
-11. `cli.ts`: `reconcile-cost-ring` and `lock-fiscal-period`, the CLI the
-    sweeper and the guard are invoked through. **Revised 2026-11-23**
+11. `cli.ts` (PR-B): `reconcile-cost-ring` and `lock-fiscal-period`, the
+    CLI the sweeper and the guard are invoked through; PR-A's `cli.ts`
+    carries only `dev-seed-defaults`. **Revised 2026-11-23**
     (⚠ NEEDS HUMAN CONFIRMATION): the sweeper also runs once for an
     organization when the module is enabled there (first save of
-    `PostingRulesSettings` with a `clearingAccountId`). The periodic run is
+    `PostingRulesSettings` with a `clearingAccountId`). PR-B adds that
+    hook to the settings command PR-A ships. The periodic run is
     proposed through `@open-mercato/scheduler` as one organization-scoped
     schedule targeting `posting_rules.reconcileCostRing`, registered on
     enablement and unregistered when the clearing account is cleared, with
@@ -1669,22 +1715,24 @@ by the same first sweep and get their intent row then (**added
 ### Integration coverage matrix (added 2026-11-19, re-review m1)
 
 Every affected API path and its key UI path must ship an integration test
-in #6711, with the permissions, scoping and failure cases named here:
+in the delivery that adds it (Implementation Plan, "Three deliveries"),
+with the permissions, scoping and failure cases named here:
 
-| Surface | Permission | Cases |
-|---|---|---|
-| `GET/POST/PUT/DELETE /api/posting_rules/cost-centers` + list/edit page | `posting_rules.cost_centers.manage` | create/update/delete; 409 optimistic lock on update/delete; tenant/organization isolation; duplicate `(organization, code)` 409; sentinel `UNALLOCATED` rename/deactivate/delete refused |
-| `GET/POST/PUT/DELETE /api/posting_rules/default-account-posting-rules` + list/edit page | `posting_rules.cost_centers.manage` | create/update/delete; unique `(organization, sourceAccountId)` 409; 409 optimistic lock; cross-tenant read/write refused |
-| `GET/PATCH /api/posting_rules/settings` + settings page | `posting_rules.settings.manage` | read nulls; PATCH sets both accounts; 409 optimistic lock; cross-tenant refused; unset-clearing banner |
-| `POST /api/posting_rules/reconcile` | `posting_rules.reconcile.run` | happy path returns reconciled and failed lines; unset `clearingAccountId` → 422; repeated run is idempotent |
-| Fiscal Periods Lock action (ledger page) | `posting_rules.periods.manage` (via the port) | dirty period stays unlocked; clean period locks; module absent → unchanged ledger behaviour |
-| Unconfigured-module banner on all three pages | `posting_rules.settings.manage` (view) | shown while `clearingAccountId` is null, disappears after save |
+| Surface | Delivery | Permission | Cases |
+|---|---|---|---|
+| `GET/POST/PUT/DELETE /api/posting_rules/cost-centers` + list/edit page | PR-A | `posting_rules.cost_centers.manage` | create/update/delete; 409 optimistic lock on update/delete; tenant/organization isolation; duplicate `(organization, code)` 409; sentinel `UNALLOCATED` rename/deactivate/delete refused |
+| `GET/POST/PUT/DELETE /api/posting_rules/default-account-posting-rules` + list/edit page | PR-A | `posting_rules.cost_centers.manage` | create/update/delete; unique `(organization, sourceAccountId)` 409; 409 optimistic lock; cross-tenant read/write refused |
+| `GET/PATCH /api/posting_rules/settings` + settings page | PR-A | `posting_rules.settings.manage` | read nulls; PATCH sets both accounts; 409 optimistic lock; cross-tenant refused; unset-clearing banner |
+| `POST /api/posting_rules/reconcile` | PR-B | `posting_rules.reconcile.run` | happy path returns reconciled and failed lines; unset `clearingAccountId` → 422; repeated run is idempotent |
+| Fiscal Periods Lock action (ledger page) | PR-B | `posting_rules.periods.manage` (via the port) | dirty period stays unlocked; clean period locks; module absent → unchanged ledger behaviour |
+| Unconfigured-module banner on all three pages | PR-A | `posting_rules.settings.manage` (view) | shown while `clearingAccountId` is null, disappears after save |
 
-**Required user-story scenarios (BDD, shipping in #6711).** One scenario
+**Required user-story scenarios (BDD, shipping in PR-B).** One scenario
 per User Story above, plus: "reversing the source reverses the mirror"
 and "the engine ignores its own entries". These are a delivery gate for
-#6711, not optional documentation (**added 2026-11-19**, @lchrusciel
-asks 1 and 5).
+PR-B, not optional documentation (**added 2026-11-19**, asks 1 and 5 of
+lchrusciel; **moved 2026-11-23** from PR 6711, which now carries only
+the configuration and has no engine to exercise).
 
 ## Risks & Impact Review
 
@@ -1790,8 +1838,9 @@ or residual risk.
   port ships, the guard protects only the CLI/route paths. Severity:
   medium. Affected area: any tenant that closes periods through
   #5663's existing UI rather than this module's guarded path.
-  Mitigation: the port is a named Phase 1 delivery dependency and an
-  acceptance gate (see Design Decisions and Testing Strategy); shipping
+  Mitigation: the port is a named Phase 1 delivery dependency (the
+  ledger changes, Implementation Plan, "Three deliveries") and an
+  acceptance gate for PR-B (see Design Decisions and Testing Strategy); shipping
   without it needs a recorded maintainer waiver. Residual risk: medium
   until the ledger port lands.
 - **Period-close guard race (lock vs. posting) (rewritten 2026-11-19,
@@ -2118,7 +2167,7 @@ import of a tenant's own numbering) has since shipped as
 `2026-09-15-default-chart-of-accounts.md` — see the annotation on the
 Out of scope bullet above for the precise distinction.
 
-### 2026-09-29 — Full-module implementation shipped, PR #6711
+### 2026-09-29 — Full-module implementation shipped, PR 6711 (engine part now PR-B)
 
 Implemented in [PR #6711](https://github.com/open-mercato/open-mercato/pull/6711)
 (branch `feat/posting-rules-engine`, stacked on the still-unmerged GL
@@ -2127,7 +2176,10 @@ CRUD, UI, migration, seed, ACL, en/pl i18n — in one PR, matching the
 JELD precedent. Implementation-session details (type-check findings,
 test counts) belong in that PR's description, not here. Divergences
 between this document and that PR are recorded in the 2026-10-09 entry
-below.
+below. **Superseded 2026-11-23:** PR 6711 now carries only the
+configuration (PR-A); the engine, sweeper and guard from that branch move
+to PR-B and are kept on `feat/posting-rules-engine-wip` (Implementation
+Plan, "Three deliveries").
 
 ### 2026-10-09 — Re-review response (om-auto-review-pr, reviewed head `7160f379`)
 
@@ -2256,8 +2308,10 @@ open question to reviewers about the preferred scheduling pattern
   copying a line's currency, rate and amount keeps the entry balanced in the
   base currency. Cost accounts have no account currency, so the rule "a line
   on an account with a currency carries that currency" does not apply to them.
-- **For #6711.** The branch has to copy the line's currency and rate once #6340
-  carries them. Not yet reviewed by a maintainer.
+- **For PR-B.** The engine copies the line's currency and rate, which the
+  ledger carries since PR 9860; PR-A (PR 6711) posts nothing and has
+  nothing to copy (**revised 2026-11-23**). Not yet reviewed by a
+  maintainer.
 
 ### 2026-11-19 — Re-review response (om-auto-review-pr): completion predicate, reversal refusal, real close path, close race
 
@@ -2307,3 +2361,10 @@ Not yet reviewed by a maintainer.
 - **The engine's own entry.** Emitted after commit with `{ persistent: true }` (Design Decisions and Commands).
 - **When the sweeper runs.** New paragraph in Design Decisions and a revised Implementation Plan step 11: on enablement for an organization, periodically, and after a reported emission failure. Proposed Phase 1: CLI plus the run on enablement; the periodic run through `@open-mercato/scheduler` as an optional peer, or as a follow-up. Marked ⚠ NEEDS HUMAN CONFIRMATION. Moving the sweeper to a `sequenceNumber` cursor over `listPostedEntriesSince` is an option once that read is delivered.
 - Not changed: the re-review M1–M4 content.
+
+### 2026-11-23 (cont.) — three deliveries: PR-A, ledger changes, PR-B
+
+- **Split.** Implementation Plan now opens with "Three deliveries": PR-A (PR 6711, configuration only), a separate ledger PR after PR 9860 merges, and PR-B (the engine). It follows the configuration matrix proposed on this PR (https://github.com/open-mercato/open-mercato/pull/6015#issuecomment-7042611819).
+- **M3 and M4.** The ledger PR closes the ledger side of both: the `FiscalPeriodCloseGuard` port (M3) and `ledger.lockFiscalPeriod` in the caller's transaction (M4). It also delivers `listPostedEntriesSince`; `{ persistent: true }` is already in PR 9860 (`fbc3ee15d3`). Recorded that in PR 9860 the shared lock M4 needs is the period row lock (`for share` on posting, `for update` on lock). Design Decisions, Cross-module integration and Risks point at the ledger PR instead of the core engine PR.
+- **Moved to PR-B.** The engine rows of the integration matrix (new Delivery column), the required BDD scenarios, the CLI `reconcile-cost-ring` and `lock-fiscal-period`, the sweeper run on the first settings save and the 2026-10-23 note on copying a line's currency and rate. The 2026-09-29 entry is marked superseded. The scheduler decision keeps ⚠ NEEDS HUMAN CONFIRMATION.
+- Not changed: the content of M1, M2, m1, n1 and n2 beyond the delivery each now belongs to.
