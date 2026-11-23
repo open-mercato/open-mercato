@@ -85,12 +85,12 @@ Modules own their upgrade actions in a server-only `upgrades.ts` manifest plus o
 - [x] 1.5 Add transaction-aware scheduler registration — 19d8f3f578
 - [x] 1.6 Move actions into owner modules — 0e6f8179ba
 - [x] 1.7 Lock, scope and revert in the runner — 5086beb9cf
-- [x] 1.8 Extend upgrade-actions API integration coverage — 2ef7899b8d (live run with Phase 2)
+- [x] 1.8 Extend upgrade-actions API integration coverage — 2ef7899b8d
 - [x] 1.9 Document the authoring path and deprecation — 76cef8139f
 
 ### Phase 2: Operator CLI
 
-- [ ] 2.1 Wire CLI list and up
-- [ ] 2.2 Wire CLI targeted down
-- [ ] 2.3 Add CLI integration coverage
-- [ ] 2.4 Archive the Delta
+- [x] 2.1 Wire CLI list and up — ff9ce33b00
+- [x] 2.2 Wire CLI targeted down — ff9ce33b00, d04add3e41, 7b708e7d76
+- [x] 2.3 Add CLI integration coverage — 584a64d503
+- [x] 2.4 Archive the Delta — 4a420cdadc
