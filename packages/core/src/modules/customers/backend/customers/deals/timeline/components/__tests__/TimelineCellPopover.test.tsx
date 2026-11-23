@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { DealTimelineCellResponse, DealTimelineItem } from '../../../../../../lib/dealsTimelineTypes'
 import { TimelineCellPopover } from '../TimelineCellPopover'
@@ -83,6 +83,33 @@ describe('TimelineCellPopover reveal', () => {
     const target = await screen.findByRole('button', { name: /Deal 50/ })
     await waitFor(() => expect(target).toHaveFocus())
     expect(mockReadApiResultOrThrow).toHaveBeenCalledTimes(2)
+  })
+
+  it('loads beyond a capped total until a short page and can focus a later deal', async () => {
+    mockReadApiResultOrThrow.mockImplementation(async (url: string) => {
+      const page = Number(new URLSearchParams(url.split('?')[1]).get('page'))
+      const items = page < 3
+        ? Array.from({ length: 50 }, (_unused, index) => makeItem((page - 1) * 50 + index))
+        : [makeItem(100)]
+      return { ...makePage(page, items, 2), total: 100, countsCapped: true }
+    })
+    renderPopover('deal-100')
+    const target = await screen.findByRole('button', { name: /Deal 100/ })
+    await waitFor(() => expect(target).toHaveFocus())
+    expect(mockReadApiResultOrThrow).toHaveBeenCalledTimes(3)
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
+  })
+
+  it('stops capped pagination after the empty page following a full last page', async () => {
+    mockReadApiResultOrThrow.mockImplementation(async (url: string) => {
+      const page = Number(new URLSearchParams(url.split('?')[1]).get('page'))
+      const items = page === 1 ? Array.from({ length: 50 }, (_unused, index) => makeItem(index)) : []
+      return { ...makePage(page, items, 1), total: 50, countsCapped: true }
+    })
+    renderPopover('')
+    fireEvent.click(await screen.findByRole('button', { name: 'Load more' }))
+    await waitFor(() => expect(mockReadApiResultOrThrow).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument())
   })
 
   it('stops and focuses the list when the deal is not in any page', async () => {

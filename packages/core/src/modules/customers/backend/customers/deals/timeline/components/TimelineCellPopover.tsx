@@ -76,7 +76,10 @@ export function TimelineCellPopover({
         },
       )
     },
-    getNextPageParam: (last) => (last.page < last.totalPages ? last.page + 1 : undefined),
+    getNextPageParam: (last) => {
+      const hasMore = last.countsCapped ? last.items.length === last.pageSize : last.page < last.totalPages
+      return hasMore ? last.page + 1 : undefined
+    },
   })
 
   const items = React.useMemo(

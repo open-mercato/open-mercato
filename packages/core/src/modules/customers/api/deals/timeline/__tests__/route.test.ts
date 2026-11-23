@@ -73,6 +73,7 @@ import {
   CustomerPipelineStage,
 } from '../../../../data/entities'
 import { addDays, alignToBucketStart, toUtcDateKey } from '../../../../lib/dealsTimeline'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { DealTimelineCellResponse, DealTimelineResponse } from '../../../../lib/dealsTimelineTypes'
 
 type FakeDeal = {
@@ -249,8 +250,11 @@ const thisWeek = alignToBucketStart(today, 'week')
 const lastWeek = addDays(thisWeek, -7)
 const nextWeek = addDays(thisWeek, 7)
 
-async function callTimeline(query: string): Promise<{ status: number; body: Record<string, unknown> }> {
-  const response = await GET(new Request(`https://example.test/api/customers/deals/timeline?${query}`))
+async function callTimeline(
+  query: string,
+  auth: AuthContext = { sub: userId, tenantId, orgId: organizationId },
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await GET(new Request(`https://example.test/api/customers/deals/timeline?${query}`), { auth })
   return { status: response.status, body: (await response.json()) as Record<string, unknown> }
 }
 
@@ -273,6 +277,11 @@ describe('customers deals timeline route', () => {
     findMatchingMock.mockResolvedValue(null)
     delete em.getKysely
     fetchOpenActivityCountsMock.mockResolvedValue(new Map())
+  })
+
+  it('uses dispatcher authentication without resolving it again', async () => {
+    expect((await callTimeline('')).status).toBe(200)
+    expect(getAuthMock).not.toHaveBeenCalled()
   })
 
   it('groups deals into owner lanes and week cells with date-then-id ordering', async () => {
@@ -833,8 +842,9 @@ describe('customers deals timeline route', () => {
     })
 
     it('returns 401 without a tenant', async () => {
-      getAuthMock.mockResolvedValue(null)
-      expect((await callTimeline('')).status).toBe(401)
+      expect((await callTimeline('', null)).status).toBe(401)
+      expect(getAuthMock).not.toHaveBeenCalled()
+      expect(queryMock).not.toHaveBeenCalled()
     })
   })
 })

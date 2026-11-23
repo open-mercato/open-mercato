@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
@@ -678,8 +678,8 @@ function normalizeIdList(values: string[] | undefined): string[] {
   return Array.from(new Set((values ?? []).filter((value) => uuid.safeParse(value).success)))
 }
 
-export async function GET(req: Request) {
-  const auth = await getAuthFromRequest(req)
+export async function GET(req: Request, context?: { auth: AuthContext }) {
+  const auth = context?.auth
   if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
