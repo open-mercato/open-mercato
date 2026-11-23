@@ -15,13 +15,6 @@ jest.mock('@open-mercato/documents/modules/documents/data/entities', () => ({
   DocumentReviewPlaybookReference: class DocumentReviewPlaybookReference {},
 }))
 jest.mock('../data/entities', () => ({ LegalMatter: class LegalMatter {} }))
-jest.mock('@open-mercato/documents/modules/documents/lib/markdownImport', () => ({
-  convertMarkdownImport: (_fileName: string, source: string) => ({
-    title: source.split('\n')[0].replace(/^#\s*/, ''),
-    contentHtml: `<h1>${source.split('\n')[0].replace(/^#\s*/, '')}</h1>`,
-    contentText: source,
-  }),
-}))
 
 import { seedLegalReviewDemoData } from '../lib/demoSeeds'
 import {
@@ -79,10 +72,17 @@ describe('legal review demo content', () => {
     expect(LEGAL_PAPER_SIDES).toContain(DEMO_MATTER.paper)
   })
 
+  it('stores every sample document as HTML that opens with a heading', () => {
+    for (const demo of [...DEMO_GUIDANCE_DOCUMENTS, ...DEMO_AGREEMENTS]) {
+      expect(demo.html.startsWith('<h1>')).toBe(true)
+      expect(demo.html).not.toMatch(/<script|on\w+=/i)
+    }
+  })
+
   it('points every guidance note at a playbook rule', () => {
     const codes = new Set(DEMO_REVIEW_RULES.map((rule) => rule.code))
     for (const note of DEMO_GUIDANCE_DOCUMENTS) {
-      const referenced = note.markdown.match(/NDA-\d+\.\d+/)?.[0]
+      const referenced = note.html.match(/NDA-\d+\.\d+/)?.[0]
       expect(referenced && codes.has(referenced)).toBe(true)
     }
   })
@@ -106,6 +106,7 @@ describe('seedLegalReviewDemoData', () => {
 
     for (const content of byEntity('DocumentContent')) {
       expect(content.contentHtml).toEqual(expect.stringContaining('<h1>'))
+      expect(String(content.contentText)).not.toMatch(/<[a-z]/i)
       expect(String(content.contentText).length).toBeGreaterThan(0)
     }
     for (const document of byEntity('Document')) {

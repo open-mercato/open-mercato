@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { convertMarkdownImport } from '@open-mercato/documents/modules/documents/lib/markdownImport'
+import { htmlToPlainText } from '@open-mercato/shared/lib/html/htmlToPlainText'
 import { LegalMatter } from '../data/entities'
 import {
   DEMO_AGREEMENTS,
@@ -41,7 +41,6 @@ async function createDemoDocument(
   demo: DemoDocument,
 ): Promise<string> {
   const { Document, DocumentContent } = await import('@open-mercato/documents/modules/documents/data/entities')
-  const converted = convertMarkdownImport(`${demo.key}.md`, demo.markdown)
   const document = em.create(Document, {
     ...scope,
     title: demo.title,
@@ -55,8 +54,8 @@ async function createDemoDocument(
     em.create(DocumentContent, {
       ...scope,
       documentId: document.id,
-      contentHtml: converted.contentHtml,
-      contentText: converted.contentText,
+      contentHtml: demo.html,
+      contentText: htmlToPlainText(demo.html).replace(/\s+/g, ' ').trim(),
       collaborationGeneration: 1,
     }),
   )
