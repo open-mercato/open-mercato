@@ -135,8 +135,10 @@ export async function GET(req: Request) {
   if (sortField) {
     const mapped = fieldMap[sortField] || 'name'
     orderBy[mapped] = sortDir === 'desc' ? 'DESC' : 'ASC'
+    orderBy.id = orderBy[mapped]
   } else {
     orderBy.name = 'ASC'
+    orderBy.id = 'ASC'
   }
 
   const rawQuery = Array.from(url.searchParams.keys()).reduce<Record<string, unknown>>((acc, key) => {
