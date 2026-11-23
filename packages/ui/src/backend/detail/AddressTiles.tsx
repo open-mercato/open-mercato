@@ -617,6 +617,7 @@ export function AddressTiles<C = unknown>({
             return (
               <div
                 key={address.id}
+                data-testid="address-tile"
                 className="group rounded-lg border border-border/70 bg-card p-4 text-sm transition hover:border-border"
               >
                 <div className="flex items-start justify-between gap-2">
@@ -638,7 +639,7 @@ export function AddressTiles<C = unknown>({
                     ) : null}
                     <AddressView address={address} format={format} className="text-sm text-foreground" />
                     {(showRecipientNameField && address.recipientName) || (showPhoneField && address.phone) ? (
-                      <p className="text-xs text-muted-foreground" data-testid="address-contact">
+                      <p className="wrap-anywhere text-xs text-muted-foreground" data-testid="address-contact">
                         {[
                           showRecipientNameField ? address.recipientName : null,
                           showPhoneField ? address.phone : null,

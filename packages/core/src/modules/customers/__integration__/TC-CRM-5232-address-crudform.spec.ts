@@ -43,6 +43,8 @@ test.describe('TC-CRM-5232 address contact fields through the real forms', () =>
     const stamp = Date.now()
     const companyName = `TC5232 Form Co ${stamp}`
     const line1 = `10 Form Street ${stamp}`
+    const recipientName = 'R'.repeat(200)
+    const phone = '9'.repeat(50)
     await login(page, 'admin')
 
     await page.goto('/backend/customers/companies/create', { waitUntil: 'load' })
@@ -54,8 +56,8 @@ test.describe('TC-CRM-5232 address contact fields through the real forms', () =>
     }
     await expect(page.getByRole('textbox', { name: 'Address line 1' })).toBeVisible({ timeout: 15000 })
     await page.getByRole('textbox', { name: 'Address line 1' }).fill(line1)
-    await page.getByRole('textbox', { name: 'Recipient name' }).fill(`Form Recipient ${stamp}`)
-    await page.getByRole('textbox', { name: 'Phone' }).fill('+48 600 123 456')
+    await page.getByRole('textbox', { name: 'Recipient name' }).fill(recipientName)
+    await page.getByRole('textbox', { name: 'Phone' }).fill(phone)
     await page.getByRole('button', { name: 'Save address' }).click()
 
     const companyCreated = page.waitForResponse(
@@ -72,8 +74,8 @@ test.describe('TC-CRM-5232 address contact fields through the real forms', () =>
 
     const created = await listAddresses(request, token as string, companyId as string)
     expect(created).toHaveLength(1)
-    expect(created[0].recipient_name).toBe(`Form Recipient ${stamp}`)
-    expect(created[0].phone).toBe('+48 600 123 456')
+    expect(created[0].recipient_name).toBe(recipientName)
+    expect(created[0].phone).toBe(phone)
 
     await page.goto(`/backend/customers/companies/${companyId}`, { waitUntil: 'load' })
     await page.getByRole('tab', { name: 'Addresses' }).click()
@@ -81,8 +83,18 @@ test.describe('TC-CRM-5232 address contact fields through the real forms', () =>
       await page.getByRole('tab', { name: 'Addresses' }).click()
     }
     await expect(page.getByRole('button', { name: 'Edit address' }).first()).toBeVisible({ timeout: 15000 })
+    const contact = page.getByTestId('address-contact')
+    await expect(contact).toHaveText(`${recipientName} · ${phone}`)
+    const tile = page.getByTestId('address-tile').filter({ has: contact })
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect.poll(() => tile.evaluate((element) => ({
+        tileOverflow: element.scrollWidth - element.clientWidth,
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      })), { message: `address contact at ${width}px` }).toEqual({ tileOverflow: 0, pageOverflow: 0 })
+    }
     await page.getByRole('button', { name: 'Edit address' }).first().click()
-    await expect(page.getByRole('textbox', { name: 'Recipient name' })).toHaveValue(`Form Recipient ${stamp}`)
+    await expect(page.getByRole('textbox', { name: 'Recipient name' })).toHaveValue(recipientName)
     await page.getByRole('textbox', { name: 'Recipient name' }).fill('')
     await page.getByRole('textbox', { name: 'Phone' }).fill('')
     const updated = page.waitForResponse(
