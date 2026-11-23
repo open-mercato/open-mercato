@@ -6,6 +6,7 @@ import * as React from 'react'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import {
+  HorizontalScrollRow,
   TimePicker,
   TimePickerSlot,
   TimePickerDurationChip,
@@ -562,5 +563,62 @@ describe('TimePicker scrolls the selected slot into view', () => {
       <TimePicker defaultValue="10:00" disabled startTime="00:00" endTime="23:45" intervalMinutes={15} />,
     )
     expect(slotListIn(container).scrollTop).toBe(centredScrollTop(40))
+  })
+})
+
+describe('HorizontalScrollRow', () => {
+  function overflow(group: HTMLElement, scrollWidth: number, clientWidth: number) {
+    Object.defineProperty(group, 'scrollWidth', { configurable: true, value: scrollWidth })
+    Object.defineProperty(group, 'clientWidth', { configurable: true, value: clientWidth })
+  }
+
+  it('shows the scroll arrow when the content outgrows the row after mount', () => {
+    const { rerender } = render(
+      <HorizontalScrollRow ariaLabel="Chips">
+        <button type="button">Stage</button>
+      </HorizontalScrollRow>,
+    )
+    const group = screen.getByRole('group', { name: 'Chips' })
+    expect(screen.queryByRole('button', { name: 'Scroll right' })).toBeNull()
+
+    overflow(group, 600, 300)
+    rerender(
+      <HorizontalScrollRow ariaLabel="Chips">
+        <button type="button">Stage: a much longer value</button>
+      </HorizontalScrollRow>,
+    )
+
+    expect(screen.getByRole('button', { name: 'Scroll right' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Scroll left' })).toBeNull()
+  })
+
+  it('paints the edge gradient by default and drops it on request', () => {
+    const { container, rerender } = render(
+      <HorizontalScrollRow ariaLabel="Chips">
+        <button type="button">Stage</button>
+      </HorizontalScrollRow>,
+    )
+    const group = screen.getByRole('group', { name: 'Chips' })
+    overflow(group, 600, 300)
+    fireEvent.scroll(group)
+    expect(container.querySelector('.bg-gradient-to-l')).not.toBeNull()
+
+    rerender(
+      <HorizontalScrollRow ariaLabel="Chips" edgeFade={false}>
+        <button type="button">Stage</button>
+      </HorizontalScrollRow>,
+    )
+    expect(container.querySelector('.bg-gradient-to-l')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Scroll right' })).toBeTruthy()
+  })
+
+  it('keeps its arrows in a local stacking context so they never paint over a sticky header', () => {
+    const { container } = render(
+      <HorizontalScrollRow ariaLabel="Chips">
+        <button type="button">Stage</button>
+      </HorizontalScrollRow>,
+    )
+
+    expect(container.querySelector('[data-slot="time-picker-scroll-row"]')?.className).toContain('isolate')
   })
 })

@@ -1353,7 +1353,7 @@
   "customers.deals.kanban.bulk.delete.title": "Delete {count} deals?",
   "customers.deals.kanban.bulk.dragOverlayBadge": "{count} more selected",
   "customers.deals.kanban.bulk.exportCsv": "Export CSV",
-  "customers.deals.kanban.bulk.selectedCount": "selected",
+  "customers.deals.kanban.bulk.selectedCount": "{count} selected",
   "customers.deals.kanban.bulk.totalValue": "Total {value}",
   "customers.deals.kanban.card.action.call": "Call",
   "customers.deals.kanban.card.action.disabledNoCompany": "Link a company to this deal before logging activities.",
