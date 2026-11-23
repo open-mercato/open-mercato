@@ -1,7 +1,7 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
 import * as semver from 'semver'
-import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { UpgradeActionDefinition } from '@open-mercato/shared/modules/upgrade-actions'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { createUpgradeActionCatalog } from './upgrade-action-catalog'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 
 const logger = createLogger('configs').child({ component: 'upgrade-actions' })
@@ -13,29 +13,11 @@ type BaseCurrencyResolver = {
   }): Promise<{ status: 'resolved'; code: string } | { status: 'missing' | 'ambiguous' | 'unavailable' }>
 }
 
-export type UpgradeActionContext = {
-  tenantId: string
-  organizationId: string
-  container: AppContainer
-  em: EntityManager
-  deferAfterCommit?: (callback: () => void | Promise<void>) => void
-}
-
-export type UpgradeActionDefinition = {
-  id: string
-  version: string
-  messageKey: string
-  ctaKey: string
-  successKey: string
-  loadingKey?: string
-  /**
-   * Modules that must be enabled for this action to be offered/executed.
-   * Mirrors `InjectionWidgetMetadata.requiredModules` — omit for actions
-   * owned by `configs` itself.
-   */
-  requiredModules?: string[]
-  run: (ctx: UpgradeActionContext) => Promise<void>
-}
+export type {
+  UpgradeActionContext,
+  UpgradeActionDefinition,
+  UpgradeActionScope,
+} from '@open-mercato/shared/modules/upgrade-actions'
 
 /**
  * Compare two semantic version strings.
@@ -260,8 +242,16 @@ export const upgradeActions: UpgradeActionDefinition[] = [
   },
 ]
 
+const catalog = createUpgradeActionCatalog(upgradeActions)
+
+/** Owning module of a manifest-declared action; `null` for manual legacy registrations. */
+export function getUpgradeActionOwner(action: UpgradeActionDefinition): string | null {
+  return catalog.ownerOf(action)
+}
+
 export function actionsUpToVersion(version: string): UpgradeActionDefinition[] {
-  return upgradeActions // NOSONAR — upgradeActions is populated at boot time by modules
+  return catalog
+    .list()
     .filter((action) => compareVersions(action.version, version) <= 0)
     .sort((a, b) => compareVersions(a.version, b.version) || a.id.localeCompare(b.id))
 }

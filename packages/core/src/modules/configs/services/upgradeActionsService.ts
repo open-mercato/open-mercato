@@ -3,9 +3,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { appVersion } from '@open-mercato/shared/lib/version'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { getEnabledModuleIds } from '@open-mercato/shared/security/enabledModulesRegistry'
 import { UpgradeActionRun } from '../data/entities'
-import { actionsUpToVersion, findUpgradeAction, type UpgradeActionDefinition } from '../lib/upgrade-actions'
+import { actionsUpToVersion, findUpgradeAction, getUpgradeActionOwner, type UpgradeActionDefinition } from '../lib/upgrade-actions'
+import { isUpgradeActionAvailable } from '../lib/upgrade-action-catalog'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('configs')
@@ -20,16 +20,8 @@ export function getCurrentVersion(): string {
   return appVersion
 }
 
-/**
- * An action with no `requiredModules` is owned by `configs` itself and is
- * always available. Fails closed when the module registry is empty/unavailable,
- * mirroring `isDocumentEntityRegistryModuleEnabled`.
- */
 function isActionModuleEnabled(definition: UpgradeActionDefinition): boolean {
-  const required = definition.requiredModules
-  if (!Array.isArray(required) || required.length === 0) return true
-  const enabledModuleIds = new Set(getEnabledModuleIds())
-  return required.every((moduleId) => enabledModuleIds.has(moduleId))
+  return isUpgradeActionAvailable(definition, getUpgradeActionOwner(definition))
 }
 
 export async function listPendingUpgradeActions(
