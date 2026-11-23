@@ -156,11 +156,13 @@ export async function PATCH(req: Request) {
         throw new CrudHttpError(404, { error: 'Segment not found' })
       }
 
-      await assertTimeEntrySegmentRangeOrdered(
-        parsed.data.startedAt ?? lockedSegment.startedAt,
-        parsed.data.endedAt !== undefined ? parsed.data.endedAt : lockedSegment.endedAt,
-        parsed.data.startedAt !== undefined && parsed.data.endedAt === undefined ? 'startedAt' : 'endedAt',
-      )
+      if (parsed.data.startedAt !== undefined || parsed.data.endedAt !== undefined) {
+        await assertTimeEntrySegmentRangeOrdered(
+          parsed.data.startedAt ?? lockedSegment.startedAt,
+          parsed.data.endedAt !== undefined ? parsed.data.endedAt : lockedSegment.endedAt,
+          parsed.data.endedAt === undefined ? 'startedAt' : 'endedAt',
+        )
+      }
 
       if (parsed.data.startedAt !== undefined) {
         lockedSegment.startedAt = parsed.data.startedAt

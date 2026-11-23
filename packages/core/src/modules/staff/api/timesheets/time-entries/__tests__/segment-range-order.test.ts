@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { StaffTimeEntry, StaffTimeEntrySegment } from '@open-mercato/core/modules/staff/data/entities'
+import { runStaffMutationGuards } from '@open-mercato/core/modules/staff/api/guards'
 
 const TENANT_ID = '44444444-4444-4444-8444-444444444444'
 const ORG_ID = '55555555-5555-4555-8555-555555555555'
@@ -124,15 +125,6 @@ describe('time entry segments never end before they start', () => {
     expect(mockEmitStaffEvent).not.toHaveBeenCalled()
   })
 
-  test('PATCH refuses a segmentType change on a segment stored with reversed ends', async () => {
-    segmentRow = makeSegment('2026-01-01T10:00:00.000Z', '2026-01-01T08:00:00.000Z')
-    const { status, json } = await patch({ segmentType: 'break' })
-
-    expect(status).toBe(400)
-    expect(json.fieldErrors).toEqual({ endedAt: ERROR_KEY })
-    expect(mockEm.flush).not.toHaveBeenCalled()
-  })
-
   test('PATCH accepts ordered, zero-length and open segments', async () => {
     expect((await patch({ endedAt: '2026-01-01T11:00:00.000Z' })).status).toBe(200)
     expect(segmentRow.endedAt?.toISOString()).toBe('2026-01-01T11:00:00.000Z')
@@ -143,12 +135,20 @@ describe('time entry segments never end before they start', () => {
     expect(mockEm.flush).toHaveBeenCalledTimes(3)
   })
 
+  test('PATCH still lets a segmentType-only edit through on a segment stored with reversed ends', async () => {
+    segmentRow = makeSegment('2026-01-01T10:00:00.000Z', '2026-01-01T08:00:00.000Z')
+
+    expect((await patch({ segmentType: 'break' })).status).toBe(200)
+    expect(segmentRow.segmentType).toBe('break')
+  })
+
   test('POST refuses a body with reversed ends', async () => {
     const { status, json } = await post({ startedAt: '2026-01-01T12:00:00.000Z', endedAt: '2026-01-01T11:00:00.000Z' })
 
     expect(status).toBe(400)
     expect(json).toEqual({ code: 'segment_end_before_start', error: ERROR_KEY, fieldErrors: { endedAt: ERROR_KEY } })
     expect(mockEm.create).not.toHaveBeenCalled()
+    expect(jest.mocked(runStaffMutationGuards)).not.toHaveBeenCalled()
     expect(mockEmitStaffEvent).not.toHaveBeenCalled()
   })
 
