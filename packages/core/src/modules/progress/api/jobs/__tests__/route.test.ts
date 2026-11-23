@@ -405,12 +405,12 @@ describe('progress jobs route', () => {
     })
 
     const response = await detailPutHandler(
-      new Request('http://localhost/api/progress/jobs/job-1', {
+      new Request('http://localhost/api/progress/jobs/22222222-2222-4222-8222-222222222222', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ processedCount: 2 }),
       }),
-      { params: { id: 'job-1' } },
+      { params: { id: '22222222-2222-4222-8222-222222222222' } },
     )
 
     expect(response.status).toBe(404)
@@ -472,10 +472,10 @@ describe('progress jobs route', () => {
     })
 
     it('treats a job without a recorded starter as not owned by the caller', async () => {
-      mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: null, organizationId: 'org-1' })
+      mockGetJob.mockResolvedValue({ id: '22222222-2222-4222-8222-222222222222', startedByUserId: null, organizationId: 'org-1' })
 
-      const updateResponse = await detailPutHandler(putRequest(), { params: { id: 'job-1' } })
-      const deleteResponse = await detailDeleteHandler(deleteRequest(), { params: { id: 'job-1' } })
+      const updateResponse = await detailPutHandler(putRequest(), { params: { id: '22222222-2222-4222-8222-222222222222' } })
+      const deleteResponse = await detailDeleteHandler(deleteRequest(), { params: { id: '22222222-2222-4222-8222-222222222222' } })
 
       expect(updateResponse.status).toBe(404)
       expect(deleteResponse.status).toBe(400)
@@ -639,16 +639,16 @@ describe('progress jobs route', () => {
     const listResponse = await listHandler(new Request('http://localhost/api/progress/jobs'))
     const activeResponse = await activeHandler(new Request('http://localhost/api/progress/active'))
     const detailResponse = await detailGetHandler(
-      new Request('http://localhost/api/progress/jobs/job-1'),
-      { params: { id: 'job-1' } },
+      new Request('http://localhost/api/progress/jobs/22222222-2222-4222-8222-222222222222'),
+      { params: { id: '22222222-2222-4222-8222-222222222222' } },
     )
     const updateResponse = await detailPutHandler(
-      new Request('http://localhost/api/progress/jobs/job-1', {
+      new Request('http://localhost/api/progress/jobs/22222222-2222-4222-8222-222222222222', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ processedCount: 2 }),
       }),
-      { params: { id: 'job-1' } },
+      { params: { id: '22222222-2222-4222-8222-222222222222' } },
     )
     const deleteResponse = await detailDeleteHandler(
       new Request('http://localhost/api/progress/jobs/job-1', { method: 'DELETE' }),
