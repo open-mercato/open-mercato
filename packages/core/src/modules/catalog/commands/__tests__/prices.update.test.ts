@@ -386,3 +386,126 @@ describe('catalog price commands when the sales module is disabled', () => {
     })
   })
 })
+
+describe('catalog price update checks the validity window against the stored dates', () => {
+  const JUNE = new Date('2031-06-01T00:00:00.000Z')
+  const JANUARY = new Date('2031-01-01T00:00:00.000Z')
+  const DECEMBER = new Date('2031-12-01T00:00:00.000Z')
+
+  async function expectWindowRejected(input: Row, recordOverrides: Row) {
+    const record = buildPriceRecord(recordOverrides)
+    findOneWithDecryption.mockResolvedValue(record)
+    const { ctx, commandEm } = buildContext()
+    await expect(updateCommand().execute({ id: PRICE_ID, ...input }, ctx)).rejects.toMatchObject({
+      status: 400,
+      body: { fieldErrors: { endsAt: 'End date must be after the start date.' } },
+    })
+    expect(commandEm.flush).not.toHaveBeenCalled()
+    return record
+  }
+
+  it('rejects an endsAt-only edit that ends before the stored startsAt', async () => {
+    const record = await expectWindowRejected({ endsAt: JANUARY }, { startsAt: JUNE })
+    expect(record.startsAt).toEqual(JUNE)
+    expect(record.endsAt).toBeNull()
+  })
+
+  it('rejects a startsAt-only edit that starts after the stored endsAt', async () => {
+    const record = await expectWindowRejected({ startsAt: JUNE }, { endsAt: JANUARY })
+    expect(record.startsAt).toBeNull()
+    expect(record.endsAt).toEqual(JANUARY)
+  })
+
+  it('accepts an endsAt-only edit that still ends after the stored startsAt', async () => {
+    const { record } = await runUpdate({ endsAt: DECEMBER }, { startsAt: JUNE })
+    expect(record.startsAt).toEqual(JUNE)
+    expect(record.endsAt).toEqual(DECEMBER)
+  })
+
+  it('accepts an edit that moves both dates together past the stored window', async () => {
+    const nextJanuary = new Date('2032-01-01T00:00:00.000Z')
+    const { record } = await runUpdate({ startsAt: DECEMBER, endsAt: nextJanuary }, { startsAt: JANUARY, endsAt: JUNE })
+    expect(record.startsAt).toEqual(DECEMBER)
+    expect(record.endsAt).toEqual(nextJanuary)
+  })
+
+  it('accepts a startsAt-only edit when the stored price has no end date', async () => {
+    const { record } = await runUpdate({ startsAt: DECEMBER }, { startsAt: JANUARY })
+    expect(record.startsAt).toEqual(DECEMBER)
+    expect(record.endsAt).toBeNull()
+  })
+
+  it('accepts an endsAt-only edit that ends on the stored startsAt', async () => {
+    const { record } = await runUpdate({ endsAt: new Date(JUNE) }, { startsAt: JUNE })
+    expect(record.startsAt).toEqual(JUNE)
+    expect(record.endsAt).toEqual(JUNE)
+  })
+
+  it('still reprices a stored price whose dates are already reversed', async () => {
+    const { record } = await runUpdate({ unitPriceGross: 31 }, { startsAt: JUNE, endsAt: JANUARY })
+    expect(record.unitPriceGross).toBe('31')
+    expect(record.startsAt).toEqual(JUNE)
+    expect(record.endsAt).toEqual(JANUARY)
+  })
+})
+
+describe('catalog price update checks the quantity range against the stored quantities', () => {
+  async function expectQuantityRejected(input: Row, recordOverrides: Row) {
+    const record = buildPriceRecord(recordOverrides)
+    findOneWithDecryption.mockResolvedValue(record)
+    const { ctx, commandEm } = buildContext()
+    await expect(updateCommand().execute({ id: PRICE_ID, ...input }, ctx)).rejects.toMatchObject({
+      status: 400,
+      body: {
+        fieldErrors: {
+          maxQuantity: 'Maximum quantity must be greater than or equal to the minimum quantity.',
+        },
+      },
+    })
+    expect(commandEm.flush).not.toHaveBeenCalled()
+    return record
+  }
+
+  it('rejects a maxQuantity-only edit that is below the stored minQuantity', async () => {
+    const record = await expectQuantityRejected({ maxQuantity: 2 }, { minQuantity: 10, maxQuantity: null })
+    expect(record.minQuantity).toBe(10)
+    expect(record.maxQuantity).toBeNull()
+  })
+
+  it('rejects a minQuantity-only edit that is above the stored maxQuantity', async () => {
+    const record = await expectQuantityRejected({ minQuantity: 10 }, { minQuantity: 1, maxQuantity: 5 })
+    expect(record.minQuantity).toBe(1)
+    expect(record.maxQuantity).toBe(5)
+  })
+
+  it('accepts a maxQuantity-only edit that is greater than or equal to stored minQuantity', async () => {
+    const { record } = await runUpdate({ maxQuantity: 10 }, { minQuantity: 5 })
+    expect(record.minQuantity).toBe(5)
+    expect(record.maxQuantity).toBe(10)
+  })
+
+  it('accepts an edit setting maxQuantity equal to stored minQuantity', async () => {
+    const { record } = await runUpdate({ maxQuantity: 5 }, { minQuantity: 5 })
+    expect(record.minQuantity).toBe(5)
+    expect(record.maxQuantity).toBe(5)
+  })
+
+  it('accepts a minQuantity-only edit when stored maxQuantity is null', async () => {
+    const { record } = await runUpdate({ minQuantity: 20 }, { minQuantity: 1, maxQuantity: null })
+    expect(record.minQuantity).toBe(20)
+    expect(record.maxQuantity).toBeNull()
+  })
+
+  it('accepts an edit that moves both quantities together to a valid range', async () => {
+    const { record } = await runUpdate({ minQuantity: 20, maxQuantity: 50 }, { minQuantity: 1, maxQuantity: 5 })
+    expect(record.minQuantity).toBe(20)
+    expect(record.maxQuantity).toBe(50)
+  })
+
+  it('still reprices a stored price whose quantities are already inverted', async () => {
+    const { record } = await runUpdate({ unitPriceGross: 31 }, { minQuantity: 20, maxQuantity: 5 })
+    expect(record.unitPriceGross).toBe('31')
+    expect(record.minQuantity).toBe(20)
+    expect(record.maxQuantity).toBe(5)
+  })
+})
