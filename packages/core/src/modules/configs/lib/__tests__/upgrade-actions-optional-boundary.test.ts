@@ -15,6 +15,7 @@ const configsEntryFiles = [
   resolve(__dirname, '..', 'upgrade-actions.ts'),
   resolve(__dirname, '..', 'upgrade-action-catalog.ts'),
   resolve(__dirname, '..', '..', 'services', 'upgradeActionsService.ts'),
+  resolve(__dirname, '..', 'upgrade-actions-cli.ts'),
 ]
 const OWNER_MANIFESTS = ['attachments', 'cart', 'customers', 'devices', 'ecommerce', 'payment_gateways', 'phone_calls', 'promotions']
 const GENERATED_ENTITY_IDS = '#generated/entities.ids.generated'
@@ -64,10 +65,11 @@ function collectReachableCoreFiles(entries: string[]): Map<string, string[]> {
 }
 
 describe('configs upgrade-action catalog optional-module compile boundary', () => {
-  it('keeps the configs facade, catalog and runner free of business-module code', () => {
+  it('keeps the configs facade, catalog, runner and CLI free of business-module code', () => {
+    const kernelModules = new Set(['configs', 'directory'])
     const reachable = collectReachableCoreFiles(configsEntryFiles)
     const reachedModules = new Set(Array.from(reachable.keys(), moduleOf))
-    expect([...reachedModules].filter((moduleId) => moduleId !== 'configs')).toEqual([])
+    expect([...reachedModules].filter((moduleId) => !kernelModules.has(moduleId))).toEqual([])
   })
 
   it.each(OWNER_MANIFESTS)('lets the %s manifest reach other modules only through registry-free files', (ownerModuleId) => {

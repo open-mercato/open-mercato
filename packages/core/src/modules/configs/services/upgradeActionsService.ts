@@ -4,7 +4,9 @@ import type { AwilixContainer } from 'awilix'
 import { appVersion } from '@open-mercato/shared/lib/version'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { UpgradeActionRun } from '../data/entities'
+import { Organization, Tenant } from '../../directory/data/entities'
 import { actionsUpToVersion, findUpgradeAction, getUpgradeActionOwner, type UpgradeActionDefinition } from '../lib/upgrade-actions'
 import { isUpgradeActionAvailable, resolveUpgradeActionScope } from '../lib/upgrade-action-catalog'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -20,6 +22,7 @@ export type UpgradeActionErrorCode =
   | 'UPGRADE_ACTION_NOT_AVAILABLE'
   | 'UPGRADE_ACTION_NOT_REVERSIBLE'
   | 'UPGRADE_ACTION_NOT_APPLIED'
+  | 'UPGRADE_ACTION_SCOPE_INVALID'
 
 /** The message is the code, which keeps the existing HTTP `details` values. */
 export class UpgradeActionError extends Error {
@@ -106,6 +109,73 @@ async function runAfterCommit(
     })
     throw new UpgradeActionPostCommitError(definition, failures)
   }
+}
+
+export type UpgradeActionState = {
+  id: string
+  version: string
+  ownerModuleId: string | null
+  scope: 'organization' | 'tenant' | null
+  applied: boolean
+  available: boolean
+  reversible: boolean
+}
+
+/**
+ * Every catalog action up to `version` plus completion rows whose definition is no
+ * longer registered (shown as applied and unavailable), in execution order.
+ */
+export async function listUpgradeActionStates(
+  em: EntityManager,
+  { tenantId, organizationId, version = appVersion }: { tenantId: string; organizationId: string; version?: string },
+): Promise<UpgradeActionState[]> {
+  const definitions = actionsUpToVersion(version)
+  const runs = await em.find(UpgradeActionRun, { tenantId, organizationId })
+  const completed = new Set(runs.map((run) => `${run.version}::${run.actionId}`))
+  const states: UpgradeActionState[] = definitions.map((definition) => {
+    const scope = resolveUpgradeActionScope(definition)
+    return {
+      id: definition.id,
+      version: definition.version,
+      ownerModuleId: getUpgradeActionOwner(definition),
+      scope,
+      applied: completed.has(`${definition.version}::${definition.id}`),
+      available: isActionModuleEnabled(definition),
+      reversible: typeof definition.down === 'function' && scope === 'organization',
+    }
+  })
+  const known = new Set(definitions.map((definition) => `${definition.version}::${definition.id}`))
+  for (const run of runs) {
+    if (known.has(`${run.version}::${run.actionId}`)) continue
+    states.push({
+      id: run.actionId,
+      version: run.version,
+      ownerModuleId: null,
+      scope: null,
+      applied: true,
+      available: false,
+      reversible: false,
+    })
+  }
+  return states
+}
+
+/** CLI scope gate: an active tenant and an active organization that belongs to it. */
+export async function validateUpgradeActionScope(
+  em: EntityManager,
+  { tenantId, organizationId }: { tenantId: string; organizationId: string },
+): Promise<void> {
+  const tenant = await findOneWithDecryption(em, Tenant, { id: tenantId, isActive: true, deletedAt: null })
+  const organization = tenant
+    ? await findOneWithDecryption(
+        em,
+        Organization,
+        { id: organizationId, tenant: tenantId, isActive: true, deletedAt: null },
+        {},
+        { tenantId, organizationId },
+      )
+    : null
+  if (!tenant || !organization) throw new UpgradeActionError('UPGRADE_ACTION_SCOPE_INVALID')
 }
 
 export async function listPendingUpgradeActions(

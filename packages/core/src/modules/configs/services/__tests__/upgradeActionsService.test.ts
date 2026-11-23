@@ -15,6 +15,7 @@ import { withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
 import {
   executeUpgradeAction,
   listPendingUpgradeActions,
+  listUpgradeActionStates,
   revertUpgradeAction,
   UpgradeActionPostCommitError,
 } from '../upgradeActionsService'
@@ -400,5 +401,45 @@ describe('revertUpgradeAction', () => {
       'UPGRADE_ACTION_NOT_AVAILABLE',
     )
     expect(container.resolve).not.toHaveBeenCalled()
+  })
+})
+
+describe('listUpgradeActionStates', () => {
+  afterEach(() => {
+    getEnabledModuleIdsMock.mockReset()
+    const actionIndex = upgradeActions.findIndex((action) => action.id === POST_COMMIT_ACTION_ID)
+    if (actionIndex >= 0) upgradeActions.splice(actionIndex, 1)
+  })
+
+  it('reports owner, scope, applied state and reversibility, and keeps orphaned completion rows', async () => {
+    getEnabledModuleIdsMock.mockReturnValue(['configs', 'customers'])
+    upgradeActions.push(testAction({ version: '0.10.0', down: async () => {} }))
+    const em = createEm([
+      { actionId: 'customers.seed-interaction-statuses', version: '0.6.5' },
+      { actionId: 'retired.action', version: '0.5.0' },
+    ])
+
+    const states = await listUpgradeActionStates(em, { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, version: '0.10.0' })
+    const byId = new Map(states.map((entry) => [`${entry.id}@${entry.version}`, entry]))
+
+    expect(em.find).toHaveBeenCalledWith(expect.anything(), { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID })
+    expect(byId.get('customers.seed-interaction-statuses@0.6.5')).toMatchObject({
+      ownerModuleId: 'customers',
+      scope: 'organization',
+      applied: true,
+      available: true,
+      reversible: false,
+    })
+    expect(byId.get('attachments.reconcile-organization@0.6.6')).toMatchObject({ scope: 'tenant', applied: false, available: false })
+    expect(byId.get(`${POST_COMMIT_ACTION_ID}@0.10.0`)).toMatchObject({ ownerModuleId: null, reversible: true, available: true })
+    expect(states[states.length - 1]).toEqual({
+      id: 'retired.action',
+      version: '0.5.0',
+      ownerModuleId: null,
+      scope: null,
+      applied: true,
+      available: false,
+      reversible: false,
+    })
   })
 })
