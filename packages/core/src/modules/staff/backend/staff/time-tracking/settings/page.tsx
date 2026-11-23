@@ -49,7 +49,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { hasFeature } from '@open-mercato/shared/security/features'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { OrganizationScopeChangedDetail } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -60,6 +60,7 @@ import { contributedTimeTrackingSettingKeys } from '../../../../lib/time-trackin
 import {
   ROUNDING_UNIT_OPTIONS,
   buildRoundingExamples,
+  changedTimeTrackingSettingKeys,
   draftRounding,
   formatSignedMinutes,
   isSettingsDraftDirty,
@@ -126,6 +127,9 @@ const EMPTY_CONTRIBUTED_SETTINGS: Record<string, unknown> = {}
 
 export default function TimeTrackingSettingsPage() {
   const t = useT()
+  const locale = useLocale()
+  const localeRef = React.useRef(locale)
+  localeRef.current = locale
   const { payload } = useBackendChrome()
   const scopeVersion = useOrganizationScopeVersion()
   const scope = useOrganizationScopeDetail()
@@ -173,7 +177,7 @@ export default function TimeTrackingSettingsPage() {
         setLoadError(t('staff.time_tracking.settings.loadError', 'Failed to load the settings.'))
         return
       }
-      const next = toSettingsDraft(call.result)
+      const next = toSettingsDraft(call.result, localeRef.current)
       setSavedSettings(call.result)
       const pending = draftRef.current
       const previous = baselineRef.current
@@ -186,7 +190,7 @@ export default function TimeTrackingSettingsPage() {
       const keepDraft = options?.discardDraft !== true && hasUnsavedEdit && (scopeUnresolved || scopeUnchanged)
       loadedScopeRef.current = requestScope
       setBaseline(next)
-      if (!keepDraft) setDraft(next)
+      setDraft(keepDraft ? rebaseSettingsDraft(pending, previous, next) : next)
     } catch (err) {
       if (requestId !== latestLoadRef.current) return
       logger.error('time tracking settings load failed', { err })
@@ -198,7 +202,7 @@ export default function TimeTrackingSettingsPage() {
 
   React.useEffect(() => {
     void loadSettings()
-  }, [loadSettings, scopeVersion])
+  }, [loadSettings, locale, scopeVersion])
 
   const rounding = draft ? draftRounding(draft) : null
   const roundingUnit = rounding?.unitMinutes ?? null
@@ -267,12 +271,13 @@ export default function TimeTrackingSettingsPage() {
 
   const handleTabSettingsSaved = React.useCallback(
     (saved: TimeTrackingSettings) => {
-      const nextBaseline = toSettingsDraft(saved)
+      const nextBaseline = toSettingsDraft(saved, localeRef.current)
+      const previous = baselineRef.current
       setSavedSettings(saved)
-      setDraft((current) => (current && baseline ? rebaseSettingsDraft(current, baseline, nextBaseline) : nextBaseline))
+      setDraft((current) => (current && previous ? rebaseSettingsDraft(current, previous, nextBaseline) : nextBaseline))
       setBaseline(nextBaseline)
     },
-    [baseline],
+    [],
   )
   const tabInjectionContext = React.useMemo<TimeTrackingSettingsTabContext | null>(
     () =>
@@ -317,25 +322,24 @@ export default function TimeTrackingSettingsPage() {
   )
   const canSave = canManage && isDirty && fieldErrors.length === 0 && !isSaving && !isLoading
 
-  /**
-   * optimistic-lock-exempt: tenant time-tracking settings are a single config
-   * blob written through `configService` (`api/timesheets/settings/route.ts`),
-   * not a row with an `updated_at` column — there is no version to send and no
-   * per-record conflict to report. The write is still guarded (mutation guards
-   * + `staff.timesheets.settings.manage`), and the one destructive consequence
-   * of a settings change — retroactive rounding — is a separate, explicitly
-   * confirmed action that skips entries locked into closed reports.
-   */
+  // optimistic-lock-exempt: tenant settings save named keys independently and have no aggregate version.
   const handleSave = React.useCallback(async () => {
-    if (!draft) return
+    if (!draft || !baseline) return
     const body = toSettingsPayload(draft)
-    if (!body) return
+    const previousBody = toSettingsPayload(baseline)
+    if (!body || !previousBody) return
+    const changedKeys = changedTimeTrackingSettingKeys(body, previousBody)
+    if (changedKeys.length === 0) {
+      setDraft(baseline)
+      return
+    }
     const saveLoadId = latestLoadRef.current
     const saveScope = scopeRef.current
     const saveTenantId = saveScope.tenantId
-    const saveUrl = saveTenantId
-      ? `${SETTINGS_API}?expectedTenantId=${encodeURIComponent(saveTenantId)}`
-      : SETTINGS_API
+    const query = new URLSearchParams()
+    if (saveTenantId) query.set('expectedTenantId', saveTenantId)
+    query.set('changedKeys', changedKeys.join(','))
+    const saveUrl = `${SETTINGS_API}?${query.toString()}`
     const reportTenantScopeChanged = () => {
       flash(
         t(
@@ -383,10 +387,10 @@ export default function TimeTrackingSettingsPage() {
         void loadSettings()
         return
       }
-      const saved = toSettingsDraft(call.result)
+      const saved = toSettingsDraft(call.result, localeRef.current)
       setSavedSettings(call.result)
       setBaseline(saved)
-      setDraft(saved)
+      setDraft((current) => (current ? rebaseSettingsDraft(current, draft, saved) : saved))
       flash(t('staff.time_tracking.settings.saved', 'Settings saved.'), 'success')
     } catch (err) {
       if (err instanceof TenantScopeChangedError) {
@@ -398,7 +402,7 @@ export default function TimeTrackingSettingsPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [draft, loadSettings, retryLastMutation, runMutation, t])
+  }, [baseline, draft, loadSettings, retryLastMutation, runMutation, t])
 
   const handleReapply = React.useCallback(async () => {
     const candidateCount = impact?.projected.entryCount ?? 0

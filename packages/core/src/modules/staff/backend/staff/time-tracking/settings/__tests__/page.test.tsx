@@ -33,7 +33,12 @@ const mockTranslate = (
   return interpolate(key, fallbackOrParams)
 }
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
+let mockLocale = 'en'
+
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => mockLocale,
+  useT: () => mockTranslate,
+}))
 
 let mockScopeVersion = 1
 let mockScope: { tenantId: string | null; organizationId: string | null } = { tenantId: null, organizationId: null }
@@ -137,6 +142,7 @@ const putBodies: unknown[] = []
 let putGate: Promise<void> | null = null
 
 let putOutcome: 'saved' | 'tenantScopeChanged' = 'saved'
+let putResult: typeof settings | null = null
 
 function ok<T>(result: T) {
   return { ok: true, status: 200, result, response: {} as Response, cacheStatus: null }
@@ -162,7 +168,7 @@ function installRouter() {
         putBodies.push(JSON.parse(String(init.body)))
         if (putGate) await putGate
         if (putOutcome === 'tenantScopeChanged') return tenantScopeChanged() as never
-        return ok(JSON.parse(String(init.body))) as never
+        return ok(putResult ?? JSON.parse(String(init.body))) as never
       }
       return ok(settings) as never
     }
@@ -182,6 +188,8 @@ beforeEach(() => {
   putBodies.length = 0
   putGate = null
   putOutcome = 'saved'
+  putResult = null
+  mockLocale = 'en'
   mockScopeVersion = 1
   mockScope = { tenantId: null, organizationId: null }
   settings = {
@@ -380,7 +388,67 @@ describe('time tracking settings page', () => {
 
     await waitFor(() => expect(putBodies).toHaveLength(1))
     const putCall = mockApiCall.mock.calls.find(([, init]) => init?.method === 'PUT')
-    expect(String(putCall?.[0])).toBe('/api/staff/timesheets/settings?expectedTenantId=tenant-a')
+    expect(String(putCall?.[0])).toBe('/api/staff/timesheets/settings?expectedTenantId=tenant-a&changedKeys=targets.dailyHours')
+  })
+
+  it('redisplays a Polish decimal after applying the complete partial-save response', async () => {
+    mockLocale = 'pl'
+    settings = { ...settings, targets: { dailyHours: 7.123456789 } }
+    renderPage()
+    const dailyHours = await screen.findByLabelText('Daily hours target')
+    expect(dailyHours).toHaveValue('7,123456789')
+
+    fireEvent.change(dailyHours, { target: { value: '7,5' } })
+    putResult = {
+      ...settings,
+      defaults: { ...settings.defaults, chainStartFromPreviousEnd: false },
+      targets: { dailyHours: 7.5 },
+    }
+    fireEvent.click(screen.getByTestId('save-settings'))
+
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Settings saved.', 'success'))
+    expect(dailyHours).toHaveValue('7,5')
+    expect(screen.getByRole('switch', { name: 'Start = end of the previous entry' })).not.toBeChecked()
+    expect(screen.getByTestId('save-settings')).toBeDisabled()
+    expect(putBodies[0]).toMatchObject({ targets: { dailyHours: 7.5 } })
+    const putCall = mockApiCall.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(String(putCall?.[0])).toBe('/api/staff/timesheets/settings?changedKeys=targets.dailyHours')
+  })
+
+  it('reformats an untouched decimal and preserves a pending edit when the locale changes', async () => {
+    settings = { ...settings, targets: { dailyHours: 7.5 } }
+    const view = renderPage()
+    expect(await screen.findByLabelText('Daily hours target')).toHaveValue('7.5')
+
+    const graceDays = screen.getByLabelText('Access grace period after an assignment ends')
+    fireEvent.change(graceDays, { target: { value: '21' } })
+    mockLocale = 'pl'
+    view.rerender(<TimeTrackingSettingsPage />)
+
+    await waitFor(() => expect(screen.getByLabelText('Daily hours target')).toHaveValue('7,5'))
+    expect(screen.getByLabelText('Access grace period after an assignment ends')).toHaveValue('21')
+    fireEvent.click(screen.getByTestId('save-settings'))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Settings saved.', 'success'))
+    const putCall = mockApiCall.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(String(putCall?.[0])).toBe('/api/staff/timesheets/settings?changedKeys=access.assignmentGraceDays')
+  })
+
+  it('preserves edits made after the submitted draft while the save is in flight', async () => {
+    renderPage()
+    const dailyHours = await screen.findByLabelText('Daily hours target')
+    const graceDays = screen.getByLabelText('Access grace period after an assignment ends')
+    let releasePut: () => void = () => undefined
+    putGate = new Promise<void>((resolve) => { releasePut = resolve })
+
+    fireEvent.change(dailyHours, { target: { value: '7.5' } })
+    fireEvent.click(screen.getByTestId('save-settings'))
+    await waitFor(() => expect(putBodies).toHaveLength(1))
+    fireEvent.change(graceDays, { target: { value: '21' } })
+    await act(async () => { releasePut() })
+
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Settings saved.', 'success'))
+    expect(graceDays).toHaveValue('21')
+    expect(screen.getByTestId('save-settings')).toBeEnabled()
   })
 
   it('does not send a save when the tenant changes before the request goes out', async () => {

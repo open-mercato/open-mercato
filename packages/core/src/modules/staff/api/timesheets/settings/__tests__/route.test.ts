@@ -10,6 +10,7 @@ const configStore = new Map<string, unknown>()
 const storeKey = (tenantId: string | null | undefined, name: string) => `${tenantId ?? 'global'}::${name}`
 
 const setValueSpy = jest.fn()
+const setTenantValuesSpy = jest.fn()
 
 const moduleConfigService = {
   async getRecord(moduleId: string, name: string, scope?: { tenantId?: string | null }) {
@@ -25,6 +26,10 @@ const moduleConfigService = {
       createdAt: new Date(0).toISOString(),
       updatedAt: new Date(0).toISOString(),
     }
+  },
+  async setTenantValues(moduleId: string, values: Record<string, unknown>, tenantId: string) {
+    setTenantValuesSpy(moduleId, values, tenantId)
+    for (const [name, value] of Object.entries(values)) configStore.set(storeKey(tenantId, name), value)
   },
   async setValue(moduleId: string, name: string, value: unknown, scope?: { tenantId?: string | null }) {
     setValueSpy(moduleId, name, value, scope)
@@ -78,8 +83,8 @@ import { DEFAULT_TIME_TRACKING_SETTINGS, STAFF_TIME_TRACKING_MODULE_ID, TIME_TRA
 
 const getRequest = () => new Request('http://localhost/api/staff/timesheets/settings')
 
-const putRequest = (body: unknown) =>
-  new Request('http://localhost/api/staff/timesheets/settings', {
+const putRequest = (body: unknown, query = '') =>
+  new Request(`http://localhost/api/staff/timesheets/settings${query}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -98,6 +103,7 @@ describe('staff time tracking settings route', () => {
   beforeEach(() => {
     configStore.clear()
     setValueSpy.mockClear()
+    setTenantValuesSpy.mockClear()
     container.resolve.mockClear()
     registerMutationGuards([])
     grantedFeatures = ['staff.timesheets.view', 'staff.timesheets.settings.manage']
@@ -160,6 +166,39 @@ describe('staff time tracking settings route', () => {
     )
     expect(setValueSpy).toHaveBeenCalledTimes(TIME_TRACKING_SETTING_KEYS.length)
   })
+
+  it('updates only selected keys from a stale draft and returns the current settings', async () => {
+    configStore.set(storeKey(tenantA, 'defaults.chainStartFromPreviousEnd'), false)
+    configStore.set(storeKey(tenantA, 'support.referencePrefix'), 'HELP')
+    configStore.set(storeKey(tenantB, 'targets.dailyHours'), 9)
+
+    const response = await PUT(putRequest({
+      ...fullSettings,
+      defaults: { ...fullSettings.defaults, chainStartFromPreviousEnd: true },
+      targets: { dailyHours: null },
+    }, '?changedKeys=targets.dailyHours'))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ...DEFAULT_TIME_TRACKING_SETTINGS,
+      defaults: { ...DEFAULT_TIME_TRACKING_SETTINGS.defaults, chainStartFromPreviousEnd: false },
+      targets: { dailyHours: null },
+      support: { referencePrefix: 'HELP' },
+    })
+    expect(setTenantValuesSpy).toHaveBeenCalledWith(STAFF_TIME_TRACKING_MODULE_ID, { 'targets.dailyHours': null }, tenantA)
+    expect(setValueSpy).not.toHaveBeenCalled()
+    expect(configStore.get(storeKey(tenantB, 'targets.dailyHours'))).toBe(9)
+  })
+
+  it.each(['', 'unknown.key', 'targets.dailyHours,warnings.overlap'])(
+    'rejects invalid or omitted changed keys (%s) without writing',
+    async (changedKeys) => {
+      const response = await PUT(putRequest({ targets: { dailyHours: 7.5 } }, `?changedKeys=${changedKeys}`))
+      expect(response.status).toBe(400)
+      expect(setValueSpy).not.toHaveBeenCalled()
+      expect(setTenantValuesSpy).not.toHaveBeenCalled()
+    },
+  )
 
   it('applies schema defaults to a partial payload', async () => {
     const response = await PUT(putRequest({ targets: { dailyHours: null } }))

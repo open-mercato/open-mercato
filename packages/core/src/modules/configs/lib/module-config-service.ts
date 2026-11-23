@@ -1,4 +1,4 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import { raw, type EntityManager } from '@mikro-orm/postgresql'
 import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -127,6 +127,7 @@ export type ModuleConfigService = {
     options?: { defaultValue?: T | null; scope?: ConfigScope },
   ): Promise<T | null>
   setValue(moduleId: string, name: string, value: unknown, scope?: ConfigScope): Promise<ModuleConfigRecord | null>
+  setTenantValues?(moduleId: string, values: Readonly<Record<string, unknown>>, tenantId: string): Promise<void>
   restoreDefaults(defaults: ModuleConfigDefault[], options?: { force?: boolean }): Promise<void>
   invalidate(moduleId: string, name?: string, scope?: ConfigScope): Promise<void>
 }
@@ -146,7 +147,7 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
     }
     const em = resolveEm(container)
     if (!em) return null
-    const entity = await em.getRepository(ModuleConfig).findOne({ moduleId, name, tenantId })
+    const entity = await em.getRepository(ModuleConfig).findOne({ moduleId, name, tenantId }, { refresh: true })
     if (!entity) {
       await writeCache(cache, key, { found: false }, moduleId, tenantId)
       return null
@@ -216,6 +217,33 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
     return record
   }
 
+  const setTenantValues = async (
+    rawModuleId: string,
+    values: Readonly<Record<string, unknown>>,
+    tenantId: string,
+  ): Promise<void> => {
+    const em = resolveEm(container)
+    if (!em) throw new Error('[internal] Module config persistence is unavailable')
+    const now = new Date()
+    const entries = Object.entries(values)
+      .map(([rawName, value]) => {
+        const { moduleId, name } = normalizeKey(rawModuleId, rawName)
+        return { moduleId, name, tenantId, organizationId: null, valueJson: value ?? null, createdAt: now, updatedAt: now }
+      })
+      .sort((left, right) => left.name.localeCompare(right.name, 'en'))
+    if (entries.length === 0) return
+
+    await em.fork({ useContext: false, disableContextResolution: true })
+      .createQueryBuilder(ModuleConfig)
+      .insert(entries)
+      .onConflict(raw('("module_id", "name", "tenant_id") where "tenant_id" is not null'))
+      .merge(['valueJson', 'organizationId', 'updatedAt'])
+      .execute('run')
+
+    const cache = resolveCache(container)
+    await Promise.all(entries.map(({ moduleId, name }) => deleteCacheKey(cache, cacheKey(moduleId, name, tenantId), tenantId)))
+  }
+
   const restoreDefaults = async (defaults: ModuleConfigDefault[], options?: { force?: boolean }) => {
     if (!Array.isArray(defaults) || defaults.length === 0) return
     const em = resolveEm(container)
@@ -274,6 +302,7 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
     getRecord,
     getValue,
     setValue,
+    setTenantValues,
     restoreDefaults,
     invalidate,
   }

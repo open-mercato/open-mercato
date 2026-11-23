@@ -10,7 +10,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitStaffEvent } from '../../../events'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { buildTimeTrackingSettingsSchema } from '../../../lib/time-tracking/settingKeys'
+import { buildTimeTrackingSettingsSchema, getTimeTrackingSettingKey, type TimeTrackingSettingKeyDefinition } from '../../../lib/time-tracking/settingKeys'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../guards'
 import {
@@ -19,7 +19,9 @@ import {
 } from '../_shared/withTimesheetInterceptors'
 import {
   preserveOmittedSupportSettings,
+  readTimeTrackingSettingValue,
   readTimeTrackingSettings,
+  STAFF_TIME_TRACKING_MODULE_ID,
   writeTimeTrackingSettings,
   type TimeTrackingSettings,
 } from '../../../lib/time-tracking/settings'
@@ -31,6 +33,8 @@ const MANAGE_FEATURE = 'staff.timesheets.settings.manage'
 const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.settings
 const RESOURCE_ID = 'time_tracking'
 const EXPECTED_TENANT_PARAM = 'expectedTenantId'
+const CHANGED_KEYS_PARAM = 'changedKeys'
+const changedKeysSchema = z.string().min(1).describe('Comma-separated registry keys to update. Omit for a legacy full settings update.')
 const TENANT_SCOPE_CHANGED_CODE = 'tenant_scope_changed'
 
 export const metadata = {
@@ -118,6 +122,21 @@ function assertExpectedTenant(req: Request, context: SettingsContext): void {
   })
 }
 
+function readChangedKeys(req: Request, body: Record<string, unknown>): TimeTrackingSettingKeyDefinition[] | null {
+  const rawKeys = new URL(req.url).searchParams.get(CHANGED_KEYS_PARAM)
+  if (rawKeys === null) return null
+
+  return z.array(z.string().transform((key, validation) => {
+    const entry = getTimeTrackingSettingKey(key)
+    const group = entry ? body[entry.group] : undefined
+    if (!entry || !group || typeof group !== 'object' || !Object.hasOwn(group, entry.key)) {
+      validation.addIssue({ code: 'custom', message: 'Changed keys must be registered and present in the settings body' })
+      return z.NEVER
+    }
+    return entry
+  })).parse([...new Set(changedKeysSchema.parse(rawKeys).split(','))])
+}
+
 async function PUT(req: Request) {
   try {
     const context = await resolveSettingsContext(req)
@@ -153,12 +172,20 @@ async function PUT(req: Request) {
     const { session } = interceptors
 
     const settingsSchema = buildTimeTrackingSettingsSchema()
-    const requestBody = await preserveOmittedSupportSettings(
-      resolveConfigService(context),
-      { tenantId: context.tenantId },
-      session.body,
-    )
-    const parsed = settingsSchema.parse(requestBody)
+    const configService = resolveConfigService(context)
+    const configScope = { tenantId: context.tenantId }
+    const changedKeys = readChangedKeys(req, session.body)
+    const requestBody = changedKeys
+      ? session.body
+      : await preserveOmittedSupportSettings(configService, configScope, session.body)
+    let parsed = settingsSchema.parse(requestBody) as TimeTrackingSettings
+    if (changedKeys) {
+      const current = await readTimeTrackingSettings(configService, configScope)
+      for (const { id, group, key } of changedKeys) {
+        current[group] = { ...current[group], [key]: readTimeTrackingSettingValue(parsed, id) }
+      }
+      parsed = current
+    }
 
     const guardResult = await runRouteMutationGuards({
       container: context.container,
@@ -179,14 +206,18 @@ async function PUT(req: Request) {
     if (!guardResult.ok) return guardResult.response
 
     const effective = guardResult.modifiedPayload
-      ? settingsSchema.parse({ ...parsed, ...guardResult.modifiedPayload })
+      ? settingsSchema.parse({ ...parsed, ...guardResult.modifiedPayload }) as TimeTrackingSettings
       : parsed
 
-    const settings: TimeTrackingSettings = await writeTimeTrackingSettings(
-      resolveConfigService(context),
-      { tenantId: context.tenantId },
-      effective,
-    )
+    let settings: TimeTrackingSettings
+    if (changedKeys) {
+      if (!configService.setTenantValues) throw new Error('[internal] Config service does not support tenant batch writes')
+      const updates = Object.fromEntries(changedKeys.map(({ id }) => [id, readTimeTrackingSettingValue(effective, id)]))
+      await configService.setTenantValues(STAFF_TIME_TRACKING_MODULE_ID, updates, context.tenantId)
+      settings = await readTimeTrackingSettings(configService, configScope)
+    } else {
+      settings = await writeTimeTrackingSettings(configService, configScope, effective)
+    }
 
     await guardResult.runAfterSuccess()
 
@@ -236,7 +267,10 @@ const getDoc: OpenApiMethodDoc = {
 const putDoc: OpenApiMethodDoc = {
   summary: 'Update time tracking settings',
   tags: ['Staff'],
-  query: z.object({ [EXPECTED_TENANT_PARAM]: z.string().uuid().optional() }),
+  query: z.object({
+    [EXPECTED_TENANT_PARAM]: z.string().uuid().optional(),
+    [CHANGED_KEYS_PARAM]: changedKeysSchema.optional(),
+  }),
   get requestBody() {
     return { schema: buildTimeTrackingSettingsSchema() }
   },
