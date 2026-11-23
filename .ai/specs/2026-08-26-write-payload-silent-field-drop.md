@@ -259,6 +259,10 @@ given `.nullable()` for the same reason (TC-CRM-069).
   deal round-trip aliases, ignored keys, immutable parent, plus activity and
   interaction create/read/update/read persistence, matching/conflicting phone
   representations, omitted phone preservation and explicit clearing.
+- `packages/core/src/modules/customers/__integration__/TC-CRM-WRITE-GUARD-UI-001.spec.ts`
+  exercises scheduling and completing a call, editing its title, and reloading
+  its persisted values. It also covers Polish phone validation at a mobile
+  viewport and a stale browser save after another user updates the call.
 - `packages/core/src/modules/customers/lib/__tests__/interactionPhoneNumber.test.ts`:
   custom-field preservation, duplicate conflict handling, null and omission.
 
