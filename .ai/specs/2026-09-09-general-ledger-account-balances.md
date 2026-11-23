@@ -1008,7 +1008,7 @@ before release; it is not established by `REPEATABLE READ` alone.
 - all reservation attempts, exact retries, status requests and unknown-ID lookups require a **separate** fair, bounded global and scoped ingress/lookup admission before acquiring an operation lock or primary connection; bounded pre-auth source admission also protects any database-backed authentication. Apply per-principal limits after authentication, cap queues, connections and lock waiters, and reserve separate capacity for verifier/recovery and authorized replays. Lookup admission exhaustion returns `429 { error: 'account_lookup_busy' }` with a bounded positive integer `Retry-After` in seconds; an unavailable admission authority or receipt store returns `503 { error: 'account_lookup_unavailable' }`. Admission rejection starts no operation lock or receipt read. These responses reveal no operation existence and do not establish whether an earlier attempt committed. Clients retain and retry the same ID, never mint a replacement. Stage these responses and their client handling compatibly with #5663 before activation. A slot is not reused until its database work has stopped. Storage quota exhaustion must not itself reject a replay, but lookup admission may throttle it; inaccessible receipt storage fails closed. This boundary and its failover behavior are prerequisites, not implied by the new-operation quota;
 - writer quota accounting must survive failover without losing admitted or retained work. Keep pending, retained count/bytes, reservation identity and enforcement epoch in a durable primary ledger transactionally coupled to the operation row and its permitted cleanup, with deterministic global-to-scope quota locking and database-enforced non-bypassable writer fencing. Before granting after failover, fence old epochs, drain or reconcile in-flight reservations and unknown commits against the durable primary, reconstruct and verify charges, and preserve rate windows or conservatively deny for the full window from the last possible old admission. A stale or split-brain coordinator cannot grant or commit under an old epoch. If acknowledged database commits, old-writer termination, accounting reconstruction or window continuity cannot be proved, admit no new work and keep uncertain records pinned; same-ID lookups remain subject to the bounded ingress and primary-availability rules. Do not infer aggregate safety from the unique operation ID or an eventually consistent cache;
 - a **per-scope report drain barrier** is required for progress, not merely a fair queue. When a bounded cohort of authorized reports is waiting, atomically close that scope to new reservation commits, using a durable phase/generation that every reservation locks and rechecks through commit. Reservations that were already in flight either commit before closure and join the pending set or roll back; those seeing the closed phase return/back off outside the database transaction without committing a marker. Continue verifier and recovery work until every earlier marker is terminal and cleared. Then admit the waiting report cohort to take its trusted-day-bound repeatable-read snapshot and finish or cancel while the phase remains closed; only reopen to a bounded writer cohort after all admitted report backends are confirmed stopped. Bound each cohort and queue, alternate fairly across scopes and writers, and recover canceled/crashed waiters with a fenced phase generation; lease expiry alone cannot reopen while an old backend may run. Do not hold a database transaction or pooled connection while waiting for the drain. Under healthy dependencies and valid admitted requests within certified budgets this gives waiting reports a marker-free snapshot, not just a scheduled 503; a crashed verifier, unknown operation or unavailable fence keeps the scope fail-closed and is an explicit availability outage, never a reason to discard a marker. Define the lock order and stage legacy-writer enforcement before activation;
-- first-reservation recovery: every reservation, same-ID retry and status resolution takes the same transaction-scoped operation-identity lock before reading or inserting, backed by a real unique constraint on the full scoped ID. A retry blocks behind an in-flight original transaction; a bounded wait returns 503 with outcome unknown, never a new ID or assumed abort. After acquiring the lock, read the durable primary using a fresh read-committed snapshot: a committed row yields its pending/terminal outcome and digest check; no row means no reservation committed as of that serialized check, so retry may reserve the same ID. A status response reporting no committed row must not assert that an earlier request still in transit can never start; a later same-ID original and retry remain serialized by the same lock and unique constraint. If primary transaction resolution or lock acquisition cannot be established, preserve outcome-unknown and retry the same ID. Hash collisions in advisory lock keys may only add contention; the full scoped ID and database uniqueness decide identity. A primary read that sees no committed marker does not require a fictitious scope gate: reports on snapshots before the eventual first commit are safe because their pre-snapshot day bound cannot exceed the later verifier observation, and the eventual effective start is strictly later. Once committed, the pending marker gates snapshots until its own terminal transition. Test this proof; do not enable if primary ordering, failover durability or the non-regressing clock cannot be established;
+- first-reservation recovery: every reservation, same-ID retry and status resolution takes the same transaction-scoped operation-identity lock before reading or inserting, backed by a real unique constraint on the full scoped ID. A retry blocks behind an in-flight original transaction; a bounded wait returns 503 with outcome unknown, never a new ID or assumed abort. After acquiring the lock, read the durable primary using a fresh read-committed snapshot: a committed row yields its pending/terminal outcome and digest check; an absent row permits reservation of the same ID only when uninterrupted, authoritative key history proves it was never committed. An expired receipt, an unknown issuance epoch or a restore gap cannot establish that fact. Refuse new work for an ambiguous key as specified in the client migration proposal. A status response reporting no committed row must not assert that an earlier request still in transit can never start; a later same-ID original and retry remain serialized by the same lock and unique constraint. If primary transaction resolution or lock acquisition cannot be established, preserve outcome-unknown and retry the same ID. Hash collisions in advisory lock keys may only add contention; the full scoped ID and database uniqueness decide identity. A primary read that sees no committed marker does not require a fictitious scope gate: reports on snapshots before the eventual first commit are safe because their pre-snapshot day bound cannot exceed the later verifier observation, and the eventual effective start is strictly later. Once committed, the pending marker gates snapshots until its own terminal transition. Test this proof; do not enable if primary ordering, failover durability or the non-regressing clock cannot be established;
 - existing archived baseline ancestors remain traversable and appear as root rows where needed even without direct postings. New children cannot attach to deleted or inactive parents. Deletion of a parent with children is rejected; restoring an existing child while its parent is inactive/deleted is rejected without consuming the undo token until the parent is restored. Re-read the parent under the hierarchy lock to serialize concurrent deletion, restore and creation;
 - baseline validation applies the same exact-type predicate to every retained edge; an attested legacy chart that violates it remains unsupported until an independently reviewed correction. A shared account type's group or normal-balance change must not reinterpret any covered account, including empty descendants;
 - cutover must fence every legacy or unmanaged writer at the database boundary, drain in-flight transactions, acquire the exclusive scope lock, revalidate the full attested interval and current state, and publish the verified baseline, coverage and enforcement generation atomically in the same transaction. A process-level feature flag alone is insufficient. New and legacy readers fail closed until publication; if any writer cannot be fenced or evidence revalidated, abort activation and keep reports disabled. Rollback must retain the fence until a documented compatible state is restored; never reopen legacy writers while reports rely on frozen history;
@@ -1080,8 +1080,9 @@ Both proposed success responses carry one top-level `currencyId` (UUID)
 for their base amounts. It identifies the organization's base currency for
 the posted debits and credits in this report. A journal line's original
 currency and an account's optional denomination can differ from this ID.
-Read the scoped base-currency identity in the same snapshot as the figures.
-activation requires evidence that the history covered uses that base.
+Read scoped base-currency coverage in the same snapshot as the figures.
+Activation requires evidence that the opening balance and every contributing
+posting use the reported base. The writer contract below describes that evidence.
 Changing the configured base cannot relabel historical amounts. Every page,
 including an empty page, identifies its currency. If that history cannot
 be attested, accounting-policy coverage is invalid and both routes return
@@ -1430,6 +1431,19 @@ top of the live query.
   Use different base currencies in two organizations and post a foreign line
   in one. Check the reported units, retained scale and scope. The panel
   renders the base amount and treats the account-currency figure as unavailable.
+- Post under base A, promote B, post under B with the
+  same accounting date, then undo the promotion to restore A. Both routes
+  must reject the mixed range with `422 accounting_policy_unavailable` and
+  no amounts, even though today's base is A. In the fenced alternative,
+  assert that promotion is refused before any B posting can commit. Exercise
+  the import and undo/redo paths enabled for the scope. An unmodified second
+  organization must retain its coverage and revision throughout.
+- Obtain page one, then promote B and undo it between pages.
+  A page-two request with the old token must yield no rows. With invalid
+  coverage, the existing accounting-policy error takes precedence. After
+  coverage for the requested range is re-attested, the old token must yield
+  `409 report_changed`, even if the figures and base ID again match page one.
+  A new page-one request uses the fresh revision.
 - Phase 2 only, after human approval: balance in the account's currency
   (Design decisions, "Balance in the account's currency"):
   - a foreign-currency account (`currencyId` EUR): debit EUR 100 and credit
@@ -2046,7 +2060,7 @@ are separate proposals.
   snapshot, so a value read once cannot disagree with another read in the
   same response. `reportRevision` advances by one on every committed
   mutation that can change report membership, values, ordering,
-  period/fiscal boundaries, hierarchy or policy validity.
+  period/fiscal boundaries, base-currency history, hierarchy or policy validity.
 - **Writer contract.** Every writer that can change those facts — the
   account create/update/delete/restore/undo commands, posting paths,
   imports, reversals, period and type writes, policy/attestation
@@ -2056,6 +2070,33 @@ are separate proposals.
   change. A writer that cannot participate is a legacy writer and must be
   fenced before activation; a report never trusts a revision that a
   non-participating writer could have bypassed.
+
+**Base-currency evidence.** Existing commands can promote a base currency
+and restore the previous base on undo. The current `isBase` flag cannot
+establish the unit used by an earlier posting. Each scope needs one of the
+following continuity guarantees. [Currency commands](https://github.com/open-mercato/open-mercato/blob/eb524613754095ccc08faa9a98055d94f368c6cc/packages/core/src/modules/currencies/commands/currencies.ts#L507-L536)
+
+- Maintain durable tenant- and organization-scoped evidence tying each
+  contributing posting and the opening baseline to its actual base at
+  posting or initialization. A backdated posting must retain the unit used
+  when committed. Serialize base changes with posting so their ordering is
+  unambiguous. Each base transition must atomically invalidate affected
+  coverage and advance `reportRevision` with the currency write. Re-attesting
+  coverage advances the revision again. The evidence must survive undo,
+  redo and restore, including a switch back to the original base. Reports
+  can return figures only for proven single-base coverage.
+- Alternatively, fence base changes before attestation and keep that fence
+  active through reporting. Drain or exclude concurrent postings during
+  attestation. Every later posting must enforce the attested base through
+  commit. Existing history needs independent evidence at the initial
+  cutoff. Losing the fence invalidates coverage and blocks reporting until
+  the gap is reconciled and a fresh revision published.
+
+Both alternatives cover currency creation with base promotion, updates,
+undo/redo, imports, posting and restore paths. An import or administrative
+writer that cannot participate must be fenced. An asynchronous currency
+event cannot make invalidation atomic. Choosing or implementing either
+alternative requires agreement between the ledger and currency owners.
 
 **Report revision source and restore protocol (paginated endpoint).**
 `reportRevision` and `authorityEpoch` are durable per-scope rows in the
@@ -2123,6 +2164,18 @@ An unknown or unverified caller keeps the scope ineligible. A missing key
 after cutover would be rejected before reserving or writing anything.
 The ledger owner has proposed this migration for approval.
 
+The approval must define the supported replay window, the event from which
+it runs, and the client-visible outcome when the retained result is lost.
+Within the window a surviving terminal receipt replays its original result.
+After expiry, restore or failover, absence of a receipt does not prove that
+the saved key was never used. If the writer cannot distinguish a fresh key
+from a prior operation, it must refuse the create before reserving anything.
+The client keeps its saved intent and seeks reconciliation. A viable design
+must explain how it recognizes old keys, for example through scoped spent-key
+records or a verifiable issuance epoch fenced across restore, and the storage
+and recovery bounds of that choice. Never expire an unresolved operation to
+free capacity. The window's length and the client error contract remain open.
+
 For acceptance, use the real route and database. Drop the success response
 after the terminal transaction commits, restart the client, then retry its
 saved key and verify the original account ID, one account and one edge
@@ -2130,6 +2183,13 @@ under the parent-account design. Repeat with an uncertain reservation
 commit and a delayed verifier. Finish the original operation once. A changed
 payload with the same key must conflict without writing. Reusing the key
 from another tenant or organization must never reveal that outcome.
+
+Restart the client after the eventual approved replay window using the same
+saved key, with its terminal receipt expired. Repeat after restoring a
+snapshot that omits the receipt. Verify that neither attempt reserves new
+work or creates another account or edge. On recovery, the original result
+may be replayed only when it can be established. Also restart just inside
+the window with an intact receipt and assert that the original result returns.
 
 On the report routes, `page`/`pageSize`
 stay optional (defaults unchanged), `reportVersion` is optional for the
@@ -2660,3 +2720,7 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
   reporting models, and the proposed pilot scope for owner review.
 - Documented the proposed key-based migration and lost-response acceptance
   cases. Approval of that migration and the activation decisions remains open.
+- Added independent re-review cases for late retry after retention or
+  restore, scoped currency promotion followed by undo, and a base change
+  between report pages. Documented the currency and posting writer evidence
+  needed to keep a historical attestation and continuation token valid.
