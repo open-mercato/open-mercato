@@ -217,7 +217,7 @@ const reverseJournalEntryCommand: CommandHandler<ReverseJournalEntryInput, PostJ
         referenceType: 'journal_entry',
         referenceId: input.journalEntryId,
         lines: result.lines.map(toPostedLine),
-      }).catch(() => undefined)
+      }, { persistent: true }).catch(() => undefined)
     }
 
     return {

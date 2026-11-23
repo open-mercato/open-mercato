@@ -525,7 +525,7 @@ export async function emitPostedEvent(input: JournalEntryPostCore, result: PostR
     referenceType: input.referenceType ?? null,
     referenceId: input.referenceId ?? null,
     lines: result.lines.map(toPostedLine),
-  })
+  }, { persistent: true })
 }
 
 const postJournalEntryCommand: CommandHandler<PostJournalEntryInput, PostJournalEntryResult> = {

@@ -73,26 +73,38 @@ function seedReferences(em: ReturnType<typeof buildFakeEm>) {
   em.seed(LedgerAccount, { id: PAYABLE, organizationId: ORG, tenantId: TENANT, currencyId: null, deletedAt: null })
 }
 
-function emittedLines(): PostedLine[] {
-  const call = emitLedgerEvent.mock.calls.find(([eventId]) => eventId === 'ledger.journal_entry.posted') as
-    | [string, { lines: PostedLine[] }]
-    | undefined
-  if (!call) throw new Error('ledger.journal_entry.posted was not emitted')
-  return call[1].lines
+const publicationCases = [
+  { mode: 'after commit', callerTransaction: false, enqueueFails: false },
+  { mode: 'when enqueue fails after commit', callerTransaction: false, enqueueFails: true },
+  { mode: 'inside a caller transaction', callerTransaction: true, enqueueFails: false },
+]
+
+function expectPublication(callerTransaction: boolean, journalEntryId: string, lines: PostedLine[]) {
+  if (callerTransaction) {
+    expect(emitLedgerEvent).not.toHaveBeenCalled()
+    return
+  }
+  expect(emitLedgerEvent).toHaveBeenCalledTimes(1)
+  expect(emitLedgerEvent).toHaveBeenCalledWith(
+    'ledger.journal_entry.posted',
+    expect.objectContaining({ journalEntryId, lines }),
+    { persistent: true },
+  )
 }
 
-describe('ledger.journal_entry.posted — line currency fields (OQ-2)', () => {
+describe('ledger.journal_entry.posted', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     jest.resetModules()
   })
 
-  it('postJournalEntry sends currency, rate and original amount for a foreign and a base-currency line', async () => {
+  it.each(publicationCases)('publishes a posting with its currency details $mode', async ({ callerTransaction, enqueueFails }) => {
     const command = loadCommand('../postJournalEntry', 'ledger.postJournalEntry')
     const em = buildFakeEm()
     seedReferences(em)
     const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
 
+    if (enqueueFails) emitLedgerEvent.mockRejectedValueOnce(new Error('queue unavailable'))
     const result = await command.execute(
       {
         organizationId: ORG,
@@ -106,10 +118,12 @@ describe('ledger.journal_entry.posted — line currency fields (OQ-2)', () => {
           { accountId: PAYABLE, credit: '425.00', amountCurrency: '100.0000' },
         ],
       },
-      ctx,
+      callerTransaction ? { ...ctx, transactionalEm: em } : ctx,
     )
 
-    const lines = emittedLines()
+    const { lines } = result
+    expectPublication(callerTransaction, result.journalEntryId, lines)
+    expect(em.transactional).toHaveBeenCalledTimes(callerTransaction ? 0 : 1)
     expect(lines).toHaveLength(2)
     expect(lines.find((line) => line.accountId === EXPENSE)).toMatchObject({
       debit: '425.00',
@@ -123,10 +137,9 @@ describe('ledger.journal_entry.posted — line currency fields (OQ-2)', () => {
       exchangeRate: '4.25000000',
       amountCurrency: '100.0000',
     })
-    expect(result.lines).toEqual(lines)
   })
 
-  it('reverseJournalEntry sends the original lines\' currency, rate and original amount on the inverted lines', async () => {
+  it.each(publicationCases)('publishes a reversal with its original currency details $mode', async ({ callerTransaction, enqueueFails }) => {
     const command = loadCommand('../reverseJournalEntry', 'ledger.reverseJournalEntry')
     const em = buildFakeEm()
     seedReferences(em)
@@ -176,12 +189,15 @@ describe('ledger.journal_entry.posted — line currency fields (OQ-2)', () => {
     em.seedSequenceCounter({ organizationId: ORG, tenantId: TENANT }, 2)
     const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
 
+    if (enqueueFails) emitLedgerEvent.mockRejectedValueOnce(new Error('queue unavailable'))
     const result = await command.execute(
       { organizationId: ORG, tenantId: TENANT, journalEntryId: ORIGINAL_ENTRY_ID, operationDate: '2026-03-10' },
-      ctx,
+      callerTransaction ? { ...ctx, transactionalEm: em } : ctx,
     )
 
-    const lines = emittedLines()
+    const { lines } = result
+    expectPublication(callerTransaction, result.journalEntryId, lines)
+    expect(em.transactional).toHaveBeenCalledTimes(callerTransaction ? 0 : 1)
     expect(lines).toHaveLength(2)
     expect(lines.find((line) => line.accountId === EXPENSE)).toMatchObject({
       debit: '0',
@@ -197,6 +213,5 @@ describe('ledger.journal_entry.posted — line currency fields (OQ-2)', () => {
       exchangeRate: '4.25000000',
       amountCurrency: '100.0000',
     })
-    expect(result.lines).toEqual(lines)
   })
 })
