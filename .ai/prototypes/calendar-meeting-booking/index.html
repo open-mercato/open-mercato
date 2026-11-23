@@ -325,9 +325,9 @@
                 <div>
                   <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">09:00</span></div>
                   <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">09:30</span></div>
-                  <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">10:30</span></div>
                   <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">11:00</span></div>
-                  <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">13:00</span></div>
+                  <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">11:30</span></div>
+                  <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">13:30</span></div>
                 </div>
               </div>
               <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div>Only your Open Mercato calendar blocks times. Meetings you keep in Google or Outlook are not checked, so add them here as events or keep your working hours to times you are free.</div></div>
@@ -393,7 +393,9 @@
           <div>
             <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">09:00</span></div>
             <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">09:30</span></div>
-            <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">10:30</span></div>
+            <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">11:00</span></div>
+            <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">11:30</span></div>
+            <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">13:30</span></div>
           </div>
         </div>
       </form>
@@ -493,8 +495,8 @@
           <div class="bk-slots" role="listbox" aria-label="Available times on Monday, 2 November">
             <button class="btn btn-outline bk-slot" role="option" data-goto="s4">09:00</button>
             <button class="btn btn-outline bk-slot" role="option" data-goto="s4">09:30</button>
-            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">10:30</button>
             <button class="btn btn-outline bk-slot" role="option" data-goto="s4">11:00</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">11:30</button>
             <button class="btn btn-outline bk-slot" role="option" data-goto="s4">13:00</button>
             <button class="btn btn-outline bk-slot" role="option" data-goto="s4">13:30</button>
             <button class="btn btn-outline bk-slot" role="option" data-goto="s4">14:00</button>
@@ -636,8 +638,8 @@
           <div class="bk-slots" role="listbox" aria-label="Available times on Monday, 2 November">
             <button class="btn btn-outline bk-slot" role="option" data-goto="s4">09:00</button>
             <button class="btn btn-outline bk-slot" role="option" data-goto="s4">09:30</button>
-            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">10:30</button>
             <button class="btn btn-outline bk-slot" role="option" data-goto="s4">11:00</button>
+            <button class="btn btn-outline bk-slot" role="option" data-goto="s4">11:30</button>
             <button class="btn btn-outline bk-slot" role="option" data-goto="s4">13:30</button>
             <button class="btn btn-outline bk-slot" role="option" data-goto="s4">14:00</button>
           </div>
@@ -706,7 +708,7 @@
         </div>
         <div class="alert alert-info" style="text-align:left">
           <svg><use href="#ic-info"/></svg>
-          <div>This time is held for you until then. If it isn't confirmed in time, the request expires and the time is released.</div>
+          <div>This time is held for you until then. If it isn't confirmed in time, the request expires and the time is released. You can cancel the request with the link in your e-mail.</div>
         </div>
       </div>
     </div>
@@ -988,7 +990,7 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>Accepting a request past its deadline returns <code>409</code>; the alert replaces the generic conflict bar because the outcome is final. The row stays greyed with Dismiss until the list refreshes, then lives in History as Expired.</span></div>
+    <div class="note"><b>1</b><span>Accepting a request past its deadline returns <code>409</code>; the alert replaces the generic conflict bar because the outcome is final. The row stays greyed with Dismiss for 10 minutes after it expired, then lives in History as Expired.</span></div>
     <div class="note"><b>2</b><span>A request that expires while the page is open greys out the same way without the alert. Jordan can book again from the public page.</span></div>
   </div>
 </section>
@@ -1112,7 +1114,7 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>Below the sm breakpoint (640px) the DataTable renders this card list; sort moves into the single Respond by control above the list. The accept and decline dialogs become bottom sheets with the same content.</span></div>
-    <div class="note"><b>2</b><span>The new-request notification and e-mail deep-link here, so a request can be accepted from a phone in two taps. A card with no message omits the note line instead of showing a placeholder.</span></div>
+    <div class="note"><b>2</b><span>The new-request notification opens this page with the row highlighted (its e-mail opens the notification first), so a request can be accepted from a phone in a few taps. A card with no message omits the note line instead of showing a placeholder.</span></div>
   </div>
 </section>
 
@@ -1192,7 +1194,7 @@
                 </tr></thead>
                 <tbody>
                   <tr>
-                    <td><div class="cell-lines"><strong>Fri, 30 Oct</strong><span class="t-hint">15:00 to 15:30</span></div></td>
+                    <td><div class="cell-lines"><strong>Fri, 30 Oct</strong><span class="t-hint">12:00 to 12:30</span></div></td>
                     <td><div class="cell-lines"><span>Alex Rivera</span><span class="t-hint">alex@tailspin.example</span></div></td>
                     <td><span class="req-note">Follow-up on the integration questions from last week.</span></td>
                     <td><div class="cell-lines"><span>Alex Rivera</span><span class="badge badge-info" style="align-self:flex-start">New from booking</span></div></td>
@@ -1256,7 +1258,7 @@
           <div class="bk-summary">
             <strong style="font-size:0.875rem">Alex Rivera</strong>
             <span class="muted" style="font-size:0.875rem">alex@tailspin.example</span>
-            <span style="font-size:0.875rem">Fri, 30 Oct, 15:00 to 15:30</span>
+            <span style="font-size:0.875rem">Fri, 30 Oct, 12:00 to 12:30</span>
           </div>
           <div class="input" style="display:flex;align-items:center;gap:0.5rem"><svg width="16" height="16"><use href="#ic-search"/></svg> alex riv</div>
           <div>
@@ -1376,7 +1378,7 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>"Respond by / outcome" is split: Pending has Respond by, History has Outcome (who decided and when, plus the decline message on its own line). "Chosen on accept" is gone; CRM person shows a name or "None". Outcome sorts by the date it shows (when the request was decided or cancelled).</span></div>
-    <div class="note"><b>2</b><span>Cancelled badges name who cancelled: "Cancelled by booker", "Cancelled by you", "Cancelled: person deleted", "Cancelled: original cancelled". Row menu: View details only; nothing can be re-opened, because the booker was already e-mailed. A moved meeting keeps only its latest request in the list; View details shows the full reschedule history.</span></div>
+    <div class="note"><b>2</b><span>Cancelled badges name who cancelled: "Cancelled by booker", "Cancelled by you", "Cancelled: person deleted", "Cancelled: original cancelled". Row menu: Open in calendar for a meeting that took place; other rows have no actions, because nothing can be re-opened once the booker was e-mailed. There is no separate detail view. A moved meeting keeps only its latest request in the list, with the "Rescheduled from" hint. Not drawn: the About column with the visitor's note.</span></div>
   </div>
 </section>
 
