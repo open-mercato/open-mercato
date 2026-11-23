@@ -6,7 +6,6 @@ Ordinary inbound email now imports senders who match a CRM person in the receivi
 
 Operators can still import historical email explicitly. Existing imported messages remain accessible.
 
-<<<<<<< HEAD
 ## Fullapp development agent authentication (#9116)
 
 Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibility copy, or the standalone `docker-compose.fullapp.dev.yml`, generate a strong `OPENCODE_PASSWORD` (for example, `openssl rand -hex 32`) and export it or save it in the compose `.env`. Missing or empty passwords now stop startup. The same value configures native OpenCode server authentication and the existing app client. Direct OpenCode clients must send HTTP Basic credentials with username `opencode`; healthchecks authenticate automatically. Recreate the app and OpenCode services together after changing the password.
@@ -541,8 +540,6 @@ and font permissions, route/DB contracts and the attachment sandbox are unchange
 
 [Implementation specification](.ai/specs/2026-10-29-production-content-security-policy.md).
 
-=======
->>>>>>> eeaeb90edb (docs(release): 0.10.0 upgrade companion skill and UPGRADE_NOTES window (#10422))
 Open Mercato `0.5.0` is our biggest release so far. It bundles more than 250 fixes and
 improvements that landed after the Hackathon in Sopot, alongside several important
 dependency and tooling upgrades. That combination is exactly why this document now exists:
@@ -6495,7 +6492,6 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
-<<<<<<< HEAD
 
 ### Access-log overload admission
 
@@ -6578,5 +6574,3 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
-=======
->>>>>>> eeaeb90edb (docs(release): 0.10.0 upgrade companion skill and UPGRADE_NOTES window (#10422))
