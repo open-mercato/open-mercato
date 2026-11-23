@@ -215,6 +215,17 @@ async function ensurePendingStatus(request: StaffLeaveRequest): Promise<void> {
   })
 }
 
+async function ensureValidDateRange(request: StaffLeaveRequest): Promise<void> {
+  if (request.endDate.getTime() >= request.startDate.getTime()) return
+  const { translate } = await resolveTranslations()
+  const message = translate('staff.leaveRequests.errors.invalidDateRange', 'End date must be after start date.')
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { endDate: message },
+    details: [{ path: ['endDate'], message, code: 'custom', origin: 'validation' }],
+  })
+}
+
 async function ensureUndoablePending(request: StaffLeaveRequest): Promise<void> {
   if (request.status === 'pending') return
   const { translate } = await resolveTranslations()
@@ -486,6 +497,7 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
     }
     if (parsed.startDate !== undefined) request.startDate = parsed.startDate
     if (parsed.endDate !== undefined) request.endDate = parsed.endDate
+    if (parsed.startDate !== undefined || parsed.endDate !== undefined) await ensureValidDateRange(request)
     if (parsed.timezone !== undefined) request.timezone = parsed.timezone
     if (parsed.unavailabilityReasonEntryId !== undefined) request.unavailabilityReasonEntryId = parsed.unavailabilityReasonEntryId ?? null
     if (parsed.unavailabilityReasonValue !== undefined) request.unavailabilityReasonValue = parsed.unavailabilityReasonValue ?? null
