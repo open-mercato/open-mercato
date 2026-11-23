@@ -14,4 +14,8 @@ The [original issue](https://github.com/open-mercato/open-mercato/issues/9155) d
 
 - [x] Enforce manual numbering permissions and preserve ordinary resaves. See `634b33925d` and `bc8fa8f446`.
 - [x] Preserve drafts after a conflict and contain the mobile Sales draft table. See `a129253b8d` and `842c933bde`.
-- [ ] Display the localized conflict in the retained editor and exercise the HTTP error shape in a component regression.
+- [x] Display the localized conflict in the retained editor and exercise the HTTP error shape in a component regression. See `6afbb2b02e`.
+
+## Validation
+
+Both response-shape tests failed before the fix. After the fix, all 41 inline editor and conflict detection tests passed, along with the nine Sales mutation error tests. The hosted Sales integration and final human QA remain separate gates.
