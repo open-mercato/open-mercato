@@ -19,6 +19,7 @@ const authServiceMock = {
   getUserRoles: jest.fn(async () => ['admin']),
   updateLastLoginAt: jest.fn(async () => undefined),
   createSession: jest.fn(async () => ({ session: { id: 'session-1' }, token: 'session-token' })),
+  deleteSessionById: jest.fn(async () => undefined),
 }
 
 const containerMock = {
@@ -359,6 +360,41 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     expect(setCookie).toContain('auth_token=pending-token')
     expect(setCookie).toMatch(/session_token=;[^,]*Max-Age=0/i)
     expect(setCookie).not.toContain('session_token=session-token')
+  })
+
+  test.each([
+    ['remember me disabled', {}],
+    ['remember me enabled', { remember: '1' }],
+  ])('fails closed without an access or refresh token when the after-interceptor fails (%s)', async (_label, extra) => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.fail',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              throw new Error('MFA challenge store unavailable')
+            },
+          },
+        ],
+      },
+    ])
+
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret', ...extra }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(500)
+
+    const body = await res.json()
+    expect(body.token).toBeUndefined()
+    expect(body.refreshToken).toBeUndefined()
+    expect(res.headers.get('set-cookie')).toBeNull()
+    expect(authServiceMock.deleteSessionById).toHaveBeenCalledWith('session-1')
   })
 })
 
