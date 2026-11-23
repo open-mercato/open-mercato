@@ -42,3 +42,5 @@ A portal user should show the display name declared by its module. The code fixe
 - The local validation gate passed in order on Node 24.22.3, including all 51 unit-test tasks and the production app build. The exact-head GitHub Actions result is tracked on PR #10157.
 
 - Hosted CI exposed a second suggestions request after autofocus. The timer-controlled regression fails before the fix and verifies that ArrowDown still loads suggestions after the fix. All 86 focused UI tests and the component design-system lint passed.
+
+- The next main refresh kept both repeated AND predicates and grouped all-of filters. The focused shared filter and CRUD suites passed 328 checks.

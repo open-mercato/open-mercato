@@ -311,7 +311,7 @@ export function convertAdvancedFilterToWhere(state: AdvancedFilterState): Record
       continue
     }
     clauses = clauses.map((clause) => (
-      '$and' in clause || '$and' in entry.filter
+      '$and' in clause || '$and' in entry.filter || Object.keys(entry.filter).some((field) => Object.hasOwn(clause, field))
         ? { $and: [clause, entry.filter] }
         : { ...clause, ...entry.filter }
     ))

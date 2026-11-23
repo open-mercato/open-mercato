@@ -679,6 +679,50 @@ describe('CRUD Factory', () => {
     })
   })
 
+  describe('repeated legacy AND fields (#10397)', () => {
+    it.each([false, true])('GET retains contradictory predicates (reversed: %s)', async (reversed) => {
+      const route = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema.passthrough(),
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'is_done'],
+          buildFilters: () => ({ member_id: 'member-1' }),
+        },
+      })
+      queryEngine.query.mockImplementationOnce(async (_entityId: string, options: QueryOptions) => {
+        expect(options.tenantId).toBe(defaultTenantId)
+        const filters = normalizeFilters(options.filters)
+        expect(filters).toEqual(expect.arrayContaining([
+          { field: 'member_id', op: 'eq', value: 'member-1' },
+          { field: 'is_done', op: 'eq', value: true },
+          { field: 'is_done', op: 'eq', value: false },
+        ]))
+        const rows = [
+          { id: 'done', title: 'A', is_done: true, member_id: 'member-1' },
+          { id: 'pending', title: 'B', is_done: false, member_id: 'member-1' },
+        ]
+        const items = rows.filter((row) => filters.every((filter) => (
+          filter.op === 'eq' && row[filter.field as keyof typeof row] === filter.value
+        )))
+        return { items, total: items.length }
+      })
+      const params = new URLSearchParams({ 'filter[logic]': 'and' })
+      const operators = reversed ? ['is_false', 'is_true'] : ['is_true', 'is_false']
+      operators.forEach((operator, index) => {
+        params.set(`filter[conditions][${index}][field]`, 'is_done')
+        params.set(`filter[conditions][${index}][op]`, operator)
+      })
+      const response = await route.GET(new Request(`http://x/api/example/todos?${params}`))
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.items).toEqual([])
+      expect(body.total).toBe(0)
+    })
+  })
+
   describe('repeated query parameters (#5548)', () => {
     const makeFilterRoute = () => {
       const seen: { status?: string | string[]; search?: string | string[] }[] = []
