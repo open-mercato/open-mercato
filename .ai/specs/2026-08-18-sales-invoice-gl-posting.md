@@ -800,10 +800,9 @@ before the first posting (see Migration & Deployment).
   (see Design decisions, "Header-level discounts are out of scope");
   every `SalesInvoiceLine.kind` is `'product'`, `'service'`, or
   `'shipping'` (see Design decisions, "Line-kind scope");
-  every line in `lineAccounts`
-  corresponds to a real line on the invoice and every invoice line has
-  an assignment (no fallback account, matching AP's own "manual
-  per-line, no default" Phase 1 stance). Resolves
+  `lineAccounts` contains exactly one assignment per invoice line. Reject
+  duplicate line IDs, missing assignments and IDs outside the invoice with
+  422 `INVALID_LINE_ACCOUNTS` before any writes. Resolves
   `receivableAccountId`/`vatOutputAccountId` (and, on demand,
   `roundingAccountId`) from one scoped settings snapshot through `lib/moduleConfig.ts`
   using the **organization-qualified keys** Module Config defines (rejects
@@ -819,10 +818,15 @@ before the first posting (see Migration & Deployment).
   line per Design decisions ("Foreign-currency invoice"), and compute the
   rounding remainder. Calls
   `commandBus.execute('ledger.postJournalEntry', { input, ctx })` with
-  one credit line per `lineAccounts` entry (that line's `totalNetAmount`,
-  to its assigned `accountId`), one aggregated credit line to
-  `vatOutputAccountId` (sum of every line's `taxAmount`), one debit
-  line to `receivableAccountId` (`grandTotalGrossAmount`), the
+  revenue credits for positive line totals on their assigned accounts, an
+  aggregated VAT credit only when the sum of line taxes is positive, and a
+  receivable debit for `grandTotalGrossAmount`. Reject nonpositive
+  receivable totals, negative revenue or aggregate VAT, or a final journal
+  with fewer than two nonzero lines with 422 `UNPOSTABLE_INVOICE_AMOUNTS`,
+  before calling ledger. Omit zero-value lines, including amounts rounded
+  to zero in base currency, and calculate any FX rounding remainder from
+  the lines actually booked. Persist one account assignment per invoice
+  line even when its revenue credit is omitted. Send the
   resolved `currencyId`, `operationDate: invoice.issueDate`,
   `documentType: 'external_own'`, `referenceType: 'sales:sales_invoice'`,
   `referenceId: invoice.id`. For a foreign-currency invoice those three
@@ -1061,8 +1065,9 @@ readers. No cache operation publishes uncommitted values.
   invoice (idempotency, Invariant 1) — whether found by the pre-check or
   raised by the unique index under a concurrent duplicate (Commands). **Response 422**: the balance-identity
   check fails, any line's `kind` is `'discount'`/`'adjustment'`,
-  `issueDate` is null, `lineAccounts` is incomplete or
-  references a line not on the invoice, `receivableAccountId`/
+  `issueDate` is null, `lineAccounts` does not assign each invoice line exactly
+  once (`INVALID_LINE_ACCOUNTS`), the invoice amounts cannot produce a
+  supported journal (`UNPOSTABLE_INVOICE_AMOUNTS`), `receivableAccountId`/
   `vatOutputAccountId`/`currencyId` cannot be resolved for the active
   organization, no live base currency exists (`BASE_CURRENCY_UNRESOLVED`),
   a foreign-currency invoice lacks a shipped, positive stored rate (`EXCHANGE_RATE_MISSING`),
@@ -1232,6 +1237,13 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   invoice with a nonzero `taxTotalAmount` but a header that correctly
   sums its lines still balances (a second, deliberately multi-line
   case beyond the one-line-one-rate example above).
+- Post a VAT-exempt invoice with positive revenue and a free invoice line.
+  Assert that the journal contains the receivable debit and positive revenue
+  credit, and that the posting stores both revenue account assignments.
+  Submit an all-zero invoice and assert 422 `UNPOSTABLE_INVOICE_AMOUNTS`
+  with no posting, journal entry or event.
+- Submit all required assignments plus a duplicate line ID. Assert 422
+  `INVALID_LINE_ACCOUNTS` with no posting, journal entry or event.
 - Assert the command rejects with a readable error when any posted
   line's `kind` is `'discount'` or `'adjustment'` (Design decisions,
   "Line-kind scope") — and that an otherwise-identical invoice with
@@ -1950,3 +1962,10 @@ Not yet re-reviewed after these edits.
   path only after Sales ships its invoice-rate column.
 - Matched the existing persistent post-commit ledger event to #9860's
   public command result and covered rollback, duplicates and enqueue errors.
+
+### 2026-11-23 — Follow-up review of #9903
+
+- Defined one revenue account assignment per invoice line and a typed error
+  for invalid assignments.
+- Aligned journal line construction with ledger's positive-side rule and added
+  coverage for VAT-exempt, free-line and all-zero invoices.
