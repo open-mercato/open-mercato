@@ -12,6 +12,7 @@ module.exports = {
     '^#generated/(.*)$': '<rootDir>/../core/generated/$1',
     '^@open-mercato/cache$': '<rootDir>/../cache/src/index.ts',
     '^@open-mercato/cache/(.*)$': '<rootDir>/../cache/src/$1',
+    '^@open-mercato/checkout/(.*)$': '<rootDir>/../checkout/src/$1',
     '^@open-mercato/core$': '<rootDir>/../core/src/index.ts',
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
     '^@open-mercato/queue$': '<rootDir>/../queue/src/index.ts',

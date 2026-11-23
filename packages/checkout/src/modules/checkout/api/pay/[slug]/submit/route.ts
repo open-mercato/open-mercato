@@ -613,7 +613,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           occurredAt: new Date().toISOString(),
           tenantId: link.tenantId,
           organizationId: link.organizationId,
-        }).catch(() => undefined)
+        }, { tenantId: link.tenantId, organizationId: link.organizationId }).catch(() => undefined)
       }
       return NextResponse.json(
         await buildSubmitResponse(req, em, link, refreshedTransaction, link.gatewayProviderKey),

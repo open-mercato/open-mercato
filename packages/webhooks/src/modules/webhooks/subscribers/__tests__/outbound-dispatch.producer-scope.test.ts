@@ -10,6 +10,15 @@
  */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
+
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/di/container'),
+  createRequestContainer: jest.fn(),
+}))
+jest.mock('@open-mercato/checkout/modules/checkout/lib/rateLimiter', () => ({
+  enforceCheckoutRateLimit: jest.fn(async () => null),
+}))
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -39,9 +48,13 @@ jest.mock('../../lib/integration-state', () => ({
 }))
 
 import handler from '../outbound-dispatch'
+import { POST as submitPayLink } from '@open-mercato/checkout/modules/checkout/api/pay/[slug]/submit/route'
+import '@open-mercato/checkout/modules/checkout/commands/transactions'
+import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { emitOrderLifecycleEventsForTransition } from '@open-mercato/core/modules/sales/commands/documents'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createWebhookDelivery } from '../../lib/delivery'
 import { enqueueWebhookDelivery } from '../../lib/queue'
@@ -172,5 +185,106 @@ describe('outbound dispatch through a real producer', () => {
       expect.stringContaining('no trusted scope'),
       expect.objectContaining({ eventId: 'sales.order.confirmed' }),
     )
+  })
+
+  it('dispatches both Pay Links events only to subscriptions in the persisted checkout scope', async () => {
+    const scope = {
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      organizationId: '22222222-2222-4222-8222-222222222222',
+    }
+    const link = {
+      ...scope,
+      id: '33333333-3333-4333-8333-333333333333',
+      slug: 'donate',
+      status: 'active',
+      pricingMode: 'custom_amount',
+      customAmountMin: '1.00',
+      customAmountMax: '100.00',
+      customAmountCurrencyCode: 'USD',
+      gatewayProviderKey: 'mock',
+      collectCustomerDetails: false,
+    }
+    const transactionId = '44444444-4444-4444-8444-444444444444'
+    const transaction = {
+      ...scope,
+      id: transactionId,
+      linkId: link.id,
+      amount: '25.00',
+      currencyCode: 'USD',
+      status: 'processing',
+    }
+    const gatewayTransactionId = '55555555-5555-4555-8555-555555555555'
+    const subscribedEvents = ['checkout.transaction.customerDataCaptured', 'checkout.transaction.sessionStarted']
+    const subscriptions = [
+      { ...scope, id: 'matching', subscribedEvents },
+      { ...scope, id: 'other-organization', organizationId: 'other-org', subscribedEvents },
+      { ...scope, id: 'other-tenant', tenantId: 'other-tenant', subscribedEvents },
+    ]
+    const { rootEm } = createDispatchEntityManagers()
+    installCapturingBus(rootEm)
+    ;(findWithDecryption as jest.Mock).mockImplementation(async (_em, _entity, where: EmitOptionsLike) =>
+      subscriptions.filter((subscription) =>
+        (!where.tenantId || subscription.tenantId === where.tenantId)
+        && (!where.organizationId || subscription.organizationId === where.organizationId)),
+    )
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(link)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(transaction)
+      .mockResolvedValueOnce({ ...transaction, gatewayTransactionId })
+    ;(isWebhookIntegrationEnabled as jest.Mock).mockResolvedValue(true)
+    ;(createWebhookDelivery as jest.Mock).mockResolvedValue({ ...scope, id: 'delivery' })
+
+    const tx = {
+      findOne: jest.fn(async () => link),
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data, id: transactionId })),
+      persist: jest.fn(),
+      flush: jest.fn(),
+      execute: jest.fn(async () => [{ active_reservation_count: 2 }]),
+    }
+    const services = {
+      em: {
+        transactional: (work: (em: typeof tx) => Promise<unknown>) => work(tx),
+        findOne: jest.fn(async () => null),
+      },
+      paymentGatewayService: {
+        createPaymentSession: async () => ({
+          transaction: { id: gatewayTransactionId, unifiedStatus: 'pending' },
+        }),
+      },
+      commandBus: {
+        execute: async (id: string, { input, ctx }: { input: Record<string, unknown>; ctx: CommandRuntimeContext }) => {
+          if (id === 'checkout.transaction.updateStatus') return { result: { ok: true } }
+          const command = commandRegistry.get(id)
+          if (!command) throw new Error(`Unknown command ${id}`)
+          return { result: await command.execute(input, ctx) }
+        },
+      },
+    }
+    ;(createRequestContainer as jest.Mock).mockResolvedValue({ resolve: (name: keyof typeof services) => services[name] })
+
+    const previousOrigin = process.env.APP_URL
+    process.env.APP_URL = 'https://merchant.example'
+    try {
+      const response = await submitPayLink(new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'Idempotency-Key': 'checkout-webhook-scope-9524' },
+        body: JSON.stringify({ amount: 25, customerData: {}, acceptedLegalConsents: {} }),
+      }), { params: { slug: link.slug } })
+      expect(response.status).toBe(201)
+      expect(tx.findOne).toHaveBeenCalledWith(
+        expect.anything(), expect.objectContaining({ id: link.id, ...scope }),
+      )
+      const delivered = jest.mocked(createWebhookDelivery).mock.calls.map(([delivery]) => ({
+        event: delivery.eventId,
+        subscription: delivery.webhook.id,
+        transactionId: delivery.payload.transactionId,
+      }))
+      expect(delivered).toEqual(subscribedEvents.map((event) => ({ event, subscription: 'matching', transactionId })))
+      expect(enqueueWebhookDelivery).toHaveBeenCalledTimes(2)
+    } finally {
+      if (previousOrigin === undefined) delete process.env.APP_URL
+      else process.env.APP_URL = previousOrigin
+    }
   })
 })

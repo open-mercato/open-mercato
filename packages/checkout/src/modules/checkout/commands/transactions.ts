@@ -147,7 +147,7 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       customerDataCaptured: true,
-    }).catch(() => undefined)
+    }, scope).catch(() => undefined)
     return { id: transaction.id }
   },
 }
