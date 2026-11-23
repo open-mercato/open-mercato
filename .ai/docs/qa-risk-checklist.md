@@ -70,6 +70,7 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 ## Lists and tables
 
 - Test header stability after reload on lists beyond those the PR names.
+- On URL-backed lists, change page-specific filters after typing a search and verify that both filters and the search survive reload.
 - Check late injected columns, saved views and default-hidden columns.
 - Check narrow widths: columns and row actions must stay reachable.
 

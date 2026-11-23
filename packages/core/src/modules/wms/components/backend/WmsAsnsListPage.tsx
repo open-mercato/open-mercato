@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
+import { buildUrlWithSearch, useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -291,18 +291,14 @@ export default function WmsAsnsListPage() {
                   value={statusFilter || (queueOpen ? 'queue-open' : 'all')}
                   onValueChange={(value) => {
                     setPage(1)
-                    if (value === 'queue-open') {
-                      setStatusFilter('')
-                      router.replace('/backend/wms/asns?queue=open')
-                      return
-                    }
-                    if (value === 'all') {
-                      setStatusFilter('')
-                      router.replace('/backend/wms/asns')
-                      return
-                    }
-                    setStatusFilter(value)
-                    router.replace(`/backend/wms/asns?status=${encodeURIComponent(value)}`)
+                    const params = new URLSearchParams(searchParams.toString())
+                    const nextStatus = value === 'all' || value === 'queue-open' ? '' : value
+                    params.delete('queue')
+                    params.delete('status')
+                    if (value === 'queue-open') params.set('queue', 'open')
+                    if (nextStatus) params.set('status', nextStatus)
+                    setStatusFilter(nextStatus)
+                    router.replace(buildUrlWithSearch('/backend/wms/asns', params.toString(), search))
                   }}
                 >
                   <SelectTrigger className="w-[180px]" data-testid="asn-status-filter">
