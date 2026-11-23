@@ -513,7 +513,7 @@ describe('GET /api/sync_xero/oauth/callback', () => {
   it('stores no grant when the Xero connection lock is unavailable', async () => {
     const started = await startConnect()
     memoryAdvisoryLock.failNext('deadline')
-    expect(resultOf(await finishConnect(started))).toBe('connect_failed')
+    expect(resultOf(await finishConnect(started))).toBe('connect_persist_failed')
     expect(grants.calls.some((call) => call.method === 'completeConnect')).toBe(false)
   })
 

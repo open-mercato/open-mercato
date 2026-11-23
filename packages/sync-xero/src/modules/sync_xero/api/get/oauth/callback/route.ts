@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { AdvisoryLockUnavailableError } from '@open-mercato/shared/lib/db/advisoryLock'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -220,6 +221,8 @@ export async function GET(req: Request, ctx?: XeroHandlerContext): Promise<Respo
   } catch (error) {
     if (error instanceof OAuthGrantError) {
       result = toCallbackResult(error.code)
+    } else if (error instanceof AdvisoryLockUnavailableError) {
+      result = 'connect_persist_failed'
     } else {
       reportCallbackError(error, 'sync_xero.oauth_callback_failed')
       result = 'connect_failed'

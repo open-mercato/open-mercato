@@ -1,5 +1,4 @@
 "use client"
-/* eslint-disable om-ds/require-loading-state -- The badge renders nothing until a link loads (App Spec US-2.2); an indicator would flash on every Company without a Xero link. */
 
 import * as React from 'react'
 import { ExternalLink } from 'lucide-react'
@@ -30,6 +29,7 @@ export default function XeroCompanyBadgeWidget({ context }: InjectionWidgetCompo
     setLink(null)
     if (!companyId) return
     let cancelled = false
+    // eslint-disable-next-line om-ds/require-loading-state -- The badge renders nothing until a link loads (App Spec US-2.2); an indicator would flash on every Company without a Xero link.
     void apiCall<{ link: XeroCompanyLink | null }>(`/api/sync_xero/companies/${encodeURIComponent(companyId)}`, undefined, { fallback: null })
       .then((call) => {
         if (!cancelled && call.ok) setLink(call.result?.link ?? null)

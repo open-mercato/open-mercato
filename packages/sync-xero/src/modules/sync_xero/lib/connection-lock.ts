@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AdvisoryLockUnavailableError, withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { XeroScope } from './owner'
 
 const XERO_CONNECTION_LOCK_NAMESPACE = 'sync_xero_connection'
@@ -43,7 +44,10 @@ export async function withXeroConnectionLock<T>(
     )
   } catch (error) {
     const finished = attempt.finished
-    if (finished && error instanceof AdvisoryLockUnavailableError && error.reason === 'commit_unknown') return finished.value
+    if (finished && error instanceof AdvisoryLockUnavailableError && error.reason === 'commit_unknown') {
+      getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code: 'sync_xero.connection_lock_commit_unknown' })
+      return finished.value
+    }
     throw error
   }
 }

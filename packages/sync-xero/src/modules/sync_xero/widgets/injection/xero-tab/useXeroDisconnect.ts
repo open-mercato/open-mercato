@@ -1,5 +1,4 @@
 "use client"
-/* eslint-disable om-ds/require-loading-state -- The hook exposes isWorking; DisconnectDialog renders it on its confirm button. */
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -39,6 +38,7 @@ export function useXeroDisconnect({ revisedAt, confirm, run, onDone }: UseXeroDi
     (body: DisconnectBody) =>
       run(body, () =>
         withScopedApiRequestHeaders(buildOptimisticLockHeader(body.force ? null : revisedAt), () =>
+          // eslint-disable-next-line om-ds/require-loading-state -- The hook exposes isWorking; DisconnectDialog renders it on its confirm button.
           apiCallOrThrow<XeroDisconnectResponse>('/api/sync_xero/disconnect', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
