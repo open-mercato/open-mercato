@@ -3,11 +3,24 @@
  */
 import * as React from 'react'
 import { render, screen } from '@testing-library/react'
+import ScheduleDetailPage from '../[id]/page'
 import SchedulerPage from '../page'
 
 let mockGrantedFeatures: string[]
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 const mockPush = jest.fn()
+const mockSchedule = {
+  id: 'schedule-1',
+  name: 'Nightly sync',
+  scopeType: 'tenant',
+  scheduleType: 'cron',
+  scheduleValue: '0 0 * * *',
+  timezone: 'UTC',
+  targetType: 'queue',
+  targetQueue: 'sync',
+  isEnabled: true,
+  sourceType: 'user',
+}
 
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }) }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
@@ -17,6 +30,12 @@ jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
 jest.mock('@open-mercato/ui/backend/Page', () => ({
   Page: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
   PageBody: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  PageHeader: ({ title, actions }: { title: string; actions?: React.ReactNode }) => (
+    <header>
+      <h1>{title}</h1>
+      {actions}
+    </header>
+  ),
 }))
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   DataTable: ({ actions, data, rowActions, emptyState }: {
@@ -46,16 +65,20 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({ confirm: jest.fn(), ConfirmDialogElement: null }),
 }))
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  apiCallOrThrow: async () => ({ result: { items: [{ id: 'schedule-1' }] } }),
+  apiCallOrThrow: async (url: string) => ({
+    result: { items: url.startsWith('/api/scheduler/jobs?') ? [mockSchedule] : [] },
+  }),
 }))
 
+const permissionCases = [
+  { grants: [], manage: false, trigger: false },
+  { grants: ['scheduler.jobs.manage'], manage: true, trigger: false },
+  { grants: ['scheduler.jobs.trigger'], manage: false, trigger: true },
+  { grants: ['scheduler.*'], manage: true, trigger: true },
+]
+
 describe('Scheduled Jobs controls', () => {
-  it.each([
-    { grants: [], manage: false, trigger: false },
-    { grants: ['scheduler.jobs.manage'], manage: true, trigger: false },
-    { grants: ['scheduler.jobs.trigger'], manage: false, trigger: true },
-    { grants: ['scheduler.*'], manage: true, trigger: true },
-  ])('shows only actions granted by $grants', async ({ grants, manage, trigger }) => {
+  it.each(permissionCases)('shows only list actions granted by $grants', async ({ grants, manage, trigger }) => {
     mockGrantedFeatures = ['scheduler.jobs.view', ...grants]
     render(<SchedulerPage />)
 
@@ -65,5 +88,15 @@ describe('Scheduled Jobs controls', () => {
     expect(Boolean(screen.queryByText('Edit'))).toBe(manage)
     expect(Boolean(screen.queryByText('Delete'))).toBe(manage)
     expect(Boolean(screen.queryByText('Run Now'))).toBe(trigger)
+  })
+
+  it.each(permissionCases)('shows only detail actions granted by $grants', async ({ grants, manage, trigger }) => {
+    mockGrantedFeatures = ['scheduler.jobs.view', ...grants]
+    render(<ScheduleDetailPage params={{ id: mockSchedule.id }} />)
+
+    await screen.findByRole('heading', { name: mockSchedule.name })
+    expect(Boolean(screen.queryByRole('switch', { name: 'Enabled' }))).toBe(manage)
+    expect(Boolean(screen.queryByRole('button', { name: 'Edit' }))).toBe(manage)
+    expect(Boolean(screen.queryByRole('button', { name: 'Trigger Now' }))).toBe(trigger)
   })
 })
