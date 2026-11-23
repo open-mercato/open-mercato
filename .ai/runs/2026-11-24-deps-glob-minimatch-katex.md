@@ -49,8 +49,8 @@ No application code, no CI/workflow changes, no alert dismissals, no issue creat
 
 ### Phase 1: Remediation
 
-- [ ] 1.1 Pin patched transitive versions in root `resolutions` and regenerate `yarn.lock`.
-- [ ] 1.2 Prove no vulnerable copies remain: `yarn why` per package and lockfile grep.
+- [x] 1.1 Pin patched transitive versions in root `resolutions` and regenerate `yarn.lock`. — 8c76f0d3d3
+- [x] 1.2 Prove no vulnerable copies remain: `yarn why` per package and lockfile grep. — 8c76f0d3d3
 
 ### Phase 2: Verification and review
 
