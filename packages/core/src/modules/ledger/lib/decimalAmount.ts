@@ -28,6 +28,10 @@ function decimalSeparator(locale?: string): string {
   return part?.value ?? '.'
 }
 
+export function formatPostedDecimal(value: string, locale?: string): string {
+  return value.replace('.', decimalSeparator(locale))
+}
+
 /**
  * Formats units of 1/10 000 for display in `locale`: at least two and at most
  * four decimals, digits grouped the way the locale groups them.

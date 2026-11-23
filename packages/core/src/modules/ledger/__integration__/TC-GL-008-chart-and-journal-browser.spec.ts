@@ -8,7 +8,8 @@ import { createLedgerBrowserFixture } from './ledgerBrowserFixture'
 
 test('manages the chart of accounts and reads a posted entry as a viewer', async ({ page, browser, request, baseURL }) => {
   const fixture = await createLedgerBrowserFixture(request, baseURL)
-  let currencyId: string | null = null
+  let baseCurrencyId: string | null = null
+  let foreignCurrencyId: string | null = null
   try {
     await fixture.login(page, ['ledger.accounts.view', 'ledger.accounts.manage'])
     const main = page.getByRole('main')
@@ -58,15 +59,29 @@ test('manages the chart of accounts and reads a posted entry as a viewer', async
     const creditAccountId = await createAccountFixture(request, token, {
       ...scope, accountTypeId, number: '456-02', description: 'QA Stored credit account',
     }, { headers })
-    currencyId = await createCurrencyFixture(request, token, {
-      ...scope, headers, code: generateUniqueCurrencyCode(), name: 'QA Journal currency',
+    baseCurrencyId = await createCurrencyFixture(request, token, {
+      ...scope, headers, code: generateUniqueCurrencyCode(), name: 'QA Journal base currency',
+    })
+    foreignCurrencyId = await createCurrencyFixture(request, token, {
+      ...scope, headers, code: generateUniqueCurrencyCode(), name: 'QA Journal foreign currency',
     })
     const sequenceNumber = 1
-    await seedJournalEntryInDb({
-      ...scope, currencyId, operationDate: '2034-01-15', sequenceNumber, description: 'QA Browser journal entry',
+    const foreignLine = { currencyId: foreignCurrencyId, exchangeRate: '4.30001234', amountCurrency: '100.0001' }
+    const baseLine = { currencyId: baseCurrencyId, exchangeRate: '1.00000000', amountCurrency: '430.0017' }
+    const balance = '430.0017'
+    const entryId = await seedJournalEntryInDb({
+      ...scope, currencyId: foreignCurrencyId, operationDate: '2034-01-15', sequenceNumber, description: 'QA Browser journal entry',
       lines: [
-        { accountId: debitAccountId, debit: '12.5', credit: '0' },
-        { accountId: creditAccountId, debit: '0', credit: '12.5' },
+        { accountId: debitAccountId, debit: balance, credit: '0', originalCurrency: baseLine },
+        { accountId: creditAccountId, debit: '0', credit: balance, originalCurrency: foreignLine },
+      ],
+    })
+    const reversalId = await seedJournalEntryInDb({
+      ...scope, currencyId: foreignCurrencyId, operationDate: '2034-01-16', sequenceNumber: sequenceNumber + 1,
+      description: 'QA Browser reversal', type: 'REVERSAL', referenceType: 'journal_entry', referenceId: entryId,
+      lines: [
+        { accountId: debitAccountId, debit: '0', credit: balance, originalCurrency: baseLine },
+        { accountId: creditAccountId, debit: balance, credit: '0', originalCurrency: foreignLine },
       ],
     })
 
@@ -88,14 +103,34 @@ test('manages the chart of accounts and reads a posted entry as a viewer', async
       const journal = content.getByRole('row', { name: /QA Browser journal entry/ })
       await journal.getByRole('link', { name: String(sequenceNumber), exact: true }).click()
       await expect(content.getByRole('heading', { name: `Journal entry #${sequenceNumber}` })).toBeVisible()
-      await expect(content.getByRole('cell', { name: 'QA Stored debit account' })).toBeVisible()
-      await expect(content.getByRole('cell', { name: 'QA Stored credit account' })).toBeVisible()
+      const table = content.getByRole('table')
+      await expect(table.getByRole('columnheader')).toHaveText([
+        'Account number', 'Account name', 'Currency', 'Exchange rate', 'Original amount', 'Debit', 'Credit',
+      ])
+      const debitCells = table.getByRole('row', { name: /QA Stored debit account/ }).getByRole('cell')
+      const creditCells = table.getByRole('row', { name: /QA Stored credit account/ }).getByRole('cell')
+      const debitFields = ['456-01', 'QA Stored debit account', baseCurrencyId, '1.00000000', '430.0017']
+      const creditFields = ['456-02', 'QA Stored credit account', foreignCurrencyId, '4.30001234', '100.0001']
+      await expect(debitCells).toHaveText([...debitFields, balance, ''])
+      await expect(creditCells).toHaveText([...creditFields, '', balance])
       await viewer.screenshot({ path: test.info().outputPath('ledger-journal-detail.png') })
+
+      await content.getByRole('link', { name: '#2', exact: true }).click()
+      await expect(viewer).toHaveURL(new RegExp(reversalId + '$'))
+      await expect(content.getByRole('heading', { name: 'Journal entry #2' })).toBeVisible()
+      await expect(debitCells).toHaveText([...debitFields, '', balance])
+      await expect(creditCells).toHaveText([...creditFields, balance, ''])
+      await expect(content.getByRole('link', { name: '#1', exact: true })).toHaveAttribute(
+        'href', `/backend/ledger/journal-entries/${entryId}`,
+      )
+      await viewer.screenshot({ path: test.info().outputPath('ledger-journal-reversal.png') })
     } finally {
       await viewer.close()
     }
   } finally {
-    await deleteCurrenciesEntityIfExists(request, fixture.token, '/api/currencies/currencies', currencyId, { headers: fixture.headers })
+    for (const currencyId of [foreignCurrencyId, baseCurrencyId]) {
+      await deleteCurrenciesEntityIfExists(request, fixture.token, '/api/currencies/currencies', currencyId, { headers: fixture.headers })
+    }
     await fixture.cleanup()
   }
 })

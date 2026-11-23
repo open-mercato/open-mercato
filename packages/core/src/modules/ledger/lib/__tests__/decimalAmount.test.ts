@@ -1,6 +1,7 @@
 import {
   formatAmountOrBlank,
   formatAmountUnits,
+  formatPostedDecimal,
   parseAmountUnits,
   sumAmountUnits,
 } from '../decimalAmount'
@@ -31,6 +32,13 @@ describe('sumAmountUnits', () => {
   it('sums without float drift', () => {
     expect(sumAmountUnits(['0.1', '0.2'])).toBe(BigInt(3000))
     expect(sumAmountUnits(['999999999999999.9999', '0.0001'])).toBe(BigInt('10000000000000000000'))
+  })
+})
+
+describe('formatPostedDecimal', () => {
+  it('preserves the stored decimal precision for exchange rates and original amounts', () => {
+    expect(formatPostedDecimal('9999999999.12345678', 'pl-PL')).toBe('9999999999,12345678')
+    expect(formatPostedDecimal('999999999999999.0001', 'en-US')).toBe('999999999999999.0001')
   })
 })
 
