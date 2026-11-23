@@ -364,8 +364,10 @@ export default function ScheduleDetailPage({ params }: { params?: { id?: string 
                 <div>
                   <dt className="text-sm font-medium text-muted-foreground">{t('scheduler.field.schedule', 'Schedule')}</dt>
                   <dd className="text-sm mt-1">
-                    {schedule.scheduleValue} 
-                    <span className="text-muted-foreground ml-1">({schedule.scheduleType})</span>
+                    {schedule.scheduleValue}
+                    <span className="text-muted-foreground ml-1">
+                      ({t(`scheduler.type.${schedule.scheduleType}`, schedule.scheduleType)})
+                    </span>
                   </dd>
                 </div>
                 <div>

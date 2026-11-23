@@ -182,7 +182,7 @@ export default function SchedulerPage() {
         accessorKey: 'scheduleType',
         header: t('scheduler.field.schedule_type', 'Type'),
         cell: ({ row }) => (
-          <span className="capitalize">{row.original.scheduleType}</span>
+          <span>{t(`scheduler.type.${row.original.scheduleType}`, row.original.scheduleType)}</span>
         ),
       },
       {
@@ -205,7 +205,9 @@ export default function SchedulerPage() {
             : row.original.targetCommand
           return (
             <div className="flex flex-col">
-              <span className="text-xs text-muted-foreground capitalize">{row.original.targetType}</span>
+              <span className="text-xs text-muted-foreground">
+                {t(`scheduler.target.${row.original.targetType}`, row.original.targetType)}
+              </span>
               <span className="text-sm">{target || '-'}</span>
             </div>
           )
@@ -233,7 +235,9 @@ export default function SchedulerPage() {
         header: t('scheduler.field.source', 'Source'),
         cell: ({ row }) => (
           <span className="text-xs capitalize">
-            {row.original.sourceType}
+            {row.original.sourceType === 'module'
+              ? t('scheduler.details.source_module', 'Module')
+              : t('scheduler.details.source_user', 'User-created')}
             {row.original.sourceModule && ` (${row.original.sourceModule})`}
           </span>
         ),

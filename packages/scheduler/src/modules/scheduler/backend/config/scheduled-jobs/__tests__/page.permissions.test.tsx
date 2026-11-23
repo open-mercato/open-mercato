@@ -45,16 +45,22 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
   ),
 }))
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
-  DataTable: ({ actions, data, rowActions, emptyState }: {
+  DataTable: ({ actions, columns, data, rowActions, emptyState }: {
     actions?: React.ReactNode
-    data: Array<{ id: string }>
-    rowActions: (row: { id: string }) => React.ReactNode
+    columns: Array<{ id: string; cell?: (context: { row: { original: typeof mockSchedule } }) => React.ReactNode }>
+    data: Array<typeof mockSchedule>
+    rowActions: (row: typeof mockSchedule) => React.ReactNode
     emptyState: React.ReactNode
   }) => (
     <div>
       {actions}
       {emptyState}
-      {data.map((row) => <div key={row.id}>{rowActions(row)}</div>)}
+      {data.map((row) => (
+        <div key={row.id}>
+          {columns.map((column) => <div key={column.id}>{column.cell?.({ row: { original: row } })}</div>)}
+          {rowActions(row)}
+        </div>
+      ))}
     </div>
   ),
 }))
@@ -116,12 +122,23 @@ describe('Scheduled Jobs controls', () => {
     expect(Boolean(screen.queryByRole('button', { name: 'Trigger Now' }))).toBe(trigger)
   })
 
-  it('uses the selected language for schedule scope and relative run time', async () => {
+  it('uses the selected language for schedule type, scope and relative run time', async () => {
     mockLocale = 'pl'
     mockGrantedFeatures = ['scheduler.jobs.view']
     render(<ScheduleDetailPage params={{ id: mockSchedule.id }} />)
 
     expect(await screen.findByText('Organizacja')).toBeTruthy()
+    expect(screen.getByText('(Wyrażenie Cron)')).toBeTruthy()
     expect(screen.getByText(/za .*godzin/i)).toBeTruthy()
+  })
+
+  it('uses the selected language for schedule type, target and source in the list', async () => {
+    mockLocale = 'pl'
+    mockGrantedFeatures = ['scheduler.jobs.view']
+    render(<SchedulerPage />)
+
+    expect(await screen.findByText('Wyrażenie Cron')).toBeTruthy()
+    expect(screen.getByText('Kolejka')).toBeTruthy()
+    expect(screen.getByText('Utworzony przez użytkownika')).toBeTruthy()
   })
 })
