@@ -1671,7 +1671,11 @@ describe('cart.lines.update / cart.lines.remove advisory lock', () => {
     return line
   }
 
-  async function runAfterLockRace(commandId: 'cart.lines.update' | 'cart.lines.remove', race: (row: Row) => void) {
+  async function runAfterLockRace(
+    commandId: 'cart.lines.update' | 'cart.lines.remove',
+    race: (row: Row) => void,
+    extraInput: Record<string, unknown> = {},
+  ) {
     seedCustomerLine()
     const handler = getHandler<any, any>(commandId)
     const em = makeEm()
@@ -1691,12 +1695,42 @@ describe('cart.lines.update / cart.lines.remove advisory lock', () => {
       : { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1' }
     let captured: unknown
     try {
-      await handler.execute(input, makeCtx({ em }))
+      await handler.execute({ ...input, ...extraInput }, makeCtx({ em }))
     } catch (err) {
       captured = err
     }
     return { captured, lockKeys, em }
   }
+
+  it.each(['cart.lines.update', 'cart.lines.remove'] as const)(
+    '%s answers the no-oracle 404 when a merge rotated the cart token the route resolved the cart with',
+    async (commandId) => {
+      seededCarts.find((row) => row.id === CART_ID)!.tokenHash = 'route-token-hash'
+      const { captured } = await runAfterLockRace(
+        commandId,
+        (row) => {
+          if (row.id === CART_ID) row.tokenHash = 'rotated-by-merge'
+        },
+        { cartTokenHash: 'route-token-hash' },
+      )
+
+      expect(isCrudHttpError(captured)).toBe(true)
+      expect((captured as { status: number }).status).toBe(404)
+      expect((captured as { body?: Record<string, unknown> }).body).toEqual({ error: '[internal] cart not found' })
+      expect(seededCartLines[0].deletedAt).toBeNull()
+      expect(seededCartLines[0].quantity).toBe('5')
+    },
+  )
+
+  it.each(['cart.lines.update', 'cart.lines.remove'] as const)(
+    '%s proceeds when the cart token the route resolved the cart with still holds under the lock',
+    async (commandId) => {
+      seededCarts.find((row) => row.id === CART_ID)!.tokenHash = 'route-token-hash'
+      const { captured } = await runAfterLockRace(commandId, () => undefined, { cartTokenHash: 'route-token-hash' })
+
+      expect(captured).toBeUndefined()
+    },
+  )
 
   it.each(['cart.lines.update', 'cart.lines.remove'] as const)(
     '%s takes the per-cart advisory lock and answers 423 once a concurrent cart.lock committed inside it',

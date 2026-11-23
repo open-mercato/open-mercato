@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
+import { notFound } from '@open-mercato/shared/lib/crud/errors'
 
 // §8.3 (Token security): the cart token is the only credential an anonymous buyer holds.
 // It MUST be 32+ bytes of CSPRNG entropy, base64url-encoded, and NEVER persisted in
@@ -39,4 +40,15 @@ export function generateCartToken(): GeneratedCartToken {
  */
 export function hashCartToken(token: string): string {
   return sha256Hex(token)
+}
+
+/**
+ * §8.3: re-checked under the cart's advisory lock against the digest of the token the route
+ * resolved the cart with. A merge or adoption that rotated the token in between means that
+ * token no longer proves possession, so the request gets the same no-oracle 404 as an
+ * unknown token. `undefined` (a trusted, non-token caller) skips the check.
+ */
+export function assertCartTokenHashUnchanged(cart: { tokenHash: string }, expectedTokenHash: string | undefined): void {
+  if (expectedTokenHash === undefined) return
+  if (cart.tokenHash !== expectedTokenHash) throw notFound('[internal] cart not found')
 }

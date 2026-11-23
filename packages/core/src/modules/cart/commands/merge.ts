@@ -1,7 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError, badRequest, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
@@ -18,17 +19,18 @@ import type { PolicyResolutionService } from '@open-mercato/core/modules/availab
 
 import { Cart, CartLine, CartMergeLog } from '../data/entities'
 import type { CartMergeActorType, CartMergeLineDisposition, CartMergeOutcomeEntry, CartMergeStrategy } from '../data/entities'
-import { generateCartToken, hashCartToken } from '../lib/token'
+import { assertCartTokenHashUnchanged, generateCartToken, hashCartToken } from '../lib/token'
 import { shouldEnforceAssortmentScope } from '../lib/routeContext'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { cartVisibilityKey, evaluateCartVisibility, isVisible } from '../lib/visibility'
 import type { CartVisibilityResult } from '../lib/visibility'
 import { assertCartNotLocked } from '../lib/lockGuard'
 import { recordBasketMutationActivity } from '../lib/cartActivity'
-import { withCartLineMutationLock } from '../lib/lineMutationLock'
+import { CartLineMutationLockTimeoutError, withCartLineMutationLock } from '../lib/lineMutationLock'
+import { resolveCartCurrencyDecimalPlaces } from '../lib/exactPricing'
 import { emitCartEvent } from '../events'
-import { repriceCartCommand } from './cart'
-import type { CartRepriceInput, CartRepriceResult } from './cart'
+import { loadCartRepriceLines, prepareCartReprice } from './cart'
+import type { CartRepriceInput, CartRepricePlan, CartRepriceResult } from './cart'
 import { emitVisibilityRejectedEvent, toCartLineSnapshot } from './lines'
 import type { CartLineSnapshot } from './lines'
 
@@ -250,6 +252,9 @@ export type CartMergeInput = {
    * session of its own (documented judgment call on the public body shape, §10's route
    * table never states one — see `data/validators.ts`'s `cartMergeRequestSchema`). */
   sourceToken: string
+  /** SHA-256 digest of the `X-Cart-Token` the route resolved `targetCartId` with — re-checked
+   * under both carts' locks, so a target token rotated in between gets the no-oracle 404. */
+  targetTokenHash?: string
   /** Always supplied on this step's one calling path (`POST /current/merge`, always a
    * storefront route) — used for the ADOPT case's ownership reassignment, the merge log's
    * `merged_by_actor_*` attribution, and the post-merge mandatory re-price dispatch. */
@@ -592,7 +597,10 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
       return { strategy, survivorCart, absorbedCart, outcome, newLines, mergeLog }
     }
 
-    const locked: { decision?: Awaited<ReturnType<typeof decideMerge>> } = {}
+    // Resolved before the locked transaction, so it never needs a second pooled connection;
+    // both carts share one currency (checked above).
+    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, sessionCart)
+    const locked: { decision?: Awaited<ReturnType<typeof decideMerge>>; reprice?: CartRepricePlan } = {}
     await withCartLineMutationLock(
       em,
       [sessionCart.id, guestCart.id],
@@ -600,6 +608,9 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
         async () => {
           await em.refresh(sessionCart)
           await em.refresh(guestCart)
+          // §8.3: a concurrent merge or adoption that rotated the TARGET's token leaves the
+          // target active, so its status alone cannot prove the route's token still holds.
+          assertCartTokenHashUnchanged(sessionCart, input.targetTokenHash)
           assertCartNotLocked(sessionCart)
           if (sessionCart.status !== 'active' || guestCart.status !== 'active') {
             throw notFound('[internal] cart not found')
@@ -627,26 +638,44 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
           for (const line of decided.newLines) em.persist(line)
           locked.decision = decided
         },
+        // §7.3: mandatory, whole-cart, for EVERY successful merge outcome (including
+        // `keep_target`, where nothing moved) — trigger 2 (buyer identity changes) fires on
+        // every login regardless of which §7.1 row the merge resolved to. It runs inside the
+        // same transaction and locks as the merge, from the survivor's lines as just written,
+        // so a checkout lock can never take the survivor between the merge and its re-price.
+        async () => {
+          const survivorCart = locked.decision!.survivorCart
+          const repriceInput: CartRepriceInput = {
+            cartId: survivorCart.id,
+            tenantId: survivorCart.tenantId,
+            organizationId: survivorCart.organizationId,
+            trigger: 'merge',
+            routeContext: input.routeContext,
+          }
+          const lines = await loadCartRepriceLines(em, survivorCart)
+          const plan = prepareCartReprice({ em, container: ctx.container, cart: survivorCart, lines, input: repriceInput, now, currencyDecimalPlaces })
+          locked.reprice = plan
+          await withAtomicFlush(em, plan.phases, { transaction: true, label: 'cart.merge' })
+        },
       ],
       'cart.merge',
     )
-    if (!locked.decision) throw new Error('[internal] cart.merge finished without a merge decision')
+    if (!locked.decision || !locked.reprice) throw new Error('[internal] cart.merge finished without a merge decision')
     const { strategy, survivorCart, absorbedCart, outcome, newLines, mergeLog } = locked.decision
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    // The SURVIVOR cart's own `cart.cart.updated` + indexing fires from the mandatory
-    // re-price dispatch below (it always flushes the cart row inside its own transaction) —
-    // emitting it again here would double-fire for every merge. The ABSORBED cart is never
-    // touched by that dispatch, so its own side effects fire here, the only place that ever
-    // will.
+    // The SURVIVOR cart's own `cart.cart.updated` + indexing fires from the re-price's side
+    // effects below — emitting it again here would double-fire for every merge. The ABSORBED
+    // cart is never touched by the re-price, so its own side effects fire here, the only
+    // place that ever will.
     await emitCrudSideEffects({ dataEngine, action: 'updated', entity: absorbedCart, identifiers: getCartIdentifiers(absorbedCart), events: cartCrudEvents, indexer: cartCrudIndexer })
     for (const line of newLines) {
       await emitCrudSideEffects({ dataEngine, action: 'created', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
       await emitCartEvent('cart.line.added', { id: line.id, cartId: line.cartId, organizationId: line.organizationId, tenantId: line.tenantId })
     }
-    // Summed/capped lines are not NEW — the subsequent re-price dispatch's own whole-cart
-    // pass re-prices and `cart.line.updated`-emits every eligible line, this one included,
-    // so no separate emission is needed here for `updatedLineIds`.
+    // Summed/capped lines are not NEW — the re-price's own whole-cart pass re-prices and
+    // `cart.line.updated`-emits every eligible line, this one included, so no separate
+    // emission is needed here for `updatedLineIds`.
 
     // Step 7.4 — §6a.5/D-R4-23: the operator-facing signal, once per request, counting every
     // `'rejected'` entry THIS merge call produced (zero for `keep_target`/`replace`, which
@@ -674,24 +703,8 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
       })
     }
 
-    // §7.3: mandatory, whole-cart, dispatched for EVERY successful merge outcome (including
-    // `keep_target`, where nothing moved) — documented judgment call, task brief question
-    // (2). Trigger 2 (buyer identity changes) fires on every login regardless of which §7.1
-    // row the merge itself resolved to, since the buyer's own identity just became known
-    // either way; re-pricing only the outcomes that moved lines would under-fire exactly
-    // the case §7.3 says trigger 2 exists for.
-    const commandBus = ctx.container.resolve('commandBus') as CommandBus
-    const repriceInput: CartRepriceInput = {
-      cartId: survivorCart.id,
-      tenantId: survivorCart.tenantId,
-      organizationId: survivorCart.organizationId,
-      trigger: 'merge',
-      routeContext: input.routeContext,
-    }
-    const { result: repriceResult } = await commandBus.execute<CartRepriceInput, CartRepriceResult>(repriceCartCommand.id, {
-      input: repriceInput,
-      ctx,
-    })
+    await locked.reprice.emitSideEffects()
+    const repriceResult = locked.reprice.buildResult()
 
     const counts = { merged: 0, summed: 0, capped: 0, declined: 0, rejected: 0 }
     for (const entry of outcome) counts[entry.disposition] += 1
@@ -743,21 +756,29 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     if (!isWithinMergeUndoWindow(mergeLog, new Date())) return
     let restored: RestoredMerge
     try {
-      restored = await restoreCartMerge(em, { tenantId: mergeLog.tenantId, organizationId: mergeLog.organizationId }, mergeLog)
+      restored = await restoreCartMerge(
+        em,
+        { tenantId: mergeLog.tenantId, organizationId: mergeLog.organizationId },
+        mergeLog,
+        { container: ctx.container, routeContext: undefined },
+      )
     } catch (err) {
       // Same no-HTTP-consumer convention as the window check above: an already-undone
-      // log or a survivor cart that is locked/no-longer-active is a no-op here, not an
-      // error to surface — `cart.mergeUndo` (buyer-facing) is the path that throws these.
+      // log, a window that closed meanwhile or a survivor cart that is locked/no-longer-active
+      // is a no-op here, not an error to surface — `cart.mergeUndo` (buyer-facing) is the
+      // path that throws these.
       if (
         isCrudHttpError(err) &&
-        (err.body?.code === 'merge_already_undone' || err.body?.code === 'cart_not_active' || err.body?.code === 'cart_locked')
+        (err.body?.code === 'merge_already_undone' ||
+          err.body?.code === 'merge_undo_window_expired' ||
+          err.body?.code === 'cart_not_active' ||
+          err.body?.code === 'cart_locked')
       ) {
         return
       }
       throw err
     }
     await emitMergeUndoSideEffects(ctx.container, restored)
-    await dispatchPostUndoReprice(ctx, restored.survivorCart, undefined)
   },
 }
 
@@ -778,6 +799,31 @@ type RestoredMerge = {
   absorbedCart: Cart
   deletedLineIds: string[]
   restoredLines: CartLine[]
+  reprice: CartRepricePlan
+}
+
+type RestoreCartMergeOptions = {
+  container: CommandRuntimeContext['container']
+  routeContext: ResolvedCartRouteContext | undefined
+  /** `cart.mergeUndo`: undo whichever merge into the survivor is the most recent once both
+   * carts' locks are held, not the one selected before them. */
+  selectLatest?: boolean
+  /** SHA-256 digest of the token the route resolved the survivor with (§8.3). */
+  expectedTokenHash?: string
+}
+
+const MERGE_UNDO_SELECTION_ATTEMPTS = 3
+
+async function findLatestMergeLog(em: EntityManager, scope: CartMergeScope, targetCartId: string): Promise<CartMergeLog | null> {
+  const logs = (await findWithDecryption(
+    em,
+    CartMergeLog,
+    { targetCartId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { refresh: true },
+    scope,
+  )) as CartMergeLog[]
+  if (logs.length === 0) return null
+  return logs.reduce((a, b) => (a.createdAt.getTime() >= b.createdAt.getTime() ? a : b))
 }
 
 /**
@@ -809,7 +855,29 @@ type RestoredMerge = {
  * one respect (a client that discarded the new token cannot reach undo at all for an
  * adopted cart), documented here per the task brief rather than silently shipped.
  */
-async function restoreCartMerge(em: EntityManager, scope: CartMergeScope, mergeLog: CartMergeLog): Promise<RestoredMerge> {
+async function restoreCartMerge(
+  em: EntityManager,
+  scope: CartMergeScope,
+  mergeLog: CartMergeLog,
+  options: RestoreCartMergeOptions,
+): Promise<RestoredMerge> {
+  let selected = mergeLog
+  for (let attempt = 1; attempt <= MERGE_UNDO_SELECTION_ATTEMPTS; attempt += 1) {
+    const attempted = await restoreSelectedCartMerge(em, scope, selected, options)
+    if (attempted.restored) return attempted.restored
+    // A newer merge into the survivor came from a different cart, so it needs that cart's
+    // lock: release these, then take the pair the newer merge names.
+    selected = attempted.latest
+  }
+  throw new CartLineMutationLockTimeoutError()
+}
+
+async function restoreSelectedCartMerge(
+  em: EntityManager,
+  scope: CartMergeScope,
+  mergeLog: CartMergeLog,
+  options: RestoreCartMergeOptions,
+): Promise<{ restored: RestoredMerge; latest?: undefined } | { restored?: undefined; latest: CartMergeLog }> {
   // Review finding: this log could otherwise be restored repeatedly within the 15-minute
   // window — a second call would re-apply `previousTargetQuantity`, wiping any edit made
   // after the first undo. `undoneAt` is set once, at the end of this function's own
@@ -843,38 +911,66 @@ async function restoreCartMerge(em: EntityManager, scope: CartMergeScope, mergeL
   )
   if (!absorbedCart) throw notFound('[internal] absorbed cart no longer exists')
 
-  const outcome = (mergeLog.outcome ?? []) as StoredMergeOutcomeEntry[]
-  const touchedLineIds = outcome.map((entry) => entry.targetLineId).filter((id): id is string => !!id)
-  const targetLines = touchedLineIds.length
-    ? ((await findWithDecryption(em, CartLine, { id: { $in: touchedLineIds }, tenantId: scope.tenantId, organizationId: scope.organizationId }, {}, scope)) as CartLine[])
-    : []
-  const targetLineById = new Map(targetLines.map((line) => [line.id, line]))
-  const snapshot = normalizeSourceSnapshot(mergeLog.sourceSnapshot)
-
+  // Resolved before the locked transaction, so it never needs a second pooled connection.
+  const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(options.container, survivorCart)
   const deletedLineIds: string[] = []
   const restoredLines: CartLine[] = []
   const now = new Date()
+  const locked: { log: CartMergeLog; newerLog?: CartMergeLog; reprice?: CartRepricePlan } = { log: mergeLog }
 
   await withCartLineMutationLock(
     em,
     [survivorCart.id, absorbedCart.id],
     [
       async () => {
-        // §8.1 (rev 10.1 — I1): the pre-checks above ran before the locks; a `cart.lock` or a
-        // second undo that committed meanwhile is refused here, before anything is restored.
+        // §8.1 (rev 10.1 — I1): the pre-checks above ran before the locks; a token rotation,
+        // a `cart.lock`, a newer merge or a second undo that committed meanwhile is judged
+        // here, before anything is restored.
         await em.refresh(survivorCart)
+        assertCartTokenHashUnchanged(survivorCart, options.expectedTokenHash)
         assertCartNotLocked(survivorCart)
         if (survivorCart.status !== 'active') {
           throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: survivorCart.status })
         }
-        await em.refresh(mergeLog)
-        if (mergeLog.undoneAt) {
+        if (options.selectLatest) {
+          const latest = await findLatestMergeLog(em, scope, survivorCart.id)
+          if (!latest) throw notFound('[internal] no merge to undo for this cart')
+          if (latest.sourceCartId !== absorbedCart.id) {
+            locked.newerLog = latest
+            return
+          }
+          locked.log = latest
+        }
+        const log = locked.log
+        await em.refresh(log)
+        if (log.undoneAt) {
           throw new CrudHttpError(409, { error: '[internal] merge_already_undone', code: 'merge_already_undone' })
+        }
+        if (!isWithinMergeUndoWindow(log, now)) {
+          throw new CrudHttpError(409, { error: '[internal] merge_undo_window_expired', code: 'merge_undo_window_expired' })
         }
         await em.refresh(absorbedCart)
         if (absorbedCart.status !== 'merged') {
           throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: absorbedCart.status })
         }
+
+        // Read under the locks, refreshed: a line update that committed after an earlier read
+        // would otherwise leave a stale quantity equal to `previousTargetQuantity`, so the
+        // assignment below would produce no change set and the undo would keep the wrong one.
+        const outcome = (log.outcome ?? []) as StoredMergeOutcomeEntry[]
+        const touchedLineIds = outcome.map((entry) => entry.targetLineId).filter((id): id is string => !!id)
+        const targetLines = touchedLineIds.length
+          ? ((await findWithDecryption(
+              em,
+              CartLine,
+              { id: { $in: touchedLineIds }, cartId: survivorCart.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+              { refresh: true },
+              scope,
+            )) as CartLine[])
+          : []
+        const targetLineById = new Map(targetLines.map((line) => [line.id, line]))
+        const snapshot = normalizeSourceSnapshot(log.sourceSnapshot)
+
         for (const entry of outcome) {
           if (!entry.targetLineId) continue
           const line = targetLineById.get(entry.targetLineId)
@@ -888,7 +984,7 @@ async function restoreCartMerge(em: EntityManager, scope: CartMergeScope, mergeL
           }
         }
 
-        if (mergeLog.strategy === 'replace' && snapshot.survivorBuyerContextBefore) {
+        if (log.strategy === 'replace' && snapshot.survivorBuyerContextBefore) {
           const before = snapshot.survivorBuyerContextBefore
           survivorCart.customerId = before.customerId
           survivorCart.customerIds = before.customerIds
@@ -903,13 +999,31 @@ async function restoreCartMerge(em: EntityManager, scope: CartMergeScope, mergeL
         absorbedCart.mergedIntoCartId = null
         absorbedCart.resolvedAt = absorbedExpired ? now : null
 
-        mergeLog.undoneAt = now
+        log.undoneAt = now
+      },
+      // The mandatory re-price runs in the same transaction and under the same locks as the
+      // restore, so a checkout lock cannot take the survivor between the two.
+      async () => {
+        if (locked.newerLog) return
+        const repriceInput: CartRepriceInput = {
+          cartId: survivorCart.id,
+          tenantId: survivorCart.tenantId,
+          organizationId: survivorCart.organizationId,
+          trigger: 'merge',
+          routeContext: options.routeContext,
+        }
+        const lines = await loadCartRepriceLines(em, survivorCart)
+        const plan = prepareCartReprice({ em, container: options.container, cart: survivorCart, lines, input: repriceInput, now, currencyDecimalPlaces })
+        locked.reprice = plan
+        await withAtomicFlush(em, plan.phases, { transaction: true, label: 'cart.mergeUndo' })
       },
     ],
     'cart.mergeUndo',
   )
 
-  return { survivorCart, absorbedCart, deletedLineIds, restoredLines }
+  if (locked.newerLog) return { latest: locked.newerLog }
+  if (!locked.reprice) throw new Error('[internal] cart.mergeUndo finished without a reprice plan')
+  return { restored: { survivorCart, absorbedCart, deletedLineIds, restoredLines, reprice: locked.reprice } }
 }
 
 async function emitMergeUndoSideEffects(
@@ -925,25 +1039,9 @@ async function emitMergeUndoSideEffects(
     await emitCrudSideEffects({ dataEngine, action: 'updated', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
     await emitCartEvent('cart.line.updated', { id: line.id, cartId: line.cartId, organizationId: line.organizationId, tenantId: line.tenantId })
   }
-  // The survivor cart's own `cart.cart.updated` fires from the post-undo re-price dispatch,
+  // The survivor cart's own `cart.cart.updated` fires from the re-price's side effects,
   // same "let reprice cover what it always covers anyway" discipline as the merge command.
-}
-
-async function dispatchPostUndoReprice(
-  ctx: CommandRuntimeContext,
-  survivorCart: Cart,
-  routeContext: ResolvedCartRouteContext | undefined,
-): Promise<CartRepriceResult> {
-  const commandBus = ctx.container.resolve('commandBus') as CommandBus
-  const repriceInput: CartRepriceInput = {
-    cartId: survivorCart.id,
-    tenantId: survivorCart.tenantId,
-    organizationId: survivorCart.organizationId,
-    trigger: 'merge',
-    routeContext,
-  }
-  const { result } = await commandBus.execute<CartRepriceInput, CartRepriceResult>(repriceCartCommand.id, { input: repriceInput, ctx })
-  return result
+  await restored.reprice.emitSideEffects()
 }
 
 // ---------------------------------------------------------------------------
@@ -959,6 +1057,9 @@ export type CartMergeUndoInput = {
   tenantId: string
   organizationId: string
   routeContext?: ResolvedCartRouteContext
+  /** SHA-256 digest of the `X-Cart-Token` the route resolved `cartId` with — re-checked under
+   * the locks, so a token rotated in between gets the no-oracle 404. */
+  cartTokenHash?: string
 }
 
 export type CartMergeUndoResult = {
@@ -985,30 +1086,28 @@ const mergeUndoCommand: CommandHandler<CartMergeUndoInput, CartMergeUndoResult> 
     )
     if (!cart) throw notFound('[internal] cart not found')
 
-    const logs = (await findWithDecryption(
-      em,
-      CartMergeLog,
-      { targetCartId: cart.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
-      {},
-      scope,
-    )) as CartMergeLog[]
-    if (logs.length === 0) throw notFound('[internal] no merge to undo for this cart')
-    const latest = logs.reduce((a, b) => (a.createdAt.getTime() >= b.createdAt.getTime() ? a : b))
+    const latest = await findLatestMergeLog(em, scope, cart.id)
+    if (!latest) throw notFound('[internal] no merge to undo for this cart')
 
-    const now = new Date()
     // Unlike the generic `cart.merge.undo` handler (silently no-ops past the window — it
     // has no HTTP response to surface anything to), this public command throws a `409` the
     // route maps straight through: a buyer-initiated action gets a real, visible answer.
     // Carries an explicit `code` (§15a's error-catalogue convention — e.g.
     // `code_reservation_unavailable`) rather than a bare `conflict()` message, so a client
-    // can switch on it instead of string-matching `error`.
-    if (!isWithinMergeUndoWindow(latest, now)) {
+    // can switch on it instead of string-matching `error`. Checked again under the locks,
+    // against the merge that is the most recent once they are held.
+    if (!isWithinMergeUndoWindow(latest, new Date())) {
       throw new CrudHttpError(409, { error: '[internal] merge_undo_window_expired', code: 'merge_undo_window_expired' })
     }
 
-    const restored = await restoreCartMerge(em, scope, latest)
+    const restored = await restoreCartMerge(em, scope, latest, {
+      container: ctx.container,
+      routeContext: input.routeContext,
+      selectLatest: true,
+      expectedTokenHash: input.cartTokenHash,
+    })
     await emitMergeUndoSideEffects(ctx.container, restored)
-    const repriceResult = await dispatchPostUndoReprice(ctx, restored.survivorCart, input.routeContext)
+    const repriceResult = restored.reprice.buildResult()
 
     return {
       cart: repriceResult.cart,

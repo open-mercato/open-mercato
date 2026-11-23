@@ -31,6 +31,7 @@ import {
   recordIdempotencyResponse,
 } from '../../../../lib/idempotency'
 import { enforceCartRateLimit } from '../../../../lib/rateLimit'
+import { hashCartToken } from '../../../../lib/token'
 
 // Step 4.7 — `POST /current/lines/bulk` → `cart.lines.bulkAdd`. §10: "exists
 // because B2B quick-order pads and agent proposals add 50 lines at once ... 50
@@ -116,6 +117,7 @@ export async function POST(request: Request) {
     const commandInput: CartLinesBulkAddInput = {
       routeContext: resolved.routeContext,
       cartId: cart.id,
+      cartTokenHash: hashCartToken(token),
       lines: body.lines,
     }
     const { result } = await commandBus.execute<CartLinesBulkAddInput, CartLinesBulkAddResult>(bulkAddLinesCommand.id, {

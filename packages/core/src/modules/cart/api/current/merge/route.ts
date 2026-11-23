@@ -24,6 +24,7 @@ import { buildCartResponseEnvelope } from '../../../lib/cartView'
 import type { CartViewWarning } from '../../../lib/cartView'
 import { resolveCartWarningMessage } from '../../../lib/warningMessages'
 import { enforceCartRateLimit } from '../../../lib/rateLimit'
+import { hashCartToken } from '../../../lib/token'
 
 // Step 7.3 — `POST /current/merge` -> `cart.merge` (§10 "Merge a guest cart into the
 // session's cart; resolves the target's scope **fresh** (D-R4-22)").
@@ -99,6 +100,7 @@ export async function POST(request: Request) {
       tenantId: resolved.routeContext.tenantId,
       organizationId: resolved.routeContext.organizationId,
       sourceToken: body.sourceToken,
+      targetTokenHash: hashCartToken(token),
       routeContext: resolved.routeContext,
     }
     const { result } = await commandBus.execute<CartMergeInput, CartMergeResult>(mergeCartCommand.id, {
@@ -150,7 +152,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 404, description: 'No `X-Cart-Token` header, the token does not resolve a cart, or sourceToken does not resolve a different basket — an `abandoned` cart on either side is reactivated rather than rejected (§9)' },
         { status: 409, description: 'Optimistic-lock conflict' },
         { status: 429, description: 'Rate limited' },
-        { status: 503, description: 'No store context resolvable for this request (§6a.1a)' },
+        { status: 503, description: 'No store context resolvable for this request (§6a.1a), or cart_busy after 15 seconds waiting for the cart lock. The locked merge phases did not run; earlier activity/context/repricing may have persisted. Retry the same request after Retry-After: 1 second.' },
       ],
     },
   },

@@ -58,6 +58,7 @@ import {
 import type { CartVisibilityLineRef, ResolvedAssortmentScope } from '../lib/visibility'
 import { shouldEnforceAssortmentScope } from '../lib/routeContext'
 import { withCartLineMutationLock } from '../lib/lineMutationLock'
+import { assertCartTokenHashUnchanged } from '../lib/token'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { buildRecomputeCartTotalsPhase } from '../lib/reprice'
 import type { CartPriceChange } from '../lib/reprice'
@@ -565,18 +566,24 @@ async function loadMutableCart(
   return cart
 }
 
-async function assertCartActiveUnderLock(em: EntityManager, cart: Cart): Promise<void> {
+async function assertCartActiveUnderLock(em: EntityManager, cart: Cart, expectedTokenHash: string | undefined): Promise<void> {
   await em.refresh(cart)
+  assertCartTokenHashUnchanged(cart, expectedTokenHash)
   assertCartNotLocked(cart)
   if (cart.status !== 'active') {
     throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
   }
 }
 
-function buildCartLineMutationGuardPhases(em: EntityManager, cart: Cart, line: CartLine): Array<() => Promise<void>> {
+function buildCartLineMutationGuardPhases(
+  em: EntityManager,
+  cart: Cart,
+  line: CartLine,
+  expectedTokenHash: string | undefined,
+): Array<() => Promise<void>> {
   return [
     async () => {
-      await assertCartActiveUnderLock(em, cart)
+      await assertCartActiveUnderLock(em, cart, expectedTokenHash)
       const current = await em.refresh(line)
       if (!current || line.deletedAt) throw notFound('[internal] cart line not found')
     },
@@ -902,6 +909,9 @@ async function dispatchCartRepriceForUndo(
 
 export type CartLinesAddInput = CartLineAuthInput & {
   cartId: string
+  /** SHA-256 digest of the `X-Cart-Token` the route resolved `cartId` with — re-checked under
+   * the cart lock, so a token rotated in between gets the no-oracle 404 (§8.3). */
+  cartTokenHash?: string
   productId: string
   variantId?: string | null
   quantity: number | string
@@ -981,7 +991,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     // `TC-CART-CONC-05` reproduced (a silently lost update, and a raw 500 off
     // `cart_lines_unique_line_key`).
     await withCartLineMutationLock(em, cart.id, [
-      () => assertCartActiveUnderLock(em, cart),
+      () => assertCartActiveUnderLock(em, cart, input.cartTokenHash),
       async () => {
         const existing = await findExistingCustomerLine(em, scope, cart.id, input.productId, variantId, input.configuration ?? null)
         const pricingContext = buildCartPricingRowFilterContext(cart)
@@ -1193,6 +1203,9 @@ function restoreLineFromSnapshot(line: CartLine, snapshot: CartLineSnapshot): vo
 
 export type CartLinesUpdateInput = CartLineAuthInput & {
   cartId: string
+  /** SHA-256 digest of the `X-Cart-Token` the route resolved `cartId` with — re-checked under
+   * the cart lock, so a token rotated in between gets the no-oracle 404 (§8.3). */
+  cartTokenHash?: string
   lineId: string
   quantity: number | string
 }
@@ -1305,7 +1318,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
 
     try {
       await withCartLineMutationLock(em, cart.id, [
-        ...buildCartLineMutationGuardPhases(em, cart, line),
+        ...buildCartLineMutationGuardPhases(em, cart, line, input.cartTokenHash),
         repriceLinePhase,
         async () => {
           line.quantity = String(finalQuantity)
@@ -1354,6 +1367,9 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
 
 export type CartLinesRemoveInput = CartLineAuthInput & {
   cartId: string
+  /** SHA-256 digest of the `X-Cart-Token` the route resolved `cartId` with — re-checked under
+   * the cart lock, so a token rotated in between gets the no-oracle 404 (§8.3). */
+  cartTokenHash?: string
   lineId: string
 }
 
@@ -1395,7 +1411,7 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
     const promotionWarnings: CartPromotionWarning[] = []
 
     await withCartLineMutationLock(em, cart.id, [
-      ...buildCartLineMutationGuardPhases(em, cart, line),
+      ...buildCartLineMutationGuardPhases(em, cart, line, input.cartTokenHash),
       async () => {
         line.deletedAt = now
       },
@@ -1473,6 +1489,9 @@ export type CartLinesBulkAddEntry = {
 
 export type CartLinesBulkAddInput = CartLineAuthInput & {
   cartId: string
+  /** SHA-256 digest of the `X-Cart-Token` the route resolved `cartId` with — re-checked under
+   * the cart lock, so a token rotated in between gets the no-oracle 404 (§8.3). */
+  cartTokenHash?: string
   lines: CartLinesBulkAddEntry[]
   addedByActorType?: CartLineActorType
   addedByActorId?: string | null
@@ -1707,7 +1726,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     // `bulkAdd`/`add` calls on this cart must serialize, not just this call's own entries
     // against each other.
     await withCartLineMutationLock(em, cart.id, [
-      () => assertCartActiveUnderLock(em, cart),
+      () => assertCartActiveUnderLock(em, cart, input.cartTokenHash),
       async () => {
         const existingLines = await findWithDecryption(
           em,
