@@ -2,6 +2,11 @@
 
 ## TLDR
 
+The report design below assumes parent accounts. The ledger core has a flat
+chart. The ledger and accounting owners still need to decide how the first
+release represents synthetic accounts, and whether a narrower pilot is
+eligible. See [Chart model and first-release decision](#chart-model-and-first-release-decision).
+
 **Key Points:**
 - Adds read-only balance and turnover reporting on top of the `ledger` module specified by #5663, with an account-parent link and explicit hierarchy and fiscal-year prerequisites. Coordinated posting and account-write enforcement is required before release. **#5663 is an unmerged spec — see Prerequisites.**
 - Restores `getAccountBalance` (cut from #5663 Phase 1 as a stakeholder-directed scope reduction) and adds the ZSiO report (Zestawienie Obrotów i Sald / Trial Balance, art. 18 Ustawy o rachunkowości): opening balance, period and year-to-date debit/credit turnover, and closing balance per account, distinguishing syntetyk (an account with children under `parentAccountId`) from analityk (a leaf account), per the Event Storming Section 05 hot spot (the parent column #5663 removed on 2026-10-12 returns here as its first consumer).
@@ -53,27 +58,12 @@ otherwise have to build by hand from `journal-entries` list exports.
 
 ## Prerequisites
 
-**This document has a hard, undeclared-until-now dependency on #5663
-(`docs/spec-072-general-ledger-core-engine`), which is itself an
-unmerged, not-yet-implemented spec.** `packages/core/src/modules/
-ledger/` does not exist anywhere in this repository today — not on
-`develop`, not on this document's own branch. Every present-tense
-claim elsewhere in this document about "the ledger module's existing
-schema," "indexes already exist," or reading #5663's entities "as
-they are today" describes #5663's *specification*, not running code;
-read them as "as specified in #5663." None of Phase 1's nine
-Implementation Plan steps can begin until #5663 is merged and
-implemented — that is a prerequisite for this document, not a
-concurrent or independent piece of work, whatever the Design
-decisions' "zero dependency on AP/AR/JELD" language might suggest by
-omission (that language is true only with respect to AP/AR/JELD —
-not with respect to `ledger` itself). `2026-09-06-accounts-
-payable.md`'s reciprocal cross-reference to this document (checked at
-PR #5962's head, line ~1169) is real, but AP/AR is in the same
-position: its own PR is also unmerged. A reader landing on this
-document from `.ai/specs/README.md`'s Pending Specifications table,
-where it is listed as actionable work, has no way to learn this
-without reading this section.
+This proposal depends on the [core ledger specification](https://github.com/open-mercato/open-mercato/pull/5663)
+and its [separate implementation PR](https://github.com/open-mercato/open-mercato/pull/9860).
+Both were open on 2026-11-23. The reporting branch contains no ledger
+module. Schema and posting assumptions refer to the pinned design in
+Prerequisite contracts and rollout. Phase 1 implementation depends on
+the core ledger design and implementation landing.
 
 ## Problem Statement
 
@@ -280,8 +270,35 @@ opening (Queries). `postedAt` is never a fiscal-period membership
 predicate; a separately specified recording-time snapshot is Phase 2
 and not offered here.
 
-**Syntetyk balance is a recursive rollup over `parentAccountId`, not a
-separate stored aggregate.** A syntetyk account (one with children) is
+#### Chart model and first-release decision
+
+The flat core chart assigns each account an `accountTypeId`. The proposed
+default chart import uses type `010` for accounts such as `010-1`. The
+import does not create a parent account for that type. On such a chart,
+walking parent links returns individual accounts, but produces no synthetic
+row for `010`. Account-number prefixes do not establish membership.
+[Ledger owner's review and example](https://github.com/open-mercato/open-mercato/pull/9722#issuecomment-7101125563)
+and [proposed import](https://github.com/open-mercato/open-mercato/pull/6439).
+
+Two designs are open. Grouping by `accountTypeId` requires separate type
+and account row identities, with journal reconciliation counting the posting
+population once. The parent-account design below instead requires a reviewed
+import and migration that establishes the parent rows and edges. Test either
+choice with the imported `010` type and its accounts, including independent
+journal reconciliation. The ledger and accounting owners must select the
+model before implementation.
+
+The ledger owner also proposed a first-release pilot for one organization
+from its first posting, using account-type groups, existing periods and
+read-only reports for periods after go-live. The proposal would defer several
+authorities, including the durable revision. It requires a decision on how
+the pilot establishes opening balances and fiscal-year boundaries, and what
+consistency it can guarantee across pages without that revision. Statutory
+completeness requires accounting sign-off before production use. The
+activation gates below continue to apply until a revised scope is approved.
+
+**Under the parent-account design, syntetyk balance is a recursive rollup
+over `parentAccountId`.** A syntetyk account (one with children) is
 not restricted from also receiving direct postings in Phase 1 — #5663
 never added that restriction (the future Posting Rules Engine's own
 design notes call out "reject a direct post to an account that has
@@ -789,8 +806,9 @@ convention or a statement that callers are trusted is not enforcement.
   coverage/authority checks, whole-scope integrity validation and balance
   query also share the same scoped repeatable-read, read-only transaction
   and database snapshot described for `getTrialBalance` below.
-  Phase 1 returns `balanceInAccountCurrency` and `currency` as `null` for
-  every account. Returning currency figures is a Phase 2 proposal that
+  Phase 1 returns the base `currencyId` with the balance and returns
+  `balanceInAccountCurrency` and `currency` as `null` for
+  every account. Returning account-currency figures is a Phase 2 proposal that
   requires human approval (Design decisions, "Balance in the account's
   currency").
 - `getTrialBalance(em, { tenantId, organizationId, periodId, page?, pageSize?, reportVersion? })`
@@ -811,7 +829,8 @@ convention or a statement that callers are trusted is not enforcement.
   a separately proven coherent snapshot contract; otherwise fail closed.
   Cross-page consistency additionally requires the version protocol below;
   its complete writer coverage and deployment remain a release gate. Two results come out of this call
-  from two separate statements in that same snapshot:
+  from two separate statements in that same snapshot, with the scope's
+  base `currencyId` attached once to the result:
   - `rows` (one `TrialBalanceRowDto` per account) — the per-account
     CTE result above, returned **page/pageSize-paginated**, ordered by
     the account number and ID (`LedgerAccount.number`, `id`), `pageSize` capped at 100
@@ -1057,6 +1076,24 @@ through binary floating point. No display rounding or implicit currency
 conversion is performed in this phase. Numeric examples in this document
 represent exact decimal arithmetic; wire assertions use the string form.
 
+Both proposed success responses carry one top-level `currencyId` (UUID)
+for their base amounts. It identifies the organization's base currency for
+the posted debits and credits in this report. A journal line's original
+currency and an account's optional denomination can differ from this ID.
+Read the scoped base-currency identity in the same snapshot as the figures.
+activation requires evidence that the history covered uses that base.
+Changing the configured base cannot relabel historical amounts. Every page,
+including an empty page, identifies its currency. If that history cannot
+be attested, accounting-policy coverage is invalid and both routes return
+their existing `422 accounting_policy_unavailable` without figures.
+
+This follows OQ-3 in the [pinned core specification](https://github.com/open-mercato/open-mercato/blob/7c86ce9e42ad833296e9a7352fd977523f7c7cd8/.ai/specs/2026-08-18-general-ledger-core-engine.md).
+Phase 1 uses decimal strings with currency identity alongside them. The
+[ledger Money migration](https://github.com/open-mercato/open-mercato/issues/10431)
+tracks journal-line API/event representations. If Money is introduced for
+these report aggregates, add it alongside the decimal strings and currency
+ID so existing consumers can continue reading them.
+
 Before activation, certify a finite aggregate and response-size capacity
 large enough for supported postings and the resource budgets; enforce it
 without truncation or partial rows. If a value or exact aggregate cannot be
@@ -1074,7 +1111,7 @@ before enabling these routes.
   a zod schema (`z.object({ asOf: z.string().date().optional() })`)
   before the query runs; an unparseable `asOf` is a 400, not passed
   through to the CTE.
-- **Response 200**: `{ accountId, asOf, balance, currency,
+- **Response 200**: `{ accountId, asOf, balance, currencyId, currency,
   balanceInAccountCurrency }`. `balance` is the exact base-currency decimal
   string normalized to `normalBalance`. In Phase 1, `currency` and
   `balanceInAccountCurrency` are explicitly `null` for every account; the
@@ -1138,7 +1175,7 @@ leaking foreign existence and resolves overlapping failure conditions.
   verification contract are prerequisites described in Queries. A page-one
   request without a version starts a new report; if a version is supplied
   on any page, including page one, validate it before returning data.
-- **Response 200**: `{ periodId, periodStart, periodEnd, reportVersion: string, zeroSumCheck: boolean, rows: TrialBalanceRowDto[], page: number, pageSize: number, total: number, totalPages: number }`
+- **Response 200**: `{ periodId, periodStart, periodEnd, currencyId, reportVersion: string, zeroSumCheck: boolean, rows: TrialBalanceRowDto[], page: number, pageSize: number, total: number, totalPages: number }`
   where `TrialBalanceRowDto` is `{ accountId, accountNumber, description, parentAccountId, openingBalance, periodDebit, periodCredit, ytdDebit, ytdCredit, closingBalance }` (`number` and `description` are #5663's account business key and display name).
   `rows` is paginated by account number via `page`/`pageSize` — see
   Design decisions, "`getTrialBalance` computes every account's row
@@ -1387,16 +1424,20 @@ top of the live query.
   after the account's effective start but before any entry returns zero,
   and that entries posted after `asOf` are excluded.
 - Phase 1 account-currency absence: configured foreign-currency, configured
-  base-currency and unconfigured accounts all return explicit null for both
-  currency fields; the panel does not present null as zero or base currency.
+  base-currency and unconfigured accounts all return explicit null for
+  `currency` and `balanceInAccountCurrency`. Assert both routes return the
+  organization's base `currencyId`, including on empty trial-balance pages.
+  Use different base currencies in two organizations and post a foreign line
+  in one. Check the reported units, retained scale and scope. The panel
+  renders the base amount and treats the account-currency figure as unavailable.
 - Phase 2 only, after human approval: balance in the account's currency
   (Design decisions, "Balance in the account's currency"):
   - a foreign-currency account (`currencyId` EUR): debit EUR 100 and credit
     EUR 30 return `balanceInAccountCurrency = 70` and `currency` = EUR, and
     `balance` is the base-currency figure as before;
   - a leaf explicitly denominated in the organization's base currency
-    returns that currency and its signed amount; an account with no
-    `currencyId` returns both currency fields as null;
+    returns that currency and its signed amount. An account with no
+    denomination returns `balanceInAccountCurrency` and `currency` as null.
   - an account with `amountCurrency = 0` lines (an exchange-difference line
     of 50 base units) changes `balance` by 50 and leaves
     `balanceInAccountCurrency` unchanged;
@@ -1972,10 +2013,9 @@ without implementing them. None of it is satisfied by the existing
 scope satisfies all of it.
 
 **Linked prerequisite designs.** The ledger core engine and posting
-schema are specified by #5663 (`2026-08-18-general-ledger-core-engine.md`,
-reviewed head `61bc044f43c7d8db963849fc16c1734a9795dacf`), specifically its
-`LedgerAccount` (`number`, `description`, `accountTypeId`,
-`accountGroupId`, `currencyId`), `JournalEntry` and
+schema are specified by [#5663 at `7c86ce9e42`](https://github.com/open-mercato/open-mercato/blob/7c86ce9e42ad833296e9a7352fd977523f7c7cd8/.ai/specs/2026-08-18-general-ledger-core-engine.md), specifically its
+`LedgerAccount` (`number`, `description`, `accountTypeId`, `currencyId`),
+`LedgerAccountType` (`normalBalance`, `accountGroupId`), `JournalEntry` and
 `JournalEntryLine` (with `operation_date` and per-line `amountCurrency`)
 contracts; the multi-dimensional tag write is specified by
 `2026-09-06-journal-entry-line-dimension.md`. The fiscal-year authority,
@@ -1985,6 +2025,16 @@ consumes them and does not ship them. The hierarchy column, its index
 and the effective-start field are this document's own additive schema,
 specified in Data Models. The pinned core design has no parent column;
 the nullable `parentAccountId` is introduced only by this feature.
+
+The core design calls for persistent posting and reversal notifications
+after commit, idempotent consumers and a journal reconciliation read
+(`listPostedEntriesSince`). A delivery retry or an absent notification
+does not change a report total. Reports read the committed journal. The
+event stream cannot supply a transactionally consistent `reportRevision`
+for all contributing writers. The pinned document describes the contract.
+The [ledger implementation](https://github.com/open-mercato/open-mercato/pull/9860)
+and the [chart import](https://github.com/open-mercato/open-mercato/pull/6439)
+are separate proposals.
 
 - **Data contract consumed from the prerequisites.** Per scope
   (tenant, organization) the authority exposes `authorityEpoch` (durable,
@@ -2051,6 +2101,36 @@ acceptance suite must lose the first create response, retry through the
 approved legacy bridge or migrated client, and prove that the original
 terminal outcome is recovered without a duplicate account or edge; include
 an uncertain first commit and verify that no new identity is invented.
+
+**Client migration proposed for review.** The [ledger owner proposed](https://github.com/open-mercato/open-mercato/pull/9722#issuecomment-7101125563)
+an optional `Idempotency-Key` for `POST /api/ledger/accounts`. A migrating
+client would durably save the key with its create intent before sending the
+first request and reuse it after a timeout or restart. The writer would
+bind the key to the authorized actor, tenant, organization, operation and
+canonical request digest. Its durable record would identify the original
+account, pending operation or terminal rejection. The cart module's
+`readIdempotencyKey`, `findIdempotencyReplay` and `recordIdempotencyResponse`
+illustrate header and response handling. Ledger creation also needs atomic
+reservation and recovery across the two transactions described in Data Models.
+
+During the proposed compatibility window, permit legacy unkeyed requests
+on the existing writer. Keep the new protocol and reports disabled for
+those scopes. Making the header mandatory would require an explicitly
+approved migration, documented deprecation for at least one minor version,
+an inventory of callers including imports and external integrations, and
+verification that each migrated caller can recover its key after restart.
+An unknown or unverified caller keeps the scope ineligible. A missing key
+after cutover would be rejected before reserving or writing anything.
+The ledger owner has proposed this migration for approval.
+
+For acceptance, use the real route and database. Drop the success response
+after the terminal transaction commits, restart the client, then retry its
+saved key and verify the original account ID, one account and one edge
+under the parent-account design. Repeat with an uncertain reservation
+commit and a delayed verifier. Finish the original operation once. A changed
+payload with the same key must conflict without writing. Reusing the key
+from another tenant or organization must never reveal that outcome.
+
 On the report routes, `page`/`pageSize`
 stay optional (defaults unchanged), `reportVersion` is optional for the
 first page, and every new error is an explicit `4xx`/`5xx` body from API
@@ -2207,6 +2287,9 @@ authorities' implementation, the account-create compatibility bridge or
 approved client migration, the accounting-owner approval of the
 continuous-ledger mode and the annual-opening alternative, and a fresh
 independent and security review of the reconciled result with #5663.
+The first-release model and pilot described in
+[Chart model and first-release decision](#chart-model-and-first-release-decision)
+also require an explicit decision.
 The existing accounting references and earlier checklist do not resolve
 these issues or authorize release.
 
@@ -2542,7 +2625,7 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
 ### 2026-11-18 — prerequisite contracts, revision/restore and rollout (#9722 review)
 
 - Add "Prerequisite contracts and rollout": link the reviewed prerequisites
-  (#5663 at `61bc044f`, the journal-entry-line-dimension spec, and the scope
+  (#5663, then at `61bc044f`, the journal-entry-line-dimension spec, and the scope
   authority that owns the fiscal-year, opening-policy and revision state) with
   the concrete data contract this report consumes and the writer contract every
   participating writer must satisfy.
@@ -2567,3 +2650,13 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
 - Correct the legacy-client compatibility claim: a reviewed retry bridge or
   explicitly approved client migration and lost-response coverage remain
   prerequisites. The writer protocol and reports stay disabled until resolved.
+
+### 2026-11-23 — ledger contract and compatibility review
+
+- Repinned the ledger design at `7c86ce9e42`. Specified the base currency
+  alongside both reports' Phase 1 decimal strings and documented the event
+  delivery and future Money contracts.
+- Recorded the default import's type-based structure, the two candidate
+  reporting models, and the proposed pilot scope for owner review.
+- Documented the proposed key-based migration and lost-response acceptance
+  cases. Approval of that migration and the activation decisions remains open.
