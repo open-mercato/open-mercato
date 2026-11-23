@@ -624,6 +624,7 @@ export async function resolveFeatureCheckContext({
         featureOrganizationIds.filter((featureOrganizationId) => candidateOrganizationIds.has(featureOrganizationId)),
       ))
       scope = {
+        ...scope,
         selectedId: null,
         filterIds: approvedOrganizationIds,
         allowedIds: approvedOrganizationIds,

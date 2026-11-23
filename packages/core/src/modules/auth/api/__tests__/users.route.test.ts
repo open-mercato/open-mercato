@@ -6,6 +6,7 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 
 const mockGetAuthFromRequest = jest.fn()
 const mockLoadAcl = jest.fn()
+const mockFindAndCountWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
 const mockLoadCustomFieldValues = jest.fn()
@@ -95,6 +96,7 @@ jest.mock('@open-mercato/shared/lib/crud/factory', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findAndCountWithDecryption: (...args: unknown[]) => mockFindAndCountWithDecryption(...args),
   findWithDecryption: jest.fn((...args: unknown[]) => mockFindWithDecryption(...args)),
   findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
 }))
@@ -162,6 +164,8 @@ describe('GET /api/auth/users', () => {
     mockEm.findOne.mockReset()
     mockEm.findAndCount.mockReset()
     mockEm.getKysely.mockClear()
+    mockFindAndCountWithDecryption.mockReset()
+    mockFindAndCountWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: unknown, options: unknown) => mockEm.findAndCount(entity, where, options))
     mockFindWithDecryption.mockReset()
     mockFindOneWithDecryption.mockReset()
     mockLoadCustomFieldValues.mockReset()
@@ -196,6 +200,37 @@ describe('GET /api/auth/users', () => {
       allowedIds: null,
       tenantId,
     })
+  })
+
+  test('returns decrypted user fields after a cached row is rehydrated with ciphertext', async () => {
+    const storedUser = {
+      id: '423e4567-e89b-12d3-a456-426614174900',
+      email: 'encrypted-email:v1',
+      name: 'encrypted-name:v1',
+      tenantId,
+      organizationId: descendantOrganizationId,
+    }
+    mockEm.findAndCount.mockResolvedValue([[storedUser], 73])
+    mockFindAndCountWithDecryption.mockImplementationOnce(async () => [
+      [{ ...storedUser, email: 'decrypted@example.com', name: 'Decrypted User' }],
+      73,
+    ])
+
+    const response = await GET(makeRequest('/api/auth/users?page=2&pageSize=20'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.items[0]).toMatchObject({ email: 'decrypted@example.com', name: 'Decrypted User' })
+    expect(body.total).toBe(73)
+    expect(body.totalPages).toBe(4)
+    expect(mockFindAndCountWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      User,
+      expect.any(Object),
+      { limit: 20, offset: 20 },
+      { tenantId, organizationId },
+    )
+    expect(storedUser.email).toBe('encrypted-email:v1')
   })
 
   test('returns an empty collection when unauthenticated', async () => {
