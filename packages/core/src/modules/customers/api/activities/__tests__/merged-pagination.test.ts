@@ -64,12 +64,16 @@ jest.mock('../../../lib/interactionCompatibility', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findAndCountWithDecryption: jest.fn((_em: unknown, entity: unknown, where: unknown, options: unknown) => mockEm.findAndCount(entity, where, options)),
   findWithDecryption: jest.fn(async () => []),
 }))
 
 describe('activities merged GET pagination', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    jest.requireMock('@open-mercato/shared/lib/encryption/find').findAndCountWithDecryption
+      .mockReset()
+      .mockImplementation((_em: unknown, entity: unknown, where: unknown, options: unknown) => mockEm.findAndCount(entity, where, options))
 
     const { resolveCustomerInteractionFeatureFlags } = jest.requireMock(
       '../../../lib/interactionFeatureFlags',
@@ -90,6 +94,53 @@ describe('activities merged GET pagination', () => {
       .mockImplementation(async () => [])
     jest.requireMock('../../../lib/interactionCompatibility').mapInteractionRecordToActivitySummary
       .mockReset()
+  })
+
+  it.each([CustomerActivity, CustomerInteraction])('decrypts rehydrated %p rows before serializing activity content', async (source) => {
+    const storedRow = {
+      id: '123e4567-e89b-41d3-a456-426614174090',
+      tenantId: TENANT_ID,
+      organizationId: '123e4567-e89b-41d3-a456-426614174099',
+      entity: 'entity-1',
+      activityType: 'note',
+      interactionType: 'note',
+      subject: 'encrypted-subject:v1',
+      title: 'encrypted-subject:v1',
+      body: 'encrypted-body:v1',
+      createdAt: new Date('2026-11-01T12:00:00Z'),
+      deletedAt: null,
+    }
+    mockEm.findAndCount.mockImplementation(async (entity: unknown) => entity === source ? [[storedRow], 1] : [[], 0])
+    mockEm.count.mockResolvedValue(1)
+    const { findAndCountWithDecryption } = jest.requireMock('@open-mercato/shared/lib/encryption/find')
+    findAndCountWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => entity === source
+      ? [[{ ...storedRow, subject: 'Readable subject', title: 'Readable subject', body: 'Readable body' }], 1]
+      : [[], 0])
+    jest.requireMock('../../../lib/interactionReadModel').hydrateCanonicalInteractions
+      .mockImplementation(async ({ interactions }: { interactions: unknown[] }) => interactions)
+    jest.requireMock('../../../lib/interactionCompatibility').mapInteractionRecordToActivitySummary
+      .mockImplementation((row: { id: string; title: string; body: string; createdAt: Date }) => ({
+        id: row.id,
+        activityType: 'note',
+        subject: row.title,
+        body: row.body,
+        createdAt: row.createdAt.toISOString(),
+      }))
+
+    const response = await GET(new Request('http://localhost/api/customers/activities?page=1&pageSize=20'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({ subject: 'Readable subject', body: 'Readable body' })
+    expect(findAndCountWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      source,
+      expect.objectContaining({ tenantId: TENANT_ID }),
+      expect.objectContaining({ limit: 40, offset: 0 }),
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+    expect(storedRow.body).toBe('encrypted-body:v1')
   })
 
   it('uses bounded DB-side paginated fetches for both sources in non-unified mode', async () => {
