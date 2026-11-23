@@ -92,6 +92,7 @@ export type SendAsUserResult =
       threadId: string
       channelId: string
       providerKey: string
+      deliveryEnqueueStatus?: 'unconfirmed'
     }
   | {
       ok: false
@@ -268,6 +269,7 @@ export async function sendAsUser(
   // rather than `withAtomicFlush` (single trailing flush). `em.transactional`
   // wraps the whole sequence so a mid-way failure rolls back all three writes
   // instead of leaving an orphaned conversation row.
+  let channelLinkId: string | undefined
   const persistOutboundLink = async (
     em: EntityManager,
     { messageId, threadId: messageThreadId }: ComposedMessage,
@@ -416,6 +418,7 @@ export async function sendAsUser(
     })
     em.persist(channelLink)
     await em.flush()
+    channelLinkId = channelLink.id
   }
 
   let composed: ComposedMessage
@@ -438,20 +441,29 @@ export async function sendAsUser(
   }
   if (!input.composerPayload) await em.transactional(() => persistOutboundLink(em, composed))
 
-  const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
-  const deliveryJob: OutboundDeliveryPayload = {
-    messageId: composed.messageId,
-    scope: dscope,
-    attempt: 1,
+  const saved = { ok: true as const, ...composed, channelId: channel.id, providerKey: channel.providerKey }
+  const deliveryJob: OutboundDeliveryPayload = { messageId: composed.messageId, scope: dscope, attempt: 1 }
+  try {
+    const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
+    await queue.enqueue(deliveryJob as unknown as Record<string, unknown>)
+  } catch (err) {
+    if (!input.composerPayload) throw err
+    const attributes = {
+      tenantId,
+      organizationId: organizationId ?? undefined,
+      channelId: channel.id,
+      channelLinkId,
+      messageId: composed.messageId,
+    }
+    logger.error('Mailbox delivery queue submission unconfirmed', { err, ...attributes })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'communication_channels',
+      code: 'communication_channels.delivery_enqueue_unconfirmed',
+      attributes,
+    })
+    return { ...saved, deliveryEnqueueStatus: 'unconfirmed' }
   }
-  await queue.enqueue(deliveryJob as unknown as Record<string, unknown>)
-
-  return {
-    ok: true,
-    ...composed,
-    channelId: channel.id,
-    providerKey: channel.providerKey,
-  }
+  return saved
 }
 
 async function unavailableComposerAttachment(): Promise<SendAsUserResult> {

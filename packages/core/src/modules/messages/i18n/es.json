@@ -163,6 +163,7 @@
   "messages.flash.conversationMarkedUnread": "Conversación marcada como no leída.",
   "messages.flash.conversationUnarchived": "Conversación desarchivada.",
   "messages.flash.deleted": "Mensaje eliminado.",
+  "messages.flash.deliveryUnconfirmed": "Mensaje guardado. No se pudo confirmar la entrega.",
   "messages.flash.draftSaved": "Borrador guardado.",
   "messages.flash.forwardSuccess": "Mensaje reenviado.",
   "messages.flash.replySuccess": "Respuesta enviada.",

@@ -691,7 +691,7 @@ export function useMessageCompose({
           : {}
 
         const call = await withScopedApiRequestHeaders(lockHeaders, () =>
-          apiCall<{ id?: string }>(endpoint, {
+          apiCall<{ id?: string; deliveryEnqueueStatus?: 'unconfirmed' }>(endpoint, {
             method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -717,10 +717,18 @@ export function useMessageCompose({
           }
           shouldReturnFalse = true
         } else {
-          flash(operation.successMessage, 'success')
+          const deliveryEnqueueStatus = call.result?.deliveryEnqueueStatus
+          if (deliveryEnqueueStatus === 'unconfirmed') {
+            flash(t('messages.flash.deliveryUnconfirmed', 'Message saved. Delivery could not be confirmed.'), 'warning')
+          } else {
+            flash(operation.successMessage, 'success')
+          }
           keepSubmitLock = true
 
-          onSuccess?.({ id: call.result?.id })
+          onSuccess?.({
+            id: call.result?.id,
+            ...(deliveryEnqueueStatus ? { deliveryEnqueueStatus } : {}),
+          })
 
           if (!inline) {
             onOpenChange?.(false)

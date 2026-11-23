@@ -16,4 +16,10 @@ The system SHALL accept supported files and linked records on a new public compo
 - WHEN any selected file is unavailable in the compose scope, cannot be reassigned, or exceeds the chosen adapter's limits
 - THEN the composer reports the failure and the message and delivery are never created
 
+### Scenario: Open the saved message when queue submission is unconfirmed
+
+- WHEN the mailbox message, linked records and files commit and queue submission then throws
+- THEN the composer opens that message with a delivery warning and support can trace its scoped outbound link
+- AND a worker that already accepted the job keeps its delivery status and receives no duplicate submission
+
 Source: .ai/specs/2026-11-22-connected-mailbox-composer-payload.md

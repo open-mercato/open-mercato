@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { MailboxComposeTransaction } from '@open-mercato/shared/modules/messages/compose-payload'
+import type { sendAsUser } from '../lib/send-as-user'
+import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot'
+import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
   createRoleFixture,
   createUserFixture,
@@ -145,6 +151,109 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
       await deleteMessageIfExists(request, token, messageId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
       await deleteChannelIfExists(request, token, channelId)
+    }
+  })
+
+  test('rolls back an unsuccessful link write and preserves a subsequently accepted delivery', async ({ request }) => {
+    test.slow()
+    const token = await getAuthToken(request)
+    test.skip(!await isChannelSeedingAvailable(request, token), 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
+    const stamp = randomUUID()
+    const recordId = `messages-composer:${stamp}`
+    const scope = getTokenScope(token)
+    const auth = { sub: scope.userId, orgId: scope.organizationId, tenantId: scope.tenantId }
+    const [{ bootstrapFromAppRoot }, { createRequestContainer }, hubQueue] = await Promise.all([
+      importFromAppRuntime<typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')>('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
+      importFromAppRuntime<typeof import('@open-mercato/shared/lib/di/container')>('@open-mercato/shared/lib/di/container'),
+      importFromAppRuntime<typeof import('@open-mercato/core/modules/communication_channels/lib/queue')>('@open-mercato/core/modules/communication_channels/lib/queue'),
+    ])
+    await bootstrapFromAppRoot(resolveAppRoot())
+    const container = await createRequestContainer()
+    const queue = hubQueue.getCommunicationChannelsQueue(hubQueue.COMMUNICATION_CHANNELS_QUEUES.outbound)
+    const originalEnqueue = queue.enqueue
+    const accepted: string[] = []
+    let channelId: string | null = null
+    let personId: string | null = null
+    let attachmentId: string | null = null
+    let messageId: string | null = null
+
+    try {
+      channelId = await seedConnectedChannel(request, token, { displayName: `Recovery ${stamp}` })
+      personId = await createPersonFixture(request, token, { firstName: 'Mailbox', lastName: stamp, displayName: `Recovery ${stamp}` })
+      const upload = await uploadAttachmentFixture(request, token, {
+        entityId: 'attachments:library', recordId, fileName: 'quote.pdf',
+        mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n'),
+      })
+      attachmentId = upload.id
+      const objects = [{ entityModule: 'customers', entityType: 'person', entityId: personId }]
+      const uploads = { attachmentIds: [attachmentId], recordId }
+      queue.enqueue = async (job) => {
+        if (typeof job.messageId !== 'string') throw new Error('[internal] Expected a delivery message ID')
+        accepted.push(job.messageId)
+        await withClient(async (client) => {
+          const updated = await client.query(
+            "update message_channel_links set delivery_status = 'sent' where message_id = $1 and tenant_id = $2 and organization_id = $3 and direction = 'outbound'",
+            [job.messageId, scope.tenantId, scope.organizationId],
+          )
+          expect(updated.rowCount).toBe(1)
+        })
+        throw new Error('[internal] Lost acknowledgement after accepting delivery')
+      }
+
+      let rolledBackId: string | undefined
+      const ctx: CommandRuntimeContext & MailboxComposeTransaction = {
+        container, auth, selectedOrganizationId: scope.organizationId, organizationIds: [scope.organizationId], organizationScope: null,
+        persistMailboxDelivery: async (_em, message) => {
+          rolledBackId = message.messageId
+          throw new Error('[internal] Injected outbound link write failure')
+        },
+      }
+      const bus = container.resolve<CommandBus>('commandBus')
+      await expect(bus.execute('messages.messages.compose', {
+        ctx, input: {
+          ...scope, type: 'channel.test_seed', visibility: 'public', externalEmail: 'client@example.com',
+          subject: stamp, body: 'Recovery test', sendViaEmail: false, objects,
+          mailboxComposeMessageType: 'default', mailboxComposeUpload: uploads,
+        },
+      })).rejects.toThrow('Injected outbound link write failure')
+      expect(rolledBackId).toBeTruthy()
+      await withClient(async (client) => {
+        expect((await client.query('select id from messages where id = $1', [rolledBackId])).rows).toEqual([])
+        expect((await client.query('select id from message_objects where message_id = $1', [rolledBackId])).rows).toEqual([])
+        expect((await client.query('select entity_id, record_id from attachments where id = $1', [attachmentId])).rows)
+          .toEqual([{ entity_id: 'attachments:library', record_id: recordId }])
+      })
+      expect(accepted).toEqual([])
+
+      const send = container.resolve<typeof sendAsUser>('communicationChannelsSendAsUser')
+      const result = await send(container, { ...scope, auth }, {
+        userChannelId: channelId, to: ['client@example.com'], subject: stamp, body: { plain: 'Recovery test' },
+        composerPayload: { messageType: 'default', uploads, objects },
+      })
+      expect(result).toMatchObject({ ok: true, deliveryEnqueueStatus: 'unconfirmed', threadId: expect.any(String) })
+      if (!result.ok) throw new Error('[internal] Expected a committed message')
+      messageId = result.messageId
+      expect(accepted).toEqual([messageId])
+      const detail = await apiRequest(request, 'GET', `/api/messages/${messageId}`, { token })
+      expect(detail.status()).toBe(200)
+      expect(await readJsonSafe(detail)).toMatchObject({ objects: [expect.objectContaining(objects[0])] })
+      const attachmentQuery = new URLSearchParams({ entityId: 'messages:message', recordId: messageId })
+      const attachments = await apiRequest(request, 'GET', `/api/attachments?${attachmentQuery}`, { token })
+      expect(attachments.status()).toBe(200)
+      expect(await readJsonSafe(attachments)).toMatchObject({ items: [expect.objectContaining({ id: upload.id })] })
+      await withClient(async (client) => {
+        expect((await client.query(
+          'select delivery_status from message_channel_links where message_id = $1 and tenant_id = $2 and organization_id = $3',
+          [messageId, scope.tenantId, scope.organizationId],
+        )).rows).toEqual([{ delivery_status: 'sent' }])
+      })
+    } finally {
+      queue.enqueue = originalEnqueue
+      await deleteAttachmentIfExists(request, token, attachmentId)
+      await deleteMessageIfExists(request, token, messageId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+      await deleteChannelIfExists(request, token, channelId)
+      await container.dispose()
     }
   })
 

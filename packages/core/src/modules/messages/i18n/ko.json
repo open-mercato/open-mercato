@@ -163,6 +163,7 @@
   "messages.flash.conversationMarkedUnread": "대화가 읽지 않음으로 표시되었습니다.",
   "messages.flash.conversationUnarchived": "대화를 보관함에서 복원했습니다.",
   "messages.flash.deleted": "메시지가 삭제되었습니다.",
+  "messages.flash.deliveryUnconfirmed": "메시지가 저장되었습니다. 전송 여부를 확인할 수 없습니다.",
   "messages.flash.draftSaved": "임시 저장되었습니다.",
   "messages.flash.forwardSuccess": "메시지가 전달되었습니다.",
   "messages.flash.replySuccess": "답장이 전송되었습니다.",

@@ -120,6 +120,14 @@ describe('delegateComposeToSender', () => {
     )
   })
 
+  it('preserves the saved message and unconfirmed submission from the mailbox', async () => {
+    const saved = { ok: true, messageId: 'message-1', threadId: 'thread-1', deliveryEnqueueStatus: 'unconfirmed' }
+    const sendAsUser = jest.fn().mockResolvedValue({ ...saved, channelId: CHANNEL_ID, providerKey: 'imap' })
+
+    await expect(delegateComposeToSender(containerWith(sendAsUser), actor, publicCompose)).resolves.toEqual(saved)
+    expect(sendAsUser).toHaveBeenCalledTimes(1)
+  })
+
   it('renders a markdown body to html so the client is not sent raw markup', async () => {
     const sendAsUser = jest.fn().mockResolvedValue({
       ok: true,

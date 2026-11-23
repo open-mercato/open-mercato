@@ -671,7 +671,7 @@ export async function POST(req: Request) {
       )
     }
     const delegatedResponse = Response.json(
-      { id: delegated.messageId, threadId: delegated.threadId },
+      { id: delegated.messageId, threadId: delegated.threadId, deliveryEnqueueStatus: delegated.deliveryEnqueueStatus },
       { status: 201 },
     )
     await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {

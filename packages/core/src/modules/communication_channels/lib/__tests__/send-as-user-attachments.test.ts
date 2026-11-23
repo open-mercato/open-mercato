@@ -12,6 +12,11 @@ jest.mock('../queue', () => ({
   getCommunicationChannelsQueue: jest.fn(() => ({ enqueue: mockEnqueue })),
 }))
 
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ t: (_key: string, fallback: string) => fallback }),
 }))
@@ -26,6 +31,7 @@ import { sendAsUser, type SendAsUserInput } from '../send-as-user'
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 const mockEnqueue = jest.fn(async () => undefined)
+const mockReportError = jest.fn()
 
 const ATTACHMENT_ID = '550e8400-e29b-41d4-a716-446655440040'
 const OWNER = { entityId: 'purchase_orders:purchase_order', recordId: 'po-1' }
@@ -173,6 +179,36 @@ describe('sendAsUser — attachments', () => {
     expect(em.rollback).toHaveBeenCalledTimes(1)
     expect(em.commit).not.toHaveBeenCalled()
     expect(mockEnqueue).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('preserves the committed link after enqueue throws (accepted: %s)', async (accepted) => {
+    const { container, created, commandBus, em } = makeContainer({ fileSharing: true })
+    primeChannel()
+    const failure = new Error('[internal] Queue acknowledgement unavailable')
+    mockEnqueue.mockImplementationOnce(async () => {
+      expect(em.commit).toHaveBeenCalledTimes(1)
+      const link = created.find((row) => row.entity === MessageChannelLink)!
+      if (accepted) link.data.deliveryStatus = 'sent'
+      throw failure
+    })
+
+    await expect(sendAsUser(container, actor, { ...baseInput, composerPayload })).resolves.toEqual({
+      ok: true, messageId: 'msg-1', threadId: 'thread-1', channelId: 'ch-1', providerKey: 'gmail',
+      deliveryEnqueueStatus: 'unconfirmed',
+    })
+
+    const link = created.find((row) => row.entity === MessageChannelLink)!
+    expect(link.data.deliveryStatus).toBe(accepted ? 'sent' : 'pending')
+    expect(link.data.channelMetadata).toMatchObject({
+      [OUTBOUND_ATTACHMENTS_METADATA_KEY]: [{ attachmentId: ATTACHMENT_ID, owner: { entityId: 'messages:message', recordId: 'msg-1' } }],
+    })
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      module: 'communication_channels', code: 'communication_channels.delivery_enqueue_unconfirmed',
+      attributes: { tenantId: actor.tenantId, organizationId: actor.organizationId, channelId: 'ch-1', channelLinkId: link.data.id, messageId: 'msg-1' },
+    })
+    expect(em.rollback).not.toHaveBeenCalled()
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+    expect(mockEnqueue).toHaveBeenCalledTimes(1)
   })
 
   it('honors an adapter count limit before reading compose uploads', async () => {
