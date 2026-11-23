@@ -1457,6 +1457,17 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 
 ## Changelog
 
+### 2026-11-23 - Bind MCP session tokens to the transport API key tenant (GHSA-2hrh-c89p-42qv)
+
+**What changed** (`lib/http-server.ts`):
+- Added the exported fail-closed binding predicate `isSessionKeyBoundToApiKey(sessionKey, apiKeyRecord)`: a session key resolves only when it carries the same non-null `tenantId` as the transport API key that authenticated the MCP HTTP request. A transport key that is not tenant-scoped (`tenantId` null) binds nothing — every session token fails closed.
+- `resolveSessionContext` now takes the transport `apiKeyRecord` and applies the predicate before adopting a session key's identity (tenant, user, decrypted secret, ACL). Previously any valid server key could redeem any session token — cross-tenant and cross-user impersonation via the MCP HTTP server.
+- Both call sites wired: `resolveListPrincipal` (the `x-om-session-token` header on `tools/list`) and the per-call `_sessionToken` argument path in `createMcpServerForRequest` (`tools/call`). Unbound tokens answer exactly like expired ones — 401 "Invalid or expired session token" on `tools/list`, `SESSION_EXPIRED` on `tools/call` — and never leak whether the token exists in another tenant.
+
+**Files**: `lib/http-server.ts`, `lib/__tests__/http-server.session-binding.test.ts` (unit matrix: predicate bound/cross-tenant/unscoped; tools/list 401 + ACL never loaded; tools/call executes under session principal / SESSION_EXPIRED without execution, audited, token never logged).
+
+**Backward compatibility**: additive. Same-tenant deployments (the intended shape — the transport key and chat sessions are minted in one tenant) resolve exactly as before; only cross-tenant redemption changes, from silently impersonating to refused.
+
 ### 2026-07-07 - Containerized MCP server + file-based key delivery
 
 **What changed**:

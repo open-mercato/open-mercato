@@ -88,6 +88,23 @@ type ResolvedSessionContext = {
   sessionKeyId: string
 }
 
+/**
+ * Fail-closed binding between an ephemeral session key and the transport API key that
+ * authenticated the MCP HTTP request (GHSA-2hrh-c89p-42qv).
+ *
+ * A session token is a bearer credential minted inside one tenant, while the HTTP transport
+ * is authenticated by a designated server API key. Resolving a session token without comparing
+ * the two identities let the holder of any valid server key adopt a session key — and its
+ * decrypted secret plus ACL — from a different tenant or user: cross-tenant impersonation.
+ * A session resolves only when both keys are bound to the same tenant, and a transport key
+ * that is not tenant-scoped binds nothing: every other shape fails closed.
+ */
+export function isSessionKeyBoundToApiKey(sessionKey: ApiKey, apiKeyRecord: ApiKey): boolean {
+  const transportTenantId = apiKeyRecord.tenantId ?? null
+  if (!transportTenantId) return false
+  return (sessionKey.tenantId ?? null) === transportTenantId
+}
+
 type McpToolCallResponse = {
   content: Array<{ type: 'text'; text: string }>
   structuredContent?: Record<string, unknown>
@@ -127,12 +144,14 @@ function buildExposureHealth(exposureConfig: McpExposureConfig) {
 
 /**
  * Resolve user context from session token.
- * Returns null if session token is invalid or expired.
+ * Returns null if session token is invalid or expired, or if the session key is not
+ * bound to the transport API key's tenant (GHSA-2hrh-c89p-42qv — fail closed).
  * Includes the decrypted API key secret for making authenticated API calls.
  */
 async function resolveSessionContext(
   sessionToken: string,
   baseContext: McpToolContext,
+  apiKeyRecord: ApiKey,
   debug?: boolean
 ): Promise<ResolvedSessionContext | null> {
   try {
@@ -149,6 +168,18 @@ async function resolveSessionContext(
     }
 
     const { key: sessionKey, secret: sessionSecret } = sessionResult
+
+    // Bind the session key to the transport API key's tenant before adopting its
+    // identity — a session token minted in another tenant must never resolve here.
+    if (!isSessionKeyBoundToApiKey(sessionKey, apiKeyRecord)) {
+      if (debug) {
+        logger.debug('Session key is not bound to the transport API key tenant', {
+          sessionKeyId: sessionKey.id,
+          apiKeyId: apiKeyRecord.id,
+        })
+      }
+      return null
+    }
 
     // Load ACL for the session user
     const userId = sessionKey.sessionUserId || sessionKey.createdBy
@@ -301,7 +332,7 @@ async function resolveListPrincipal(
   sessionHeaderToken: string | undefined
 ): Promise<ListPrincipal | null> {
   if (sessionHeaderToken) {
-    const resolvedSession = await resolveSessionContext(sessionHeaderToken, toolContext, config.debug)
+    const resolvedSession = await resolveSessionContext(sessionHeaderToken, toolContext, apiKeyRecord, config.debug)
     if (!resolvedSession) return null
     const sessionContext = resolvedSession.context
     return {
@@ -514,7 +545,7 @@ async function createMcpServerForRequest(
 
           // Resolve user context from session token
           if (sessionToken) {
-            const resolvedSession = await resolveSessionContext(sessionToken, toolContext, config.debug)
+            const resolvedSession = await resolveSessionContext(sessionToken, toolContext, apiKeyRecord, config.debug)
             if (resolvedSession) {
               // Session context includes the decrypted API key secret + session ID for memory layer
               effectiveContext = { ...resolvedSession.context, sessionId: sessionToken }
