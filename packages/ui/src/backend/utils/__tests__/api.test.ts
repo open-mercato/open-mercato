@@ -4,6 +4,9 @@
 jest.mock('../../FlashMessages', () => ({
   flash: jest.fn(),
 }))
+jest.mock('../../operations/store', () => ({
+  pushOperation: jest.fn(),
+}))
 
 import { flash } from '../../FlashMessages'
 import {
@@ -15,6 +18,9 @@ import {
   registerAuthNoticeTranslator,
 } from '../../utils/api'
 import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { pushOperation } from '../../operations/store'
 
 function createMockResponse(
   status: number,
@@ -58,6 +64,31 @@ describe('apiFetch', () => {
     jest.clearAllTimers()
     jest.useRealTimers()
     jest.restoreAllMocks()
+  })
+
+  it('publishes Undo only when the response still belongs to the active organization', async () => {
+    const metadata = {
+      id: 'operation-1',
+      undoToken: 'undo-1',
+      commandId: 'customers.deals.update',
+      actionLabel: null,
+      resourceKind: 'customers.deal',
+      resourceId: 'deal-1',
+      executedAt: '2026-11-20T09:00:00.000Z',
+    }
+    const response = createMockResponse(200, {}, { 'x-om-operation': serializeOperationMetadata(metadata) })
+    const mockFetch = jest.fn(async () => {
+      emitOrganizationScopeChanged({ organizationId: 'org-after-write', tenantId: 'tenant' })
+      return response
+    })
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = mockFetch
+    emitOrganizationScopeChanged({ organizationId: 'org-before-write', tenantId: 'tenant' })
+
+    await expect(apiFetch('/api/customers/deals', { method: 'PUT' })).resolves.toBe(response)
+    expect(pushOperation).not.toHaveBeenCalled()
+
+    await expect(apiFetch('/api/customers/deals', { method: 'PUT' })).resolves.toBe(response)
+    expect(pushOperation).toHaveBeenCalledWith(metadata)
   })
 
   it('throws ForbiddenError and flashes a non-redirecting banner when backend returns ACL hints', async () => {

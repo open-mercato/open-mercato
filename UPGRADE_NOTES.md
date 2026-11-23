@@ -1,5 +1,22 @@
 # Upgrade Notes
 
+## Deals timeline view tab
+
+The Deals area gains a fourth view, **Timeline** (`/backend/customers/deals/timeline`),
+backed by the new read-only `GET /api/customers/deals/timeline` route. This is
+informational; no migration or configuration is required.
+
+- `KanbanView` and `DEALS_VIEWS` (exported from the deals `ViewTabsRow`) now include
+  `'timeline'`, appended after `'map'`. The union is additive-only, so code that keys a
+  `Record<KanbanView, …>` must add a `timeline` entry when it upgrades.
+- Deployments that override `section:customers.deals.viewTabs` with an explicit
+  `visibleViews` list keep showing exactly the views they list, so the Timeline tab stays
+  hidden until `'timeline'` is added. The page route stays published either way; disable
+  it through `entry.overrides.pages` if it is not wanted.
+- `GET /api/customers/deals` accepts an optional `hasExpectedCloseAt` boolean
+  (`false` = no close date). Combining `hasExpectedCloseAt=false` with a close-date range,
+  or with `isOverdue` while `needsAttention` is not `true`, returns `400`.
+
 ## Extension header parsing and analytics SQL identifier hardening (#10331, #10332)
 
 Two security-hardening narrowings landed on shared request-header parsing and dashboard analytics SQL construction:

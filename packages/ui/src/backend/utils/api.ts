@@ -10,6 +10,7 @@ import { createScopedHeaderStack } from './scopedHeaderStack'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { TranslateFn, TranslateParams } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { getCurrentOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/organizationEvents'
 
 const logger = createLogger('ui').child({ component: 'apiFetch' })
 
@@ -243,6 +244,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   // the post-login client-side navigation to /backend — otherwise the stale
   // pre-auth 401 raises a bogus "Session expired" banner right after signing in.
   const requestPathname = readPathname()
+  const requestScopeVersion = getCurrentOrganizationScopeVersion()
   const res = await baseFetch(input, mergedInit)
   const responsePathname = readPathname()
   const onLoginPage = isLoginPathname(requestPathname) || isLoginPathname(responsePathname)
@@ -292,7 +294,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
         })
       } catch {}
       const hasAclHints = Boolean((roles && roles.length) || (features && features.length))
-      if (hasAclHints) {
+      if (hasAclHints && requestScopeVersion === getCurrentOrganizationScopeVersion()) {
         notifyForbiddenAccess({ requiredRoles: roles, requiredFeatures: features })
       }
       let msg = 'Forbidden'
@@ -311,6 +313,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     }
     // If already on login, just return the response for the caller to handle
   }
+  if (requestScopeVersion !== getCurrentOrganizationScopeVersion()) return res
   try {
     const header = res.headers.get('x-om-operation')
     const metadata = deserializeOperationMetadata(header)
