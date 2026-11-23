@@ -86,4 +86,4 @@ not committed. Related spec: `.ai/specs/enterprise/implemented/SPEC-ENT-007-2026
 ### Phase 3: Validation
 
 - [x] 3.1 Run targeted tests and typecheck — interceptor (9), login (19), MfaVerificationService + challenge route (30) pass; enterprise + core `tsc --noEmit` pass
-- [ ] 3.2 Run the configured validation gate and record limits
+- [x] 3.2 Run the configured validation gate and record limits — `build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage` (advisory), `typecheck`, `test` (51/51 tasks), `build:app` all pass
