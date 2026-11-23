@@ -28,7 +28,7 @@ describe('DateTimeFields — per-type date requiredness (#5941)', () => {
         toggleRecurrenceDay={() => {}}
         recurrenceEndType="never"
         setRecurrenceEndType={() => {}}
-        recurrenceCount={8}
+        recurrenceCount="8"
         setRecurrenceCount={() => {}}
         recurrenceEndDate=""
         setRecurrenceEndDate={() => {}}
@@ -95,7 +95,7 @@ describe('DateTimeFields — pickers follow the app locale', () => {
         toggleRecurrenceDay={() => {}}
         recurrenceEndType="never"
         setRecurrenceEndType={() => {}}
-        recurrenceCount={1}
+        recurrenceCount="1"
         setRecurrenceCount={() => {}}
         recurrenceEndDate=""
         setRecurrenceEndDate={() => {}}
@@ -146,5 +146,153 @@ describe('DateTimeFields — pickers follow the app locale', () => {
 
     renderFields('en')
     expect(screen.getByText('02:30 PM')).toBeInTheDocument()
+  })
+})
+
+describe('DateTimeFields — recurrence card', () => {
+  type RecurrenceEndType = 'never' | 'count' | 'date'
+
+  function RecurrenceHarness({
+    onCount,
+    onEndDate,
+    endDate = '',
+  }: {
+    onCount: (value: string) => void
+    onEndDate: (value: string) => void
+    endDate?: string
+  }) {
+    const [endType, setEndType] = React.useState<RecurrenceEndType>('never')
+    const [count, setCount] = React.useState('3')
+    const [days, setDays] = React.useState([true, false, false, false, false, false, false])
+    return (
+      <DateTimeFields
+        visible={FIELD_VISIBILITY.meeting}
+        activityType="meeting"
+        date="2026-01-15"
+        setDate={() => {}}
+        startTime="14:30"
+        setStartTime={() => {}}
+        duration={30}
+        setDuration={() => {}}
+        allDay={false}
+        setAllDay={() => {}}
+        recurrenceEnabled
+        setRecurrenceEnabled={() => {}}
+        recurrenceDays={days}
+        toggleRecurrenceDay={(index) => setDays((current) => current.map((value, position) => (position === index ? !value : value)))}
+        recurrenceEndType={endType}
+        setRecurrenceEndType={setEndType}
+        recurrenceCount={count}
+        setRecurrenceCount={(value) => {
+          setCount(value)
+          onCount(value)
+        }}
+        recurrenceEndDate={endDate}
+        setRecurrenceEndDate={onEndDate}
+      />
+    )
+  }
+
+  function renderCard(locale = 'en') {
+    const onCount = jest.fn()
+    const onEndDate = jest.fn()
+    renderWithProviders(<RecurrenceHarness onCount={onCount} onEndDate={onEndDate} />, {
+      locale,
+      dict: locale === 'pl' ? polishTranslations : {},
+    })
+    return { onCount, onEndDate }
+  }
+
+  it('has no inert Edit button', () => {
+    renderCard()
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+  })
+
+  it('lets the user set how many occurrences the series runs for', () => {
+    const { onCount } = renderCard()
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'After occurrences' }))
+    expect(screen.getByRole('button', { name: 'After occurrences' })).toHaveAttribute('aria-pressed', 'true')
+
+    const countInput = screen.getByRole('spinbutton', { name: 'After occurrences' })
+    expect(countInput).toHaveValue(3)
+    expect(countInput).not.toHaveAttribute('aria-invalid', 'true')
+    fireEvent.change(countInput, { target: { value: '12' } })
+    expect(onCount).toHaveBeenLastCalledWith('12')
+    expect(countInput).toHaveValue(12)
+  })
+
+  it('keeps the occurrences field empty while the user replaces the number', () => {
+    const { onCount } = renderCard()
+    fireEvent.click(screen.getByRole('button', { name: 'After occurrences' }))
+    const countInput = screen.getByRole('spinbutton', { name: 'After occurrences' })
+
+    fireEvent.change(countInput, { target: { value: '' } })
+    expect(onCount).toHaveBeenLastCalledWith('')
+    expect(countInput).toHaveValue(null)
+    expect(countInput).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByText('Enter a whole number of 1 or more.')).toBeInTheDocument()
+
+    fireEvent.change(countInput, { target: { value: '7' } })
+    expect(onCount).toHaveBeenLastCalledWith('7')
+    expect(countInput).toHaveValue(7)
+    expect(countInput).not.toHaveAttribute('aria-invalid', 'true')
+    expect(screen.queryByText('Enter a whole number of 1 or more.')).not.toBeInTheDocument()
+  })
+
+  it('flags zero instead of turning it into one', () => {
+    const { onCount } = renderCard()
+    fireEvent.click(screen.getByRole('button', { name: 'After occurrences' }))
+    const countInput = screen.getByRole('spinbutton', { name: 'After occurrences' })
+
+    fireEvent.change(countInput, { target: { value: '0' } })
+    expect(onCount).toHaveBeenLastCalledWith('0')
+    expect(countInput).toHaveValue(0)
+    expect(countInput).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('shows an end date picker only for the date ending', () => {
+    const { container } = renderWithProviders(<RecurrenceHarness onCount={() => {}} onEndDate={() => {}} />)
+    const pickerCount = () => container.querySelectorAll('[data-slot="date-picker-trigger"]').length
+    const before = pickerCount()
+
+    fireEvent.click(screen.getByRole('button', { name: 'On date' }))
+    expect(pickerCount()).toBe(before + 1)
+    expect(screen.getByRole('button', { name: 'On date', pressed: true })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Never' }))
+    expect(pickerCount()).toBe(before)
+  })
+
+  it('flags an end date before the first date and ties the message to the picker', () => {
+    const { container } = renderWithProviders(
+      <RecurrenceHarness onCount={() => {}} onEndDate={() => {}} endDate="2026-01-10" />,
+    )
+    expect(screen.queryByText('The series cannot end before its first date.')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'On date' }))
+
+    const message = screen.getByText('The series cannot end before its first date.')
+    const endPicker = Array.from(container.querySelectorAll('[data-slot="date-picker-trigger"]')).at(-1)
+    expect(endPicker).toHaveAttribute('aria-describedby', message.id)
+  })
+
+  it.each(['2026-01-15', '2026-02-01'])('accepts an end date of %s for a series starting 2026-01-15', (endDate) => {
+    renderWithProviders(<RecurrenceHarness onCount={() => {}} onEndDate={() => {}} endDate={endDate} />)
+    fireEvent.click(screen.getByRole('button', { name: 'On date' }))
+
+    expect(screen.queryByText('The series cannot end before its first date.')).not.toBeInTheDocument()
+  })
+
+  it('labels the weekdays in the app locale and exposes their state', () => {
+    renderCard('pl')
+    const monday = screen.getByRole('button', { name: 'PN' })
+    expect(monday).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'WT' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('button', { name: 'Mo' })).not.toBeInTheDocument()
+
+    fireEvent.click(monday)
+    expect(monday).toHaveAttribute('aria-pressed', 'false')
   })
 })
