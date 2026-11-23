@@ -102,77 +102,79 @@ test.describe('TC-EXAMPLE-018: Visit availability API and direct write guard', (
     }
   })
 
-  test('previews an unscheduled resource and rejects direct create/update while preserving the Visit', async ({ request }) => {
-    let token: string | null = null
-    let personId: string | null = null
-    let resourceId: string | null = null
-    let visitId: string | null = null
-    try {
-      token = await getAuthToken(request, 'admin')
-      const stamp = Date.now()
-      personId = await createPersonFixture(request, token, {
-        firstName: 'Visit', lastName: `QA${stamp}`, displayName: `Visit QA ${stamp}`,
-      })
-      const resource = await apiRequest(request, 'POST', '/api/resources/resources', {
-        token, data: { name: `Visit QA room ${stamp}`, isActive: true },
-      })
-      expect(resource.status(), await resource.text()).toBe(201)
-      resourceId = (await resource.json() as { id?: string }).id ?? null
-      expect(resourceId).toBeTruthy()
+  for (const parentless of [false, true]) {
+    test(`previews an unscheduled resource and preserves the ${parentless ? 'internal' : 'linked'} Visit on rejected create/update`, async ({ request }) => {
+      let token: string | null = null
+      let personId: string | null = null
+      let resourceId: string | null = null
+      let visitId: string | null = null
+      try {
+        token = await getAuthToken(request, 'admin')
+        const stamp = Date.now()
+        personId = await createPersonFixture(request, token, {
+          firstName: 'Visit', lastName: `QA${stamp}`, displayName: `Visit QA ${stamp}`,
+        })
+        const resource = await apiRequest(request, 'POST', '/api/resources/resources', {
+          token, data: { name: `Visit QA room ${stamp}`, isActive: true },
+        })
+        expect(resource.status(), await resource.text()).toBe(201)
+        resourceId = (await resource.json() as { id?: string }).id ?? null
+        expect(resourceId).toBeTruthy()
 
-      const catalogResponse = await apiRequest(request, 'GET', '/api/customers/activity-types', { token })
-      expect(catalogResponse.status(), await catalogResponse.text()).toBe(200)
-      const catalog = await catalogResponse.json() as { items: Array<{ key: string; label: string; selectable: boolean; panelKey?: string; labelKey?: string }> }
-      expect(catalog.items.find((item) => item.key === 'visit')).toMatchObject({ selectable: true, panelKey: 'example.visit' })
-      expect(catalog.items.find((item) => item.key === 'meeting')).toMatchObject({ selectable: true })
-      expect(catalog.items.find((item) => item.key === 'note')).toMatchObject({ selectable: true })
+        const catalogResponse = await apiRequest(request, 'GET', '/api/customers/activity-types', { token })
+        expect(catalogResponse.status(), await catalogResponse.text()).toBe(200)
+        const catalog = await catalogResponse.json() as { items: Array<{ key: string; label: string; selectable: boolean; panelKey?: string; labelKey?: string }> }
+        expect(catalog.items.find((item) => item.key === 'visit')).toMatchObject({ selectable: true, panelKey: 'example.visit' })
+        expect(catalog.items.find((item) => item.key === 'meeting')).toMatchObject({ selectable: true })
+        expect(catalog.items.find((item) => item.key === 'note')).toMatchObject({ selectable: true })
 
-      const query = new URLSearchParams({ startAt: START, endAt: END, resourceIds: resourceId! })
-      const preview = await apiRequest(request, 'GET', `/api/example/visit-availability?${query.toString()}`, { token })
-      expect(preview.status(), await preview.text()).toBe(200)
-      expect(await preview.json()).toEqual({ subjects: [{
-        type: 'resource', id: resourceId, displayName: `Visit QA room ${stamp}`, status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.noSchedule',
-      }], warnings: [] })
+        const query = new URLSearchParams({ startAt: START, endAt: END, resourceIds: resourceId! })
+        const preview = await apiRequest(request, 'GET', `/api/example/visit-availability?${query.toString()}`, { token })
+        expect(preview.status(), await preview.text()).toBe(200)
+        expect(await preview.json()).toEqual({ subjects: [{
+          type: 'resource', id: resourceId, displayName: `Visit QA room ${stamp}`, status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.noSchedule',
+        }], warnings: [] })
 
-      const visitInput = { entityId: personId, interactionType: 'visit', title: `Visit QA ${stamp}`, scheduledAt: START, durationMinutes: 60 }
-      const rejected = await apiRequest(request, 'POST', '/api/customers/interactions', {
-        token, data: { ...visitInput, linkedEntities: [{ type: 'resource', id: resourceId, label: `Visit QA room ${stamp}` }] },
-      })
-      expect(rejected.status()).toBe(422)
-      expect(await rejected.json()).toMatchObject({ code: 'visit_availability_unavailable', fieldErrors: {
-        linkedEntities: 'example.calendar.visitAvailability.noSchedule',
-      } })
+        const visitInput = { entityId: parentless ? null : personId, interactionType: 'visit', title: `Visit QA ${stamp}`, scheduledAt: START, durationMinutes: 60 }
+        const rejected = await apiRequest(request, 'POST', '/api/customers/interactions', {
+          token, data: { ...visitInput, linkedEntities: [{ type: 'resource', id: resourceId, label: `Visit QA room ${stamp}` }] },
+        })
+        expect(rejected.status()).toBe(422)
+        expect(await rejected.json()).toMatchObject({ code: 'visit_availability_unavailable', fieldErrors: {
+          linkedEntities: 'example.calendar.visitAvailability.noSchedule',
+        } })
 
-      const accepted = await apiRequest(request, 'POST', '/api/customers/interactions', { token, data: visitInput })
-      expect(accepted.status(), await accepted.text()).toBe(201)
-      visitId = (await accepted.json() as { id?: string }).id ?? null
-      expect(visitId).toBeTruthy()
+        const accepted = await apiRequest(request, 'POST', '/api/customers/interactions', { token, data: visitInput })
+        expect(accepted.status(), await accepted.text()).toBe(201)
+        visitId = (await accepted.json() as { id?: string }).id ?? null
+        expect(visitId).toBeTruthy()
 
-      const titleUpdate = await apiRequest(request, 'PUT', '/api/customers/interactions', {
-        token, data: { id: visitId, title: `Renamed Visit QA ${stamp}` },
-      })
-      expect(titleUpdate.status(), await titleUpdate.text()).toBe(200)
+        const titleUpdate = await apiRequest(request, 'PUT', '/api/customers/interactions', {
+          token, data: { id: visitId, title: `Renamed Visit QA ${stamp}` },
+        })
+        expect(titleUpdate.status(), await titleUpdate.text()).toBe(200)
 
-      const update = await apiRequest(request, 'PUT', '/api/customers/interactions', {
-        token,
-        data: { id: visitId, linkedEntities: [{ type: 'resource', id: resourceId, label: `Visit QA room ${stamp}` }] },
-      })
-      expect(update.status()).toBe(422)
-      expect(await update.json()).toMatchObject({ code: 'visit_availability_unavailable', fieldErrors: {
-        linkedEntities: 'example.calendar.visitAvailability.noSchedule',
-      } })
+        const update = await apiRequest(request, 'PUT', '/api/customers/interactions', {
+          token,
+          data: { id: visitId, linkedEntities: [{ type: 'resource', id: resourceId, label: `Visit QA room ${stamp}` }] },
+        })
+        expect(update.status()).toBe(422)
+        expect(await update.json()).toMatchObject({ code: 'visit_availability_unavailable', fieldErrors: {
+          linkedEntities: 'example.calendar.visitAvailability.noSchedule',
+        } })
 
-      const list = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${personId}&from=2026-10-05T00%3A00%3A00Z&to=2026-10-06T00%3A00%3A00Z`, { token })
-      expect(list.status(), await list.text()).toBe(200)
-      const row = ((await list.json()) as { items?: Array<{ id: string; linkedEntities?: unknown[] }> }).items?.find((item) => item.id === visitId)
-      expect(row).toBeTruthy()
-      expect(row?.linkedEntities ?? []).toEqual([])
-    } finally {
-      await deleteEntityIfExists(request, token, '/api/customers/interactions', visitId)
-      await deleteEntityIfExists(request, token, '/api/resources/resources', resourceId)
-      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
-    }
-  })
+        const list = await apiRequest(request, 'GET', `/api/customers/interactions?search=${encodeURIComponent(`Renamed Visit QA ${stamp}`)}&from=2026-10-05T00%3A00%3A00Z&to=2026-10-06T00%3A00%3A00Z`, { token })
+        expect(list.status(), await list.text()).toBe(200)
+        const row = ((await list.json()) as { items?: Array<{ id: string; linkedEntities?: unknown[] }> }).items?.find((item) => item.id === visitId)
+        expect(row).toBeTruthy()
+        expect(row?.linkedEntities ?? []).toEqual([])
+      } finally {
+        await deleteEntityIfExists(request, token, '/api/customers/interactions', visitId)
+        await deleteEntityIfExists(request, token, '/api/resources/resources', resourceId)
+        await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+      }
+    })
+  }
 })
 
 const scheduleCases = [
@@ -520,7 +522,7 @@ for (const subjectType of ['staff', 'resource'] as const) {
         {
           token: authToken,
           data: {
-            entityId: personId,
+            entityId: subjectType === 'resource' ? null : personId,
             interactionType: 'visit',
             title: `Concurrent Visit ${index} ${stamp}`,
             scheduledAt: '2026-10-05T11:00:00Z',
