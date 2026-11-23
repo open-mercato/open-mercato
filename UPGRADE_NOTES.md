@@ -1580,9 +1580,9 @@ minutes by default), and the "Promotions" menu group appears after
 
 Both modules also register queue-backed sweeper schedules (cart lock/reservation cleanup,
 dynamic-code generation, promotion code-reservation expiry) through the `configs` upgrade-action
-mechanism, gated at version `0.9.1` — the version this release ships as. An existing tenant sees
+mechanism, gated at version `0.9.1`, so they apply to `0.10.0`. An existing tenant sees
 these as pending upgrade actions (`configs.manage`, the same admin banner every other upgrade
-action uses) once the app reports `0.9.1`; no migration or CLI command runs them automatically.
+action uses) once the app reports `0.10.0`; no migration or CLI command runs them automatically.
 
 ### Login and portal session routes reject cross-site browser requests with `403` (#7239)
 
