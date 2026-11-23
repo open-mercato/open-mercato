@@ -53,11 +53,9 @@ import { buildReservationIdempotencyKey } from './inventoryIdempotency'
 import {
   ensureOrganizationScope,
   ensureTenantScope,
-  findExactBalanceForUpdate,
   getAvailableQuantity,
   isUniqueConstraintError,
   loadProfileForVariant,
-  requireWarehouse,
   resolveScope,
   runInTransaction,
   setNumeric,
@@ -108,6 +106,66 @@ export type ReleaseInTransactionResult = {
   touchedBalances: InventoryBalance[]
 }
 
+function scopePredicate(scope: Scope): Scope {
+  return { tenantId: scope.tenantId, organizationId: scope.organizationId }
+}
+
+function resolveAuthorizedScope(
+  ctx: CommandRuntimeContext,
+  input: { tenantId: string; organizationId: string },
+): Scope {
+  ensureTenantScope(ctx, input.tenantId)
+  ensureOrganizationScope(ctx, input.organizationId)
+  return resolveScope(ctx, input)
+}
+
+async function requireScopedWarehouse(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  warehouseId: string,
+  scope: Scope,
+): Promise<Warehouse> {
+  const warehouse = await findOneWithDecryption(
+    em,
+    Warehouse,
+    { id: warehouseId, ...scopePredicate(scope), deletedAt: null },
+    undefined,
+    scope,
+  )
+  if (!warehouse) throw new CrudHttpError(404, { error: 'Warehouse not found.' })
+  ensureTenantScope(ctx, warehouse.tenantId)
+  ensureOrganizationScope(ctx, warehouse.organizationId)
+  return warehouse
+}
+
+async function findScopedExactBalanceForUpdate(
+  em: EntityManager,
+  scope: Scope,
+  input: {
+    warehouseId: string
+    locationId: string
+    catalogVariantId: string
+    lotId?: string
+    serialNumber?: string
+  },
+): Promise<InventoryBalance | null> {
+  return findOneWithDecryption(
+    em,
+    InventoryBalance,
+    {
+      ...scopePredicate(scope),
+      warehouse: input.warehouseId,
+      location: input.locationId,
+      catalogVariantId: input.catalogVariantId,
+      lot: input.lotId ?? null,
+      serialNumber: input.serialNumber ?? null,
+      deletedAt: null,
+    },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    scope,
+  )
+}
+
 export function extractReservationMetadata(reservation: InventoryReservation): ReservationMetadata {
   if (!reservation.metadata || typeof reservation.metadata !== 'object' || Array.isArray(reservation.metadata)) {
     return {}
@@ -126,7 +184,7 @@ export async function requireReservation(
   const reservation = await findOneWithDecryption(
     em,
     InventoryReservation,
-    { id: reservationId, deletedAt: null },
+    { id: reservationId, ...scopePredicate(resolvedScope), deletedAt: null },
     lock ? { lockMode: LockMode.PESSIMISTIC_WRITE } : undefined,
     resolvedScope,
   )
@@ -151,14 +209,14 @@ export async function findReservationBucketBalance(
     const balance = await findOneWithDecryption(
       em,
       InventoryBalance,
-      { id: bucket.balanceId, deletedAt: null },
+      { id: bucket.balanceId, ...scopePredicate(scope), deletedAt: null },
       { lockMode: LockMode.PESSIMISTIC_WRITE },
       scope,
     )
     if (balance) return balance
   }
 
-  return findExactBalanceForUpdate(em, scope, {
+  return findScopedExactBalanceForUpdate(em, scope, {
     warehouseId,
     locationId: bucket.locationId,
     catalogVariantId: reservation.catalogVariantId,
@@ -245,7 +303,7 @@ async function findExistingActiveReservationByIdempotencyKey(
     em,
     InventoryReservation,
     {
-      organizationId: scope.organizationId,
+      ...scopePredicate(scope),
       idempotencyKey,
       status: 'active',
       deletedAt: null,
@@ -267,6 +325,7 @@ async function listCandidateBalances(
   scope: Scope,
 ) {
   const where: Record<string, unknown> = {
+    ...scopePredicate(scope),
     warehouse: input.warehouseId,
     catalogVariantId: input.catalogVariantId,
     deletedAt: null,
@@ -400,9 +459,9 @@ export class WmsReservationService {
     ctx: CommandRuntimeContext,
     input: InventoryReservationCreateInput,
   ): Promise<ReserveInTransactionResult> {
+    const scope = resolveAuthorizedScope(ctx, input)
     return runInTransaction(trx, async (innerTrx) => {
-      const scope = resolveScope(ctx, input)
-      await requireWarehouse(innerTrx, ctx, input.warehouseId, scope)
+      await requireScopedWarehouse(innerTrx, ctx, input.warehouseId, scope)
       const reservationIdempotencyKey = buildReservationIdempotencyKey({
         sourceType: input.sourceType,
         sourceId: input.sourceId,
@@ -455,7 +514,7 @@ export class WmsReservationService {
         const locationId = typeof balance.location === 'string' ? balance.location : balance.location.id
         const lotIdRaw = balance.lot ?? null
         const lotId = typeof lotIdRaw === 'string' ? lotIdRaw : lotIdRaw?.id ?? null
-        const persistedBalance = await findExactBalanceForUpdate(innerTrx, scope, {
+        const persistedBalance = await findScopedExactBalanceForUpdate(innerTrx, scope, {
           warehouseId: input.warehouseId,
           locationId,
           catalogVariantId: input.catalogVariantId,
@@ -550,8 +609,8 @@ export class WmsReservationService {
     ctx: CommandRuntimeContext,
     input: InventoryReservationReleaseInput,
   ): Promise<ReleaseInTransactionResult> {
+    const scope = resolveAuthorizedScope(ctx, input)
     return runInTransaction(trx, async (innerTrx) => {
-      const scope = resolveScope(ctx, input)
       const reservation = await requireReservation(innerTrx, ctx, input.reservationId, scope, true)
       if (reservation.status !== 'active') {
         throw new CrudHttpError(409, { error: 'invalid_reservation_state' })

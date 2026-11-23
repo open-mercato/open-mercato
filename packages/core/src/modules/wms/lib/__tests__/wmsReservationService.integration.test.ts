@@ -54,10 +54,23 @@ function buildContext(fixture: Fixture): CommandRuntimeContext {
   } as unknown as CommandRuntimeContext
 }
 
-function buildReserveInput(fixture: Fixture, quantity: number) {
+function buildMultiOrganizationContext(fixture: Fixture, organizationIds: string[]): CommandRuntimeContext {
+  return {
+    ...buildContext(fixture),
+    organizationScope: {
+      selectedId: fixture.organizationId,
+      filterIds: organizationIds,
+      allowedIds: organizationIds,
+      tenantId: fixture.tenantId,
+    },
+    organizationIds,
+  } as unknown as CommandRuntimeContext
+}
+
+function buildReserveInput(fixture: Fixture, quantity: number, organizationId = fixture.organizationId) {
   return inventoryReservationCreateSchema.parse({
     tenantId: fixture.tenantId,
-    organizationId: fixture.organizationId,
+    organizationId,
     warehouseId: fixture.warehouseId,
     catalogVariantId: fixture.catalogVariantId,
     quantity,
@@ -109,7 +122,7 @@ describeWithPostgres('wmsReservationService inside a caller transaction (Postgre
   async function readState(fixture: Fixture) {
     const em = activeOrm().em.fork()
     const balance = await em.findOneOrFail(InventoryBalance, { id: fixture.balanceId })
-    const reservations = await em.find(InventoryReservation, { organizationId: fixture.organizationId })
+    const reservations = await em.find(InventoryReservation, { tenantId: fixture.tenantId })
     return { quantityReserved: Number(balance.quantityReserved), reservations }
   }
 
@@ -188,5 +201,74 @@ describeWithPostgres('wmsReservationService inside a caller transaction (Postgre
     expect(state.quantityReserved).toBe(6)
     expect(state.reservations).toHaveLength(1)
     expect(state.reservations[0].status).toBe('active')
+  })
+
+  it('refuses a direct reserve whose input organization does not own the warehouse and writes nothing', async () => {
+    const fixture = await seedFixture('10')
+    const otherOrganizationId = randomUUID()
+    const ctx = buildMultiOrganizationContext(fixture, [fixture.organizationId, otherOrganizationId])
+
+    await expect(
+      activeOrm().em.fork().transactional(async (trx) => {
+        await service.reserveInTransaction(
+          trx as EntityManager,
+          ctx,
+          buildReserveInput(fixture, 4, otherOrganizationId),
+        )
+      }),
+    ).rejects.toMatchObject({ status: 404 })
+
+    const state = await readState(fixture)
+    expect(state.quantityReserved).toBe(0)
+    expect(state.reservations).toHaveLength(0)
+  })
+
+  it('refuses a direct release whose input organization does not own the reservation and leaves it active', async () => {
+    const fixture = await seedFixture('10')
+    const otherOrganizationId = randomUUID()
+    const reserved = await service.reserveInTransaction(
+      activeOrm().em.fork() as EntityManager,
+      buildContext(fixture),
+      buildReserveInput(fixture, 6),
+    )
+    const ctx = buildMultiOrganizationContext(fixture, [fixture.organizationId, otherOrganizationId])
+
+    await expect(
+      activeOrm().em.fork().transactional(async (trx) => {
+        await service.releaseInTransaction(
+          trx as EntityManager,
+          ctx,
+          inventoryReservationReleaseSchema.parse({
+            tenantId: fixture.tenantId,
+            organizationId: otherOrganizationId,
+            reservationId: reserved.reservationId,
+            reason: 'cross-organization release',
+          }),
+        )
+      }),
+    ).rejects.toMatchObject({ status: 404 })
+
+    const state = await readState(fixture)
+    expect(state.quantityReserved).toBe(6)
+    expect(state.reservations).toHaveLength(1)
+    expect(state.reservations[0].status).toBe('active')
+    expect(state.reservations[0].organizationId).toBe(fixture.organizationId)
+  })
+
+  it('refuses a direct reserve for an organization outside the actor scope before any lookup', async () => {
+    const fixture = await seedFixture('10')
+    const otherOrganizationId = randomUUID()
+
+    await expect(
+      service.reserveInTransaction(
+        activeOrm().em.fork() as EntityManager,
+        buildContext(fixture),
+        buildReserveInput(fixture, 4, otherOrganizationId),
+      ),
+    ).rejects.toMatchObject({ status: 403 })
+
+    const state = await readState(fixture)
+    expect(state.quantityReserved).toBe(0)
+    expect(state.reservations).toHaveLength(0)
   })
 })

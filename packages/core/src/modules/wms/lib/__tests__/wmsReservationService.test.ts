@@ -217,12 +217,10 @@ describe('WmsReservationService.reserveInTransaction', () => {
   })
 
   it('runs the operation directly on the caller em when it exposes no .transactional', async () => {
-    // Simulates the composed-caller shape the A1 extraction exists for
-    // (`availability`'s future reserve, Phase 2): an EntityManager that is
-    // already mid-transaction and therefore has no `.transactional` of its
-    // own to call — `runInTransaction`'s documented fallback runs the
-    // operation directly on that same `em` rather than opening a second
-    // transaction.
+    // A limited fake EntityManager with no `.transactional` exercises
+    // `runInTransaction`'s fallback branch. A real MikroORM manager that is
+    // already mid-transaction keeps `.transactional` and opens a savepoint;
+    // that path is covered by wmsReservationService.integration.test.ts.
     const service = new WmsReservationService()
     const em = createEm({ transactional: false })
     const existingReservation = makeReservation()
@@ -310,5 +308,65 @@ describe('WmsReservationService.releaseInTransaction', () => {
     await expect(
       service.releaseInTransaction(em, createCtx(em), makeReleaseInput()),
     ).rejects.toMatchObject({ status: 409, body: { error: 'balance_integrity_violation' } })
+  })
+})
+
+describe('WmsReservationService scope enforcement', () => {
+  const OTHER_ORG = '33333333-3333-4333-8333-333333333333'
+
+  beforeEach(() => {
+    findOneWithDecryption.mockReset()
+    findWithDecryption.mockReset()
+  })
+
+  it('rejects a reserve for an organization outside the actor scope before any lookup or write', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+
+    await expect(
+      service.reserveInTransaction(em, createCtx(em), makeReserveInput({ organizationId: OTHER_ORG })),
+    ).rejects.toMatchObject({ status: 403 })
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    expect(findWithDecryption).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('rejects a release for an organization outside the actor scope before locking the reservation', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+
+    await expect(
+      service.releaseInTransaction(em, createCtx(em), makeReleaseInput({ organizationId: OTHER_ORG })),
+    ).rejects.toMatchObject({ status: 403 })
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('puts the authorized tenant and organization into every warehouse, balance and reservation predicate', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    const balance = makeBalance({ quantityOnHand: '10' })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown) => {
+      if (entity === Warehouse) return { id: WAREHOUSE_ID, tenantId: TENANT, organizationId: ORG }
+      if (entity === InventoryBalance) return balance
+      return null
+    })
+    findWithDecryption.mockImplementation((_em: unknown, entity: unknown) => {
+      if (entity === InventoryBalance) return [balance]
+      return []
+    })
+
+    await service.reserveInTransaction(em, createCtx(em), makeReserveInput({ quantity: 4 }))
+
+    const scopedEntities = [Warehouse, InventoryBalance, InventoryReservation]
+    const scopedCalls = [...findOneWithDecryption.mock.calls, ...findWithDecryption.mock.calls].filter(
+      (call) => scopedEntities.includes(call[1]),
+    )
+    expect(scopedCalls.length).toBeGreaterThanOrEqual(4)
+    for (const call of scopedCalls) {
+      expect(call[2]).toMatchObject({ tenantId: TENANT, organizationId: ORG })
+    }
   })
 })
