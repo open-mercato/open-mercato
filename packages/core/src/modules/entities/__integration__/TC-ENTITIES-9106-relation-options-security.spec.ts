@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures } from '@open-mercato/core/helpers/integration/authFixtures'
-import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { createCustomEntity, saveFieldDefinitions, uniqueEntityId } from './helpers/entitiesApi'
+import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
+import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { createCustomEntity, expectUuid, saveFieldDefinitions, uniqueEntityId } from './helpers/entitiesApi'
 
 test('TC-ENTITIES-9106: metadata access cannot read system secrets; permitted relation labels remain available', async ({ request }) => {
   const administrator = await getAuthToken(request, 'superadmin')
@@ -61,5 +62,40 @@ test('TC-ENTITIES-9106: metadata access cannot read system secrets; permitted re
     await deleteUserIfExists(request, administrator, readerUserId)
     await deleteRoleIfExists(request, administrator, roleId)
     await deleteRoleIfExists(request, administrator, readerRoleId)
+  }
+})
+
+test('TC-ENTITIES-9106: product and portal user relation labels display and search by name', async ({ request }) => {
+  const token = await getAuthToken(request, 'admin')
+  const suffix = randomUUID().slice(0, 8)
+  const productTitle = `Atlas${suffix}`
+  const userName = `Ada${suffix}`
+  let productId: string | null = null
+  let userId: string | null = null
+
+  try {
+    productId = await createProductFixture(request, token, { title: productTitle, sku: `QA-${suffix}` })
+    const customer = await apiRequest(request, 'POST', '/api/customer_accounts/admin/users', {
+      token,
+      data: { email: `relation-${suffix}@example.test`, displayName: userName, password: `Test-${randomUUID()}!` },
+    })
+    expect(customer.status()).toBe(201)
+    userId = expectUuid((await readJsonSafe<{ user: { id: string } }>(customer))?.user.id, 'created customer user id')
+
+    for (const { entityId, id, label, selector } of [
+      { entityId: 'catalog:catalog_product', id: productId, label: productTitle, selector: 'name' },
+      { entityId: 'customer_accounts:customer_user', id: userId, label: userName, selector: 'displayName' },
+    ]) {
+      const lookups: Record<string, string>[] = [{ ids: id }, { ids: id, labelField: selector }, { q: label }]
+      for (const lookup of lookups) {
+        const params = new URLSearchParams({ entityId, ...lookup })
+        const response = await apiRequest(request, 'GET', `/api/entities/relations/options?${params}`, { token })
+        expect(response.status(), `${entityId} ${params}`).toBe(200)
+        expect(await response.json()).toEqual({ items: [{ value: id, label }] })
+      }
+    }
+  } finally {
+    if (userId) await apiRequest(request, 'DELETE', `/api/customer_accounts/admin/users/${userId}`, { token })
+    await deleteCatalogProductIfExists(request, token, productId)
   }
 })

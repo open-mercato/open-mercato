@@ -11,7 +11,7 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
 }))
 
 const mockQE = {
-  query: jest.fn(async () => ({
+  query: jest.fn(async (): Promise<{ items: Array<Record<string, unknown>> }> => ({
     items: [
       { id: 'rec-1', title: 'Alpha' },
       { id: 'rec-2', title: 'Beta' },
@@ -22,8 +22,18 @@ const mockQE = {
 // Entity ids the fake ORM metadata knows about, keyed by the class name the
 // resolver derives from the id's entity segment.
 const registeredTables: Record<string, string> = {
+  CatalogProduct: 'catalog_products', CustomerUser: 'customer_users',
   CatalogProductVariant: 'catalog_product_variants',
   CustomerEntity: 'customer_entities', CustomerPersonProfile: 'customer_person_profiles', SalesOrder: 'sales_orders', User: 'users',
+}
+const labelProperties: Record<string, Record<string, string>> = {
+  catalog_products: { title: 'title' },
+  catalog_product_variants: { sku: 'sku' },
+  customer_entities: { title: 'title' },
+  customer_person_profiles: { displayName: 'display_name' },
+  customer_users: { displayName: 'display_name', email: 'email', passwordHash: 'password_hash' },
+  entries: { externalReference: 'external_reference' },
+  sales_orders: { title: 'title' },
 }
 
 const mockRbac = { userHasAllFeatures: jest.fn(async () => true), loadAcl: jest.fn(async () => ({ isSuperAdmin: true })) }
@@ -39,7 +49,15 @@ const mockEm = {
     find: (className: string) => (
       registeredTables[className] ? { tableName: registeredTables[className] } : undefined
     ),
-    getAll: () => Object.values(registeredTables).map((tableName) => ({ tableName })),
+    getAll: () => new Map(Object.entries(registeredTables).map(([className, tableName]) => [
+      className,
+      {
+        tableName,
+        properties: Object.fromEntries(Object.entries({ id: 'id', ...labelProperties[tableName] }).map(
+          ([name, column]) => [name, { name, fieldNames: [column] }],
+        )),
+      },
+    ])),
   }),
 }
 
@@ -57,7 +75,14 @@ jest.mock('@open-mercato/core/modules/entities/lib/entityClassification', () => 
   }),
 }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  getModules: () => [{ customEntities: [{ id: 'customers:customer_entity', labelField: 'title' }, { id: 'customers:customer_person_profile', labelField: 'displayName' }, { id: 'catalog:catalog_product_variant', labelField: 'sku' }, { id: 'third_party:entry', labelField: 'externalReference' }] }],
+  getModules: () => [{ customEntities: [
+    { id: 'customers:customer_entity', labelField: 'title' },
+    { id: 'customers:customer_person_profile', labelField: 'displayName' },
+    { id: 'catalog:catalog_product', labelField: 'name' },
+    { id: 'catalog:catalog_product_variant', labelField: 'sku' },
+    { id: 'customer_accounts:customer_user', labelField: 'displayName' },
+    { id: 'third_party:entry', labelField: 'externalReference' },
+  ] }],
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
 }))
 
@@ -108,6 +133,33 @@ describe('GET /api/entities/relations/options', () => {
       organizationId: 'org',
       fields: ['id', 'sku'],
     }))
+  })
+
+  it.each([
+    ['catalog:catalog_product', '', 'title'],
+    ['catalog:catalog_product', 'name', 'title'],
+    ['customer_accounts:customer_user', '', 'display_name'],
+    ['customer_accounts:customer_user', 'displayName', 'display_name'],
+    ['customer_accounts:customer_user', 'display_name', 'display_name'],
+  ])('projects and searches the stored label for %s (%s)', async (entityId, selector, column) => {
+    mockQE.query.mockResolvedValueOnce({ items: [{ id: 'record-1', [column]: 'Atlas' }] })
+    const params = new URLSearchParams({ entityId, labelField: selector, q: 'Atlas' })
+    const response = await GET(new Request(`http://x/api/entities/relations/options?${params}`))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ items: [{ value: 'record-1', label: 'Atlas' }] })
+    expect(mockQE.query).toHaveBeenCalledWith(entityId, expect.objectContaining({
+      fields: ['id', column],
+      filters: { [column]: { $ilike: '%Atlas%' } },
+    }))
+  })
+
+  it('does not allow a secret ORM property or column as a label', async () => {
+    for (const labelField of ['passwordHash', 'password_hash']) {
+      const response = await GET(new Request(`http://x/api/entities/relations/options?entityId=customer_accounts:customer_user&labelField=${labelField}`))
+      expect(response.status).toBe(400)
+    }
+    expect(mockQE.query).not.toHaveBeenCalled()
   })
 
   it('uses the selected organization for target permissions and relation records', async () => {
@@ -346,12 +398,12 @@ describe('GET /api/entities/relations/options', () => {
 
   it('keeps declared customer profile labels readable by an authorized non-superadmin', async () => {
     mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false })
-    mockQE.query.mockResolvedValueOnce({ items: [{ id: 'person-1', displayName: 'Ada Lovelace' }] })
+    mockQE.query.mockResolvedValueOnce({ items: [{ id: 'person-1', display_name: 'Ada Lovelace' }] })
     const response = await GET(new Request('http://x/api/entities/relations/options?entityId=customers:customer_person_profile&labelField=displayName'))
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ items: [{ value: 'person-1', label: 'Ada Lovelace' }] })
     expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('actor', ['customers.people.view'], { tenantId: 't1', organizationId: 'org' })
-    expect(mockQE.query).toHaveBeenCalledWith('customers:customer_person_profile', expect.objectContaining({ fields: ['id', 'displayName'] }))
+    expect(mockQE.query).toHaveBeenCalledWith('customers:customer_person_profile', expect.objectContaining({ fields: ['id', 'display_name'] }))
   })
 
   it('preserves third-party declared labels', async () => {
@@ -359,7 +411,7 @@ describe('GET /api/entities/relations/options', () => {
     mockQE.query.mockResolvedValueOnce({ items: [] })
     const response = await GET(new Request('http://x/api/entities/relations/options?entityId=third_party:entry&labelField=externalReference'))
     expect(response.status).toBe(200)
-    expect(mockQE.query).toHaveBeenCalledWith('third_party:entry', expect.objectContaining({ fields: ['id', 'externalReference'] }))
+    expect(mockQE.query).toHaveBeenCalledWith('third_party:entry', expect.objectContaining({ fields: ['id', 'external_reference'] }))
     delete registeredTables.Entry
   })
 
