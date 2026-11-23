@@ -422,7 +422,29 @@ describe('POST /api/sync_xero/disconnect', () => {
     expect(upsertState).not.toHaveBeenCalled()
     expect(saveCredentials).not.toHaveBeenCalled()
     expect(mockEmitIntegrationsEvent).not.toHaveBeenCalled()
-    expect(memoryAdvisoryLock.keys).toEqual([CONNECTION_LOCK_KEY])
+    expect(memoryAdvisoryLock.keys).toEqual([CONNECTION_LOCK_KEY, CONNECTION_LOCK_KEY])
+  })
+
+  it('erases and revokes the grant while holding the Xero connection lock', async () => {
+    const realDisconnect = grants.service.disconnect
+    let heldDuringErase = false
+    grants.service.disconnect = async (...args) => {
+      heldDuringErase = memoryAdvisoryLock.isHeld(CONNECTION_LOCK_KEY)
+      return realDisconnect(...args)
+    }
+    const response = await disconnect(request({}, currentRevision()))
+    expect(response.status).toBe(200)
+    expect(heldDuringErase).toBe(true)
+  })
+
+  it('answers 503 transient and erases nothing when the Xero connection lock is unavailable for the erase', async () => {
+    memoryAdvisoryLock.failNext('deadline')
+    const response = await disconnect(request({ removeClientCredentials: true }, currentRevision()))
+    expect(response.status).toBe(503)
+    expect(await json(response)).toMatchObject({ code: 'transient' })
+    expect(grants.calls.some((call) => call.method === 'disconnect')).toBe(false)
+    expect(grants.state.status).toBe('active')
+    expect(runHealthCheck).not.toHaveBeenCalled()
   })
 
   it('checks for a live grant and writes the cleanup while holding the Xero connection lock', async () => {
@@ -487,7 +509,10 @@ describe('POST /api/sync_xero/disconnect', () => {
   })
 
   it('fails the cleanup unwritten when the Xero connection lock is unavailable', async () => {
-    memoryAdvisoryLock.failNext('deadline')
+    runHealthCheck.mockImplementation(async () => {
+      memoryAdvisoryLock.failNext('deadline')
+      return { status: 'unhealthy' }
+    })
     const body = await json(await disconnect(request({ removeClientCredentials: true }, currentRevision())))
     expect(body).toMatchObject({ erased: true, steps: { healthCheck: 'ok', disable: 'failed', removeClientCredentials: 'failed' } })
     expect(grants.state.status).toBe('none')
@@ -495,8 +520,12 @@ describe('POST /api/sync_xero/disconnect', () => {
     expect(saveCredentials).not.toHaveBeenCalled()
   })
 
-  it('keeps the cleanup outcome when the lock commit fails after the writes', async () => {
+  it('keeps the outcome when a lock commit fails after its work', async () => {
     memoryAdvisoryLock.failNext('commit_unknown')
+    runHealthCheck.mockImplementation(async () => {
+      memoryAdvisoryLock.failNext('commit_unknown')
+      return { status: 'unhealthy' }
+    })
     const body = await json(await disconnect(request({ removeClientCredentials: true }, currentRevision())))
     expect(body.steps).toEqual({ healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'ok' })
   })

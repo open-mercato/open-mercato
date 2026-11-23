@@ -62,7 +62,7 @@ async function runStep(step: keyof DisconnectSteps, action: () => Promise<void>)
  * transformation may skip a step; one that adds a step the admin did not ask for or may not run,
  * or no longer validates, fails both steps like a block. A failed step never undoes the erase; it
  * is reported. A step that ran emits the same `integrations.*` event as the core route doing that write.
- * Disable and the credential removal run under the Xero connection lock and only while no grant is
+ * Disable and the credential removal run under the Xero connection lock, taken again after the erase and only while no grant is
  * live: when the admin (or another one) reconnected meanwhile, they are skipped and the new
  * connection keeps its state and Client ID and Secret; an unreadable grant status fails them unwritten.
  */

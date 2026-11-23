@@ -2,11 +2,13 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { AdvisoryLockUnavailableError } from '@open-mercato/shared/lib/db/advisoryLock'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { OAuthGrantError } from '@open-mercato/core/modules/integrations/lib/oauth/descriptor'
 import type { OAuthDisconnectResult } from '@open-mercato/core/modules/integrations/lib/oauth/grant-service'
+import { withXeroConnectionLock } from '../../../lib/connection-lock'
 import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND, XERO_INTEGRATION_ID } from '../../../lib/constants'
 import { runDisconnectSteps, SKIPPED_DISCONNECT_STEPS } from '../../../lib/disconnect-steps'
 import { readGuardedPayload } from '../../../lib/guarded-payload'
@@ -30,6 +32,7 @@ const disconnectGuardPayloadSchema = z.object({ integrationId: z.string(), force
 
 async function disconnectFailureResponse(error: unknown): Promise<Response | null> {
   if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
+  if (error instanceof AdvisoryLockUnavailableError) return xeroErrorResponse(503, 'transient')
   if (!(error instanceof OAuthGrantError)) return null
   if (error.code === 'disconnect_tokens_unreadable') return xeroErrorResponse(409, 'disconnect_tokens_unreadable')
   if (error.code === 'transient') return xeroErrorResponse(503, 'transient')
@@ -73,11 +76,13 @@ export async function POST(req: Request, ctx?: XeroHandlerContext): Promise<Resp
   }
   let result: OAuthDisconnectResult
   try {
-    result = await grant.grantService.disconnect(grant.descriptor, grant.owner, {
-      expectedRevisedAt: readOptimisticLockExpected(req),
-      force,
-      actorUserId: userId,
-    })
+    result = await withXeroConnectionLock(container, scope, () =>
+      grant.grantService.disconnect(grant.descriptor, grant.owner, {
+        expectedRevisedAt: readOptimisticLockExpected(req),
+        force,
+        actorUserId: userId,
+      }),
+    )
   } catch (error) {
     const response = await disconnectFailureResponse(error)
     if (response) return response
@@ -127,15 +132,19 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
-        ...xeroRuleOneErrors(),
-        { status: 400, description: 'invalid_request: the body is neither empty nor a JSON object with only force and removeClientCredentials; nothing was erased', schema: xeroErrorSchema },
+        ...xeroRuleOneErrors().filter((entry) => entry.status !== 400),
+        {
+          status: 400,
+          description: 'invalid_request: the body is neither empty nor a JSON object with only force and removeClientCredentials; organization_scope_required: no organization could be resolved. Nothing was erased',
+          schema: xeroErrorSchema,
+        },
         {
           status: 409,
           description: 'optimistic_lock_conflict (stale revision), or disconnect_tokens_unreadable (offer "Disconnect anyway" with force)',
           schema: xeroErrorSchema,
         },
         { status: 422, description: 'guard_payload_invalid: a mutation guard changed the integration, set force the caller did not send, or returned an invalid force; nothing was erased', schema: xeroErrorSchema },
-        { status: 503, description: 'transient: the grant lock or the database was unavailable; nothing was erased', schema: xeroErrorSchema },
+        { status: 503, description: 'transient: the Xero connection lock, the grant lock or the database was unavailable; nothing was erased', schema: xeroErrorSchema },
       ],
     },
   },

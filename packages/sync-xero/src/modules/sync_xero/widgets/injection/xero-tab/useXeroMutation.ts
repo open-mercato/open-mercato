@@ -10,6 +10,8 @@ import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiC
 
 type XeroMutationContext = Record<string, unknown>
 
+const XERO_NO_HOST_SPOT_ID = 'sync_xero:no-host-detail-spot'
+
 type XeroMutationInput<TResult> = {
   operation: () => Promise<TResult>
   context: XeroMutationContext
@@ -29,7 +31,7 @@ export function useXeroMutation(contextId: string, detailSpotId: string | undefi
     blockedMessage: t('sync_xero.tab.writeBlocked'),
   })
   const { triggerEvent: triggerHostEvent } = useInjectionSpotEvents<XeroMutationContext, Record<string, unknown>>(
-    hostSpotId ?? GLOBAL_MUTATION_INJECTION_SPOT_ID,
+    hostSpotId ?? XERO_NO_HOST_SPOT_ID,
   )
 
   const runMutation = React.useCallback(
