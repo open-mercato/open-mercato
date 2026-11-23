@@ -6568,3 +6568,24 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+## Operator-backed email senders (#9111)
+
+SES sends and Resend/SMTP sends using the instance API key/password now use the
+operator sender from `NOTIFICATIONS_EMAIL_FROM`, `EMAIL_FROM`, or `ADMIN_EMAIL`
+(in that order). A tenant-editable `fromAddress` or message `metadata.from` cannot
+replace it. Sending with these credentials fails when that operator sender is
+missing or is not a single email address. No new startup commands or setting names are introduced. Operators must verify
+the existing sender fallback is a valid single email address before rollout;
+manually configured SES channels may need that existing setting populated. Tenant-owned Resend API keys and SMTP passwords retain configurable
+senders. SES already uses the ambient server AWS identity; it has no independent
+tenant credential mode. When rotating operator credentials, revoke the previous
+provider key/password as usual; stored copies of a retired secret cannot be
+identified from the new environment value.
+
+Clients requiring a different From must use their own Resend or SMTP credentials;
+SES tenant sender overrides are refused because this adapter always uses the
+operator AWS identity. Rolling back restores sender impersonation. This is a
+STABLE behavior narrowing: a named human maintainer must acknowledge the Emergency
+Security Exception before merge. No approval is assumed. See the Migration &
+Backward Compatibility section of `.ai/specs/2026-06-03-pluggable-email-providers.md`.

@@ -1,3 +1,4 @@
+import { resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import nodemailer from 'nodemailer'
 import type {
@@ -82,13 +83,19 @@ class SesChannelAdapter implements ChannelAdapter {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires a subject' }
     }
 
+    const operatorFrom = sesCredentialsSchema.shape.fromAddress.safeParse(resolveDefaultEmailFromAddress())
+    if (!operatorFrom.success) {
+      return { externalMessageId: '', status: 'failed', error: '[internal] Operator email sender is not configured or invalid' }
+    }
+    const from = operatorFrom.data
+
     const sesClient = new SESv2Client({ region: credentials.region })
     const transporter = nodemailer.createTransport({
       SES: { sesClient, SendEmailCommand },
     } as Parameters<typeof nodemailer.createTransport>[0] & SesTransportOptions)
     const configurationSetName = stringOrUndefined(credentials.configurationSetName)
     const options: SesMailOptions = {
-      from: stringOrUndefined(meta.from) ?? credentials.fromAddress,
+      from,
       to,
       subject,
       ...(input.content.text ? { text: input.content.text } : {}),
