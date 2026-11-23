@@ -6,3 +6,5 @@ Address the remaining event-delivery review on #9860. The journal posting and re
 
 - [x] Enable persistent delivery, document the emitter contract, and exercise posting and reversal under both transaction owners and a queue failure. Commit `fbc3ee15d3` passed all 132 Ledger unit tests.
 - [x] Record the temporary decimal-string Money representation and the migration tracked in #10431 in the PR description. Verified through the GitHub API.
+- [x] Report failed queue publication with the committed entry and organization scope while preserving a successful command result. Reuse the resolved CRUD translator. Commit `b0acb4ea25` passed all 132 Ledger and 115 shared CRUD unit tests.
+- [x] Measure real PostgreSQL statements on list, detail, scoped-filter and write routes. All four selected integration cases passed on the disposable production app. The PR description records the counts.
