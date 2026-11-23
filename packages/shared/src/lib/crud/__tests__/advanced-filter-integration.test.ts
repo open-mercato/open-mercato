@@ -112,6 +112,34 @@ describe('mergeAdvancedFiltersFromQuery', () => {
   })
 })
 
+describe('mergeAdvancedFilters v2 tree URLs', () => {
+  const v2Query = {
+    'filter[v]': '2',
+    'filter[root][combinator]': 'and',
+    'filter[root][children][0][type]': 'rule',
+    'filter[root][children][0][field]': 'display_name',
+    'filter[root][children][0][op]': 'contains',
+    'filter[root][children][0][value]': 'Daniel',
+  }
+
+  it('AND-combines a v2 tree with route filters', () => {
+    expect(mergeAdvancedFilters({ kind: 'person' }, v2Query)).toEqual({
+      $and: [
+        { kind: 'person' },
+        { display_name: { $ilike: '%Daniel%' } },
+      ],
+    })
+  })
+
+  it('keeps route filters unchanged when the v2 tree has no usable rules', () => {
+    const routeFilters = { kind: 'person' }
+    expect(mergeAdvancedFilters(routeFilters, {
+      'filter[v]': '2',
+      'filter[root][combinator]': 'and',
+    })).toBe(routeFilters)
+  })
+})
+
 describe('mergeAdvancedFilters security intersection', () => {
   const query = {
     'filter[conditions][0][field]': 'member_id',
@@ -156,6 +184,26 @@ describe('mergeAdvancedFilters security intersection', () => {
     })).toEqual({
       $and: [routeFilters, {
         $or: [{ member_id: { $exists: true } }, { member_id: { $eq: 'outsider' } }],
+      }],
+    })
+  })
+
+  it('keeps a v2 OR tree inside its own $and element next to the route scope', () => {
+    const routeFilters = { member_id: 'member-1' }
+    expect(mergeAdvancedFilters(routeFilters, {
+      'filter[v]': '2',
+      'filter[root][combinator]': 'or',
+      'filter[root][children][0][type]': 'rule',
+      'filter[root][children][0][field]': 'member_id',
+      'filter[root][children][0][op]': 'is',
+      'filter[root][children][0][value]': 'outsider',
+      'filter[root][children][1][type]': 'rule',
+      'filter[root][children][1][field]': 'title',
+      'filter[root][children][1][op]': 'contains',
+      'filter[root][children][1][value]': 'A',
+    })).toEqual({
+      $and: [routeFilters, {
+        $or: [{ member_id: { $eq: 'outsider' } }, { title: { $ilike: '%A%' } }],
       }],
     })
   })

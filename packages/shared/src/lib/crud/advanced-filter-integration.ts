@@ -10,13 +10,16 @@ import { createLogger } from '../logger'
 const logger = createLogger('shared').child({ component: 'crud' })
 
 /**
- * Parse advanced filter query params and merge with existing Where filters.
+ * Parse advanced filter query params (v2 tree, or legacy v1 flat) and merge with existing Where filters.
  * Call this in buildFilters callback to support advanced filter query params.
  */
 export function mergeAdvancedFilters(
   existingFilters: Record<string, unknown>,
   query: Record<string, unknown>,
 ): Record<string, unknown> {
+  const tree = deserializeTree(query)
+  if (tree) return mergeAdvancedFilterTree(existingFilters, tree)
+
   const advancedState = deserializeAdvancedFilter(query)
   if (!advancedState) return existingFilters
 

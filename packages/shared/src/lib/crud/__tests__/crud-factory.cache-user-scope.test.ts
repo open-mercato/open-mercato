@@ -221,6 +221,30 @@ describe('CRUD Factory — list cache is partitioned per caller identity', () =>
     expect(store.has(legacyKey)).toBe(true)
   })
 
+  it('ignores v2 tree entries cached while the default merge still dropped the tree', async () => {
+    const filterQuery = 'filter[v]=2&filter[root][combinator]=and&filter[root][children][0][type]=rule&filter[root][children][0][field]=owner_user_id&filter[root][children][0][op]=is&filter[root][children][0][value]=user-b'
+    const requestUrl = `${url}&${filterQuery}`
+    const params = new URL(requestUrl).searchParams
+    const serializedQuery = JSON.stringify(
+      Array.from(params.entries())
+        .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+        .map(([key, value]) => [key, [value]]),
+    )
+    const staleKey = [
+      'crud', 'todo', 'GET', '/api/example/todos',
+      `tenant:${defaultTenantId}`, `selectedOrg:${defaultOrganizationId}`,
+      `scope:${defaultOrganizationId}`, 'user:user-a', `query:${serializedQuery}`,
+      'advancedFilters:intersection-v1', 'localization:registered-fields-v1',
+    ].join('|')
+    store.set(staleKey, { payload: { items: [{ id: 'unfiltered-row' }], total: 1 }, generatedAt: Date.now() })
+
+    const response = await route.GET(new Request(requestUrl))
+
+    expect(response.headers.get('x-om-cache')).toBe('miss')
+    expect((await response.json()).items).not.toContainEqual({ id: 'unfiltered-row' })
+    expect(cache.get).not.toHaveBeenCalledWith(staleKey)
+  })
+
   it('encodes explicit empty and finite scopes as different cache keys', async () => {
     await scopeIdentityRoute.GET(new Request(url))
     const finiteKey = Array.from(store.keys())[0] as string
