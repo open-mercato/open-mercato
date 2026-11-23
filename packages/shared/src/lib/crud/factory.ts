@@ -80,6 +80,11 @@ import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
 import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError, readPgSqlState } from '../db/pg-errors'
 import { getTelemetryRuntime } from '../telemetry/runtime'
+import {
+  createBoundedPendingOperationTracker,
+  parsePendingOperationCapacity,
+  type BoundedPendingOperationTracker,
+} from '../telemetry/pending'
 import { createHash, randomUUID } from 'node:crypto'
 import { NotFoundError as MikroOrmNotFoundError, ValidationError as MikroOrmValidationError } from '@mikro-orm/core'
 
@@ -870,27 +875,52 @@ function shouldBlockAccessLogWrites(): boolean {
   return process.env.OM_CRUD_ACCESS_LOG_BLOCKING === '1'
 }
 
-// Module-level set of in-flight access-log writes started by the CRUD factory.
-// Sits alongside the same registry inside AccessLogService so callers without
-// the concrete service (or in tests with mocks) can still drain pending work
-// via `flushPendingCrudAccessLogs()`.
-const pendingCrudAccessLogPromises = new Set<Promise<unknown>>()
+const CRUD_ACCESS_LOG_TRACKER_KEY = Symbol.for('@open-mercato/shared.crudAccessLogPendingTracker')
 
-function trackPendingCrudAccessLogPromise<T>(promise: Promise<T>): Promise<T> {
-  pendingCrudAccessLogPromises.add(promise as unknown as Promise<unknown>)
-  promise
-    .catch(() => undefined)
-    .finally(() => {
-      pendingCrudAccessLogPromises.delete(promise as unknown as Promise<unknown>)
-    })
-  return promise
+type CrudAccessLogTrackerStore = {
+  tracker?: BoundedPendingOperationTracker
+}
+
+function crudAccessLogTrackerStore(): CrudAccessLogTrackerStore {
+  const globalStore = globalThis as unknown as Record<symbol, CrudAccessLogTrackerStore | undefined>
+  globalStore[CRUD_ACCESS_LOG_TRACKER_KEY] ??= {}
+  return globalStore[CRUD_ACCESS_LOG_TRACKER_KEY]
+}
+
+function getCrudAccessLogTracker(): BoundedPendingOperationTracker {
+  const current = crudAccessLogTrackerStore()
+  const configuredCapacity = parsePendingOperationCapacity(process.env.AUDIT_LOGS_MAX_PENDING)
+  const capacity = configuredCapacity >= 2 ? configuredCapacity : parsePendingOperationCapacity(undefined)
+  if (current.tracker && (current.tracker.capacity === capacity || current.tracker.pending > 0)) {
+    return current.tracker
+  }
+  current.tracker?.dispose()
+  current.tracker = createBoundedPendingOperationTracker({
+    capacity,
+    scopeCapacity: Math.floor(capacity / 2),
+    stage: 'crud_dispatch',
+    onDrop: ({ dropped, totalDropped, backlogDrained }) => {
+      logger.warn('Dropped access-log dispatches because pending capacity was full', {
+        backlogDrained,
+        capacity,
+        dropped,
+        totalDropped,
+        stage: 'crud_dispatch',
+      })
+    },
+    onError: (err) => {
+      logger.warn('Access-log dispatch tracker callback failed', { err, stage: 'crud_dispatch' })
+    },
+  })
+  return current.tracker
+}
+
+function pendingCrudAccessLogCount(): number {
+  return crudAccessLogTrackerStore().tracker?.pending ?? 0
 }
 
 export async function flushPendingCrudAccessLogs(): Promise<void> {
-  while (pendingCrudAccessLogPromises.size > 0) {
-    const snapshot = Array.from(pendingCrudAccessLogPromises)
-    await Promise.allSettled(snapshot)
-  }
+  await crudAccessLogTrackerStore().tracker?.flush()
 }
 
 function logForbidden(details: Record<string, unknown>) {
@@ -947,14 +977,16 @@ export type LogCrudAccessResult = {
   mode: 'batch' | 'fanout' | 'blocking' | 'skipped'
   count: number
   pending: number
+  /** `true` only when a `skipped` result rejected loggable work because the dispatch backlog was full. */
+  dropped?: boolean
 }
 
 export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogCrudAccessResult> {
   const { container, auth, request, items, resourceKind } = options
-  if (!auth) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
-  if (!Array.isArray(items) || items.length === 0) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
+  if (!auth) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogCount() }
+  if (!Array.isArray(items) || items.length === 0) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogCount() }
   const service = resolveAccessLogService(container)
-  if (!service) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
+  if (!service) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogCount() }
 
   const idField = options.idField || 'id'
   const tenantId = options.tenantId ?? auth.tenantId ?? null
@@ -999,11 +1031,12 @@ export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogC
     if (Object.keys(context).length > 0) payload.context = context
     payloads.push(payload)
   }
-  if (!payloads.length) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
+  if (!payloads.length) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogCount() }
 
   const blocking = shouldBlockAccessLogWrites()
   const dispatchMode: 'batch' | 'fanout' = typeof service.logMany === 'function' ? 'batch' : 'fanout'
-  const writePromise = (async () => {
+  const tracker = getCrudAccessLogTracker()
+  const admission = tracker.tryStart(async () => {
     try {
       if (typeof service.logMany === 'function') {
         await service.logMany(payloads)
@@ -1025,13 +1058,16 @@ export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogC
         logger.error('Failed to record access logs (batch)', { err, count: payloads.length })
       } catch {}
     }
-  })()
-  trackPendingCrudAccessLogPromise(writePromise)
+  }, [tenantId?.toLowerCase() ?? ''])
+  if (!admission.accepted) {
+    return { mode: 'skipped', count: 0, pending: admission.pending, dropped: true }
+  }
+  const writePromise = admission.promise
   if (blocking) {
     await writePromise
-    return { mode: 'blocking', count: payloads.length, pending: pendingCrudAccessLogPromises.size }
+    return { mode: 'blocking', count: payloads.length, pending: tracker.pending }
   }
-  return { mode: dispatchMode, count: payloads.length, pending: pendingCrudAccessLogPromises.size }
+  return { mode: dispatchMode, count: payloads.length, pending: tracker.pending }
 }
 
 type CrudCacheStoredValue = {
@@ -1141,6 +1177,9 @@ function buildCrudCacheKey(
     `query:${serializeSearchParams(url.searchParams)}`,
     `deletedPolicy:${allowWithDeleted ? 'allowed' : 'hidden'}`,
   ]
+  if (Array.from(url.searchParams.keys()).some((key) => key.startsWith('filter['))) {
+    segments.push('advancedFilters:intersection-v1')
+  }
   // The cached list payload already embeds enricher output (enrichment runs before
   // the cache store), so the cache key MUST partition by the set of enrichers a
   // request's entitlements actually select. Two callers in the same tenant/org

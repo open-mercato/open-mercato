@@ -178,7 +178,10 @@ describe('customers write commands load records inside the caller scope (#7598)'
     expect(wheres.length).toBeGreaterThan(0)
     for (const where of wheres) {
       expect(where.tenantId).toBe(TENANT_A)
-      expect(where.organizationId).toEqual({ $in: [ORG_A] })
+      const organizationIds = typeof where.organizationId === 'string'
+        ? [where.organizationId]
+        : (where.organizationId as { $in: string[] }).$in
+      expect(organizationIds).toEqual([ORG_A])
     }
   })
 

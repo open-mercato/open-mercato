@@ -21,11 +21,13 @@
     "enabled": true,
     "pipeline": ["review", "changes-requested", "qa", "qa-failed", "merge-queue", "blocked", "do-not-merge"],
     "category": ["bug", "feature", "refactor", "security", "dependencies", "enterprise", "documentation"],
-    "meta": ["needs-qa", "skip-qa", "qa-approved", "qa-self-verified", "in-progress", "ci-monitoring", "screenshots", "automerge-signal-3-passes-local-ci-checks"],
+    "meta": ["needs-qa", "skip-qa", "qa-approved", "qa-self-verified", "in-progress", "ci-monitoring", "screenshots", "claim-reset", "automerge-signal-1-cr", "automerge-signal-2-qa", "automerge-signal-3-ci", "automerge-signal-3-passes-local-ci-checks", "automerge-blocked"],
     "priority": ["priority-low", "priority-medium", "priority-high", "priority-extreme"],
     "risk": ["risk-low", "risk-medium", "risk-high"]
   },
   "qaGate": true,
+  "qaGateLabel": "needs-qa",
+  "qaReadyLabel": null,
   "ci": { "maxWaitMinutes": 40 },
   "autofix": { "label": "cez-autofix", "eligibility": { "lookbackDays": 30, "analyzeLimit": 100, "limit": 20, "excludeLabels": ["blocked", "do-not-fix"] } },
   "automerge": {
@@ -37,7 +39,19 @@
     "humanOnlyAuthors": ["zielivia"],
     "complexQa": "always",
     "windowMinutes": 120,
-    "maxAttempts": 3
+    "maxAttempts": 3,
+    "eligibility": {
+      "tiers": [["qa-approved"], ["ai-judgment"], ["security", "small"], ["trusted-author"], ["fixes-issue"]],
+      "smallPrFileLimit": 10,
+      "aiJudgment": { "staleAfterDays": 7 },
+      "securityLabels": ["security"],
+      "trustedAuthors": [],
+      "excludeAuthorAssociations": ["first-time-contributor", "outside-collaborator", "none"],
+      "excludeLabels": ["do-not-merge", "blocked", "qa-failed"],
+      "lookbackDays": 30,
+      "analyzeLimit": 100,
+      "limit": 20
+    }
   },
   "engine": { "loopStepThreshold": 20, "executorTier": "standard", "stepReview": "final" },
   "closeKeywords": [],
@@ -45,6 +59,8 @@
     "runs": ".ai/runs",
     "analysis": ".ai/analysis",
     "specs": ".ai/specs",
+    "prototypes": ".ai/prototypes",
+    "dataModel": ".ai/data-model",
     "scripts": ".ai/scripts",
     "qa": ".ai/qa"
   },

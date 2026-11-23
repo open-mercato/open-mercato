@@ -1,13 +1,13 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerAddress } from '../data/entities'
 import { addressCreateSchema, addressUpdateSchema, type AddressCreateInput, type AddressUpdateInput } from '../data/validators'
 import {
-  commandScopeWhere,
-  type CommandScopeWhere,
+  findScopedCustomerCommandRecord,
+  findScopedCustomerCommandTarget,
   ensureOrganizationScope,
   ensureTenantScope,
   requireCustomerEntity,
@@ -21,7 +21,7 @@ import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/l
 import { E } from '#generated/entities.ids.generated'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const addressCrudIndexer: CrudIndexerConfig<CustomerAddress> = {
   entityType: E.customers.customer_address,
@@ -76,13 +76,17 @@ type AddressCommandResult = {
   demotedPrimaryAddresses?: DemotedPrimaryAddress[]
 }
 
-async function loadAddressSnapshot(
-  em: EntityManager,
-  id: string,
-  scopeWhere: CommandScopeWhere = {},
-): Promise<AddressSnapshot | null> {
-  const address = await em.findOne(CustomerAddress, { id, ...scopeWhere }, { populate: ['entity'] })
+async function loadAddressSnapshot(em: EntityManager, id: string, ctx: CommandRuntimeContext): Promise<AddressSnapshot | null> {
+  const address = await findScopedCustomerCommandTarget(
+    em,
+    CustomerAddress,
+    { id },
+    { populate: ['entity'] },
+    ctx,
+  )
   if (!address) return null
+  ensureTenantScope(ctx, address.tenantId)
+  ensureOrganizationScope(ctx, address.organizationId)
   const entityRef = address.entity
   const entityKind = (typeof entityRef === 'object' && entityRef !== null && 'kind' in entityRef)
     ? (entityRef as { kind: string }).kind
@@ -114,9 +118,16 @@ async function enforcePrimaryAddress(
   em: EntityManager,
   entityId: string,
   addressId: string,
+  scope: { tenantId: string; organizationId: string },
 ): Promise<DemotedPrimaryAddress[]> {
-  const otherPrimaries = { entity: entityId, id: { $ne: addressId }, isPrimary: true }
-  const siblings = await em.find(CustomerAddress, otherPrimaries, { fields: ['id', 'tenantId', 'organizationId'] })
+  const otherPrimaries = { entity: entityId, id: { $ne: addressId }, isPrimary: true, ...scope }
+  const siblings = await findWithDecryption(
+    em,
+    CustomerAddress,
+    otherPrimaries,
+    { fields: ['id', 'tenantId', 'organizationId'] },
+    scope,
+  )
   await em.nativeUpdate(CustomerAddress, otherPrimaries, { isPrimary: false })
   return siblings.map((sibling) => ({ id: sibling.id, entityId }))
 }
@@ -154,7 +165,12 @@ async function restoreDemotedPrimaryAddresses(
 ): Promise<void> {
   const ids = readDemotedPrimaryAddressIds(demoted, scope.entityId)
   if (!ids.length) return
-  const primaryCount = await em.count(CustomerAddress, { entity: scope.entityId, isPrimary: true })
+  const primaryCount = await em.count(CustomerAddress, {
+    entity: scope.entityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    isPrimary: true,
+  })
   if (primaryCount > 0) return
   await em.nativeUpdate(
     CustomerAddress,
@@ -207,7 +223,10 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
         em.persist(address)
         await em.flush()
         if (address.isPrimary) {
-          demotedPrimaryAddresses = await enforcePrimaryAddress(em, entity.id, address.id)
+          demotedPrimaryAddresses = await enforcePrimaryAddress(em, entity.id, address.id, {
+            tenantId: entity.tenantId,
+            organizationId: entity.organizationId,
+          })
         }
       },
     ], { transaction: true })
@@ -233,7 +252,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadAddressSnapshot(em, result.addressId)
+    return await loadAddressSnapshot(em, result.addressId, ctx)
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -261,7 +280,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
     const addressId = logEntry?.resourceId ?? null
     if (!addressId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const address = await em.findOne(CustomerAddress, { id: addressId })
+    const address = await findScopedCustomerCommandRecord(em, CustomerAddress, { id: addressId }, undefined, ctx)
     if (!address) return
     const payload = extractUndoPayload<AddressUndoPayload>(logEntry)
     const heldPrimary = address.isPrimary === true
@@ -291,7 +310,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
     let address = await findOneWithDecryption(
       em,
       CustomerAddress,
-      { id: after.id },
+      { id: after.id, tenantId: after.tenantId, organizationId: after.organizationId },
       undefined,
       { tenantId: after.tenantId, organizationId: after.organizationId },
     )
@@ -343,7 +362,10 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
         em.persist(restoredAddress)
         await em.flush()
         if (after.isPrimary) {
-          demotedPrimaryAddresses = await enforcePrimaryAddress(em, after.entityId, after.id)
+          demotedPrimaryAddresses = await enforcePrimaryAddress(em, after.entityId, after.id, {
+            tenantId: after.tenantId,
+            organizationId: after.organizationId,
+          })
         }
       },
     ], { transaction: true })
@@ -374,13 +396,13 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
   async prepare(rawInput, ctx) {
     const parsed = addressUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadAddressSnapshot(em, parsed.id, commandScopeWhere(ctx))
+    const snapshot = await loadAddressSnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = addressUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const address = await em.findOne(CustomerAddress, { id: parsed.id, ...commandScopeWhere(ctx) })
+    const address = await findScopedCustomerCommandTarget(em, CustomerAddress, { id: parsed.id }, undefined, ctx)
     if (!address) throw notFound('Address not found')
     ensureTenantScope(ctx, address.tenantId)
     ensureOrganizationScope(ctx, address.organizationId)
@@ -411,7 +433,10 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
       },
       async () => {
         if (address.isPrimary) {
-          demotedPrimaryAddresses = await enforcePrimaryAddress(em, resolveAddressEntityId(address), address.id)
+          demotedPrimaryAddresses = await enforcePrimaryAddress(em, resolveAddressEntityId(address), address.id, {
+            tenantId: address.tenantId,
+            organizationId: address.organizationId,
+          })
         }
       },
     ], { transaction: true })
@@ -437,7 +462,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadAddressSnapshot(em, result.addressId)
+    return await loadAddressSnapshot(em, result.addressId, ctx)
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -495,7 +520,10 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let address = await em.findOne(CustomerAddress, { id: before.id })
+    let address = await findOneWithDecryption(em, CustomerAddress, { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId }, undefined, {
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+    })
     const primaryHeldForEntityId = address?.isPrimary === true ? resolveAddressEntityId(address) : null
     const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
     if (!address) {
@@ -544,7 +572,10 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
         em.persist(address)
         await em.flush()
         if (before.isPrimary) {
-          await enforcePrimaryAddress(em, before.entityId, before.id)
+          await enforcePrimaryAddress(em, before.entityId, before.id, {
+            tenantId: before.tenantId,
+            organizationId: before.organizationId,
+          })
         }
         if (primaryHeldForEntityId) {
           await restoreDemotedPrimaryAddresses(em, payload?.demotedPrimaryAddresses, {
@@ -578,13 +609,13 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
     async prepare(input, ctx) {
       const id = requireId(input, 'Address id required')
       const em = (ctx.container.resolve('em') as EntityManager)
-      const snapshot = await loadAddressSnapshot(em, id, commandScopeWhere(ctx))
+      const snapshot = await loadAddressSnapshot(em, id, ctx)
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Address id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const address = await em.findOne(CustomerAddress, { id, ...commandScopeWhere(ctx) })
+      const address = await findScopedCustomerCommandTarget(em, CustomerAddress, { id }, undefined, ctx)
       if (!address) throw notFound('Address not found')
       ensureTenantScope(ctx, address.tenantId)
       ensureOrganizationScope(ctx, address.organizationId)
@@ -632,7 +663,10 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
-      let address = await em.findOne(CustomerAddress, { id: before.id })
+      let address = await findOneWithDecryption(em, CustomerAddress, { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId }, undefined, {
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+      })
       if (!address) {
         address = em.create(CustomerAddress, {
           id: before.id,
@@ -678,7 +712,10 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           em.persist(address)
           await em.flush()
           if (before.isPrimary) {
-            await enforcePrimaryAddress(em, before.entityId, before.id)
+            await enforcePrimaryAddress(em, before.entityId, before.id, {
+              tenantId: before.tenantId,
+              organizationId: before.organizationId,
+            })
           }
         },
       ], { transaction: true })

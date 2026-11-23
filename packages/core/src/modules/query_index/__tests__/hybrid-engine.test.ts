@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { HybridQueryEngine, coerceSortDirection, clearBaseTableExistsCache } from '../../query_index/lib/engine'
+import { HybridQueryEngine, coerceSortDirection, clearBaseColumnsCache, clearBaseTableExistsCache } from '../../query_index/lib/engine'
 import { BasicQueryEngine, clearEncryptedLikeFieldsCache } from '@open-mercato/shared/lib/query/engine'
 import { SortDir, type Filter } from '@open-mercato/shared/lib/query/types'
 import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
@@ -8,12 +8,15 @@ import { encryptCustomFieldValue } from '@open-mercato/shared/lib/encryption/cus
 import { registerSyncSubscribers, type SyncSubscriberEntry } from '@open-mercato/shared/lib/crud/sync-subscriber-store'
 import type { QueryResult } from '@open-mercato/shared/lib/query/types'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { createMemoryStrategy, type CacheStrategy } from '@open-mercato/cache'
+import { invalidateDefinitionsCache } from '@open-mercato/core/modules/entities/api/definitions.cache'
 
-// The token-presence and base-table-existence answers are cached process-wide (TTL); without
+// The token-presence, base-table-existence and column answers are cached process-wide (TTL); without
 // clearing them, probe-count assertions would observe hits from earlier tests in this file.
 beforeEach(() => {
   clearSearchTokenPresenceCache()
   clearBaseTableExistsCache()
+  clearBaseColumnsCache()
 })
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
@@ -3154,5 +3157,159 @@ describe('HybridQueryEngine custom-document encryption (#7810)', () => {
     })
     expect(result.items).toEqual([])
     expect(result.total).toBe(0)
+  })
+})
+
+describe('HybridQueryEngine process-wide metadata caches (#2967)', () => {
+  const originalCfTtl = process.env.QUERY_INDEX_CF_KEYS_CACHE_MS
+
+  afterEach(() => {
+    if (originalCfTtl === undefined) delete process.env.QUERY_INDEX_CF_KEYS_CACHE_MS
+    else process.env.QUERY_INDEX_CF_KEYS_CACHE_MS = originalCfTtl
+  })
+
+  function chainCount(db: any, table: string): number {
+    return (db._chains as ChainLog[]).filter((chain) => chain.table === table).length
+  }
+
+  function newEngine(db: any, cache?: CacheStrategy): any {
+    return new HybridQueryEngine(
+      buildEm(db),
+      { query: jest.fn() } as any,
+      undefined,
+      undefined,
+      undefined,
+      cache ? () => cache : undefined,
+    )
+  }
+
+  test('reads a table column map once and answers every column lookup from it, across engine instances', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+
+    expect(await newEngine(db).columnExists('todos', 'tenant_id')).toBe(true)
+    const second = newEngine(db)
+    expect(await second.columnExists('todos', 'organization_id')).toBe(true)
+    expect(await second.columnExists('todos', 'deleted_at')).toBe(true)
+    expect((await second.getBaseColumnsForEntity('example:todo')).has('id')).toBe(true)
+
+    expect(chainCount(db, 'information_schema.columns')).toBe(1)
+  })
+
+  test('re-reads the column map before reporting a scoping column absent, so a newly added tenant_id applies at once', async () => {
+    const columns = [
+      { table_name: 'todos', column_name: 'id' },
+      { table_name: 'todos', column_name: 'organization_id' },
+    ]
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0, columns })
+
+    expect(await newEngine(db).columnExists('todos', 'tenant_id')).toBe(false)
+    expect(chainCount(db, 'information_schema.columns')).toBe(1)
+
+    columns.push({ table_name: 'todos', column_name: 'tenant_id' })
+    const afterMigration = newEngine(db)
+    expect(await afterMigration.columnExists('todos', 'tenant_id')).toBe(true)
+    expect(chainCount(db, 'information_schema.columns')).toBe(2)
+    expect(await afterMigration.columnExists('todos', 'tenant_id')).toBe(true)
+    expect(chainCount(db, 'information_schema.columns')).toBe(2)
+  })
+
+  test('does not cache the empty column map of a table that does not exist yet', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0,
+      columns: [{ table_name: 'other', column_name: 'id' }],
+    })
+
+    expect(await newEngine(db).columnExists('todos', 'id')).toBe(false)
+    expect(await newEngine(db).columnExists('todos', 'id')).toBe(false)
+    expect(chainCount(db, 'information_schema.columns')).toBe(2)
+  })
+
+  test('shares custom field definitions across engine instances through the DI cache', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    const cache = createMemoryStrategy()
+
+    const first = await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+    const second = await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    expect(first.map((def: { key: string }) => def.key)).toEqual(['priority'])
+    expect(second).toEqual(first)
+    expect(chainCount(db, 'custom_field_defs')).toBe(1)
+  })
+
+  test.each([
+    ['tenant', 't1'],
+    ['global', null],
+  ])('re-reads definitions after invalidateDefinitionsCache() for a %s definition of the entity', async (_label, definitionTenantId) => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    const cache = createMemoryStrategy()
+    await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    await invalidateDefinitionsCache(cache, { tenantId: definitionTenantId, organizationId: null, entityIds: ['example:todo'] })
+    await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    expect(chainCount(db, 'custom_field_defs')).toBe(2)
+  })
+
+  test('keeps an unrelated entity cached when another entity definitions are invalidated', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    const cache = createMemoryStrategy()
+    await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    await invalidateDefinitionsCache(cache, { tenantId: 't1', organizationId: null, entityIds: ['customers:customer_entity'] })
+    await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    expect(chainCount(db, 'custom_field_defs')).toBe(1)
+  })
+
+  test('bypasses the shared cache for fresh reads', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    const cache = createMemoryStrategy()
+    await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1', true)
+
+    expect(chainCount(db, 'custom_field_defs')).toBe(2)
+  })
+
+  test('keeps per-instance caching only when no cache is available or the TTL is zero', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    await newEngine(db).resolveCustomFieldDefs(['example:todo'], 't1')
+    await newEngine(db).resolveCustomFieldDefs(['example:todo'], 't1')
+    expect(chainCount(db, 'custom_field_defs')).toBe(2)
+
+    process.env.QUERY_INDEX_CF_KEYS_CACHE_MS = '0'
+    const cache = createMemoryStrategy()
+    const noTtl = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    await newEngine(noTtl, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+    await newEngine(noTtl, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+    expect(chainCount(noTtl, 'custom_field_defs')).toBe(2)
+    expect(await cache.keys('*')).toEqual([])
+  })
+
+  test('falls back to the database when the shared cache fails', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    const failing = createMemoryStrategy()
+    failing.get = jest.fn().mockRejectedValue(new Error('[internal] cache down'))
+    failing.set = jest.fn().mockRejectedValue(new Error('[internal] cache down'))
+
+    const defs = await newEngine(db, failing).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    expect(defs.map((def: { key: string }) => def.key)).toEqual(['priority'])
+    expect(chainCount(db, 'custom_field_defs')).toBe(1)
+  })
+
+  test('shares resolved custom field sort kinds across engine instances', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0,
+      customFieldKinds: { priority: 'integer' },
+    })
+    const cache = createMemoryStrategy()
+
+    const first = await newEngine(db, cache).resolveCustomFieldSortKinds(['example:todo'], 't1', ['org1'], ['priority'])
+    const second = await newEngine(db, cache).resolveCustomFieldSortKinds(['example:todo'], 't1', ['org1'], ['priority'])
+
+    expect(Array.from(first.entries())).toEqual([['priority', 'integer']])
+    expect(Array.from(second.entries())).toEqual([['priority', 'integer']])
+    expect(chainCount(db, 'custom_field_defs')).toBe(1)
   })
 })
