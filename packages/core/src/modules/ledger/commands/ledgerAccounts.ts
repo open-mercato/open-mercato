@@ -6,7 +6,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
-import { badRequest, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, conflict, isUniqueViolation, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
@@ -128,6 +128,10 @@ const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { led
     const scope: Scope = { organizationId: parsed.organizationId, tenantId: parsed.tenantId }
     const { translate } = await resolveTranslations()
 
+    const accountNumberTaken = () => conflict(
+      translate('ledger.errors.accountNumberTaken', 'An account with this number already exists for this organization.'),
+    )
+
     // Same lock protocol as `updateLedgerAccount`: `for share` on the account
     // type, taken before the prefix check and held through the insert, so a
     // concurrent `updateLedgerAccountType` (which takes `for update` on the
@@ -146,9 +150,7 @@ const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { led
         tenantId: scope.tenantId,
         deletedAt: null,
       })
-      if (existing) {
-        throw conflict(translate('ledger.errors.accountNumberTaken', 'An account with this number already exists for this organization.'))
-      }
+      if (existing) throw accountNumberTaken()
 
       const accountType = await requireExistingAccountType(em, parsed.accountTypeId, scope, translate)
       await requireAccountNumberMatchesType(em, parsed.number, accountType, scope, translate)
@@ -190,6 +192,9 @@ const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { led
       })
 
       return record
+    }).catch((error: unknown) => {
+      if (isUniqueViolation(error, 'ledger_accounts_scope_number_unique')) throw accountNumberTaken()
+      throw error
     })
 
     return { ledgerAccountId: record.id }

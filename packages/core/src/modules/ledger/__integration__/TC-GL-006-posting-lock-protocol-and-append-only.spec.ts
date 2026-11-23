@@ -258,6 +258,59 @@ test.describe('TC-GL-006: posting lock protocol and append-only entries', () => 
     }
   });
 
+  test('concurrent creates of one scoped number return one creation and the ordinary duplicate conflict', async ({ request }) => {
+    const fx = await createFixture(request, 'TC-GL-006 duplicate account');
+    const number = '402-09';
+    const createAccount = () => apiRequest(request, 'POST', '/api/ledger/accounts', {
+      token: fx.token,
+      headers: fx.headers,
+      data: { organizationId: fx.organizationId, tenantId: fx.tenantId, accountTypeId: fx.typeId, number },
+    });
+    const creates: ReturnType<typeof apiRequest>[] = [];
+    let winnerId: string | null = null;
+    try {
+      await withClient(async (client) => {
+        await client.query('begin');
+        try {
+          // This invisible, uncommitted row holds both inserts at the unique index after their prechecks.
+          await client.query(
+            `insert into ledger_accounts (id, organization_id, tenant_id, account_type_id, number, created_at, updated_at)
+             values ($1, $2, $3, $4, $5, now(), now())`,
+            [randomUUID(), fx.organizationId, fx.tenantId, fx.typeId, number],
+          );
+          creates.push(createAccount(), createAccount());
+          void Promise.allSettled(creates);
+          await expect.poll(async () => {
+            const result = await client.query<{ waiting: number }>(
+              `select count(*)::int as waiting from pg_locks
+               where locktype = 'transactionid' and transactionid = pg_current_xact_id()::xid and not granted`,
+            );
+            return result.rows[0]?.waiting;
+          }).toBe(2);
+        } finally {
+          await client.query('rollback');
+        }
+      });
+      const responses = await Promise.all(creates);
+      const [winner, concurrentConflict] = responses.sort((first, second) => first.status() - second.status());
+      winnerId = (await readJsonSafe<{ id: string }>(winner))?.id ?? null;
+      expect([winner.status(), concurrentConflict.status()]).toEqual([201, 409]);
+      expect(winnerId).toBeTruthy();
+      const duplicate = await createAccount();
+      expect(duplicate.status()).toBe(409);
+      expect(await concurrentConflict.json()).toEqual(await duplicate.json());
+      const accounts = await withClient((client) => client.query<{ id: string }>(
+        'select id from ledger_accounts where organization_id = $1 and tenant_id = $2 and number = $3 and deleted_at is null',
+        [fx.organizationId, fx.tenantId, number],
+      ));
+      expect(accounts.rows).toEqual([{ id: winnerId }]);
+    } finally {
+      await Promise.allSettled(creates);
+      await deleteGeneralEntityIfExists(request, fx.token, '/api/ledger/accounts', winnerId, { headers: fx.headers });
+      await fx.cleanup();
+    }
+  });
+
   test('a type delete waits for an account create and keeps the in-use type', async ({ request }) => {
     const fx = await createFixture(request, 'TC-GL-006 delete');
     const accountId = randomUUID();

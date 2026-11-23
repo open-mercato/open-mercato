@@ -90,6 +90,29 @@ describe('ledger.createLedgerAccount — lock protocol (N1)', () => {
     expect(created[0]).toMatchObject({ id: result.ledgerAccountId, number: '402-05', accountTypeId: TYPE_ID })
   })
 
+  it('maps the scoped account number constraint to the existing conflict response', async () => {
+    const em = buildFakeEm()
+    em.transactional.mockRejectedValueOnce({ cause: { code: '23505', constraint: 'ledger_accounts_scope_number_unique' } })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(
+      loadCreateCommand().execute({ organizationId: ORG, tenantId: TENANT, number: '402-05', accountTypeId: TYPE_ID }, ctx),
+    ).rejects.toMatchObject({ status: 409, body: { error: 'An account with this number already exists for this organization.' } })
+  })
+
+  it.each([
+    { code: '23505', constraint: 'ledger_accounts_pkey' },
+    { code: '23503', constraint: 'ledger_accounts_account_type_id_foreign' },
+  ])('preserves unrelated database errors on create: $constraint', async (error) => {
+    const em = buildFakeEm()
+    em.transactional.mockRejectedValueOnce(error)
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(
+      loadCreateCommand().execute({ organizationId: ORG, tenantId: TENANT, number: '402-05', accountTypeId: TYPE_ID }, ctx),
+    ).rejects.toBe(error)
+  })
+
   it('rejects a number outside the type prefix without writing', async () => {
     const em = buildFakeEm()
     seedPolishType(em)
