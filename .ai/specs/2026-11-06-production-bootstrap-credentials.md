@@ -11,6 +11,8 @@ Resolve credentials in the CLI's existing init-secrets helper. Normalize `NODE_E
 
 Validate before database work for normal init and reinstall. For `--skip-if-initialized` without reinstall, allow the existing database preflight to return successfully without bootstrap credentials; validate before generators or account creation if initialization is needed. Operator diagnostics use locale dictionaries selected by LC_ALL, LC_MESSAGES, or LANG, with English fallback; the CLI build ships those dictionaries. Both full-app Compose distributions retain their development fallback, which the production guard rejects. The root compatibility duplicate stays aligned.
 
+The production account summary replaces the superadmin password with a translated “as provided” marker (#10217). Actual setup receives the original credential. Non-production summary display and generated demo-account passwords remain unchanged. The report’s production-only variant avoids placing the operator’s privileged credential in release-container logs without changing initialization or configuration.
+
 ## Data Models and API Contracts
 No schema, API, ACL, event, or direct `mercato auth setup` contract changes. Existing accounts are not modified. No new dependencies or provider configuration.
 
@@ -18,6 +20,8 @@ No schema, API, ACL, event, or direct `mercato auth setup` contract changes. Exi
 This intentionally narrows production CLI bootstrap behavior. Operators must set a unique `OM_INIT_SUPERADMIN_PASSWORD` or `--password` satisfying `OM_PASSWORD_*`; bypass flags no longer permit unsafe production initialization. Client scripts should handle a nonzero init result and provide credentials securely. Already-initialized skip checks remain unchanged. Non-production callers keep their defaults.
 
 The emergency security exception in BACKWARD_COMPATIBILITY.md is requested for the production acceptance of built-in privileged credentials and policy bypass: bridging that production behavior would preserve the vulnerability. Maintainer @pkarw (Piotr Karwatka) explicitly approved waiving deprecation-protocol steps 1–3 on 2026-11-06: “Waiver: Approve exception.” The [approval record](https://github.com/open-mercato/open-mercato/pull/8896#issuecomment-6682542960) documents the production-only scope; it does not approve QA, waive validation, or authorize merging. UPGRADE_NOTES.md documents migration and rotation of existing predictable credentials. No automatic rotation or database migration is performed.
+
+For #10217, clients and operators must retain the superadmin credential they supply; production stdout is no longer a password retrieval mechanism. Existing logs may already contain that password: rotate exposed credentials and restrict or expire retained copies according to the deployment’s log-retention policy. This display-only change removes no CLI command, flag, or return field and needs no database migration.
 
 ## Risks & Impact Review
 - High: deployments relying on built-in production credentials stop at initialization. Mitigation: actionable error and migration guidance; supply credentials before boot.
@@ -37,4 +41,5 @@ No API or UI path changes; integration coverage exercises `run()` with isolated 
 Uses shared password-policy helpers, modifies no tenant data access, adds no dependencies, and preserves development behavior. The human maintainer security exception is approved; validation and QA remain merge gates.
 
 ## Changelog
+- 2026-11-23: Redact the production superadmin password from the init summary (#10217), with helper and mocked CLI-path regression coverage for environment/argument credentials, normalized production, localized markers, and preserved generated demo passwords.
 - 2026-11-06: Production-only fix and regression tests prepared for #7809.

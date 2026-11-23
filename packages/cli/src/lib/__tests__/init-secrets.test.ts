@@ -1,6 +1,22 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from '../init-secrets'
+import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials, resolveInitSuperadminDisplayPassword } from '../init-secrets'
+
+describe('resolveInitSuperadminDisplayPassword', () => {
+  it.each(['production', ' Production '])('redacts the production password for %s', (nodeEnv) => {
+    expect(resolveInitSuperadminDisplayPassword('Unique-Owner-937!', { NODE_ENV: nodeEnv, LC_ALL: 'en' }))
+      .toBe('as provided')
+  })
+
+  it.each([undefined, 'development', 'test', 'staging'])('retains non-production display for %s', (nodeEnv) => {
+    expect(resolveInitSuperadminDisplayPassword('secret', { NODE_ENV: nodeEnv })).toBe('secret')
+  })
+
+  it('uses the existing CLI locale for the redaction marker', () => {
+    expect(resolveInitSuperadminDisplayPassword('Unique-Owner-937!', { NODE_ENV: 'production', LC_ALL: 'pl_PL.UTF-8' }))
+      .toBe('zgodnie z podanym hasłem')
+  })
+})
 
 describe('resolveInitDerivedSecrets', () => {
   it("seeds the well-known 'secret' password in non-production when no env overrides are set", () => {
