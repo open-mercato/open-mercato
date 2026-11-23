@@ -30,6 +30,7 @@
   "legal_review.start.button": "법률 검토 시작",
   "legal_review.start.cancel": "취소",
   "legal_review.start.counterparty": "상대방",
+  "legal_review.start.counterpartyPlaceholder": "CRM 회사를 검색하거나 이름을 입력하세요",
   "legal_review.start.description": "이 문서에 대한 법률 건을 만들고 AI 검토를 시작합니다.",
   "legal_review.start.dueDate": "기한",
   "legal_review.start.error": "법률 검토를 시작할 수 없습니다",

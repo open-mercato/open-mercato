@@ -65,7 +65,7 @@ export async function startNdaReviewForMatter(
   const instance = await startRun({
     workflowId: NDA_REVIEW_WORKFLOW_ID,
     correlationKey,
-    initialContext: { documentId: matter.documentId, playbookCode: DEFAULT_NDA_PLAYBOOK_CODE },
+    initialContext: { documentId: matter.documentId, matterId: matter.id, playbookCode: DEFAULT_NDA_PLAYBOOK_CODE },
     initiatedBy: matter.requestedByUserId ?? null,
     scope,
   })

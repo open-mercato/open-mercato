@@ -28,7 +28,7 @@ const seedDemoCommand: ModuleCli = {
         return
       }
       console.log(
-        `NDA review demo data seeded: ${Object.keys(result.documentIds).length} documents, playbook ${result.playbookId}, matter ${result.matterId ?? 'none (no users in the organization)'}`,
+        `NDA review demo data seeded: ${Object.keys(result.documentIds).length} documents, playbook ${result.playbookId}`,
       )
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }

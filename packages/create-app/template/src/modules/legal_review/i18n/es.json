@@ -30,6 +30,7 @@
   "legal_review.start.button": "Iniciar revisión legal",
   "legal_review.start.cancel": "Cancelar",
   "legal_review.start.counterparty": "Contraparte",
+  "legal_review.start.counterpartyPlaceholder": "Busca empresas del CRM o escribe un nombre",
   "legal_review.start.description": "Crea un asunto legal para este documento e inicia la revisión con IA.",
   "legal_review.start.dueDate": "Fecha límite",
   "legal_review.start.error": "No se pudo iniciar la revisión legal",

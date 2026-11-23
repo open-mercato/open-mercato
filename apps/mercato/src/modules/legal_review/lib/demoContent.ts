@@ -179,28 +179,6 @@ export const DEMO_GUIDANCE_DOCUMENTS: DemoDocument[] = [
   },
 ]
 
-export type DemoMatter = {
-  documentKey: string
-  reference: string
-  counterparty: string
-  purpose: string
-  jurisdiction: string
-  agreementType: 'mutual_nda' | 'one_way_nda'
-  paper: 'counterparty' | 'ours'
-  dueInDays: number
-}
-
-export const DEMO_MATTER: DemoMatter = {
-  documentKey: 'nda-red-lines',
-  reference: 'LG-2001',
-  counterparty: 'Harbor Lane Analytics Inc.',
-  purpose: 'Evaluate a joint customer analytics offering',
-  jurisdiction: 'US',
-  agreementType: 'mutual_nda',
-  paper: 'counterparty',
-  dueInDays: 3,
-}
-
 export const DEMO_AGREEMENTS: DemoDocument[] = [
   {
     key: 'nda-red-lines',

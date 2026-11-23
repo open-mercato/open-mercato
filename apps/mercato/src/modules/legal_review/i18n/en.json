@@ -30,6 +30,7 @@
   "legal_review.start.button": "Start legal review",
   "legal_review.start.cancel": "Cancel",
   "legal_review.start.counterparty": "Counterparty",
+  "legal_review.start.counterpartyPlaceholder": "Search CRM companies or type a name",
   "legal_review.start.description": "Creates a legal matter for this document and starts the AI review.",
   "legal_review.start.dueDate": "Due date",
   "legal_review.start.error": "Could not start the legal review",

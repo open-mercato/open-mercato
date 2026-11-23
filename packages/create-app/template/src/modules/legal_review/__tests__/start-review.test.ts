@@ -10,7 +10,12 @@ jest.mock('@open-mercato/core/modules/workflows/data/entities', () => ({ Workflo
 jest.mock('../data/entities', () => ({ LegalMatter: class LegalMatter {} }))
 
 import { startNdaReviewForMatter } from '../lib/startReview'
-import { buildDefaultStartReviewForm, buildStartReviewPayload } from '../lib/startReviewForm'
+import {
+  buildCounterpartySearchPath,
+  buildDefaultStartReviewForm,
+  buildStartReviewPayload,
+  readCounterpartyOptions,
+} from '../lib/startReviewForm'
 
 const SCOPE = { tenantId: '0b4c1d2e-3f40-4a51-8b62-7c8d9e0f1a2b', organizationId: '5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d' }
 const MATTER_ID = '9b1d2c3e-4f50-4a61-8b72-0c1d2e3f4a5b'
@@ -39,7 +44,7 @@ describe('startNdaReviewForMatter', () => {
     expect(startRun).toHaveBeenCalledWith({
       workflowId: 'legal_review_nda_review_v1',
       correlationKey: `legal_review:${DOCUMENT_ID}`,
-      initialContext: { documentId: DOCUMENT_ID, playbookCode: 'nda-standard' },
+      initialContext: { documentId: DOCUMENT_ID, matterId: MATTER_ID, playbookCode: 'nda-standard' },
       initiatedBy: USER_ID,
       scope: SCOPE,
     })
@@ -100,5 +105,37 @@ describe('start review form', () => {
       assigneeUserId: USER_ID,
     })
     expect(typeof payload.dueAt).toBe('string')
+  })
+})
+
+describe('counterparty suggestions', () => {
+  it('searches CRM companies by name with a bounded page', () => {
+    const path = buildCounterpartySearchPath('  Harbor ')
+    const params = new URL(path, 'http://localhost').searchParams
+    expect(path.startsWith('/api/customers/companies?')).toBe(true)
+    expect(params.get('search')).toBe('Harbor')
+    expect(Number(params.get('pageSize'))).toBeLessThanOrEqual(100)
+    expect(new URL(buildCounterpartySearchPath(''), 'http://localhost').searchParams.has('search')).toBe(false)
+  })
+
+  it('maps company display names to options and skips blanks and duplicates', () => {
+    const options = readCounterpartyOptions({
+      items: [
+        { id: 'a', display_name: 'Harbor Lane Analytics Inc.', primary_email: 'legal@harbor.example' },
+        { id: 'b', display_name: '  ' },
+        { id: 'c', display_name: 'Harbor Lane Analytics Inc.' },
+        { id: 'd', display_name: 'Brightwater Logistics Ltd', primary_email: null },
+        'not-an-object',
+      ],
+    })
+    expect(options).toEqual([
+      { value: 'Harbor Lane Analytics Inc.', label: 'Harbor Lane Analytics Inc.', description: 'legal@harbor.example' },
+      { value: 'Brightwater Logistics Ltd', label: 'Brightwater Logistics Ltd', description: null },
+    ])
+  })
+
+  it('returns no options for an unexpected payload', () => {
+    expect(readCounterpartyOptions(null)).toEqual([])
+    expect(readCounterpartyOptions({ error: 'Forbidden' })).toEqual([])
   })
 })

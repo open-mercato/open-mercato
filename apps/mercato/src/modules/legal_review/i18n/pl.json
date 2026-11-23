@@ -30,6 +30,7 @@
   "legal_review.start.button": "Rozpocznij przegląd prawny",
   "legal_review.start.cancel": "Anuluj",
   "legal_review.start.counterparty": "Druga strona",
+  "legal_review.start.counterpartyPlaceholder": "Wyszukaj firmę w CRM lub wpisz nazwę",
   "legal_review.start.description": "Tworzy sprawę prawną dla tego dokumentu i uruchamia przegląd AI.",
   "legal_review.start.dueDate": "Termin",
   "legal_review.start.error": "Nie udało się rozpocząć przeglądu prawnego",

@@ -1,25 +1,21 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { htmlToPlainText } from '@open-mercato/shared/lib/html/htmlToPlainText'
-import { LegalMatter } from '../data/entities'
 import {
   DEMO_AGREEMENTS,
   DEMO_GUIDANCE_DOCUMENTS,
-  DEMO_MATTER,
   DEMO_PLAYBOOK,
   DEMO_REVIEW_RULES,
   type DemoDocument,
 } from './demoContent'
 import type { LegalReviewSeedScope } from './seeds'
 
-const DAY_MS = 24 * 60 * 60 * 1000
 const RULE_SORT_STEP = 10
 
 export type LegalReviewDemoSeedResult = {
   seeded: boolean
   documentIds: Record<string, string>
   playbookId: string | null
-  matterId: string | null
 }
 
 async function resolveDemoOwnerUserId(em: EntityManager, scope: LegalReviewSeedScope): Promise<string | null> {
@@ -64,19 +60,18 @@ async function createDemoDocument(
 
 /**
  * Seeds the NDA review demo: a playbook with rules and guidance notes, four
- * sample agreements and one matter waiting for its review to start. Writes
- * rows directly, so no domain events fire and no agent run starts. Idempotent:
+ * sample agreements. It creates no legal matter: choosing Start legal review on
+ * an agreement creates the matter, which starts the agent run. Idempotent:
  * does nothing when the playbook already exists in the organization.
  */
 export async function seedLegalReviewDemoData(
   em: EntityManager,
   scope: LegalReviewSeedScope,
-  now: Date = new Date(),
 ): Promise<LegalReviewDemoSeedResult> {
   const { DocumentReviewPlaybook, DocumentReviewRule, DocumentReviewPlaybookReference } = await import(
     '@open-mercato/documents/modules/documents/data/entities'
   )
-  const skipped: LegalReviewDemoSeedResult = { seeded: false, documentIds: {}, playbookId: null, matterId: null }
+  const skipped: LegalReviewDemoSeedResult = { seeded: false, documentIds: {}, playbookId: null }
   const existing = await findOneWithDecryption(
     em,
     DocumentReviewPlaybook,
@@ -118,7 +113,7 @@ export async function seedLegalReviewDemoData(
   const ownerUserId = await resolveDemoOwnerUserId(em, scope)
   if (!ownerUserId) {
     await em.flush()
-    return { seeded: true, documentIds: {}, playbookId: playbook.id, matterId: null }
+    return { seeded: true, documentIds: {}, playbookId: playbook.id }
   }
 
   const documentIds: Record<string, string> = {}
@@ -137,22 +132,7 @@ export async function seedLegalReviewDemoData(
     )
   })
 
-  const matter = em.create(LegalMatter, {
-    ...scope,
-    documentId: documentIds[DEMO_MATTER.documentKey],
-    reference: DEMO_MATTER.reference,
-    counterparty: DEMO_MATTER.counterparty,
-    purpose: DEMO_MATTER.purpose,
-    jurisdiction: DEMO_MATTER.jurisdiction,
-    agreementType: DEMO_MATTER.agreementType,
-    paper: DEMO_MATTER.paper,
-    requestedByUserId: ownerUserId,
-    assigneeUserId: ownerUserId,
-    stage: 'requested',
-    dueAt: new Date(now.getTime() + DEMO_MATTER.dueInDays * DAY_MS),
-  })
-  em.persist(matter)
   await em.flush()
 
-  return { seeded: true, documentIds, playbookId: playbook.id, matterId: matter.id }
+  return { seeded: true, documentIds, playbookId: playbook.id }
 }

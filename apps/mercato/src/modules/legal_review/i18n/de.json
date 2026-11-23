@@ -30,6 +30,7 @@
   "legal_review.start.button": "Rechtsprüfung starten",
   "legal_review.start.cancel": "Abbrechen",
   "legal_review.start.counterparty": "Vertragspartner",
+  "legal_review.start.counterpartyPlaceholder": "CRM-Firmen suchen oder Namen eingeben",
   "legal_review.start.description": "Legt einen Rechtsvorgang für dieses Dokument an und startet die KI-Prüfung.",
   "legal_review.start.dueDate": "Fällig am",
   "legal_review.start.error": "Die Rechtsprüfung konnte nicht gestartet werden",

@@ -120,13 +120,11 @@ It creates, once per organization:
 - the `nda-standard` playbook with 12 rules (`lib/demoContent.ts`);
 - four guidance notes, linked to the playbook as references;
 - four sample agreements: red lines (`LG-2001`), a clean agreement on our paper
-  (`LG-2002`), warnings only (`LG-2003`) and edge cases (`LG-2004`);
-- matter `LG-2001` in the Requested stage, assigned to the organization's first
-  user.
+  (`LG-2002`), warnings only (`LG-2003`) and edge cases (`LG-2004`).
 
-The seed writes rows directly, so it fires no events and starts no agent run.
-Open the `LG-2001` document and choose **Start legal review** in the matter
-header. The review runs the `legal_review_nda_review_v1` workflow with
+The seed creates no legal matter and starts no agent run. Open an agreement and
+choose **Start legal review** above it: the dialog creates the matter, and the
+`legal_review.matter.created` subscriber starts the review. The review runs the `legal_review_nda_review_v1` workflow with
 correlation key `legal_review:<documentId>`. Decide the blocking findings in the
 Changes panel and the matter moves to Released.
 

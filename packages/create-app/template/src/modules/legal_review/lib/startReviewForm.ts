@@ -54,3 +54,38 @@ export function buildStartReviewPayload(
     dueAt: dueAt && !Number.isNaN(dueAt.getTime()) ? dueAt.toISOString() : null,
   }
 }
+
+export type CounterpartyOption = { value: string; label: string; description: string | null }
+
+export const COUNTERPARTY_SUGGESTION_LIMIT = 20
+
+export function buildCounterpartySearchPath(query: string): string {
+  const params = new URLSearchParams({
+    page: '1',
+    pageSize: String(COUNTERPARTY_SUGGESTION_LIMIT),
+    sortField: 'display_name',
+    sortDir: 'asc',
+  })
+  const trimmed = query.trim()
+  if (trimmed) params.set('search', trimmed)
+  return `/api/customers/companies?${params.toString()}`
+}
+
+/** CRM companies become suggestions; the counterparty stays a free-text name. */
+export function readCounterpartyOptions(payload: unknown): CounterpartyOption[] {
+  const items = payload && typeof payload === 'object' && Array.isArray((payload as { items?: unknown }).items)
+    ? (payload as { items: unknown[] }).items
+    : []
+  const seen = new Set<string>()
+  const options: CounterpartyOption[] = []
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const name = typeof record.display_name === 'string' ? record.display_name.trim() : ''
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    const email = typeof record.primary_email === 'string' && record.primary_email.trim() ? record.primary_email.trim() : null
+    options.push({ value: name, label: name, description: email })
+  }
+  return options
+}

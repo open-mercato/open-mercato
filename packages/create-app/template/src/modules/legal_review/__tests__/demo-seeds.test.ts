@@ -20,14 +20,11 @@ import { seedLegalReviewDemoData } from '../lib/demoSeeds'
 import {
   DEMO_AGREEMENTS,
   DEMO_GUIDANCE_DOCUMENTS,
-  DEMO_MATTER,
   DEMO_REVIEW_RULES,
 } from '../lib/demoContent'
-import { LEGAL_AGREEMENT_TYPES, LEGAL_PAPER_SIDES } from '../data/validators'
 
 const SCOPE = { tenantId: '0b4c1d2e-3f40-4a51-8b62-7c8d9e0f1a2b', organizationId: '5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d' }
 const USER_ID = '1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f'
-const NOW = new Date('2026-11-23T10:00:00.000Z')
 
 type Created = { entity: string; data: Record<string, unknown> }
 
@@ -66,12 +63,6 @@ describe('legal review demo content', () => {
     }
   })
 
-  it('links the matter to one of the sample agreements with valid enum values', () => {
-    expect(DEMO_AGREEMENTS.map((agreement) => agreement.key)).toContain(DEMO_MATTER.documentKey)
-    expect(LEGAL_AGREEMENT_TYPES).toContain(DEMO_MATTER.agreementType)
-    expect(LEGAL_PAPER_SIDES).toContain(DEMO_MATTER.paper)
-  })
-
   it('stores every sample document as HTML that opens with a heading', () => {
     for (const demo of [...DEMO_GUIDANCE_DOCUMENTS, ...DEMO_AGREEMENTS]) {
       expect(demo.html.startsWith('<h1>')).toBe(true)
@@ -91,11 +82,11 @@ describe('legal review demo content', () => {
 describe('seedLegalReviewDemoData', () => {
   beforeEach(() => findOneWithDecryption.mockReset())
 
-  it('creates the playbook, rules, documents, references and a requested matter', async () => {
+  it('creates the playbook, rules, documents and references but no matter', async () => {
     mockLookups({ playbookExists: false, userId: USER_ID })
     const { em, byEntity } = buildEm()
 
-    const result = await seedLegalReviewDemoData(em, SCOPE, NOW)
+    const result = await seedLegalReviewDemoData(em, SCOPE)
 
     expect(result.seeded).toBe(true)
     expect(byEntity('DocumentReviewPlaybook')).toHaveLength(1)
@@ -113,22 +104,14 @@ describe('seedLegalReviewDemoData', () => {
       expect(document).toMatchObject({ ...SCOPE, ownerUserId: USER_ID })
     }
 
-    const [matter] = byEntity('LegalMatter')
-    expect(matter).toMatchObject({
-      ...SCOPE,
-      documentId: result.documentIds[DEMO_MATTER.documentKey],
-      reference: DEMO_MATTER.reference,
-      stage: 'requested',
-      assigneeUserId: USER_ID,
-    })
-    expect((matter.dueAt as Date).getTime()).toBeGreaterThan(NOW.getTime())
+    expect(byEntity('LegalMatter')).toHaveLength(0)
   })
 
   it('does nothing when the playbook already exists', async () => {
     mockLookups({ playbookExists: true, userId: USER_ID })
     const { em, raw } = buildEm()
 
-    const result = await seedLegalReviewDemoData(em, SCOPE, NOW)
+    const result = await seedLegalReviewDemoData(em, SCOPE)
 
     expect(result.seeded).toBe(false)
     expect(raw.create).not.toHaveBeenCalled()
@@ -138,9 +121,9 @@ describe('seedLegalReviewDemoData', () => {
     mockLookups({ playbookExists: false, userId: null })
     const { em, byEntity } = buildEm()
 
-    const result = await seedLegalReviewDemoData(em, SCOPE, NOW)
+    const result = await seedLegalReviewDemoData(em, SCOPE)
 
-    expect(result).toMatchObject({ seeded: true, matterId: null })
+    expect(result).toMatchObject({ seeded: true, documentIds: {} })
     expect(byEntity('DocumentReviewRule')).toHaveLength(DEMO_REVIEW_RULES.length)
     expect(byEntity('Document')).toHaveLength(0)
     expect(byEntity('LegalMatter')).toHaveLength(0)
