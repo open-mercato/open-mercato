@@ -1413,7 +1413,7 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>After the cutoff both buttons are disabled with "This meeting can no longer be changed online. Reply to the invite e-mail." A pending request shows "Awaiting confirmation" with Cancel request only. Cancelled, declined and expired requests and meetings that have ended show read-only with their badge and no buttons (not drawn).</span></div>
+    <div class="note"><b>1</b><span>After the cutoff both buttons are disabled with "This meeting can no longer be changed online. Reply to the invite e-mail." A pending request shows "Awaiting confirmation" with Cancel request only. Once the request is cancelled, declined or expired, or the meeting is over, the link shows only "This link has expired" with a "Book a new time" link and no booking details (not drawn).</span></div>
     <div class="note"><b>2</b><span>The token is shown masked; an unknown, revoked or anonymised link renders its own card, "This link isn't valid. Reply to the invite e-mail to change your meeting." (404 <code>booking_link_invalid</code>). Served with <code>Referrer-Policy: no-referrer</code>.</span></div>
     <div class="note"><b>3</b><span>While a reschedule waits for Anna's approval this card reads "Reschedule requested for {time}, waiting for confirmation" and Reschedule is disabled.</span></div>
   </div>
@@ -1444,7 +1444,7 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>Escape keeps the meeting, Cmd/Ctrl+Enter cancels. After cancelling, the manage page shows the Cancelled badge, a METHOD:CANCEL e-mail is sent, and a "Book a new time" link returns to the public page. If Anna moved or cancelled the meeting meanwhile, a 409 shows "This booking was changed. Reload to see the latest details" with a Reload button.</span></div>
+    <div class="note"><b>1</b><span>Escape keeps the meeting, Cmd/Ctrl+Enter cancels. After cancelling, the page shows "Your meeting is cancelled" with a "Book a new time" link to the public page, and a METHOD:CANCEL e-mail is sent; opening the link again shows "This link has expired". If Anna moved or cancelled the meeting meanwhile, a 409 shows "This booking was changed. Reload to see the latest details" with a Reload button.</span></div>
   </div>
 </section>
 
