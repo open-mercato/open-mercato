@@ -41,5 +41,5 @@ Prices can contain more digits than JavaScript numbers preserve. Verify that reo
 
 ### Phase 2: Final Sales QA repairs
 
-- [ ] 2.1 Redisplay saved Sales line prices and quantities in the selected locale and cover round-trip precision
+- [x] 2.1 Redisplay saved Sales line prices and quantities in the selected locale and cover round-trip precision — 5c54fdd147
 - [ ] 2.2 Verify the recurring Sales flows and review the final head
