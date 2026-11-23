@@ -14,7 +14,10 @@ import { agentOrchestratorTag } from '../../openapi'
  * Trace ingestion webhook (trace-eval overlay). Machine-to-machine: runtime
  * adapters POST a normalized trace, HMAC-signed per tenant. `requireAuth: false`
  * because there is no user session — the verified signature establishes the
- * tenant/org scope (never the body). Idempotent on `(runtime, externalRunId)`.
+ * tenant (never the body), and the ingest command validates that the declared
+ * organization belongs to that tenant and that any `workflowInstanceId` stays
+ * inside the same tenant/org scope before writing. Idempotent on
+ * `(runtime, externalRunId)`.
  *
  * Rate-limited per client IP BEFORE the HMAC check and the write, so an unsigned
  * flood costs neither the verification nor the database round trip. The ceiling is
@@ -97,9 +100,9 @@ export const openApi = {
       tags: [agentOrchestratorTag],
       responses: [
         { status: 202, description: 'Trace accepted (run upserted, spans/tool-calls appended)' },
-        { status: 401, description: 'HMAC signature verification failed' },
+        { status: 401, description: 'HMAC signature verification failed, or the declared organization does not belong to the verified tenant' },
         { status: 413, description: 'Request body exceeds the byte limit (1 MiB by default; OM_WEBHOOK_MAX_BODY_BYTES overrides)' },
-        { status: 422, description: 'Invalid trace payload' },
+        { status: 422, description: 'Invalid trace payload, or a workflowInstanceId that does not resolve inside the verified tenant/organization scope' },
         { status: 429, description: 'Too many ingest requests from this client IP' },
         { status: 503, description: 'Rate limiter unavailable — the request is refused rather than left uncounted' },
       ],

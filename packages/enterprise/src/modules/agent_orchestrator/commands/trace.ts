@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { traceIngestSchema } from '../data/validators'
+import { assertTraceIngestScope } from '../lib/trace/ingestScope'
 import { ingestTrace, type IngestTraceResult } from '../lib/trace/traceIngestionService'
 import { createArtifactResultOffloader } from '../lib/trace/artifactStore'
 import { resolveIngestContentCapture } from '../lib/trace/ingestContentCapture'
@@ -25,8 +26,11 @@ export type IngestTraceCommandInput = z.infer<typeof ingestTraceCommandSchema>
 
 /**
  * Audited write path for trace ingestion. The HMAC route resolves the verified
- * tenant/org scope and hands the parsed payload here; the service performs the
- * idempotent upsert + append, and we emit `run.ingested` once per call.
+ * tenant/org scope and hands the parsed payload here; `assertTraceIngestScope`
+ * re-checks that the organization belongs to the verified tenant and that any
+ * workflow reference stays inside that scope before anything is written; the
+ * service performs the idempotent upsert + append, and we emit `run.ingested`
+ * once per call.
  */
 const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceResult> = {
   id: 'agent_orchestrator.trace.ingest',
@@ -34,6 +38,7 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
     const input = ingestTraceCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+    await assertTraceIngestScope(em, ctx.container, scope, input.payload)
     const result = await ingestTrace(em, scope, input.payload, {
       offloadArtifactResult: createArtifactResultOffloader(ctx.container, scope),
       ...(await resolveIngestContentCapture(ctx.container, scope, input.payload)),

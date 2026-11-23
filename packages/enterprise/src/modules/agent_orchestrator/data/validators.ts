@@ -586,6 +586,14 @@ export const traceSpanIngestSchema = z.object({
 })
 export type TraceSpanIngest = z.infer<typeof traceSpanIngestSchema>
 
+/**
+ * Upper bound for an ingested run's `costMinor` (minor currency units). Ingested
+ * cost feeds process-cost rollups and production metrics, so an unbounded value
+ * let one trace inflate any total (GHSA-xch5-xj47-xcxm). 1e9 minor units is far
+ * above any plausible single-run cost while keeping the field a safe integer.
+ */
+export const TRACE_INGEST_MAX_COST_MINOR = 1_000_000_000
+
 /** The run envelope POSTed to /trace/ingest. */
 export const traceIngestSchema = z.object({
   runtime: z.string().min(1),
@@ -597,10 +605,13 @@ export const traceIngestSchema = z.object({
   workflowInstanceId: z.string().uuid().nullable().optional(),
   stepId: z.string().nullable().optional(),
   proposalId: z.string().uuid().nullable().optional(),
-  confidence: z.number().optional(),
+  // Bounded like the proposal/option schemas: confidence drives the
+  // min_confidence eval verdict and the low-confidence review lists, so an
+  // out-of-range value must not reach the scorers (GHSA-xch5-xj47-xcxm).
+  confidence: z.number().min(0).max(1).optional(),
   inputTokens: z.number().int().nonnegative().optional(),
   outputTokens: z.number().int().nonnegative().optional(),
-  costMinor: z.number().int().nonnegative().optional(),
+  costMinor: z.number().int().nonnegative().max(TRACE_INGEST_MAX_COST_MINOR).optional(),
   currency: z.string().length(3).optional(),
   latencyMs: z.number().int().nonnegative().optional(),
   input: z.unknown().optional(),
@@ -609,6 +620,17 @@ export const traceIngestSchema = z.object({
   contextRouting: z.unknown().optional(),
   spans: z.array(traceSpanIngestSchema).optional(),
   manifest: traceManifestIngestSchema.optional(),
+}).superRefine((value, ctx) => {
+  // A step reference is meaningless without its instance: the internal runtime
+  // only ever produces the (workflowInstanceId, stepId) pair together, and a
+  // lone stepId could not be scoped to anything (GHSA-xch5-xj47-xcxm).
+  if (value.workflowInstanceId == null && value.stepId != null) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['stepId'],
+      message: '[internal] stepId requires workflowInstanceId',
+    })
+  }
 })
 export type TraceIngest = z.infer<typeof traceIngestSchema>
 

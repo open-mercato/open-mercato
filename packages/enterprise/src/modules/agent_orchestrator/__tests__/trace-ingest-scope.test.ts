@@ -41,17 +41,16 @@ jest.mock('../lib/queue', () => ({
 import '../commands/trace'
 import { ingestTrace } from '../lib/trace/traceIngestionService'
 
-const tenantId = '11111111-1111-1111-1111-111111111111'
-const organizationId = '22222222-2222-2222-2222-222222222222'
-const foreignOrganizationId = '33333333-3333-3333-3333-333333333333'
-const foreignTenantId = '44444444-4444-4444-4444-444444444444'
-const workflowInstanceId = '55555555-5555-5555-5555-555555555555'
+const tenantId = '11111111-1111-4111-8111-111111111111'
+const organizationId = '22222222-2222-4222-8222-222222222222'
+const foreignOrganizationId = '33333333-3333-4333-8333-333333333333'
+const foreignTenantId = '44444444-4444-4444-8444-444444444444'
+const workflowInstanceId = '55555555-5555-4555-8555-555555555555'
 
 type OrganizationFixture = { id: string }
 
 function makeEm(organization: OrganizationFixture | null) {
-  return {
-    fork: () => em,
+  const em = {
     findOne: jest.fn(async (entity: unknown, filter: Record<string, unknown>) => {
       if (entity === Organization) {
         organizationQueries.push(filter)
@@ -60,7 +59,8 @@ function makeEm(organization: OrganizationFixture | null) {
       return { id: (filter as { id?: string }).id ?? 'run-1', workflowInstanceId: null }
     }),
     count: jest.fn(async () => 0),
-  } as unknown as EntityManager & { fork: () => EntityManager }
+  }
+  return Object.assign(em, { fork: () => em }) as unknown as EntityManager & { fork: () => EntityManager }
 }
 
 const organizationQueries: Array<Record<string, unknown>> = []
