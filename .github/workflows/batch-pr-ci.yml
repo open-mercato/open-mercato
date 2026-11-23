@@ -31,6 +31,7 @@ env:
 # this every PR into a batch starts cold (~2.5 min of reinstall and rebuild).
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     branches:
       - 'batch/**'
   push:

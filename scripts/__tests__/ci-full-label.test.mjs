@@ -7,6 +7,7 @@ import test from 'node:test'
 import { parse } from 'yaml'
 
 const workflow = parse(fs.readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8'))
+const batchWorkflow = parse(fs.readFileSync(new URL('../../.github/workflows/batch-pr-ci.yml', import.meta.url), 'utf8'))
 const scope = workflow.jobs.prepare.steps.find((step) => step.id === 'integration-scope')
 const repository = 'open-mercato/open-mercato'
 
@@ -54,6 +55,22 @@ test('PR label changes cannot schedule CI or publish new skipped required checks
   }
   assert.equal(scope.env?.FORCE_FULL_SUITE, undefined)
   assert.ok(!workflow.on.pull_request.types.includes('labeled'))
+})
+
+test('batch gate runs when an existing PR is retargeted without another commit', () => {
+  assert.ok(batchWorkflow.on.pull_request.types.includes('edited'))
+  assert.deepEqual(batchWorkflow.on.pull_request.branches, ['batch/**'])
+  assert.equal(batchWorkflow.jobs['fast-check'].if, undefined)
+})
+
+test('batch gate preserves code lifecycle events without subscribing to label churn', () => {
+  for (const eventType of ['opened', 'synchronize', 'reopened']) {
+    assert.ok(batchWorkflow.on.pull_request.types.includes(eventType), eventType)
+  }
+  for (const eventType of ['labeled', 'unlabeled']) {
+    assert.ok(!batchWorkflow.on.pull_request.types.includes(eventType), eventType)
+  }
+  assert.deepEqual(batchWorkflow.on.push.branches, ['batch/**'])
 })
 
 for (const [branch, headRepository, expected] of [
