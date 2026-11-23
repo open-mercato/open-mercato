@@ -1068,8 +1068,8 @@ describe('DefaultAttachmentService owner policy boundary', () => {
     expectedAssignment: { type: 'documents:document', id: 'document-1' },
   }
 
-  function harness(withContext = true) {
-    const base = createHarness({ partition: partition({
+  function harness(withContext = true, attachments?: Attachment[]) {
+    const base = createHarness({ attachments, partition: partition({
       accessResolverRequirements: [{ resolverId, targetEntity: 'documents:document' }],
     }) })
     const container = { resolve: () => ({
@@ -1096,6 +1096,28 @@ describe('DefaultAttachmentService owner policy boundary', () => {
     expect(resolveOwner).toHaveBeenCalledWith(expect.objectContaining({ action: 'read' }))
     expect(factory.resolveForPartition).not.toHaveBeenCalled()
     expect(driver.read).not.toHaveBeenCalled()
+  })
+
+  it('loads a shared partition once when moving multiple attachments', async () => {
+    const first = attachment()
+    const second = attachment({ id: 'attachment-2' })
+    const { service, em } = harness(true, [first, second])
+    const destination = { entityId: 'messages:message', recordId: 'sent-message' }
+    resolveOwner.mockResolvedValue({ ok: true })
+
+    await withAtomicFlush(em, [async () => {
+      await expect(service.reassignScopedAttachments({
+        auth,
+        attachmentIds: [first.id, second.id],
+        expectedOwner: readInput.expectedOwner,
+        destination,
+      }, em)).resolves.toBe(true)
+    }], { transaction: true })
+
+    expect(em.find.mock.calls.filter(([entity]: [unknown]) => entity === AttachmentPartition)).toHaveLength(1)
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(first).toMatchObject(destination)
+    expect(second).toMatchObject(destination)
   })
 
   it('leaves the attachment with its owner when read is allowed and reassignment is denied', async () => {

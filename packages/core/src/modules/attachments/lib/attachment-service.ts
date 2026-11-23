@@ -1,6 +1,6 @@
 import { evaluateAttachmentAccess, type AttachmentAccessContext } from './access-runner'
 import { throwAttachmentAccessError } from './access-errors'
-import { assertAttachmentOwnerAccess } from './access-query'
+import { ensureAttachmentPartitionProtection } from './access-protection'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -490,10 +490,29 @@ export class DefaultAttachmentService implements AttachmentService {
     )
     if (attachments.length !== attachmentIds.length) return false
 
+    if (attachments.length === 0) return true
+
+    const partitionCodes = [...new Set(attachments.map((attachment) => attachment.partitionCode))]
+    const partitions = await findWithDecryption(
+      em,
+      AttachmentPartition,
+      { code: { $in: partitionCodes } },
+      undefined,
+      scope,
+    )
+    const partitionsByCode = new Map(partitions.map((partition) => [partition.code, partition]))
+    if (partitionCodes.some((code) => !partitionsByCode.has(code))) return throwAttachmentAccessError(404)
+
+    for (const partition of partitions) await ensureAttachmentPartitionProtection(em, partition)
+
     const context = this.resolveAccessContext?.()
     for (const attachment of attachments) {
-      await assertAttachmentOwnerAccess({ em, context, auth, attachment, action: 'reassign', persistProtection: true })
-      await assertAttachmentOwnerAccess({ em, context, auth, attachment: { ...attachment, ...destination }, action: 'reassign' })
+      const partition = partitionsByCode.get(attachment.partitionCode)!
+      const accessInput = { context, auth, partition, action: 'reassign' as const, requireAuthForPublic: true }
+      const sourceAccess = await evaluateAttachmentAccess({ ...accessInput, attachment })
+      if (!sourceAccess.ok) await throwAttachmentAccessError(sourceAccess.status)
+      const destinationAccess = await evaluateAttachmentAccess({ ...accessInput, attachment: { ...attachment, ...destination } })
+      if (!destinationAccess.ok) await throwAttachmentAccessError(destinationAccess.status)
     }
     for (const attachment of attachments) {
       attachment.entityId = destination.entityId

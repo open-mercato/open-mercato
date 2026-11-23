@@ -23,7 +23,7 @@ export function requiresAttachmentAccessScan(partitions: readonly AttachmentPart
 
 export async function assertAttachmentOwnerAccess(input: {
   em: EntityManager
-  context?: AttachmentAccessContext
+  context: AttachmentAccessContext
   auth: NonNullable<AuthContext>
   attachment: AttachmentAccessRecord
   action: AttachmentAccessAction

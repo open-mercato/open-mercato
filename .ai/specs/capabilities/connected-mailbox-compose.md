@@ -22,4 +22,4 @@ The system SHALL accept supported files and linked records on a new public compo
 - THEN the composer opens that message with a delivery warning and support can trace its scoped outbound link
 - AND a worker that already accepted the job keeps its delivery status and receives no duplicate submission
 
-Source: .ai/specs/2026-11-22-connected-mailbox-composer-payload.md
+See the [connected mailbox composer specification](../2026-09-19-composer-send-from-connected-mailbox.md) and the [queue recovery design in PR #10366](https://github.com/open-mercato/open-mercato/pull/10366).
