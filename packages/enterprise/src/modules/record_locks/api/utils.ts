@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { RecordLockService } from '../lib/recordLockService'
 
 type RecordLocksAuth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>> & {
@@ -23,11 +25,17 @@ export async function resolveRecordLocksApiContext(req: Request): Promise<Record
   }
 
   const container = await createRequestContainer()
-  const { organizationId } = await resolveFeatureCheckContext({
+  const { organizationId, scope } = await resolveFeatureCheckContext({
     container,
     auth,
     request: req,
   })
+  try {
+    resolveSingleOrganizationIdOrDeny(scope, auth)
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
 
   const recordLockService = container.resolve<RecordLockService>('recordLockService')
 
