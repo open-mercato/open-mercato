@@ -9,6 +9,7 @@ import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
@@ -240,6 +241,9 @@ export default function LegalMatterHeaderWidget({
   const [state, setState] = React.useState<LoadState>({ status: 'idle' })
   const [reloadToken, setReloadToken] = React.useState(0)
   const reload = React.useCallback(() => setReloadToken((token) => token + 1), [])
+  useAppEvent('legal_review.matter.released', (event) => {
+    if (documentId && event.payload?.documentId === documentId) reload()
+  }, [documentId, reload])
   const hasMatter = state.status === 'ready' && state.matter !== null
   const progress = useReviewProgress(hasMatter ? documentId : null)
 
