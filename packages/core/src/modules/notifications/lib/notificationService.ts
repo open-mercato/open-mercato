@@ -193,6 +193,12 @@ async function findScopedNotificationOrThrow(
   return notification
 }
 
+// Recipient-targeted browser events without an organization use the SSE bridge's legacy
+// audience (tenant plus recipients). Their wildcard subscribers still receive no routing scope.
+function notificationSseScope(source: NotificationTenantContext) {
+  return source.organizationId == null ? undefined : organizationEventScope(source)
+}
+
 async function emitNotificationSseEvents(
   eventBus: { emit: (event: string, payload: unknown, options?: ReturnType<typeof organizationEventScope>) => Promise<void> },
   notifications: Notification[],
@@ -209,7 +215,7 @@ async function emitNotificationSseEvents(
     organizationId: normalizeOrgScope(ctx.organizationId),
     recipientUserIds: visibleRecipientUserIds,
     count: visible.length,
-  }, organizationEventScope(ctx))
+  }, notificationSseScope(ctx))
 
   for (const notification of visible) {
     await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
@@ -217,7 +223,7 @@ async function emitNotificationSseEvents(
       organizationId: notification.organizationId ?? null,
       recipientUserId: notification.recipientUserId,
       notification: toNotificationDto(notification),
-    }, organizationEventScope(notification))
+    }, notificationSseScope(notification))
   }
 }
 
@@ -435,7 +441,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           organizationId: notification.organizationId ?? null,
           recipientUserId: notification.recipientUserId,
           notification: toNotificationDto(notification),
-        }, organizationEventScope(notification))
+        }, notificationSseScope(notification))
       }
 
       return notification
@@ -684,7 +690,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           organizationId: notification.organizationId ?? null,
           recipientUserId: notification.recipientUserId,
           notification: toNotificationDto(notification),
-        }, organizationEventScope(notification))
+        }, notificationSseScope(notification))
       }
 
       return updatedRows.length

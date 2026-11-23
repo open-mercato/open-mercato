@@ -906,6 +906,8 @@ Outbound delivery uses the scope on the event-bus envelope. An organization-scop
 | Example modules and create-app template | Persisted sync mapping, validated sync scope or matching subscriber envelope. The template ships the same producer behavior. |
 | Generic ORM/CRUD, explicitly scoped module events, and browser-broadcast module events | The data engine emits persisted identifiers. Existing emitters that already supply options retain them. The typed browser-broadcast factory preserves the module emitter's existing scope contract. The outbound subscriber has no payload fallback. |
 
+A notification for an individual recipient can belong to a tenant without an organization. The browser bridge delivers `notifications.notification.created` and `notifications.notification.batch_created` to the persisted or service-authorized recipients in that tenant. Such a browser announcement supplies no tenant-wide webhook routing. An announcement with a verified organization still reaches its matching webhook subscriptions.
+
 **Owner inventory.** These paths require a separate decision if a customer depends on receiving them. No event ID or subscription pattern is retired here.
 
 - An unknown or ambiguous login, an SSO callback failure before configuration is resolved, or an unverified public request cannot identify a destination organization. A known customer account supplies its persisted scope even on failed login. Customer email verification uses the token's populated account.

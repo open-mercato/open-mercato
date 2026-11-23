@@ -51,12 +51,19 @@ jest.mock('../../lib/delivery', () => ({
 jest.mock('../../lib/queue', () => ({
   enqueueWebhookDelivery: jest.fn(),
 }))
+jest.mock('@open-mercato/core/modules/notifications/lib/notificationRecipients', () => ({
+  getScopedNotificationRecipientUserIds: jest.fn(),
+}))
 jest.mock('../../lib/integration-state', () => ({
   isWebhookIntegrationEnabled: jest.fn(),
 }))
 
 import handler, { metadata as dispatchMetadata } from '../outbound-dispatch'
-import { createEventBus } from '@open-mercato/events/bus'
+import { createEventBus, registerGlobalEventTap } from '@open-mercato/events/bus'
+import { createNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import { getScopedNotificationRecipientUserIds } from '@open-mercato/core/modules/notifications/lib/notificationRecipients'
+import { NOTIFICATION_SSE_EVENTS } from '@open-mercato/core/modules/notifications/lib/events'
+import type { Notification } from '@open-mercato/core/modules/notifications/data/entities'
 import { DELETE as deleteAdminUser } from '@open-mercato/core/modules/customer_accounts/api/admin/users/[id]'
 import { DELETE as deletePortalUser } from '@open-mercato/core/modules/customer_accounts/api/portal/users/[id]'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -214,6 +221,7 @@ function setUpIsolatedSubscriptions(scope: { tenantId: string; organizationId: s
   )
   ;(isWebhookIntegrationEnabled as jest.Mock).mockResolvedValue(true)
   ;(createWebhookDelivery as jest.Mock).mockResolvedValue({ ...scope, id: 'delivery' })
+  return bus
 }
 
 const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve))
@@ -295,6 +303,46 @@ describe('outbound dispatch through a real producer', () => {
       expect.stringContaining('no trusted scope'),
       expect.objectContaining({ eventId: 'sales.order.confirmed' }),
     )
+  })
+
+  it('keeps recipient-only notifications on the browser bridge and delivers organization-scoped webhooks', async () => {
+    const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+    const recipientUserId = 'user-1'
+    const bus = setUpIsolatedSubscriptions(scope)
+    const tap = jest.fn()
+    const unsubscribe = registerGlobalEventTap(tap)
+    const transaction = {
+      getKysely: jest.fn(),
+      create: (_entity: unknown, data: Partial<Notification>) => ({ id: 'note-1', ...data }),
+      persist: jest.fn(),
+      flush: jest.fn(),
+    }
+    const em = {
+      fork: () => ({
+        transactional: (write: (tx: typeof transaction) => Promise<Notification>) => write(transaction),
+      }),
+    }
+    const service = createNotificationService({ em: em as unknown as EntityManager, eventBus: bus })
+    jest.mocked(getScopedNotificationRecipientUserIds).mockResolvedValue([recipientUserId])
+    const input = { type: 'test.notification', title: 'Notice', recipientUserId }
+    try {
+      await service.create(input, { tenantId: scope.tenantId, organizationId: null })
+      expect(tap).toHaveBeenCalledWith(NOTIFICATION_SSE_EVENTS.CREATED, expect.objectContaining({
+        tenantId: scope.tenantId, organizationId: null, recipientUserId,
+      }), undefined)
+      expect(createWebhookDelivery).not.toHaveBeenCalled()
+
+      await service.create(input, scope)
+      expect(tap).toHaveBeenCalledWith(NOTIFICATION_SSE_EVENTS.CREATED, expect.objectContaining({
+        ...scope, recipientUserId,
+      }), scope)
+      const deliveries = jest.mocked(createWebhookDelivery).mock.calls.map(([delivery]) => [
+        delivery.eventId, delivery.webhook.id,
+      ])
+      expect(deliveries).toEqual([['notifications.created', 'matching'], [NOTIFICATION_SSE_EVENTS.CREATED, 'matching']])
+    } finally {
+      unsubscribe()
+    }
   })
 
   it.each(eventFamilies)('keeps the %s webhook in its verified organization', async (id, emit) => {

@@ -340,7 +340,7 @@ describe('notification service', () => {
         recipientUserIds: ['e2c9ac54-ecdb-4d79-8d73-8328ca0f16f0', 'e2d9e79c-3f2f-4b8c-9455-6c19b671dc5c'],
         count: 2,
       }),
-      { tenantId: null, organizationId: null },
+      undefined,
     )
   })
 
@@ -487,10 +487,10 @@ describe('notification service', () => {
     expect(eventBus.emit).toHaveBeenCalledWith(NOTIFICATION_SSE_EVENTS.BATCH_CREATED, expect.objectContaining({
       recipientUserIds: [thirdUserId],
       count: 1,
-    }), { tenantId: null, organizationId: null })
+    }), undefined)
     expect(eventBus.emit).toHaveBeenCalledWith(NOTIFICATION_SSE_EVENTS.CREATED, expect.objectContaining({
       recipientUserId: thirdUserId,
-    }), { tenantId: null, organizationId: null })
+    }), undefined)
     expect(eventBus.emit).toHaveBeenCalledWith(NOTIFICATION_EVENTS.CREATED, expect.objectContaining({
       recipientUserId: thirdUserId,
     }), { tenantId: null, organizationId: null })
