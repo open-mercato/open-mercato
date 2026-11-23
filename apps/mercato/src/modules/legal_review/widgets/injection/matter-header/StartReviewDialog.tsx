@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogD
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import {
   LEGAL_AGREEMENT_TYPES,
   LEGAL_PAPER_SIDES,
@@ -15,8 +16,11 @@ import {
   type LegalPaper,
 } from '../../../data/validators'
 import {
+  buildCounterpartySearchPath,
   buildDefaultStartReviewForm,
   buildStartReviewPayload,
+  readCounterpartyOptions,
+  type CounterpartyOption,
   type StartReviewForm,
 } from '../../../lib/startReviewForm'
 
@@ -43,6 +47,17 @@ function readUserOptions(payload: unknown): UserOption[] {
     const label = pick(record.name) ?? pick(record.display_name) ?? pick(record.displayName) ?? pick(record.email) ?? id
     return [{ id, label }]
   })
+}
+
+async function loadCounterpartyOptions(query?: string): Promise<CounterpartyOption[]> {
+  try {
+    const call = await apiCall<unknown>(buildCounterpartySearchPath(query ?? ''), {
+      headers: { 'x-om-forbidden-redirect': '0' },
+    })
+    return call.ok ? readCounterpartyOptions(call.result) : []
+  } catch {
+    return []
+  }
 }
 
 function useTenantUsers(open: boolean): UserOption[] {
@@ -128,7 +143,16 @@ export function StartReviewDialog({ open, documentId, currentUserId, onOpenChang
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor={`${idPrefix}-counterparty`}>{t('legal_review.start.counterparty', 'Counterparty')} *</Label>
-            <Input id={`${idPrefix}-counterparty`} value={form.counterparty} onChange={(event) => update('counterparty', event.target.value)} disabled={isSubmitting} autoFocus />
+            <ComboboxInput
+              id={`${idPrefix}-counterparty`}
+              value={form.counterparty}
+              onChange={(next) => update('counterparty', next)}
+              loadSuggestions={loadCounterpartyOptions}
+              placeholder={t('legal_review.start.counterpartyPlaceholder', 'Search CRM companies or type a name')}
+              allowCustomValues
+              disabled={isSubmitting}
+              autoFocus
+            />
           </div>
           <div className="flex flex-col gap-2 sm:col-span-2">
             <Label htmlFor={`${idPrefix}-purpose`}>{t('legal_review.start.purpose', 'Purpose')}</Label>
