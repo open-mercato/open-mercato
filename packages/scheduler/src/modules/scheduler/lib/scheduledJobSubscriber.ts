@@ -7,6 +7,7 @@ import type { AwilixContainer } from 'awilix'
 import { ScheduledJob } from '../data/entities.js'
 import type { BullMQSchedulerService } from '../services/bullmqSchedulerService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isScheduleSyncDeferred } from './deferredScheduleSync.js'
 
 const logger = createLogger('scheduler').child({ component: 'sync' })
 
@@ -88,6 +89,7 @@ export class ScheduledJobSubscriber implements EventSubscriber<ScheduledJob> {
     for (const changeSet of changeSets) {
       if (changeSet.entity instanceof ScheduledJob) {
         const schedule = changeSet.entity
+        if (isScheduleSyncDeferred(schedule)) continue
 
         try {
           if (changeSet.type === 'create' || changeSet.type === 'update') {

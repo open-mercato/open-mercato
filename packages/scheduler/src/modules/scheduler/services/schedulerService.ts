@@ -5,6 +5,7 @@ import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js
 import type { BullMQSchedulerService } from './bullmqSchedulerService.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createInvalidScheduleValueError } from '@open-mercato/shared/lib/schedule/invalidScheduleValue'
+import { clearScheduleSyncDeferred, markScheduleSyncDeferred } from '../lib/deferredScheduleSync.js'
 
 const logger = createLogger('scheduler')
 
@@ -28,6 +29,18 @@ export interface ScheduleRegistration {
   description?: string
 }
 
+/**
+ * Joins a registration to a caller-owned transaction. With `em` the schedule row is
+ * written through that manager (no fork, so it commits or rolls back with the caller).
+ * With `afterCommit` the BullMQ sync is handed to the caller to run after its commit;
+ * a failure of that deferred sync propagates to the caller, and committed schedules
+ * are recovered by `BullMQSchedulerService.syncAll()`.
+ */
+export interface ScheduleRegistrationOptions {
+  em?: EntityManager
+  afterCommit?: (callback: () => Promise<void>) => void
+}
+
 export class SchedulerService {
   constructor(
     private em: () => EntityManager,
@@ -37,8 +50,8 @@ export class SchedulerService {
   /**
    * Register a new schedule (upsert)
    */
-  async register(registration: ScheduleRegistration): Promise<void> {
-    const em = this.em().fork()
+  async register(registration: ScheduleRegistration, options: ScheduleRegistrationOptions = {}): Promise<void> {
+    const em = options.em ?? this.em().fork()
     
     // Validate scope consistency
     this.validateScope(registration)
@@ -119,20 +132,37 @@ export class SchedulerService {
       em.persist(schedule)
     }
     
+    const deferSync = Boolean(options.em && options.afterCommit && schedule)
+    if (deferSync) markScheduleSyncDeferred(schedule)
     await em.flush()
+    if (!schedule) return
 
-    // Sync with BullMQ if available
-    if (this.bullmqService && schedule) {
-      try {
-        if (schedule.isEnabled) {
-          await this.bullmqService.register(schedule)
-        } else {
-          await this.bullmqService.unregister(schedule.id)
+    if (deferSync && options.afterCommit) {
+      const committedSchedule = schedule
+      options.afterCommit(async () => {
+        try {
+          await this.syncScheduleWithBullMQ(committedSchedule)
+        } finally {
+          clearScheduleSyncDeferred(committedSchedule)
         }
-      } catch (error: unknown) {
-        logger.error('Failed to sync with BullMQ', { scheduleId: schedule.id, err: error })
-        // Don't throw - DB is source of truth, BullMQ sync is best-effort
-      }
+      })
+      return
+    }
+
+    try {
+      await this.syncScheduleWithBullMQ(schedule)
+    } catch (error: unknown) {
+      logger.error('Failed to sync with BullMQ', { scheduleId: schedule.id, err: error })
+      // Don't throw - DB is source of truth, BullMQ sync is best-effort
+    }
+  }
+
+  private async syncScheduleWithBullMQ(schedule: ScheduledJob): Promise<void> {
+    if (!this.bullmqService) return
+    if (schedule.isEnabled) {
+      await this.bullmqService.register(schedule)
+    } else {
+      await this.bullmqService.unregister(schedule.id)
     }
   }
 
