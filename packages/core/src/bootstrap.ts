@@ -2,11 +2,11 @@ import type { AwilixContainer } from 'awilix'
 import { asValue } from 'awilix'
 import { getDefaultEncryptionMaps, type ModuleSubscriber } from '@open-mercato/shared/modules/registry'
 import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
-import { createEventBus } from '@open-mercato/events/index'
+import { createScopedEventBusFactory, type EventBus } from '@open-mercato/events/index'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { createCacheService } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
-import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { createKmsService, type KmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
@@ -21,6 +21,14 @@ import { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { readRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { asScopedService, runProcessEventSetups } from '@open-mercato/shared/lib/di/process-registrar'
+import { runInRequestScope, runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
+import { registerSyncSubscribers } from '@open-mercato/shared/lib/crud/sync-subscriber-store'
+import { getModules } from '@open-mercato/shared/lib/modules/registry'
+import { registerScopedSearchModule } from '@open-mercato/search/di'
+import type { SearchIndexer } from '@open-mercato/search'
+import type { SearchDeletePayload } from '@open-mercato/shared/modules/search'
 
 const logger = createLogger('core')
 
@@ -124,31 +132,45 @@ export async function bootstrap(container: AwilixContainer) {
   }
   container.register({ cache: asValue(cache) })
 
-  // Create and register the DI-aware event bus
-  let eventBus: any
+  const registerEventBus = (queueStrategy: 'local' | 'async'): EventBus => {
+    const createScopedBus = createScopedEventBusFactory({ queueStrategy })
+    container.register({
+      eventBus: asScopedService((caller) => createScopedBus(
+        <Value = unknown>(name: string, options?: { allowUnregistered?: boolean }) => caller.resolve<Value>(name, options),
+      )),
+    })
+    return createScopedBus.definitions
+  }
+  let definitions: EventBus
   try {
-    // Support both QUEUE_STRATEGY and legacy EVENTS_STRATEGY env vars
     const strategyEnv = process.env.QUEUE_STRATEGY || process.env.EVENTS_STRATEGY
-    const queueStrategy = strategyEnv === 'async' || strategyEnv === 'redis' ? 'async' : 'local'
-    eventBus = createEventBus({ resolve: container.resolve, queueStrategy })
-  } catch (err: any) {
-    // Fall back to local strategy to avoid breaking the app on misconfiguration
-    logger.warn('Event bus initialization failed; falling back to local strategy', { err })
+    definitions = registerEventBus(strategyEnv === 'async' || strategyEnv === 'redis' ? 'async' : 'local')
+  } catch (error) {
+    logger.warn('Event bus initialization failed; falling back to local strategy', { err: error })
     try {
-      eventBus = createEventBus({ resolve: container.resolve, queueStrategy: 'local' })
-    } catch {
-      // In extreme cases, provide a no-op bus to avoid crashes. It deliberately
-      // omits `dispatchQueued` so the events worker fails its job loudly instead
-      // of quietly completing it with zero subscribers dispatched.
-      eventBus = {
+      getTelemetryRuntime()?.reportError(error, { module: 'core', code: 'core.event_bus_init_failed' })
+    } catch (telemetryError) {
+      logger.warn('Failed to report event bus initialization error', { err: telemetryError })
+    }
+    try {
+      definitions = registerEventBus('local')
+    } catch (error) {
+      try {
+        getTelemetryRuntime()?.reportError(error, { module: 'core', code: 'core.event_bus_fallback_failed' })
+      } catch (telemetryError) {
+        logger.warn('Failed to report event bus fallback error', { err: telemetryError })
+      }
+      definitions = {
         emit: async () => {},
+        emitEvent: async () => {},
         on: () => {},
         registerModuleSubscribers: () => {},
         clearQueue: async () => ({ removed: 0 }),
       }
+      container.register({ eventBus: asValue(definitions) })
     }
   }
-  container.register({ eventBus: asValue(eventBus) })
+  const eventBus = container.resolve<EventBus>('eventBus')
   // Wire the global event bus so createModuleEvents().emit works outside DI context
   setGlobalEventBus(eventBus)
   // Auto-register discovered module subscribers
@@ -169,7 +191,7 @@ export async function bootstrap(container: AwilixContainer) {
         moduleId: subscriber.moduleId ?? m.id,
       })),
     )
-    if (subs.length) (container.resolve as any)('eventBus').registerModuleSubscribers(subs)
+    if (subs.length) definitions.registerModuleSubscribers(subs)
 
     // Extract sync subscribers and register in the sync-subscriber-store
     const syncSubs = subs.filter((s: any) => s.sync === true)
@@ -261,11 +283,16 @@ export async function bootstrap(container: AwilixContainer) {
     try {
       const searchIndexer = container.resolve('searchIndexer') as any
       if (searchIndexer && eventBus) {
-        eventBus.registerModuleSubscribers([
+        definitions.registerModuleSubscribers([
           {
+            id: 'search.delete_record',
+            moduleId: 'search',
             event: searchDeleteMetadata.event,
             persistent: searchDeleteMetadata.persistent,
-            handler: createSearchDeleteSubscriber(searchIndexer),
+            handler: async (payload, context) => {
+              const callerIndexer = context.resolve<SearchIndexer>('searchIndexer')
+              await createSearchDeleteSubscriber(callerIndexer)(payload as SearchDeletePayload)
+            },
           },
         ])
       }
@@ -274,5 +301,96 @@ export async function bootstrap(container: AwilixContainer) {
     }
   } catch (err) {
     logger.warn('Failed to register search module', { component: 'search', err })
+  }
+}
+
+const KMS_GLOBAL_KEY = Symbol.for('@open-mercato/core/process-kms')
+const processEventSetupBuses = new WeakMap<AwilixContainer, EventBus>()
+
+/** @internal Completes generation-local setup after module and app registration. */
+export async function finalizeProcessRoot(root: AwilixContainer): Promise<void> {
+  const definitions = processEventSetupBuses.get(root)
+  if (!definitions) return
+  processEventSetupBuses.delete(root)
+  await runProcessEventSetups(root, definitions)
+}
+
+function getProcessKmsService(): KmsService {
+  const state = globalThis as typeof globalThis & { [KMS_GLOBAL_KEY]?: KmsService }
+  if (!state[KMS_GLOBAL_KEY]) state[KMS_GLOBAL_KEY] = createKmsService()
+  return state[KMS_GLOBAL_KEY]
+}
+
+export async function bootstrapProcessRoot(root: AwilixContainer): Promise<() => void> {
+  const cache = getCachedCacheService()
+  if (!cache) throw new Error('[internal] Process root requires the shared cache service')
+  const kmsService = getProcessKmsService()
+  const rateLimiterService = getCachedRateLimiterService()
+  const searchModuleConfigs = getSearchModuleConfigs()
+  const modules = getModules()
+  const defaultEncryptionMaps = isTenantDataEncryptionEnabled() ? getDefaultEncryptionMaps(modules) : []
+  warnUnresolvedEncryptionMapEntityIds(defaultEncryptionMaps)
+  const strategy = process.env.QUEUE_STRATEGY || process.env.EVENTS_STRATEGY
+  const createScopedBus = createScopedEventBusFactory({
+    queueStrategy: strategy === 'async' || strategy === 'redis' ? 'async' : 'local',
+  })
+  const definitions = createScopedBus.definitions
+  const subscribers = modules.flatMap((module) => (module.subscribers ?? []).map((subscriber) => ({
+    ...subscriber,
+    moduleId: subscriber.moduleId ?? module.id,
+  })))
+  definitions.registerModuleSubscribers(subscribers.map((subscriber) => ({
+    ...subscriber,
+    handler: async (payload, context) => { await subscriber.handler(payload, context) },
+  })))
+  definitions.on(searchDeleteMetadata.event, async (payload, context) => {
+    const indexer = context.resolve<SearchIndexer>('searchIndexer')
+    await createSearchDeleteSubscriber(indexer)(payload as SearchDeletePayload)
+  }, { id: 'search.delete_record', moduleId: 'search', persistent: searchDeleteMetadata.persistent })
+
+  root.register({
+    cache: asValue(cache),
+    kmsService: asValue(kmsService),
+    searchModuleConfigs: asValue(searchModuleConfigs),
+    tenantEncryptionService: asScopedService((caller) => new TenantDataEncryptionService(
+      caller.resolve<EntityManager>('em'),
+      { cache: caller.resolve<CacheStrategy>('cache'), kms: caller.resolve<KmsService>('kmsService'), defaultEncryptionMaps },
+    )),
+    eventBus: asScopedService((caller): EventBus => {
+      const bus = createScopedBus(
+        <Value = unknown>(name: string, options?: { allowUnregistered?: boolean }) => caller.resolve<Value>(name, options),
+      )
+      const emit: EventBus['emit'] = (event, payload, options) =>
+        runWithRequestScopeContainer(caller, () => bus.emit(event, payload, options))
+      return {
+        ...bus,
+        emit,
+        emitEvent: emit,
+        dispatchQueued: (event, payload, options, resolve) => resolve
+          ? bus.dispatchQueued!(event, payload, options, resolve)
+          : runWithRequestScopeContainer(caller, () => bus.dispatchQueued!(event, payload, options)),
+      }
+    }),
+  })
+  if (rateLimiterService) root.register({ rateLimiterService: asValue(rateLimiterService) })
+  registerScopedSearchModule(root, { moduleConfigs: searchModuleConfigs })
+  processEventSetupBuses.set(root, definitions)
+
+  return () => {
+    registerSyncSubscribers(subscribers.filter((subscriber) => subscriber.sync === true).map((subscriber) => ({
+      metadata: { event: subscriber.event, sync: true, priority: subscriber.priority, id: subscriber.id },
+      handler: async (payload, context) => subscriber.handler(payload, context),
+    })))
+    setGlobalEventBus({
+      emit: (event, payload, options) => runInRequestScope(async () => {
+        const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+        const caller = await createRequestContainer()
+        try {
+          await caller.resolve<EventBus>('eventBus').emit(event, payload, options)
+        } finally {
+          await caller.dispose()
+        }
+      }),
+    })
   }
 }
