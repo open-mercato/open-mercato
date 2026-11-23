@@ -36,6 +36,7 @@ jest.mock('../vector', () => ({
 }))
 
 jest.mock('awilix', () => ({
+  ...jest.requireActual<typeof import('awilix')>('awilix'),
   asValue: (v: unknown) => ({ _value: v }),
 }))
 
