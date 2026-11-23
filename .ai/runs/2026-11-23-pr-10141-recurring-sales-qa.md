@@ -42,4 +42,11 @@ Prices can contain more digits than JavaScript numbers preserve. Verify that reo
 ### Phase 2: Final Sales QA repairs
 
 - [x] 2.1 Redisplay saved Sales line prices and quantities in the selected locale and cover round-trip precision — 5c54fdd147
-- [ ] 2.2 Verify the recurring Sales flows and review the final head
+- [x] 2.2 Verify the recurring Sales flows and review the final head — 21c404ab7a
+
+## Verification
+
+- Local validation passed all eight configured commands on Node 24 and Yarn 4.17.1, including 51 successful unit-test tasks and the production app build.
+- The isolated production app passed 32 recurring Sales integration cases with no skips or retries.
+- Chromium showed `110,75` and `2,5` after reopening the Polish line editor. An unchanged save preserved the line and document totals. [Browser evidence](https://github.com/open-mercato/open-mercato/pull/10141#issuecomment-7101242412)
+- Human Sales QA and independent approval still gate merge.
