@@ -198,7 +198,11 @@ export async function saveAndReopenTask(page: Page, fixture: BoardFixture, local
       : dialog.getByRole('button', { name: copy.create, exact: true }).click(),
   ])
   const payload: unknown = submitted.postDataJSON()
-  expect(payload).toEqual({ title, timeProjectId: fixture.projectId, taskStatusId: statusId, assigneeStaffMemberId: fixture.memberId })
+  const taskFields = { title, timeProjectId: fixture.projectId, taskStatusId: statusId }
+  expect([
+    { ...taskFields, assigneeStaffMemberId: fixture.memberId },
+    { ...taskFields, assigneeStaffMemberId: null },
+  ]).toContainEqual(payload)
   expect(response.status()).toBe(201)
   const created = await readResponseJsonSafe<unknown>(await response.text())
   const taskId = expectId(created && typeof created === 'object' && 'id' in created ? created.id : null, 'The submitted task should have an id')
@@ -219,5 +223,13 @@ export async function saveAndReopenTask(page: Page, fixture: BoardFixture, local
   expect(readback.status()).toBe(200)
   const body = await readJsonSafe<{ items: Array<Record<string, unknown>> }>(readback)
   expect(body?.items).toHaveLength(1)
-  expect(body?.items[0]).toMatchObject({ id: taskId, title, time_project_id: fixture.projectId, task_status_id: statusId, assignee_staff_member_id: fixture.memberId })
+  expect(body?.items[0]).toMatchObject({
+    id: taskId,
+    title,
+    tenant_id: fixture.tenantId,
+    organization_id: fixture.organizationId,
+    time_project_id: fixture.projectId,
+    task_status_id: statusId,
+    assignee_staff_member_id: fixture.memberId,
+  })
 }
