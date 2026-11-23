@@ -21,9 +21,11 @@ Low risk. The compact log classifier recognizes the environment-file notice by i
 
 ## Progress
 
+PR: #10477
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Terminal output
 
-- [ ] 1.1 Add icons to setup notices and preserve log filtering
-- [ ] 1.2 Verify terminal output and template parity
+- [x] 1.1 Add icons to setup notices and preserve log filtering — e9a7f435d3
+- [x] 1.2 Verify terminal output and template parity — e9a7f435d3
