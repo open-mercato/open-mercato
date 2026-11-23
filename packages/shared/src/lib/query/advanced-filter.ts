@@ -207,9 +207,17 @@ function mergeAndFilters(
   left: Record<string, unknown>,
   right: Record<string, unknown>,
 ): Record<string, unknown> {
+  const leftAnd = left.$and
+  const rightAnd = right.$and
+  const combineAndGroups = Array.isArray(leftAnd) && Array.isArray(rightAnd)
+  const hasCollision = Object.keys(right).some((field) => (
+    Object.hasOwn(left, field) && !(field === '$and' && combineAndGroups)
+  ))
+  if (hasCollision) return { $and: [left, right] }
+
   const merged: Record<string, unknown> = { ...left, ...right }
-  if (Array.isArray(left.$and) && Array.isArray(right.$and)) {
-    merged.$and = [...left.$and, ...right.$and]
+  if (combineAndGroups) {
+    merged.$and = [...leftAnd, ...rightAnd]
   }
   return merged
 }
