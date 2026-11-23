@@ -33,8 +33,12 @@ A portal user should show the display name declared by its module. The code fixe
 - [x] 2.1 Restore relation labels and search and update integration coverage for scoped writes and soft deletion — 0bd65a0181
 - [x] 2.2 Verify the full gate, review the final diff, and record exact-head CI evidence — 3ebcec6ea3
 
+- [x] 2.3 Fix the hosted ComboboxInput autofocus regression and refresh main — 616eadaecf
+
 ## Verification
 
 - The targeted ephemeral Playwright run passed 9 of 9 tests. It confirmed the corrected picker labels and search, the three reworked integration assertions, and the existing access controls.
 - Review follow-ups preserve custom label aliases, refresh the hybrid query column map before using it, and give the merged lot-date test a scoped inventory grant. The grouped security exception fits the existing standalone compatibility budget.
 - The local validation gate passed in order on Node 24.22.3, including all 51 unit-test tasks and the production app build. The exact-head GitHub Actions result is tracked on PR #10157.
+
+- Hosted CI exposed a second suggestions request after autofocus. The timer-controlled regression fails before the fix and verifies that ArrowDown still loads suggestions after the fix. All 86 focused UI tests and the component design-system lint passed.
