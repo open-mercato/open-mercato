@@ -41,7 +41,7 @@
 - **Recommended, and assumed by this spec:** yes to both, with this scope:
   - Code that issues an invoice inside Open Mercato, such as the worker in `.ai/specs/2026-10-21-sales-recurring-orders.md`, still computes it from its order with `salesCalculationService` and links that order. The link is stored once #9482 lands.
   - Q2 is guidance, not a check. The API keeps `orderId` optional, because requiring it would narrow the request schema. The Xero App Spec recognizes an imported invoice by a `SyncExternalIdMapping` row with `internalEntityType='sales.invoice'`, written after the invoice commits.
-  - An invoice without an order takes no Open Mercato payments, because `sales.payments.create` requires an order (`commands/payments.ts:467`). An imported invoice is therefore a mirror whose paid and outstanding amounts come from the source. Changing that is for #7202 and the Xero App Spec.
+  - An invoice without an order takes no Open Mercato payments, because `sales.payments.create` requires an order (`commands/payments.ts:503`). An imported invoice is therefore a mirror whose paid and outstanding amounts come from the source. Changing that is for #7202 and the Xero App Spec.
   - Credit memos are not covered. Importing credit notes needs its own decision.
   - One exception to amounts as sent remains: `deriveExactLineNetFromGross` rewrites a line with a net of 0 and a positive gross (see [Risks](#risk-register)).
 
@@ -84,7 +84,7 @@ Phase 1 does not depend on the answers. Phases 2 and 3 need Q1 confirmed before 
 | Negative amounts are allowed on every line `kind` | `kind` describes what the line is, not its sign. A source system can put a negative amount on a product line (a correction), and remapping it to `adjustment` would change the source document and complicate a later re-sync |
 | `taxTotalAmount`, `subtotalNetAmount` and `grandTotalNetAmount` may be negative | They are components of the total, and a negative line can push one below 0 while the total stays ≥ 0: a taxed discount line pushes tax below 0, a tax-free deposit line pushes net below 0 |
 | `subtotalGrossAmount` and `grandTotalGrossAmount` stay ≥ 0 | A document with a negative total is a credit memo, and `SalesCreditMemo` covers that |
-| Line replacement is allowed on an invoice with payment allocations | Nothing computes from invoice lines today (`commands/payments.ts:588-636` does not recompute invoice totals). #7202 may revisit this |
+| Line replacement is allowed on an invoice with payment allocations | Nothing computes from invoice lines today (the allocation loop at `commands/payments.ts:628` does not recompute invoice totals). #7202 may revisit this |
 | Undo answers 409 unless the invoice still matches the write's `after`, header-only updates included | `buildCustomFieldResetMap` writes back every key in `before`, not only the keys the update changed, so an unchecked undo would overwrite another actor's custom field, or put old totals on newer lines |
 | The row lock and stale check ship in Phase 1 | Phase 1 is the first undo that touches custom fields, and neither piece depends on the maintainers' decision |
 | Create undo answers 409 when a payment allocation, credit memo or note references the invoice | Allocation and credit memo foreign keys are `on delete set null`, and notes have no foreign key, so the delete would succeed and silently strand them |
@@ -113,7 +113,7 @@ Phase 1 does not depend on the answers. Phases 2 and 3 need Q1 confirmed before 
 
 ## Architecture
 
-The change sits in `sales`, apart from one `openApi` status on the `audit_logs` undo route. It calls the existing `entities` helpers. `sync-xero` is a new consumer that ships separately.
+The change sits in `sales`, apart from one `openApi` status on each of the `audit_logs` undo and redo routes. It calls the existing `entities` helpers. `sync-xero` is a new consumer that ships separately.
 
 ```mermaid
 flowchart LR
@@ -211,7 +211,7 @@ Undo entries written before deployment already carry `customFields`, because `lo
 
 **Redo** re-runs the stored input, so it takes the row lock and writes new line ids. As today, it has no stale check.
 
-**Search index.** Replaced lines are removed from the index with `queueDeletionSideEffects(dataEngine, previousLines, E.sales.sales_invoice_line)` after commit. `previousLines` are entities read under the lock, not snapshot lines.
+**Search index.** Replaced lines are removed from the index with `queueDeletionSideEffects(dataEngine, previousLines, E.sales.sales_invoice_line)` after commit. `previousLines` are the line ids of the snapshot read under the lock, with the invoice's scope.
 
 - New lines are not indexed, matching create, which emits only `E.sales.sales_invoice`. They reach the index on the next reindex.
 - Undo also calls `queueDeletionSideEffects` on the `after.lines` whose ids are not in `before.lines`, with the invoice's `organizationId` and `tenantId` added. Restored lines return on the next reindex.
@@ -302,6 +302,7 @@ Add to all five locale files in `sales/i18n/`:
 
 - `sales.documents.errors.undoStaleInvoice`: “This change can no longer be undone because the invoice was changed afterwards.” (Phase 1)
 - `sales.documents.errors.invoiceNotFound`: “Invoice not found.” (Phase 1)
+- `sales.documents.errors.invoiceOrderLineNotFound`: “Referenced order line not found in current scope.”
 - `sales.invoices.errors.negativeLineTotalsRequired` and `sales.invoices.errors.negativeNetPositiveGross` (Phase 2)
 - `sales.invoices.errors.replaceLinesRequiresLines` and `sales.invoices.errors.replaceLinesRequiresTotals` (Phase 3)
 
@@ -343,7 +344,7 @@ Each phase adds its rows to this table and to `UPGRADE_NOTES.md`.
 | Invoice undo side effects | Undo of create and update now runs index side effects, and replaced lines leave the index; no `sales.invoice.*` event is published (Phases 1 and 3) | Additive |
 | Events, DB schema, import paths, widget spots, ACL, notification IDs, DI, CLI, generated files | None | N/A |
 
-Readers checked on `main`: payments do not recompute invoice totals (`commands/payments.ts:588-636`); no PDF, analytics or payment code reads invoice lines; nothing in core reads the three header amounts that may turn negative outside the invoices route. GL posting (PR #6046) is not on `main` yet and would see negative lines only from callers that send them.
+Readers checked on `main`: payments do not recompute invoice totals (the allocation loop at `commands/payments.ts:628`); no PDF, analytics or payment code reads invoice lines; nothing in core reads the three header amounts that may turn negative outside the invoices route. GL posting (PR #6046) is not on `main` yet and would see negative lines only from callers that send them.
 
 ## Implementation Plan
 
