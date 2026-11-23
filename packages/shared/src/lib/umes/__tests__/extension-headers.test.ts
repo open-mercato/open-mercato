@@ -1,7 +1,9 @@
 /**
  * @jest-environment node
  */
+import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
+import { transformSync } from 'esbuild'
 import {
   buildExtensionHeader,
   parseExtensionHeaders,
@@ -129,19 +131,20 @@ describe('parseExtensionHeaders', () => {
     expect(second).toEqual({ record_locks: { token: 'req-2' } })
     expect((second as Record<string, unknown>).marker).toBeUndefined()
 
-    // Execute the parser logic inside a separate V8 realm so any regression fails safely
-    // without contaminating the Jest test process's global Object.prototype.
-    const realm = vm.createContext({
-      parserSource: parseExtensionHeaders.toString(),
+    const parserPath = require.resolve('../extension-headers')
+    const { code } = transformSync(readFileSync(parserPath, 'utf8'), {
+      loader: 'ts',
+      format: 'cjs',
+      sourcefile: parserPath,
     })
+    const realm = vm.createContext({
+      module: { exports: {} },
+      __stryker__: Reflect.get(globalThis, '__stryker__'),
+    })
+    vm.runInContext(code, realm, { filename: parserPath })
     const outcome = vm.runInContext(
       `
-      const EXTENSION_HEADER_PREFIX = 'x-om-ext-'
-      const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
-      function hasOwn(target, key) {
-        return Object.prototype.hasOwnProperty.call(target, key)
-      }
-      const parseInRealm = eval('(' + parserSource + ')')
+      const { parseExtensionHeaders: parseInRealm } = module.exports
       const beforeProtoKeys = Object.getOwnPropertyNames(Object.prototype)
       const beforeCtorKeys = Object.getOwnPropertyNames(Object.prototype.constructor)
       const parsed = parseInRealm({
