@@ -262,6 +262,15 @@ async function handleLoginRequest(req: Request) {
 
   const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
   res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
+  // A successful login changes the browser's identity. The scope-selection cookies
+  // (`om_selected_org`, `om_selected_tenant`) outlive sessions by design (30-day
+  // client-side max-age) and `applySuperAdminScope` honors them for super-admins
+  // without checking who made the selection, so a selection left by a previous user
+  // would silently re-scope this one under the previous user's tenant/organization.
+  // Expire both next to the identity cookies, mirroring logout (#7465). Refresh and
+  // profile re-issue tokens for the SAME user and deliberately keep the selection.
+  res.cookies.set('om_selected_org', '', { path: '/', maxAge: 0 })
+  res.cookies.set('om_selected_tenant', '', { path: '/', maxAge: 0 })
   if (remember && refreshTokenForCookie) {
     const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     res.cookies.set('session_token', refreshTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
@@ -292,7 +301,7 @@ const loginErrorSchema = z.object({
 
 const loginMethodDoc: OpenApiMethodDoc = {
   summary: 'Authenticate user credentials',
-  description: 'Validates the submitted credentials and issues a bearer token cookie for subsequent API calls.',
+  description: 'Validates the submitted credentials and issues a bearer token cookie for subsequent API calls. A successful login also clears the organization-scope selection cookies (`om_selected_org`, `om_selected_tenant`) so a selection left by a previous user in the same browser cannot re-scope the new session; failed logins leave them untouched.',
   tags: ['Authentication & Accounts'],
   requestBody: {
     contentType: 'application/x-www-form-urlencoded',
