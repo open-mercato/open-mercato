@@ -75,6 +75,7 @@ function buildHarness() {
     nativeDelete: async () => 0,
     remove: jest.fn(),
     flush: async () => undefined,
+    clear: () => undefined,
     begin: async () => undefined,
     commit: async () => undefined,
     rollback: async () => undefined,

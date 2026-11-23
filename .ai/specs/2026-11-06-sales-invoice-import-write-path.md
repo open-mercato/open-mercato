@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft — for review with the sales maintainers |
+| **Status** | Implemented — Phases 1–3, on the recommended answer to [Decision needed](#decision-needed) |
 | **Created** | 2026-11-06 |
 | **Module** | `sales` (`packages/core/src/modules/sales`) |
 | **Issue** | [#7336](https://github.com/open-mercato/open-mercato/issues/7336) |
@@ -21,23 +21,39 @@
 - Phase 3: line replacement on update, with line restore on undo
 
 **Concerns:**
-- Phases 2 and 3 rest on one decision the sales maintainers have not made yet: see [Decision needed](#decision-needed).
+- Phases 2 and 3 rest on a decision the sales maintainers have not made yet, Q1 in [Decision needed](#decision-needed).
 - Undo of `sales.invoices.create` and `sales.invoices.update` changes behavior: it answers 409 where it used to overwrite or delete the row, or report success without doing anything.
 
 ## Decision needed
 
-`sales/AGENTS.md:7-9` asks for `salesCalculationService` for document math, the Quote → Order → Invoice flow and a channel on every document. Invoices already work differently: `SalesInvoice` has no channel column, `orderId` is optional and is not stored (TC-SALES-032 reads it back null), and `.ai/specs/2026-09-07-sales-external-amounts-mode.md` leaves invoices out because they already take caller-asserted amounts.
+`sales/AGENTS.md:7-9` asks for `salesCalculationService` for document math, the Quote → Order → Invoice flow and a channel on every document. Invoices already work differently: `SalesInvoice` has no channel column, `orderId` is optional, and `.ai/specs/2026-09-07-sales-external-amounts-mode.md` leaves invoices out because they already take caller-asserted amounts. Two questions for the sales maintainers follow, and only Q1 gates code.
 
-**Question for the sales maintainers:** are invoices and credit memos caller-asserted records, exempt from those three rules?
+**Q1, which gates Phases 2 and 3:** may `sales.invoices.create` and `sales.invoices.update` store the amounts the caller sends, without deriving header totals from the lines, including:
+- negative amounts on the five line fields, on any line `kind`, and on `taxTotalAmount`, `subtotalNetAmount` and `grandTotalNetAmount`, while the gross totals stay ≥ 0;
+- replacing every line through `replaceLines: true`, also on an invoice that has payment allocations?
 
-- **Recommended, and assumed by this spec:** yes. Phase 2 records the exemption in `sales/AGENTS.md`, with the same note in the Channel Scoping section (`sales/AGENTS.md:75-80`).
-- **Alternative:** a synthetic order and channel per source organization. It adds documents nobody issued, and it needs the order link persisted, since `orderId` is not stored.
+*Why:* an imported invoice was already issued by the source system. Recomputing it with Open Mercato's prices, tax rates and rounding could change amounts the customer was billed, and the Xero App Spec's Phase 2 acceptance criteria require header and line amounts identical to Xero's. Odoo and ERPNext also allow negative lines while refusing a negative total (Market Reference, under [Overview](#overview)). [Design Decisions](#design-decisions) gives the reason for each item: negative amounts on any `kind`, the three header fields, and replacement on an invoice with allocations, since nothing computes from invoice lines.
 
-Phase 1 does not depend on the answer. Phases 2 and 3 start after it.
+**Q2, which gates only the `sales/AGENTS.md` line and the Xero App Spec:** may an invoice that mirrors an external ledger exist without an order, and so without a channel, which invoices do not have?
+
+*Why:* an invoice issued directly in the source ledger has no order there to point to, and `orderId` is already optional, so a yes records what the API accepts today. The customer is still recorded: the import writes the invoice's Company link as a custom field in the same transaction (see [Problem Statement](#problem-statement)). The alternative, an order nobody placed, is worse, as the rejected option below shows.
+
+- **Recommended, and assumed by this spec:** yes to both, with this scope:
+  - Code that issues an invoice inside Open Mercato, such as the worker in `.ai/specs/2026-10-21-sales-recurring-orders.md`, still computes it from its order with `salesCalculationService` and links that order. The link is stored once #9482 lands.
+  - Q2 is guidance, not a check. The API keeps `orderId` optional, because requiring it would narrow the request schema. The Xero App Spec recognizes an imported invoice by a `SyncExternalIdMapping` row with `internalEntityType='sales.invoice'`, written after the invoice commits.
+  - An invoice without an order takes no Open Mercato payments, because `sales.payments.create` requires an order (`commands/payments.ts:503`). An imported invoice is therefore a mirror whose paid and outstanding amounts come from the source. Changing that is for #7202 and the Xero App Spec.
+  - Credit memos are not covered. Importing credit notes needs its own decision.
+  - One exception to amounts as sent remains: `deriveExactLineNetFromGross` rewrites a line with a net of 0 and a positive gross (see [Risks](#risk-register)).
+
+  Phase 2 records both answers as one line under **Always** in `sales/AGENTS.md` that points to this spec; if Q2 is declined, the line keeps only its first half. The agent instruction budget (`yarn agents:check-budget`) lets that chain only shrink, so this section and [Negative amounts](#negative-amounts-phase-2) carry the full rule.
+- **Rejected: synthetic orders.** One order per imported invoice, with external totals (`totals_mode='external'`), would fit the amounts, but each would be an order nobody placed: it takes a number from the order sequence and shows in order lists and the new-orders dashboard widget. One order per source organization does not work either, because the customer lives on the order and one ledger bills many customers.
+- **Deferred: an explicit provenance or amounts-mode column on invoices.** It would make "imported" checkable and give #7202 and the GL posting work something to branch on, but it needs a migration. It is listed in [Out of Scope](#out-of-scope) as the long-term follow-up.
+
+Phase 1 does not depend on the answers. Phases 2 and 3 need Q1 confirmed before merge.
 
 ## Overview
 
-`SalesInvoice` is the record an accounting integration writes when it mirrors invoices issued elsewhere. The amounts are the source system's, so Open Mercato stores them as sent and does not recompute them. The one exception is a line with a net of 0 and a positive gross, which `deriveLineNetFromGross` rewrites (see [Risks](#risk-register)). The first consumer is `@open-mercato/sync-xero`, whose Phase 2 imports Xero sales invoices (`ACCREC`). The Xero App Spec makes this work a hard prerequisite of that phase and uses no workaround. Its Phase 1, Contacts into Companies (#7337), does not depend on it.
+`SalesInvoice` is the record an accounting integration writes when it mirrors invoices issued elsewhere. The amounts are the source system's, so Open Mercato stores them as sent and does not recompute them. The one exception is a line with a net of 0 and a positive gross, which `deriveExactLineNetFromGross` rewrites (see [Risks](#risk-register)). The first consumer is `@open-mercato/sync-xero`, whose Phase 2 imports Xero sales invoices (`ACCREC`). The Xero App Spec makes this work a hard prerequisite of that phase and uses no workaround. Its Phase 1, Contacts into Companies (#7337), does not depend on it.
 
 > **Market Reference:** Odoo and ERPNext both allow a negative line on an ordinary sales invoice and both refuse a negative document total, sending the user to a credit note: Odoo with [“You cannot validate an invoice with a negative total amount”](https://www.odoo.com/forum/help-1/how-to-correct-when-wrong-product-shipped-164697), and ERPNext by [keeping negative amounts for a return invoice](https://docs.frappe.io/erpnext/credit-note.md) and [rejecting a negative grand total otherwise](https://discuss.frappe.io/t/sales-invoice-with-negative-grand-total/80890). **Adopted:** negative lines, and a gross total that stays ≥ 0 with `SalesCreditMemo` as the home for negative documents. **Rejected:** ERPNext's return-invoice flag, because Open Mercato already has a separate credit memo entity. The Odoo and ERPNext evidence is partly forum posts about older versions.
 
@@ -53,7 +69,7 @@ Phase 1 does not depend on the answer. Phases 2 and 3 start after it.
 
 ## Proposed Solution
 
-1. **Custom fields** follow the path #4951 gave order and quote create, and the path the order update already uses (`commands/documents.ts:1585-1601`). They are written with `setDocumentCustomFieldsIfSupplied` inside the command's atomic flush, and undo resets what the write changed.
+1. **Custom fields** follow the path #4951 gave order and quote create, and the path the order update already uses (`commands/documents.ts:1585-1601`). They are narrowed as `setDocumentCustomFieldsIfSupplied` narrows them, sanitized, and written with `setRecordCustomFields` inside the command's atomic flush, and undo resets what the write changed.
 2. **Negative amounts** are allowed on five line fields and three header fields. A gross total stays ≥ 0, because a document with a negative total is a credit memo.
 3. **Line replacement** is opt-in through `replaceLines: true`. An update without the flag keeps ignoring `lines`.
 4. **Every invoice update and its undo** run as one phased, row-locked transaction from Phase 1. Undo answers 409 if the invoice no longer matches what the write left behind, or if a create undo would strand a payment allocation, credit memo or note.
@@ -62,13 +78,13 @@ Phase 1 does not depend on the answer. Phases 2 and 3 start after it.
 
 | Decision | Rationale |
 |---|---|
-| `replaceLines: z.literal(true).optional()` instead of honouring `lines` | Honouring `lines` would silently replace rows for callers whose `lines` are ignored today |
+| Opt-in `replaceLines: z.unknown().optional()` instead of honouring `lines`; only a literal `true` replaces | Honouring `lines` would silently replace rows for callers whose `lines` are ignored today. Any value used to be stripped and accepted, so typing it as `z.literal(true)` or `z.boolean()` would narrow the schema; the OpenAPI documents it as a boolean |
 | `replaceLines` requires the five summing header totals | New lines with old totals would leave a document that does not add up; amounts are caller-asserted, so nothing recomputes them |
-| `customFields` is `z.unknown().optional()` | `setDocumentCustomFieldsIfSupplied` already ignores `null` and non-objects, so those shapes keep passing. Values that cannot be stored now fail; see the compatibility table |
+| `customFields` is `z.unknown().optional()` | The write ignores `null` and non-objects, as `setDocumentCustomFieldsIfSupplied` does, so those shapes keep passing. Values that cannot be stored now fail; see the compatibility table |
 | Negative amounts are allowed on every line `kind` | `kind` describes what the line is, not its sign. A source system can put a negative amount on a product line (a correction), and remapping it to `adjustment` would change the source document and complicate a later re-sync |
 | `taxTotalAmount`, `subtotalNetAmount` and `grandTotalNetAmount` may be negative | They are components of the total, and a negative line can push one below 0 while the total stays ≥ 0: a taxed discount line pushes tax below 0, a tax-free deposit line pushes net below 0 |
 | `subtotalGrossAmount` and `grandTotalGrossAmount` stay ≥ 0 | A document with a negative total is a credit memo, and `SalesCreditMemo` covers that |
-| Line replacement is allowed on an invoice with payment allocations | Nothing computes from invoice lines today (`commands/payments.ts:588-636` does not recompute invoice totals). #7202 may revisit this |
+| Line replacement is allowed on an invoice with payment allocations | Nothing computes from invoice lines today (the allocation loop at `commands/payments.ts:628` does not recompute invoice totals). #7202 may revisit this |
 | Undo answers 409 unless the invoice still matches the write's `after`, header-only updates included | `buildCustomFieldResetMap` writes back every key in `before`, not only the keys the update changed, so an unchecked undo would overwrite another actor's custom field, or put old totals on newer lines |
 | The row lock and stale check ship in Phase 1 | Phase 1 is the first undo that touches custom fields, and neither piece depends on the maintainers' decision |
 | Create undo answers 409 when a payment allocation, credit memo or note references the invoice | Allocation and credit memo foreign keys are `on delete set null`, and notes have no foreign key, so the delete would succeed and silently strand them |
@@ -97,7 +113,7 @@ Phase 1 does not depend on the answer. Phases 2 and 3 start after it.
 
 ## Architecture
 
-The change sits in `sales`, apart from one `openApi` status on the `audit_logs` undo route. It calls the existing `entities` helpers. `sync-xero` is a new consumer that ships separately.
+The change sits in `sales`, apart from one `openApi` status on each of the `audit_logs` undo and redo routes. It calls the existing `entities` helpers. `sync-xero` is a new consumer that ships separately.
 
 ```mermaid
 flowchart LR
@@ -117,12 +133,12 @@ No command id, event id or event payload changes. `sales.invoice.*` events keep 
 
 | Command | Change |
 |---|---|
-| `sales.invoices.create` | Writes `customFields`; undo resets them and checks for staleness |
+| `sales.invoices.create` | Writes `customFields`; undo deletes their rows and checks for staleness |
 | `sales.invoices.update` | Writes `customFields`, optionally replaces lines, runs phased under a row lock; undo restores and checks for staleness |
 
 ### Custom fields (Phase 1)
 
-- Add `customFields` to the invoice create and update schemas. The command writes it with `setDocumentCustomFieldsIfSupplied` inside its atomic flush, not gated on `customFieldSetId`. The route folds `custom` back into `customFields`, as `api/documents/factory.ts` does.
+- Add `customFields` to the invoice create and update schemas. The command writes it inside its atomic flush, in a phase of its own, not gated on `customFieldSetId`. The route folds `custom` back into `customFields`, as `api/documents/factory.ts` does.
 - `customFieldSetId` stays ignored on update.
 - Values are not validated against definitions, as on orders.
 - `setRecordCustomFields` does not sanitize rich text, so the invoice commands call `sanitizeCustomFieldHtmlRichTextValuesServer(em, …)` first. They narrow the value to a non-array object before that call, as `setDocumentCustomFieldsIfSupplied` does, because the sanitizer throws on `null`.
@@ -144,7 +160,7 @@ Every update runs in one `withAtomicFlush(em, phases, { transaction: true })`, f
 - The scope checks at `:10047-10048` stay, and the filter keeps `parsed.organizationId`, so organization scoping does not change.
 - A missing invoice, or the lock returning false, answers 404 with `sales.documents.errors.invoiceNotFound`. Today `findOneOrFail` turns a missing row into a 500.
 - `writeLockedDocumentGraph` (`:5769`) is the model, not a dependency: it is typed to orders and quotes and builds a totals event. Invoices reuse its pattern. `prepare` keeps its check of the row's organization and tenant (`:10034-10043`), which is what answers 403, and returns `{}`. `execute` always captures `before` and `after` under the lock and stores them in an `invoiceUpdateSnapshots` WeakMap keyed by its result object, because `zod` gives `execute` a new input object. `captureAfter` and `buildLog` read that map. `buildLog` always writes `before`, because undo returns silently without it (`:10127`).
-- **Version checks** stay as they are. The `makeCrudRoute` row-level guard covers PUT, and no command-level optimistic lock is added, because `concurrency-locking.mdx` forbids a second check on a row-guarded route.
+- **Version check under the lock.** The `makeCrudRoute` row-level guard compares the `x-om-ext-optimistic-lock-expected-updated-at` header with the invoice before the transaction, so two updates sent with the same version can both pass it. Update compares the header again with the `updatedAt` of the row read under the lock, through `enforceSalesDocumentOptimisticLock` with resource kind `sales.invoice`, as `lockOrderForTotalsWrite` does for orders, and answers the same 409 on a mismatch. Both checks read the invoice row's own version, so this is not the aggregate-over-row double guard `concurrency-locking.mdx` warns against, and a request without the header is not checked.
 
 ### Undo (Phase 1)
 
@@ -157,17 +173,17 @@ Both undo handlers call `ensureOrganizationScope` and `ensureTenantScope` on the
 
 **Create undo** runs in one transaction under a `FOR UPDATE` lock on the invoice row, taken with `LockMode.PESSIMISTIC_WRITE` as `lockOrderForUndo` does (`:4660-4667`). A foreign-key insert in flight blocks it until that insert commits, so the dependant count sees it.
 
-- It resets the custom fields the create wrote, with `setRecordCustomFields(…, values: toSnapshotCustomFieldWriteValues(buildCustomFieldResetMap(undefined, after.invoice.customFields ?? undefined)))`, because snapshot keys carry `cf_`. A scalar leaves a row that reads back `null`, so tests assert no non-null value, not zero rows.
+- It deletes the invoice's `custom_field_values` rows, scoped by organization and tenant, as quote restore does, so the removed invoice leaves no custom-field rows behind.
 - It reads the lines under the lock and calls `queueDeletionSideEffects` on them after commit, because a reindex can have added them.
 - After commit it calls `emitCrudUndoSideEffects` with `action: 'deleted'` and `indexer: { entityType: E.sales.sales_invoice }`.
 
 **Stale undo.** Undo of `sales.invoices.update`, header-only included, and of `sales.invoices.create` answers 409 unless the invoice still matches the write's `after`:
 
-- Under the row lock, `loadInvoiceSnapshot` is non-null, and `sameRecords([current.invoice], [after.invoice]) && sameRecords(current.lines, after.lines)`. `customFields` sit in `invoice`.
+- Under the row lock, `loadInvoiceSnapshot` is non-null and deep-equals `after`. `customFields` sit in `invoice`. Lines are matched by id. Arrays inside header and line JSON (`metadata`, `uomSnapshot`) keep their order, so a reordered array is a change. Only multi-value custom fields, which read back without a stable order, are compared regardless of order.
 - Before comparing, drop custom-field values that are `null`, `undefined`, `''` or `[]` from both snapshots and treat `{}` as `null`, because clearing a scalar field leaves a row that reads back `cf_x: null`. `0` and `false` count as values.
 - A soft-deleted invoice counts as changed.
 - A lock that finds no live row, soft-deleted or removed, is this same 409, not the not-found the update path answers.
-- Create undo also counts `SalesPaymentAllocation`, `SalesCreditMemo` and invoice-context `SalesNote` rows that reference the invoice, under the lock, and answers 409 when any exist, as `assertOrderGraphUndoCurrent` counts dependants (`:4625`). The counts filter by `organizationId` and `tenantId`. The count includes soft-deleted credit memos, because the delete would unlink them too. A payment can allocate to an invoice without changing it (`commands/payments.ts:607-626`).
+- Create undo also counts `SalesPaymentAllocation`, `SalesCreditMemo` and invoice-context `SalesNote` rows that reference the invoice, under the lock, and answers 409 when any exist, as `assertOrderGraphUndoCurrent` counts dependants (`:4625`). The counts filter by `organizationId` and `tenantId`. The count includes soft-deleted credit memos, because the delete would unlink them too. A payment can allocate to an invoice without changing it (`commands/payments.ts:607-626`). Allocation and credit-memo inserts wait for the `FOR UPDATE` lock through their foreign keys; a note has none, so a note written between the count and the delete is not blocked and stays behind.
 - `throwDocumentUndoStale` gains an `invoice` kind with its own i18n key.
 
 `sales.invoice.*` events already emitted are not compensated, and undo still publishes none. The command bus invalidates the cache on undo today, so only the index side effects are new.
@@ -178,24 +194,24 @@ Undo entries written before deployment already carry `customFields`, because `lo
 
 - Allow negative `unitPriceNet`, `unitPriceGross`, `taxAmount`, `totalNetAmount` and `totalGrossAmount` on invoice lines. Keep `quantity` and `discountAmount` ≥ 0.
 - A line with any of those five fields below 0 must send both `totalNetAmount` and `totalGrossAmount`.
-- On such a line, a net ≤ 0 with a positive gross is rejected, because `deriveLineNetFromGross` rewrites that state (`commands/shared.ts:135`), and that function stays unchanged. These lines are rejected today, so this narrows nothing.
-- The negative-line rule sits on the line object.
+- On such a line, a net ≤ 0 with a positive gross is rejected, because `deriveExactLineNetFromGross` rewrites that state (`commands/shared.ts`), and that function stays unchanged. These lines are rejected today, so this narrows nothing.
+- The negative-line rule sits on the `lines` array, not on the line object: under zod 4 a refined object throws on `.partial()` and `.pick()`, so the exported line object stays unrefined.
 - Allow negative `taxTotalAmount`, `subtotalNetAmount` and `grandTotalNetAmount` in the header.
 
 ### Line replacement (Phase 3)
 
 - With `replaceLines: true`, `lines` is required and non-empty, and the update replaces every line.
 - It requires `subtotalNetAmount`, `subtotalGrossAmount`, `taxTotalAmount`, `grandTotalNetAmount` and `grandTotalGrossAmount`, and answers 400 otherwise. `discountTotalAmount`, `paidTotalAmount` and `outstandingAmount` stay optional and keep their values when omitted.
-- Without the flag, `lines` stays accepted and ignored, as today.
+- Without the flag, or with `replaceLines: false`, `lines` stays accepted and ignored, as today.
 - The `replaceLines` rule goes on a separate `invoiceUpdateInputSchema = invoiceUpdateSchema.superRefine(…)` used by the route and the command, so the exported schemas stay unrefined and their `.partial()` keeps working. This is the pattern at `commands/documents.ts:629-732`: an unrefined base with refined schemas built from it.
-- Create and replacement share one line mapper, so a line stores the same net on both paths. `orderLineId` stays unstored, as on create. Undo re-inserts stored snapshot values as they are, without the mapper.
+- Create and replacement share one line mapper, so a line stores the same net and order line on both paths. A line's `orderLineId` is stored as the `orderLine` relation and must be a live order line in the invoice's organization and tenant (400 otherwise). Undo re-inserts stored snapshot values as they are, without the mapper, and links each order line while its row exists.
 - The audit keeps lines in `snapshotBefore` and `snapshotAfter`, as for orders.
 
 **Update undo with lines.** It touches lines only when the update replaced them, which means the ids of `before.lines` and `after.lines` differ. Then it deletes the current lines and re-inserts the before-snapshot lines with their ids. A header-only undo leaves the lines alone.
 
 **Redo** re-runs the stored input, so it takes the row lock and writes new line ids. As today, it has no stale check.
 
-**Search index.** Replaced lines are removed from the index with `queueDeletionSideEffects(dataEngine, previousLines, E.sales.sales_invoice_line)` after commit. `previousLines` are entities read under the lock, not snapshot lines.
+**Search index.** Replaced lines are removed from the index with `queueDeletionSideEffects(dataEngine, previousLines, E.sales.sales_invoice_line)` after commit. `previousLines` are the line ids of the snapshot read under the lock, with the invoice's scope.
 
 - New lines are not indexed, matching create, which emits only `E.sales.sales_invoice`. They reach the index on the next reindex.
 - Undo also calls `queueDeletionSideEffects` on the `after.lines` whose ids are not in `before.lines`, with the invoice's `organizationId` and `tenantId` added. Restored lines return on the next reindex.
@@ -219,7 +235,7 @@ This spec differs from App Spec § 0.2.3, § 6.2a and § 10 #19 on `main`, which
 - the adapter omits a negative `DiscountAmount` or `TotalDiscount`;
 - the commit estimate for this platform work grows, wherever the App Spec repeats it.
 
-That change lands on this spec's branch once #7335 merges, before Xero Phase 2 starts.
+That change lands in its own PR, before Xero Phase 2 starts.
 
 ## Data Models
 
@@ -260,10 +276,10 @@ Route guards stay as they are: `requireAuth` with `sales.invoices.manage` on eve
 |---|---|
 | 200 `{ invoiceId }` | As today. No line data is added to any response |
 | 500 | Custom-field values that cannot be stored, such as more than 128 keys or a non-numeric value for an integer definition. They are not validated first, as on orders. The invoice rolls back. POST answers the same |
-| 400 | `replaceLines` without `lines`, with `lines: []` or without the required totals; `replaceLines: false`; a line without `quantity` or `currencyCode`; a negative line missing a total, or with a net ≤ 0 and a positive gross |
+| 400 | `replaceLines: true` without `lines`, with `lines: []` or without the required totals; a line without `quantity` or `currencyCode`; a negative line missing a total, or with a net ≤ 0 and a positive gross |
 | 403 | The invoice's organization is outside the caller's scope, from `ensureOrganizationScope` |
 | 404 | The invoice is missing, soft-deleted, or not in the request's organization (the body's `organizationId`, else the selected one). Today this is a 500 |
-| 409 | The row-level optimistic lock, as today |
+| 409 | The row-level optimistic lock, as today, and the same comparison against the row read under the lock |
 
 The OpenAPI description says `lines` has no effect without `replaceLines`.
 
@@ -286,6 +302,7 @@ Add to all five locale files in `sales/i18n/`:
 
 - `sales.documents.errors.undoStaleInvoice`: “This change can no longer be undone because the invoice was changed afterwards.” (Phase 1)
 - `sales.documents.errors.invoiceNotFound`: “Invoice not found.” (Phase 1)
+- `sales.documents.errors.invoiceOrderLineNotFound`: “Referenced order line not found in current scope.”
 - `sales.invoices.errors.negativeLineTotalsRequired` and `sales.invoices.errors.negativeNetPositiveGross` (Phase 2)
 - `sales.invoices.errors.replaceLinesRequiresLines` and `sales.invoices.errors.replaceLinesRequiresTotals` (Phase 3)
 
@@ -299,27 +316,35 @@ No UI change. The invoice API is the only invoice edit surface today (#100 propo
 
 No cached read path is added. The command bus already invalidates the CRUD cache for both commands and their undo, and tags stay tenant-scoped.
 
-## Migration & Compatibility
+## Migration & Backward Compatibility
 
-No data migration. Each phase rolls back by reverting its PR, newest first, because Phase 3 builds on Phase 1's transaction and Phase 2's amounts. Phases 1 and 2 do not depend on each other. Rows written while a phase was live stay valid after its revert. Undo of a `replaceLines` entry after Phase 3 is reverted restores the header only, so it would put old totals on newer lines.
+No data migration. The three phases ship in one PR, one commit per phase, so after a squash merge the change rolls back as a whole. Before merge, phases can be dropped newest first, because Phase 3 builds on Phase 1's transaction and Phase 2's amounts; Phases 1 and 2 do not depend on each other. Rows written while the change was live stay valid after a revert. Undo of a `replaceLines` entry after a revert restores the header only, so it would put old totals on newer lines.
 
-Each phase adds its own rows below to `BACKWARD_COMPATIBILITY.md` and `UPGRADE_NOTES.md` in its PR.
+Each phase adds its rows to this table and to `UPGRADE_NOTES.md`.
 
-For a dated section in `BACKWARD_COMPATIBILITY.md` and `UPGRADE_NOTES.md`:
+`BACKWARD_COMPATIBILITY.md` carries a short dated entry that links to this table, which is the full record; `UPGRADE_NOTES.md` carries the migration notes. No step of the deprecation protocol is waived: nothing is removed or renamed, status codes change only where the old answer was a 500, a generic 400, a success that did nothing, or a 2xx that dropped or overwrote data; one key that used to be stripped, `replaceLines: true`, is now validated (400 when incomplete); and the request widening is reachable only through input that used to be ignored.
 
 | Surface | Change | Class |
 |---|---|---|
-| POST and PUT `/api/sales/invoices` | `customFields` and `cf_*` are stored, dropped until now (Phase 1); the five line fields, `taxTotalAmount`, `subtotalNetAmount` and `grandTotalNetAmount` accept negatives (Phase 2) | Additive |
-| PUT `/api/sales/invoices` | A missing invoice answers 404 instead of 500 (Phase 1) | Bug fix |
-| POST and PUT `/api/sales/invoices` | Custom-field values that cannot be stored, such as more than 128 keys or a non-numeric value for an integer definition, used to be dropped with a 2xx. They now answer 500 and roll the invoice back (Phase 1) | Behavior change, `UPGRADE_NOTES.md` |
+| POST and PUT `/api/sales/invoices` | Custom fields sent as `customFields` (object or `[{ key, value }]`), `customValues`, `cf_<key>` or `cf:<key>` are stored, dropped until now (Phase 1); the five line fields, `taxTotalAmount`, `subtotalNetAmount` and `grandTotalNetAmount` accept negatives (Phase 2) | Additive |
+| PUT `/api/sales/invoices` | A missing or soft-deleted invoice, or one in another organization the caller may access, answers 404 instead of 500; `sales.invoices.update` throws `CrudHttpError(404)` instead of MikroORM `NotFoundError` (Phase 1) | Bug fix, `UPGRADE_NOTES.md` |
+| PUT `/api/sales/invoices` | A live invoice id from another tenant keeps its 403 (Phase 1) | Unchanged |
+| Redo of `sales.invoices.update` | Answers 404 instead of `400 Redo failed` when the invoice is gone; the redo route's `openApi` lists 404 and the undo route's lists 409 (Phase 1) | Bug fix, `UPGRADE_NOTES.md` |
+| `invoiceCreateSchema`, `invoiceUpdateSchema` | Stay unrefined and keep `customFields` (and `replaceLines`) in their parsed output; new exports `invoiceUpdateInputSchema`, `InvoiceLineInput`, `INVOICE_REPLACE_LINES_REQUIRED_TOTAL_KEYS` and the message-key constants; `lockSalesDocumentRow` also accepts `'sales_invoices'` (Phases 1–3) | Additive |
+| PUT `/api/sales/invoices` | `replaceLines: true` without `lines` or the five summing totals answers 400; it used to be stripped. A complete `replaceLines: true` request now replaces every line (Phase 3) | Behavior change, `UPGRADE_NOTES.md` |
+| Invoice create and update undo | A command-bus caller outside the organization gets 403 even when the invoice is gone; it used to report success. The undo route refuses such a caller earlier with 400, as before (Phase 1) | Behavior change, `UPGRADE_NOTES.md` |
+| `sales.invoices.update` audit log | `changes` include `customFields`; redo replays them and undo resets them (Phase 1) | Additive |
+| POST and PUT `/api/sales/invoices` | Custom-field values that cannot be stored, such as more than 128 keys or a non-numeric value for an integer definition, used to be dropped with a 2xx. They now answer 500 and roll the invoice back; the 500 is not retryable, because the same body fails again (Phase 1) | Behavior change, `UPGRADE_NOTES.md` |
 | PUT `/api/sales/invoices` | New optional `replaceLines`; `lines` without it stays ignored (Phase 3) | Additive |
+| POST and PUT `/api/sales/invoices` | A line's `orderLineId` is stored as its order line, dropped until now; one that is not a live order line in the invoice's organization and tenant answers 400 (Phases 1 and 3) | Bug fix, `UPGRADE_NOTES.md` |
 | GET `/api/sales/invoices` | `cf_<key>` values now appear (Phase 1); the three header amounts can be negative (Phase 2) | Additive |
-| `sales.invoices.update` undo | Answers 409 when the invoice no longer matches the update's `after`, including when it was deleted. Before, it overwrote the row, or did nothing and reported success (Phase 1) | Behavior change, `UPGRADE_NOTES.md` |
-| `sales.invoices.create` undo | Answers 409 when the invoice no longer matches the create's `after`, when it was deleted, or when a payment allocation, credit memo or note references it. Before, it deleted the row, or did nothing and reported success (Phase 1) | Behavior change, `UPGRADE_NOTES.md` |
-| Invoice undo side effects | Undo of create and update now runs index side effects; no `sales.invoice.*` event is published (Phase 1) | Additive |
-| `sales.invoice.*` events, DB, ACL, DI | None | N/A |
+| `PUT /api/sales/invoices` with the optimistic-lock header | The version is also checked against the row read under the lock: the later of two updates sent with the same version answers 409 instead of overwriting the first (Phase 1) | Bug fix, `UPGRADE_NOTES.md` |
+| `sales.invoices.update` undo | Answers 409 when the invoice no longer matches the update's `after`, including when it was deleted or a custom field was edited through another path. Before, it overwrote the row, rewrote a soft-deleted invoice, or did nothing and reported success (Phase 1) | Behavior change, `UPGRADE_NOTES.md` |
+| `sales.invoices.create` undo | Answers 409 when the invoice no longer matches the create's `after`, when it was deleted, or when a payment allocation, credit memo or note references it, soft-deleted ones included. Before, it deleted the row and unlinked them, hard-deleted a soft-deleted invoice, or did nothing and reported success (Phase 1) | Behavior change, `UPGRADE_NOTES.md` |
+| Invoice undo side effects | Undo of create and update now runs index side effects, and replaced lines leave the index; no `sales.invoice.*` event is published (Phases 1 and 3) | Additive |
+| Events, DB schema, import paths, widget spots, ACL, notification IDs, DI, CLI, generated files | None | N/A |
 
-Readers checked on `main`: payments do not recompute invoice totals (`commands/payments.ts:588-636`); no PDF, analytics or payment code reads invoice lines; nothing in core reads the three header amounts that may turn negative outside the invoices route. GL posting (PR #6046) is not on `main` yet and would see negative lines only from callers that send them.
+Readers checked on `main`: payments do not recompute invoice totals (the allocation loop at `commands/payments.ts:628`); no PDF, analytics or payment code reads invoice lines; nothing in core reads the three header amounts that may turn negative outside the invoices route. GL posting (PR #6046) is not on `main` yet and would see negative lines only from callers that send them.
 
 ## Implementation Plan
 
@@ -331,19 +356,19 @@ Independent of [Decision needed](#decision-needed).
 2. Add `sales_invoices` to `lockSalesDocumentRow`, and move update into `withAtomicFlush` with the locked `before` and `after` plumbing, the 404 and its key. Rewrite `documents.invoice-credit-memo-update.test.ts`, which pins `findOneOrFail` and has no transaction in its harness. Test: header-only updates behave as before; a missing invoice answers 404; an invoice outside the caller's scope answers 403.
 3. Write custom fields in their update phase, narrowed and sanitized, with the audit `changes` key. Test: an update with header fields and custom fields stores both; a failed custom-field write rolls the invoice back.
 4. Make update undo transactional under the lock, with the reset, side effects, stale check, the `invoice` kind and its key, and the undo route's `openApi`. Test: undo restores previous values and clears an added field; the update 409 cases.
-5. Make create undo transactional under `FOR UPDATE`, with the reset, stale check, dependant count and index removal. Test: no non-null custom-field value remains; the create 409 cases.
+5. Make create undo transactional under `FOR UPDATE`, with the custom-field row delete, stale check, dependant count and index removal. Test: no custom-field row remains; the create 409 cases.
 
 ### Phase 2: Negative amounts
 
-Starts after the maintainers' decision.
+Built on the recommended answer to Q1 in [Decision needed](#decision-needed); it merges only once the maintainers confirm it.
 
-1. Record the invoice exemption in `sales/AGENTS.md`, including Channel Scoping.
+1. Record the invoice exemption in `sales/AGENTS.md`, as one line that points to this spec.
 2. Relax the five line fields and add the line rule, its keys and its compatibility rows. Test: each field on every `kind`; rejections for `quantity`, `discountAmount`, a missing total, and a net ≤ 0 with a positive gross.
 3. Relax the three header fields. Test: those pass; negative `subtotalGrossAmount` and `grandTotalGrossAmount` are rejected.
 
 ### Phase 3: Line replacement
 
-Starts after the maintainers' decision and after Phases 1 and 2.
+Built on the recommended answer to Q1 and on Phases 1 and 2; it merges only once the maintainers confirm Q1.
 
 1. Add `replaceLines` and `invoiceUpdateInputSchema`, with OpenAPI, keys and compatibility rows. Test: the rejections; an update without the flag leaves lines untouched.
 2. Replace lines in their phase and remove old lines from the index. Test: replacement stores lines and totals; concurrent updates end with one line set.
@@ -360,14 +385,14 @@ Starts after the maintainers' decision and after Phases 1 and 2.
 | `sales/i18n/*.json` | Modify | New keys |
 | `sales/AGENTS.md` | Modify | Exemption, in Phase 2 |
 | `BACKWARD_COMPATIBILITY.md`, `UPGRADE_NOTES.md` | Modify | Dated entries, per phase |
-| `packages/core/src/modules/audit_logs/api/audit-logs/actions/undo/route.ts` | Modify | 409 status in `openApi` |
-| `.ai/specs/2026-09-26-app-spec-xero-integration.md` | Modify | § 0.2.3, § 6.2a, § 10 #19 and every repeat of the commit estimate, after #7335 merges |
-| `sales/commands/__tests__/documents.undo-custom-fields.test.ts`, `documents.invoice-credit-memo-update.test.ts` | Modify | Unit coverage |
+| `packages/core/src/modules/audit_logs/api/audit-logs/actions/undo/route.ts`, `…/redo/route.ts` | Modify | 409 (undo) and 404 (redo) statuses in `openApi` |
+| `sales/commands/__tests__/documents.invoice-write-path.test.ts`, `sales/data/__tests__/validators.invoice-write-path.test.ts` | Create | Unit coverage |
+| `sales/commands/__tests__/documents.invoice-credit-memo-update.test.ts` | Modify | Pins the locked, transactional update instead of `findOneOrFail` |
 | `sales/__integration__/TC-SALES-7336-*.spec.ts` | Create | Integration coverage |
 
 ### Testing Strategy
 
-Unit tests extend `commands/__tests__/documents.undo-custom-fields.test.ts` and `documents.invoice-credit-memo-update.test.ts`. Integration tests are self-contained: new `TC-SALES-7336-*` specs, modeled on `TC-SALES-042-document-update-custom-fields.spec.ts`, create fixtures through the API and clean them up. They read lines through `withClient` (`helpers/integration/dbFixtures.ts`) or the audit `snapshotAfter`, because no API response carries lines.
+Unit tests live in the new `commands/__tests__/documents.invoice-write-path.test.ts` and extend `documents.invoice-credit-memo-update.test.ts`. Integration tests are self-contained: new `TC-SALES-7336-*` specs, modeled on `TC-SALES-042-document-update-custom-fields.spec.ts`, create fixtures through the API and clean them up. They read lines through `withClient` (`helpers/integration/dbFixtures.ts`) or the audit `snapshotAfter`, because no API response carries lines.
 
 **Phase 1 acceptance**
 - Create with `customFields` and no `customFieldSetId` stores them. So does POST or PUT with `cf_*` input, and GET returns `cf_<key>`.
@@ -379,6 +404,7 @@ Unit tests extend `commands/__tests__/documents.undo-custom-fields.test.ts` and 
 - A failed custom-field write rolls the invoice back.
 - A missing invoice on update answers 404. An update of an invoice outside the caller's scope answers 403. An update that omits `organizationId`, of an invoice in another allowed organization than the selected one, answers 404.
 - Two concurrent writes of one invoice serialize on the row lock: an undo that loses to an update answers 409.
+- An update whose expected version no longer matches the row read under the lock answers 409 `optimistic_lock_conflict` and changes nothing.
 - A failed undo leaves the header and custom fields as they were.
 - Undo of a create leaves no custom-field value on the removed invoice and, after a reindex that puts its lines in the index, removes them.
 - Undo of a create answers 409 when a payment allocation, credit memo (soft-deleted included) or note references the invoice, and leaves everything linked.
@@ -411,18 +437,19 @@ Unit tests extend `commands/__tests__/documents.undo-custom-fields.test.ts` and 
 - A replacement line with a net of 0 and a positive gross stores the same net as on create.
 - A failed update leaves the old header, lines and custom fields. A failed undo leaves the lines unchanged.
 - Undo after a later `replaceLines` update by a different actor answers 409 and leaves the lines unchanged.
-- Audit `snapshotBefore` and `snapshotAfter` carry the lines, and `orderLineId` stays unstored.
+- Audit `snapshotBefore` and `snapshotAfter` carry the lines with their stored `orderLineId`, and undo restores it.
 - Undo of a header-only update keeps the line rows and, after a reindex that puts them there, their index entries.
 - Two concurrent updates with `replaceLines` end with exactly one line set.
+- Of two concurrent `replaceLines` updates sent with the same expected version, one replaces the lines and the other answers 409 and replaces nothing.
 - After a reindex that puts the lines in the index (create does not index them), replaced lines leave the index.
 - Undo removes the lines the update added from the index.
-- `replaceLines` without `lines`, with `lines: []`, without the required totals, or set to `false` is rejected.
+- `replaceLines: true` without `lines`, with `lines: []` or without the required totals is rejected; `replaceLines: false` is accepted and leaves the lines untouched.
 - Redo of an undone `replaceLines` update replaces the lines again.
 - A `replaceLines` update succeeds on an invoice with payment allocations and leaves them linked.
 
 ## Out of Scope
 
-Invoice numbers over 191 characters (the limit of every sales document number), credit memos, an invoice UI (#100), payment allocations (#7202), lines in an invoice API response, a command-level optimistic lock, invoice line custom fields, clearing `dueDate` on update (the adapter omits it; `null` would store 1970-01-01), and `sales.invoices.delete` undo, which appears to insert the same id while the soft-deleted row still exists (`commands/documents.ts:10235`; not run, so it needs its own check).
+Invoice numbers over 191 characters (the limit of every sales document number), credit memos, an invoice UI (#100), payment allocations (#7202), lines in an invoice API response, invoice line custom fields, an explicit amounts mode on invoices like the orders' `totals_mode` (`.ai/specs/2026-09-07-sales-external-amounts-mode.md` names it as separate work), checking that a line's order line belongs to the invoice's order (the invoice's order link is #9482), clearing `dueDate` on update (the adapter omits it; `null` would store 1970-01-01), and `sales.invoices.delete` undo, which appears to insert the same id while the soft-deleted row still exists (the `deleteInvoiceCommand` undo in `commands/documents.ts`; not run, so it needs its own check).
 
 ## Risks & Impact Review
 
@@ -436,11 +463,11 @@ Index removal runs after commit, so the write stays committed if it fails, and a
 
 ### Tenant & Data Isolation Risks
 
-`lockSalesDocumentRow` filters by id, tenant and organization. Custom-field writes carry the invoice's scope. The update lookup keeps its organization filter, and a cross-organization update stays refused and is covered by a test.
+`lockSalesDocumentRow` filters by id, tenant and organization. Custom-field writes carry the invoice's scope. The update lookup keeps its organization filter, and a cross-organization update stays refused and is covered by a test. A line's `orderLineId` is checked against the invoice's organization and tenant before it is stored, so a line cannot link another tenant's order line.
 
 ### Migration & Deployment Risks
 
-No schema change. Phases 1 and 2 deploy in either order, Phase 3 needs both, and the revert order is in [Migration & Compatibility](#migration--compatibility).
+No schema change. Phases 1 and 2 deploy in either order, Phase 3 needs both, and the revert order is in [Migration & Backward Compatibility](#migration--backward-compatibility).
 
 ### Operational Risks
 
@@ -477,18 +504,18 @@ The blast radius is limited to invoices. A large replacement holds one row lock 
 - **Residual risk**: Line search is incomplete until the next reindex.
 
 #### A line with a net of 0 and a positive gross is rewritten
-- **Scenario**: A source system sends a tax-only line. `deriveLineNetFromGross` replaces its net of 0, so the stored line differs from the source.
+- **Scenario**: A source system sends a tax-only line. `deriveExactLineNetFromGross` replaces its net of 0, so the stored line differs from the source.
 - **Severity**: Low
 - **Affected area**: Exact mirroring required by the Xero App Spec
 - **Mitigation**: Rejecting such a line would narrow the schema, and changing the function affects every document, so neither is done here.
 - **Residual risk**: Such a line is not byte-identical to the source, and this needs to be reflected in the App Spec.
 
 #### Two updates with the same version
-- **Scenario**: Two PUTs pass the row guard before either takes the lock, and the second silently wins.
+- **Scenario**: Two PUTs pass the row guard before either takes the lock.
 - **Severity**: Low
 - **Affected area**: `PUT /api/sales/invoices`
-- **Mitigation**: The lock keeps one consistent line set. A second version check on a guarded route is forbidden.
-- **Residual risk**: Last write wins in this narrow window, as on any row-guarded route.
+- **Mitigation**: Update checks the expected version again against the row read under the lock, as `sales.orders.update` does through `lockOrderForTotalsWrite`, so the later of the two answers 409. The check reads the invoice row's own version, so it is not the double guard over an aggregate that the concurrency docs forbid.
+- **Residual risk**: A request sent without the version header is not checked.
 
 #### Negative amounts in Xero are not yet confirmed
 - **Scenario**: Xero may not produce a negative `SubTotal` on an `ACCREC` invoice, or may produce a negative total, which this spec refuses. A discount on a negative line may report a negative `DiscountAmount` or `TotalDiscount`, and `discountAmount` and `discountTotalAmount` stay ≥ 0.
@@ -518,6 +545,20 @@ The blast radius is limited to invoices. A large replacement holds one row lock 
 - **Mitigation**: Whichever lands second rebases. Both keep the command id and its input additive. That spec also makes credit memo create write the invoice's `outstanding`, and it refuses delete on generated invoices. So whichever lands second must take this row lock in that new writer, add its ledger row to create undo's dependant count and its delete refusal to create undo, and refuse `replaceLines` on generated invoices, or recompute the order's derived totals.
 - **Residual risk**: A merge conflict, and these follow-ups to carry.
 
+#### Stored order line links meet order changes
+- **Scenario**: Invoice lines now keep their order line. Deleting an order line (alone or through a batch line update's `deleteIds`) or the order removes those rows, so `order_line_id` (`on delete set null`) clears those links. Order undo answers 409 while an invoice line links one of the order's lines.
+- **Severity**: Low
+- **Affected area**: invoice lines with an `orderLineId`, order undo, invoice update undo
+- **Mitigation**: Invoice create and update undo answer 409 when a cleared link no longer matches their `after`. Undo of an invoice update or delete links only order lines whose row still exists, so it never fails on the foreign key.
+- **Residual risk**: A link cleared by an order change stays cleared; the imports this spec serves send no `orderLineId`.
+
+#### Overlap with the invoice order-link fix
+- **Scenario**: PR #9482 persists the invoice's order through the `order` relation, while this work still reads and writes `orderId` in create, the invoice snapshot and `restoreInvoiceHeader`.
+- **Severity**: Medium
+- **Affected area**: `commands/documents.ts`, the order link of every invoice
+- **Mitigation**: Whichever lands second moves all three sites to the `order` relation. The stale check stays compatible, because rows written before the fix read the link as `null` on both sides.
+- **Residual risk**: A conflict resolved toward this side silently drops the link again. #9482's `documents.invoice-order-link.test.ts` catches it when it runs on the merged result.
+
 ## Related
 
 `.ai/specs/2026-10-21-sales-recurring-orders.md`, #4951 (the order and quote fix Phase 1 mirrors), #4143 (duplicate-invoice race), #7202, #100, PR #6046.
@@ -545,7 +586,7 @@ The blast radius is limited to invoices. A large replacement holds one row lock 
 | `BACKWARD_COMPATIBILITY.md` | Validators must not narrow | Compliant | New schema rules apply only to input that is rejected today, or to the new flag. Custom-field values that cannot be stored now fail in the write, not in the schema, and are recorded in the compatibility table |
 | root AGENTS.md | No hard-coded user strings | Compliant | Keys listed per phase |
 | `.ai/qa/AGENTS.md` | Integration coverage for affected paths | Compliant | Acceptance per phase, `TC-SALES-7336-*` |
-| `sales/AGENTS.md` | `salesCalculationService`, document flow, channel scope | Open | Decision needed; Phases 2 and 3 wait for it |
+| `sales/AGENTS.md` | `salesCalculationService`, document flow, channel scope | Open | Decision needed; Phases 2 and 3 follow the recommended answer to Q1 until it is confirmed |
 | `sales/AGENTS.md` | Ask before changing flow or channel behavior | Compliant | Raised in Decision needed |
 | `packages/core/AGENTS.md` | `makeCrudRoute` with `indexer`, `openApi` exported | Compliant | Route shape unchanged; `openApi` updated |
 | root AGENTS.md | Optimistic locking on new entities | N/A | No new entity; existing guard kept |
@@ -560,13 +601,44 @@ The blast radius is limited to invoices. A large replacement holds one row lock 
 | Risks cover all write operations | Pass | Create, update and undo |
 | Commands defined for all mutations | Pass | Two commands |
 | Cache strategy covers all read APIs | Pass | Bus invalidation covers both commands and undo |
-| Related specs agree | Pass with action | App Spec aligned after #7335 merges |
+| Related specs agree | Pass with action | App Spec alignment follows in its own PR |
 
 ### Verdict
 
-Fully compliant for Phase 1. Phases 2 and 3 wait for the maintainers' decision.
+Fully compliant for Phase 1. Phases 2 and 3 follow the recommended answer to Q1 and need the maintainers' confirmation before merge.
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Custom fields and safe undo | Done | 2026-11-08 | Steps 1–5; unit and integration tests |
+| Phase 2 — Negative amounts | Done | 2026-11-08 | Implemented on the recommended answer (invoice commands keep amounts as sent; only imported invoices may lack an order or a channel); the exemption is one line in `sales/AGENTS.md` and still needs the sales maintainers' confirmation |
+| Phase 3 — Line replacement | Done | 2026-11-08 | Steps 1–3 |
+| Xero App Spec alignment | Not started | — | Its own PR, now that #7335 has merged |
+
+### Detailed Progress
+- [x] P1.1 `customFields` in the schemas, `custom` folded in the route, create writes them narrowed and sanitized in its own atomic phase
+- [x] P1.2 `sales_invoices` in `lockSalesDocumentRow`; update runs phased under the row lock and checks the expected version against the locked row, 404 with `invoiceNotFound`
+- [x] P1.3 Update writes custom fields in their own phase; audit `changes` include `customFields`
+- [x] P1.4 Update undo: one transaction under the row lock, stale check, custom-field reset, index side effects, `invoice` kind of `throwDocumentUndoStale`, 409 in the undo route `openApi`
+- [x] P1.5 Create undo: `FOR UPDATE`, stale check, dependant count (allocations, credit memos incl. soft-deleted, notes), custom-field row delete, line index removal
+- [x] P2.1 Exemption in `sales/AGENTS.md`: one line under **Always** that points to this spec; it drops two rules the file already states as “never reimplement pricing inline” (Pricing Calculations) and “Never skip configured document workflow states” (Never)
+- [x] P2.2 Five signed line fields with the negative-line rule
+- [x] P2.3 Three signed header fields
+- [x] P3.1 `replaceLines` and `invoiceUpdateInputSchema`
+- [x] P3.2 Line replacement phase and index removal of the replaced lines
+- [x] P3.3 Line restore in update undo
+- [x] Invoice lines store `orderLineId` as the `orderLine` relation on create, replacement and both undo paths, checked against the invoice's scope; undo skips order lines whose row is gone
+
+Tests: `commands/__tests__/documents.invoice-write-path.test.ts`, `data/__tests__/validators.invoice-write-path.test.ts`, the adapted `documents.invoice-credit-memo-update.test.ts`, and `__integration__/TC-SALES-7336-*.spec.ts`. The two-transaction cases run against a real database: an allocation insert held open while create undo waits for its `FOR UPDATE` lock, and two concurrent `replaceLines` updates. Unit tests pin the lock calls (mode, table, scope, order before the stale read), so removing a lock fails them. Create undo counts soft-deleted notes too, as well as soft-deleted credit memos.
 
 ## Changelog
+
+### 2026-11-17
+- Invoice lines store their order line
+
+### 2026-11-08
+- Phases 1–3 implemented; Implementation Status added
 
 ### 2026-11-06
 - Initial specification

@@ -3,7 +3,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesInvoice } from '../../data/entities'
-import { invoiceCreateSchema, invoiceUpdateSchema } from '../../data/validators'
+import { invoiceCreateSchema, invoiceUpdateInputSchema, invoiceUpdateSchema } from '../../data/validators'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { withScopedPayload } from '../utils'
 import { withExactInvoiceInput } from '../../lib/exactAmountFields'
@@ -15,6 +15,15 @@ import {
 import { E } from '#generated/entities.ids.generated'
 
 const rawBodySchema = z.object({}).passthrough()
+
+/**
+ * Fold `cf_*` / `customFields` input into `customFields`, the same way the order
+ * and quote routes do, so the command stores it inside its transaction.
+ */
+function withFoldedCustomFields(payload: unknown): Record<string, unknown> {
+  const { base, custom } = splitCustomFieldPayload(payload)
+  return Object.keys(custom).length ? { ...base, customFields: custom } : base
+}
 
 const listSchema = z
   .object({
@@ -100,8 +109,8 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base } = splitCustomFieldPayload(scoped)
-        return withExactInvoiceInput(invoiceCreateSchema.parse(base), base)
+        const folded = withFoldedCustomFields(scoped)
+        return withExactInvoiceInput(invoiceCreateSchema.parse(folded), folded)
       },
     },
     update: {
@@ -110,8 +119,8 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base } = splitCustomFieldPayload(scoped)
-        return withExactInvoiceInput(invoiceUpdateSchema.parse(base), base)
+        const folded = withFoldedCustomFields(scoped)
+        return withExactInvoiceInput(invoiceUpdateInputSchema.parse(folded), folded)
       },
     },
     delete: {
@@ -145,11 +154,37 @@ const invoiceItemSchema = z.object({
   outstandingAmount: z.string().optional(),
 })
 
+const customFieldsDescription =
+  'Custom field values keyed by field key; a `[{ key, value }]` array is also accepted. `cf_<key>`, `cf:<key>` and `customValues` body keys are folded in. Rich-text values are sanitized; values are not validated against the field definitions.'
+
+const invoiceCreateRequestSchema = invoiceCreateSchema.extend({
+  customFields: z.record(z.string(), z.unknown()).nullable().optional().describe(customFieldsDescription),
+})
+
+const invoiceUpdateRequestSchema = invoiceUpdateSchema.extend({
+  customFields: z.record(z.string(), z.unknown()).nullable().optional().describe(customFieldsDescription),
+  lines: invoiceUpdateSchema.shape.lines.describe(
+    'Has no effect unless `replaceLines` is true. With `replaceLines`, replaces every invoice line.',
+  ),
+  replaceLines: z.boolean().nullable().optional().describe(
+    'Replace every invoice line with `lines`. Requires a non-empty `lines` and subtotalNetAmount, subtotalGrossAmount, taxTotalAmount, grandTotalNetAmount and grandTotalGrossAmount.',
+  ),
+})
+
 export const openApi = createSalesCrudOpenApi({
   resourceName: 'Invoice',
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(invoiceItemSchema),
-  create: { schema: invoiceCreateSchema, description: 'Create a new invoice' },
-  update: { schema: invoiceUpdateSchema, responseSchema: z.object({ invoiceId: z.string().uuid() }), description: 'Update an invoice' },
+  create: {
+    schema: invoiceCreateRequestSchema,
+    description:
+      'Create a new invoice. Amounts are stored as sent. Line unit prices, tax and totals, and the header taxTotalAmount, subtotalNetAmount and grandTotalNetAmount may be negative; a line with a negative amount must send totalNetAmount and totalGrossAmount.',
+  },
+  update: {
+    schema: invoiceUpdateRequestSchema,
+    responseSchema: z.object({ invoiceId: z.string().uuid() }),
+    description:
+      'Update an invoice. `lines` is ignored unless `replaceLines` is true. Answers 404 when the invoice is missing or outside the request organization, and 403 when its tenant or organization is outside the caller scope.',
+  },
   del: { schema: defaultDeleteRequestSchema, responseSchema: z.object({ invoiceId: z.string().uuid() }), description: 'Delete an invoice' },
 })
