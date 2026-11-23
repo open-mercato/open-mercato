@@ -120,6 +120,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
   { id: 'ledger', from: '@open-mercato/core' },
+  { id: 'sales_invoices_gl_posting', from: '@open-mercato/core' },
   { id: 'planner', from: '@open-mercato/core' },
   { id: 'resources', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },

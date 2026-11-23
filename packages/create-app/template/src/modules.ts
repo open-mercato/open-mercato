@@ -152,6 +152,10 @@ export const enabledModules: ModuleEntry[] = [
   // Tracked in TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a
   // deliberate divergence, not drift.
   // { id: 'ledger', from: '@open-mercato/core' },
+  // Sales Invoice GL Posting — requires the General Ledger above, so it stays
+  // disabled in the scaffold while ledger is. Tracked in TEMPLATE_COMMENTED_MODULES
+  // (scripts/template-sync.ts) as a deliberate divergence, not drift.
+  // { id: 'sales_invoices_gl_posting', from: '@open-mercato/core' },
   { id: 'planner', from: '@open-mercato/core' },
   { id: 'resources', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },

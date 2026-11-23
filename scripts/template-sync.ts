@@ -386,6 +386,13 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // deliberate divergence, not drift.
   // { id: 'ledger', from: '@open-mercato/core' },`,
   },
+  sales_invoices_gl_posting: {
+    source: `  { id: 'sales_invoices_gl_posting', from: '@open-mercato/core' },`,
+    template: `  // Sales Invoice GL Posting — requires the General Ledger above, so it stays
+  // disabled in the scaffold while ledger is. Tracked in TEMPLATE_COMMENTED_MODULES
+  // (scripts/template-sync.ts) as a deliberate divergence, not drift.
+  // { id: 'sales_invoices_gl_posting', from: '@open-mercato/core' },`,
+  },
   gateway_autopay: {
     source: `  { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },`,
     template: `  // Autopay hosted-redirect PLN payment gateway. The package ships with the
