@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -55,6 +57,9 @@ type ExecutionRun = {
 export default function ScheduleDetailPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
   const t = useT()
+  const { payload } = useBackendChrome()
+  const canManage = hasFeature(payload?.grantedFeatures, 'scheduler.jobs.manage')
+  const canTrigger = hasFeature(payload?.grantedFeatures, 'scheduler.jobs.trigger')
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scheduleId = params?.id
 
@@ -302,31 +307,38 @@ export default function ScheduleDetailPage({ params }: { params?: { id?: string 
       <PageHeader
         title={schedule.name}
         description={schedule.description}
-        actions={
+        actions={canManage || canTrigger ? (
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="schedule-enabled" className="text-sm font-medium cursor-pointer">
-                {schedule.isEnabled ? t('scheduler.status.enabled', 'Enabled') : t('scheduler.status.disabled', 'Disabled')}
-              </Label>
-              <Switch
-                id="schedule-enabled"
-                checked={schedule.isEnabled}
-                onCheckedChange={handleToggleEnabled}
-                disabled={toggling}
-              />
-            </div>
-            <Button
-              variant="outline"
-              onClick={handleTriggerNow}
-              disabled={triggering || !schedule.isEnabled}
-            >
-              {triggering ? t('scheduler.details.triggering', 'Triggering...') : t('scheduler.action.trigger', 'Trigger Now')}
-            </Button>
-            <Button onClick={() => router.push(`/backend/config/scheduled-jobs/${scheduleId}/edit`)}>
-              {t('scheduler.action.edit', 'Edit')}
-            </Button>
+            {canManage && (
+              <div className="flex items-center gap-2">
+                <Label htmlFor="schedule-enabled" className="text-sm font-medium cursor-pointer">
+                  {schedule.isEnabled ? t('scheduler.status.enabled', 'Enabled') : t('scheduler.status.disabled', 'Disabled')}
+                </Label>
+                <Switch
+                  id="schedule-enabled"
+                  checked={schedule.isEnabled}
+                  onCheckedChange={handleToggleEnabled}
+                  disabled={toggling}
+                />
+              </div>
+            )}
+            {canTrigger && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleTriggerNow}
+                disabled={triggering || !schedule.isEnabled}
+              >
+                {triggering ? t('scheduler.details.triggering', 'Triggering...') : t('scheduler.action.trigger', 'Trigger Now')}
+              </Button>
+            )}
+            {canManage && (
+              <Button type="button" onClick={() => router.push(`/backend/config/scheduled-jobs/${scheduleId}/edit`)}>
+                {t('scheduler.action.edit', 'Edit')}
+              </Button>
+            )}
           </div>
-        }
+        ) : undefined}
       />
 
       <PageBody>

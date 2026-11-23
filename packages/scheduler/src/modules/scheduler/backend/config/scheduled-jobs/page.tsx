@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
@@ -76,6 +78,9 @@ function mapApiItem(item: Record<string, unknown>): ScheduleRow | null {
 
 export default function SchedulerPage() {
   const t = useT()
+  const { payload } = useBackendChrome()
+  const canManage = hasFeature(payload?.grantedFeatures, 'scheduler.jobs.manage')
+  const canTrigger = hasFeature(payload?.grantedFeatures, 'scheduler.jobs.trigger')
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const [rows, setRows] = React.useState<ScheduleRow[]>([])
@@ -237,32 +242,36 @@ export default function SchedulerPage() {
     [t]
   )
 
-  const rowActions = React.useCallback(
-    (row: ScheduleRow): RowActionItem[] => [
-      {
-        id: 'view',
-        label: t('scheduler.action.view', 'View Details'),
-        onSelect: () => router.push(`/backend/config/scheduled-jobs/${row.id}`),
-      },
-      {
+  const rowActions = React.useCallback((row: ScheduleRow): RowActionItem[] => {
+    const actions: RowActionItem[] = [{
+      id: 'view',
+      label: t('scheduler.action.view', 'View Details'),
+      onSelect: () => router.push(`/backend/config/scheduled-jobs/${row.id}`),
+    }]
+    if (canManage) {
+      actions.push({
         id: 'edit',
         label: t('scheduler.action.edit', 'Edit'),
         onSelect: () => router.push(`/backend/config/scheduled-jobs/${row.id}/edit`),
-      },
-      {
+      })
+    }
+    if (canTrigger) {
+      actions.push({
         id: 'trigger',
         label: t('scheduler.action.trigger', 'Run Now'),
         onSelect: () => handleTrigger(row),
-      },
-      {
+      })
+    }
+    if (canManage) {
+      actions.push({
         id: 'delete',
         label: t('scheduler.action.delete', 'Delete'),
         onSelect: () => handleDelete(row),
         destructive: true,
-      },
-    ],
-    [t, router, handleDelete, handleTrigger]
-  )
+      })
+    }
+    return actions
+  }, [t, router, canManage, canTrigger, handleDelete, handleTrigger])
 
   return (
     <Page>
@@ -270,11 +279,11 @@ export default function SchedulerPage() {
         <DataTable<ScheduleRow>
         title={t('scheduler.title', 'Scheduled Jobs')}
         titleHeadingLevel={1}
-          actions={
-            <Button onClick={() => router.push('/backend/config/scheduled-jobs/new')}>
+          actions={canManage ? (
+            <Button type="button" onClick={() => router.push('/backend/config/scheduled-jobs/new')}>
               {t('scheduler.action.create', 'New Schedule')}
             </Button>
-          }
+          ) : undefined}
           columns={columns}
           data={rows}
           onRowClick={(row) => router.push(`/backend/config/scheduled-jobs/${row.id}`)}
@@ -282,7 +291,7 @@ export default function SchedulerPage() {
           emptyState={(
             <ListEmptyState
               entityName={t('scheduler.title', 'Scheduled Jobs')}
-              createHref="/backend/config/scheduled-jobs/new"
+              createHref={canManage ? '/backend/config/scheduled-jobs/new' : undefined}
               createLabel={t('scheduler.action.create', 'New Schedule')}
             />
           )}
