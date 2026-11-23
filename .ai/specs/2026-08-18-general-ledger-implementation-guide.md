@@ -163,8 +163,14 @@ anything else compiles or is reachable. High-level shape:
   between commit and enqueue is recovered through
   `listPostedEntriesSince` (`lib/postedEntriesSince.ts`: committed
   entries of one organization after a `sequenceNumber` cursor, ascending,
-  `REVERSAL` entries included). The ledger only offers that read; the
-  consumer (first of all the Posting Rules Engine) decides when to run
+  `REVERSAL` entries included, returned as
+  `{ items, nextAfterSequenceNumber }` with a default `limit` of 100,
+  ⚠ NEEDS HUMAN CONFIRMATION). The read has the event's fields, but
+  amounts at the column scale (`"10.0000"` where the event may carry
+  `"10"`), so compare amounts as decimals, not as strings; its `kind`
+  is a helper of the read, not part of the event; and lines come in
+  `id` order, so do not rely on line order. The ledger only offers that
+  read; the consumer (first of all the Posting Rules Engine) decides when to run
   its reconciliation. The persistent flag and the composed-call rule are
   what the first ledger PR must have; `listPostedEntriesSince` ships with
   the Posting Rules Engine PR or before it, not as a condition for

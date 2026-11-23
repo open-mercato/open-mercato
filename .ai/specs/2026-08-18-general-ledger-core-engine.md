@@ -1194,6 +1194,17 @@ on `journal_entries` (`journal_entries_reference_idx`) backs the `referenceType`
     within one organization entries become visible in `sequenceNumber`
     order and a lower number cannot commit after a higher one. The
     Posting Rules Engine (#6015) is the expected first user of this read.
+    The read is not a byte-for-byte copy of the event (added
+    2026-11-23, checked against a first implementation on top of #9860
+    at `5a13f37d3c`): it carries the event's fields, but amounts
+    (`debit`, `credit`, `exchangeRate`, `amountCurrency`) come back at
+    the database column scale (`"10.0000"`, `"1.00000000"`) while the
+    event carries the strings the command received (`"10"`, `"1"`), so
+    consumers compare amounts as decimals, never as strings. Each item
+    also carries `kind` (`post`/`reversal`, mapped from `type` as
+    above), a helper of the read only and not part of the event
+    payload. Lines within an entry are ordered by line `id`, not by
+    input order, and consumers must not rely on line order.
   - **Who runs the reconciliation.** Not `ledger`: the ledger only
     offers the read. Each consumer runs its own reconciliation, and for
     the Posting Rules Engine when and how it runs is a decision of #6015,
@@ -1288,6 +1299,15 @@ on `journal_entries` (`journal_entries_reference_idx`) backs the `referenceType`
   each with its lines in the `ledger.journal_entry.posted` payload shape,
   `REVERSAL` entries included. Scoped by the arguments, never by a
   caller's selected organization.
+  Returns `{ items, nextAfterSequenceNumber }`: `items` are the entries
+  with the event's fields plus the helper `kind` (not part of the event
+  payload), and `nextAfterSequenceNumber` is the last returned
+  `sequenceNumber`, or the input cursor when the page is empty; `limit`
+  defaults to 100. Amounts come at the column scale, so consumers
+  compare them as decimals, not as strings; lines are ordered by `id`,
+  not by input order, and consumers must not rely on that order (Events
+  → Delivery contract). The result shape and the default `limit` are a
+  decision of 2026-11-23 (⚠ NEEDS HUMAN CONFIRMATION).
   Phase 1 requirement delivered with #6015's engine PR (PR-B) or before
   it; not a merge condition for #9860 (Events → Delivery contract,
   "Scope for #9860", ⚠ NEEDS HUMAN CONFIRMATION).
@@ -1565,7 +1585,7 @@ Queries / API).
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `ledger:journal_entry_line.contractor_snapshot` (PII duplicated from Contractor Registry — see Design decisions) |
 | `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for the entities above plus the deferred balance-check constraint trigger and the per-organization `journal_entry_sequences` counter table |
 | `lib/lineCurrency.ts` | Create | `resolveLineCurrency` (write-time currency, rate and original amount of a line) and `isLineConsistent` (the tolerance check), used by `postJournalEntry` and `reverseJournalEntry` |
-| `lib/postedEntriesSince.ts` | Create | `listPostedEntriesSince` — the reconciliation read for `ledger.journal_entry.posted` consumers (Events → Delivery contract, added 2026-11-23). Phase 1, delivered with #6015's engine PR (PR-B) or before it; not part of #9860's merge condition (⚠ NEEDS HUMAN CONFIRMATION) |
+| `lib/postedEntriesSince.ts` | Create | `listPostedEntriesSince` — the reconciliation read for `ledger.journal_entry.posted` consumers (Events → Delivery contract, added 2026-11-23). Phase 1, delivered with #6015's engine PR (PR-B) or before it; not part of #9860's merge condition (⚠ NEEDS HUMAN CONFIRMATION). Returns `{ items, nextAfterSequenceNumber }` with a default `limit` of 100 (decision of 2026-11-23, ⚠ NEEDS HUMAN CONFIRMATION); amounts at the column scale (compare as decimals), a helper `kind` that is not in the event payload, lines ordered by `id` |
 | `data/validators.ts` | Create | zod validators for `postJournalEntry`, `reverseJournalEntry`, `createFiscalPeriod`, `lockFiscalPeriod`/`unlockFiscalPeriod`, `createLedgerAccount`/`updateLedgerAccount`, `createLedgerAccountType`/`updateLedgerAccountType` command inputs (**added 2026-09-18** — m4: root `AGENTS.md` requires input validators live here, not inline in commands) |
 | `i18n/<locale>.json` (en/pl/es/de/ko, matching every other module) | Create | User-facing strings for the four backend pages below and any command-rejection messages surfaced to the UI — never hard-coded (**added 2026-09-18** — m4) |
 | `acl.ts` | Create | Six `ledger.*` features |
@@ -3184,3 +3204,9 @@ code. Not yet reviewed by a maintainer.
 
 - **Who runs the reconciliation.** Events → Delivery contract now says that `ledger` only offers the read and each consumer runs its own reconciliation. For the Posting Rules Engine this is a decision of #6015 (Design Decisions, "A repair mechanism: `ReconcileCostRingCommand` (a sweeper)"; Implementation Plan, step 11: CLI only, schedule open). This spec asks for runs at consumer start or enablement, periodically, and after a reported emission failure. The earlier sentence that the engine "uses this read for its sweeper" is replaced: #6015's sweeper selects by its own intent rows today, and moving to the cursor is its choice.
 - **Merge scope for #9860.** ⚠ NEEDS HUMAN CONFIRMATION. The merge condition is only `{ persistent: true }` on both emitters plus emission after commit by a composing caller. `lib/postedEntriesSince.ts` stays a Phase 1 requirement but ships with #6015's engine PR (PR-B) or before it and does not block #9860. Queries / API, File Manifest and Risks (the window without a cursor read between #9860 and the engine PR) are updated accordingly.
+
+### 2026-11-23 (cont.) — what `listPostedEntriesSince` returns
+
+- **Checked against a first implementation** of `lib/postedEntriesSince.ts` on top of #9860 at `5a13f37d3c` (unit tests and a real-database test with the posting and reversal commands). Events → Delivery contract, Queries / API and File Manifest now say: the read carries the event's fields, but amounts at the database column scale (`"10.0000"`, `"1.00000000"`) where the event carries the command's input strings, so consumers compare amounts as decimals, not as strings; `kind` (`post`/`reversal`, mapped from `type`) is a helper of the read and not part of the event payload; lines within an entry are ordered by `id`, not by input order, and consumers must not rely on line order.
+- **Result shape.** ⚠ NEEDS HUMAN CONFIRMATION. `{ items, nextAfterSequenceNumber }`, where `nextAfterSequenceNumber` is the last returned `sequenceNumber` or the input cursor for an empty page, and `limit` defaults to 100.
+- **Implementation guide.** The "persistent emission" item states the same three points and the result shape.
