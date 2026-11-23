@@ -28,6 +28,7 @@ function executeScript(script, { eventName = 'pull_request', fullSuite = false, 
         ...process.env,
         GITHUB_OUTPUT: output,
         FORCE_FULL_SUITE: String(fullSuite),
+        FULL_SUITE_PATTERN: workflow.env.FULL_SUITE_PATTERN,
         CHANGED_PATH: changedPath,
         WORKFLOW_CHANGED: String(workflowChanged),
         BASE_MISSING: String(baseMissing),
@@ -50,10 +51,11 @@ function executeScript(script, { eventName = 'pull_request', fullSuite = false, 
 
 test('PR label changes cannot schedule CI or publish new skipped required checks', () => {
   assert.deepEqual(workflow.on.pull_request.types, ['opened', 'synchronize', 'reopened'])
-  for (const jobName of ['prepare', 'lint', 'ds-lint', 'audit-scope']) {
+  for (const jobName of ['classify', 'lint', 'ds-lint', 'audit-scope']) {
     assert.equal(workflow.jobs[jobName].if, undefined, `${jobName} must run for every scheduled event`)
   }
-  assert.equal(scope.env?.FORCE_FULL_SUITE, undefined)
+  assert.equal(workflow.jobs.prepare.if, "always() && !cancelled() && needs.classify.outputs.candidate != 'true'")
+  assert.equal(scope.env.FORCE_FULL_SUITE, "${{ needs.classify.outputs.force_full == 'true' || env.FORCE_FULL_SUITE == 'true' }}")
   assert.ok(!workflow.on.pull_request.types.includes('labeled'))
 })
 

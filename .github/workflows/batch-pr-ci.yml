@@ -11,6 +11,10 @@ permissions:
 # `ci.yml` deliberately lists no `batch/**` branch, so it never runs on PRs
 # into a batch or on pushes to one. The enterprise contribution guard has no
 # branch filter and keeps running on every PR, batch PRs included.
+#
+# `ci.yml` also calls this workflow (job `batch-fast-gate`) instead of its own
+# build, test and integration jobs for a batch candidate that still targets
+# `main` — routing in .github/batch-candidates.json.
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -37,6 +41,7 @@ on:
   push:
     branches:
       - 'batch/**'
+  workflow_call:
 
 concurrency:
   group: batch-pr-ci-${{ github.event.pull_request.number || github.ref }}

@@ -32,7 +32,7 @@ count cap).
 
 | Day | What happens to `batch/<lane>-<N>` |
 |-----|------------------------------------|
-| **N** — fill | Eligible PRs are retargeted to the batch and squash-merged once `Batch PR CI` and the `Enterprise Contribution Guard` are green and the PR is reviewed. Nothing merges into it after the cut-off. |
+| **N** — fill | Eligible PRs are retargeted to the batch and squash-merged once `Batch PR CI` and the `Enterprise Contribution Guard` are green and the PR is reviewed. Nothing merges into it after the cut-off: a PR retargeted to the batch but not merged by the cut-off moves to the next day's batch branch (`gh pr edit <N> --base batch/<lane>-<N+1>`). |
 | **N+1** — land | Open the batch → `main` PR. It runs the full `ci.yml` suite. Fix breakage with separate `fix(batch): …` commits on the batch branch. Run one QA pass for the whole batch. Merge to `main` with a merge commit. |
 
 Day N+1's batch fills while day N's batch is landing, so it starts from a `main` that does
@@ -42,28 +42,64 @@ so each batch → `main` PR keeps showing only its own day.
 
 ## What goes into a batch
 
-**Current rule (routing by author).** PRs opened by these authors are batch candidates:
-`haxiorz`, `AHKSammich`, `pkarw`, `adeptofvoltron`, `andrzejewsky`, `wojciechszyjka`.
-Routing is manual: a maintainer retargets the PR (see below). There is no automation that
-picks PRs.
+The routing rules live in one file, [`.github/batch-candidates.json`](../../.github/batch-candidates.json),
+read by `scripts/ci/batch-candidate.mjs` from both `ci.yml` and `ci-label-rerun.yml`. Change
+the rules there, not in the workflows.
+
+**Current rule (routing by author).** Same-repository PRs into `main` opened by the authors
+listed in `authors` are batch candidates (today: `haxiorz`, `AHKSammich`, `pkarw`,
+`adeptofvoltron`, `andrzejewsky`, `wojciechszyjka`), unless one of the exclusions below
+applies. Retargeting is manual: a maintainer retargets the PR (see below). There is no
+automation that moves PRs.
 
 **Planned rule (dedicated label).** Routing will move to a dedicated label that any author
-can request and a maintainer applies. Until that label exists and this doc names it, the
-author list above is the rule.
+can request and a maintainer applies. Switching is one edit: set `candidateLabel` in
+`.github/batch-candidates.json` to the label name; `authors` is then ignored. Until then the
+author list is the rule.
 
 **Always out of a batch** — these keep the normal per-PR flow against `main`, even
 from a listed author:
 
-- PRs labelled `needs-human-qa`, `security`, `enterprise`, `backport` or `risk-high`.
-- PRs touching anything under `packages/enterprise/`.
+- PRs labelled `needs-human-qa`, `security`, `enterprise`, `backport` or `risk-high`
+  (`excludedLabels`), or `ci-full`.
+- PRs from forks.
+- PRs touching anything under `packages/enterprise/` (`excludedPathPatterns`).
 - PRs touching the shared core paths matched by `FULL_SUITE_PATTERN` in
   `.github/workflows/ci.yml` (shared packages such as `shared`, `ui`, `events`, `queue`,
   `cache`, `search`, `onboarding`, `webhooks`, the `core`/`enterprise` `src/lib/` trees, the
   integration harness, and the `apps/mercato` app shell). The workflow file is the source of
   truth; print the current pattern with
-  `grep -m1 FULL_SUITE_PATTERN= .github/workflows/ci.yml`. These changes affect every module,
+  `grep -m1 'FULL_SUITE_PATTERN:' .github/workflows/ci.yml`. These changes affect every module,
   and the fast gate only runs tests inside the changed package, so they need the full suite on
   their own PR.
+
+## Batch candidates while they still target `main`
+
+A candidate only ever reaches `main` through a batch, so `ci.yml` does not run its full suite
+while the PR targets `main`. Its `classify` job marks the PR as a candidate and then:
+
+- `prepare` is skipped, and with it every job that needs it: `test`, `core-timezone`,
+  `documents-multi-instance`, `ephemeral-integration` shards, `merge-coverage` and
+  `docker-build`.
+- `batch-fast-gate` runs the same fast gate as `Batch PR CI` (`batch-pr-ci.yml`, called as a
+  reusable workflow).
+- `lint`, `ds-lint`, `audit-scope`/`audit`, the enterprise guard, the mutation-test `scope`
+  and the other workflows' checks run as usual.
+
+Skipped jobs report as skipped, and required status checks treat skipped as passing, so
+nothing stays pending. That also means branch protection does **not** stop a candidate from
+being merged straight to `main` on a fast-gate-only run. **Candidates cannot merge straight to
+`main`**: retarget them to the day's batch branch and merge them there. A PR that really must
+go straight to `main` gets the `ci-full` label first, which brings back the full suite.
+
+The decision follows label changes. `ci.yml` does not run on label events (a label-triggered
+run would publish skipped copies of required checks); instead `ci-label-rerun.yml` watches
+`labeled`/`unlabeled` on PRs into `main` and, when a change ends candidacy — adding `ci-full`
+or an excluded label, or (once routing is label-based) removing the candidate label — re-runs
+the PR's latest `ci.yml` run. `classify` reads the labels live, so the re-run is the full
+suite. `ci-full` and the `stabilize/`/`batch/` heads (`FORCE_FULL_SUITE`) always win. A change
+in the other direction (removing `ci-full` or an excluded label) only takes effect on the next
+push, so a label can never turn a failed full-suite check into a skipped one.
 
 ## Retargeting a PR to a batch branch
 

@@ -1,0 +1,9 @@
+{
+  "$comment": "Single source of truth for batch-candidate routing (.ai/docs/batch-branches.md). Read by scripts/ci/batch-candidate.mjs from ci.yml and ci-label-rerun.yml. To route by a dedicated label instead of by author, set candidateLabel to that label name; authors is then ignored. The full-suite paths live in FULL_SUITE_PATTERN in .github/workflows/ci.yml and also exclude a PR.",
+  "baseBranch": "main",
+  "authors": ["haxiorz", "AHKSammich", "pkarw", "adeptofvoltron", "andrzejewsky", "wojciechszyjka"],
+  "candidateLabel": null,
+  "excludedLabels": ["needs-human-qa", "security", "enterprise", "backport", "risk-high"],
+  "excludedPathPatterns": ["^packages/enterprise/"],
+  "forceFullLabel": "ci-full"
+}

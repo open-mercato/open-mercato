@@ -74,6 +74,12 @@ env:
   # runtime validation ignores loopback endpoints unless the integration flag
   # explicitly allows them.
   NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
+  # Paths that affect behaviour across all modules: a PR touching one runs the full sharded
+  # suite and is never a batch candidate (classify job, .github/batch-candidates.json).
+  # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
+  # down this very suite. A change there matches no `src/modules/` path, so without this
+  # entry the job that would exercise it is the one job it can never trigger.
+  FULL_SUITE_PATTERN: '^\.github/workflows/ci\.yml$|^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
 
 # `release/v*` are the release lines (CONTRIBUTING.md § Releasing): backport PRs into them must
 # run the same checks as PRs into main, or a backport merges untested.
@@ -107,6 +113,64 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # ── Batch-candidate routing ─────────────────────────────────────────────────
+  # A batch candidate (.github/batch-candidates.json, .ai/docs/batch-branches.md) only ever
+  # reaches main through a daily batch branch, whose batch → main PR runs this whole suite.
+  # While such a PR still targets main it gets the fast gate (batch-fast-gate) instead of
+  # prepare and everything that needs it; lint, ds-lint, audit-scope/audit and the other
+  # workflows' checks still run. Skipped jobs report as skipped, which required status
+  # checks accept, so nothing stays pending.
+  #
+  # Labels are read live from the API, not from the event payload: label events do not
+  # trigger this workflow (they would publish skipped copies of required checks), so
+  # ci-label-rerun.yml re-runs it when a label change turns a candidate into a full-suite
+  # PR, and the re-run must see the new labels. Any failure here leaves `candidate` empty,
+  # which runs the full workflow.
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      candidate: ${{ steps.classify.outputs.candidate }}
+      force_full: ${{ steps.classify.outputs.force_full }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # Trees only: the classifier needs the merge commit's file list and two files.
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout: |
+            .github/batch-candidates.json
+            scripts/ci/batch-candidate.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Classify pull request
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            PR_LABELS=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.labels[].name')
+            export PR_LABELS
+            git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+            export CHANGED_FILES_PATH="$RUNNER_TEMP/changed.txt"
+          fi
+          node scripts/ci/batch-candidate.mjs classify
+
+  batch-fast-gate:
+    needs: classify
+    if: needs.classify.outputs.candidate == 'true'
+    uses: ./.github/workflows/batch-pr-ci.yml
+    secrets: inherit
+
   # ── Shared build ────────────────────────────────────────────────────────────
   # Installs deps, compiles all packages, runs the code generator, and builds
   # the Next.js app. Also computes integration scope so shards can start the
@@ -119,10 +183,14 @@ jobs:
   #                      skipped for CI/docs-only PRs to save ~2 min.
   prepare:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: classify
+    if: always() && !cancelled() && needs.classify.outputs.candidate != 'true'
     outputs:
       skip_integration: ${{ steps.integration-scope.outputs.skip }}
       affected_modules: ${{ steps.integration-scope.outputs.modules }}
       shard_matrix: ${{ steps.integration-scope.outputs.shard_matrix }}
+      # FORCE_FULL_SUITE from the event payload, or a ci-full label classify read live.
+      force_full: ${{ needs.classify.outputs.force_full == 'true' || env.FORCE_FULL_SUITE == 'true' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -139,6 +207,8 @@ jobs:
         # Runs in prepare so shards can start the moment the build is ready,
         # without waiting for typecheck or unit tests to complete.
         id: integration-scope
+        env:
+          FORCE_FULL_SUITE: ${{ needs.classify.outputs.force_full == 'true' || env.FORCE_FULL_SUITE == 'true' }}
         run: |
           FULL_SHARDS='["1/15","2/15","3/15","4/15","5/15","6/15","7/15","8/15","9/15","10/15","11/15","12/15","13/15","14/15","15/15"]'
           SINGLE_SHARD='["none"]'
@@ -152,11 +222,7 @@ jobs:
 
           CHANGED=$(git diff --name-only HEAD^1 HEAD)
 
-          # These paths affect behaviour across all modules — run the full sharded suite.
-          # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
-          # down this very suite. A change there matches no `src/modules/` path, so without this
-          # entry the job that would exercise it is the one job it can never trigger.
-          FULL_SUITE_PATTERN='^\.github/workflows/ci\.yml$|^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
+          # FULL_SUITE_PATTERN (workflow env) paths affect every module — run the full sharded suite.
           if echo "$CHANGED" | grep -qE "$FULL_SUITE_PATTERN"; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "modules=" >> "$GITHUB_OUTPUT"
@@ -784,6 +850,7 @@ jobs:
             yarn turbo run typecheck --filter='[HEAD^1]...'
           fi
         env:
+          FORCE_FULL_SUITE: ${{ needs.prepare.outputs.force_full }}
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
@@ -812,6 +879,8 @@ jobs:
           else
             yarn turbo run test --filter='[HEAD^1]...'
           fi
+        env:
+          FORCE_FULL_SUITE: ${{ needs.prepare.outputs.force_full }}
 
       - name: Test scripts
         # Turbo never picks up root-level scripts — run explicitly.

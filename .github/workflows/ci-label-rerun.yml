@@ -1,0 +1,85 @@
+name: CI label re-evaluation
+permissions: {}
+
+# ci.yml deliberately ignores label events: a label-triggered run publishes skipped copies of
+# required checks, and skipped reads as passing (.ai/lessons/stabilization-ci-must-not-follow-label-churn.md).
+# Its `classify` job still lets a batch candidate targeting main skip the full suite, so a label
+# change that ends candidacy — `ci-full`, an excluded label such as `risk-high`, or (once routing
+# moves to a label) removing the candidate label — must bring the full suite back. This workflow
+# re-runs the PR's latest ci.yml run in exactly that case; `classify` reads the labels live, so the
+# re-run runs the full suite. Every other label change does nothing. A change in the other
+# direction (full → candidate) is left for the next push, so a label can never turn a failed
+# full-suite check into a skipped one. Routing rules: .github/batch-candidates.json.
+on:
+  pull_request:
+    types: [labeled, unlabeled]
+    branches:
+      - main
+
+concurrency:
+  group: ci-label-rerun-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  rerun-full-suite:
+    # Fork PRs are never batch candidates, and their token could not re-run anything.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+    steps:
+      - name: Checkout routing rules
+        # The classifier reads FULL_SUITE_PATTERN from ci.yml when the env does not set it.
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            .github/batch-candidates.json
+            .github/workflows/ci.yml
+            scripts/ci/batch-candidate.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Decide whether the label change ended candidacy
+        id: decide
+        env:
+          EVENT_NAME: pull_request
+          BASE_REF: ${{ github.base_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          SAME_REPO: 'true'
+          LABEL_ACTION: ${{ github.event.action }}
+          LABEL_NAME: ${{ github.event.label.name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_LABELS=$(jq -r '.pull_request.labels[].name' "$GITHUB_EVENT_PATH")
+          export PR_LABELS
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' > "$RUNNER_TEMP/changed.txt"
+          export CHANGED_FILES_PATH="$RUNNER_TEMP/changed.txt"
+          node scripts/ci/batch-candidate.mjs label-change
+
+      - name: Re-run the latest ci.yml run with the full suite
+        if: steps.decide.outputs.rerun == 'true'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LABEL_NAME: ${{ github.event.label.name }}
+        run: |
+          RUN_ID=$(gh run list --workflow ci.yml --commit "$HEAD_SHA" --event pull_request --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [ -z "$RUN_ID" ]; then
+            echo "::notice::No ci.yml run for $HEAD_SHA yet; it will classify with the current labels when it starts."
+            exit 0
+          fi
+          STATUS=$(gh run view "$RUN_ID" --json status --jq .status)
+          if [ "$STATUS" != "completed" ]; then
+            gh run cancel "$RUN_ID"
+            for attempt in $(seq 1 60); do
+              STATUS=$(gh run view "$RUN_ID" --json status --jq .status)
+              [ "$STATUS" = "completed" ] && break
+              sleep 5
+            done
+          fi
+          gh run rerun "$RUN_ID"
+          echo "::notice::Re-ran ci.yml run $RUN_ID: label '$LABEL_NAME' ended batch candidacy."
