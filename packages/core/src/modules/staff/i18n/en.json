@@ -275,6 +275,7 @@
   "staff.leaveRequests.errors.accept": "Failed to approve leave request.",
   "staff.leaveRequests.errors.alreadyFinalized": "Leave request is already finalized.",
   "staff.leaveRequests.errors.forbidden": "Forbidden",
+  "staff.leaveRequests.errors.invalidDateRange": "End date must be after start date.",
   "staff.leaveRequests.errors.load": "Failed to load leave requests.",
   "staff.leaveRequests.errors.notFound": "Leave request not found.",
   "staff.leaveRequests.errors.profileLoad": "Failed to load your profile.",
