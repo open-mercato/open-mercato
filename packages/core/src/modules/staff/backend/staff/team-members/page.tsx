@@ -388,7 +388,7 @@ export default function StaffTeamMembersPage() {
     }
     const query = params.toString()
     router.replace(query ? `${pathname}?${query}` : pathname)
-  }, [])
+  }, [pathname, router, searchParams])
 
   const handleRefresh = React.useCallback(() => {
     setReloadToken((token) => token + 1)

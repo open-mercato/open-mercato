@@ -1,10 +1,10 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { login } from '@open-mercato/core/helpers/integration/auth';
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { createApiKeyFixture } from '@open-mercato/core/helpers/integration/apiKeysFixtures';
 import { createRandomCurrencyFixture } from '@open-mercato/core/helpers/integration/currenciesFixtures';
-import { createStaffTeamMemberFixture } from '@open-mercato/core/helpers/integration/staffFixtures';
-import { deleteGeneralEntityIfExists } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { createStaffTeamFixture, createStaffTeamMemberFixture } from '@open-mercato/core/helpers/integration/staffFixtures';
+import { deleteGeneralEntityIfExists, expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
  * TC-UI-005: List search is a URL permalink on migrated DataTable backend pages (#5525)
@@ -106,3 +106,49 @@ for (const listCase of listCases) {
     }
   });
 }
+
+test('TC-UI-005: clearing Team Members filters keeps the current search', async ({ page, request }) => {
+  test.slow();
+  const token = await getAuthToken(request, 'admin');
+  const stamp = `UI005-Filters-${Date.now()}`;
+  const teamId = await createStaffTeamFixture(request, token, `Filter team ${Date.now()}`);
+  const memberIds: string[] = [];
+  const matchingMember = `${stamp} Alpha`;
+  const otherMember = `${stamp} Beta`;
+
+  try {
+    for (const displayName of [matchingMember, otherMember]) {
+      const response = await apiRequest(request, 'POST', '/api/staff/team-members', {
+        token,
+        data: { teamId, displayName },
+      });
+      expect(response.ok()).toBeTruthy();
+      const body = await readJsonSafe<{ id?: string }>(response);
+      memberIds.push(expectId(body?.id, 'Missing staff member fixture ID'));
+    }
+
+    await login(page, 'admin');
+    const params = new URLSearchParams({ teamId, search: stamp });
+    await page.goto(`/backend/staff/team-members?${params.toString()}`);
+    const main = page.getByRole('main');
+    const searchBox = main.getByRole('searchbox').first();
+
+    await expect(searchBox).toHaveValue(stamp);
+    await expectOnlyStampedRows(page, stamp, [matchingMember, otherMember], []);
+    await searchBox.fill(matchingMember);
+    await expect.poll(() => readUrlParam(page, 'search')).toBe(matchingMember);
+
+    await main.getByRole('button', { name: /^Filters/ }).first().click();
+    await page.getByRole('button', { name: 'Clear', exact: true }).first().click();
+    await expect.poll(() => readUrlParam(page, 'teamId')).toBeNull();
+    expect(readUrlParam(page, 'search')).toBe(matchingMember);
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(searchBox).toHaveValue(matchingMember);
+    await expectOnlyStampedRows(page, stamp, [matchingMember], [otherMember]);
+  } finally {
+    for (const id of memberIds) {
+      await deleteGeneralEntityIfExists(request, token, '/api/staff/team-members', id);
+    }
+    await deleteGeneralEntityIfExists(request, token, '/api/staff/teams', teamId);
+  }
+});
