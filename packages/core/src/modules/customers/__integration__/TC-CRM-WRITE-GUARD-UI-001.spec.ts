@@ -40,6 +40,9 @@ test('TC-CRM-WRITE-GUARD-UI-001: completed call edits preserve its data and reje
   const phone = dialog.locator('#schedule-call-phone')
   const schedulePickers = dialog.locator('button[aria-haspopup="dialog"]')
   const historyRow = (callTitle: string) => page.getByRole('button').filter({ hasText: callTitle }).filter({ hasText: notes })
+  const waitForCallUpdate = () => page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/api/customers/interactions' && response.request().method() === 'PUT',
+  )
 
   try {
     await login(page, 'admin')
@@ -65,18 +68,21 @@ test('TC-CRM-WRITE-GUARD-UI-001: completed call edits preserve its data and reje
       body: expect.stringContaining(notes), customValues: { callPhoneNumber: '+12125551234' },
     })
 
-    await page.getByRole('button', { name: 'Mark done', exact: true }).first().click()
+    const markDone = page.getByRole('button', { name: 'Mark done', exact: true })
+    await historyRow(title).locator(markDone).click()
     await expect.poll(async () => (await readCall(request, token, companyId!)).status).toBe('done')
     const completed = await readCall(request, token, companyId)
     expect(completed.occurredAt).toEqual(expect.any(String))
-    await historyRow(title).press('Enter')
+    await historyRow(title).filter({ hasNot: markDone }).press('Enter')
     const displayedPhone = await phone.inputValue()
     expect(displayedPhone.replace(/\D/g, '')).toMatch(/2125551234$/)
     const displayedSchedule = await schedulePickers.allTextContents()
     expect(displayedSchedule.length).toBeGreaterThanOrEqual(2)
     const editTitle = dialog.getByPlaceholder('Activity title...')
     await editTitle.fill(editedTitle)
+    const titleUpdate = waitForCallUpdate()
     await editTitle.press('ControlOrMeta+Enter')
+    expect((await titleUpdate).status()).toBe(200)
     await expect(dialog).toBeHidden()
     await page.reload()
     await page.getByRole('tab', { name: 'Activity log' }).click()
@@ -122,13 +128,14 @@ test('TC-CRM-WRITE-GUARD-UI-001: completed call edits preserve its data and reje
       })
       expect(update.status()).toBe(200)
     })
-    const conflict = page.waitForResponse(response =>
-      new URL(response.url()).pathname === '/api/customers/interactions' && response.request().method() === 'PUT',
-    )
+    const latest = await readCall(request, token, companyId)
+    expect(latest.updatedAt).not.toBe(saved.updatedAt)
+    expect(latest).toEqual({ ...saved, title: newerTitle, updatedAt: latest.updatedAt })
+    const conflict = waitForCallUpdate()
     await polishTitle.press('ControlOrMeta+Enter')
     expect((await conflict).status()).toBe(409)
     await expect(page.getByTestId('record-conflict-banner')).toBeVisible()
-    expect((await readCall(request, token, companyId)).title).toBe(newerTitle)
+    expect(await readCall(request, token, companyId)).toEqual(latest)
   } finally {
     await deleteEntityIfExists(request, token, '/api/customers/interactions', activityId)
     await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
