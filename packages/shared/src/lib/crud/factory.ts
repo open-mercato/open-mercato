@@ -11,6 +11,7 @@ import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/op
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import {
   runMutationGuards,
   bridgeLegacyGuard,
@@ -667,13 +668,7 @@ function classifyCrudError(err: unknown): { code: CrudErrorCode; pgSqlState: str
  * own built-in messages included) is left exactly as it was. See "Zod .refine()/superRefine
  * messages" in `packages/shared/AGENTS.md` for the full convention and rationale.
  */
-async function translateZodIssues(issues: z.ZodIssue[]): Promise<z.ZodIssue[]> {
-  const withI18nKey = issues.some((issue) => {
-    const params = (issue as { params?: unknown }).params
-    return !!params && typeof params === 'object' && typeof (params as Record<string, unknown>).i18nKey === 'string'
-  })
-  if (!withI18nKey) return issues
-  const { translate } = await resolveTranslations()
+function translateZodIssues(issues: z.ZodIssue[], translate: TranslateWithFallbackFn): z.ZodIssue[] {
   return issues.map((issue) => {
     const params = (issue as { params?: unknown }).params as Record<string, unknown> | undefined
     const i18nKey = typeof params?.i18nKey === 'string' ? params.i18nKey : undefined
@@ -698,7 +693,7 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
   }
   const { translate } = await resolveTranslations()
   if (err instanceof z.ZodError) {
-    return json({ error: translate('errors.invalid_input', 'Invalid input'), details: await translateZodIssues(err.issues) }, { status: 400 })
+    return json({ error: translate('errors.invalid_input', 'Invalid input'), details: translateZodIssues(err.issues, translate) }, { status: 400 })
   }
   if (isTransientDbError(err)) {
     // Transient DB unavailability (pool exhausted, `max_connections` reached, DB

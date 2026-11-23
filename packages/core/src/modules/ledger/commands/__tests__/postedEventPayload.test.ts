@@ -10,6 +10,25 @@ import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
 import { buildFakeCtx, buildFakeEm } from './support/fakeEntityManager'
 
 const registerCommand = jest.fn()
+const mockLogError = jest.fn()
+const mockReportError = jest.fn()
+const queueError = new Error('queue unavailable')
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/logger')
+  return {
+    ...actual,
+    createLogger: (namespace: string) => namespace === 'ledger:posting'
+      ? { error: mockLogError }
+      : actual.createLogger(namespace),
+  }
+})
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 const emitLedgerEvent = jest.fn(async () => undefined)
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({
@@ -79,7 +98,14 @@ const publicationCases = [
   { mode: 'inside a caller transaction', callerTransaction: true, enqueueFails: false },
 ]
 
-function expectPublication(callerTransaction: boolean, journalEntryId: string, lines: PostedLine[]) {
+function expectPublication(callerTransaction: boolean, enqueueFails: boolean, journalEntryId: string, lines: PostedLine[]) {
+  if (enqueueFails) {
+    const attributes = { journalEntryId, tenantId: TENANT, organizationId: ORG }
+    expect(mockLogError).toHaveBeenCalledWith('Failed to enqueue committed journal entry', { err: queueError, ...attributes })
+    expect(mockReportError).toHaveBeenCalledWith(queueError, { module: 'ledger', code: 'ledger.posted_event_enqueue_failed', attributes })
+  } else {
+    expect(mockReportError).not.toHaveBeenCalled()
+  }
   if (callerTransaction) {
     expect(emitLedgerEvent).not.toHaveBeenCalled()
     return
@@ -104,7 +130,7 @@ describe('ledger.journal_entry.posted', () => {
     seedReferences(em)
     const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
 
-    if (enqueueFails) emitLedgerEvent.mockRejectedValueOnce(new Error('queue unavailable'))
+    if (enqueueFails) emitLedgerEvent.mockRejectedValueOnce(queueError)
     const result = await command.execute(
       {
         organizationId: ORG,
@@ -122,7 +148,8 @@ describe('ledger.journal_entry.posted', () => {
     )
 
     const { lines } = result
-    expectPublication(callerTransaction, result.journalEntryId, lines)
+    await Promise.resolve()
+    expectPublication(callerTransaction, enqueueFails, result.journalEntryId, lines)
     expect(em.transactional).toHaveBeenCalledTimes(callerTransaction ? 0 : 1)
     expect(lines).toHaveLength(2)
     expect(lines.find((line) => line.accountId === EXPENSE)).toMatchObject({
@@ -189,14 +216,15 @@ describe('ledger.journal_entry.posted', () => {
     em.seedSequenceCounter({ organizationId: ORG, tenantId: TENANT }, 2)
     const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
 
-    if (enqueueFails) emitLedgerEvent.mockRejectedValueOnce(new Error('queue unavailable'))
+    if (enqueueFails) emitLedgerEvent.mockRejectedValueOnce(queueError)
     const result = await command.execute(
       { organizationId: ORG, tenantId: TENANT, journalEntryId: ORIGINAL_ENTRY_ID, operationDate: '2026-03-10' },
       callerTransaction ? { ...ctx, transactionalEm: em } : ctx,
     )
 
     const { lines } = result
-    expectPublication(callerTransaction, result.journalEntryId, lines)
+    await Promise.resolve()
+    expectPublication(callerTransaction, enqueueFails, result.journalEntryId, lines)
     expect(em.transactional).toHaveBeenCalledTimes(callerTransaction ? 0 : 1)
     expect(lines).toHaveLength(2)
     expect(lines.find((line) => line.accountId === EXPENSE)).toMatchObject({

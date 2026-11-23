@@ -8,8 +8,9 @@ jest.mock('@open-mercato/cache', () => ({
 // tests override `mockTranslate` to prove `handleError` actually routes a CrudHttpError body
 // through the resolved `translate()` instead of forwarding it verbatim (#5727).
 const mockTranslate = jest.fn((key: string, fallback?: string) => fallback ?? key)
+const mockResolveTranslations = jest.fn(async () => ({ t: mockTranslate, translate: mockTranslate }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: async () => ({ t: mockTranslate, translate: mockTranslate }),
+  resolveTranslations: () => mockResolveTranslations(),
 }))
 
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
@@ -1989,6 +1990,7 @@ describe('CRUD Factory', () => {
       ])
       expect(mockTranslate).toHaveBeenCalledWith('errors.invalid_input', 'Invalid input')
       expect(mockTranslate).toHaveBeenCalledWith('example.errors.amountNotWhole', 'Amount must be a whole number.')
+      expect(mockResolveTranslations).toHaveBeenCalledTimes(1)
     })
 
     it('leaves an issue with no i18nKey exactly as it was, so every schema that has not opted in keeps its verbatim message', async () => {
