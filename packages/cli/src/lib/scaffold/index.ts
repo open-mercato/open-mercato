@@ -275,6 +275,9 @@ function buildTemplateVars(options: ScaffoldOptions): TemplateVars {
     statusUnion: statusField ? emitStatusUnion(statusField) : '',
     statusMapEntries: statusField ? emitStatusMapEntries(statusField) : '',
     statusImports: '', // overridden per page below
+    dateImport: fields.some((field) => field.type === 'date')
+      ? "import { parseISO } from 'date-fns/parseISO'\n"
+      : '',
     filterTypeImport: selects.length
       ? "import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'\n"
       : '',

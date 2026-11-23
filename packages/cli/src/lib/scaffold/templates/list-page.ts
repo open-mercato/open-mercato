@@ -20,7 +20,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-{{filterTypeImport}}{{statusImports}}
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+{{dateImport}}{{filterTypeImport}}{{statusImports}}
 type {{entityPascal}}Row = {
   id: string
   updatedAt?: string | null
@@ -44,6 +45,7 @@ export default function {{entityPascal}}ListPage() {
   const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: '{{moduleId}}.list' })
   const [rows, setRows] = React.useState<{{entityPascal}}Row[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
@@ -61,6 +63,7 @@ export default function {{entityPascal}}ListPage() {
     let cancelled = false
     async function load() {
       setIsLoading(true)
+      setLoadError(null)
       try {
         const query = new URLSearchParams()
         for (const [key, value] of Object.entries(listParams)) query.set(key, String(value))
@@ -68,6 +71,7 @@ export default function {{entityPascal}}ListPage() {
         const call = await apiCall<{{entityPascal}}ListResponse>('/api/{{moduleId}}?' + query.toString(), undefined, { fallback })
         if (cancelled) return
         if (!call.ok) {
+          setLoadError(t('{{moduleId}}.list.loadError', 'Failed to load {{moduleTitleLower}}'))
           flash(t('{{moduleId}}.list.loadError', 'Failed to load {{moduleTitleLower}}'), 'error')
           return
         }
@@ -76,6 +80,10 @@ export default function {{entityPascal}}ListPage() {
         setTotal(result.total)
         setTotalPages(result.totalPages)
         setTotalIsCapped(result.totalIsCapped === true)
+      } catch (error) {
+        if (cancelled) return
+        getTelemetryRuntime()?.reportError(error, { module: '{{moduleId}}', code: '{{moduleId}}.list_load_failed' })
+        setLoadError(t('{{moduleId}}.list.loadError', 'Failed to load {{moduleTitleLower}}'))
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -137,6 +145,7 @@ export default function {{entityPascal}}ListPage() {
           columns={columns}
           data={rows}
           isLoading={isLoading}
+          error={loadError}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('{{moduleId}}.list.searchPlaceholder', 'Search {{moduleTitleLower}}')}

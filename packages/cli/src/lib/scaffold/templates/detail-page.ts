@@ -22,6 +22,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { {{entityCamel}}UpdateSchema, type {{entityPascal}}UpdateInput } from '../../../data/validators'
 {{statusImports}}import {
   {{entityUpperSnake}}_ENTITY_ID,
@@ -74,6 +75,10 @@ export default function {{entityPascal}}DetailPage({ params }: { params?: { id?:
           return
         }
         setRecord(item)
+      } catch (error) {
+        if (cancelled) return
+        getTelemetryRuntime()?.reportError(error, { module: '{{moduleId}}', code: '{{moduleId}}.detail_load_failed' })
+        setLoadError(t('{{moduleId}}.detail.loadError', 'Failed to load {{entityLower}}'))
       } finally {
         if (!cancelled) setIsLoading(false)
       }

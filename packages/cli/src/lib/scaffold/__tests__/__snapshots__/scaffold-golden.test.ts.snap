@@ -61,6 +61,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { stockItemUpdateSchema, type StockItemUpdateInput } from '../../../data/validators'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { stockItemStatusMap, type StockItemStatus } from '../../../components/statusMap'
@@ -121,6 +122,10 @@ export default function StockItemDetailPage({ params }: { params?: { id?: string
           return
         }
         setRecord(item)
+      } catch (error) {
+        if (cancelled) return
+        getTelemetryRuntime()?.reportError(error, { module: 'inventory_items', code: 'inventory_items.detail_load_failed' })
+        setLoadError(t('inventory_items.detail.loadError', 'Failed to load stock item'))
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -145,7 +150,7 @@ export default function StockItemDetailPage({ params }: { params?: { id?: string
       status: record.status ?? undefined,
       severity: record.severity,
       archived: record.archived ?? undefined,
-      dueDate: record.dueDate ? new Date(record.dueDate) : undefined,
+      dueDate: record.dueDate,
     }
   }, [record])
 
@@ -346,6 +351,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { parseISO } from 'date-fns/parseISO'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { stockItemStatusMap, type StockItemStatus } from '../../components/statusMap'
@@ -379,6 +386,7 @@ export default function StockItemListPage() {
   const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: 'inventory_items.list' })
   const [rows, setRows] = React.useState<StockItemRow[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
@@ -399,6 +407,7 @@ export default function StockItemListPage() {
     let cancelled = false
     async function load() {
       setIsLoading(true)
+      setLoadError(null)
       try {
         const query = new URLSearchParams()
         for (const [key, value] of Object.entries(listParams)) query.set(key, String(value))
@@ -406,6 +415,7 @@ export default function StockItemListPage() {
         const call = await apiCall<StockItemListResponse>('/api/inventory_items?' + query.toString(), undefined, { fallback })
         if (cancelled) return
         if (!call.ok) {
+          setLoadError(t('inventory_items.list.loadError', 'Failed to load inventory items'))
           flash(t('inventory_items.list.loadError', 'Failed to load inventory items'), 'error')
           return
         }
@@ -414,6 +424,10 @@ export default function StockItemListPage() {
         setTotal(result.total)
         setTotalPages(result.totalPages)
         setTotalIsCapped(result.totalIsCapped === true)
+      } catch (error) {
+        if (cancelled) return
+        getTelemetryRuntime()?.reportError(error, { module: 'inventory_items', code: 'inventory_items.list_load_failed' })
+        setLoadError(t('inventory_items.list.loadError', 'Failed to load inventory items'))
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -486,7 +500,7 @@ export default function StockItemListPage() {
     {
       accessorKey: 'dueDate',
       header: t('inventory_items.fields.dueDate', 'Due date'),
-      cell: ({ row }) => (row.original.dueDate ? new Date(row.original.dueDate as string).toLocaleDateString() : null),
+      cell: ({ row }) => (row.original.dueDate ? parseISO(row.original.dueDate).toLocaleDateString() : null),
     },
   ], [t])
 
@@ -530,6 +544,7 @@ export default function StockItemListPage() {
           columns={columns}
           data={rows}
           isLoading={isLoading}
+          error={loadError}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('inventory_items.list.searchPlaceholder', 'Search inventory items')}
@@ -672,7 +687,7 @@ export const stockItemCreateSchema = z.object({
   status: z.enum(['open', 'in_progress', 'closed']).optional(),
   severity: z.enum(['low', 'high']),
   archived: z.boolean().optional(),
-  dueDate: z.coerce.date(),
+  dueDate: z.string().date(),
 })
 
 export const stockItemUpdateSchema = stockItemCreateSchema.extend({
@@ -1012,6 +1027,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { noteUpdateSchema, type NoteUpdateInput } from '../../../data/validators'
 import {
   NOTE_ENTITY_ID,
@@ -1065,6 +1081,10 @@ export default function NoteDetailPage({ params }: { params?: { id?: string } })
           return
         }
         setRecord(item)
+      } catch (error) {
+        if (cancelled) return
+        getTelemetryRuntime()?.reportError(error, { module: 'notes', code: 'notes.detail_load_failed' })
+        setLoadError(t('notes.detail.loadError', 'Failed to load note'))
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -1280,6 +1300,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 type NoteRow = {
   id: string
@@ -1305,6 +1326,7 @@ export default function NoteListPage() {
   const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: 'notes.list' })
   const [rows, setRows] = React.useState<NoteRow[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
@@ -1322,6 +1344,7 @@ export default function NoteListPage() {
     let cancelled = false
     async function load() {
       setIsLoading(true)
+      setLoadError(null)
       try {
         const query = new URLSearchParams()
         for (const [key, value] of Object.entries(listParams)) query.set(key, String(value))
@@ -1329,6 +1352,7 @@ export default function NoteListPage() {
         const call = await apiCall<NoteListResponse>('/api/notes?' + query.toString(), undefined, { fallback })
         if (cancelled) return
         if (!call.ok) {
+          setLoadError(t('notes.list.loadError', 'Failed to load notes'))
           flash(t('notes.list.loadError', 'Failed to load notes'), 'error')
           return
         }
@@ -1337,6 +1361,10 @@ export default function NoteListPage() {
         setTotal(result.total)
         setTotalPages(result.totalPages)
         setTotalIsCapped(result.totalIsCapped === true)
+      } catch (error) {
+        if (cancelled) return
+        getTelemetryRuntime()?.reportError(error, { module: 'notes', code: 'notes.list_load_failed' })
+        setLoadError(t('notes.list.loadError', 'Failed to load notes'))
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -1398,6 +1426,7 @@ export default function NoteListPage() {
           columns={columns}
           data={rows}
           isLoading={isLoading}
+          error={loadError}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('notes.list.searchPlaceholder', 'Search notes')}

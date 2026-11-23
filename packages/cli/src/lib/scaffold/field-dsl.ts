@@ -222,7 +222,7 @@ function zodFragment(field: ScaffoldField): string {
     case 'checkbox':
       return field.required ? 'z.boolean()' : 'z.boolean().optional()'
     case 'date':
-      return field.required ? 'z.coerce.date()' : 'z.coerce.date().optional()'
+      return field.required ? 'z.string().date()' : 'z.string().date().optional()'
   }
 }
 
@@ -309,7 +309,7 @@ export function emitColumnLines(
         lines.push(`      accessorKey: '${field.name}',`)
         lines.push(`      header: ${header},`)
         lines.push(
-          `      cell: ({ row }) => (row.original.${field.name} ? new Date(row.original.${field.name} as string).toLocaleDateString() : null),`,
+          `      cell: ({ row }) => (row.original.${field.name} ? parseISO(row.original.${field.name}).toLocaleDateString() : null),`,
         )
         lines.push('    },')
         break
@@ -382,9 +382,6 @@ export function emitRowTypeLines(fields: ScaffoldField[], statusTypeIdent: strin
 export function emitInitialValueLines(fields: ScaffoldField[]): string {
   return fields
     .map((field) => {
-      if (field.type === 'date') {
-        return `      ${field.name}: record.${field.name} ? new Date(record.${field.name}) : undefined,`
-      }
       if (field.required) {
         return `      ${field.name}: record.${field.name},`
       }
@@ -465,7 +462,7 @@ const STATUS_VARIANT_BY_NAME: Record<string, string> = {
 }
 
 export function statusVariantFor(option: string): string {
-  return STATUS_VARIANT_BY_NAME[option] ?? 'neutral'
+  return Object.hasOwn(STATUS_VARIANT_BY_NAME, option) ? STATUS_VARIANT_BY_NAME[option] : 'neutral'
 }
 
 export function emitStatusUnion(statusField: ScaffoldField): string {
