@@ -87,8 +87,8 @@ PR: #10129
 
 Evidence: [human QA on PR #10129](https://github.com/open-mercato/open-mercato/pull/10129#issuecomment-7130508063).
 
-- [ ] 8.1 Keep the message composer usable without Attachments and reject malformed message paths (F-03, F-05, F-06)
-- [ ] 8.2 Surface the settings save error when Configs is disabled (F-08)
-- [ ] 8.3 Fit translation inputs to the viewport, label them, and keep synthetic IDs out of the indexer (F-01, F-02, F-04, F-07)
-- [ ] 8.4 Reverify nullable dictionary descriptions already restored on the branch (F-10)
+- [x] 8.1 Keep the message composer usable without Attachments and reject malformed message paths (F-03, F-05, F-06) — 1284c73388
+- [x] 8.2 Surface the settings save error when Configs is disabled (F-08) — 1284c73388
+- [x] 8.3 Fit translation inputs to the viewport, label them, and keep synthetic IDs out of the indexer (F-01, F-02, F-04, F-07) — 1284c73388
+- [x] 8.4 Reverify nullable dictionary descriptions already restored on the branch (F-10) — 601aa07186
 - [ ] 8.5 Run the validation gate, review the changes, and publish automated QA evidence
