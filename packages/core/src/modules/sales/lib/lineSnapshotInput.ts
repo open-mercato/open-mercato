@@ -16,8 +16,14 @@ export const SALES_LINE_NUMERIC_INPUT_FIELDS = [
 
 export type SalesLineNumericInputField = (typeof SALES_LINE_NUMERIC_INPUT_FIELDS)[number]
 
-type WithoutNullNumerics<T> = {
-  [K in keyof T]: K extends SalesLineNumericInputField ? Exclude<T[K], null> : T[K]
+type NullableNumericKeys<T> = {
+  [Key in keyof T]-?: Key extends SalesLineNumericInputField
+    ? null extends T[Key] ? Key : never
+    : never
+}[keyof T]
+
+type WithoutNullNumerics<T> = Omit<T, NullableNumericKeys<T>> & {
+  [Key in NullableNumericKeys<T>]?: Exclude<T[Key], null>
 }
 
 /**
