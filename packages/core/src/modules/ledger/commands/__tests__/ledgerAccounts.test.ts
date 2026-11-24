@@ -34,16 +34,16 @@ const TENANT = '22222222-2222-4222-8222-222222222222'
 const GROUP_ID = '33333333-3333-4333-8333-333333333333'
 const TYPE_ID = '44444444-4444-4444-8444-444444444444'
 
-type CreateHandler = { execute: (input: unknown, ctx: unknown) => Promise<{ ledgerAccountId: string }> }
+type AccountHandler = { execute: (input: unknown, ctx: unknown) => Promise<{ ledgerAccountId: string }> }
 
-function loadCreateCommand(): CreateHandler {
+function loadAccountCommand(commandId = 'ledger.createLedgerAccount'): AccountHandler {
   let handler: unknown
   jest.isolateModules(() => {
     require('../ledgerAccounts')
-    handler = registerCommand.mock.calls.find(([candidate]) => candidate.id === 'ledger.createLedgerAccount')?.[0]
+    handler = registerCommand.mock.calls.find(([candidate]) => candidate.id === commandId)?.[0]
   })
-  if (!handler) throw new Error('ledger.createLedgerAccount was not registered')
-  return handler as CreateHandler
+  if (!handler) throw new Error(`[internal] ${commandId} was not registered`)
+  return handler as AccountHandler
 }
 
 function seedPolishType(em: ReturnType<typeof buildFakeEm>) {
@@ -71,7 +71,7 @@ describe('ledger.createLedgerAccount — lock protocol (N1)', () => {
     seedPolishType(em)
     const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
 
-    const result = await loadCreateCommand().execute(
+    const result = await loadAccountCommand().execute(
       { organizationId: ORG, tenantId: TENANT, number: '402-05', accountTypeId: TYPE_ID },
       ctx,
     )
@@ -96,7 +96,7 @@ describe('ledger.createLedgerAccount — lock protocol (N1)', () => {
     const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
 
     await expect(
-      loadCreateCommand().execute({ organizationId: ORG, tenantId: TENANT, number: '402-05', accountTypeId: TYPE_ID }, ctx),
+      loadAccountCommand().execute({ organizationId: ORG, tenantId: TENANT, number: '402-05', accountTypeId: TYPE_ID }, ctx),
     ).rejects.toMatchObject({ status: 409, body: { error: 'An account with this number already exists for this organization.' } })
   })
 
@@ -109,7 +109,7 @@ describe('ledger.createLedgerAccount — lock protocol (N1)', () => {
     const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
 
     await expect(
-      loadCreateCommand().execute({ organizationId: ORG, tenantId: TENANT, number: '402-05', accountTypeId: TYPE_ID }, ctx),
+      loadAccountCommand().execute({ organizationId: ORG, tenantId: TENANT, number: '402-05', accountTypeId: TYPE_ID }, ctx),
     ).rejects.toBe(error)
   })
 
@@ -119,9 +119,22 @@ describe('ledger.createLedgerAccount — lock protocol (N1)', () => {
     const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
 
     await expect(
-      loadCreateCommand().execute({ organizationId: ORG, tenantId: TENANT, number: '411-01', accountTypeId: TYPE_ID }, ctx),
+      loadAccountCommand().execute({ organizationId: ORG, tenantId: TENANT, number: '411-01', accountTypeId: TYPE_ID }, ctx),
     ).rejects.toMatchObject({ status: 400 })
     expect(em.tables.get(LedgerAccount.name) ?? []).toHaveLength(0)
     expect(writeEms).toHaveLength(0)
+  })
+})
+
+describe('ledger.updateLedgerAccount — account numbering conflicts', () => {
+  it('maps the scoped account number constraint to the existing conflict response', async () => {
+    registerCommand.mockClear()
+    const em = buildFakeEm()
+    em.transactional.mockRejectedValueOnce({ cause: { code: '23505', constraint: 'ledger_accounts_scope_number_unique' } })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(
+      loadAccountCommand('ledger.updateLedgerAccount').execute({ id: GROUP_ID, number: '402-05' }, ctx),
+    ).rejects.toMatchObject({ status: 409, body: { error: 'An account with this number already exists for this organization.' } })
   })
 })
