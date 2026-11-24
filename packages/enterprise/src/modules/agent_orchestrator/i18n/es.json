@@ -387,6 +387,7 @@
   "agent_orchestrator.errors.timeout": "La ejecución del agente superó el tiempo límite antes de producir un resultado",
   "agent_orchestrator.errors.unauthorized": "No autorizado",
   "agent_orchestrator.errors.validation_failed": "La validación falló",
+  "agent_orchestrator.errors.workflowsModuleDisabled": "El módulo de flujos de trabajo no está habilitado",
   "agent_orchestrator.evalAssertions.actions.new": "Nueva regla",
   "agent_orchestrator.evalAssertions.confirmDelete.text": "¿Eliminar esta aserción? Las próximas ejecuciones dejarán de evaluarse con ella.",
   "agent_orchestrator.evalAssertions.enabled.off": "Inactiva",
