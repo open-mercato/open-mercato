@@ -95,8 +95,7 @@ test.describe('TC-CRM-072: org-scope fail-open authorization hardening (#2239 + 
         organizationId: orgAId,
         roles: [writeRoleId],
       });
-      // Grant a customers feature superset so the feature gate passes; org-scope is
-      // the only thing that can 403. Visibility=[orgA] => allowedIds=[orgA].
+      // Grant the customer features so this exercises org scope. Visibility=[orgA] => allowedIds=[orgA].
       // Set via the ACL API so the server's RBAC cache is invalidated.
       await setUserAclVisibility(request, adminToken, {
         userId: writeUserId,
@@ -115,12 +114,12 @@ test.describe('TC-CRM-072: org-scope fail-open authorization hardening (#2239 + 
       // null — the exact precondition where the OLD guard skipped the check
       // (returning 200) and the NEW guard denies because orgB ∉ allowedIds=[orgA].
 
-      // WRITE deny (#2239): update a person in orgB with no selected org => 403.
+      // WRITE deny (#2239, #7598): the out-of-scope person is indistinguishable from a missing record.
       const denyWrite = await apiRequest(request, 'PUT', '/api/customers/people', {
         token: writeToken,
         data: { id: personOrgBId, organizationId: orgBId, description: `cross-org write attempt ${stamp}` },
       });
-      expect(denyWrite.status(), 'cross-org PUT (orgB) must be forbidden (#2239)').toBe(403);
+      expect(denyWrite.status(), 'cross-org PUT (orgB) must answer not found (#2239, #7598)').toBe(404);
 
       // WRITE allow-path regression: update a person in orgA (in allowedIds) => success.
       const allowWrite = await apiRequest(request, 'PUT', '/api/customers/people', {
