@@ -588,6 +588,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
   const [optionValueDraft, setOptionValueDraft] = React.useState('')
   const [optionLabelDraft, setOptionLabelDraft] = React.useState('')
   const [optionDialogOpen, setOptionDialogOpen] = React.useState(false)
+  const optionDialogTriggerRef = React.useRef<HTMLButtonElement>(null)
   const [optionFormError, setOptionFormError] = React.useState<string | null>(null)
   const [groupDialogOpen, setGroupDialogOpen] = React.useState(false)
   const [groupDraft, setGroupDraft] = React.useState({ code: '', title: '', hint: '' })
@@ -1023,6 +1024,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                 variant="outline"
                 size="sm"
                 className="text-xs"
+                ref={optionDialogTriggerRef}
                 onClick={handleOpenOptionDialog}
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -1363,7 +1365,15 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
         if (!open) resetOptionDialog()
       }}
     >
-      <DialogContent className="max-w-sm">
+      <DialogContent
+        className="max-w-sm"
+        onCloseAutoFocus={(event) => {
+          const trigger = optionDialogTriggerRef.current
+          if (!trigger) return
+          event.preventDefault()
+          trigger.focus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{t('entities.customFields.editor.addOption', 'Add option')}</DialogTitle>
           <DialogDescription>{t('entities.customFields.editor.addOptionDescription', 'Provide the stored value and optional label shown to users.')}</DialogDescription>
