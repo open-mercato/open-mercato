@@ -16,6 +16,7 @@ import { InstanceStatusBadge } from '../../../components/run/RunStatusBadge'
 import { useLiveRunUpdates } from '../../../components/run/useLiveRunUpdates'
 import { formatElapsedSince } from '../../../lib/run-duration'
 import type { FailureGroup } from '../../../lib/failure-grouping'
+import { resolveBulkReplayStartedMessage } from '../../../lib/failure-queue-messages'
 
 const PAGE_SIZE = 50
 
@@ -118,10 +119,7 @@ export default function WorkflowFailureQueuePage() {
       return {
         ok: true,
         progressJobId: result.result.progressJobId,
-        message:
-          action === 'retry'
-            ? t('workflows.failureQueue.messages.retryStarted', 'Replay started. Track progress in the top bar.')
-            : t('workflows.failureQueue.messages.cancelStarted', 'Cancellation started. Track progress in the top bar.'),
+        message: resolveBulkReplayStartedMessage(action, result.result.progressJobId, t),
       }
     },
     [confirmDialog, t]
