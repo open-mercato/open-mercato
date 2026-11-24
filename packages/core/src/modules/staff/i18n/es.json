@@ -275,6 +275,7 @@
   "staff.leaveRequests.errors.accept": "No se pudo aprobar la solicitud de ausencia.",
   "staff.leaveRequests.errors.alreadyFinalized": "La solicitud de ausencia ya está finalizada.",
   "staff.leaveRequests.errors.forbidden": "Prohibido",
+  "staff.leaveRequests.errors.invalidDateRange": "La fecha de fin debe ser posterior a la fecha de inicio.",
   "staff.leaveRequests.errors.load": "No se pudieron cargar las solicitudes de ausencia.",
   "staff.leaveRequests.errors.notFound": "Solicitud de ausencia no encontrada.",
   "staff.leaveRequests.errors.profileLoad": "No se pudo cargar tu perfil.",
