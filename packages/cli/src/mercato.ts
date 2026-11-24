@@ -1246,7 +1246,7 @@ export async function run(argv = process.argv) {
 
       // Step 6: Restore configuration defaults
       console.log('⚙️  Restoring module defaults...')
-      await runModuleCommand(allModules, 'configs', 'restore-defaults', [])
+      await runModuleCommand(allModules, 'configs', 'restore-defaults', [], { optional: true })
       console.log('✅ Module defaults restored\n')
 
       // Step 7: Setup RBAC (tenant/org, users, ACLs)

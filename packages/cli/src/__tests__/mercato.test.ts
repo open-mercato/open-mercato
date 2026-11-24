@@ -937,11 +937,14 @@ describe('init command failure output', () => {
     consoleLogSpy.mockRestore()
   })
 
-  it('keeps init successful when lean presets disable optional modules', async () => {
+  it.each(['enabled', 'disabled', 'failing'])('handles optional configs initialization when the service is %s', async (configsMode) => {
+    const configsEnabled = configsMode !== 'disabled'
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
 
-    const configsRestoreDefaults = jest.fn().mockResolvedValue(undefined)
+    const configsRestoreDefaults = jest.fn().mockImplementation(async () => {
+      if (configsMode === 'failing') throw new Error('[internal] config defaults failed')
+    })
     const authSetup = jest.fn().mockResolvedValue(undefined)
     const authSeedRoles = jest.fn().mockResolvedValue(undefined)
     const entitiesSeedEncryption = jest.fn().mockResolvedValue(undefined)
@@ -979,10 +982,10 @@ describe('init command failure output', () => {
     jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
       bootstrapFromAppRoot: jest.fn().mockResolvedValue({
         modules: [
-          {
+          ...(configsEnabled ? [{
             id: 'configs',
             cli: [{ command: 'restore-defaults', run: configsRestoreDefaults }],
-          },
+          }] : []),
           {
             id: 'auth',
             cli: [
@@ -1017,6 +1020,15 @@ describe('init command failure output', () => {
     const mercato = await import('../mercato')
     const exitCode = await mercato.run(['node', 'mercato', 'init'])
 
+    if (configsMode === 'failing') {
+      expect(exitCode).toBe(1)
+      expect(consoleErrorSpy).toHaveBeenCalledWith('❌ Initialization failed:', '[internal] config defaults failed')
+      expect(authSetup).not.toHaveBeenCalled()
+      consoleErrorSpy.mockRestore()
+      consoleLogSpy.mockRestore()
+      return
+    }
+
     expect(exitCode).toBe(0)
     expect(consoleErrorSpy).not.toHaveBeenCalled()
     expect(consoleLogSpy).toHaveBeenCalledWith(
@@ -1031,7 +1043,12 @@ describe('init command failure output', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(
       '⏭️  Skipping "search:reindex" — module not enabled',
     )
-    expect(configsRestoreDefaults).toHaveBeenCalled()
+    expect(configsRestoreDefaults).toHaveBeenCalledTimes(configsEnabled ? 1 : 0)
+    if (!configsEnabled) {
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '⏭️  Skipping "configs:restore-defaults" — module not enabled',
+      )
+    }
     expect(authSetup).toHaveBeenCalled()
     expect(queryIndexReindex).toHaveBeenCalledWith(['--force', '--tenant', 'tenant-1'])
 
