@@ -275,6 +275,7 @@
   "staff.leaveRequests.errors.accept": "Urlaubsantrag konnte nicht genehmigt werden.",
   "staff.leaveRequests.errors.alreadyFinalized": "Der Urlaubsantrag wurde bereits abgeschlossen.",
   "staff.leaveRequests.errors.forbidden": "Zugriff verweigert",
+  "staff.leaveRequests.errors.invalidDateRange": "Das Enddatum muss nach dem Startdatum liegen.",
   "staff.leaveRequests.errors.load": "Urlaubsanträge konnten nicht geladen werden.",
   "staff.leaveRequests.errors.notFound": "Urlaubsantrag nicht gefunden.",
   "staff.leaveRequests.errors.profileLoad": "Profil konnte nicht geladen werden.",
