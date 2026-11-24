@@ -104,4 +104,26 @@ describe('runWorker', () => {
       unregisterWorkerGate('runner-test-gate')
     }
   })
+
+  it('announces the runner before process() resolves so a parked first batch still heartbeats', async () => {
+    const queue = buildFakeQueue('queue-blocked')
+    let releaseProcess: () => void = () => {}
+    ;(queue.process as jest.Mock).mockImplementation(
+      () => new Promise((resolve) => {
+        releaseProcess = () => resolve({ processed: -1, failed: -1, lastJobId: undefined })
+      }),
+    )
+    createQueueMock.mockReturnValueOnce(queue)
+    const onRunnerStarted = jest.fn()
+    registerWorkerGate({ id: 'runner-start-gate', shouldPause: () => false, onRunnerStarted })
+    try {
+      const running = runWorker({ queueName: 'queue-blocked', handler: async () => {}, background: true, gracefulShutdown: false })
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(onRunnerStarted).toHaveBeenCalledWith({ kind: 'worker', queueName: 'queue-blocked' })
+      releaseProcess()
+      await running
+    } finally {
+      unregisterWorkerGate('runner-start-gate')
+    }
+  })
 })

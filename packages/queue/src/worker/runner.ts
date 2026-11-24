@@ -191,9 +191,10 @@ export async function runWorker<T = unknown>(
 
   // Start processing. With no worker gate registered the wrapper only forwards the call;
   // a registered gate (e.g. a maintenance window) parks claimed jobs before they execute
-  // and counts executing jobs as in flight.
-  await queue.process(withWorkerGate({ kind: 'worker', queueName }, handler))
+  // and counts executing jobs as in flight. The runner is announced first: the local strategy's
+  // process() awaits its first batch, which a paused gate parks until the window ends.
   notifyWorkerRunnerStarted({ kind: 'worker', queueName })
+  await queue.process(withWorkerGate({ kind: 'worker', queueName }, handler))
 
   logger.info('Worker running', { concurrency })
 
