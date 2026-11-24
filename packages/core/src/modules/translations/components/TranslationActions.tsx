@@ -5,6 +5,8 @@ import { Languages } from 'lucide-react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { readRequestOrganizationScope } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import type { FieldDefinition } from '@open-mercato/ui/backend/custom-fields/FieldDefinitionsEditor'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -33,7 +35,13 @@ type TranslationActionProps = {
 }
 
 function TranslationAction({ label, title, description, disabled, ...managerProps }: TranslationActionProps) {
+  const t = useT()
+  const scopeVersion = useOrganizationScopeVersion()
   const [open, setOpen] = React.useState(false)
+  const requiresOrganization = open && readRequestOrganizationScope()?.organizationId === null
+  const dialogDescription = requiresOrganization
+    ? t('translations.manager.selectOrganization', 'Select a specific organization in the header to edit translations.')
+    : description
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -51,9 +59,9 @@ function TranslationAction({ label, title, description, disabled, ...managerProp
       <DialogContent className="max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          {description ? <DialogDescription>{description}</DialogDescription> : null}
+          {dialogDescription ? <DialogDescription>{dialogDescription}</DialogDescription> : null}
         </DialogHeader>
-        {open ? <TranslationManager mode="embedded" {...managerProps} /> : null}
+        {open && !requiresOrganization ? <TranslationManager key={scopeVersion} mode="embedded" {...managerProps} /> : null}
       </DialogContent>
     </Dialog>
   )

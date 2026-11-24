@@ -37,6 +37,7 @@
   "translations.manager.searchRecords": "Szukaj rekordów...",
   "translations.manager.selectEntity": "Wybierz encję",
   "translations.manager.selectFirst": "Wybierz encję i rekord, aby zarządzać tłumaczeniami.",
+  "translations.manager.selectOrganization": "Aby edytować tłumaczenia, wybierz konkretną organizację w nagłówku.",
   "translations.manager.selectRecord": "Wybierz rekord",
   "translations.manager.title": "Tłumaczenia",
   "translations.manager.translateEntry": "Przetłumacz: {{label}}",

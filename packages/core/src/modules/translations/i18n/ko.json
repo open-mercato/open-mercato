@@ -37,6 +37,7 @@
   "translations.manager.searchRecords": "레코드 검색...",
   "translations.manager.selectEntity": "엔터티 선택",
   "translations.manager.selectFirst": "번역을 관리할 엔터티와 레코드를 선택하세요.",
+  "translations.manager.selectOrganization": "번역을 편집하려면 헤더에서 특정 조직을 선택하세요.",
   "translations.manager.selectRecord": "레코드 선택",
   "translations.manager.title": "번역",
   "translations.manager.translateEntry": "번역: {{label}}",

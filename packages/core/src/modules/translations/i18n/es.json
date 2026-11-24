@@ -37,6 +37,7 @@
   "translations.manager.searchRecords": "Buscar registros...",
   "translations.manager.selectEntity": "Elegir entidad",
   "translations.manager.selectFirst": "Selecciona una entidad y un registro para gestionar las traducciones.",
+  "translations.manager.selectOrganization": "Selecciona una organización concreta en la cabecera para editar las traducciones.",
   "translations.manager.selectRecord": "Seleccionar registro",
   "translations.manager.title": "Traducciones",
   "translations.manager.translateEntry": "Traducir: {{label}}",

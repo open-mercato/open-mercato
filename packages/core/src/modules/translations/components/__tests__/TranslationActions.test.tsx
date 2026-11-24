@@ -55,6 +55,32 @@ describe('translation action contributions', () => {
     expect(mockTranslationManager).not.toHaveBeenCalled()
   })
 
+  it('prompts for a specific organization before mounting either editor in All organizations', () => {
+    document.cookie = 'om_selected_org=__all__; path=/'
+    try {
+      render(
+        <>
+          <DictionaryEntryTranslationAction
+            context={{ dictionaryId: 'dictionary-one', entry: { id: 'entry-one', label: 'Preferred customer' } }}
+          />
+          <FieldDefinitionTranslationAction
+            context={{ entityId: 'example:record', definition: { key: 'priority', kind: 'text' } }}
+          />
+        </>,
+      )
+
+      for (const name of ['Translate', 'Translate field']) {
+        fireEvent.click(screen.getByRole('button', { name, exact: true }))
+        expect(screen.getByText('Select a specific organization in the header to edit translations.')).toBeVisible()
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+      }
+
+      expect(mockTranslationManager).not.toHaveBeenCalled()
+    } finally {
+      document.cookie = 'om_selected_org=; Max-Age=0; path=/'
+    }
+  })
+
   it('maps field descriptions and option labels to their existing translation keys', () => {
     render(
       <FieldDefinitionTranslationAction
