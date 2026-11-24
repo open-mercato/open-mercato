@@ -22,11 +22,13 @@ PR #5757 delivered the deal version update and PR #5814 delivered the shared Peo
 
 ## Progress
 
+PR: #10548
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Durable deal-person links
 
-- [ ] 1.1 Preserve surviving link rows and reconcile the primary person
+- [x] 1.1 Preserve surviving link rows and reconcile the primary person — cc56ffab43
 
 ### Phase 2: Linked date and recency sort
 
