@@ -1,16 +1,6 @@
 import { headers } from 'next/headers'
 import { PayPage, type PayLinkPayload } from '../../../components/PayPage'
-
-function resolveTrustedAppUrl(requestHeaders: Headers): string | null {
-  const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL
-  if (appUrl && appUrl.trim().length > 0) {
-    return appUrl.replace(/\/$/, '')
-  }
-  const host = requestHeaders.get('host')
-  if (!host || host.trim().length === 0) return null
-  const protocol = requestHeaders.get('x-forwarded-proto') ?? 'http'
-  return `${protocol}://${host}`.replace(/\/$/, '')
-}
+import { resolveTrustedAppBaseUrl } from '../../../lib/trustedAppBaseUrl'
 
 function buildInternalRequestHeaders(requestHeaders: Headers): HeadersInit | undefined {
   const forwardedHeaders = new Headers()
@@ -29,11 +19,11 @@ async function loadInitialPayload(
   slug: string,
   options?: { preview?: boolean },
 ): Promise<{ payload: PayLinkPayload | null; error: string | null }> {
-  const requestHeaders = await headers()
-  const baseUrl = resolveTrustedAppUrl(requestHeaders)
+  const baseUrl = resolveTrustedAppBaseUrl()
   if (!baseUrl) {
     return { payload: null, error: null }
   }
+  const requestHeaders = await headers()
   const searchParams = new URLSearchParams()
   if (options?.preview) {
     searchParams.set('preview', 'true')
@@ -43,6 +33,7 @@ async function loadInitialPayload(
     const response = await fetch(requestUrl, {
       headers: buildInternalRequestHeaders(requestHeaders),
       cache: 'no-store',
+      redirect: 'error',
     })
     const payload = await response.json().catch(() => null) as PayLinkPayload | { error?: string } | null
     if (!response.ok) {
