@@ -85,6 +85,7 @@ const crud = makeCrudRoute({
     ],
     sortFieldMap: {
       displayName: F.display_name,
+      isActive: F.is_active,
       createdAt: F.created_at,
       updatedAt: F.updated_at,
     },

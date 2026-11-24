@@ -341,8 +341,7 @@ describe('HybridQueryEngine', () => {
         omitAutomaticTenantOrgScope: mode === 'fallback',
         filters,
       })).rejects.toBeInstanceOf(TypeError)
-      if (mode === 'fallback') expect(fallbackQuery).toHaveBeenCalled()
-      else expect(fallbackQuery).not.toHaveBeenCalled()
+      expect(fallbackQuery).not.toHaveBeenCalled()
     }
   })
 
@@ -1327,9 +1326,9 @@ describe('HybridQueryEngine', () => {
     const em = buildEmWithOrmMetadata(db, { FeatureToggle: 'feature_toggles' })
     const fallback = { query: jest.fn() }
     const engine = new HybridQueryEngine(em, fallback as never)
-    await engine.query('feature_toggles:feature_toggle', { tenantId: 'victim-tenant', fields: ['id', 'cf:name'], includeCustomFields: ['name'] })
+    await expect(engine.query('feature_toggles:feature_toggle', { tenantId: 'victim-tenant', fields: ['id', 'cf:name'], includeCustomFields: ['name'] })).rejects.toThrow('unscoped base table requires explicit scope opt-out')
     expect(fallback.query).not.toHaveBeenCalled()
-    expect(conditions).toContainEqual(['ei.tenant_id', 'is', null])
+    expect(conditions).toEqual([])
   })
 
   test('joins entity index aliases for customFieldSources', async () => {
@@ -1827,7 +1826,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
         baseCount: 10,
         indexCount: 10,
         customFieldKeys: {},
-        columns: [{ table_name: 'users', column_name: 'display_name' }],
+        columns: [{ table_name: 'users', column_name: 'display_name' }, { table_name: 'todos', column_name: 'tenant_id' }],
       })
       const engine = buildHybridEngine(buildEm(db))
 
@@ -2360,20 +2359,17 @@ describe('HybridQueryEngine like/ilike routing default (#5383, #5803)', () => {
 
   // The gate reads the map with `ignoreRuntimeHealth` -- a column holds ciphertext even while the
   // KMS is down -- and no other caller of `getEncryptedFieldNames` passes that option, so it is the
-  // signature that tells the gate's read apart from the decoration path's.
-  // Reading the encryption map is what SWITCHES the gate on: `searchRuntime.encryptedFields` is
-  // only populated from that read, and `buildBaseFilterExpression` sends everything through tokens
-  // while it stays nullish. Whether the read happens is therefore the query()-level signal that the
-  // per-column carve-out is active -- the routing it then drives is pinned by the
-  // `applyColumnFilter` suite above, which the fake builder cannot exercise because it never
-  // invokes Kysely's expression callbacks.
-  test('with the env var unset, query() never consults the map and every column stays on tokens', async () => {
+  // signature that tells the gate's read apart from the decoration path's. With the switch unset the
+  // map is still read, but only into `knownEncryptedFields`: `encryptedFields` stays null, so every
+  // column keeps the token rewrite and plaintext columns get the containment narrowing on top
+  // (pinned by the "plaintext narrowing" suite below).
+  test('with the env var unset, query() keeps every column on tokens but resolves the map for narrowing', async () => {
     const { engine, readEncryptedFieldNames } = buildEngine()
 
     await search(engine)
 
-    expect(readEncryptedFieldNames).not.toHaveBeenCalledWith(
-      expect.anything(), expect.anything(), expect.anything(), { ignoreRuntimeHealth: true },
+    expect(readEncryptedFieldNames).toHaveBeenCalledWith(
+      'example:todo', 't1', null, { ignoreRuntimeHealth: true },
     )
   })
 
@@ -2746,6 +2742,7 @@ test('HybridQueryEngine shares joined overlap metadata across request engines an
     customFieldKeys: {},
     columns: [
       { table_name: 'staff_team_members', column_name: 'id', data_type: 'uuid' },
+      { table_name: 'staff_team_members', column_name: 'tenant_id', data_type: 'uuid' },
       { table_name: 'staff_member_labels', column_name: 'member_id', data_type: 'uuid' },
       { table_name: 'staff_member_labels', column_name: 'labels', data_type: 'jsonb' },
     ],
@@ -2774,6 +2771,7 @@ test('HybridQueryEngine shares joined overlap metadata across request engines an
       customFieldKeys: {},
       columns: [
         { table_name: 'staff_team_members', column_name: 'id', data_type: 'uuid' },
+        { table_name: 'staff_team_members', column_name: 'tenant_id', data_type: 'uuid' },
         { table_name: 'staff_member_labels', column_name: 'member_id', data_type: 'uuid' },
         { table_name: 'staff_member_labels', column_name: 'labels', data_type: 'ARRAY' },
       ],
@@ -3213,6 +3211,27 @@ describe('HybridQueryEngine process-wide metadata caches (#2967)', () => {
     expect(chainCount(db, 'information_schema.columns')).toBe(2)
     expect(await afterMigration.columnExists('todos', 'tenant_id')).toBe(true)
     expect(chainCount(db, 'information_schema.columns')).toBe(2)
+  })
+
+  test('uses the refreshed organization column for the first query after a schema change', async () => {
+    const columns = [
+      { table_name: 'todos', column_name: 'id' },
+      { table_name: 'todos', column_name: 'tenant_id' },
+      { table_name: 'todos', column_name: 'deleted_at' },
+    ]
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 1, indexCount: 0, columns })
+    await newEngine(db).getBaseColumnsForEntity('example:todo')
+    columns.push({ table_name: 'todos', column_name: 'organization_id' })
+
+    await newEngine(db).query('example:todo', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'organization_id'],
+      sort: [{ field: 'organization_id', dir: 'asc' }],
+    })
+
+    const orders = (db._chains as ChainLog[]).flatMap((chain) => chain.orderBys)
+    expect(orders).toContainEqual(['b.organization_id', 'asc'])
   })
 
   test('does not cache the empty column map of a table that does not exist yet', async () => {
