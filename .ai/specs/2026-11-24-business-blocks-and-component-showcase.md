@@ -133,6 +133,23 @@ Each contract below becomes a TypeScript type plus a zod schema (`propsSchema`) 
 
 DataGrid stays `DataTable` until a concrete gap is shown; FormLayout starts as a documented `CrudForm` recipe; ListView, CardGrid, CommentThread, MasterDetail are extracted only when two screens need the same interaction. Gantt and Signature remain domain implementations for now.
 
+### Validation rules beyond the field lists
+
+The schemas enforce these constraints in addition to the fields listed above:
+
+- Avatar initials are at most 3 characters.
+- `disabledReason` requires `disabled: true`.
+- Each callback-gated feature requires its handler:
+  - EntityHeader actions require `onAction`.
+  - KeyValue editable items require `editor` and `onEdit`; select editors also require `options`.
+  - Timeline `hasMore` requires `onLoadMore`, item actions require `onItemAction`, and filters require `onFilterChange`.
+  - Kanban `hasMore` requires `onLoadMoreColumn`.
+- `primaryActionKey` and `activeFilterKey` must reference existing keys.
+- Ids and keys are unique within their list. Kanban card ids are unique across the whole board.
+- Wizard needs at least one step, and `activeStepId` must match a step id.
+- Stack and Inline accept `gap` values 0, 1, 2, 3, 4, 5, 6, 8, 10 and 12; `align` of start, center, end, stretch or baseline; `justify` of start, center, end or between; plus `wrap`, `className` and `children`.
+- Slots and events carry schema metadata `kind: 'slot' | 'event'` so the registry export can list them.
+
 ## Module wiring (not part of blocks)
 
 - **Reads:** TanStack Query v5 (already shipped: `packages/ui/src/theme/QueryProvider.tsx`) with `fetchCrudList`; cache keys include organization scope, as in the example `TodosTable`. One cache client.
@@ -151,7 +168,7 @@ DataGrid stays `DataTable` until a concrete gap is shown; FormLayout starts as a
 
 - **Source:** the design-system gallery. New family `blocks`. Optional, additive `GalleryEntry` fields (contract owned by the gallery spec, which gets a changelog entry): `distribution?: 'package' | 'copy'`, `files?: string[]`, `propsSchema?: ZodTypeAny`, `scenarios?: string[]`, `requires?: string[]`. `GalleryEntry` keeps `importPath` and executable `render()`; preview, public import and copyable file are separate fields.
 - **Generator:** extend `packages/create-app/scripts/generate-design-system-inventory.mjs` (already checks published package contents, public imports and preset availability) with installable sources and contracts, plus a publish export validated against the npm package contents. Storybook keeps using the same gallery reader.
-- **Inventory fields** for every component, existing ones included: data inputs, required providers, optional host services, extension points; status as public export / working example in a module / not found; separately Figma mapping, visual confirmation, installability (see `.ai/lessons/design-system-coverage-needs-a-source-inventory.md`).
+- **Inventory fields** for every component, existing ones included: data inputs, required providers, optional host services, extension points; status as public export / working example in a module / not found; separately Figma mapping, visual confirmation, installability (see `.ai/lessons/design-system-coverage-needs-a-source-inventory.md`). Phase 1 ships a hand-written seed list; the generator takes over in phase 4.
 - **JSON export:** data, slot names, event names, scenario names, links to examples; no functions. It describes installable code and is distinct from any runtime format an agent might use to generate UI on the fly.
 
 ## Public showcase `apps/design`
@@ -176,7 +193,7 @@ Nothing is removed or renamed. Existing components keep their APIs. `GalleryEntr
 
 ## Test coverage
 
-- **Boundary:** a test failing when any file under `blocks/` imports a domain module, `apiCall`, `fetch`, TanStack Query or `useGuardedMutation`.
+- **Boundary:** a test failing when any file under `blocks/` imports a domain module, `apiCall`, `fetch`, TanStack Query or `useGuardedMutation`. The guard checks direct imports only (and imported binding names), not transitive imports. Besides the data modules, it forbids the bindings `apiCallOrThrow`, `readApiResultOrThrow`, `fetchWithTimeout`, `fetchCrudList`, `useQuery`, `useQueries`, `useMutation`, `useQueryClient` and `useInfiniteQuery` from any module, and `window.fetch`, `globalThis.fetch` and `self.fetch` calls.
 - **Contract:** each block's gallery fixtures parse against its `propsSchema`; event signatures match the contract types.
 - **Scenarios:** each block renders every declared scenario; interaction tests for pending and rejection (Kanban revert, KeyValue draft kept, Wizard values kept after failed `onNext`), keyboard paths (Kanban keyboard move, Timeline focus), no horizontal overflow at 390 px.
 - **Registry:** generator output validated against its schema and against the npm package contents; docs examples build (catches imports like the missing `DataGrid`).
@@ -197,7 +214,7 @@ Nothing is removed or renamed. Existing components keep their APIs. `GalleryEntr
 
 ## Implementation phases
 
-1. **Contracts:** shared types, five family contracts as TS types and zod schemas, boundary test, inventory fields for existing components, fix `data-grids.mdx`.
+1. **Contracts:** shared types, five family contracts plus Stack/Inline as TS types and zod schemas, boundary test, a seed portability inventory (8 audited components) in `packages/ui/src/blocks/inventory`, to be moved into the inventory generator in phase 4, fix `data-grids.mdx`.
 2. **Blocks:** implement EntityHeader, KeyValue, Timeline, Wizard, Stack/Inline in `blocks/` with gallery entries and scenarios; Figma mapping approved per block before code.
 3. **Kanban:** reconcile CRM and Staff boards into the contract, Figma design approval, then implementation.
 4. **Registry and CLI:** extend the inventory generator, JSON export, `mercato ui add` with lock and diff.
@@ -213,4 +230,6 @@ Nothing is removed or renamed. Existing components keep their APIs. `GalleryEntr
 
 ## Changelog
 
+- 2026-11-24: Phase 1 implemented: contracts in `packages/ui/src/blocks/contracts`, import-boundary test, portability inventory in `packages/ui/src/blocks/inventory`, `data-grids.mdx` fixed.
+- 2026-11-24: Documented validation rules enforced by the phase 1 contracts.
 - 2026-11-24: Initial draft.
