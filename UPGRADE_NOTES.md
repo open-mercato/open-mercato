@@ -18,6 +18,8 @@ These changes close row-level leaks and wrong results in the shared CRUD factory
 
 ## Relation options and explicit global query scope (#9106)
 
+Generic relation lookups for Staff time projects, tasks, and reports return 403. These records have dedicated access rules, so custom pickers should load options through the Staff timesheet APIs and adapt the authorized records to option values and labels. Review existing relation field `optionsUrl` settings for these targets before upgrading. Stored relation values remain available to the owning modules.
+
 Relation-option lookups now require the target entity's existing read authority, refuse platform-only and undeclared system targets, and accept only server-declared or fixed safe label fields. Clients should omit `labelField` or choose a declared label rather than request arbitrary columns. Lookup batches are capped at 100; split larger ID lists. Authorized callers can read scoped custom labels and declared module labels. Every first-party system entity declared in a `ce.ts` maps to its own module's view feature; third-party declared system targets without a mapped read feature require a superadmin.
 
 For stored relation fields, edit the field configuration and remove the `labelField` query parameter from the existing `optionsUrl` to use the target’s default label. Keep the other query parameters. If the field needs a specific label, use a label declared by the owning module or the custom entity definition.

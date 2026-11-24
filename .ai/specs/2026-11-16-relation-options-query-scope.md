@@ -20,7 +20,7 @@ Relation lookup resolves the trusted request organization scope once. Classifica
 
 Basic and hybrid base-table paths refuse tables with neither `tenant_id` nor `organization_id`, before business reads, coverage or decryption. The existing `omitAutomaticTenantOrgScope: true` is the explicit opt-in; hybrid retains its established basic-engine delegation for this flag. Custom document storage keeps its existing tenant isolation. No new query option, dependency or configuration is required.
 
-The release backport resolves optional, entity-specific record policies from the request container. Time-entry lookup applies both the Staff self-scope interceptor and project-access filters at the database. Attachment lookup scans tenant- and organization-scoped candidate IDs and applies the owning metadata policy before running label search or projection against the authorized IDs. These two targets use base-table queries with explicit tenant and organization predicates. A missing owner policy fails closed.
+Relation lookup requires a record policy for attachments and for Staff time entries, projects, tasks, and reports. It identifies these targets by their registered ORM table and requires the canonical entity ID. Time-entry lookup applies the Staff self-scope interceptor and project-access filters. Attachment lookup authorizes metadata for tenant- and organization-scoped IDs before searching or projecting their labels. Both paths use explicit tenant and organization predicates. Staff project, task, and report lookups return 403 until they have an owning relation policy.
 
 ## Data models
 
@@ -41,6 +41,7 @@ This is the security tightening requested by #9106. Unsafe arbitrary-column read
 ## Integration coverage
 
 - Focused route tests: sensitive/undeclared/platform targets, own-view denial, restricted custom ACL, unsafe fields, scoped queries, safe route context, unknown ids and third-party labels.
+- The relation HTTP security scenario checks denial for Staff projects, tasks, and reports with their module view grants. Focused tests also cover missing owner policies and declared aliases of protected tables.
 - `global-scope.pg.test.ts`, gated by the existing `OM_COUNT_CAP_PG_URL` throwaway-database convention: both real SQL engines reject global reads by default, accept explicit opt-out, and exclude a second tenant's labels.
 - `TC-ENTITIES-9106-relation-options-security.spec.ts`: self-created metadata-only role/user and custom entity/record, real authentication, system/feature denial, permitted labels and unsafe field rejection, with teardown. Requires a running test app; execution status belongs to validation evidence.
 - The same spec creates a product and a portal user and checks the default label, the existing configured selector, and name search through the relation-options API.
@@ -57,6 +58,8 @@ Implicit global callers now fail instead of reading all tenants. Explicit opt-ou
 Uses existing classification, ACL, encryption read helpers and scope controls. No migrations, dependencies or configuration changes. Staff and Attachments register their own relation-read policies without a dependency from Entities on either module. Runtime integration and full-gate results are recorded in PR evidence; manual QA and independent parent review are not asserted here.
 
 ## Changelog
+
+- 2026-11-24: Require owning record policy for each protected relation target and deny Staff project, task, and report options while their policies are unavailable.
 
 - 2026-11-24: Apply owner record-read policies to time-entry and attachment labels. Cover missing policy, Staff filters and attachment owner denial in focused tests.
 - 2026-11-20: Repair inherited QA F1 by sharing the existing trusted request organization scope across relation classification, target ACL, definition lookup and data reads. Add focused denied/empty/finite-scope regressions and native HTTP coverage; preserve named compatibility acceptance and personal protected QA requirements.

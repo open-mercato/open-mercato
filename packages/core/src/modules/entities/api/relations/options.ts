@@ -28,7 +28,13 @@ export const metadata = {
 }
 
 const ALLOWED_ROUTE_CONTEXT_FIELDS = new Set(['kind', 'entity_id', 'product_id'])
-const RECORD_POLICY_TARGETS = new Set(['staff:staff_time_entry', 'attachments:attachment'])
+const RECORD_POLICY_TARGETS = new Map([
+  ['attachments', 'attachments:attachment'],
+  ['staff_time_entries', 'staff:staff_time_entry'],
+  ['staff_time_projects', 'staff:staff_time_project'],
+  ['staff_time_reports', 'staff:staff_time_report'],
+  ['staff_time_tasks', 'staff:staff_time_task'],
+])
 const DEFAULT_LABEL_FIELDS = ['name', 'title', 'code', 'email', 'id']
 
 const logger = createLogger('entities')
@@ -88,6 +94,10 @@ export async function GET(req: Request) {
     logger.warn('Relation options requested for an unresolvable entity id', { entityId })
     return NextResponse.json({ items: [] })
   }
+  const policyTarget = classification.kind === 'system' && registeredTable
+    ? RECORD_POLICY_TARGETS.get(registeredTable)
+    : undefined
+  if (policyTarget && policyTarget !== entityId) return forbidden()
 
   const rbac = container.resolve('rbacService') as RbacService
   if (classification.kind === 'custom' && !(await rbac.userHasAllFeatures(
@@ -109,6 +119,11 @@ export async function GET(req: Request) {
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     throw error
   }
+
+  const resolveAccess = policyTarget
+    ? container.resolve<RelationOptionAccess>(relationOptionAccessKey(policyTarget), { allowUnregistered: true })
+    : undefined
+  if (policyTarget && !resolveAccess) return forbidden()
 
   const customEntity = await findOneWithDecryption(em, CustomEntity, {
     entityId,
@@ -165,9 +180,7 @@ export async function GET(req: Request) {
     page: { page: 1, pageSize },
   }
   let rows: Record<string, unknown>[]
-  if (classification.kind === 'system' && RECORD_POLICY_TARGETS.has(entityId)) {
-    const resolveAccess = container.resolve<RelationOptionAccess>(relationOptionAccessKey(entityId), { allowUnregistered: true })
-    if (!resolveAccess) return forbidden()
+  if (resolveAccess) {
     const tenantId = scope.tenantId
     const organizationIds = scope.organizationId
       ? [scope.organizationId]
