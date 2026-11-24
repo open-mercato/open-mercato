@@ -233,6 +233,7 @@ export default function SignInActivityPage() {
             page: data?.page ?? (Number(params.get('page')) || 1),
             pageSize,
             total: data?.total ?? 0,
+            totalIsCapped: false,
             totalPages: data?.totalPages ?? 1,
             onPageChange: (page) => {
               const next = new URLSearchParams(params)

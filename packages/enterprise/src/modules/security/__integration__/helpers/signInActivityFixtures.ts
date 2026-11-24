@@ -151,8 +151,10 @@ export async function getOwnActivity(request: APIRequestContext, token: string) 
 }
 
 export async function expectActivityCount(request: APIRequestContext, token: string, query: Record<string, string>, count: number) {
-  await drainIntegrationQueue('events')
-  await expect.poll(async () => (await getActivity(request, token, query)).total, { timeout: 10_000 }).toBe(count)
+  await expect.poll(async () => {
+    await drainIntegrationQueue('events')
+    return (await getActivity(request, token, query)).total
+  }, { timeout: 10_000 }).toBe(count)
   return (await getActivity(request, token, query)).items
 }
 
