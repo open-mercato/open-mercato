@@ -885,6 +885,30 @@ describe('CRUD Factory', () => {
     } as any,
   })
 
+  it.each(['secret_column', 'toString', 'constructor', '__proto__'])(
+    'GET ignores unmapped ordinary sort field %s when a map is configured',
+    async (sortField) => {
+      const response = await makeSortedRoute({ defaultSort: { field: 'lineNumber', dir: 'asc' } }).GET(
+        new Request(`http://x/api/example/todos?sortField=${sortField}&sortDir=desc`),
+      )
+
+      expect(response.status).toBe(200)
+      expect(queryEngine.query.mock.calls.at(-1)?.[1]?.sort).toEqual([
+        { field: 'line_number', dir: 'asc' },
+      ])
+    },
+  )
+
+  it('GET preserves raw ordinary sort fields when no map is configured', async () => {
+    await makeSortedRoute({ sortFieldMap: undefined }).GET(
+      new Request('http://x/api/example/todos?sortField=created_at&sortDir=desc'),
+    )
+
+    expect(queryEngine.query.mock.calls.at(-1)?.[1]?.sort).toEqual([
+      { field: 'created_at', dir: 'desc' },
+    ])
+  })
+
   it('GET forwards list.decryptEncryptedFields=false to the query engine (#5430)', async () => {
     await makeSortedRoute({ decryptEncryptedFields: false }).GET(
       new Request('http://x/api/example/todos?page=1&pageSize=10'),
@@ -1299,6 +1323,31 @@ describe('CRUD Factory', () => {
     }))
     const lastQueryCall = queryEngine.query.mock.calls.at(-1)
     expect(lastQueryCall?.[1]?.filters).toEqual({ tenant_id: { $eq: '123e4567-e89b-12d3-a456-426614174000' } })
+  })
+
+  it('GET applies row-level buildFilters on a full export for ordinary routes (#9015)', async () => {
+    const ownRowsOnly = jest.fn((_query: z.infer<typeof querySchema>, ctx: CrudCtx) => ({
+      created_by: { $eq: ctx.auth?.sub ?? null },
+    }))
+    const ownRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      list: {
+        schema: querySchema,
+        entityId: 'example.todo',
+        fields: ['id', 'title', 'is_done'],
+        sortFieldMap: { id: 'id' },
+        buildFilters: ownRowsOnly,
+      },
+    })
+
+    const res = await ownRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full&title=ignored'))
+    expect(res.status).toBe(200)
+    expect(ownRowsOnly).toHaveBeenCalledTimes(1)
+    expect(ownRowsOnly.mock.calls[0]?.[0]).not.toHaveProperty('title')
+    const lastQueryCall = queryEngine.query.mock.calls.at(-1)
+    expect(lastQueryCall?.[1]?.filters).toEqual({ created_by: { $eq: expect.anything() } })
   })
 
   describe('afterList hook ordering on the export paths', () => {

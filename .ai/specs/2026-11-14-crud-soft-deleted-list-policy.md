@@ -10,7 +10,7 @@ The CRUD factory previously forwarded a raw query parameter even when the route 
 
 ## Proposed solution and architecture
 
-Keep the existing factory, query engines, and organization/tenant scope. Add optional `ListConfig.allowWithDeleted?: boolean`, defaulting to false. Only an enabled route interprets a true boolean token as permission to include deleted rows. Apply the same policy to list exports and the ORM fallback. Include the effective deletion visibility after interception in the cache key so permissive or pre-fix entries cannot populate default-hidden responses. The generic records endpoint always passes `withDeleted: false`.
+Keep the existing factory, query engines, and organization/tenant scope. Add optional `ListConfig.allowWithDeleted?: boolean`, defaulting to false. Only an enabled route interprets a true boolean token as permission to include deleted rows. Apply the same policy to list exports and the ORM fallback. Include the policy in the cache key so permissive or pre-fix entries cannot populate default-hidden responses. The generic records endpoint always passes `withDeleted: false`.
 
 ## Data models and API contracts
 
@@ -33,7 +33,7 @@ Deleted-row recovery routes must explicitly opt in. Cache isolation prevents sta
 
 ## Coverage and final compliance
 
-`crud-factory.test.ts` exercises real factory GET handlers for default-denied and opted-in reads, boolean tokens, schema-only declarations, exports, ORM fallback, and cache isolation. `records.get.custom-entity.test.ts` exercises generic lists and full exports, asserting false deletion visibility and retained tenant scope. The PostgreSQL fixture in `deleted-list-scope.integration.test.ts` covers authenticated default and opted-in ORM lists, opted-in full export, and unauthenticated refusal with persisted live and deleted rows in separate tenant and organization scopes. Run it with `yarn workspace @open-mercato/shared test:pg-integration`. No UI rendering changes require browser evidence.
+`crud-factory.test.ts` exercises real factory GET handlers for default-denied and opted-in reads, boolean tokens, schema-only declarations, exports, ORM fallback, and cache isolation. `records.get.custom-entity.test.ts` exercises generic lists and full exports, asserting false deletion visibility and retained tenant scope. The PostgreSQL fixture in `deleted-list-scope.integration.test.ts` covers authenticated default and opted-in ORM lists, opted-in full export, and unauthenticated refusal with persisted records across tenant and organization scopes. Run it with `yarn workspace @open-mercato/shared test:pg-integration`. The entity records regression also checks that full JSON exports exclude deleted rows.
 
 ## Changelog
 

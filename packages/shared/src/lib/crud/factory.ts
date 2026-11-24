@@ -49,6 +49,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import {
   buildCollectionTags,
+  buildTranslationOverlayTag,
   buildRecordTag,
   canonicalizeResourceTag,
   debugCrudCache,
@@ -84,7 +85,7 @@ import {
   parsePendingOperationCapacity,
   type BoundedPendingOperationTracker,
 } from '../telemetry/pending'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { NotFoundError as MikroOrmNotFoundError, ValidationError as MikroOrmValidationError } from '@mikro-orm/core'
 
 type RbacServiceLike = {
@@ -226,6 +227,7 @@ export type ListConfig<TList> = {
   // fetching and decrypting blobs the list never renders (#2233).
   entityId?: any
   fields?: any[] | ((query: TList, ctx: CrudCtx) => any[])
+  /** Ordinary requested sort fields must be own keys; dynamic custom-field selectors remain supported. */
   sortFieldMap?: Record<string, any>
   /**
    * Sort used when the request carries no `sortField` / `sort` param. The field is
@@ -298,6 +300,13 @@ export type ListConfig<TList> = {
   decryptEncryptedFields?: boolean
   /** When true, skip server-side CRUD GET cache for this list (avoids stale empty payloads after mutations). */
   disableListCache?: boolean
+  /**
+   * Per-request list-cache partition for scope that `buildFilters` derives from state the
+   * cache key cannot see (memberships, dates, the caller's features). Return a string to add
+   * it to the cache key, `undefined` to keep the default key, or `null` to bypass the cache
+   * for this request. Runs only when the list cache is enabled for the request.
+   */
+  cacheScope?: (query: TList, ctx: CrudCtx) => string | null | undefined | Promise<string | null | undefined>
 }
 
 export type CrudExportColumnConfig = {
@@ -1101,14 +1110,51 @@ function serializeSearchParams(params: URLSearchParams): string {
   return JSON.stringify(normalized)
 }
 
+function resolveOverlayLocale(request: Request): string | null {
+  try {
+    const { overlay, resolveLocale } = getTranslationOverlayPlugin()
+    if (!overlay || !resolveLocale) return null
+    return resolveLocale(request) ?? null
+  } catch {
+    return null
+  }
+}
+
+function toCacheSearchParams(query: Record<string, unknown>): URLSearchParams {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null) continue
+    const values = Array.isArray(value) ? value : [value]
+    for (const entry of values) {
+      params.append(key, typeof entry === 'object' ? JSON.stringify(entry) : String(entry))
+    }
+  }
+  return params
+}
+
+type CrudCacheKeyOptions = {
+  enricherSignature?: string
+  allowWithDeleted?: boolean
+  localizesEntities?: boolean
+  locale?: string | null
+  interceptorQuery?: Record<string, unknown> | null
+  routeScope?: string
+}
+
 function buildCrudCacheKey(
   resource: string,
   request: Request,
   ctx: CrudCtx,
-  enricherSignature = '',
-  localizesEntities = false,
-  withDeleted = false,
+  options: CrudCacheKeyOptions = {},
 ): string {
+  const {
+    enricherSignature = '',
+    allowWithDeleted = false,
+    localizesEntities = false,
+    locale = null,
+    interceptorQuery = null,
+    routeScope = '',
+  } = options
   const url = new URL(request.url)
   const scopeIds = collectScopeOrganizationIds(ctx)
   const scopeSegment = scopeIds.length
@@ -1129,7 +1175,7 @@ function buildCrudCacheKey(
     // per actor (API key or user), never shared across identities.
     `user:${normalizeTagSegment((ctx.auth?.keyId ?? ctx.auth?.sub) ?? null)}`,
     `query:${serializeSearchParams(url.searchParams)}`,
-    `deletedPolicy:${withDeleted ? 'allowed' : 'hidden'}`,
+    `deletedPolicy:${allowWithDeleted ? 'allowed' : 'hidden'}`,
   ]
   if (Array.from(url.searchParams.keys()).some((key) => key.startsWith('filter['))) {
     segments.push('advancedFilters:intersection-v1')
@@ -1144,7 +1190,14 @@ function buildCrudCacheKey(
   if (enricherSignature) {
     segments.push(`enrichers:${normalizeTagSegment(enricherSignature)}`)
   }
-  if (localizesEntities) segments.push('localization:registered-fields-v1')
+  if (localizesEntities) {
+    segments.push('localization:registered-fields-v1')
+    segments.push(`locale:${locale ? normalizeTagSegment(locale) : 'none'}`)
+  }
+  if (interceptorQuery) {
+    segments.push(`interceptorQuery:${serializeSearchParams(toCacheSearchParams(interceptorQuery))}`)
+  }
+  if (routeScope) segments.push(`routeScope:${createHash('sha256').update(routeScope).digest('hex').slice(0, 32)}`)
   return segments.join('|')
 }
 
@@ -1737,6 +1790,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       const interceptorRequest = beforeInterceptors.requestPayload
       const interceptorMetadata = beforeInterceptors.metadataByInterceptor
+      const interceptorRewroteQuery = interceptorRequest.query !== undefined
+        && JSON.stringify(interceptorRequest.query) !== JSON.stringify(cleanInterceptorObject(validated as Record<string, unknown>))
       if (interceptorRequest.query) {
         validated = opts.list.schema.parse(interceptorRequest.query)
       }
@@ -1764,34 +1819,37 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const exportFullRequested = exportRequested && (exportScope === 'full' || parseBooleanToken((queryParams as any).full) === true)
       profiler.mark('export_configured', { exportRequested, exportFullRequested })
 
-      // A full export still owes the route's own visibility predicate. Routes with
-      // `omitAutomaticTenantOrgScope` own their entire scope inside `buildFilters` — the
-      // query engine/ORM fallback add no tenant/org predicate of their own for them — so
-      // dropping to `{}` here would leak every tenant's rows (#7806). Re-run `buildFilters`
-      // with an empty query so only its scope branches apply, not the caller's UI filters.
+      // A full export still owes the route's own visibility predicate (#7806, #9015):
+      // `buildFilters` carries row-level scope (own records, membership, deny-all), so it
+      // always runs. It sees an empty query so only its scope branches apply, not the
+      // caller's UI filters — unless a before-interceptor rewrote the query, in which case
+      // that rewrite may itself be the scope and the validated query is kept.
       const resolveFullExportBaseFilters = async () => {
-        if (opts.list?.omitAutomaticTenantOrgScope && opts.list.buildFilters) {
-          return opts.list.buildFilters({} as TList, ctx)
-        }
-        return {} as Where<Record<string, unknown>>
+        if (!opts.list?.buildFilters) return {} as Where<Record<string, unknown>>
+        if (interceptorRewroteQuery) return opts.list.buildFilters(validated as TList, ctx)
+        return opts.list.buildFilters({} as TList, ctx)
       }
 
-      const cacheEnabled =
+      const cacheCandidate =
         isCrudCacheEnabled() && !exportRequested && !opts.list?.disableListCache
+      const routeCacheScope = cacheCandidate && opts.list.cacheScope
+        ? await opts.list.cacheScope(validated as TList, ctx)
+        : undefined
+      const cacheEnabled = cacheCandidate && routeCacheScope !== null
       const cacheTimerStart = cacheEnabled && isCrudCacheDebugEnabled()
         ? process.hrtime.bigint()
         : null
       const cache = cacheEnabled ? resolveCrudCache(ctx.container) : null
       const enricherCachePlan = cacheEnabled ? await resolveListCachePlan(ctx) : NO_ENRICHER_CACHE_PLAN
       const cacheKey = cacheEnabled
-        ? buildCrudCacheKey(
-            resourceKind,
-            request,
-            ctx,
-            enricherCachePlan.signature,
-            Boolean(opts.list?.entityId),
-            withDeleted,
-          )
+        ? buildCrudCacheKey(resourceKind, request, ctx, {
+          enricherSignature: enricherCachePlan.signature,
+          allowWithDeleted: opts.list.allowWithDeleted === true,
+          localizesEntities: Boolean(opts.list?.entityId),
+          locale: opts.list?.entityId ? resolveOverlayLocale(request) : null,
+          interceptorQuery: interceptorRewroteQuery ? interceptorRequest.query ?? null : null,
+          routeScope: routeCacheScope ?? '',
+        })
         : null
       let cacheStatus: 'hit' | 'miss' = 'miss'
       let cachedValue: CrudCacheStoredValue | null = null
@@ -1827,6 +1885,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           for (const target of resourceTargets) {
             tags.add(buildRecordTag(target, tenantForScope, recordId))
           }
+        }
+        if (opts.list?.entityId) {
+          tags.add(buildTranslationOverlayTag(String(opts.list.entityId), tenantForScope))
         }
         if (crudSegment) {
           tags.add(`crud:segment:${crudSegment}`)
@@ -1979,13 +2040,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         profiler.mark('query_engine_resolved')
         const sortFieldMap = opts.list.sortFieldMap
         const resolveSortSelector = (field: string) => {
-          const mapped = (sortFieldMap && sortFieldMap[field]) || field
+          const mapped = sortFieldMap && Object.hasOwn(sortFieldMap, field) ? sortFieldMap[field] : field
           return typeof mapped === 'string' ? normalizeSortFieldSelector(mapped) : mapped
         }
-        const { sortField: sortFieldRaw, sortDir: sortDirRaw } = resolveSortParams(
+        const requestedSort = resolveSortParams(
           queryParams as Record<string, unknown>,
           opts.list.defaultSort,
         )
+        const requestedField = requestedSort.sortField
+        const hasExplicitSort = [queryParams.sortField, queryParams.sort].some(
+          (value) => typeof value === 'string' && value.trim().length > 0,
+        )
+        const isMappedSort = !sortFieldMap || Object.hasOwn(sortFieldMap, requestedField)
+        const isCustomSort = /^(?:cf_|cf:)[a-zA-Z0-9_]+$/.test(requestedField)
+        const { sortField: sortFieldRaw, sortDir: sortDirRaw } =
+          hasExplicitSort && !isMappedSort && !isCustomSort
+            ? resolveSortParams({}, opts.list.defaultSort)
+            : requestedSort
         const sortField = resolveSortSelector(sortFieldRaw)
         const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
         if (opts.list.tiebreakSortField) {

@@ -640,6 +640,7 @@ const crud = makeCrudRoute({
       sku: F.sku,
       createdAt: F.created_at,
       updatedAt: F.updated_at,
+      updated_at: F.updated_at,
     },
     buildFilters: buildProductFilters,
     transformItem: (item: ProductListItem | null | undefined) => {
