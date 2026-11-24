@@ -15,13 +15,13 @@ import {
 
 describe('infinispan key layout', () => {
   it('fences entries and tag shards under the versioned namespace prefix', () => {
-    expect(entryKey('prod-eu', 'tenant:t1:key:k:abc')).toBe('prod-eu:v1:k:tenant:t1:key:k:abc')
-    expect(tagShardKey('prod-eu', 'tenant:t1:tag:x', 3, 16)).toBe('prod-eu:v1:t:16:3:tenant:t1:tag:x')
-    expect(physicalKeyFromEntryKey('prod-eu', 'prod-eu:v1:k:a:b')).toBe('a:b')
-    expect(physicalKeyFromEntryKey('prod-eu', 'prod-eu-2:v1:k:a:b')).toBeNull()
-    expect(isNamespaceKey('prod', 'prod:v1:t:1:0:x')).toBe(true)
-    expect(isNamespaceKey('prod', 'production:v1:k:x')).toBe(false)
-    expect(tagShardKeysFor('ns', 'tag', 3)).toEqual(['ns:v1:t:3:0:tag', 'ns:v1:t:3:1:tag', 'ns:v1:t:3:2:tag'])
+    expect(entryKey('prod-eu', 'tenant:t1:key:k:abc')).toBe('prod-eu:v2:k:tenant:t1:key:k:abc')
+    expect(tagShardKey('prod-eu', 'tenant:t1:tag:x', 3, 16)).toBe('prod-eu:v2:t:16:3:tenant:t1:tag:x')
+    expect(physicalKeyFromEntryKey('prod-eu', 'prod-eu:v2:k:a:b')).toBe('a:b')
+    expect(physicalKeyFromEntryKey('prod-eu', 'prod-eu-2:v2:k:a:b')).toBeNull()
+    expect(isNamespaceKey('prod', 'prod:v2:t:1:0:x')).toBe(true)
+    expect(isNamespaceKey('prod', 'production:v2:k:x')).toBe(false)
+    expect(tagShardKeysFor('ns', 'tag', 3)).toEqual(['ns:v2:t:3:0:tag', 'ns:v2:t:3:1:tag', 'ns:v2:t:3:2:tag'])
   })
 
   it('maps keys to stable shards within range', () => {

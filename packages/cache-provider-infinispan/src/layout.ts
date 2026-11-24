@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-export const LAYOUT_VERSION = 'v1'
+export const LAYOUT_VERSION = 'v2'
 export const RECORD_FORMAT = 1
 
 export type EntryRecord = {
@@ -42,6 +42,28 @@ export function physicalKeyFromEntryKey(namespace: string, storedKey: string): s
 
 export function isNamespaceKey(namespace: string, storedKey: string): boolean {
   return storedKey.startsWith(namespacePrefix(namespace))
+}
+
+const TENANT_SCOPE_TAG = /^(tenant:[^:]+:)tag:__scope__$/
+
+/**
+ * Physical-key prefix whose entries all carry `tag` when `tag` is the host
+ * wrapper's tenant scope tag (`tenant:<id>:tag:__scope__` → `tenant:<id>:key:`),
+ * otherwise null. Such memberships are resolved by a prefix scan instead of the
+ * tag index, so the index never grows with tenant cardinality.
+ */
+export function scopeTagKeyPrefix(tag: string): string | null {
+  const match = TENANT_SCOPE_TAG.exec(tag)
+  return match ? `${match[1]}key:` : null
+}
+
+export function isIndexedMembership(tag: string, physicalKey: string): boolean {
+  const prefix = scopeTagKeyPrefix(tag)
+  return prefix === null || !physicalKey.startsWith(prefix)
+}
+
+export function indexedTags(physicalKey: string, tags: ReadonlyArray<string>): string[] {
+  return tags.filter((tag) => isIndexedMembership(tag, physicalKey))
 }
 
 export function tagShardIndex(physicalKey: string, shards: number): number {

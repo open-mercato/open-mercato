@@ -42,11 +42,11 @@ export const infinispanSettingsSchema = z.object({
   maxValueBytes: z.number().int().min(1_024).max(64 * 1024 * 1024).default(4 * 1024 * 1024),
   indexPruneGraceMs: z.number().int().min(1_000).max(24 * 60 * 60 * 1000).default(120_000),
 }).strict().superRefine((config, context) => {
-  if (config.indexPruneGraceMs < config.commandTimeoutMs * 4) {
+  if (config.indexPruneGraceMs < config.commandTimeoutMs * 6) {
     context.addIssue({
       code: 'custom',
       path: ['indexPruneGraceMs'],
-      message: 'indexPruneGraceMs must be at least four times commandTimeoutMs',
+      message: 'indexPruneGraceMs must be at least six times commandTimeoutMs',
     })
   }
 })

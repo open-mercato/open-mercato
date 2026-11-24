@@ -14,7 +14,7 @@ const baseSettings = {
   auth: { username: 'u', password: 'p' },
   commandTimeoutMs: 200,
   connectTimeoutMs: 200,
-  indexPruneGraceMs: 1_000,
+  indexPruneGraceMs: 1_200,
   tagIndexShards: 4,
   iteratorBatchSize: 64,
 }
@@ -39,7 +39,7 @@ describe('infinispan strategy (in-memory Hot Rod fake, logic only)', () => {
     expect(store.entries.get(entryKey('unit', 'k1'))?.expiresAt).not.toBeNull()
     const shard = store.raw(tagShardKey('unit', 't1', tagShardIndex('k1', 4), 4))
     expect(shard).toContain('"k1"')
-    for (const key of store.entries.keys()) expect(key.startsWith('unit:v1:')).toBe(true)
+    for (const key of store.entries.keys()) expect(key.startsWith('unit:v2:')).toBe(true)
     await strategy.close()
   })
 
@@ -80,6 +80,36 @@ describe('infinispan strategy (in-memory Hot Rod fake, logic only)', () => {
     expect(await strategy.get('k')).toBe(2)
     expect(await strategy.deleteByTags(['b'])).toBe(1)
     expect(Array.from(store.entries.keys())).toEqual([])
+    await strategy.close()
+  })
+
+  it('resolves the tenant scope tag by prefix scan instead of the tag index', async () => {
+    const store = createFakeHotRodStore()
+    const strategy = strategyFor(store, 'scope')
+    const scope = 'tenant:t1:tag:__scope__'
+    for (let index = 0; index < 150; index++) {
+      await strategy.set(`tenant:t1:key:k:${index}`, index, { tags: [scope, 'tenant:t1:tag:t:x'] })
+    }
+    await strategy.set('tenant:t2:key:k:0', 'other', { tags: ['tenant:t2:tag:__scope__'] })
+    await strategy.set('outside', 'indexed', { tags: [scope] })
+    const shardKeys = Array.from(store.entries.keys()).filter((key) => key.startsWith('scope:v2:t:'))
+    expect(shardKeys.some((key) => key.endsWith(':tenant:t1:tag:t:x'))).toBe(true)
+    expect(shardKeys.filter((key) => key.endsWith(scope))).toEqual([tagShardKey('scope', scope, tagShardIndex('outside', 4), 4)])
+    expect(await strategy.deleteByTags([scope])).toBe(151)
+    expect(await strategy.get('outside')).toBeNull()
+    expect(await strategy.get('tenant:t2:key:k:0')).toBe('other')
+    expect(await strategy.keys()).toEqual(['tenant:t2:key:k:0'])
+    expect(Array.from(store.entries.keys()).filter((key) => key.startsWith('scope:v2:t:'))).toEqual([])
+    await strategy.close()
+  })
+
+  it('keeps a retagged entry that dropped the scope tag out of a scope invalidation', async () => {
+    const store = createFakeHotRodStore()
+    const strategy = strategyFor(store, 'retag')
+    await strategy.set('tenant:t1:key:k:a', 1, { tags: ['tenant:t1:tag:__scope__'] })
+    await strategy.set('tenant:t1:key:k:a', 2, { tags: ['tenant:t1:tag:t:y'] })
+    expect(await strategy.deleteByTags(['tenant:t1:tag:__scope__'])).toBe(0)
+    expect(await strategy.get('tenant:t1:key:k:a')).toBe(2)
     await strategy.close()
   })
 
