@@ -4,6 +4,7 @@ import {
   getTelemetryRuntime,
   isTelemetryBackendEnabled,
 } from '@open-mercato/shared/lib/telemetry/runtime'
+import { withWorkerGate } from '@open-mercato/shared/lib/runtime/worker-gate'
 import type { Queue, JobHandler, AsyncQueueOptions, QueueStrategyType } from '../types'
 
 const logger = createLogger('queue').child({ component: 'worker' })
@@ -188,8 +189,10 @@ export async function runWorker<T = unknown>(
     registerShutdownHandlers()
   }
 
-  // Start processing
-  await queue.process(handler)
+  // Start processing. With no worker gate registered the wrapper only forwards the call;
+  // a registered gate (e.g. a maintenance window) parks claimed jobs before they execute
+  // and counts executing jobs as in flight.
+  await queue.process(withWorkerGate({ kind: 'worker', queueName }, handler))
 
   logger.info('Worker running', { concurrency })
 

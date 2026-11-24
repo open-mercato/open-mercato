@@ -1,6 +1,7 @@
 import { createQueue } from '../../factory'
 import type { Queue } from '../../types'
 import { registerWorkerShutdownHook, runWorker } from '../runner'
+import { registerWorkerGate, unregisterWorkerGate } from '@open-mercato/shared/lib/runtime/worker-gate'
 
 jest.mock('../../factory', () => ({
   createQueue: jest.fn(),
@@ -82,5 +83,25 @@ describe('runWorker', () => {
 
     expect(process.listenerCount('SIGTERM')).toBe(initialSigtermListeners)
     expect(process.listenerCount('SIGINT')).toBe(initialSigintListeners)
+  })
+
+  it('parks a job while a worker gate pauses the queue and runs it after resume', async () => {
+    const queue = buildFakeQueue('queue-gated')
+    createQueueMock.mockReturnValueOnce(queue)
+    let paused = true
+    const handler = jest.fn(async () => {})
+    registerWorkerGate({ id: 'runner-test-gate', shouldPause: (info) => info.queueName === 'queue-gated' && paused })
+    try {
+      await runWorker({ queueName: 'queue-gated', handler, background: true, gracefulShutdown: false })
+      const wrapped = (queue.process as jest.Mock).mock.calls[0][0] as (job: unknown, ctx: unknown) => Promise<void>
+      const running = wrapped({ id: 'job-1', payload: {} }, { jobId: 'job-1' })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(handler).not.toHaveBeenCalled()
+      paused = false
+      await running
+      expect(handler).toHaveBeenCalledTimes(1)
+    } finally {
+      unregisterWorkerGate('runner-test-gate')
+    }
   })
 })

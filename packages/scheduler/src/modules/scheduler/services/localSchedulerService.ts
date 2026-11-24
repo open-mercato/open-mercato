@@ -11,6 +11,7 @@ import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-comm
 import { buildScheduledCommandContext, resolveScheduledCommandActorUserId } from '../lib/commandContext.js'
 import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { beginWorkerJob, shouldPauseWork } from '@open-mercato/shared/lib/runtime/worker-gate'
 import {
   canDispatchScheduleQueueTarget,
   getSchedulerQueueRequiredFeatures,
@@ -118,6 +119,19 @@ export class LocalSchedulerService {
     if (!this.isRunning) {
       return
     }
+    if (shouldPauseWork({ kind: 'scheduler' })) {
+      logger.debug('Scheduler tick skipped: work is paused by a worker gate')
+      return
+    }
+    const releaseTick = beginWorkerJob({ kind: 'scheduler' })
+    try {
+      await this.pollDueSchedules()
+    } finally {
+      releaseTick()
+    }
+  }
+
+  private async pollDueSchedules(): Promise<void> {
 
     const em = this.em().fork()
 
