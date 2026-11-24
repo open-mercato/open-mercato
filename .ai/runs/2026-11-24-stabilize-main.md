@@ -45,6 +45,17 @@ The exact-head full suite [45345851906](https://github.com/open-mercato/open-mer
 
 Runner: local. The first ordered local gate passed commands 1–6; its 15-minute process limit expired during `yarn test` after 50 tasks succeeded, including 2,987 core suites and 415 enterprise suites. One create-app session-share fixture failed because this host lacked Info-ZIP `unzip`. A user-local copy of Ubuntu's `unzip` package supplies the documented prerequisite without repository changes; the exact failing fixture now passes. The ordered gate is rerunning with a 40-minute per-command limit and unchanged repository test timeouts. An optional 90-second Playwright discovery probe returned no output before timing out; the remote full suite supplies integration evidence. Final independent review and exact-final-head CI still gate completion.
 
+## Verification outcome — 2026-11-24
+Both the authoring run and the single final independent reviewer passed every configured command in order: package build, generation, package rebuild, translation sync/usage, typecheck, full units, and app build. Unit verification completed 51/51 Turbo tasks; core passed 2,987 suites / 31,262 tests, enterprise passed 415 suites / 4,735 tests, and create-app passed 1,269 tests. The reviewer also passed template synchronization. No source changes or commits came from the review, and none were merged.
+
+Independent task `f39f17e5` approved exact source head `44974cfe126945b96973d6f8a1a323105343ed32` with no actionable findings. Its first turn settled before app-build completion; the same task resumed and completed the missing command before issuing the accepted final verdict. All 33 existing assertions remain, plus the readiness assertion. Playwright lifecycle inspection confirmed the fresh bounded teardown budget and cleanup before request disposal.
+
+The [independent review evidence](https://github.com/open-mercato/open-mercato/pull/10492#pullrequestreview-6043342046) is a COMMENT review because GitHub rejects self-approval by the authoring App. It does not satisfy or waive any host-required approval. [Authoring validation evidence](https://github.com/open-mercato/open-mercato/pull/10492#issuecomment-7137228913) records the local prerequisite repair and complete gate.
+
+[Full CI run 45430165932](https://github.com/open-mercato/open-mercato/actions/runs/45430165932) completed successfully at the reviewed head, with all 15 integration shards, coverage rollup, and every runnable check green. The other exact-head workflows also completed successfully or were intentionally skipped. Only after verifying those results was `automerge` applied. Main's [full run 45414811626](https://github.com/open-mercato/open-mercato/actions/runs/45414811626) also passed at `7cabd0dd73`.
+
+This final documentation checkpoint changes no executable file. The authoring run keeps the PR draft and its claim while the checkpoint's newly triggered full suite runs; the existing `automerge` label never waives checks, the draft state, ownership, or GitHub approval rules. Final exact-head CI evidence and claim release are published on the PR without another source change.
+
 ## Progress
 PR: #10492
 
@@ -57,5 +68,5 @@ PR: #10492
 - [x] 2.1 Reproduce failures, implement minimal fixes with regression coverage, and run targeted checks. — 7c999c0f90
 
 ### Phase 3: Validate and review
-- [ ] 3.1 Run configured local gate and the PR's full remote suite; repair until green.
-- [ ] 3.2 Dispatch one final independent review, resolve actionable findings, publish evidence, and add automerge after green.
+- [x] 3.1 Run configured local gate and the PR's full remote suite; repair until green. — 44974cfe12
+- [x] 3.2 Dispatch one final independent review, resolve actionable findings, publish evidence, and add automerge after green. — 44974cfe12
