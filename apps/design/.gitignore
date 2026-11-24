@@ -1,0 +1,7 @@
+/.next/
+/out/
+/.cache/
+/src/generated/
+/public/llms.txt
+/next-env.d.ts
+*.tsbuildinfo

@@ -1,0 +1,39 @@
+@import "@fontsource-variable/inter";
+@import "../../../../packages/ui/.storybook/generated/theme.css";
+@import "../../../../packages/ui/src/theme/storefront.css";
+
+@source "../../../../packages/ui/src";
+@source "../../../../packages/core/src/modules/design_system";
+@source "../../../../packages/shared/src";
+@source "..";
+
+html {
+  scroll-padding-top: 5rem;
+}
+
+html,
+body {
+  min-height: 100%;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+}
+
+.om-design-preview-body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+.om-design-sidebar {
+  height: calc(100dvh - 3.5rem);
+}

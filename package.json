@@ -130,6 +130,8 @@
     "storybook": "yarn storybook:generate && storybook dev -c packages/ui/.storybook --host 127.0.0.1 -p 6006 --no-open --disable-telemetry",
     "build-storybook": "yarn storybook:generate && storybook build -c packages/ui/.storybook -o packages/ui/storybook-static --disable-telemetry",
     "test:storybook": "node scripts/storybook-smoke.mjs",
+    "design:dev": "yarn workspace @open-mercato/design dev",
+    "design:build": "yarn workspace @open-mercato/design build",
     "experiments:dashboard": "node scripts/experiment-dashboard/cli.mjs",
     "test:experiments-dashboard": "node --test scripts/experiment-dashboard/__tests__/*.test.mjs",
     "test:experiments-dashboard:browser": "node --test scripts/experiment-dashboard/__integration__/*.test.mjs",
