@@ -1,3 +1,4 @@
+import { inspect } from 'node:util'
 import {
   CacheService,
   createCacheService,
@@ -291,6 +292,53 @@ describe('cache service provider selection', () => {
       await closing
       await expectCode(pendingRead, 'unavailable')
       expect(strategy.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('sanitizes runtime operation errors so provider messages never leak', async () => {
+      const leaky = new Error(`READONLY redis://user:${SECRET}@cache.internal`)
+      const strategy = recordingStrategy()
+      strategy.get = async () => { throw leaky }
+      strategy.healthcheck.mockImplementation(async () => { throw leaky })
+      strategy.close.mockImplementation(async () => { throw leaky })
+      const cache = createCacheService({ provider: resolvedProvider(() => strategy) })
+      const errors = [
+        await expectCode(cache.get('k'), 'unavailable'),
+        await expectCode(cache.healthcheck!(), 'unavailable'),
+        await expectCode(cache.close!(), 'unavailable'),
+      ]
+      for (const error of errors) {
+        expect(error.providerId).toBe('acme/test')
+        expect(error.originalError).toBe(leaky)
+        expect(Object.keys(error)).not.toContain('originalError')
+        expect(error.message).not.toContain(SECRET)
+        expect(JSON.stringify(error)).not.toContain(SECRET)
+        expect(inspect(error, { depth: 10 })).not.toContain(SECRET)
+      }
+      expect(errors[0].message).toBe('Cache provider "acme/test" get failed')
+    })
+
+    it('passes real CacheProviderError instances from operations through unchanged', async () => {
+      const own = new CacheProviderError('timeout', 'Cache provider "acme/test" get timed out', { providerId: 'acme/test' })
+      const strategy = recordingStrategy()
+      strategy.get = async () => { throw own }
+      const cache = createCacheService({ provider: resolvedProvider(() => strategy) })
+      await expect(cache.get('k')).rejects.toBe(own)
+    })
+
+    it('re-wraps a create error that only looks like a CacheProviderError', async () => {
+      const lookalike = Object.assign(new Error(`invalid token ${SECRET}`), { name: 'CacheProviderError', code: 'invalid_settings' })
+      const unknownCode = Object.assign(new Error(`boom ${SECRET}`), { name: 'CacheProviderError', code: 'bogus' })
+      const create = jest.fn<CacheStrategy, []>()
+        .mockImplementationOnce(() => { throw lookalike })
+        .mockImplementationOnce(() => { throw unknownCode })
+      process.env.CACHE_PROVIDER_RETRY_COOLDOWN_MS = '0'
+      const cache = createCacheService({ provider: resolvedProvider(create) })
+      const first = await expectCode(cache.get('k'), 'invalid_settings')
+      expect(first).not.toBe(lookalike)
+      expect(first.message).not.toContain(SECRET)
+      expect(first.originalError).toBe(lookalike)
+      const second = await expectCode(cache.get('k'), 'unavailable')
+      expect(second.message).not.toContain(SECRET)
     })
 
     it('delegates healthcheck to the provider strategy', async () => {

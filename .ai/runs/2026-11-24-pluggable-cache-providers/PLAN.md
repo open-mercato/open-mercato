@@ -22,7 +22,8 @@ Follow-up PRs (stacked): OSS engine packages (`.ai/specs/2026-11-24-oss-cache-pr
 | 2 | 2.4-review-fix | Export physical key layout and document provider decode and count contract | inline | done | a98efd0dbb |
 | 2 | 2.4-checkpoint-fix | Pass cache env through turbo generate and name the provider readiness probe | inline | done | efaa89e19e |
 | 2 | 2.5 | Provider-author and operator docs, env examples and template sync | dispatch | done | 48805b4a2b |
-| 2 | 2.6 | Archive Delta into capabilities spec | inline | done | (this commit) |
+| 2 | 2.6 | Archive Delta into capabilities spec | inline | done | 191be38f6c |
+| 3 | 3.1-review-fix | Sanitize runtime provider operation and close errors | inline | done | (this commit) |
 
 ## Goal
 

@@ -14,8 +14,8 @@ import {
   CacheProviderError,
   createCacheProviderHostContext,
   getPreparedCacheProvider,
-  isCacheProviderError,
   readSelectedCacheProviderId,
+  toSanitizedCacheProviderError,
 } from './provider'
 
 function normalizeTenantKey(raw: string | null | undefined): string {
@@ -400,13 +400,16 @@ function connectProviderStrategy(
           if (settled) return
           clearTimeout(timer)
           settled = true
-          reject(isCacheProviderError(error)
-            ? error
-            : new CacheProviderError('unavailable', `Cache provider "${provider.id}" failed to initialize`, { providerId: provider.id, cause: error }))
+          reject(toSanitizedCacheProviderError(error, {
+            message: `Cache provider "${provider.id}" failed to initialize`,
+            providerId: provider.id,
+          }))
         },
       )
   })
 }
+
+type ProviderOperation = 'get' | 'set' | 'has' | 'delete' | 'deleteByTags' | 'clear' | 'keys' | 'stats' | 'healthcheck' | 'cleanup' | 'close'
 
 function createLazyProviderStrategy(
   provider: ResolvedCacheProvider,
@@ -418,8 +421,20 @@ function createLazyProviderStrategy(
   let closing: Promise<void> | null = null
   let generation = 0
 
-  const ensure = async (): Promise<ProviderStrategy> => {
-    if (closing) await closing
+  const sanitize = (error: unknown, operation: ProviderOperation): CacheProviderError =>
+    toSanitizedCacheProviderError(error, {
+      message: `Cache provider "${provider.id}" ${operation} failed`,
+      providerId: provider.id,
+    })
+
+  const ensure = async (operation: ProviderOperation): Promise<ProviderStrategy> => {
+    if (closing) {
+      try {
+        await closing
+      } catch (error) {
+        throw sanitize(error, 'close')
+      }
+    }
     if (active) return active
     if (!pending) {
       const attemptGeneration = generation
@@ -440,7 +455,20 @@ function createLazyProviderStrategy(
       )
       pending = attempt
     }
-    return pending
+    try {
+      return await pending
+    } catch (error) {
+      throw sanitize(error, operation)
+    }
+  }
+
+  const run = async <T>(operation: ProviderOperation, call: (strategy: ProviderStrategy) => Promise<T> | T): Promise<T> => {
+    const strategy = await ensure(operation)
+    try {
+      return await call(strategy)
+    } catch (error) {
+      throw sanitize(error, operation)
+    }
   }
 
   const close = async (): Promise<void> => {
@@ -452,7 +480,13 @@ function createLazyProviderStrategy(
       generation += 1
       closing = (async () => {
         if (inflight) await inflight.catch(() => undefined)
-        if (current) await current.close()
+        if (current) {
+          try {
+            await current.close()
+          } catch (error) {
+            throw sanitize(error, 'close')
+          }
+        }
       })().finally(() => {
         closing = null
       })
@@ -461,19 +495,16 @@ function createLazyProviderStrategy(
   }
 
   return {
-    get: async (key, options) => (await ensure()).get(key, options),
-    set: async (key, value, options) => (await ensure()).set(key, value, options),
-    has: async (key) => (await ensure()).has(key),
-    delete: async (key) => (await ensure()).delete(key),
-    deleteByTags: async (tags) => (await ensure()).deleteByTags(tags),
-    clear: async () => (await ensure()).clear(),
-    keys: async (pattern) => (await ensure()).keys(pattern),
-    stats: async () => (await ensure()).stats(),
-    healthcheck: async () => (await ensure()).healthcheck(),
-    cleanup: async () => {
-      const strategy = await ensure()
-      return strategy.cleanup ? strategy.cleanup() : 0
-    },
+    get: (key, options) => run('get', (strategy) => strategy.get(key, options)),
+    set: (key, value, options) => run('set', (strategy) => strategy.set(key, value, options)),
+    has: (key) => run('has', (strategy) => strategy.has(key)),
+    delete: (key) => run('delete', (strategy) => strategy.delete(key)),
+    deleteByTags: (tags) => run('deleteByTags', (strategy) => strategy.deleteByTags(tags)),
+    clear: () => run('clear', (strategy) => strategy.clear()),
+    keys: (pattern) => run('keys', (strategy) => strategy.keys(pattern)),
+    stats: () => run('stats', (strategy) => strategy.stats()),
+    healthcheck: () => run('healthcheck', (strategy) => strategy.healthcheck()),
+    cleanup: () => run('cleanup', (strategy) => (strategy.cleanup ? strategy.cleanup() : 0)),
     close,
   }
 }

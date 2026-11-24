@@ -144,6 +144,45 @@ export function isCacheProviderError(error: unknown): error is CacheProviderErro
     || (error instanceof Error && error.name === 'CacheProviderError' && typeof (error as { code?: unknown }).code === 'string')
 }
 
+const CACHE_PROVIDER_ERROR_CODES: ReadonlySet<string> = new Set<CacheProviderErrorCode>([
+  'invalid_registration',
+  'duplicate_id',
+  'reserved_id',
+  'not_registered',
+  'load_failed',
+  'id_mismatch',
+  'unsupported_api_version',
+  'invalid_settings',
+  'missing_namespace',
+  'invalid_namespace',
+  'conflicting_selection',
+  'unavailable',
+  'timeout',
+  'not_resolved',
+])
+
+/**
+ * Pass a real `CacheProviderError` from this module through unchanged; wrap any
+ * other error (including one that only looks like a `CacheProviderError`) into a
+ * host-authored error so provider-controlled messages never reach callers or logs.
+ * A look-alike keeps its `code` when it is a known code; everything else becomes
+ * `unavailable`. The original error stays reachable only as a non-enumerable cause.
+ */
+export function toSanitizedCacheProviderError(
+  error: unknown,
+  fallback: { message: string; providerId?: string },
+): CacheProviderError {
+  if (error instanceof CacheProviderError) return error
+  const lookalikeCode = isCacheProviderError(error) ? (error as { code: string }).code : null
+  const code: CacheProviderErrorCode = lookalikeCode !== null && CACHE_PROVIDER_ERROR_CODES.has(lookalikeCode)
+    ? lookalikeCode as CacheProviderErrorCode
+    : 'unavailable'
+  return new CacheProviderError(code, fallback.message, {
+    ...(fallback.providerId !== undefined ? { providerId: fallback.providerId } : {}),
+    cause: error,
+  })
+}
+
 export const CACHE_PROVIDER_ENV = 'CACHE_PROVIDER'
 export const CACHE_PROVIDER_NAMESPACE_ENV = 'CACHE_PROVIDER_NAMESPACE'
 export const RESERVED_CACHE_PROVIDER_IDS: ReadonlyArray<string> = ['memory', 'redis', 'sqlite', 'jsonfile']
@@ -472,9 +511,7 @@ export function prepareCacheProviderSelection(options: { env?: CacheProviderEnv 
       return provider
     },
     (error: unknown) => {
-      const failure = isCacheProviderError(error)
-        ? error
-        : new CacheProviderError('unavailable', 'Cache provider selection failed', { cause: error })
+      const failure = toSanitizedCacheProviderError(error, { message: 'Cache provider selection failed' })
       state.failure = failure
       throw failure
     },
