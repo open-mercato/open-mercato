@@ -719,7 +719,7 @@ When the opt-in CRUD list cache (`ENABLE_CRUD_API_CACHE`) is enabled, the factor
 
 ## Upgrade Actions
 
-Declare once per version in `src/modules/configs/lib/upgrade-actions.ts`. Keep them idempotent, reuse module helpers. Access guarded by `configs.manage`.
+Declare in the owning module's `upgrades.ts`, one file per action in `upgrades/`; never in `configs`. Keep idempotent. See UPGRADE_NOTES.md.
 
 ## Module Config (tenant scope)
 

@@ -14,6 +14,7 @@ import {
   type CachePurgeRequest,
 } from './lib/cache-cli'
 import { touchGeneratedBarrels } from './lib/touchGeneratedBarrels'
+import { runUpgradeActionsCli, UPGRADE_ACTIONS_CLI_HELP } from './lib/upgrade-actions-cli'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -336,6 +337,37 @@ const restoreDefaults: ModuleCli = {
   },
 }
 
+function isQuietCliOutput(): boolean {
+  return process.env.OM_CLI_QUIET === '1' || process.env.MERCATO_QUIET === '1'
+}
+
+const upgradeActionsCommand: ModuleCli = {
+  command: 'upgrade-actions',
+  help: UPGRADE_ACTIONS_CLI_HELP,
+  handlesHelp: true,
+  async run(rest) {
+    const interactive = Boolean(process.stdout.isTTY) && !isQuietCliOutput()
+    const exitCode = await runUpgradeActionsCli(rest, {
+      io: {
+        line: (text) => console.log(text),
+        error: (text) => console.error(text),
+        progress: interactive ? (text) => process.stdout.write(text) : null,
+      },
+      openScope: async () => {
+        const container = await createRequestContainer()
+        return {
+          scope: { container, em: container.resolve('em') as EntityManager },
+          close: async () => {
+            const disposable = container as unknown as { dispose?: () => Promise<void> }
+            if (typeof disposable.dispose === 'function') await disposable.dispose()
+          },
+        }
+      },
+    })
+    if (exitCode !== 0) process.exitCode = exitCode
+  },
+}
+
 const help: ModuleCli = {
   command: 'help',
   async run() {
@@ -343,6 +375,9 @@ const help: ModuleCli = {
     console.log('')
     console.log('🚀 Usage: yarn mercato configs restore-defaults')
     console.log('  Ensures global module configuration defaults exist.')
+    console.log('')
+    console.log('🚀 Usage: yarn mercato configs upgrade-actions <list|up|down> --tenant <uuid> --organization <uuid>')
+    console.log('  Lists, applies or reverts module upgrade actions for one organization.')
     console.log('')
     printCacheHelp()
   },
@@ -383,4 +418,4 @@ const cacheCommand: ModuleCli = {
   },
 }
 
-export default [restoreDefaults, cacheCommand, help]
+export default [restoreDefaults, cacheCommand, upgradeActionsCommand, help]

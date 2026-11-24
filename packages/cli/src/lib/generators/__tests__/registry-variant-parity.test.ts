@@ -35,6 +35,7 @@ const SHARED_PROPERTIES = [
   'setup',
   'runtime',
   'defaultEncryptionMaps',
+  'upgradeActions',
   'integrations',
   'bundles',
 ] as const
@@ -53,6 +54,10 @@ function touchFile(filePath: string, content = ''): void {
 
 function pkgModulePath(modId: string, ...segments: string[]): string {
   return path.join(tmpDir, 'packages', 'core', 'src', 'modules', modId, ...segments)
+}
+
+function appModulePath(modId: string, ...segments: string[]): string {
+  return path.join(tmpDir, 'app', 'src', 'modules', modId, ...segments)
 }
 
 function createMockResolver(enabled: ModuleEntry[]): PackageResolver {
@@ -118,12 +123,26 @@ function scaffoldFixture(): ModuleEntry[] {
   touchFile(pkgModulePath('orders', 'ce.ts'), "export const entities = [{ id: 'orders:custom', fields: [{ id: 'note', kind: 'text' }] }]\n")
   touchFile(pkgModulePath('orders', 'i18n', 'en.json'), JSON.stringify({ orders: { title: 'Orders' } }))
   touchFile(pkgModulePath('orders', 'cli.ts'), 'export default { command: "orders", run: async () => {} }\n')
+  touchFile(
+    pkgModulePath('orders', 'upgrades.ts'),
+    "import action from './upgrades/0.1.0-backfill'\nexport const upgradeActions = [action]\nexport default upgradeActions\n",
+  )
+  touchFile(
+    pkgModulePath('orders', 'upgrades', '0.1.0-backfill.ts'),
+    "export default { id: 'orders.backfill', version: '0.1.0', messageKey: 'm', ctaKey: 'c', successKey: 's', run: async () => {} }\n",
+  )
+  touchFile(appModulePath('shop', 'index.ts'), "export const metadata = { id: 'shop', label: 'Shop' }\n")
+  touchFile(
+    appModulePath('shop', 'upgrades.ts'),
+    "export const upgradeActions = [{ id: 'shop.seed', version: '0.1.0', messageKey: 'm', ctaKey: 'c', successKey: 's', run: async () => {} }]\n",
+  )
 
   touchFile(pkgModulePath('bare', 'index.ts'), "export const metadata = { id: 'bare', label: 'Bare' }\n")
 
   return [
     { id: 'orders', from: '@open-mercato/core' },
     { id: 'bare', from: '@open-mercato/core' },
+    { id: 'shop', from: '@app' },
   ]
 }
 
@@ -214,7 +233,7 @@ describe('module registry variant parity', () => {
 
   it('discovers the same module ids in every variant', () => {
     const ids = [...mainVariant.keys()].sort()
-    expect(ids).toEqual(['bare', 'orders'])
+    expect(ids).toEqual(['bare', 'orders', 'shop'])
     expect([...runtimeVariant.keys()].sort()).toEqual(ids)
     expect([...appVariant.keys()].sort()).toEqual(ids)
   })
@@ -277,6 +296,51 @@ describe('module registry variant parity', () => {
     for (const fileName of namespaceLookupRegistries) {
       expect(readGenerated(fileName)).toContain("as Module['runtime']")
     }
+  })
+
+  it('emits module-owned upgrade actions in every server registry a process can read', () => {
+    const registryFiles = [
+      'modules.generated.ts',
+      'modules.runtime.generated.ts',
+      'modules.app.generated.ts',
+      'modules.bootstrap.generated.ts',
+      'modules.cli.generated.ts',
+    ]
+
+    const carriesUpgradeActions = registryFiles.map((fileName) => {
+      const byId = parseModulePropertiesById(readGenerated(fileName), fileName)
+      return [
+        fileName,
+        byId.get('orders')?.has('upgradeActions'),
+        byId.get('shop')?.has('upgradeActions'),
+        byId.get('bare')?.has('upgradeActions'),
+      ]
+    })
+
+    expect(carriesUpgradeActions).toEqual(registryFiles.map((fileName) => [fileName, true, true, false]))
+    expect(readGenerated('modules.cli.generated.ts')).toMatch(/import \* as UPGRADES_orders from ["']@open-mercato\/core\/modules\/orders\/upgrades["']/)
+    expect(readGenerated('modules.cli.generated.ts')).toMatch(/import \* as UPGRADES_shop from ["'][./]*\/?.*modules\/shop\/upgrades["']/)
+  })
+
+  it('keeps upgrade action handlers out of client, route-manifest and i18n artifacts', () => {
+    const serverRegistries = new Set([
+      'modules.generated.ts',
+      'modules.runtime.generated.ts',
+      'modules.app.generated.ts',
+      'modules.bootstrap.generated.ts',
+      'modules.cli.generated.ts',
+    ])
+    const leaking = fs
+      .readdirSync(outputDir)
+      .filter((fileName) => fileName.endsWith('.ts') && !serverRegistries.has(fileName))
+      .filter((fileName) => /modules\/(orders|shop)\/upgrades/.test(fs.readFileSync(path.join(outputDir, fileName), 'utf8')))
+    expect(leaking).toEqual([])
+  })
+
+  it('does not renumber existing convention imports when a module adds upgrades.ts', () => {
+    const content = readGenerated('modules.app.generated.ts')
+    expect(content).toContain('UPGRADES_orders')
+    expect(content).not.toMatch(/UPGRADES_orders_\d/)
   })
 
   describe('known, intentional divergences', () => {

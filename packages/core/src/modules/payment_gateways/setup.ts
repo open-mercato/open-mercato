@@ -3,8 +3,13 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { PAYMENT_SESSION_INITIALIZATION_PRUNE_QUEUE } from './lib/session-idempotency'
 
+type ScheduleTransactionOptions = {
+  em?: unknown
+  afterCommit?: (callback: () => Promise<void>) => void
+}
+
 type SchedulerServiceLike = {
-  register: (registration: Record<string, unknown>) => Promise<void>
+  register: (registration: Record<string, unknown>, options?: ScheduleTransactionOptions) => Promise<void>
 }
 
 const logger = createLogger('payment_gateways')
@@ -17,6 +22,7 @@ function stableScheduleUuid(stableKey: string): string {
 export async function registerSessionInitializationPruneSchedule(
   container: import('awilix').AwilixContainer | undefined,
   scope: { tenantId: string; organizationId: string },
+  options?: ScheduleTransactionOptions,
 ): Promise<boolean> {
   if (!container) return false
   const cradle = container as { hasRegistration?: (name: string) => boolean }
@@ -25,7 +31,9 @@ export async function registerSessionInitializationPruneSchedule(
   }
 
   const schedulerService = container.resolve('schedulerService') as SchedulerServiceLike
-  await schedulerService.register({
+  const register = (registration: Record<string, unknown>) =>
+    options ? schedulerService.register(registration, options) : schedulerService.register(registration)
+  await register({
     id: stableScheduleUuid(
       `payment_gateways:session-initialization-prune:${scope.tenantId}:${scope.organizationId}`,
     ),

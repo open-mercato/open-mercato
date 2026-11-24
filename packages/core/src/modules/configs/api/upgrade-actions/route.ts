@@ -6,7 +6,13 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
-import { executeUpgradeAction, getCurrentVersion, isUpgradeActionsEnabled, listPendingUpgradeActions } from '../../services/upgradeActionsService'
+import {
+  executeUpgradeAction,
+  getCurrentVersion,
+  isUpgradeActionsEnabled,
+  listPendingUpgradeActions,
+  UpgradeActionPostCommitError,
+} from '../../services/upgradeActionsService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   configsTag,
@@ -141,6 +147,14 @@ export async function POST(req: Request) {
       version,
     })
   } catch (error) {
+    if (error instanceof UpgradeActionPostCommitError) {
+      logger.error('upgrade action committed but a post-commit step failed', { component: 'upgrade-actions', actionId: error.action.id, err: error.failures[0] })
+      return NextResponse.json({
+        status: 'completed',
+        message: translate(error.action.successKey, 'Example catalog products and categories installed.'),
+        version,
+      })
+    }
     logger.error('failed to execute upgrade action', { component: 'upgrade-actions', err: error })
     const message = translate('upgrades.runFailed', 'We could not run this upgrade action.')
     const details = error instanceof Error ? error.message : null

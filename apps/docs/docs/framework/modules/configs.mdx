@@ -59,6 +59,58 @@ Module telemetry is collected in-process for API routes, event subscribers, queu
 - Environment flags can override values. Example: `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=true` forces the `vector.auto_index_enabled` toggle off and prevents the API/UI from re-enabling it. The legacy alias `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` still works for older deployments.
 - Additional defaults can be registered by other modules via `restoreDefaults` (e.g., inside their CLI bootstrap or migrations).
 
+## Upgrade actions
+
+Upgrade actions are one-time data changes a module ships with a release, such as seeding a dictionary that older tenants lack. Each one runs once per tenant and organization; `configs` records completion in `upgrade_action_runs`. Both entry points require `UPGRADE_ACTIONS_ENABLED`.
+
+### Declaring an action
+
+The owning module declares its actions in a server-only `upgrades.ts` manifest, with one action per file under `upgrades/`. `yarn generate` adds the manifest to the server and CLI registries.
+
+```ts
+// src/modules/inventory/upgrades/1.4.0-seed-reason-codes.ts
+import { defineUpgradeAction } from '@open-mercato/shared/modules/upgrade-actions'
+
+export default defineUpgradeAction({
+  id: 'inventory.seed-reason-codes',
+  version: '1.4.0',
+  messageKey: 'inventory.upgradeActions.reasonCodes.message',
+  ctaKey: 'inventory.upgradeActions.reasonCodes.cta',
+  successKey: 'inventory.upgradeActions.reasonCodes.success',
+  async run({ em, tenantId, organizationId }) {
+    const { seedReasonCodes } = await import('../lib/reasonCodes')
+    await seedReasonCodes(em, { tenantId, organizationId })
+  },
+})
+
+// src/modules/inventory/upgrades.ts
+import type { ModuleUpgradeActions } from '@open-mercato/shared/modules/upgrade-actions'
+import seedReasonCodes from './upgrades/1.4.0-seed-reason-codes'
+
+export const upgradeActions: ModuleUpgradeActions = [seedReasonCodes]
+```
+
+- Prefix the ID with the module ID and use a new ID for every new action. The `(id, version)` pair is the completion key, so never change it after release.
+- The owning module is always required. List only peer modules the handler needs in `requiredModules`. An action is hidden and refused while any of them is disabled.
+- Write through `ctx.em`: it is the transaction that also records completion. Put effects outside the database, such as cache invalidation, in `ctx.deferAfterCommit`.
+- Set `scope: 'tenant'` when the handler writes tenant-wide state, for example a tenant-scoped schedule. Register schedules through `schedulerService.register(registration, { em: ctx.em, afterCommit: ctx.deferAfterCommit })` so they roll back with the action.
+- Add `down(ctx)` only when the inverse can tell this action's effects apart from pre-existing data and later edits. Without it the action is forward-only.
+
+### Running actions
+
+Administrators with `configs.manage` see the oldest pending action in the backend banner. Operators can run the same actions from a deployment shell against one explicit tenant and organization:
+
+```bash
+yarn mercato configs upgrade-actions list --tenant <uuid> --organization <uuid>
+yarn mercato configs upgrade-actions up --tenant <uuid> --organization <uuid>
+yarn mercato configs upgrade-actions up --tenant <uuid> --organization <uuid> --action <id> --version <version> [--allow-tenant-wide]
+yarn mercato configs upgrade-actions down --tenant <uuid> --organization <uuid> --action <id> --version <version>
+```
+
+`list` shows each action's module, state, scope and whether it can be reverted. `up` applies pending organization-scoped actions in version order, commits each one separately and stops at the first failure. It skips tenant-wide actions and names them; run those one at a time with `--action`, `--version` and `--allow-tenant-wide`. `down` reverts one applied action that declares `down` and makes it pending again. Every command exits nonzero on failure.
+
+If an action commits but a post-commit step fails, the CLI reports the action as applied and exits nonzero. Running `up` again does not repeat the action. For a failed schedule sync, restart the scheduler: `BullMQSchedulerService.syncAll()` restores queue registrations from the committed schedule rows.
+
 ## Usage example: vector search auto-indexing
 
 The vector module reads `moduleConfigService.getValue('vector', 'auto_index_enabled', { defaultValue: true })` inside its subscribers before running expensive embedding work. A backend settings page at `/backend/vector-search` exposes the toggle through `/api/vector/settings`, so operators can pause real-time indexing without redeploying the app.

@@ -138,6 +138,76 @@ on every request:
 
 No configuration, database, route, event or DI-key change is required.
 
+## Kernel modules keep working when optional modules are disabled (#10129)
+
+Several modules used to fail when an optional peer was removed from `src/modules.ts`. They now
+degrade instead. With every module enabled, behavior is unchanged. No migration or new
+configuration is required. What changes when a peer is disabled:
+
+- **scheduler** — module-authored schedules whose `source_module` is no longer enabled are skipped
+  (`scheduler.job.skipped` is emitted and `nextRunAt` still advances) instead of failing on every
+  tick. `mercato scheduler list` marks them. Re-enabling the module resumes them.
+- **record_locks** (enterprise) — works without `configs` (built-in default settings apply) and
+  without `audit_logs`. The OSS `updated_at` optimistic-lock floor is always enforced. Without
+  `audit_logs`, the extra conflict detection based on action-log history is not available.
+- **workflows** — bulk replay runs without `progress` (`progressJobId: null`). A `CALL_API` step
+  fails with a translated error without `api_keys`. Without `business_rules`, guard-rule seeds are
+  skipped and a workflow with a *required* start pre-condition refuses to start with
+  `RULE_ENGINE_UNAVAILABLE`. `workflows` still declares `requires: ['business_rules']` (#9217).
+- **messages** — works without `attachments` (attachment counts are 0, and the attachments route
+  answers 404) and without `notifications` (email delivery still runs).
+- **configs** — upgrade actions declare the module they need. Actions for disabled modules are not
+  offered and are rejected with `UPGRADE_ACTION_NOT_AVAILABLE`.
+- **Translate actions** on dictionary entries and custom-field definitions appear only when the
+  `translations` module is enabled and the user holds `translations.manage`.
+
+## Module-owned upgrade actions and `configs upgrade-actions` CLI
+
+Upgrade actions now live in the module that owns them. A module declares them in a server-only
+`upgrades.ts` manifest (`export const upgradeActions = [...]`), with one action per file under
+`upgrades/` (for example `customers/upgrades/0.10.0-seed-deal-loss-reasons.ts`). The generator
+adds them to the server and CLI module registries; client, route-manifest and i18n artifacts do
+not import them. Types come from `@open-mercato/shared/modules/upgrade-actions`.
+
+- **Nothing reruns.** Every shipped action keeps its ID, version and translation keys, and the
+  `upgrade_action_runs` completion ledger is unchanged. No migration or backfill is needed.
+- **Authoring.** An action ID must start with `<moduleId>.`. The owning module is always
+  required; list only peer modules in `requiredModules`. Set `scope: 'tenant'` when the handler
+  writes tenant-wide state. Add `down` only when the inverse can tell this action's effects
+  apart from pre-existing data and later edits.
+- **Deprecated:** pushing definitions into `upgradeActions` from
+  `@open-mercato/core/modules/configs/lib/upgrade-actions` still works for one minor release,
+  with module gating and collision checks. Move those definitions to an `upgrades.ts` manifest.
+  The other exports of that file (`compareVersions`, `actionsUpToVersion`, `findUpgradeAction`,
+  the context and definition types) are unchanged.
+- **Peers.** `devices.seed-push-token-encryption-map` and `phone_calls.seed-call-encryption-maps`
+  now also require `entities`. `attachments.reconcile-organization`,
+  `cart.register-sweeper-schedules` and `promotions.register-code-reservation-sweep-schedule` are
+  declared tenant-wide; their completion is still recorded per organization.
+- **Scheduler.** `schedulerService.register(registration, { em, afterCommit })` writes through a
+  caller transaction and defers the BullMQ sync until the caller commits. Calls without the
+  second argument behave as before. If the deferred sync fails after commit, the schedule rows
+  are committed and `BullMQSchedulerService.syncAll()` (which runs on scheduler start) restores
+  the queue registrations without rerunning the upgrade action.
+- **Rollout.** Applies now take a Postgres advisory lock per action, version and scope. Let any
+  upgrade action started by an older binary finish before running the new CLI against the same
+  database.
+
+Operators can inspect and run the same actions from a deployment shell. Pass explicit UUIDs of
+an active tenant and one of its active organizations; `UPGRADE_ACTIONS_ENABLED` must be on:
+
+```bash
+yarn mercato configs upgrade-actions list --tenant <uuid> --organization <uuid>
+yarn mercato configs upgrade-actions up --tenant <uuid> --organization <uuid>
+yarn mercato configs upgrade-actions up --tenant <uuid> --organization <uuid> --action <id> --version <version> [--allow-tenant-wide]
+yarn mercato configs upgrade-actions down --tenant <uuid> --organization <uuid> --action <id> --version <version>
+```
+
+`up` without `--action` applies pending organization-scoped actions and lists the tenant-wide
+ones it skipped. A tenant-wide action runs only when targeted with `--allow-tenant-wide`. `down`
+reverts only an action that declares `down`; every shipped action is forward-only. Reverting the
+deployment binary does not undo any action.
+
 ## Optional process DI root (#8989)
 
 `OM_PROCESS_CONTAINER_ROOT=on` enables generation-owned registration/bootstrap with isolated caller scopes. It defaults to off pending workload qualification. Existing `createRequestContainer()` calls retain separate EntityManagers and mutation boundaries. No schema migration is required.
@@ -4473,13 +4543,45 @@ invitation — with no failure at boot to warn you. Add the dependency and the e
 ```
 
 ```ts
-// src/modules.ts — alongside the other channel_* entries
+// src/modules.ts — the hub and its dependencies first, then the provider entries
+{ id: 'progress', from: '@open-mercato/core' },
+{ id: 'integrations', from: '@open-mercato/core' },
+{ id: 'communication_channels', from: '@open-mercato/core' },
 { id: 'channel_resend', from: '@open-mercato/channel-resend' },
 { id: 'channel_ses', from: '@open-mercato/channel-ses' },
 ```
 
 Enable the package matching `SYSTEM_EMAIL_PROVIDER` (default `resend`); the other is optional.
 The monorepo app (`apps/mercato`) and newly scaffolded apps already carry both.
+
+**The provider module alone is not enough — `communication_channels` MUST be enabled too
+(#6278).** The provider package's `di.ts` only registers its channel adapter and its system-email
+config resolver; the outbound email transport itself (`registerEmailTransport()`) is registered
+by `communication_channels/di.ts` and nowhere else. An app that adds `channel_resend` /
+`channel_ses` but not `communication_channels` typechecks, passes tests that mock `sendEmail`,
+and then throws `EMAIL_TRANSPORT_NOT_CONFIGURED: enable an outbound email provider module` on the
+first real send. `communication_channels` in turn needs `integrations` (the provider credentials)
+and `progress` (its import-history worker, see "`communication_channels` now requires `progress`"
+below). From 0.9.0 the provider modules declare `requires: ['communication_channels',
+'integrations']`, so `yarn generate` fails fast instead (see "`yarn generate` now enforces a
+module's declared `requires` dependencies" in the 0.8.0 → 0.9.0 section).
+
+**`yarn generate` also expects `@open-mercato/web-research` to be installed.** The generated
+`.mercato/generated/web-research-adapters.generated.ts` always contains
+`import type { AdapterRegistryEntry } from '@open-mercato/web-research'`, even when no installed
+package declares a web-research adapter and the registry is empty. An app that does not depend on
+`@open-mercato/web-research` (directly or through `@open-mercato/enterprise`) fails its typecheck
+with `TS2307: Cannot find module '@open-mercato/web-research'`. Add it to `package.json` at the
+same version as your other `@open-mercato/*` packages:
+
+```jsonc
+"@open-mercato/web-research": "0.8.0",
+```
+
+From the release that ships #10129 the generator declares the `AdapterRegistryEntry` type inline,
+so the generated registry no longer imports `@open-mercato/web-research`. After upgrading the CLI
+and re-running `yarn generate`, the dependency above is only needed if the app actually uses
+web research.
 
 Only the **selected** provider's env preset seeds anything. Enabling both packages is therefore
 safe: with `SYSTEM_EMAIL_PROVIDER` unset or `resend`, the SES preset stores no credentials, creates

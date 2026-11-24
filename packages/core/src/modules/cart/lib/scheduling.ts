@@ -16,8 +16,13 @@ import {
 // filter every Cart row by its own `tenantId`/`organizationId`, so one schedule per tenant
 // already covers every organization under it, same as push_notifications' own reclaim tick
 // ("covers org-bound and tenant-level rows alike").
+type ScheduleTransactionOptions = {
+  em?: unknown
+  afterCommit?: (callback: () => Promise<void>) => void
+}
+
 type SchedulerServiceLike = {
-  register: (registration: Record<string, unknown>) => Promise<void>
+  register: (registration: Record<string, unknown>, options?: ScheduleTransactionOptions) => Promise<void>
 }
 
 function stableScheduleUuid(stableKey: string): string {
@@ -79,16 +84,19 @@ const SWEEPER_REGISTRATIONS: SweeperRegistration[] = [
 export async function registerCartSweeperSchedules(
   container: import('awilix').AwilixContainer | undefined,
   scope: { tenantId: string; organizationId?: string },
+  options?: ScheduleTransactionOptions,
 ): Promise<void> {
   if (!container) return
   const cradle = container as { hasRegistration?: (name: string) => boolean }
   if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
 
   const schedulerService = container.resolve('schedulerService') as SchedulerServiceLike
+  const register = (registration: Record<string, unknown>) =>
+    options ? schedulerService.register(registration, options) : schedulerService.register(registration)
   const { tenantId } = scope
 
   for (const registration of SWEEPER_REGISTRATIONS) {
-    await schedulerService.register({
+    await register({
       id: stableScheduleUuid(`cart:${registration.key}:${tenantId}`),
       name: registration.name,
       description: registration.description,

@@ -5,6 +5,8 @@ import { parseUnlinkAttachmentIds } from '../../../commands/attachments'
 import { Message, MessageRecipient } from '../../../data/entities'
 import { attachmentIdsPayloadSchema, unlinkAttachmentPayloadSchema } from '../../../data/validators'
 import { getMessageAttachments, linkAttachmentsToMessage } from '../../../lib/attachments'
+import { isAttachmentsModuleAvailable } from '../../../lib/optionalModules'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { attachOperationMetadataHeader } from '../../../lib/operationMetadata'
 import { hasChannelThreadReadAccess, resolveMessageContext } from '../../../lib/routeHelpers'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../../guards'
@@ -22,6 +24,14 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['messages.attach_files'] },
 }
 
+async function attachmentsUnavailableResponse(): Promise<Response> {
+  const { t } = await resolveTranslations()
+  return Response.json(
+    { error: t('messages.errors.attachmentsUnavailable', 'Attachments are not available.') },
+    { status: 404 },
+  )
+}
+
 function hasOrganizationAccess(scopeOrganizationId: string | null, messageOrganizationId: string | null | undefined): boolean {
   if (scopeOrganizationId) {
     return messageOrganizationId === scopeOrganizationId
@@ -32,6 +42,7 @@ function hasOrganizationAccess(scopeOrganizationId: string | null, messageOrgani
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const { ctx, scope } = await resolveMessageContext(req)
   const em = ctx.container.resolve('em') as EntityManager
+  if (!(await isAttachmentsModuleAvailable(em))) return attachmentsUnavailableResponse()
 
   const message = await em.findOne(Message, {
     id: params.id,
@@ -79,6 +90,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const { ctx, scope } = await resolveMessageContext(req)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
+  if (!(await isAttachmentsModuleAvailable(em))) return attachmentsUnavailableResponse()
   const body = await req.json().catch(() => ({}))
   const input = attachmentIdsPayloadSchema.parse(body)
 
@@ -165,6 +177,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const { ctx, scope } = await resolveMessageContext(req)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
+  if (!(await isAttachmentsModuleAvailable(em))) return attachmentsUnavailableResponse()
   const body = await req.json().catch(() => ({}))
   const input = unlinkAttachmentPayloadSchema.parse(body)
 
@@ -258,7 +271,7 @@ export const openApi: OpenApiRouteDoc = {
       ],
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
-        { status: 404, description: 'Message not found', schema: errorResponseSchema },
+        { status: 404, description: 'Message not found, or the attachments module is disabled', schema: errorResponseSchema },
       ],
     },
     POST: {
@@ -269,7 +282,7 @@ export const openApi: OpenApiRouteDoc = {
       ],
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
-        { status: 404, description: 'Message not found', schema: errorResponseSchema },
+        { status: 404, description: 'Message not found, or the attachments module is disabled', schema: errorResponseSchema },
         { status: 409, description: 'Only draft messages can be edited', schema: errorResponseSchema },
       ],
     },
@@ -281,7 +294,7 @@ export const openApi: OpenApiRouteDoc = {
       ],
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
-        { status: 404, description: 'Message not found', schema: errorResponseSchema },
+        { status: 404, description: 'Message not found, or the attachments module is disabled', schema: errorResponseSchema },
         { status: 409, description: 'Only draft messages can be edited', schema: errorResponseSchema },
       ],
     },

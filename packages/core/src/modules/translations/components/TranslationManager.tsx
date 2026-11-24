@@ -95,6 +95,7 @@ export function TranslationManager({
   const editedTranslationsRef = React.useRef<Record<string, Record<string, string>>>({})
   const [hasUserEdited, setHasUserEdited] = React.useState(false)
   const hasUserEditedRef = React.useRef(false)
+  const saveInFlightRef = React.useRef(false)
 
   const entityType = isEmbedded ? (propEntityType ?? '') : selectedEntityType
   const recordId = isEmbedded ? (propRecordId ?? '') : selectedRecordId
@@ -209,7 +210,7 @@ export function TranslationManager({
       )
       if (!res.ok) {
         if (res.response?.status === 404) return null
-        return null
+        throw new Error(t('translations.manager.errors.loadTranslation', 'Failed to load translations'))
       }
       return res.result ?? null
     },
@@ -317,11 +318,11 @@ export function TranslationManager({
         mutationPayload: body,
       })
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       flash(t('translations.manager.flash.saved', 'Translations saved'), 'success')
       hasUserEditedRef.current = false
       setHasUserEdited(false)
-      void refetchTranslation()
+      await refetchTranslation()
     },
     onError: (err: unknown) => {
       if (surfaceRecordConflict(err, t)) return
@@ -329,6 +330,14 @@ export function TranslationManager({
       flash(message, 'error')
     },
   })
+
+  const saveTranslations = React.useCallback(() => {
+    if (saveInFlightRef.current || !hasUserEditedRef.current || !entityType || !recordId || loadingTranslation || translationError) return
+    saveInFlightRef.current = true
+    mutation.mutate(undefined, {
+      onSettled: () => { saveInFlightRef.current = false },
+    })
+  }, [entityType, recordId, loadingTranslation, translationError, mutation])
 
   const updateFieldValue = (locale: string, fieldKey: string, value: string) => {
     hasUserEditedRef.current = true
@@ -404,7 +413,7 @@ export function TranslationManager({
         <ErrorMessage
           label={t('translations.manager.errors.loadTranslation', 'Failed to load translations')}
           action={(
-            <Button variant="outline" size="sm" onClick={() => void refetchTranslation()}>
+            <Button type="button" variant="outline" size="sm" onClick={() => void refetchTranslation()}>
               {t('translations.manager.actions.retry', 'Retry')}
             </Button>
           )}
@@ -443,11 +452,17 @@ export function TranslationManager({
             {fieldList.map((field) => {
               const baseVal = field.baseValue ?? getBaseValue(field.key)
               const translatedVal = localeTranslations[field.key] ?? ''
+              const isPropertyTranslation = entityType === 'entities:custom_field_def' || entityType === 'dictionaries:dictionary_entry'
+              const fieldLabel = isPropertyTranslation && field.key === 'label'
+                ? t('translations.manager.fields.label', 'Label')
+                : isPropertyTranslation && field.key === 'description'
+                  ? t('translations.manager.fields.description', 'Description')
+                  : field.label
 
               return (
                 <tr key={field.key} className="border-t">
                   <td className="px-3 py-2 align-top text-xs font-medium text-muted-foreground">
-                    {field.label}
+                    {fieldLabel}
                   </td>
                   {!compact && (
                     <td className="px-3 py-2 align-top text-xs text-muted-foreground max-w-[200px]">
@@ -488,12 +503,12 @@ export function TranslationManager({
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault()
-        if (entityType && recordId && !mutation.isPending) mutation.mutate()
+        saveTranslations()
       }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [entityType, recordId, mutation])
+  }, [saveTranslations])
 
   if (compact) {
     return (
@@ -504,8 +519,8 @@ export function TranslationManager({
           <Button
             type="button"
             size="sm"
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !entityType || !recordId}
+            onClick={saveTranslations}
+            disabled={!hasUserEdited || mutation.isPending || loadingTranslation || translationError || !entityType || !recordId}
             data-testid="translations-save"
           >
             <Save className="mr-2 h-3 w-3" />
@@ -571,8 +586,8 @@ export function TranslationManager({
         <div className="flex justify-end">
           <Button
             type="button"
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || loadingEntities || !!entitiesError || !entityType || !recordId}
+            onClick={saveTranslations}
+            disabled={!hasUserEdited || mutation.isPending || loadingTranslation || translationError || loadingEntities || !!entitiesError || !entityType || !recordId}
             data-testid="translations-save"
           >
             <Save className="mr-2 h-4 w-4" />
