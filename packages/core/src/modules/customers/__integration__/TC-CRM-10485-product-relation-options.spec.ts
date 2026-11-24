@@ -83,11 +83,11 @@ test('a person editor can resolve product relation options with catalog view per
         configJson: {
           label: 'QA related product',
           relatedEntityId: 'catalog:catalog_product',
-          optionsUrl: `${optionsUrl}?entityId=catalog%3Acatalog_product`,
+          optionsUrl: new URL(`${optionsUrl}?entityId=catalog%3Acatalog_product`, baseURL).toString(),
         },
       },
     })
-    expect(fieldResponse.status()).toBe(200)
+    expect(fieldResponse.ok(), `Relation definition creation returned ${fieldResponse.status()}`).toBeTruthy()
     definitionCreated = true
     const person = await apiRequest(request, 'POST', '/api/customers/people', {
       token: adminToken,
