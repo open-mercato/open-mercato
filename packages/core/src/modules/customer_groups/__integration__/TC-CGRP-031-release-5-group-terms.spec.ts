@@ -11,6 +11,9 @@ import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optim
 import { fixturePriority, uniqueStamp } from './helpers';
 
 type TermsBody = {
+  inherited?: {
+    termsCurrencyCode?: { value: string | number | boolean | null; source: string };
+  };
   terms?: {
     updatedAt?: string;
     termsCurrencyCode?: string | null;
@@ -99,7 +102,7 @@ test.describe('TC-CGRP-031: Release 5 group terms', () => {
     }
   });
 
-  test('the terms form sets the four fields, warns about a missing terms currency, and the values survive a reload', async ({ page }) => {
+  test('the terms form sets the four fields, shows the inherited currency or the missing-currency warning, and the values survive a reload', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin');
     const stamp = uniqueStamp();
     const code = `qa-cgrp-031b-${stamp}`;
@@ -113,6 +116,11 @@ test.describe('TC-CGRP-031: Release 5 group terms', () => {
         priority: fixturePriority(stamp, 2),
       });
 
+      const inheritedRead = await apiRequest(page.request, 'GET', termsPath(groupId), { token });
+      expect(inheritedRead.status()).toBe(200);
+      const inheritedCurrency = (await readJsonSafe<TermsBody>(inheritedRead))?.inherited?.termsCurrencyCode;
+      expect(inheritedCurrency).toBeDefined();
+
       await login(page, 'admin');
       await page.goto(`/backend/customer-groups/${groupId}/edit`);
       await expect(page.locator('[data-crud-field-id="code"] input')).toHaveValue(code, { timeout: 15_000 });
@@ -121,7 +129,15 @@ test.describe('TC-CGRP-031: Release 5 group terms', () => {
       const thresholdInput = page.locator('[data-crud-field-id="approvalRequiredAbove"] input');
       await expect(thresholdInput).toBeVisible({ timeout: 10_000 });
       await fillControlledInput(thresholdInput, '1000');
-      await expect(page.getByTestId('customer-group-terms-missing-currency-warning')).toBeVisible();
+      if (inheritedCurrency?.value == null) {
+        await expect(page.getByTestId('customer-group-terms-missing-currency-warning')).toBeVisible();
+      } else {
+        expect(inheritedCurrency.source).toBe('base_currency');
+        await expect(page.getByTestId('customer-group-terms-inherited-termsCurrencyCode')).toHaveText(
+          `Inherited: ${inheritedCurrency.value} (organization base currency)`,
+        );
+        await expect(page.getByTestId('customer-group-terms-missing-currency-warning')).toHaveCount(0);
+      }
 
       await fillControlledInput(page.locator('[data-crud-field-id="termsCurrencyCode"] input'), 'pln');
       await expect(page.getByTestId('customer-group-terms-missing-currency-warning')).toHaveCount(0);
