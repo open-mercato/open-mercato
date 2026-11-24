@@ -433,6 +433,10 @@ export class RecordLockService {
     this.rbacService = deps.rbacService ?? null
   }
 
+  private isAuditTrailAvailable(): boolean {
+    return Boolean(this.em.getMetadata().find(ActionLog))
+  }
+
   async getSettings(tenantId?: string): Promise<RecordLockSettings> {
     if (!this.moduleConfigService) return DEFAULT_RECORD_LOCK_SETTINGS
 
@@ -1728,6 +1732,7 @@ export class RecordLockService {
   private async findLatestActionLog(
     input: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
   ): Promise<ActionLog | null> {
+    if (!this.isAuditTrailAvailable()) return null
     const where: FilterQuery<ActionLog> = {
       tenantId: input.tenantId,
       resourceKind: input.resourceKind,
@@ -1766,6 +1771,7 @@ export class RecordLockService {
     input: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
     actorUserId: string,
   ): Promise<ActionLog | null> {
+    if (!this.isAuditTrailAvailable()) return null
     const where: FilterQuery<ActionLog> = {
       tenantId: input.tenantId,
       resourceKind: input.resourceKind,
@@ -2049,6 +2055,7 @@ export class RecordLockService {
     scope: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
   ): Promise<ActionLog | null> {
     if (!logId) return null
+    if (!this.isAuditTrailAvailable()) return null
 
     let resolved = this.actionLogService
       ? await this.actionLogService.findById(logId)
