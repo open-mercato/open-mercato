@@ -4,6 +4,7 @@ import type { Notification } from '../data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { NOTIFICATION_ACTION_FORBIDDEN_ERROR_CODE } from '@open-mercato/shared/modules/notifications/types'
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+import type { RawBuilder } from 'kysely'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
@@ -60,7 +61,7 @@ const optionalType: NotificationTypeDefinition = {
   ],
 }
 
-const buildEm = () => {
+const buildEm = (storedActionData?: unknown) => {
   const claimUpdates: unknown[] = []
   const em = {
     fork: jest.fn(),
@@ -72,9 +73,19 @@ const buildEm = () => {
     updateTable: () => ({
       set: (values: unknown) => {
         claimUpdates.push(values)
-        const chain: { where: () => typeof chain; executeTakeFirst: () => Promise<{ numUpdatedRows: bigint }> } = {
-          where: () => chain,
-          executeTakeFirst: async () => ({ numUpdatedRows: BigInt(1) }),
+        let matchesSnapshot = true
+        const chain = {
+          where: (...conditions: unknown[]) => {
+            const condition = conditions[0]
+            if (storedActionData !== undefined && typeof condition === 'object' && condition !== null && 'toOperationNode' in condition) {
+              const parameter = (condition as RawBuilder<boolean>).toOperationNode().parameters[0]
+              matchesSnapshot = parameter.kind === 'ValueNode'
+                && 'value' in parameter
+                && parameter.value === JSON.stringify(storedActionData)
+            }
+            return chain
+          },
+          executeTakeFirst: async () => ({ numUpdatedRows: matchesSnapshot ? BigInt(1) : BigInt(0) }),
         }
         return chain
       },
@@ -174,6 +185,27 @@ describe('notification action authorization', () => {
     )
     expect(result.result).toEqual({ ok: true })
     expect(notification.status).toBe('actioned')
+  })
+
+  it('refuses a stale click when cleanup removed its stored command before the atomic claim', async () => {
+    const { em } = buildEm({ actions: [] })
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const commandBus = { execute: jest.fn().mockResolvedValue({ result: { ok: true } }) }
+    const service = createNotificationService({
+      em: em as never, eventBus, commandBus,
+      container: buildContainer(jest.fn().mockResolvedValue(true)),
+    })
+    const notification = buildNotification(guardedType.type, [
+      { id: 'approve', label: 'Approve', commandId: 'tests.guarded.approve' },
+    ])
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(notification)
+
+    await expect(service.executeAction(notification.id, { actionId: 'approve' }, ctx)).rejects.toMatchObject({
+      status: 409,
+    })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
+    expect(notification.status).toBe('unread')
   })
 
   it('refuses a stored command that differs from the command the type declares for that action', async () => {
