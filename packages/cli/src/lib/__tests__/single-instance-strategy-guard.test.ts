@@ -1,6 +1,7 @@
 import {
   assertSingleInstanceStrategies,
   evaluateSingleInstanceGuard,
+  readInfraStrategySnapshot,
   SingleInstanceStrategyError,
   type InfraStrategySnapshot,
 } from '../single-instance-strategy-guard'
@@ -92,6 +93,37 @@ describe('evaluateSingleInstanceGuard', () => {
     expect(result.offenders).toHaveLength(1)
     expect(result.offenders[0].component).toBe('queue')
   })
+})
+
+describe('stock cache strategy characterization', () => {
+  it('reads CACHE_STRATEGY into the snapshot and defaults to memory', () => {
+    expect(readInfraStrategySnapshot({ CACHE_STRATEGY: 'redis' }).cacheStrategy).toBe('redis')
+    expect(readInfraStrategySnapshot({ CACHE_STRATEGY: '  sqlite  ' }).cacheStrategy).toBe('sqlite')
+    expect(readInfraStrategySnapshot({}).cacheStrategy).toBe('memory')
+    expect(readInfraStrategySnapshot({ CACHE_STRATEGY: '' }).cacheStrategy).toBe('memory')
+  })
+
+  it('treats a redis cache as multi-instance safe', () => {
+    const result = evaluateSingleInstanceGuard(
+      { ...multiInstanceSafeSnapshot, cacheStrategy: 'redis' },
+      { NODE_ENV: 'production', OM_MULTI_INSTANCE: '1' },
+    )
+    expect(result.offenders.find((offender) => offender.component === 'cache')).toBeUndefined()
+  })
+
+  it.each([['memory'], ['sqlite'], ['jsonfile']])(
+    'reports a %s cache as a CACHE_STRATEGY offender',
+    (cacheStrategy) => {
+      const result = evaluateSingleInstanceGuard(
+        { ...multiInstanceSafeSnapshot, cacheStrategy },
+        { NODE_ENV: 'production', OM_MULTI_INSTANCE: '1' },
+      )
+      expect(result.action).toBe('fail')
+      expect(result.offenders).toEqual([
+        { component: 'cache', envVar: 'CACHE_STRATEGY', configured: cacheStrategy, safeValues: ['redis'] },
+      ])
+    },
+  )
 })
 
 describe('assertSingleInstanceStrategies', () => {

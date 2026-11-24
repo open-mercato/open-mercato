@@ -10,6 +10,8 @@ import type { CacheStrategy } from '../types'
 import { runWithCacheTenant } from '../tenantContext'
 import * as memoryStrategyModule from '../strategies/memory'
 import * as sqliteStrategyModule from '../strategies/sqlite'
+import * as redisStrategyModule from '../strategies/redis'
+import * as jsonFileStrategyModule from '../strategies/jsonfile'
 
 describe('Cache Service', () => {
   afterEach(() => {
@@ -450,5 +452,88 @@ describe('Cache Service compression resolution (CACHE_COMPRESSION)', () => {
     createCacheService({ strategy: 'sqlite' })
 
     expect(spy.mock.calls[0][1]).toMatchObject({ compression: 'off', compressionMinBytes: undefined })
+  })
+})
+
+describe('Cache Service stock selection characterization', () => {
+  const originalStrategy = process.env.CACHE_STRATEGY
+  const createRealMemoryStrategy = memoryStrategyModule.createMemoryStrategy
+
+  afterEach(() => {
+    if (originalStrategy === undefined) delete process.env.CACHE_STRATEGY
+    else process.env.CACHE_STRATEGY = originalStrategy
+    jest.restoreAllMocks()
+  })
+
+  const spyOnStockFactories = () => {
+    const memory = jest.spyOn(memoryStrategyModule, 'createMemoryStrategy')
+    const sqlite = jest
+      .spyOn(sqliteStrategyModule, 'createSqliteStrategy')
+      .mockImplementation(() => createRealMemoryStrategy())
+    const redis = jest
+      .spyOn(redisStrategyModule, 'createRedisStrategy')
+      .mockImplementation(() => createRealMemoryStrategy())
+    const jsonfile = jest
+      .spyOn(jsonFileStrategyModule, 'createJsonFileStrategy')
+      .mockImplementation(() => createRealMemoryStrategy())
+    return { memory, sqlite, redis, jsonfile }
+  }
+
+  it('falls back to the memory strategy for an unknown CACHE_STRATEGY value', async () => {
+    process.env.CACHE_STRATEGY = 'memcached-characterization'
+    const factories = spyOnStockFactories()
+
+    const cache = createCacheService()
+    await cache.set('unknown-strategy', 'value')
+
+    expect(factories.memory).toHaveBeenCalledTimes(1)
+    expect(factories.sqlite).not.toHaveBeenCalled()
+    expect(factories.redis).not.toHaveBeenCalled()
+    expect(factories.jsonfile).not.toHaveBeenCalled()
+    await expect(cache.get('unknown-strategy')).resolves.toBe('value')
+  })
+
+  it('lets an explicit options.strategy win over CACHE_STRATEGY', () => {
+    process.env.CACHE_STRATEGY = 'sqlite'
+    const factories = spyOnStockFactories()
+
+    createCacheService({ strategy: 'memory' })
+
+    expect(factories.memory).toHaveBeenCalledTimes(1)
+    expect(factories.sqlite).not.toHaveBeenCalled()
+  })
+
+  it('uses CACHE_STRATEGY when no explicit strategy is passed', () => {
+    process.env.CACHE_STRATEGY = 'redis'
+    const factories = spyOnStockFactories()
+
+    createCacheService()
+
+    expect(factories.redis).toHaveBeenCalledTimes(1)
+    expect(factories.memory).not.toHaveBeenCalled()
+  })
+
+  it('returns 0 and constructs no strategy when purging an env-default memory cache', async () => {
+    delete process.env.CACHE_STRATEGY
+    const factories = spyOnStockFactories()
+
+    await expect(purgeConfiguredCachePatternsAcrossTenantScopes(['nav:*'])).resolves.toBe(0)
+
+    expect(factories.memory).not.toHaveBeenCalled()
+    expect(factories.sqlite).not.toHaveBeenCalled()
+    expect(factories.redis).not.toHaveBeenCalled()
+    expect(factories.jsonfile).not.toHaveBeenCalled()
+  })
+
+  it('returns 0 and constructs no strategy when purging with an unknown CACHE_STRATEGY', async () => {
+    process.env.CACHE_STRATEGY = 'memcached-characterization'
+    const factories = spyOnStockFactories()
+
+    await expect(purgeConfiguredCachePatternsAcrossTenantScopes(['nav:*'])).resolves.toBe(0)
+
+    expect(factories.memory).not.toHaveBeenCalled()
+    expect(factories.sqlite).not.toHaveBeenCalled()
+    expect(factories.redis).not.toHaveBeenCalled()
+    expect(factories.jsonfile).not.toHaveBeenCalled()
   })
 })

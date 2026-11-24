@@ -393,6 +393,23 @@ describe('emitOAuthStateMemoryCacheStartupWarningIfNeeded', () => {
     emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_STRATEGY: 'redis' })
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
+
+  it('treats an unset CACHE_STRATEGY as memory and warns', () => {
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({})
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ cacheStrategy: 'memory' })
+  })
+
+  it('warns for a node-local persistent strategy such as sqlite', () => {
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_STRATEGY: 'sqlite' })
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ cacheStrategy: 'sqlite' })
+  })
+
+  it('normalizes case and whitespace before skipping redis', () => {
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_STRATEGY: ' Redis ' })
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
 })
 
 describe('OAuth return URL validation', () => {
