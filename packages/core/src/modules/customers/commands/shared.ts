@@ -38,6 +38,29 @@ export function normalizeDictionaryIcon(input: unknown): string | null {
 
 export { assertFound } from '@open-mercato/shared/lib/crud/errors'
 
+export type CommandScopeWhere = {
+  tenantId?: string
+  organizationId?: { $in: string[] }
+}
+
+// Filter to merge into a write command's target lookup so ids outside the caller's
+// tenant (from auth, or organizationScope.tenantId for auth-less callers) and, for
+// restricted callers, outside the allowed organizations resolve as "not found"
+// instead of being loaded and rejected afterwards. The ensure*Scope checks stay as
+// the second layer (#7598, mirrors catalog #3825).
+export function commandScopeWhere(
+  ctx: Pick<CommandRuntimeContext, 'auth' | 'organizationScope'>,
+): CommandScopeWhere {
+  const where: CommandScopeWhere = {}
+  const tenantId = ctx.auth ? ctx.auth.tenantId ?? null : ctx.organizationScope?.tenantId ?? null
+  if (tenantId) where.tenantId = tenantId
+  const allowedIds = ctx.organizationScope?.allowedIds
+  if (ctx.auth?.isSuperAdmin !== true && Array.isArray(allowedIds)) {
+    where.organizationId = { $in: [...allowedIds] }
+  }
+  return where
+}
+
 export type CustomerEntityScope = {
   tenantId: string
   organizationId: string
@@ -76,8 +99,7 @@ export async function findScopedCustomerCommandRecord<Entity extends object, Hin
   options: Parameters<typeof findOneWithDecryption<Entity, Hint>>[3],
   ctx: CommandRuntimeContext,
 ): Promise<Entity | null> {
-  const lookup = buildCustomerCommandLookup(where, ctx)
-  const record = await findOneWithDecryption<Entity, Hint>(em, entity, lookup.where as FilterQuery<Entity>, options, lookup.scope)
+  const record = await findScopedCustomerCommandTarget(em, entity, where, options, ctx)
   if (!record && ctx.auth && typeof where.id === 'string') {
     const entityType = em.getMetadata().get(entity).className
     const recordScope = await loadEntityRecordScope(em as unknown as Parameters<typeof loadEntityRecordScope>[0], entityType, where.id)
@@ -87,6 +109,17 @@ export async function findScopedCustomerCommandRecord<Entity extends object, Hin
     }
   }
   return record
+}
+
+export async function findScopedCustomerCommandTarget<Entity extends object, Hint extends string = never>(
+  em: EntityManager,
+  entity: EntityName<Entity>,
+  where: Record<string, unknown>,
+  options: Parameters<typeof findOneWithDecryption<Entity, Hint>>[3],
+  ctx: CommandRuntimeContext,
+): Promise<Entity | null> {
+  const lookup = buildCustomerCommandLookup(where, ctx)
+  return findOneWithDecryption<Entity, Hint>(em, entity, lookup.where as FilterQuery<Entity>, options, lookup.scope)
 }
 
 export async function requireCustomerEntity(
