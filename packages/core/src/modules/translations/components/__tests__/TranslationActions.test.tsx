@@ -55,7 +55,7 @@ describe('translation action contributions', () => {
     expect(mockTranslationManager).not.toHaveBeenCalled()
   })
 
-  it('prompts for a specific organization before mounting either editor in All organizations', () => {
+  it('requires a selected organization for dictionary entries and keeps field-definition translations available', () => {
     document.cookie = 'om_selected_org=__all__; path=/'
     try {
       render(
@@ -69,13 +69,17 @@ describe('translation action contributions', () => {
         </>,
       )
 
-      for (const name of ['Translate', 'Translate field']) {
-        fireEvent.click(screen.getByRole('button', { name, exact: true }))
-        expect(screen.getByText('Select a specific organization in the header to edit translations.')).toBeVisible()
-        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
-      }
-
+      fireEvent.click(screen.getByRole('button', { name: 'Translate', exact: true }))
+      expect(screen.getByRole('dialog')).toHaveAccessibleDescription(
+        'Select a specific organization in the header to edit translations.',
+      )
       expect(mockTranslationManager).not.toHaveBeenCalled()
+
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+      fireEvent.click(screen.getByRole('button', { name: 'Translate field', exact: true }))
+      expect(mockTranslationManager).toHaveBeenLastCalledWith(expect.objectContaining({
+        entityType: 'entities:custom_field_def',
+      }))
     } finally {
       document.cookie = 'om_selected_org=; Max-Age=0; path=/'
     }

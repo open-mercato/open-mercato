@@ -32,13 +32,14 @@ type TranslationActionProps = {
   description?: string
   compact?: boolean
   disabled?: boolean
+  requiresSelectedOrganization?: boolean
 }
 
-function TranslationAction({ label, title, description, disabled, ...managerProps }: TranslationActionProps) {
+function TranslationAction({ label, title, description, disabled, requiresSelectedOrganization, ...managerProps }: TranslationActionProps) {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
   const [open, setOpen] = React.useState(false)
-  const requiresOrganization = open && readRequestOrganizationScope()?.organizationId === null
+  const requiresOrganization = open && requiresSelectedOrganization && readRequestOrganizationScope()?.organizationId === null
   const dialogDescription = requiresOrganization
     ? t('translations.manager.selectOrganization', 'Select a specific organization in the header to edit translations.')
     : description
@@ -82,6 +83,7 @@ export function DictionaryEntryTranslationAction({ context, disabled }: Injectio
       title={t('translations.manager.translateEntry', 'Translate: {{label}}', { label: entry.label })}
       description={t('translations.manager.translateEntryDescription', 'Manage translations for this dictionary entry.')}
       disabled={disabled}
+      requiresSelectedOrganization
     />
   )
 }
