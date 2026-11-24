@@ -5,6 +5,7 @@ import { resolveNotificationService } from '@open-mercato/core/modules/notificat
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import MfaEnrolledEmail from '../emails/mfa-enrolled'
+import { inAppNotificationsAvailable } from '../lib/inAppNotifications'
 import { notificationTypes } from '../notifications'
 
 export const metadata = {
@@ -81,25 +82,26 @@ export default async function notificationSubscriber(
   const user = await resolveUserById(em, payload.userId)
   if (!user) return
 
-  const notificationService = resolveNotificationService(ctx)
   const methodLabel = resolveMethodLabel(payload.methodType)
   const enrolledAtIso = payload.enrolledAt ?? new Date().toISOString()
 
-  await notificationService.create(
-    buildNotificationFromType(typeDef, {
-      recipientUserId: user.id,
-      bodyVariables: {
-        method: methodLabel,
+  if (inAppNotificationsAvailable(ctx)) {
+    await resolveNotificationService(ctx).create(
+      buildNotificationFromType(typeDef, {
+        recipientUserId: user.id,
+        bodyVariables: {
+          method: methodLabel,
+        },
+        sourceEntityType: 'security:mfa_method',
+        sourceEntityId: payload.methodId,
+        linkHref: '/backend/profile/security/mfa',
+      }),
+      {
+        tenantId: user.tenantId,
+        organizationId: user.organizationId,
       },
-      sourceEntityType: 'security:mfa_method',
-      sourceEntityId: payload.methodId,
-      linkHref: '/backend/profile/security/mfa',
-    }),
-    {
-      tenantId: user.tenantId,
-      organizationId: user.organizationId,
-    },
-  )
+    )
+  }
 
   if (user.email) {
     await sendEmail({

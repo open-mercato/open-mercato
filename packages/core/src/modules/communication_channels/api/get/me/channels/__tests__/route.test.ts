@@ -12,16 +12,22 @@ const userId = '33333333-3333-4333-8333-333333333333'
 const findWithDecryptionMock = jest.fn()
 const getAuthFromRequestMock = jest.fn()
 const adapterGetMock = jest.fn()
+const scheduleActiveMock = jest.fn()
+const scheduleExistsMock = jest.fn()
+const reportErrorMock = jest.fn()
 
 const em = { fork: () => em }
 
 function defaultResolve(name: string) {
   if (name === 'em') return em
   if (name === 'channelAdapterRegistry') return { get: adapterGetMock }
+  if (name === 'schedulerService') return { isActive: scheduleActiveMock, exists: scheduleExistsMock }
   throw new Error(`Unexpected container resolve: ${name}`)
 }
 
-const container = { resolve: jest.fn(defaultResolve) }
+const hasRegistrationMock = jest.fn((name: string) => name === 'schedulerService')
+
+const container = { resolve: jest.fn(defaultResolve), hasRegistration: hasRegistrationMock }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => getAuthFromRequestMock(...args),
@@ -31,16 +37,24 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
 }))
 
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: reportErrorMock }),
+}))
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
 }))
 
 import { GET } from '../route'
+import { pollTickScheduleId } from '../../../../../lib/automatic-sync'
 
 type SerializedChannel = {
   providerKey: string
   supportsRealtimePush: boolean
   supportsPushRegistration: boolean
+  pushStatus: string | null
+  pushExpiresAt: string | null
+  pushExpired: boolean
 }
 
 function channel(providerKey: string, capabilities: Record<string, unknown> | null) {
@@ -73,6 +87,9 @@ describe('communication_channels me/channels route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     container.resolve.mockImplementation(defaultResolve)
+    hasRegistrationMock.mockImplementation((name: string) => name === 'schedulerService')
+    scheduleActiveMock.mockResolvedValue(true)
+    scheduleExistsMock.mockResolvedValue(true)
     getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: organizationId })
     // Gmail is the one provider implementing `registerPush`; a gateway provider
     // such as Discord implements none but declares real-time push.
@@ -126,6 +143,133 @@ describe('communication_channels me/channels route', () => {
     const [row] = await invoke()
 
     expect(row.supportsPushRegistration).toBe(false)
+  })
+
+  // Regression for https://github.com/open-mercato/open-mercato/issues/8804 — an app
+  // without the scheduler module, or whose organization never got its poll tick, never
+  // polls mailboxes, and the profile page must say so.
+  async function readAutomaticSyncEnabled(): Promise<boolean> {
+    const response = await GET(new Request('http://localhost/api/communication_channels/me/channels'))
+    const body = (await response.json()) as { automaticSyncEnabled: boolean }
+    return body.automaticSyncEnabled
+  }
+
+  it("reports automatic sync as enabled when the organization's poll tick is active", async () => {
+    findWithDecryptionMock.mockResolvedValue([])
+
+    expect(await readAutomaticSyncEnabled()).toBe(true)
+    expect(scheduleActiveMock).toHaveBeenCalledWith(pollTickScheduleId(organizationId))
+    expect(scheduleExistsMock).not.toHaveBeenCalled()
+  })
+
+  it('reports automatic sync as disabled when the scheduler module is not enabled', async () => {
+    hasRegistrationMock.mockReturnValue(false)
+    findWithDecryptionMock.mockResolvedValue([channel('imap', { realtimePush: false })])
+
+    expect(await readAutomaticSyncEnabled()).toBe(false)
+    expect(scheduleActiveMock).not.toHaveBeenCalled()
+  })
+
+  it("reports automatic sync as disabled when the organization's poll tick is missing, disabled, or deleted", async () => {
+    scheduleActiveMock.mockResolvedValue(false)
+    findWithDecryptionMock.mockResolvedValue([channel('imap', { realtimePush: false })])
+
+    expect(await readAutomaticSyncEnabled()).toBe(false)
+  })
+
+  it('falls back to exists() on a scheduler that predates isActive()', async () => {
+    container.resolve.mockImplementation((name: string) =>
+      name === 'schedulerService' ? { exists: scheduleExistsMock } : defaultResolve(name),
+    )
+    scheduleExistsMock.mockResolvedValue(false)
+    findWithDecryptionMock.mockResolvedValue([])
+
+    expect(await readAutomaticSyncEnabled()).toBe(false)
+    expect(scheduleExistsMock).toHaveBeenCalledWith(pollTickScheduleId(organizationId))
+  })
+
+  it('reports module availability without a schedule lookup when no organization is in scope', async () => {
+    getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: null })
+    findWithDecryptionMock.mockResolvedValue([])
+
+    expect(await readAutomaticSyncEnabled()).toBe(true)
+    expect(scheduleActiveMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps the page quiet and reports the error when the schedule lookup fails', async () => {
+    scheduleActiveMock.mockRejectedValue(new Error('db down'))
+    findWithDecryptionMock.mockResolvedValue([])
+
+    expect(await readAutomaticSyncEnabled()).toBe(true)
+    expect(reportErrorMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ code: 'communication_channels.automatic_sync_probe_failed' }),
+    )
+  })
+
+  // Regression for https://github.com/open-mercato/open-mercato/issues/8943 — a
+  // Gmail watch lapses after ~7 days, but `pushStatus` stays 'active' until a
+  // register/renew call rewrites it, so the stored value alone hid the expiry.
+  describe('push watch expiry', () => {
+    const now = Date.parse('2026-11-06T12:00:00.000Z')
+    const dayMs = 24 * 60 * 60 * 1000
+
+    beforeEach(() => {
+      jest.spyOn(Date, 'now').mockReturnValue(now)
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    function gmailWithState(channelState: Record<string, unknown> | null) {
+      return { ...channel('gmail', { realtimePush: false }), channelState }
+    }
+
+    it('flags an active watch whose expiration has passed as expired', async () => {
+      const watchExpirationMs = now - 70 * dayMs
+      findWithDecryptionMock.mockResolvedValue([
+        gmailWithState({ pushStatus: 'active', watchExpirationMs }),
+      ])
+
+      const [row] = await invoke()
+
+      expect(row.pushStatus).toBe('active')
+      expect(row.pushExpired).toBe(true)
+      expect(row.pushExpiresAt).toBe(new Date(watchExpirationMs).toISOString())
+    })
+
+    it('keeps an active watch that has not expired yet as live', async () => {
+      const watchExpirationMs = now + 3 * dayMs
+      findWithDecryptionMock.mockResolvedValue([
+        gmailWithState({ pushStatus: 'active', watchExpirationMs }),
+      ])
+
+      const [row] = await invoke()
+
+      expect(row.pushExpired).toBe(false)
+      expect(row.pushExpiresAt).toBe(new Date(watchExpirationMs).toISOString())
+    })
+
+    it('does not flag expiry when no expiration is stored', async () => {
+      findWithDecryptionMock.mockResolvedValue([gmailWithState({ pushStatus: 'active' })])
+
+      const [row] = await invoke()
+
+      expect(row.pushExpired).toBe(false)
+      expect(row.pushExpiresAt).toBeNull()
+    })
+
+    it('leaves a failed registration to the failed state rather than calling it expired', async () => {
+      findWithDecryptionMock.mockResolvedValue([
+        gmailWithState({ pushStatus: 'failed', watchExpirationMs: now - dayMs }),
+      ])
+
+      const [row] = await invoke()
+
+      expect(row.pushStatus).toBe('failed')
+      expect(row.pushExpired).toBe(false)
+    })
   })
 
   it('rejects an unauthenticated caller', async () => {

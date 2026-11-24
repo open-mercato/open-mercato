@@ -1,15 +1,18 @@
+import { defineProcessDiRegistrar, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { PushNotificationDelivery } from './data/entities'
 import { ensurePushStubAdapterRegistered } from './lib/push-stub-adapter'
 import { pushNotificationService } from './lib/send-custom-push'
 
-export function register(container: AppContainer) {
+function registerWithActivation(container: AppContainer, activate: (callback: () => void) => void) {
   // Test-only: register the network-free `push_stub` channel adapter when
   // `OM_ENABLE_PUSH_STUB_ADAPTER` is set (no-op in production). Lets the integration harness drive
   // the strategy → delivery-row → worker → sendMessage chain without a real provider. Mirrors the
   // communication_channels test-seed adapter registration. See lib/push-stub-adapter.ts.
-  ensurePushStubAdapterRegistered()
+  activate(() => {
+    ensurePushStubAdapterRegistered()
+  })
 
   container.register({
     PushNotificationDelivery: asValue(PushNotificationDelivery),
@@ -18,3 +21,11 @@ export function register(container: AppContainer) {
     pushNotificationService: asValue(pushNotificationService),
   })
 }
+
+export function register(container: AppContainer): void {
+  registerWithActivation(container, (activate) => activate())
+}
+
+defineProcessDiRegistrar((container: AppContainer) => {
+  registerWithActivation(container, (activate) => registerProcessActivation(container, activate))
+}, { legacy: register })
