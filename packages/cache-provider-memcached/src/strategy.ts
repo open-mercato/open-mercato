@@ -308,6 +308,17 @@ export function createMemcachedStrategy(
     return removed
   }
 
+  const removeKey = (key: string) => mutate(bucketIndexFor(key, bucketCount), (entries, mutationContext) => {
+    if (!entries.delete(key)) return false
+    mutationContext.markDirty()
+    return true
+  })
+
+  const refuseOversize = async (key: string, error: MemcachedCacheError): Promise<never> => {
+    await removeKey(key)
+    throw error
+  }
+
   const refreshServerLimits = async () => {
     serverItemSizeMax = parseItemSizeMax(await client.stats('settings')) ?? serverItemSizeMax
   }
@@ -331,22 +342,23 @@ export function createMemcachedStrategy(
         c: now,
       }
       if (estimateEntryBytes(key, entry) + BUCKET_ENVELOPE_BYTES > effectiveItemLimit()) {
-        throw new MemcachedCacheError('item_too_large', 'Cache value exceeds the memcached item size limit')
+        await refuseOversize(key, new MemcachedCacheError('item_too_large', 'Cache value exceeds the memcached item size limit'))
       }
-      await mutate(bucketIndexFor(key, bucketCount), (entries, mutationContext) => {
-        entries.set(key, { ...entry, c: Math.max(entry.c, mutationContext.now) })
-        mutationContext.markDirty()
-        return null
-      }, routingKey(key))
+      try {
+        await mutate(bucketIndexFor(key, bucketCount), (entries, mutationContext) => {
+          entries.set(key, { ...entry, c: Math.max(entry.c, mutationContext.now) })
+          mutationContext.markDirty()
+          return null
+        }, routingKey(key))
+      } catch (error) {
+        if (isMemcachedCacheError(error) && error.code === 'item_too_large') await refuseOversize(key, error)
+        throw error
+      }
     }),
 
     has: (key: string) => guard(async () => (await readEntry(key, false)).found),
 
-    delete: (key: string) => guard(() => mutate(bucketIndexFor(key, bucketCount), (entries, mutationContext) => {
-      if (!entries.delete(key)) return false
-      mutationContext.markDirty()
-      return true
-    })),
+    delete: (key: string) => guard(() => removeKey(key)),
 
     deleteByTags: (tags: string[]) => guard(async () => {
       const wanted = new Set((Array.isArray(tags) ? tags : []).filter((tag) => typeof tag === 'string' && tag.length > 0))

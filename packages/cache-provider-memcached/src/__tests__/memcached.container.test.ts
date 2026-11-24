@@ -217,13 +217,16 @@ describeWithMemcached('memcached item size limits (-I 128k)', () => {
     await limited?.stop()
   })
 
-  it('rejects oversize values with item_too_large and keeps existing entries intact', async () => {
+  it('rejects oversize values with item_too_large, drops the stale copy and keeps other entries intact', async () => {
     const namespace = randomNamespace('big')
     await withService(namespace, settingsFor(limitedEndpoint, { bucketCount: 4 }), async (service) => {
       await service.set('small', { ok: true }, { tags: ['keep'] })
+      await service.set('huge', 'previous')
+      expect(await service.get('huge')).toBe('previous')
       const failure = await service.set('huge', 'x'.repeat(200 * 1024)).then(() => null, (error: unknown) => error)
-      expect(isMemcachedCacheError(failure)).toBe(true)
-      expect((failure as { code: string }).code).toBe('item_too_large')
+      const original = (failure as { originalError?: unknown }).originalError ?? failure
+      expect(isMemcachedCacheError(original)).toBe(true)
+      expect((original as { code: string }).code).toBe('item_too_large')
       expect(String((failure as Error).message)).not.toContain('huge')
       expect(await service.get('huge')).toBeNull()
       expect(await service.get('small')).toEqual({ ok: true })

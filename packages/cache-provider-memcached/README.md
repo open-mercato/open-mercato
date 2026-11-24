@@ -93,7 +93,7 @@ Errors never include endpoints, keys or values.
 |---|---|
 | Server unreachable or connection lost | `CacheProviderError` `unavailable` |
 | Command or connect deadline exceeded | `CacheProviderError` `timeout`. The outcome of an in-flight write is unknown. |
-| Value too large for one item (after encoding) | `MemcachedCacheError` `item_too_large`. Existing entries are untouched. |
+| Value too large for one item (after encoding) | `MemcachedCacheError` `item_too_large`. The previous copy of that key is removed first (a conditional bucket write), so a stale value is never served. Other entries are untouched. Through the cache service the error arrives as a sanitized `CacheProviderError` (`unavailable`) with the original as `originalError`. |
 | Bucket still contended after `casRetries` | `MemcachedCacheError` `cas_conflict` |
 | Server item limit smaller than the bucket envelope | `MemcachedCacheError` `incompatible_server` (from `healthcheck`) |
 | Unexpected or malformed server reply | `MemcachedCacheError` `protocol_error`. The connection is reset. |
@@ -111,9 +111,10 @@ Errors never include endpoints, keys or values.
 
 ## Limitations and operating envelope
 
-- **Capacity per namespace** is roughly `bucketCount × min(maxItemBytes, -I)`: 64 MiB with the defaults. When a bucket would exceed its item limit, the provider evicts that bucket's **oldest value+metadata pairs** to make room and logs a rate-limited warning (`capacityEvictions` in `diagnostics()`). A single value that cannot fit even in an empty bucket fails with `item_too_large`.
+- **Capacity per namespace** is roughly `bucketCount × item_size_max`, where `item_size_max` is `min(maxItemBytes, -I)` minus the bucket envelope: about 64 MiB with the defaults (64 × 1 MiB). Adding server memory (`-m`) does not raise it. Only `bucketCount` (with a new namespace) or the item limit does. When a bucket would exceed its item limit, the provider evicts that bucket's **oldest value+metadata pairs** to make room and logs a rate-limited warning (`capacityEvictions` in `diagnostics()`). A single value that cannot fit even in an empty bucket fails with `item_too_large`.
 - **Memcached LRU eviction** drops whole buckets, so every entry routed to an evicted bucket becomes a miss at once. Under memory pressure, any bucket rewrite (including one done by `deleteByTags`) may cause the server to evict other buckets. Size `-m` well above the working set of `bucketCount × typical bucket size`.
 - **Restarts and flushes** lose the whole cache. After a server restart the provider reconnects on the next command. The suite shows a whole-namespace miss followed by normal operation.
+- **Read amplification:** every `get`/`has` fetches the **whole bucket** item and decodes it to return one entry. With the defaults a read moves up to 1 MiB for a 1 KiB value once buckets fill up. Read latency and network traffic grow with bucket fill, not with value size. Keep buckets small by raising `bucketCount` for large working sets, and prefer the Valkey/Redis providers for read-heavy caches with many entries.
 - **Write cost:** each logical `set` updates two physical records (value and metadata) in one bucket: two CAS round trips, each re-sending the bucket. Large buckets therefore make writes more expensive. Raise `bucketCount` for larger working sets.
 - **Enumeration cost:** `deleteByTags`, `clear`, `keys`, `stats` and `cleanup` read the whole namespace (`bucketCount` items). Their latency grows with total namespace bytes, not with the number of matches. The host's `keys()` then reads one bucket per listed key.
 - **Logical expiry** is reclaimed on bucket writes and by `cleanup()`. Schedule `cleanup()` if many entries expire without being rewritten.
@@ -121,20 +122,20 @@ Errors never include endpoints, keys or values.
 
 ## Evidence
 
-Recorded 2026-11-24 on Docker 29.9.2 (linux/arm64, macOS host, 8 GB VM), Node v26.12.1, Testcontainers 12.1.0.
+Manual runs on a developer machine, not CI. No CI job runs the container suites yet (see `packages/cache-redis-protocol/README.md` → *Proposed CI job*). Command: `yarn workspace @open-mercato/cache-provider-memcached test:containers` (or `yarn test:cache-providers:containers` from the repo root). Recorded 2026-11-24 on Docker 29.9.2 (linux/arm64, macOS host, 8 GB VM), Node v26.12.1, Testcontainers 12.1.0.
 
 | Suite | Image@tag | Topology / server flags | Auth/TLS | Result |
 |---|---|---|---|---|
 | Shared conformance kit, 64 buckets (default): 16 tests incl. independent process, corrupt value, `returnExpired`, 601-entry batch boundary | `memcached:1.6.45-alpine` | 1 server, `-m 64` | none | 16/16 pass |
 | Shared conformance kit, 1 bucket (maximum contention) | `memcached:1.6.45-alpine` | 1 server, `-m 64` | none | 16/16 pass |
 | Engine: logical TTL + reclaim + cleanup counts, CAS contention from 2 processes on 1 bucket (600 writes, conflicts > 0, 0 lost, 0 exhausted), concurrent retag vs invalidation across 2 processes, unreachable server | `memcached:1.6.45-alpine` | 1 server, `-m 64` | none | 4/4 pass |
-| Engine: oversize writes (`item_too_large`, existing entries intact), server-side oversize rejection keeps the connection, bucket capacity eviction | `memcached:1.6.45-alpine` | 1 server, `-m 64 -I 128k -o slab_chunk_max=64` | none | 3/3 pass |
+| Engine: oversize writes (`item_too_large`, stale copy of the key dropped, other entries intact), server-side oversize rejection keeps the connection, bucket capacity eviction | `memcached:1.6.45-alpine` | 1 server, `-m 64 -I 128k -o slab_chunk_max=64` | none | 3/3 pass |
 | Engine: coherent whole-bucket eviction (6000 × 2 KiB entries, 1024 buckets; server `evictions > 0`; every listed key readable and vice versa; tag invalidation afterwards) | `memcached:1.6.45-alpine` | 1 server, `-m 8 -I 128k -o slab_chunk_max=64` | none | 1/1 pass |
 | Engine: server restart (whole-namespace miss, reconnect, recovery on next writes) | `memcached:1.6.45-alpine` | 1 server, `-m 32`, fixed host port, `docker restart` | none | 1/1 pass |
 | Packed install: `npm pack` of this package and of `@open-mercato/cache` into a fresh app (npm install, no sibling adapters), consumer type-check, registration → `resolveCacheProvider` → cache workflow | `memcached:1.6.45-alpine` | 1 server, `-m 32` | none | 3/3 pass |
-| Unit (no Docker): settings schema, redaction, key layout and routing, protocol parser and batching | — | — | — | 21/21 pass |
+| Unit (no Docker): settings schema, redaction, key layout and routing, protocol parser and batching, oversize overwrite drops the previous copy | — | — | — | 22/22 pass |
 
-Full run: **65/65 tests passed**: `OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --runInBand` (container suite about 15 s). The container suite has passed four consecutive runs since its last change.
+Full run: **66/66 tests passed** (22 unit + 44 container), `OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --runInBand`. The container suite took about 15 s. Last rerun 2026-11-24 after the oversize change.
 
 ### Performance qualification
 
