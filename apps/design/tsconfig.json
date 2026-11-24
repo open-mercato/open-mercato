@@ -9,6 +9,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "#generated/entities.ids.generated": ["../../packages/ui/.storybook/fixtures/entity-ids.ts"],
+      "@open-mercato/events/*": ["../../packages/events/src/*"],
+      "@open-mercato/search/*": ["../../packages/search/src/*"],
       "@open-mercato/ui/*": ["../../packages/ui/src/*"],
       "@open-mercato/shared/*": ["../../packages/shared/src/*"],
       "@open-mercato/core/*": ["../../packages/core/src/*"]

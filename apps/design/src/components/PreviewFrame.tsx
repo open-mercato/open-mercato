@@ -20,25 +20,25 @@ type PreviewFrameProps = {
   title: string
 }
 
+const resizableVariants: Readonly<Partial<Record<string, readonly string[]>>> = {
+  stack: ['wrapping', 'spread'],
+  'key-value': ['two-columns', 'editable'],
+  'entity-header': ['default', 'with-slots'],
+  'detail-fields-section': ['field-grid'],
+  'filter-bar': ['inline', 'trailing-items'],
+  'filter-toolbar': ['table', 'calendar'],
+  'section-page': ['section-nav'],
+  page: ['basic', 'with-actions'],
+  table: ['default', 'with-footer'],
+  'schedule-grid': ['three-day-board'],
+  'schedule-view': ['week', 'month'],
+}
+
 export function PreviewFrame({ entryId, variantId, title }: PreviewFrameProps) {
   const t = useT()
   const { theme, mode } = useDesignSettings()
-  const containerRef = React.useRef<HTMLDivElement>(null)
   const iframeRef = React.useRef<HTMLIFrameElement>(null)
-  const dragRef = React.useRef<{ startX: number; startWidth: number } | null>(null)
-  const [available, setAvailable] = React.useState(0)
-  const [requested, setRequested] = React.useState<number | null>(null)
   const [height, setHeight] = React.useState(INITIAL_HEIGHT)
-
-  React.useEffect(() => {
-    const node = containerRef.current
-    if (!node) return
-    const update = () => setAvailable(Math.floor(node.getBoundingClientRect().width))
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
 
   React.useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -49,6 +49,40 @@ export function PreviewFrame({ entryId, variantId, title }: PreviewFrameProps) {
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  const frame = (
+    <div className="overflow-hidden rounded-xl border border-border bg-background">
+      <iframe
+        ref={iframeRef}
+        title={t('design.frame.title', { title })}
+        src={previewHref(entryId, variantId, theme, mode)}
+        loading="lazy"
+        className="block w-full border-0"
+        style={{ height }}
+      />
+    </div>
+  )
+  return resizableVariants[entryId]?.includes(variantId)
+    ? <ResizablePreview>{frame}</ResizablePreview>
+    : frame
+}
+
+function ResizablePreview({ children }: { children: React.ReactNode }) {
+  const t = useT()
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const dragRef = React.useRef<{ startX: number; startWidth: number } | null>(null)
+  const [available, setAvailable] = React.useState(0)
+  const [requested, setRequested] = React.useState<number | null>(null)
+
+  React.useEffect(() => {
+    const node = containerRef.current
+    if (!node) return
+    const update = () => setAvailable(Math.floor(node.getBoundingClientRect().width))
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    return () => observer.disconnect()
   }, [])
 
   const width = available > 0 ? clampWidth(requested ?? available, MIN_WIDTH, available) : undefined
@@ -80,16 +114,16 @@ export function PreviewFrame({ entryId, variantId, title }: PreviewFrameProps) {
 
   return (
     <div className="min-w-0 space-y-2">
-      <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('design.frame.widthLabel')}>
-        <span className="hidden flex-wrap items-center gap-1 sm:flex">
+      <div className="hidden flex-wrap items-center gap-1 sm:flex" role="group" aria-label={t('design.frame.widthLabel')}>
+        <span className="flex flex-wrap items-center gap-1">
           <WidthButton active={requested === null} onClick={() => setRequested(null)}>{t('design.frame.full')}</WidthButton>
           {QUICK_WIDTHS.map((quickWidth) => (
-          <WidthButton
-            key={quickWidth}
-            active={requested === quickWidth}
-            disabled={available > 0 && quickWidth > available}
-            onClick={() => setRequested(quickWidth)}
-          >
+            <WidthButton
+              key={quickWidth}
+              active={requested === quickWidth}
+              disabled={available > 0 && quickWidth > available}
+              onClick={() => setRequested(quickWidth)}
+            >
               {quickWidth}
             </WidthButton>
           ))}
@@ -98,16 +132,7 @@ export function PreviewFrame({ entryId, variantId, title }: PreviewFrameProps) {
       </div>
       <div ref={containerRef} className="min-w-0">
         <div className="relative max-w-full" style={width ? { width } : undefined}>
-          <div className="overflow-hidden rounded-xl border border-border bg-background">
-            <iframe
-              ref={iframeRef}
-              title={t('design.frame.title', { title })}
-              src={previewHref(entryId, variantId, theme, mode)}
-              loading="lazy"
-              className="block w-full border-0"
-              style={{ height }}
-            />
-          </div>
+          {children}
           <div
             role="separator"
             aria-orientation="vertical"

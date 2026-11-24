@@ -177,16 +177,17 @@ The schemas enforce these constraints in addition to the fields listed above:
 Blocks never carry theme-specific classes. A theme is a set of token values applied to a container.
 
 - **Role radius tokens** (additive): `--om-radius-button`, `--om-radius-field`, `--om-radius-card`, `--om-radius-badge`, exposed as `rounded-button`, `rounded-field`, `rounded-card`, `rounded-badge`. Defaults equal today's primitive radii, so the admin look does not change. `Button`, `Input`, `Card` and `Badge` use them.
-- **Storefront theme:** `@open-mercato/ui/theme/storefront.css`, scoped to `[data-theme="storefront"]`. Palette from the ecommerce Figma (black primary, neutral greys); shapes and type follow Storefront UI v2: pill buttons and badges, 0.75rem fields, 1.5rem cards, Inter. Status tokens unchanged.
+- **Preview themes:** Admin uses the canonical app tokens. Storefront layers the ecommerce palette, Inter and its button, badge, field and card radii from `@open-mercato/ui/theme/storefront.css` over those tokens. Inline specimens, isolated variant documents and Storybook use the selected DS theme and mode. The documentation shell owns the graphite canvas (#1e1e1e), panels (#2c2c2c), dividers (#444444) and navigation states.
 - The admin app does not import the storefront theme. Storybook and `apps/design` expose an Admin / Storefront switch.
 
 ## Public showcase `apps/design`
 
-A Next.js app (same Next and Tailwind 4 as `apps/mercato`, so previews match production), statically exported, generated from the registry. Styled with OM DS tokens (light by default, dark mode switch). The page structure follows Storefront UI v2 documentation:
+A Next.js app (same Next and Tailwind 4 as `apps/mercato`, so previews match production), statically exported, generated from the registry. Styled with OM DS tokens (light by default, dark mode switch). The catalogue uses an Open Mercato layout. A live record example on the overview switches between service and warehouse, with local actions. Searchable indexes and isolated component examples document the library. Storefront UI v2 informs the separation of components, blocks and interaction hooks.
 
+- **Typeset:** The Foundations registry includes an interactive work order and an operational document. Size, line height and reading measure are adjustable per preset. The preview and copyable stylesheet share the same UI package rules and theme tokens. Verify both contexts, CSS export and narrow layouts on `/foundations/typeset/`.
 - **Sidebar groups:** Introduction, Foundations (tokens, themes, typography), Components (primitives), Blocks, Hooks (shown once the headless layer exists). Index pages list all components and all blocks.
 - **Top bar:** theme switch (Admin / Storefront) for previews, dark mode toggle, repository link.
-- **Component page:** title, description, tabs Usage / API / Source code. Usage lists every scenario with a heading, a Preview / Code toggle and an isolated preview frame (iframe on `/preview/<entry>/<variant>`) with a width handle and quick widths 390 / 768 / 1024 / 1440. API is generated from the zod contract (`z.toJSONSchema`, slot and event kinds from `.meta`). Source code links to the file.
+- **Component page:** title, description, tabs Usage / API / Source code. Usage lists every scenario with a heading, a Preview / Code toggle and an isolated preview frame (iframe on `/preview/<entry>/<variant>`) that fills the available width. Only examples demonstrating responsive layouts (such as wrapping rows or multi-column detail fields) opt into a resize handle, width readout and quick widths 390 / 768 / 1024 / 1440. API is generated from the zod contract (`z.toJSONSchema`, slot and event kinds from `.meta`). Source code links to the file.
 
 - **Entry by task** ("review overdue work", "see what happened to a record", "move work to the next stage"), with search by component name.
 - **Component pages:** preview and code, install or copy command, contract table (inputs, events, slots, state), Figma link.
@@ -242,6 +243,8 @@ Nothing is removed or renamed. Existing components keep their APIs. `GalleryEntr
 4. **Kanban:** reconcile CRM and Staff boards first, then Figma, then extract?
 
 ## Changelog
+
+- 2026-11-24: Showcase redesign with a reversible record action in two example modules, responsive block specimens, searchable indexes and examples before guidance. Public block JSON and matching source files are generated from the gallery. Explicit package entry points expose the five implemented families. The copy CLI and Kanban implementation are pending.
 
 - 2026-11-24: Storefront direction decided: showcase structure follows Storefront UI v2 docs on OM DS tokens; storefront theme uses the ecommerce Figma palette with Storefront UI shapes; additive role radius tokens.
 - 2026-11-24: Phase 2 blocks implemented (EntityHeader, KeyValue, Timeline, Wizard, Stack/Inline) with gallery family `blocks`.

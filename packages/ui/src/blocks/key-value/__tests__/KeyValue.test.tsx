@@ -80,6 +80,28 @@ describe('KeyValue', () => {
     expect(screen.getByRole('combobox', { name: 'Stage' })).toHaveTextContent('Qualified')
   })
 
+  it('preserves the selected value when another option uses it as its label', async () => {
+    const onEdit = jest.fn().mockResolvedValue(undefined)
+    renderBlock({
+      items: [{
+        key: 'stage',
+        label: 'Stage',
+        value: 'open',
+        editable: true,
+        editor: 'select',
+        options: [
+          { value: 'archived', label: 'open' },
+          { value: 'open', label: 'Open request' },
+        ],
+      }],
+      onEdit,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Stage' }))
+    expect(screen.getByRole('combobox', { name: 'Stage' })).toHaveTextContent('Open request')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(onEdit).toHaveBeenCalledWith('stage', 'open'))
+  })
+
   it('opens a date editor', () => {
     renderBlock(keyValueFixtures.editable)
     fireEvent.click(screen.getByRole('button', { name: 'Edit Renewal date' }))

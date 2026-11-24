@@ -1,4 +1,5 @@
 import type React from 'react'
+import type { ZodType } from 'zod'
 
 export type GalleryVariant = {
   id: string                    // 'destructive-soft'
@@ -21,6 +22,7 @@ export type GalleryEntry = {
   descriptionKey?: string       // i18n key for the one-line summary
   docsAnchor?: string           // '#button' into .ai/ui-components.md (monorepo) — hidden when docs are absent
   figmaNodeId?: string          // node in file qCq9z6q1if0mpoRstV5OEA
+  contract?: { schema: ZodType; importPath: string; implementationPath: string }
   variants: GalleryVariant[]
 }
 

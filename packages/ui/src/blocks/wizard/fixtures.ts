@@ -20,7 +20,8 @@ const stepFields: Record<string, StepField[]> = {
   ],
 }
 
-function stepContent(stepId: string): React.ReactNode {
+function StepContent({ stepId }: { stepId: string }): React.ReactNode {
+  const prefix = React.useId()
   return React.createElement(
     'div',
     { className: 'grid grid-cols-1 gap-4 md:grid-cols-2' },
@@ -28,8 +29,8 @@ function stepContent(stepId: string): React.ReactNode {
       React.createElement(
         'div',
         { key: field.id, className: 'flex flex-col gap-2' },
-        React.createElement(Label, { htmlFor: field.id }, field.label),
-        React.createElement(Input, { id: field.id, defaultValue: field.value }),
+        React.createElement(Label, { htmlFor: prefix + field.id }, field.label),
+        React.createElement(Input, { id: prefix + field.id, defaultValue: field.value }),
       ),
     ),
   )
@@ -54,7 +55,7 @@ const base: WizardProps = {
   onNext: noopAdvance,
   onBack: noopBack,
   onFinish: noopFinish,
-  children: stepContent('details'),
+  children: React.createElement(StepContent, { stepId: 'details' }),
 }
 
 export const wizardFixtures = {
@@ -62,13 +63,13 @@ export const wizardFixtures = {
   middleStep: {
     ...base,
     activeStepId: 'pricing',
-    children: stepContent('pricing'),
+    children: React.createElement(StepContent, { stepId: 'pricing' }),
     steps: [{ ...baseSteps[0], state: 'complete' }, baseSteps[1], baseSteps[2]],
   },
   lastStep: {
     ...base,
     activeStepId: 'review',
-    children: stepContent('review'),
+    children: React.createElement(StepContent, { stepId: 'review' }),
     steps: [
       { ...baseSteps[0], state: 'complete' },
       { ...baseSteps[1], state: 'complete' },
@@ -78,7 +79,7 @@ export const wizardFixtures = {
   withError: {
     ...base,
     activeStepId: 'review',
-    children: stepContent('review'),
+    children: React.createElement(StepContent, { stepId: 'review' }),
     steps: [
       { ...baseSteps[0], state: 'complete' },
       { ...baseSteps[1], state: 'error' },
@@ -88,7 +89,7 @@ export const wizardFixtures = {
   selectable: {
     ...base,
     activeStepId: 'review',
-    children: stepContent('review'),
+    children: React.createElement(StepContent, { stepId: 'review' }),
     onStepSelect: noopSelect,
     steps: [
       { ...baseSteps[0], state: 'complete' },

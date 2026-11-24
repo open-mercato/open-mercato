@@ -25,7 +25,7 @@ import type { KeyValueItem, KeyValueProps } from '../contracts/key-value'
 function initialDraft(item: KeyValueItem): string {
   const { value } = item
   const raw = typeof value === 'string' || typeof value === 'number' ? String(value) : ''
-  if (item.editor === 'select') {
+  if (item.editor === 'select' && !item.options?.some((option) => option.value === raw)) {
     const byLabel = item.options?.find((option) => option.label === raw)
     return byLabel ? byLabel.value : raw
   }

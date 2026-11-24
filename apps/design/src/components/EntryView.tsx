@@ -4,7 +4,7 @@ import * as React from 'react'
 import { ExternalLink } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
-import { githubFileUrl } from '@/lib/links'
+import { githubFileUrl, publicSourceUrl } from '@/lib/links'
 import type { EntryViewData } from './entry-types'
 import { PageHeader } from './PageHeader'
 import { PropsTable } from './PropsTable'
@@ -25,6 +25,12 @@ function UsagePanel({ data }: { data: EntryViewData }) {
   const hasGuidelines = data.usage.do.length > 0 || data.usage.dont.length > 0
   return (
     <div className="space-y-10">
+      <section className="space-y-8" aria-labelledby="entry-examples">
+        <h2 id="entry-examples" className="text-xl font-normal text-foreground">{t('design.entry.examples')}</h2>
+        {data.variants.map((variant) => (
+          <VariantExample key={variant.id} entryId={data.id} variant={variant} />
+        ))}
+      </section>
       {hasGuidelines ? (
         <section className="space-y-4" aria-labelledby="entry-guidelines">
           <h2 id="entry-guidelines" className="text-xl font-normal text-foreground">{t('design.entry.guidelines')}</h2>
@@ -48,12 +54,6 @@ function UsagePanel({ data }: { data: EntryViewData }) {
           </div>
         </section>
       ) : null}
-      <section className="space-y-8" aria-labelledby="entry-examples">
-        <h2 id="entry-examples" className="text-xl font-normal text-foreground">{t('design.entry.examples')}</h2>
-        {data.variants.map((variant) => (
-          <VariantExample key={variant.id} entryId={data.id} variant={variant} />
-        ))}
-      </section>
     </div>
   )
 }
@@ -73,7 +73,7 @@ function ApiPanel({ data }: { data: EntryViewData }) {
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 id="entry-props" className="text-xl font-normal text-foreground">{t('design.api.title')}</h2>
         <a
-          href={githubFileUrl(data.contract.file)}
+          href={data.group === 'blocks' ? publicSourceUrl(data.contract.file) : githubFileUrl(data.contract.file)}
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-1 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
@@ -87,7 +87,7 @@ function ApiPanel({ data }: { data: EntryViewData }) {
   )
 }
 
-function SourceLink({ label, path }: { label: string; path: string }) {
+function SourceLink({ label, path, local }: { label: string; path: string; local: boolean }) {
   const t = useT()
   return (
     <li className="flex min-w-0 flex-col gap-1 rounded-xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -96,12 +96,12 @@ function SourceLink({ label, path }: { label: string; path: string }) {
         <code className="block break-all font-mono text-xs text-muted-foreground">{path}</code>
       </span>
       <a
-        href={githubFileUrl(path)}
+        href={local ? publicSourceUrl(path) : githubFileUrl(path)}
         target="_blank"
         rel="noreferrer"
         className="inline-flex shrink-0 items-center gap-1 text-sm text-foreground underline-offset-4 hover:underline"
       >
-        {t('design.source.openOnGithub')}
+        {t(local ? 'design.source.openFile' : 'design.source.openOnGithub')}
         <ExternalLink className="size-3.5" aria-hidden />
       </a>
     </li>
@@ -119,9 +119,9 @@ function SourcePanel({ data }: { data: EntryViewData }) {
         </div>
       )}
       <ul className="space-y-3">
-        {data.sources.component ? <SourceLink label={t('design.source.component')} path={data.sources.component} /> : null}
-        {data.sources.contract ? <SourceLink label={t('design.source.contract')} path={data.sources.contract} /> : null}
-        <SourceLink label={t('design.source.gallery')} path={data.sources.gallery} />
+        {data.sources.component ? <SourceLink local={data.group === 'blocks'} label={t('design.source.component')} path={data.sources.component} /> : null}
+        {data.sources.contract ? <SourceLink local={data.group === 'blocks'} label={t('design.source.contract')} path={data.sources.contract} /> : null}
+        <SourceLink local={data.group === 'blocks'} label={t('design.source.gallery')} path={data.sources.gallery} />
       </ul>
     </div>
   )

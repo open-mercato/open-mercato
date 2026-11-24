@@ -1,5 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import uiPackage from '../../../packages/ui/package.json'
+import { projectBlockContract, type PublicBlock } from '../src/lib/public-block'
+import { entryHref, publicSourceUrl } from '../src/lib/links'
 import { galleryFamilies } from '../../../packages/core/src/modules/design_system/gallery/registry'
 import { groupForFamily } from '../src/lib/groups'
 import { buildLlmsTxt } from '../src/lib/llms'
@@ -29,9 +32,41 @@ function sourceFileForImport(importPath: string): string | undefined {
 
 export async function run(): Promise<void> {
   const entries: ManifestEntry[] = []
+  const blocks: PublicBlock[] = []
+  const publicSourcePaths = new Set<string>()
   for (const family of galleryFamilies) {
     const loaded = await family.load()
     for (const entry of loaded.entries) {
+      const galleryFile = `${GALLERY_ENTRIES_DIR}/${family.id}.tsx`
+      const sourceFile = sourceFileForImport(entry.contract?.implementationPath ?? entry.importPath)
+      let contract: ManifestEntry['contract']
+      if (family.id === 'blocks' && !entry.contract) {
+        throw new Error(`[internal] Missing block contract for ${entry.id}`)
+      }
+      const variants = entry.variants.map(({ id, title, code }) => ({ id, title, code }))
+      if (entry.contract) {
+        const file = sourceFileForImport(entry.contract.importPath)
+        if (!file) throw new Error(`[internal] Cannot locate contract: ${entry.contract.importPath}`)
+        const { rows, propsSchema } = projectBlockContract(entry.contract.schema)
+        contract = { file, rows }
+        if (family.id === 'blocks') {
+          if (!sourceFile) throw new Error(`[internal] Cannot locate block implementation: ${entry.id}`)
+          for (const relativePath of [sourceFile, file, galleryFile]) publicSourcePaths.add(relativePath)
+          blocks.push({
+            id: entry.id,
+            title: entry.title,
+            importPath: entry.importPath,
+            docs: entryHref('blocks', entry.id),
+            propsSchema,
+            scenarios: variants,
+            sources: {
+              component: publicSourceUrl(sourceFile),
+              contract: publicSourceUrl(file),
+              gallery: publicSourceUrl(galleryFile),
+            },
+          })
+        }
+      }
       entries.push({
         id: entry.id,
         title: entry.title,
@@ -42,9 +77,10 @@ export async function run(): Promise<void> {
         ...(entry.descriptionKey ? { descriptionKey: entry.descriptionKey } : {}),
         keywords: entry.keywords ?? [],
         ...(entry.usage ? { usage: entry.usage } : {}),
-        galleryFile: `${GALLERY_ENTRIES_DIR}/${family.id}.tsx`,
-        ...(sourceFileForImport(entry.importPath) ? { sourceFile: sourceFileForImport(entry.importPath) } : {}),
-        variants: entry.variants.map((variant) => ({ id: variant.id, title: variant.title, code: variant.code })),
+        galleryFile,
+        ...(sourceFile ? { sourceFile } : {}),
+        ...(contract ? { contract } : {}),
+        variants,
       })
     }
   }
@@ -75,6 +111,26 @@ export async function run(): Promise<void> {
   )
   fs.mkdirSync(path.join(appRoot, 'public'), { recursive: true })
   fs.writeFileSync(path.join(appRoot, 'public', 'llms.txt'), llms)
+
+  const registryDir = path.join(appRoot, 'public', 'r')
+  fs.mkdirSync(registryDir, { recursive: true })
+  for (const file of publicSourcePaths) {
+    const target = path.join(appRoot, 'public', publicSourceUrl(file))
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.copyFileSync(path.join(repoRoot, file), target)
+  }
+  const version = { version: 1, packageName: uiPackage.name, packageVersion: uiPackage.version }
+  const index = blocks.map(({ id, title, importPath, docs }) => ({
+    id, title, importPath, docs, url: `/r/${id}.json`,
+  }))
+  const activeFiles = new Set(['index.json', ...blocks.map(({ id }) => `${id}.json`)])
+  for (const file of fs.readdirSync(registryDir)) {
+    if (file.endsWith('.json') && !activeFiles.has(file)) fs.unlinkSync(path.join(registryDir, file))
+  }
+  for (const block of blocks) {
+    fs.writeFileSync(path.join(registryDir, `${block.id}.json`), JSON.stringify({ ...version, ...block }, null, 2) + '\n')
+  }
+  fs.writeFileSync(path.join(registryDir, 'index.json'), JSON.stringify({ ...version, blocks: index }, null, 2) + '\n')
 
   const counts = entries.reduce<Record<string, number>>((acc, entry) => {
     acc[entry.group] = (acc[entry.group] ?? 0) + 1

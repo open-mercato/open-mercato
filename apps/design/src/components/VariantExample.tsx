@@ -20,6 +20,7 @@ export function VariantExample({ entryId, variant }: VariantExampleProps) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 id={headingId} className="text-lg font-normal text-foreground">{variant.title}</h3>
         <SegmentedControl
+          className="om-design-switch"
           size="sm"
           aria-label={t('design.entry.viewLabel')}
           value={view}

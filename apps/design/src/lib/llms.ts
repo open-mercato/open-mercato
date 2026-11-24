@@ -10,7 +10,7 @@ export type LlmsTxtCopy = {
 
 export function buildLlmsTxt(entries: readonly ManifestEntry[], copy: LlmsTxtCopy, siteUrl = ''): string {
   const base = siteUrl.replace(/\/+$/, '')
-  const lines: string[] = [`# ${copy.title}`, '', `> ${copy.summary}`, '']
+  const lines: string[] = [`# ${copy.title}`, '', `> ${copy.summary}`, '', `[registry.json](${base}/r/index.json)`, '']
   for (const group of ENTRY_GROUPS) {
     const groupEntries = entries
       .filter((entry) => entry.group === group)

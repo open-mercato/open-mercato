@@ -31,6 +31,8 @@ function relativeToApp(target: string): string {
 
 const workspaceAliases: Record<string, string> = {
   '#generated/entities.ids.generated': relativeToApp(path.join(repoRoot, 'packages/ui/.storybook/fixtures/entity-ids.ts')),
+  '@open-mercato/events/*': `${relativeToApp(path.join(repoRoot, 'packages/events/src'))}/*`,
+  '@open-mercato/search/*': `${relativeToApp(path.join(repoRoot, 'packages/search/src'))}/*`,
   '@open-mercato/ui/*': `${relativeToApp(path.join(repoRoot, 'packages/ui/src'))}/*`,
   '@open-mercato/shared/*': `${relativeToApp(path.join(repoRoot, 'packages/shared/src'))}/*`,
   '@open-mercato/core/*': `${relativeToApp(path.join(repoRoot, 'packages/core/src'))}/*`,
@@ -38,6 +40,7 @@ const workspaceAliases: Record<string, string> = {
 
 const nextConfig: NextConfig & { agentRules?: boolean } = {
   output: 'export',
+  devIndicators: false,
   trailingSlash: true,
   agentRules: false,
   images: { unoptimized: true },

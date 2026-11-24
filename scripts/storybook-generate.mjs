@@ -45,6 +45,8 @@ const figmaLibrary = buildFigmaLibrary(root, catalogue)
 files.set('figma-library.generated.json', JSON.stringify(figmaLibrary, null, 2) + '\n')
 const canonicalCss = fs.readFileSync(path.join(root, 'apps/mercato/src/app/globals.css'), 'utf8')
 const previewCss = canonicalCss
+  .replace(/^:root \{/m, ':root, :where([data-design-specimen]) {')
+  .replace(/^\.dark \{/m, '.dark, .dark :where([data-design-specimen]) {')
   .replace('@import "tailwindcss";', '@import "tailwindcss" source(none);')
   .replace(/^@import .*module-package-sources\.css.*\n/gm, '')
   .replace(/^@source .*\n/gm, '')

@@ -1,4 +1,5 @@
 import type { EntryGroup } from './groups'
+import type { PropRow } from './props-table'
 
 export type ManifestVariant = {
   id: string
@@ -18,6 +19,7 @@ export type ManifestEntry = {
   usage?: { do?: string[]; dont?: string[] }
   galleryFile: string
   sourceFile?: string
+  contract?: { file: string; rows: PropRow[] }
   variants: ManifestVariant[]
 }
 

@@ -1,7 +1,7 @@
 import { keyValuePropsSchema } from '@open-mercato/ui/blocks/contracts/key-value'
 import { timelinePropsSchema } from '@open-mercato/ui/blocks/contracts/timeline'
+import { projectBlockContract } from '../public-block'
 import { buildPropsTable, type PropRow } from '../props-table'
-import { contractForEntry } from '../contracts'
 
 function rowByName(rows: PropRow[], name: string): PropRow {
   const row = rows.find((candidate) => candidate.name === name)
@@ -51,13 +51,13 @@ describe('buildPropsTable', () => {
   })
 })
 
-describe('contractForEntry', () => {
-  it('maps block entry ids to their contracts', () => {
-    expect(contractForEntry('timeline')?.file).toBe('packages/ui/src/blocks/contracts/timeline.ts')
-    expect(contractForEntry('key-value')?.rows.length).toBeGreaterThan(0)
-  })
-
-  it('returns null for entries without a documented contract', () => {
-    expect(contractForEntry('button')).toBeNull()
+describe('public block contracts', () => {
+  it('keeps the public event and slot metadata in sync with the documentation', () => {
+    const projected = projectBlockContract(timelinePropsSchema)
+    expect(projected.rows).toEqual(buildPropsTable(timelinePropsSchema))
+    const json = JSON.parse(JSON.stringify(projected.propsSchema))
+    expect(json.properties.onItemAction.kind).toBe('event')
+    expect(json.properties.header.kind).toBe('slot')
+    expect(json.required).toContain('items')
   })
 })

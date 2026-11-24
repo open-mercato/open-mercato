@@ -19,16 +19,6 @@ type LoadState = { status: 'loading' } | { status: 'missing' } | { status: 'read
 
 const dictionary = previewDictionary()
 
-function applyQuery(): void {
-  const query = new URLSearchParams(window.location.search)
-  const root = document.documentElement
-  const mode = query.get('mode') === 'dark' ? 'dark' : 'light'
-  root.classList.toggle('dark', mode === 'dark')
-  root.style.colorScheme = mode
-  if (query.get('theme') === 'storefront') root.dataset.theme = 'storefront'
-  else delete root.dataset.theme
-}
-
 function PreviewBody({ familyId, entryId, variantId }: PreviewRendererProps) {
   const t = useT()
   const contentRef = React.useRef<HTMLDivElement>(null)
@@ -69,7 +59,7 @@ function PreviewBody({ familyId, entryId, variantId }: PreviewRendererProps) {
   }, [])
 
   return (
-    <div ref={contentRef} className="p-4 sm:p-6">
+    <div ref={contentRef} className="bg-background p-4 font-sans text-foreground sm:p-6">
       {state.status === 'ready' ? state.variant.render() : null}
       {state.status === 'loading' ? <p className="text-sm text-muted-foreground">{t('design.preview.loading')}</p> : null}
       {state.status === 'missing' ? <p className="text-sm text-muted-foreground">{t('design.preview.notFound')}</p> : null}
@@ -81,9 +71,6 @@ export function PreviewRenderer(props: PreviewRendererProps) {
   const [client] = React.useState(
     () => new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } }),
   )
-  React.useLayoutEffect(() => {
-    applyQuery()
-  }, [])
   return (
     <QueryClientProvider client={client}>
       <I18nProvider locale="en" dict={dictionary} supportedLocales={['en']}>

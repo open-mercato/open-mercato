@@ -1,5 +1,6 @@
 @import "@fontsource-variable/inter";
 @import "../../../../packages/ui/.storybook/generated/theme.css";
+@import "./catalogue-palette.css";
 @import "../../../../packages/ui/src/theme/storefront.css";
 
 @source "../../../../packages/ui/src";
@@ -23,11 +24,6 @@ body {
   overflow-x: hidden;
 }
 
-.om-design-preview-body {
-  background: var(--background);
-  color: var(--foreground);
-}
-
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -36,4 +32,66 @@ body {
 
 .om-design-sidebar {
   height: calc(100dvh - 3.5rem);
+}
+
+.om-catalog-nav {
+  --muted-foreground: #555555;
+}
+
+.dark .om-catalog-nav {
+  --muted-foreground: #b3b3b3;
+}
+
+.om-design-intro {
+  container-type: inline-size;
+}
+
+.om-design-spread {
+  display: grid;
+  align-items: center;
+  gap: 2rem;
+}
+
+.om-display {
+  max-width: 12ch;
+  font-size: clamp(3rem, 8cqi, 5.75rem);
+  line-height: 0.99;
+  text-wrap: balance;
+}
+
+.om-record-stage {
+  --preview-mat: #565656;
+  background: var(--preview-mat);
+  color: var(--primary-foreground);
+}
+
+.dark .om-record-stage {
+  --preview-mat: var(--background);
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.om-design-switch [data-state="checked"] {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.om-spec-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.om-library-card:hover {
+  border-color: var(--foreground);
+}
+
+@container (min-width: 48rem) {
+  .om-design-spread {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: 2.5rem;
+  }
 }

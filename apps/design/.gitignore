@@ -3,5 +3,6 @@
 /.cache/
 /src/generated/
 /public/llms.txt
+/public/r/
 /next-env.d.ts
 *.tsbuildinfo

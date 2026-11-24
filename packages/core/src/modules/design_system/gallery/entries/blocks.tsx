@@ -7,6 +7,12 @@ import { KeyValue, keyValueFixtures } from '@open-mercato/ui/blocks/key-value'
 import { Timeline, timelineFixtures } from '@open-mercato/ui/blocks/timeline'
 import { Wizard } from '@open-mercato/ui/blocks/wizard'
 import { wizardFixtures } from '@open-mercato/ui/blocks/wizard/fixtures'
+import { entityHeaderPropsSchema } from '@open-mercato/ui/blocks/contracts/entity-header'
+import { keyValuePropsSchema } from '@open-mercato/ui/blocks/contracts/key-value'
+import { stackPropsSchema } from '@open-mercato/ui/blocks/contracts/stack'
+import { timelinePropsSchema } from '@open-mercato/ui/blocks/contracts/timeline'
+import { wizardPropsSchema } from '@open-mercato/ui/blocks/contracts/wizard'
+import { EditableKeyValueExample, WizardNavigationExample } from '../demos/block-interactions'
 import type { GalleryEntry } from '../types'
 
 function StackSamples({ count }: { count: number }) {
@@ -25,6 +31,11 @@ const stackEntry: GalleryEntry = {
   id: 'stack',
   title: 'Stack / Inline',
   importPath: '@open-mercato/ui/blocks/stack',
+  contract: {
+    schema: stackPropsSchema,
+    importPath: '@open-mercato/ui/blocks/contracts/stack',
+    implementationPath: '@open-mercato/ui/blocks/stack/Stack',
+  },
   descriptionKey: 'design_system.entries.stack.description',
   keywords: ['layout', 'gap', 'flex', 'inline'],
   usage: {
@@ -143,6 +154,11 @@ const entityHeaderEntry: GalleryEntry = {
   id: 'entity-header',
   title: 'EntityHeader',
   importPath: '@open-mercato/ui/blocks/entity-header',
+  contract: {
+    schema: entityHeaderPropsSchema,
+    importPath: '@open-mercato/ui/blocks/contracts/entity-header',
+    implementationPath: '@open-mercato/ui/blocks/entity-header/EntityHeader',
+  },
   figmaNodeId: '3829:27898',
   descriptionKey: 'design_system.entries.entity-header.description',
   keywords: ['record', 'detail', 'title', 'actions'],
@@ -247,11 +263,16 @@ const keyValueEntry: GalleryEntry = {
   id: 'key-value',
   title: 'KeyValue',
   importPath: '@open-mercato/ui/blocks/key-value',
+  contract: {
+    schema: keyValuePropsSchema,
+    importPath: '@open-mercato/ui/blocks/contracts/key-value',
+    implementationPath: '@open-mercato/ui/blocks/key-value/KeyValue',
+  },
   descriptionKey: 'design_system.entries.key-value.description',
   keywords: ['properties', 'fields', 'details', 'inline edit'],
   usage: {
     do: [
-      'Return the saved value from onEdit so the block can show the committed state',
+      'Update the item value in the parent after saving it in onEdit',
       'Use columns={2} for dense detail panels',
     ],
     dont: [
@@ -280,26 +301,13 @@ const keyValueEntry: GalleryEntry = {
     {
       id: 'editable',
       title: 'Editable',
-      render: () => <KeyValue {...keyValueFixtures.editable} />,
+      render: () => <EditableKeyValueExample />,
       code: keyValueCode(`  columns={2}
   onEdit={async (key, value) => {
     await saveField(key, value)
+    setItems((current) => current.map((item) => item.key === key ? { ...item, value } : item))
   }}
-  items={[
-    { key: 'name', label: 'Name', value: 'Acme Corp', editable: true, editor: 'text' },
-    {
-      key: 'stage',
-      label: 'Stage',
-      value: 'qualified',
-      editable: true,
-      editor: 'select',
-      options: [
-        { value: 'new', label: 'New' },
-        { value: 'qualified', label: 'Qualified' },
-      ],
-    },
-    { key: 'renewal', label: 'Renewal date', value: '2026-09-01', editable: true, editor: 'date' },
-  ]}`),
+  items={items}`),
     },
     {
       id: 'rich-value',
@@ -345,6 +353,11 @@ const timelineEntry: GalleryEntry = {
   id: 'timeline',
   title: 'Timeline',
   importPath: '@open-mercato/ui/blocks/timeline',
+  contract: {
+    schema: timelinePropsSchema,
+    importPath: '@open-mercato/ui/blocks/contracts/timeline',
+    implementationPath: '@open-mercato/ui/blocks/timeline/Timeline',
+  },
   figmaNodeId: '166035:46833',
   descriptionKey: 'design_system.entries.timeline.description',
   keywords: ['activity', 'feed', 'history', 'audit'],
@@ -366,7 +379,7 @@ const timelineEntry: GalleryEntry = {
       render: () => <Timeline {...timelineFixtures.default} />,
       code: timelineCode(`  items={items}
   order="desc"
-  onItemAction={(item, actionKey) => handleAction(item.id, actionKey)}`),
+  onItemAction={(itemId, actionKey) => handleAction(itemId, actionKey)}`),
     },
     {
       id: 'grouped-by-day',
@@ -443,10 +456,10 @@ const timelineEntry: GalleryEntry = {
   ],
 }
 
-const wizardCode = (props: string) => `import { Wizard } from '@open-mercato/ui/blocks/wizard'
+const wizardCode = (props: string, steps = 'steps') => `import { Wizard } from '@open-mercato/ui/blocks/wizard'
 
 <Wizard
-  steps={steps}
+  steps={${steps}}
 ${props}
 />`
 
@@ -454,6 +467,11 @@ const wizardEntry: GalleryEntry = {
   id: 'wizard',
   title: 'Wizard',
   importPath: '@open-mercato/ui/blocks/wizard',
+  contract: {
+    schema: wizardPropsSchema,
+    importPath: '@open-mercato/ui/blocks/contracts/wizard',
+    implementationPath: '@open-mercato/ui/blocks/wizard/Wizard',
+  },
   figmaNodeId: '3507:28',
   descriptionKey: 'design_system.entries.wizard.description',
   keywords: ['stepper', 'steps', 'flow', 'onboarding'],
@@ -472,25 +490,33 @@ const wizardEntry: GalleryEntry = {
     {
       id: 'first-step',
       title: 'First step',
-      render: () => <Wizard {...wizardFixtures.firstStep} />,
-      code: wizardCode(`  activeStepId="details"
-  onNext={async () => validateDetails()}
+      render: () => <WizardNavigationExample initial="firstStep" />,
+      code: wizardCode(`  activeStepId={activeStepId}
+  onNext={async () => {
+    if (!(await validateDetails())) return false
+    setActiveStepId('pricing')
+    return true
+  }}
   onBack={goBack}
   onFinish={submit}`),
     },
     {
       id: 'middle-step',
       title: 'Middle step',
-      render: () => <Wizard {...wizardFixtures.middleStep} />,
-      code: wizardCode(`  activeStepId="pricing"
-  onNext={async () => validatePricing()}
+      render: () => <WizardNavigationExample initial="middleStep" />,
+      code: wizardCode(`  activeStepId={activeStepId}
+  onNext={async () => {
+    if (!(await validatePricing())) return false
+    setActiveStepId('review')
+    return true
+  }}
   onBack={goBack}
   onFinish={submit}`),
     },
     {
       id: 'last-step',
       title: 'Last step',
-      render: () => <Wizard {...wizardFixtures.lastStep} />,
+      render: () => <WizardNavigationExample initial="lastStep" />,
       code: wizardCode(`  activeStepId="review"
   onNext={async () => true}
   onBack={goBack}
@@ -500,20 +526,19 @@ const wizardEntry: GalleryEntry = {
       id: 'with-error',
       title: 'With error',
       render: () => <Wizard {...wizardFixtures.withError} />,
-      code: wizardCode(`  steps={[
+      code: wizardCode(`  activeStepId="review"
+  onNext={async () => true}
+  onBack={goBack}
+  onFinish={submit}`, `[
     { id: 'details', title: 'Details', state: 'complete' },
     { id: 'pricing', title: 'Pricing', state: 'error' },
     { id: 'review', title: 'Review' },
-  ]}
-  activeStepId="review"
-  onNext={async () => true}
-  onBack={goBack}
-  onFinish={submit}`),
+  ]`),
     },
     {
       id: 'selectable',
       title: 'Selectable',
-      render: () => <Wizard {...wizardFixtures.selectable} />,
+      render: () => <WizardNavigationExample initial="selectable" />,
       code: wizardCode(`  activeStepId="review"
   onStepSelect={setActiveStepId}
   onNext={async () => true}

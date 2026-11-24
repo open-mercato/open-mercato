@@ -2,9 +2,18 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import { ArrowUpRight, Package } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { EntityHeader } from '@open-mercato/ui/blocks/entity-header'
+import { KeyValue } from '@open-mercato/ui/blocks/key-value'
+import { Inline, Stack } from '@open-mercato/ui/blocks/stack'
+import { Timeline } from '@open-mercato/ui/blocks/timeline'
+import { SearchInput } from '@open-mercato/ui/primitives/search-input'
+import { StepIndicator } from '@open-mercato/ui/primitives/step-indicator'
+import { Tag } from '@open-mercato/ui/primitives/tag'
 import type { EntryGroup } from '@/lib/groups'
 import { PageHeader } from './PageHeader'
+import { useDesignSettings } from './DesignSettings'
 
 export type EntryCardData = {
   id: string
@@ -21,28 +30,106 @@ const TITLE_KEYS: Record<EntryGroup, { title: string; lead: string }> = {
   blocks: { title: 'design.index.blocksTitle', lead: 'design.index.blocksLead' },
 }
 
+function BlockSpecimen({ id }: { id: string }) {
+  const t = useT()
+  switch (id) {
+    case 'entity-header':
+      return (
+        <EntityHeader
+          leading={<span className="grid size-10 place-items-center rounded-lg bg-muted"><Package className="size-5" /></span>}
+          title={t('design.sample.receipt')}
+          subtitle={t('design.sample.warehouse')}
+          badge={{ label: t('design.sample.ready'), tone: 'success' }}
+        />
+      )
+    case 'key-value':
+      return (
+        <KeyValue items={[
+          { key: 'location', label: t('design.sample.location'), value: t('design.sample.warehouse') },
+          { key: 'owner', label: t('design.sample.owner'), value: t('design.sample.ownerName') },
+        ]} />
+      )
+    case 'timeline':
+      return (
+        <Timeline order="desc" groupBy="none" items={[
+          { id: 'packed', kind: 'packed', occurredAt: '2026-03-12T10:15:00Z', title: t('design.sample.packed') },
+          { id: 'received', kind: 'received', occurredAt: '2026-03-12T09:00:00Z', title: t('design.sample.received') },
+        ]} />
+      )
+    case 'wizard':
+      return (
+        <StepIndicator size="sm" orientation="vertical" steps={[
+          { id: 'details', label: t('design.sample.details'), status: 'complete' },
+          { id: 'items', label: t('design.sample.items'), status: 'current' },
+          { id: 'review', label: t('design.sample.review'), status: 'pending' },
+        ]} />
+      )
+    case 'stack':
+      return (
+        <Stack gap={3}>
+          <Inline gap={2} align="center"><Package className="size-5 text-muted-foreground" /><strong className="text-sm font-semibold">{t('design.sample.shipments')}</strong></Inline>
+          <Inline gap={2} wrap>
+            <Tag variant="success" dot>{t('design.sample.packed')}</Tag>
+            <Tag variant="info" dot>{t('design.sample.inTransit')}</Tag>
+          </Inline>
+        </Stack>
+      )
+    default:
+      return null
+  }
+}
+
 export function EntryIndex({ group, cards }: { group: EntryGroup; cards: EntryCardData[] }) {
   const t = useT()
+  const { theme } = useDesignSettings()
+  const [query, setQuery] = React.useState('')
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const matches = cards.filter((card) => {
+    const searchable = [card.title, card.id, card.description, card.importPath].join(' ').toLowerCase()
+    return words.every((word) => searchable.includes(word))
+  })
+  const searchLabel = t('design.index.filter', { group: t(`design.nav.${group}`).toLowerCase() })
   return (
     <div className="mx-auto max-w-6xl space-y-8">
       <PageHeader overline={t(`design.nav.${group}`)} title={t(TITLE_KEYS[group].title)} lead={t(TITLE_KEYS[group].lead)} />
-      <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {cards.map((card) => (
-          <li key={card.id} className="min-w-0">
-            <Link
-              href={card.href}
-              className="flex h-full min-w-0 flex-col gap-2 rounded-xl border border-border bg-card p-5 transition-colors hover:border-input hover:bg-muted/40 focus-visible:outline-none focus-visible:shadow-focus"
-            >
-              <span className="text-lg text-foreground">{card.title}</span>
-              {card.description ? <span className="line-clamp-3 text-sm text-muted-foreground">{card.description}</span> : null}
-              <span className="mt-auto flex min-w-0 items-center justify-between gap-3 pt-2 text-xs text-muted-foreground">
-                <code className="min-w-0 truncate font-mono">{card.importPath}</code>
-                <span className="shrink-0">{card.exampleCount === 1 ? t('design.index.exampleCountOne') : t('design.index.exampleCount', { count: card.exampleCount })}</span>
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
+        <SearchInput className="w-full sm:max-w-sm" value={query} onChange={setQuery} placeholder={searchLabel} aria-label={searchLabel} />
+        <span role="status" className="text-sm tabular-nums text-muted-foreground">
+          {t('design.index.resultCount', { visible: matches.length, total: cards.length })}
+        </span>
+      </div>
+      {matches.length === 0 ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">{t('design.index.noMatches', { query })}</p>
+      ) : (
+        <ul className={group === 'blocks' ? 'grid gap-5 md:grid-cols-2' : 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3'}>
+          {matches.map((card) => (
+            <li key={card.id} className="min-w-0">
+              <Link
+                href={card.href}
+                className="group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-input bg-card transition-colors hover:border-foreground focus-visible:outline-none focus-visible:shadow-focus"
+              >
+                {group === 'blocks' ? (
+                  <div data-design-specimen="" data-theme={theme} aria-hidden="true" inert className="grid min-h-48 place-items-center border-b border-border bg-muted font-sans text-foreground px-5 py-6">
+                    <div className="w-full max-w-sm rounded-card border border-border bg-card p-4 text-foreground shadow-xs">
+                      <BlockSpecimen id={card.id} />
+                    </div>
+                  </div>
+                ) : null}
+                <div className="flex flex-1 flex-col gap-2 p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <h2 className="text-lg font-semibold tracking-tight text-foreground">{card.title}</h2>
+                    <ArrowUpRight aria-hidden className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+                  </div>
+                  {card.description ? <p className="text-sm leading-relaxed text-muted-foreground">{card.description}</p> : null}
+                  <p className="mt-auto pt-3 text-xs tabular-nums text-muted-foreground">
+                    {card.exampleCount === 1 ? t('design.index.exampleCountOne') : t('design.index.exampleCount', { count: card.exampleCount })}
+                  </p>
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

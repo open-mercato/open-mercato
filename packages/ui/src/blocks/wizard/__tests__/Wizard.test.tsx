@@ -143,6 +143,19 @@ describe('Wizard', () => {
     expect(onStepSelect).toHaveBeenCalledWith('details')
   })
 
+  it('suspends completed-step navigation while a finish request is pending', async () => {
+    const deferred = createDeferred<void>()
+    const onStepSelect = jest.fn()
+    renderWizard({ ...wizardFixtures.lastStep, onFinish: () => deferred.promise, onStepSelect })
+    fireEvent.click(screen.getByRole('button', { name: 'Finish' }))
+    expect(screen.queryAllByRole('button', { name: /Go to step/ })).toHaveLength(0)
+    await act(async () => {
+      deferred.resolve()
+    })
+    fireEvent.click(screen.getAllByRole('button', { name: /Go to step/ })[0])
+    expect(onStepSelect).toHaveBeenCalledWith('details')
+  })
+
   it('has no step buttons without onStepSelect', () => {
     renderWizard(wizardFixtures.lastStep)
     expect(screen.queryByRole('button', { name: /Go to step/ })).toBeNull()

@@ -1,10 +1,11 @@
 import * as React from 'react'
-import { ArrowRight, Circle } from 'lucide-react'
+import { ArrowRight, Circle, Copy } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import type { GalleryEntry } from '../types'
+import { TypesetStudio } from '../demos/typeset-studio'
 import { SourceColors, SourceGrids, SourceRadius, SourceShadows, SourceTypography } from '../demos/foundation-references'
 
 // Token names are proper nouns from the codebase and are deliberately not
@@ -36,12 +37,15 @@ function SwatchCard({ copyText, label, children }: { copyText: string; label: st
       type="button"
       variant="ghost"
       onClick={onCopy}
-      className="h-auto w-44 max-w-full flex-col items-start gap-3 whitespace-normal border border-border bg-background p-3 text-left hover:bg-muted/50"
+      className="group/swatch h-auto w-44 min-w-0 max-w-full flex-col items-stretch justify-start gap-0 overflow-hidden whitespace-normal rounded-lg border border-border bg-card p-0 text-left text-card-foreground shadow-none hover:border-input hover:bg-card"
       title={copyLabel}
       aria-label={copyLabel}
     >
       {children}
-      <code className="break-all text-xs text-muted-foreground">{label}</code>
+      <span className="flex min-h-10 items-center justify-between gap-2 px-3 py-2">
+        <code className="min-w-0 break-all font-mono text-xs">{label}</code>
+        <Copy aria-hidden className="size-3.5 shrink-0 text-muted-foreground opacity-0 group-hover/swatch:opacity-100 group-focus-visible/swatch:opacity-100" />
+      </span>
     </Button>
   )
 }
@@ -49,7 +53,7 @@ function SwatchCard({ copyText, label, children }: { copyText: string; label: st
 function TokenSwatch({ tokenClass, label }: { tokenClass: string; label: string }) {
   return (
     <SwatchCard copyText={label} label={label}>
-      <span aria-hidden className={`h-20 w-full rounded-sm border border-border ${tokenClass}`} />
+      <span aria-hidden className={`h-20 w-full border-b border-border ${tokenClass}`} />
     </SwatchCard>
   )
 }
@@ -87,10 +91,12 @@ function IconSwatch({ iconClass, label }: { iconClass: string; label: string }) 
 
 function SwatchRow({ items }: { items: Array<{ tokenClass: string; label: string }> }) {
   return (
-    <div className="flex flex-wrap gap-2">
-      {items.map((item) => (
-        <TokenSwatch key={item.label} tokenClass={item.tokenClass} label={item.label} />
-      ))}
+    <div className="@container w-full">
+      <div className="grid grid-cols-2 gap-3 @md:grid-cols-3 @3xl:grid-cols-5 [&>button]:w-full">
+        {items.map((item) => (
+          <TokenSwatch key={item.label} tokenClass={item.tokenClass} label={item.label} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -598,6 +604,31 @@ function TypographyReferencePreview() {
   </section>
 }
 
+const typesetEntry: GalleryEntry = {
+  id: 'typeset',
+  title: 'Typeset',
+  importPath: '@open-mercato/ui/theme/typeset',
+  descriptionKey: 'design_system.foundations.typeset.description',
+  keywords: ['typography', 'reading', 'document', 'record', 'prose', 'currency', 'markdown'],
+  variants: [
+    {
+      id: 'studio',
+      title: 'Typeset studio',
+      render: () => <TypesetStudio />,
+      code: `import { createTypesetStylesheet, typesetPresets } from '@open-mercato/ui/theme/typeset'
+
+const css = createTypesetStylesheet('document', typesetPresets.document)
+
+export function DocumentBody({ children }: { children: React.ReactNode }) {
+  return <>
+    <style>{css}</style>
+    <article className="om-typeset om-typeset-document">{children}</article>
+  </>
+}`,
+    },
+  ],
+}
+
 const typographyEntry: GalleryEntry = {
   id: 'typography',
   title: 'Typography',
@@ -866,6 +897,7 @@ export const entries: GalleryEntry[] = [
   chartPaletteEntry,
   radiusEntry,
   typographyEntry,
+  typesetEntry,
   spacingEntry,
   shadowsEntry,
   motionEntry,

@@ -5,6 +5,10 @@ export function githubFileUrl(repoRelativePath: string): string {
   return `${REPOSITORY_BLOB_URL}/${repoRelativePath.replace(/^\/+/, '')}`
 }
 
+export function publicSourceUrl(repoRelativePath: string): string {
+  return `/r/source/${repoRelativePath}.txt`
+}
+
 export function entryHref(group: string, entryId: string): string {
   return `/${group}/${entryId}/`
 }

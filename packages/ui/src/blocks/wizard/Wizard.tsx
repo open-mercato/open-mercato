@@ -141,7 +141,7 @@ export function Wizard({
         ) : null}
         <StepIndicator
           steps={indicatorSteps}
-          onStepClick={onStepSelect}
+          onStepClick={isBusy ? undefined : onStepSelect}
           clickableStatuses={['complete']}
         />
       </div>

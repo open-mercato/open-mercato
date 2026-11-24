@@ -2,6 +2,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { mkdir } from 'node:fs/promises'
 import { build } from 'esbuild'
+import '../../../scripts/storybook-generate.mjs'
 import { SPECIFIER_ALIASES, appRoot, resolveWorkspaceSource } from './workspace-resolve.mjs'
 
 const outfile = path.join(appRoot, '.cache', 'registry-snapshot.cjs')
