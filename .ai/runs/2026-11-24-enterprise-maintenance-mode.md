@@ -87,13 +87,13 @@ Spec PR: #9434 (merged)
 
 ### Phase 2: Enterprise maintenance module
 
-- [ ] 2.1 Scaffold module and wire it behind OM_ENABLE_ENTERPRISE_MODULES
-- [ ] 2.2 File and Redis state stores with CAS and tests
-- [ ] 2.3 Gate decisions, Retry-After, sticky cache and bypass verification with tests
-- [ ] 2.4 Page renderer, built-in template and template loader with XSS tests
-- [ ] 2.5 CLI on/off/status/drain with exit-code tests
-- [ ] 2.6 Heartbeats, admission accounting, drain and coordinator holds with tests
-- [ ] 2.7 Status endpoint, bypass form, overlay and banner widgets, i18n
+- [x] 2.1 Scaffold module and wire it behind OM_ENABLE_ENTERPRISE_MODULES — 26af1207f8
+- [x] 2.2 File and Redis state stores with CAS and tests — de4529a570
+- [x] 2.3 Gate decisions, Retry-After, sticky cache and bypass verification with tests — 3ca955ffaf
+- [x] 2.4 Page renderer, built-in template and template loader with XSS tests — 980b20118a
+- [x] 2.5 CLI on/off/status/drain with exit-code tests — 327bb2159d
+- [x] 2.6 Heartbeats, admission accounting, drain and coordinator holds with tests — 5d39a2014e
+- [x] 2.7 Status endpoint, bypass form, overlay and banner widgets, i18n — bf7ad6cc6d
 - [ ] 2.8 Integration tests
 
 ### Phase 3: Key rotation integration
