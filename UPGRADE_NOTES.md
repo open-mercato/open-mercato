@@ -6,6 +6,35 @@ Staff sign-in now fails closed with the localized generic login error (`{ ok: fa
 
 Operators should restore MFA service registration or challenge-store availability before retrying sign-in. The explicit emergency-bypass setting retains its existing behavior and administrator warning. Failures are logged and reported via telemetry (`security.mfa_service_unavailable`, `security.mfa_challenge_creation_failed`, `auth.login_interceptor_failed`, and `auth.login_revoke_failed` if provisional-session cleanup fails). No database migration or credential-format change is required.
 
+## Dashboard user widget target scope (#8281, 2026-11-16)
+
+**Clients and module authors:** `GET` and `PUT /api/dashboards/users/widgets`
+now read and save user overrides under the target user's own tenant and
+organization. The GET `organizationId` selector is deprecated and ignored;
+`tenantId` only selects the tenant in which a superadmin looks up the target user.
+Update callers that used the assigner's session scope or `organizationId` to
+select another override record. Response shapes and the target `userId` remain
+unchanged.
+
+Non-superadmin callers receive `403` when their organization visibility excludes
+the target's organization, or when `dashboards.admin.assign-widgets` does not
+cover that organization. This includes an empty visibility list. Grant the
+required organization visibility and target-scoped feature before retrying.
+
+PUT mutation guards run in the target tenant and organization. Guard-returned
+`mode` and `widgetIds` transformations are applied; a guard cannot change the
+target `userId`. Check extensions that assumed the saving administrator's scope.
+
+**Operators:** existing `dashboard_user_widgets` rows stored under the wrong
+scope are not migrated. Review and remove those obsolete rows: they could become
+applicable if a user later moves into that organization. Correctly scoped rows
+need no migration. Role widget assignments and superadmin home-organization
+selection remain separate limitations (#8284 and #8283).
+
+The target-scope contract decision and personal isolation QA still require human
+approval before merge. Publishing these instructions grants neither approval.
+See the [widget visibility spec](.ai/specs/implemented/SPEC-010-2026-01-27-dashboard-widget-visibility.md).
+
 ## Extension header parsing and analytics SQL identifier hardening (#10331, #10332)
 
 Two security-hardening narrowings landed on shared request-header parsing and dashboard analytics SQL construction:
