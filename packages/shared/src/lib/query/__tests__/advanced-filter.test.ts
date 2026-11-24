@@ -63,6 +63,23 @@ describe('advanced filter', () => {
     ])
   })
 
+  it('retains repeated range predicates alongside an all-of membership condition', () => {
+    const compiled = convertAdvancedFilterToWhere({
+      logic: 'and',
+      conditions: [
+        { id: 'min', field: 'amount', operator: 'greater_than', value: 10 },
+        { id: 'max', field: 'amount', operator: 'less_than', value: 20 },
+        { id: 'tags', field: 'tags', operator: 'has_all_of', value: ['vip', 'eu'] },
+      ],
+    })
+    expect(normalizeFilters(compiled)).toEqual([
+      { field: 'amount', op: 'gt', value: 10 },
+      { field: 'amount', op: 'lt', value: 20 },
+      { field: 'tags', op: 'overlap', value: ['vip'] },
+      { field: 'tags', op: 'overlap', value: ['eu'] },
+    ])
+  })
+
   it('keeps repeated AND predicates in each existing OR clause', () => {
     expect(convertAdvancedFilterToWhere({
       logic: 'and',
