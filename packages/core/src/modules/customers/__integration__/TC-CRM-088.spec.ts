@@ -216,7 +216,7 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
   test('links, filters, unlinks and creates-and-links from the People tab, and surfaces a stale unlink', async ({
     page,
     request,
-  }: { page: import('@playwright/test').Page; request: APIRequestContext }) => {
+  }, testInfo) => {
     test.slow()
 
     const token = await getAuthToken(request, 'admin')
@@ -316,6 +316,12 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       await expect(recencyRows).toContainText([unlinkedName, linkedName])
       const afterUnlink = (await listPeopleFor(request, token, dealId)).items
       expect(afterUnlink.map(({ id, linkedAt }) => ({ id, linkedAt }))).toEqual(beforeUnlink)
+      if (process.env.PW_CAPTURE_SCREENSHOTS === '1') {
+        await testInfo.attach('deal-people-by-recency', {
+          body: await page.screenshot({ animations: 'disabled' }),
+          contentType: 'image/png',
+        })
+      }
 
       // --- Step 4: create-and-link a new contact ---
       await page.getByRole('button', { name: /^Add person$/i }).click()

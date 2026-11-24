@@ -465,29 +465,29 @@ function touchDealLockToken(deal: CustomerDeal): void {
   deal.updatedAt = new Date()
 }
 
+async function lockDealForLinkUpdate(em: EntityManager, deal: CustomerDeal): Promise<void> {
+  const scope = { tenantId: deal.tenantId, organizationId: deal.organizationId }
+  const lockedDeal = await findOneWithDecryption(
+    em,
+    CustomerDeal,
+    { id: deal.id, deletedAt: null, ...scope },
+    { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+    scope,
+  )
+  if (!lockedDeal) throw notFound()
+}
+
 async function syncDealPeople(
   em: EntityManager,
   deal: CustomerDeal,
   personIds: string[] | undefined | null,
   primaryPersonEntityId?: string | null,
-  options?: { stampLockToken?: boolean; isNewDeal?: boolean }
+  options?: { stampLockToken?: boolean }
 ): Promise<void> {
   // A freshly created deal has no other session holding a token to invalidate, and stamping
   // there would only make `updated_at` overtake `created_at` on every new deal with links.
   const stampLockToken = options?.stampLockToken !== false
   const requestedPrimaryId = primaryPersonEntityId?.toLowerCase() ?? primaryPersonEntityId
-  if (personIds === undefined && requestedPrimaryId === undefined) return
-  if (!options?.isNewDeal) {
-    const scope = { tenantId: deal.tenantId, organizationId: deal.organizationId }
-    const lockedDeal = await findOneWithDecryption(
-      em,
-      CustomerDeal,
-      { id: deal.id, deletedAt: null, ...scope },
-      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-      scope,
-    )
-    if (!lockedDeal) throw notFound()
-  }
   if (personIds === undefined) {
     if (requestedPrimaryId === undefined) return
     const links = await em.find(CustomerDealPersonLink, { deal })
@@ -681,7 +681,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           transitionedByUserId: normalizedTransitionAuthorUserId,
         })
       },
-      () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId, { stampLockToken: false, isNewDeal: true }),
+      () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId, { stampLockToken: false }),
       () => syncDealCompanies(em, deal, parsed.companyIds ?? [], { stampLockToken: false }),
     ], { transaction: true })
     await invalidateDictionaryKindCaches(ctx, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, createdDictionaryKinds)
@@ -784,7 +784,10 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     }
     const restoredDeal = deal
     await withAtomicFlush(em, [
-      () => syncDealPeople(em, restoredDeal, after.people, after.primaryPersonEntityId, { isNewDeal }),
+      async () => {
+        if (!isNewDeal) await lockDealForLinkUpdate(em, restoredDeal)
+        await syncDealPeople(em, restoredDeal, after.people, after.primaryPersonEntityId)
+      },
       () => syncDealCompanies(em, restoredDeal, after.companies),
       () => deleteDealStageTransitions(em, restoredDeal),
       () => restoreDealStageTransitions(em, restoredDeal, after.transitions),
@@ -1010,7 +1013,12 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             transitionedByUserId: normalizedTransitionAuthorUserId,
           })
         },
-        () => syncDealPeople(em, record, parsed.personIds, parsed.primaryPersonEntityId),
+        async () => {
+          if (parsed.personIds !== undefined || parsed.primaryPersonEntityId !== undefined || parsed.companyIds !== undefined) {
+            await lockDealForLinkUpdate(em, record)
+          }
+          await syncDealPeople(em, record, parsed.personIds, parsed.primaryPersonEntityId)
+        },
         () => syncDealCompanies(em, record, parsed.companyIds),
       ],
     })
@@ -1165,7 +1173,10 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           transitionedByUserId: normalizedTransitionAuthorUserId,
         })
       },
-      () => syncDealPeople(em, deal, before.people, before.primaryPersonEntityId, { isNewDeal }),
+      async () => {
+        if (!isNewDeal) await lockDealForLinkUpdate(em, deal)
+        await syncDealPeople(em, deal, before.people, before.primaryPersonEntityId)
+      },
       () => syncDealCompanies(em, deal, before.companies),
     ], { transaction: true })
 
@@ -1291,7 +1302,10 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         em.persist(deal)
       }
       await withAtomicFlush(em, [
-        () => syncDealPeople(em, deal, before.people, before.primaryPersonEntityId, { isNewDeal }),
+        async () => {
+          if (!isNewDeal) await lockDealForLinkUpdate(em, deal)
+          await syncDealPeople(em, deal, before.people, before.primaryPersonEntityId)
+        },
         () => syncDealCompanies(em, deal, before.companies),
         () => deleteDealStageTransitions(em, deal),
         () => restoreDealStageTransitions(em, deal, before.transitions),

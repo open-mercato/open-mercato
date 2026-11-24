@@ -371,7 +371,7 @@ Applies to all three PRs. The second `yarn build:packages` rebuilds against what
 
 ### PR 3 — durable `linkedAt` (depends on PR 2)
 
-7. Set-diff `syncDealPeople`. Lock an existing deal before reading its links so concurrent replacements apply one set at a time. Flush the previous primary's removal or demotion before setting a new primary. The Companies tab does not display link dates, so company reconciliation stays outside this PR. Cover membership, primary changes, and restore in command tests.
+7. Set-diff `syncDealPeople`. Lock an existing deal before either link set is reconciled so concurrent replacements apply one set at a time and both association writes acquire locks in the same order. Flush the previous primary's removal or demotion before setting a new primary. The Companies tab does not display link dates, so its reconciliation still replaces the set. Cover membership, primary changes, and restore in command tests.
 8. Use the shared Linked column, with the header sort on wide layouts and the compact sort control on narrow layouts. Extend `TC-CRM-088` to check recency order and verify that unlinking preserves the remaining dates.
 
 ## Final Compliance Report

@@ -391,11 +391,11 @@ describe('customers.deals.update — deal lock token on link changes', () => {
     expectTokenAdvanced(deal, probe)
   })
 
-  it('locks the scoped deal row before reading links to reconcile the whole set', async () => {
-    const { em } = await runUpdate(
-      { people: [{ personId: ADA }] },
-      { personIds: [ADA, BOB] },
-    )
+  it.each([
+    { kind: 'person', input: { personIds: [ADA, BOB] }, linkEntity: CustomerDealPersonLink },
+    { kind: 'company', input: { companyIds: [ACME, GLOBEX] }, linkEntity: CustomerDealCompanyLink },
+  ])('locks the scoped deal row before reading $kind links', async ({ input, linkEntity }) => {
+    const { em } = await runUpdate({ people: [{ personId: ADA }], companies: [ACME] }, input)
     const lockCall = em.findOne.mock.calls.findIndex(
       ([entity, , options]: [unknown, unknown, { lockMode?: LockMode }?]) =>
         entity === CustomerDeal && options?.lockMode === LockMode.PESSIMISTIC_WRITE,
@@ -407,7 +407,7 @@ describe('customers.deals.update — deal lock token on link changes', () => {
       organizationId: 'org-1',
       tenantId: 'tenant-1',
     })
-    const linksRead = em.find.mock.calls.findIndex(([entity]: [unknown]) => entity === CustomerDealPersonLink)
+    const linksRead = em.find.mock.calls.findIndex(([entity]: [unknown]) => entity === linkEntity)
     expect(em.findOne.mock.invocationCallOrder[lockCall]).toBeLessThan(
       em.find.mock.invocationCallOrder[linksRead],
     )
