@@ -232,7 +232,7 @@ test('applies required and optional named rules in the appropriate transition ph
     })
 
     for (const mode of ['required-pre', 'optional-pre-and-post', 'inline-only'] as const) {
-      const workflowId = `qa-transition-${mode}-${suffix.replace('_', '-')}`
+      const workflowId = `qa-t-${mode[0]}-${suffix.replace('_', '-')}`
       let definitionId: string | null = null
       let instanceId: string | null = null
       try {
