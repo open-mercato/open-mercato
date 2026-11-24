@@ -857,6 +857,7 @@ async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
     generateModulePackageSources,
     generateOpenApi,
     generateWebResearchAdapters,
+    generateCacheProviders,
   } = await import('./lib/generators')
   const resolver = createResolver()
   const results = [
@@ -866,6 +867,7 @@ async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
     await generateModuleDi({ resolver, quiet }),
     await generateModulePackageSources({ resolver, quiet }),
     await generateWebResearchAdapters({ resolver, quiet }),
+    await generateCacheProviders({ resolver, quiet }),
     await generateOpenApi({ resolver, quiet }),
   ]
   return results.some((result) => (result?.filesWritten.length ?? 0) > 0)
@@ -1238,7 +1240,7 @@ export async function run(argv = process.argv) {
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi, generateWebResearchAdapters } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi, generateWebResearchAdapters, generateCacheProviders } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistries({ resolver, quiet: true })
@@ -1246,6 +1248,7 @@ export async function run(argv = process.argv) {
       await generateModuleDi({ resolver, quiet: true })
       await generateModulePackageSources({ resolver, quiet: true })
       await generateWebResearchAdapters({ resolver, quiet: true })
+      await generateCacheProviders({ resolver, quiet: true })
       await generateOpenApi({ resolver, quiet: true })
       console.log('✅ Modules prepared\n')
 
