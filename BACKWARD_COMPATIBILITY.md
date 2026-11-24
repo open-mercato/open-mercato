@@ -697,3 +697,7 @@ STABLE command/API: unrestricted attribution permits forgery; a bridge retains i
 ## 2026-11-24 — Relation options and global query scope (#9106)
 
 STABLE API and query behavior. Relation options require authorized target reads and approved label fields. Global tables require an explicit trusted scope opt-out. The earlier behavior exposes unauthorized data if retained as a bridge. Named maintainer approval is required for the backport. [Migration](UPGRADE_NOTES.md#relation-options-and-explicit-global-query-scope-9106).
+
+## 2026-11-24 — Relation options for record-protected targets (#9106)
+
+The STABLE generic relation options route requires an owning record policy for protected targets. Current clients can use the owning Staff APIs for time projects, tasks, and reports. Preserving generic reads for these targets would retain the authorization bypass. Named maintainer acknowledgment remains required. [Migration](UPGRADE_NOTES.md#relation-options-and-explicit-global-query-scope-9106).

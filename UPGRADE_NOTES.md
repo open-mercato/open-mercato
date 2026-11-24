@@ -2,6 +2,8 @@
 
 ## Relation options and explicit global query scope (#9106)
 
+Generic relation lookups for Staff time projects, tasks, and reports return 403. These records have dedicated access rules, so custom pickers should load options through the Staff timesheet APIs and adapt the authorized records to option values and labels. Review existing relation field `optionsUrl` settings for these targets before upgrading. Stored relation values remain available to the owning modules.
+
 Relation options require read access to the target entity and return only fixed or server-declared label fields. Clients can omit `labelField` to use the default or select an authorized label declared by the owning module or custom entity. For stored relation fields, edit the field configuration and remove the `labelField` query parameter from its `optionsUrl` to use the default. Split ID batches larger than 100.
 
 Module authors querying tables without tenant or organization columns must set `omitAutomaticTenantOrgScope: true` from trusted server code and apply their own visibility filters. Operators should review metadata-only roles that previously relied on relation lookups for record access. No database migration is required. [Specification](.ai/specs/2026-11-16-relation-options-query-scope.md).

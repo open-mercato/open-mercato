@@ -25,6 +25,7 @@ const mockRelationAccess = jest.fn()
 
 const registeredTables: Record<string, string> = {
   StaffTimeEntry: 'staff_time_entries', Attachment: 'attachments',
+  StaffTimeProject: 'staff_time_projects', StaffTimeTask: 'staff_time_tasks', StaffTimeReport: 'staff_time_reports',
   CatalogProduct: 'catalog_products', CustomerUser: 'customer_users',
   CatalogProductVariant: 'catalog_product_variants',
   CustomerEntity: 'customer_entities', CustomerPersonProfile: 'customer_person_profiles', SalesOrder: 'sales_orders', User: 'users',
@@ -89,6 +90,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   getModules: () => [{ customEntities: [
     { id: 'staff:staff_time_entry', labelField: 'notes' },
     { id: 'attachments:attachment', labelField: 'fileName' },
+    { id: 'staff:staff_time_project', labelField: 'name' },
+    { id: 'staff:staff_time_report', labelField: 'title' },
+    { id: 'staff:staff_time_task', labelField: 'title' },
+    { id: 'third_party:staff_time_entry', labelField: 'notes' },
     { id: 'customers:customer_entity', labelField: 'title' },
     { id: 'customers:customer_person_profile', labelField: 'displayName' },
     { id: 'catalog:catalog_product', labelField: 'name' },
@@ -109,10 +114,24 @@ describe('GET /api/entities/relations/options', () => {
     mockGetSelectedOrganizationFromRequest.mockReturnValue(null)
   })
 
-  it('fails closed when the owning module has no record policy', async () => {
+  it.each([
+    'attachments:attachment',
+    'staff:staff_time_entry',
+    'staff:staff_time_project',
+    'staff:staff_time_report',
+    'staff:staff_time_task',
+  ])('fails closed when %s has no owning record policy', async (entityId) => {
     mockRelationAccess.mockReturnValueOnce(undefined)
-    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=staff:staff_time_entry'))
+    const response = await GET(new Request(`http://x/api/entities/relations/options?entityId=${entityId}`))
     expect(response.status).toBe(403)
+    expect(mockEm.findOne).not.toHaveBeenCalled()
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('rejects a separately declared alias for a record-protected table', async () => {
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=third_party:staff_time_entry'))
+    expect(response.status).toBe(403)
+    expect(mockRelationAccess).not.toHaveBeenCalled()
     expect(mockQE.query).not.toHaveBeenCalled()
   })
 
