@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 197 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 198 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -17,6 +17,8 @@ This catalog indexes 197 focused lessons. Route the task first, then read only r
 - Run `yarn lessons:check` before committing.
 
 ## Catalog
+
+- [Inspect all test reporters before classifying a truncated run](lessons/inspect-all-test-reporters-before-classifying-truncation.md) — area:testing,debugging; module:create_app; topic:validation-evidence,test-reporters,timeouts,test-prerequisites
 
 - [Preserve peer resolution when copying test dependencies](lessons/preserve-peer-resolution-when-copying-test-dependencies.md) — area:testing,debugging; module:platform; topic:package-runtime,worktrees,peer-dependencies,lockfile
 

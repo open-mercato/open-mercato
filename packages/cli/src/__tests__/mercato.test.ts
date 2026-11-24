@@ -1078,7 +1078,13 @@ describe('init command failure output', () => {
     consoleLogSpy.mockRestore()
   })
 
-  it('keeps init successful when lean presets disable optional modules', async () => {
+  it.each([
+    { configsEnabled: true, expectedRestoreCount: 1 },
+    { configsEnabled: false, expectedRestoreCount: 0 },
+  ])('keeps init successful in a lean preset with Configs enabled: $configsEnabled', async ({
+    configsEnabled,
+    expectedRestoreCount,
+  }) => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
 
@@ -1120,10 +1126,10 @@ describe('init command failure output', () => {
     jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
       bootstrapFromAppRoot: jest.fn().mockResolvedValue({
         modules: [
-          {
+          ...(configsEnabled ? [{
             id: 'configs',
             cli: [{ command: 'restore-defaults', run: configsRestoreDefaults }],
-          },
+          }] : []),
           {
             id: 'auth',
             cli: [
@@ -1172,7 +1178,7 @@ describe('init command failure output', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(
       '⏭️  Skipping "search:reindex" — module not enabled',
     )
-    expect(configsRestoreDefaults).toHaveBeenCalled()
+    expect(configsRestoreDefaults).toHaveBeenCalledTimes(expectedRestoreCount)
     expect(authSetup).toHaveBeenCalled()
     expect(queryIndexReindex).toHaveBeenCalledWith(['--force', '--tenant', 'tenant-1'])
 
