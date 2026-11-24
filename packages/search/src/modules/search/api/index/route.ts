@@ -80,17 +80,40 @@ export async function GET(req: Request) {
     if (Array.isArray(scope.filterIds) && scope.filterIds.length === 0) {
       return NextResponse.json({ entries: [], limit, offset })
     }
-    const organizationId =
-      typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : undefined
-    const entries = await vectorStrategy.listEntries({
-      tenantId: auth.tenantId,
-      organizationId,
-      entityId: entityIdParam ?? undefined,
-      limit,
-      offset,
-    })
+    const selectedOrganizationId =
+      typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : null
+    // The single selected org, else the explicit authorized set, else
+    // (unrestricted/super-admin) the whole tenant. Mirrors the purge below: without the
+    // middle branch a caller restricted to some organizations but with none selected
+    // listed every organization's entries.
+    if (selectedOrganizationId || !Array.isArray(scope.filterIds)) {
+      const entries = await vectorStrategy.listEntries({
+        tenantId: auth.tenantId,
+        organizationId: selectedOrganizationId ?? undefined,
+        entityId: entityIdParam ?? undefined,
+        limit,
+        offset,
+      })
+      return NextResponse.json({ entries, limit, offset })
+    }
 
-    return NextResponse.json({ entries, limit, offset })
+    // The driver lists one organization at a time, so page over the authorized
+    // organizations in order and stop once the requested window is filled.
+    const windowEnd = offset + limit
+    const collected: Awaited<ReturnType<VectorSearchStrategy['listEntries']>> = []
+    for (const organizationId of scope.filterIds) {
+      if (collected.length >= windowEnd) break
+      const organizationEntries = await vectorStrategy.listEntries({
+        tenantId: auth.tenantId,
+        organizationId,
+        entityId: entityIdParam ?? undefined,
+        limit: windowEnd,
+        offset: 0,
+      })
+      collected.push(...organizationEntries)
+    }
+
+    return NextResponse.json({ entries: collected.slice(offset, windowEnd), limit, offset })
   } catch (error: unknown) {
     const err = error as { status?: number; statusCode?: number }
     const status = typeof err?.status === 'number'

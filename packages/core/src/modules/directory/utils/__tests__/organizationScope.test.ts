@@ -943,6 +943,136 @@ describe('resolveFeatureCheckContext with a feature granted only outside the hom
   })
 })
 
+describe('resolveFeatureCheckContext for a principal without a home organization', () => {
+  type RbacGrantEm = {
+    fork: () => RbacGrantEm
+    findOne: jest.Mock
+    find: jest.Mock
+  }
+
+  const requiredFeature = 'business_rules.manage'
+  const organizations = [
+    { id: 'org-a', descendantIds: [], ancestorIds: [] },
+    { id: 'org-b', descendantIds: [], ancestorIds: [] },
+    { id: 'org-c', descendantIds: [], ancestorIds: [] },
+  ]
+
+  function createNullOrgContainer(featureOrganizationIds: string[] | null) {
+    const user = { id: 'user-no-org', tenantId: 'tenant-1', organizationId: null }
+    const visibilityRole = { id: 'role-visibility' }
+    const featureRole = { id: 'role-feature' }
+    const roleAcls = [
+      { role: visibilityRole, isSuperAdmin: false, featuresJson: ['business_rules.view'], organizationsJson: null },
+      { role: featureRole, isSuperAdmin: false, featuresJson: [requiredFeature], organizationsJson: featureOrganizationIds },
+    ]
+    const em: RbacGrantEm = {
+      fork: () => em,
+      findOne: jest.fn(async (entity: unknown) => (entity === User ? user : null)),
+      find: jest.fn(async (entity: unknown, where: { id?: { $in?: string[] } } | undefined) => {
+        if (entity === UserRole) return [{ role: visibilityRole }, { role: featureRole }]
+        if (entity === RoleAcl) return roleAcls
+        if (entity === Organization) {
+          const requestedIds = where?.id?.$in
+          return requestedIds
+            ? organizations.filter((organization) => requestedIds.includes(organization.id))
+            : organizations
+        }
+        return []
+      }),
+    }
+    const rbac = new RbacService(em as unknown as EntityManager)
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'rbacService') return rbac
+        throw new Error(`Unexpected dependency: ${name}`)
+      },
+    } as unknown as AwilixContainer
+    return { container, rbac }
+  }
+
+  const noCookieRequest = () => ({ headers: { get: () => null } })
+
+  it('anchors the gate organization to the only approved organization', async () => {
+    const { container, rbac } = createNullOrgContainer(['org-a'])
+    const auth = createAuth({ sub: 'user-no-org', orgId: null })
+    const request = noCookieRequest()
+
+    const featureContext = await resolveFeatureCheckContext({ container, auth, request, requiredFeatures: [requiredFeature] })
+
+    expect(featureContext.organizationId).toBe('org-a')
+    expect(featureContext.scope.filterIds).toEqual(['org-a'])
+    expect(featureContext.allowedOrganizationIds).toEqual(['org-a'])
+    await expect(rbac.userHasAllFeatures('user-no-org', [requiredFeature], {
+      tenantId: 'tenant-1',
+      organizationId: featureContext.organizationId,
+    })).resolves.toBe(true)
+    await expect(rbac.userHasAllFeatures('user-no-org', [requiredFeature], {
+      tenantId: 'tenant-1',
+      organizationId: 'org-b',
+    })).resolves.toBe(false)
+
+    const handlerFeatureContext = await resolveFeatureCheckContext({ container, auth, request })
+    expect(handlerFeatureContext.organizationId).toBe('org-a')
+    expect(handlerFeatureContext.scope).toEqual(featureContext.scope)
+  })
+
+  it('anchors to the first approved organization and keeps every approved organization in the filter', async () => {
+    const { container, rbac } = createNullOrgContainer(['org-a', 'org-b'])
+    const auth = createAuth({ sub: 'user-no-org', orgId: null })
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request: noCookieRequest(),
+      requiredFeatures: [requiredFeature],
+    })
+
+    expect(featureContext.organizationId).toBe('org-a')
+    expect(featureContext.scope.filterIds).toEqual(['org-a', 'org-b'])
+    await expect(rbac.userHasAllFeatures('user-no-org', [requiredFeature], {
+      tenantId: 'tenant-1',
+      organizationId: featureContext.organizationId,
+    })).resolves.toBe(true)
+  })
+
+  it('keeps a null organization and an empty filter when nothing is approved', async () => {
+    const { container } = createNullOrgContainer(['org-outside'])
+    const auth = createAuth({ sub: 'user-no-org', orgId: null })
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request: noCookieRequest(),
+      requiredFeatures: [requiredFeature],
+    })
+
+    expect(featureContext.organizationId).toBeNull()
+    expect(featureContext.scope.filterIds).toEqual([])
+    expect(featureContext.allowedOrganizationIds).toEqual([])
+  })
+
+  it('leaves a tenant-wide grant unnarrowed with a null organization', async () => {
+    const { container, rbac } = createNullOrgContainer(null)
+    const auth = createAuth({ sub: 'user-no-org', orgId: null })
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request: noCookieRequest(),
+      requiredFeatures: [requiredFeature],
+    })
+
+    expect(featureContext.organizationId).toBeNull()
+    expect(featureContext.scope.filterIds).toBeNull()
+    expect(featureContext.scope.allowedIds).toBeNull()
+    await expect(rbac.userHasAllFeatures('user-no-org', [requiredFeature], {
+      tenantId: 'tenant-1',
+      organizationId: featureContext.organizationId,
+    })).resolves.toBe(true)
+  })
+})
+
 describe('request-bound feature scope with explicit tenant overrides', () => {
   it('reuses the bound scope when the caller passes its own tenant explicitly', async () => {
     const { container, rbac } = createFeatureNarrowingContainer({ approvedOrganizationIds: ['org-a'] })

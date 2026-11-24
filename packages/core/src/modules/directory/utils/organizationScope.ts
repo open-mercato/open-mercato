@@ -584,7 +584,7 @@ export async function resolveFeatureCheckContext({
   let scope = boundFeatureScope
     ? boundFeatureScope.scope
     : await resolveOrganizationScopeForRequest({ container, auth, request, selectedId, tenantId })
-  const organizationId = boundFeatureScope
+  let organizationId = boundFeatureScope
     ? boundFeatureScope.organizationId
     : resolveFeatureCheckOrganizationId(scope, auth)
   if (
@@ -630,6 +630,13 @@ export async function resolveFeatureCheckContext({
         allowedIds: approvedOrganizationIds,
         tenantId: scope.tenantId,
       }
+      // A principal with no organization of its own (a tenant-level API key) arrives here
+      // with `organizationId: null`. Checking features against a null organization applies
+      // every organization-restricted role at once, so the gate would pass with grants the
+      // principal only holds in the approved organizations, and handlers that scope by
+      // `organizationId` would then read the whole tenant. Anchor it to an approved
+      // organization instead, the same fallback a restricted principal already gets.
+      if (!organizationId) organizationId = resolveFeatureCheckOrganizationId(scope, auth)
     }
     bindFeatureScopeToRequest(request, { userId: auth.sub, scope, organizationId })
   }

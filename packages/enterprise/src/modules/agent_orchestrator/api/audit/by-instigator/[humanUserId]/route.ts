@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveActionAgentAttribution } from '../../../../lib/identity/actionAgentAttribution'
 import {
   RUN_CORRELATION_KEY,
@@ -77,8 +78,16 @@ export async function GET(req: Request, ctx: RouteContext) {
   const parsedQuery = querySchema.safeParse({ limit: url.searchParams.get('limit') ?? undefined })
   if (!parsedQuery.success) return NextResponse.json({ error: 'Invalid query' }, { status: 400 })
 
-  const organizationId = auth.orgId ?? null
   const container = await createRequestContainer()
+  // A principal with no organization of its own (a tenant-level API key) has no `auth.orgId`
+  // to pin. Fall back to the scope the API dispatcher resolved for this request, which is
+  // limited to the organizations where the caller holds the route's feature.
+  const featureContext = await resolveFeatureCheckContext({ container, auth, request: req })
+  const organizationId = auth.orgId ?? featureContext.organizationId ?? null
+  const scopedOrganizationIds = organizationId ? null : featureContext.scope.filterIds
+  if (Array.isArray(scopedOrganizationIds) && scopedOrganizationIds.length === 0) {
+    return NextResponse.json({ humanUserId: parsedId.data, items: [], total: 0 })
+  }
   const em = (container.resolve('em') as EntityManager).fork()
 
   let query = (em.getKysely<Record<string, never>>() as any)
@@ -106,7 +115,11 @@ export async function GET(req: Request, ctx: RouteContext) {
     )
 
   // Org-scope: pin the caller's organization so a human's chain never crosses orgs.
-  if (organizationId) query = query.where('action_logs.organization_id', '=', organizationId)
+  if (organizationId) {
+    query = query.where('action_logs.organization_id', '=', organizationId)
+  } else if (Array.isArray(scopedOrganizationIds)) {
+    query = query.where('action_logs.organization_id', 'in', scopedOrganizationIds)
+  }
 
   const rows = await query
     .orderBy('action_logs.created_at', 'desc')
