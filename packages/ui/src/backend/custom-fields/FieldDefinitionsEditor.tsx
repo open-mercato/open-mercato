@@ -74,6 +74,7 @@ export type FieldDefinitionsEditorProps = {
   onRestoreField?: (key: string) => void
   onReorder?: (from: number, to: number) => void
   onTranslate?: (definition: FieldDefinition, index: number) => void
+  renderFieldActions?: (definition: FieldDefinition, index: number) => React.ReactNode
   listRef?: React.Ref<HTMLDivElement>
   listProps?: React.HTMLAttributes<HTMLDivElement>
   singleFieldsetPerRecord?: boolean
@@ -182,6 +183,7 @@ export function FieldDefinitionsEditor({
   onRestoreField,
   onReorder,
   onTranslate,
+  renderFieldActions,
   listRef,
   listProps,
   translate,
@@ -358,6 +360,7 @@ export function FieldDefinitionsEditor({
               </SelectContent>
             </Select>
             <Button
+              type="button"
               variant="outline"
               size="sm"
               onClick={handleAddFieldset}
@@ -366,6 +369,7 @@ export function FieldDefinitionsEditor({
               <Plus className="h-3.5 w-3.5" /> {t('entities.customFields.editor.add', 'Add')}
             </Button>
             <Button
+              type="button"
               variant="outline"
               size="sm"
               onClick={handleRemoveFieldset}
@@ -442,6 +446,7 @@ export function FieldDefinitionsEditor({
           <div>{t('entities.customFields.editor.noFieldsets', 'No fieldsets defined yet. Fieldsets let you group custom fields for different variants of the same entity (e.g., Fashion vs. Sport products).')}</div>
           <div>
             <Button
+              type="button"
               variant="outline"
               size="sm"
               onClick={handleAddFieldset}
@@ -506,12 +511,14 @@ export function FieldDefinitionsEditor({
             onRegisterGroup={registerGroup}
             onRemoveGroup={removeGroup}
             onTranslate={onTranslate ? () => onTranslate(definition, index) : undefined}
+            actions={renderFieldActions?.(definition, index)}
             translate={t}
           />
         </div>
       )})}
       <div>
         <Button
+          type="button"
           variant="outline"
           size="sm"
           onClick={onAddField}
@@ -525,6 +532,7 @@ export function FieldDefinitionsEditor({
             {deletedKeys.map((key, idx) => (
               <span key={key}>
                 <Button
+                  type="button"
                   variant="link"
                   className="h-auto p-0"
                   onClick={() => onRestoreField(key)}
@@ -555,6 +563,7 @@ type FieldDefinitionCardProps = {
   onRegisterGroup?: (fieldsetCode: string, group: FieldsetGroup) => void
   onRemoveGroup?: (fieldsetCode: string, groupCode: string) => void
   onTranslate?: () => void
+  actions?: React.ReactNode
   translate?: TranslateFn
 }
 
@@ -571,6 +580,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
   onRegisterGroup,
   onRemoveGroup,
   onTranslate,
+  actions,
   translate,
 }: FieldDefinitionCardProps) {
   const [local, setLocal] = React.useState<FieldDefinition>(definition)
@@ -802,6 +812,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             containerClassName="text-sm"
             contentClassName="gap-1 [&_label]:text-sm [&_label]:font-normal"
           />
+          {actions}
           {onTranslate && (
             <IconButton variant="outline" size="sm" onClick={onTranslate} aria-label={t('entities.customFields.editor.translateField', 'Translate field')}>
               <Languages className="h-4 w-4" />
@@ -1008,6 +1019,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             </div>
             <div className="flex justify-end">
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
                 className="text-xs"
@@ -1081,6 +1093,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium">{t('entities.customFields.editor.validationRules', 'Validation rules')}</label>
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="text-xs"
@@ -1376,10 +1389,10 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           </FormField>
         </div>
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={handleCloseOptionDialog}>
+          <Button type="button" variant="outline" size="sm" onClick={handleCloseOptionDialog}>
             {t('entities.customFields.editor.cancel', 'Cancel')}
           </Button>
-          <Button size="sm" onClick={handleAddOption}>
+          <Button type="button" size="sm" onClick={handleAddOption}>
             {t('entities.customFields.editor.addOption', 'Add option')}
           </Button>
         </DialogFooter>
@@ -1476,10 +1489,10 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           ) : null}
         </div>
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => setGroupDialogOpen(false)}>
+          <Button type="button" variant="outline" size="sm" onClick={() => setGroupDialogOpen(false)}>
             {t('entities.customFields.editor.cancel', 'Cancel')}
           </Button>
-          <Button size="sm" onClick={handleGroupDialogSubmit}>
+          <Button type="button" size="sm" onClick={handleGroupDialogSubmit}>
             {t('entities.customFields.editor.saveGroup', 'Save group')}
           </Button>
         </DialogFooter>
