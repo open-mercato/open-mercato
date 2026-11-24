@@ -56,7 +56,7 @@ const context = {
   },
   auth: { tenantId, sub: userId, orgId: organizationId },
   em,
-  organizationId,
+  organizationId: organizationId as string | null,
   tenantId,
   readableOrganizationIds: [organizationId],
   translate: (_key: string, fallback?: string) => fallback ?? 'error',
@@ -72,8 +72,10 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
 }))
 
+const findOneWithDecryptionMock = jest.fn(async () => ({ ...entryRecord, dictionary: dictionaryRecord }))
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: jest.fn(async () => ({ ...entryRecord, dictionary: dictionaryRecord })),
+  findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
   findWithDecryption: jest.fn(async () => []),
 }))
 
@@ -85,7 +87,11 @@ const entryParams = { params: { dictionaryId, entryId } }
 describe('dictionary entry write routes mutation guard', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    context.organizationId = organizationId
+    context.auth = { tenantId, sub: userId, orgId: organizationId }
     em.fork.mockReturnValue(em)
+    em.findOne.mockReset()
+    findOneWithDecryptionMock.mockResolvedValue({ ...entryRecord, dictionary: dictionaryRecord })
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
     commandBusExecuteMock.mockResolvedValue({ result: { entryId }, logEntry: null })
@@ -93,6 +99,7 @@ describe('dictionary entry write routes mutation guard', () => {
 
   it('runs the mutation guard lifecycle when creating an entry', async () => {
     em.findOne.mockResolvedValueOnce(dictionaryRecord)
+    context.auth = { tenantId, sub: userId, orgId: '99999999-9999-4999-8999-999999999999' }
 
     const response = await createEntry(
       new Request(`http://localhost/api/dictionaries/${dictionaryId}/entries`, {
@@ -104,6 +111,17 @@ describe('dictionary entry write routes mutation guard', () => {
     )
 
     expect(response.status).toBe(201)
+    expect(em.findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      { id: dictionaryId, organizationId, tenantId, deletedAt: null },
+    )
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      entryId,
+      { populate: ['dictionary'] },
+      { tenantId, organizationId },
+    )
     expect(commandBusExecuteMock).toHaveBeenCalledWith('dictionaries.entries.create', expect.anything())
     expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
       container,
@@ -129,6 +147,41 @@ describe('dictionary entry write routes mutation guard', () => {
     )
 
     expect(response.status).toBe(423)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 before running guards or commands when creating an entry in a dictionary outside the selected organization', async () => {
+    em.findOne.mockResolvedValueOnce(null)
+
+    const response = await createEntry(
+      new Request(`http://localhost/api/dictionaries/${dictionaryId}/entries`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value: 'red', label: 'Red' }),
+      }),
+      { params: { dictionaryId } },
+    )
+
+    expect(response.status).toBe(404)
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 when organization context is missing on entry creation', async () => {
+    context.organizationId = null
+
+    const response = await createEntry(
+      new Request(`http://localhost/api/dictionaries/${dictionaryId}/entries`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value: 'red', label: 'Red' }),
+      }),
+      { params: { dictionaryId } },
+    )
+
+    expect(response.status).toBe(400)
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
