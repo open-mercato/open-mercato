@@ -303,7 +303,6 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       }
     }
     setDefs((arr) => arr.filter((_, i) => i !== idx))
-    setOrderDirty(true)
     if (def.key) {
       await invalidateCustomFieldDefs(queryClient, entityId)
     }
@@ -521,6 +520,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       defs,
       fieldsets: buildFieldsetPayload(),
       singleFieldsetPerRecord,
+      preserveOrder: !orderDirty,
     })
     // Send the aggregate schema version so a concurrent edit is rejected with a 409
     // instead of silently overwriting the other tab (issue #3152). CrudForm's submit
@@ -537,10 +537,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       await raiseCrudError(callDefs.response, t('entities.customFields.errors.saveFailed', 'Failed to save field definitions.'))
     }
     setDefsVersion(readVersionToken(callDefs.result?.version))
+    setOrderDirty(false)
     try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
     await invalidateCustomFieldDefs(queryClient, entityId)
     flash(t('entities.customFields.flash.saved', 'Definitions saved'), 'success')
-  }, [buildFieldsetPayload, defs, defsVersion, entityId, entitySource, queryClient, singleFieldsetPerRecord, t, validateAll])
+  }, [buildFieldsetPayload, defs, defsVersion, entityId, entitySource, orderDirty, queryClient, singleFieldsetPerRecord, t, validateAll])
 
   if (!entityId) {
     return (
@@ -636,9 +637,11 @@ export function buildDefinitionsBatchPayload(options: {
   defs: Array<Pick<Def, 'key' | 'kind' | 'configJson' | 'isActive'>>
   fieldsets: FieldsetDefinition[]
   singleFieldsetPerRecord: boolean
+  preserveOrder?: boolean
 }) {
   return {
     entityId: options.entityId,
+    ...(options.preserveOrder !== undefined && { preserveOrder: options.preserveOrder }),
     definitions: options.defs.filter((d) => !!d.key).map((d) => ({
       key: d.key,
       kind: d.kind,

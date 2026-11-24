@@ -6,7 +6,9 @@ import { Button } from '../../primitives/button'
 import { Spinner } from '../../primitives/spinner'
 import { Alert, AlertDescription, AlertTitle } from '../../primitives/alert'
 import { flash } from '../FlashMessages'
-import { apiCall, readApiResultOrThrow } from '../utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '../utils/apiCall'
+import { buildOptimisticLockHeader } from '../utils/optimisticLock'
+import { surfaceRecordConflict } from '../conflicts'
 import { raiseCrudError } from '../utils/serverErrors'
 import { invalidateCustomFieldDefs } from '../utils/customFieldDefs'
 import { FieldDefinitionsEditor, type FieldDefinition, type FieldDefinitionError } from './FieldDefinitionsEditor'
@@ -20,6 +22,7 @@ type DefinitionsManageResponse = {
   deletedKeys?: string[]
   fieldsets?: FieldsetDefinition[]
   settings?: { singleFieldsetPerRecord?: boolean }
+  version?: string | null
 }
 
 type FieldDefinitionsManagerProps = {
@@ -58,6 +61,7 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
     const [saving, setSaving] = React.useState(false)
     const [statusError, setStatusError] = React.useState<string | null>(null)
     const [defs, setDefs] = React.useState<FieldDefinition[]>([])
+    const [definitionsVersion, setDefinitionsVersion] = React.useState<string | null>(null)
     const [deletedKeys, setDeletedKeys] = React.useState<string[]>([])
     const [defErrors, setDefErrors] = React.useState<Record<number, FieldDefinitionError>>({})
     const [fieldsets, setFieldsets] = React.useState<FieldsetDefinition[]>([])
@@ -86,6 +90,7 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
           (a, b) => Number(a.configJson?.priority ?? 0) - Number(b.configJson?.priority ?? 0)
         )
         setDefs(loaded)
+        setDefinitionsVersion(json.version ?? null)
         setDeletedKeys(Array.isArray(json.deletedKeys) ? json.deletedKeys : [])
         const loadedFieldsets = Array.isArray(json.fieldsets) ? json.fieldsets : []
         setFieldsets(loadedFieldsets)
@@ -184,7 +189,7 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
       if (!def) return
       if (def.key) {
         try {
-          const call = await apiCall('/api/entities/definitions', {
+          const call = await apiCall<{ version?: string | null }>('/api/entities/definitions', {
             method: 'DELETE',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ entityId, key: def.key }),
@@ -192,6 +197,7 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
           if (!call.ok) {
             await raiseCrudError(call.response, t('entities.customFields.errors.deleteFailed', 'Failed to delete field'))
           }
+          setDefinitionsVersion(call.result?.version ?? null)
         } catch (error) {
           const message = error instanceof Error ? error.message : t('entities.customFields.errors.deleteFailed', 'Failed to delete field')
           flash(message, 'error')
@@ -280,6 +286,7 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
         }
         const payload = {
           entityId,
+          preserveOrder: !orderDirty,
           definitions: defs.filter((d) => !!d.key).map((d) => ({
             key: d.key,
             kind: d.kind,
@@ -289,12 +296,16 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
           fieldsets: buildFieldsetPayload(),
           singleFieldsetPerRecord,
         }
-        const call = await apiCall('/api/entities/definitions.batch', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(definitionsVersion),
+          () => apiCall('/api/entities/definitions.batch', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        )
         if (!call.ok) {
+          if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
           await raiseCrudError(call.response, t('entities.customFields.errors.saveFailed', 'Failed to save definitions'))
         }
         await invalidateCustomFieldDefs(queryClient, entityId)
@@ -309,7 +320,7 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
       } finally {
         setSaving(false)
       }
-    }, [buildFieldsetPayload, defs, entityId, onClose, onSaved, queryClient, singleFieldsetPerRecord, t, validateAll])
+    }, [buildFieldsetPayload, definitionsVersion, defs, entityId, onClose, onSaved, orderDirty, queryClient, singleFieldsetPerRecord, t, validateAll])
 
     React.useImperativeHandle(ref, () => ({ submit }), [submit])
 
