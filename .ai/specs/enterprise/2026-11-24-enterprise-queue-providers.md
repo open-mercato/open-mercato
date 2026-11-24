@@ -5,7 +5,12 @@ Extends: .ai/specs/implemented/2026-05-07-lazy-auto-spawn-queue-workers.md
 
 ## 📝 TLDR
 
-Enterprise deployments can currently run background jobs on local files or Redis-backed BullMQ. This proposal adds RabbitMQ, Amazon SQS Standard, Azure Queue Storage, and Google Cloud Pub/Sub as opt-in transports for qualified queues. The shared queue package provides routing and worker lifecycle, and the Enterprise package owns all four adapters and their dependencies.
+Enterprise deployments can currently run background jobs on local files or Redis-backed BullMQ. This proposal adds RabbitMQ, Amazon SQS Standard, Azure Queue Storage, and Google Cloud Pub/Sub as opt-in transports for qualified queues. Operators select an installed driver by npm package name, including compatible packages published by partners after Mercato ships. Each first-party driver ships in its own commercial Enterprise npm package with its own SDK dependencies.
+
+## Confirmed requirements
+
+- Operators can install a compatible npm package, select it in deployment configuration, and use its driver across web and worker processes. Partner packages require no Mercato source change or first-party provider registration.
+- RabbitMQ, SQS, Azure Queue Storage, and Pub/Sub each ship as an independently installable Enterprise npm package. The Enterprise base package can run without any of them.
 
 ## Resolved assumptions (autonomous defaults)
 
@@ -19,9 +24,9 @@ Enterprise deployments can currently run background jobs on local files or Redis
 
 ## 📝 Overview
 
-Deployments that already operate a supported broker can use it for qualified job queues while retaining the existing transport for the rest. The first release supports one Enterprise transport per deployment, with a documented list of qualified queue/provider pairs. The example module's existing todo bulk-complete flow (`example-todos-bulk-complete`) is the first in-app qualification case. Custom module workers can opt in through the same contract after checking their producer, lifecycle, and payload requirements.
+Deployments that already operate a supported broker can use it for qualified job queues while retaining the existing transport for the rest. The first release supports one Enterprise transport per deployment, selected by npm package name, with a documented list of qualified queues and their capability requirements. The example module's existing todo bulk-complete flow (`example-todos-bulk-complete`) is the first in-app qualification case. Custom module workers can opt in through the same contract after checking their producer, lifecycle, and payload requirements.
 
-[Enterprise queue feature request #9343](https://github.com/open-mercato/open-mercato/issues/9343) covers three brokers, dead-letter handling, scheduler changes, and SSE replay. This spec covers the transport and dead-letter work, adds Azure Queue Storage, and leaves recurring scheduler redesign and SSE replay with that broader request. All four drivers live in `packages/enterprise` as requested for this work. Existing queue status UI, tenant-level queue inspection, and a unified purge or cross-broker migration tool are outside this release.
+[Enterprise queue feature request #9343](https://github.com/open-mercato/open-mercato/issues/9343) covers three brokers, dead-letter handling, scheduler changes, and SSE replay. This spec covers the transport and dead-letter work, adds Azure Queue Storage, and leaves recurring scheduler redesign and SSE replay with that broader request. The four first-party drivers are separate Enterprise workspaces. The Enterprise base package owns activation and configuration. Existing queue status UI, tenant-level queue inspection, and a unified purge or cross-broker migration tool are outside this release.
 
 ## 📝 Problem Statement
 
@@ -37,7 +42,9 @@ The built-in lazy worker design probes for ready work before spawning. The exist
 
 ## 📝 Proposed Solution
 
-Add an internal transport seam with capabilities for publishing, consuming, and releasing resources. Route named queues through it from module producers, workers, and CLI operations. Register a single Enterprise driver through the active Enterprise application composition, using process-level configuration and an immutable route map.
+Add a versioned driver contract for publishing, consuming, and releasing resources. Generate a server-side registry from driver manifests in the app's installed direct production dependencies. An Enterprise deployment selects one registry entry by package name. Bootstrap validates the package and routes, then injects the resolved driver into the shared producer, worker, and CLI paths.
+
+Reuse the repository's [web research adapter generator](../../../packages/cli/src/lib/generators/web-research-adapters.ts) as the precedent for translating npm manifests into literal imports that work in Next.js and CLI builds. Queue driver discovery is limited to app-declared production dependencies, and runtime loads the selected entry lazily.
 
 Celery illustrates why worker delivery, monitoring, and remote control need separate capabilities. Its brokers support different subsets of operations. This proposal adopts explicit capabilities and provider runbooks. A result store and remote worker control would add infrastructure that job delivery does not require. [Celery broker support](https://docs.celeryq.dev/en/stable/getting-started/backends-and-brokers/index.html)
 
@@ -58,6 +65,25 @@ An activated Enterprise deployment SHALL route each explicitly configured and qu
 
 - WHEN a named queue requests a missing, unqualified, or unreachable Enterprise transport
 - THEN invalid configuration or failed broker readiness is surfaced for that path and the producer and worker avoid local or BullMQ fallback
+
+#### ADDED Requirement: Installable queue driver packages
+
+An activated Enterprise deployment SHALL be able to select a compatible first-party or partner driver by its installed npm package name.
+
+##### Scenario: Partner package published after Mercato
+
+- WHEN an operator installs a compatible partner package with a package name absent from Mercato's source, regenerates the app registry, and selects it through configuration
+- THEN an unchanged Mercato release can use it to publish and consume a qualified job in separate processes
+
+##### Scenario: Invalid driver package
+
+- WHEN the selected package is absent, absent from a stale registry, or has an incompatible driver contract
+- THEN startup fails with a redacted error that identifies the package and corrective action before the opted-in queues accept work
+
+##### Scenario: Independent first-party install
+
+- WHEN the app installs only one first-party queue driver
+- THEN that driver and its SDK are sufficient for its qualified queues, and the other three packages and SDKs are unnecessary
 
 #### ADDED Requirement: Safe settlement and dead-letter recovery
 
@@ -89,11 +115,25 @@ Enterprise routing SHALL reject incompatible queue requirements and surface unsu
 
 ## 📝 Architecture
 
-### Selection and composition
+### Package boundary
 
-- Keep `QUEUE_STRATEGY` as the built-in baseline. Add two server-only Enterprise settings: `OM_ENTERPRISE_QUEUE_PROVIDER` selects the provider and `OM_ENTERPRISE_QUEUE_ROUTES` is a JSON object keyed by exact logical queue name. Each route names its source and dead-letter resources. Pub/Sub also needs the work and DLQ subscription names, and SQS needs a separate quarantine queue. Provider-specific topology and credentials are validated by the selected driver. Use a secret reference or SDK credential chain for credentials and keep them out of the route map. Proposed provider IDs are `rabbitmq`, `sqs`, `azure-queue-storage`, and `gcp-pubsub`. Enterprise settings supplied without Enterprise activation fail validation. Detect a new provider ID mistakenly entered in `QUEUE_STRATEGY` and report the Enterprise setting to use. Keep the baseline behavior for legacy values. Unset Enterprise settings use the existing startup and resolution paths.
-- Keep `Queue<T>`, `QueueStrategyType`, the explicit `createQueue(name, 'local' | 'async', …)` overloads, worker metadata, and handler contracts stable. Introduce a separate internal resolved transport and a routed factory for managed callers. Keep the legacy built-in constructor and strategy getter available. Keep the routed transport identity separate from the legacy `Queue.strategy` field so external deliveries are never reported as a built-in strategy. Move the supported producer path and `runWorker` to the same routed factory. Preserve explicit built-in worker overrides and reject overrides that conflict with an opted-in queue route. Any generic queue seam belongs in `@open-mercato/queue`. Provider code and SDKs belong under `packages/enterprise`, selected via the server-side Enterprise composition. Candidate SDKs are `amqplib`, `@aws-sdk/client-sqs`, `@azure/storage-queue`, and `@google-cloud/pubsub`. Make provider SDKs optional peers of Enterprise and use them as development dependencies for Enterprise tests. Install only the selected SDK in a consuming deployment. Keep it behind lazy server imports that are external to app bundling. Verify installation and runtime with Enterprise absent, packaged but inactive, and active with only one provider SDK installed.
-- Validate the route map in web and CLI bootstraps, including standalone web startup and explicit worker commands, before those paths use provider clients. Resolve lazily when a module constructs queue handles at import time. Reject changed route maps in a running process. Initialize clients only for the selected provider. Reject duplicate canonical source resources, reused Pub/Sub topics, and source/DLQ aliasing. Report the effective route by logical queue with a fingerprint of the canonical provider and resource identities, excluding credentials. Document how to compare the effective route across processes before admitting traffic.
+| Published Enterprise package | Workspace | Broker dependency |
+| --- | --- | --- |
+| `@open-mercato/enterprise-queue-rabbitmq` | `packages/enterprise-queue-rabbitmq` | `amqplib` |
+| `@open-mercato/enterprise-queue-sqs` | `packages/enterprise-queue-sqs` | `@aws-sdk/client-sqs` |
+| `@open-mercato/enterprise-queue-azure-storage` | `packages/enterprise-queue-azure-storage` | `@azure/storage-queue` and `@azure/identity` |
+| `@open-mercato/enterprise-queue-gcp-pubsub` | `packages/enterprise-queue-gcp-pubsub` | `@google-cloud/pubsub` |
+
+Each first-party package has its own npm manifest, compiled entry, commercial license and restricted publication, release version, runtime dependencies, tests, and deployment runbook. Each declares the supported `@open-mercato/queue` range as a peer dependency and owns the runtime dependencies it imports. Review the candidate SDKs during implementation. The OSS queue package, Enterprise base package, CLI, and stock scaffold take no dependency on any driver or broker SDK. Installing a first-party driver does not install another. Partner packages may use any valid scoped or unscoped npm name and declare the same queue peer dependency and driver contract. Enterprise activation applies to all external drivers regardless of publisher.
+
+### Discovery, selection, and injection
+
+1. The operator installs the driver into the consuming app's production dependencies and pins the resolved version in the app lockfile. The driver's `package.json` declares `"openMercato": { "queueDriver": { "contractVersion": 1 } }`. The published root server entry exposes the named `queueDriver` export and its types.
+2. `yarn generate` reads metadata for direct production dependencies without executing their code. It produces a deterministic server-only registry containing the exact package name, installed version, manifest contract version, and a lazy loader with a literal npm import. Transitive dependencies and unrelated workspaces do not register themselves. A freshly installed package requires regeneration, rebuild, and restart. Changing the selection between drivers already present in the deployment requires a restart. Ensure the single runtime image or equivalent web/worker artifacts retain the registry and its runtime dependencies, including in standalone Next.js output. The implementation must verify bundling and tracing against [Next.js standalone output](https://nextjs.org/docs/app/api-reference/config/next-config-js/output).
+3. Keep `QUEUE_STRATEGY` as the built-in baseline. Set `OM_ENTERPRISE_QUEUE_DRIVER` to the exact package name in the registry and provide `OM_ENTERPRISE_QUEUE_ROUTES` as a JSON object keyed by exact logical queue name. The selected driver owns the route value schema and validates it. Route values carry resource identifiers and non-secret settings. The driver reads credentials through its documented server-only secret references or SDK identity chain. A deployment adding a partner package uses the same settings as a first-party package.
+4. Web, explicit CLI workers, the supervisor entry point, and worker children use the same generated registry and startup validation. Verify Enterprise activation before loading any driver. Reject partial config, invalid npm names, missing or stale registry entries, load failures, invalid exports, contract mismatches, and incompatible route capabilities. Load only the selected entry. Take package names solely from trusted operator config and installed dependencies. Never resolve URLs or arbitrary file paths, fetch packages at runtime, or load drivers from tenant/user input. A driver runs with process privileges and belongs in the deployment's dependency review.
+5. Validate configuration once per process and inject the driver instance and immutable route map into the shared queue composition before ready or before the first managed operation. Handles built during module import resolve lazily and must wait for that same initialization, even if the legacy factory returns synchronously. Reject changed configuration in a running process. Validate the driver-provided canonical resource identities for duplicate sources and source/DLQ aliasing. Pub/Sub also rejects reused work topics. Compare a redacted routing fingerprint that includes package name, resolved version, contract version, effective capabilities, and canonical broker resource identities across processes before admitting traffic.
+
 - Qualify a queue only when all of its producers use that route, its consumers use the normal worker registry and per-job DI, and the driver covers its required capabilities. Seed the supported list with the example bulk-complete queue and cover its existing public flow. Keep the scheduler-driven `example-todos-bulk-dispatch` recovery queue on the built-in transport and route its republish of the execution job through the qualified producer. Document the registration and qualification path for custom module workers. Reject activations for unmatched routes, reserved event/scheduler queues, direct built-in producers, or required capabilities the driver cannot preserve. A scheduled job can target a qualified queue only when its producer has been migrated to the same routing seam and covered by integration tests.
 - Use explicit `mercato queue worker <name>` and `mercato queue worker --all` for Enterprise queues. When an existing supervisor is configured, start opted-in workers eagerly and supervise their restart with bounded backoff, even at zero reported backlog. For a mixed `worker --all` start, a startup failure closes consumers already opened by that process and exits non-zero. The supervisor retries when enabled. Built-in-only startup maintains its current behavior. Preserve worker concurrency limits and the `worker --all` DB connection budget across all selected queues. Preserve per-job request context and cleanup on each delivery.
 
@@ -114,6 +154,33 @@ No database entities, migrations, or credentials tables. The broker envelope and
 Existing built-in installations need no migration. An Enterprise cutover pauses every producer of the opted-in queue, including recovery dispatchers, and drains or reconciles ready, leased, delayed, and dead-letter work. Restart producers and workers with the same map, check route fingerprints and worker readiness, then resume producers. Roll back by repeating the same procedure in reverse. Jobs stay in their original transport until processed or explicitly reconciled.
 
 ## 📝 API Contracts
+
+### Public npm driver contract
+
+Publish a server-oriented, vendor-neutral `@open-mercato/queue/driver` export with the v1 TypeScript contract and a driver conformance harness. The harness can run in a partner package's test suite without bringing in any vendor SDK or the Enterprise base package. The host validates the untrusted shape at the npm boundary before calling it. It accepts v1 only. It checks the generated registry’s contract and package versions against the loaded module export. Existing `Queue<T>`, `QueueStrategyType`, legacy `Queue.strategy`, explicit built-in factory overloads, worker metadata, and handler shapes remain supported. Keep the selected driver identity in a separate routed descriptor.
+
+| Driver member | Contract |
+| --- | --- |
+| `contractVersion` | Numeric contract version, starting at `1`. Manifest and runtime export must agree. The npm package version is separate. |
+| `packageVersion` | Release version embedded from the package manifest at build time. A mismatch with the registry calls for repacking or regenerating and redeploying. |
+| `prepareRoute(input)` | Validate one provider-specific route without I/O and return its typed settings, canonical source/DLQ identities, and capabilities, including maximum delay and payload size, lease and abandonment support, and available status metrics. Validation errors must be redacted. |
+| `createDriver(context)` | Create process-owned resources for the validated routes with cancellation, deadlines, and redacted diagnostics. Expose publish, consumer startup/readiness, and bounded close to the host. Provide optional status and operator redrive hooks where applicable. |
+| Delivery and settlement | Deliver the validated Mercato envelope plus opaque broker delivery state and a 1-based attempt. The driver owns broker handles, acknowledgement, retry, lease renewal, and dead-letter operations. The host owns job dispatch, per-job DI, and the concurrency budget. |
+
+The host routes through this interface without switching on npm package names. Extend v1 additively within the repository's compatibility policy. Record the driver export, manifest, and deployment settings as stable surfaces in `BACKWARD_COMPATIBILITY.md` when implementing the contract. A future incompatible shape needs a new contract version and an explicit migration path. Author documentation must show package metadata, the minimal export, route validation, runtime lifecycle, and conformance tests.
+
+Example deployment after installing the fictional package `@partner/mercato-queue-example` and regenerating the registry:
+
+```dotenv
+OM_ENABLE_ENTERPRISE_MODULES=true
+QUEUE_STRATEGY=async
+OM_ENTERPRISE_QUEUE_DRIVER=@partner/mercato-queue-example
+OM_ENTERPRISE_QUEUE_ROUTES='{"example-todos-bulk-complete":{"source":"todo-work","deadLetter":"todo-dead"}}'
+```
+
+The JSON keys inside each route are defined by the selected package. In this example, unlisted queues use the deployment's BullMQ baseline.
+
+### Runtime and operator behavior
 
 No new HTTP endpoints. Existing in-app APIs and handlers retain their request, response, and payload contracts. Enterprise queue routing and capability diagnostics are deployment and CLI interfaces. Report logical queue names and redacted errors for unsupported delay, payload limit, unavailable transport, and unsupported administration. CLI status exits successfully when it can report the provider's available metrics and marks unavailable fields explicitly. Invalid configuration, broker connectivity failure, and an attempted Enterprise clear return a non-zero exit code. A delayed enqueue is accepted only when a documented native limit covers it and it will become available at or after the requested delay. Round fractional seconds up where the provider uses integer seconds. Drop no enqueues to simulate coalescing.
 
@@ -143,13 +210,15 @@ SQS FIFO, Azure Service Bus, Cloud Tasks, and exactly-once or global FIFO guaran
 
 Run built-in queue regressions with both local and real Redis/BullMQ. Cover existing factory and explicit overload behavior, pending probe, CLI and workers, redelivery behavior, and dependency isolation using an OSS standalone build plus the Enterprise build. Refuse a provider identifier or resource mapping without Enterprise activation. Test producer and consumer startup in fresh processes to cover module import ordering, route validation and startup failure, restart after broker loss, and mixed local/BullMQ and external routing. Exercise shared and per-queue supervision with zero reported backlog and mixed-worker startup cleanup on partial failure.
 
+Use a standalone consumer app to pack and install an out-of-repo fixture under a previously unknown scoped npm name. The fixture declares only the published driver contract and a test transport. Generate and build the app without changing Mercato sources, then prove that the same package selected in config delivers a job from the production web build to the separately started CLI worker. Include direct-dependency discovery, deterministic manifest output, no evaluation of unselected drivers, missing package or registry, malformed metadata and exports, contract mismatches, resolved version skew, and denial with Enterprise inactive. Check that neither the OSS scaffold nor the Enterprise base resolves any first-party driver package or SDK by default. Pack and install each first-party package independently in a clean consumer, verify its peer range and publish metadata, and run with only that driver present.
+
 Run the same provider acceptance suite against every adapter. Use a unique resource namespace, synthetic payloads, bounded timeouts, readiness checks, and cleanup in teardown. The suite covers publish → worker → acknowledgement and context, concurrency ceiling, forced disconnect before ack, restart/redelivery, healthy work after poison, DLQ destination and redrive, uncertain publish, failed quarantine transfer or equivalent provider failure, shutdown, and encoded size boundaries. Test lease renewal and lost leases where applicable. For native delay, test earliest delivery and over-limit rejection. For immediate-only transports, test route and enqueue rejection for delay. Add a provider-aware variant of the existing [todo bulk-complete integration flow](../../../apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-003-todo-bulk-progress.spec.ts) with real app producer and worker processes for each released driver. Verify completion after outbox republish when the broker was unavailable, using the built-in recovery dispatcher alongside the Enterprise execution worker. Verify a second scoped job remains isolated, the mixed worker DB budget holds, and a destructive reset refusal leaves both DB and brokers untouched. CLI coverage includes a status command with unavailable metrics, clear refusal, and a built-in unaffected by Enterprise activation. There are no new API or UI paths.
 
 Hosted checks must use explicitly authorized sandbox credentials and resources scoped to the run. Document provider/image versions, exact suite command, run or redacted log references, and teardown result in the implementation PR. Use the hosted row above as an acceptance gate for each managed cloud driver. Missing sandbox access leaves that driver's release gate open while local verification continues.
 
 ## 📋 Phasing
 
-1. **Shared routing and qualification.** Ship the generic seam with regression coverage and default-off Enterprise routing.
+1. **Published contract and routing.** Ship the queue driver contract, generated registry, and Enterprise loader. Prove an independently packed partner fixture works end to end before shipping the first-party packages.
 2. **RabbitMQ.** Activate the first qualified driver after the real-broker gate passes.
 3. **Amazon SQS.** Activate Standard queues after both the local and AWS gates pass.
 4. **Azure Queue Storage.** Activate after Azurite and hosted sandbox gates pass.
@@ -160,19 +229,20 @@ Phases 2–5 each depend on phase 1 and can be delivered independently.
 ## 📋 Implementation Plan
 
 1. Characterize factory behavior, direct producer exceptions, worker startup, lazy probes, events and scheduler, and queue commands on the two built-ins. Record a route inventory including modules and standalone bootstrap paths.
-2. Introduce the generic transport seam and Enterprise registration with a fake provider in contract tests. Wire the routed producer and worker paths, CLI and supervisor. Validate known queues and capabilities, fail closed, and retain built-in behavior. Exercise mixed routes through the existing example job and verify OSS dependency isolation.
-3. Implement RabbitMQ and its topology/runbook. Run the conformance and app suites against pinned Docker RabbitMQ, including confirm/return, broker restart, requeue, DLQ, and redrive.
-4. Implement SQS Standard and its topology/runbook. Run LocalStack and AWS sandbox checks, including native redrive, IAM and timers. Record evidence before marking the driver supported.
-5. Implement Azure Queue Storage and its topology/runbook. Run Azurite and Azure sandbox checks, including pop-receipt races, poison transfer uncertainty and redrive.
-6. Implement Pub/Sub and its topology/runbook. Run the emulator and GCP sandbox checks, including service-agent IAM, lease renewal and DLQ envelope redrive.
-7. Publish the qualified matrix and operations notes for the completed phases. Archive implemented Delta requirements in the Enterprise capability spec with the dated design as source. Keep unimplemented phases visible until their evidence passes.
+2. Publish the v1 driver contract and its conformance harness. Add installed-package discovery through the existing generator and bootstrap flows. Inject the selected driver into the routed producer, worker, CLI, and supervisor paths with fail-closed config and compatibility checks. Keep the app and create-app bootstrap templates aligned and regenerate via `yarn generate`.
+3. Pack the out-of-repo partner fixture and prove config-based selection in the built standalone web app and CLI worker. Exercise mixed routes through the existing example job and verify OSS and Enterprise-base dependency isolation.
+4. Implement and independently pack the RabbitMQ Enterprise driver and its topology/runbook. Run the conformance and app suites against pinned Docker RabbitMQ, including confirm/return, broker restart, requeue, DLQ, and redrive.
+5. Implement and independently pack the SQS Standard Enterprise driver and its topology/runbook. Run LocalStack and AWS sandbox checks, including native redrive, IAM and timers. Record evidence before marking the driver supported.
+6. Implement and independently pack the Azure Queue Storage Enterprise driver and its topology/runbook. Run Azurite and Azure sandbox checks, including pop-receipt races, poison transfer uncertainty and redrive.
+7. Implement and independently pack the Pub/Sub Enterprise driver and its topology/runbook. Run the emulator and GCP sandbox checks, including service-agent IAM, lease renewal and DLQ envelope redrive.
+8. Publish the qualified matrix and operations notes for the completed phases. Archive implemented Delta requirements in the Enterprise capability spec with the dated design as source. Keep unimplemented phases visible until their evidence passes.
 
 ## Final Compliance Report
 
-- **Edition and compatibility.** All broker SDKs, adapters, provider configuration, and cloud acceptance suites are Enterprise-owned. Shared OSS changes are additive queue infrastructure. Existing public types, commands, worker discovery and built-in behavior remain supported.
+- **Edition and compatibility.** Each first-party driver owns its broker SDK, configuration schema, and acceptance suite. Enterprise composition owns external activation. Shared OSS changes add the vendor-neutral driver API and routing infrastructure. Existing public types, commands, worker discovery and built-in behavior remain supported.
 - **Security and data.** Existing handler ownership and tenant/organization scoping apply at execution. Broker topology separates deployments and operator privileges. The proposal adds no persisted credentials or database changes.
 - **Review evidence.** The design traces current producer, worker, probe, CLI, event, and scheduler paths and compares provider semantics against primary documentation. Implementation acceptance requires the broker and cloud evidence above.
 
 ## Changelog
 
-- 2026-11-24 — Proposed the shared queue seam and four independently verified Enterprise drivers.
+- 2026-11-24 — Proposed the shared queue seam and four independently verified Enterprise drivers. Revised the design for separate npm packages and config-based partner driver injection.
