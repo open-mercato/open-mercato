@@ -50,4 +50,18 @@ describe('proxy request gate', () => {
     expect(await response.text()).toContain('maintenance')
     expect(seen).toEqual(['page GET /backend/customers abc'])
   })
+
+  it('keeps a Content-Security-Policy the gate response already sets', async () => {
+    registerRequestGate({
+      id: 'proxy-test-gate',
+      evaluate: () => ({
+        response: new Response('<html></html>', {
+          status: 503,
+          headers: { 'content-security-policy': "default-src 'none'" },
+        }),
+      }),
+    })
+    const response = await proxy(new NextRequest('http://localhost/'))
+    expect(response.headers.get('Content-Security-Policy')).toBe("default-src 'none'")
+  })
 })

@@ -83,13 +83,15 @@ export async function proxy(req: NextRequest) {
     pathname,
     headers: req.headers,
     cookies: { get: (name: string) => req.cookies.get(name)?.value },
+    request: req,
   })
   if (gateResponse) {
-    return withContentSecurityPolicy(new NextResponse(gateResponse.body, {
+    const gated = new NextResponse(gateResponse.body, {
       status: gateResponse.status,
       statusText: gateResponse.statusText,
       headers: gateResponse.headers,
-    }))
+    })
+    return gated.headers.has('Content-Security-Policy') ? gated : withContentSecurityPolicy(gated)
   }
 
   if (platform) {

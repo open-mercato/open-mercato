@@ -12,6 +12,8 @@ export type RequestGateContext = {
   pathname: string
   headers: Headers
   cookies: RequestGateCookies
+  /** The original request, when the call site can share it (page surface only). Gates must not consume API request bodies. */
+  request?: Request
 }
 
 export type RequestGateDecision = { response: Response } | null

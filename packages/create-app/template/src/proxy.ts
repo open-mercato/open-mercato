@@ -21,6 +21,7 @@ export async function proxy(req: NextRequest) {
     pathname: req.nextUrl.pathname,
     headers: req.headers,
     cookies: { get: (name: string) => req.cookies.get(name)?.value },
+    request: req,
   })
   if (gateResponse) {
     const gated = new NextResponse(gateResponse.body, {
@@ -28,7 +29,7 @@ export async function proxy(req: NextRequest) {
       statusText: gateResponse.statusText,
       headers: gateResponse.headers,
     })
-    gated.headers.set('Content-Security-Policy', contentSecurityPolicy)
+    if (!gated.headers.has('Content-Security-Policy')) gated.headers.set('Content-Security-Policy', contentSecurityPolicy)
     return gated
   }
 
