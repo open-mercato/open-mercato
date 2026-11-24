@@ -166,6 +166,7 @@ export function JsonBuilder({
                         value={rawString}
                         onChange={(e) => handleRawChange(e.target.value)}
                         onBlur={() => {
+                            if (stringRecordError && parseError) return
                             try {
                                 const parsed = JSON.parse(rawString)
                                 setRawString(JSON.stringify(parsed, null, 2))

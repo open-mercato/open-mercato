@@ -62,14 +62,18 @@ describe('JsonBuilder', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Raw JSON' }))
     const textarea = screen.getByPlaceholderText('{"key": "value"}')
     const builder = screen.getByRole('button', { name: 'Builder' })
-    for (const invalid of ['{"X-Environment":true}', '[]', '{"X-Environment":']) {
+    for (const invalid of ['{"X-Environment":"staging","X-Environment":true}', '[]', '{"X-Environment":']) {
       fireEvent.change(textarea, { target: { value: invalid } })
+      fireEvent.blur(textarea)
+      expect(textarea).toHaveValue(invalid)
       expect(onChange).toHaveBeenLastCalledWith(invalid)
       expect(screen.getByText('Expected an object with string values.')).toBeVisible()
       expect(builder).toBeDisabled()
     }
 
     fireEvent.change(textarea, { target: { value: '{"X-Environment":"production"}' } })
+    fireEvent.blur(textarea)
+    expect(textarea).toHaveValue(JSON.stringify({ 'X-Environment': 'production' }, null, 2))
     expect(onChange).toHaveBeenLastCalledWith({ 'X-Environment': 'production' })
     expect(builder).toBeEnabled()
     expect(screen.queryByText('Expected an object with string values.')).not.toBeInTheDocument()
