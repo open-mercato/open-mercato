@@ -27,6 +27,7 @@ jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
 }))
 
 const em = { id: 'em' }
+const authService = { isSessionEligible: jest.fn() }
 
 describe('auth server integrity checks', () => {
   beforeEach(() => {
@@ -35,6 +36,7 @@ describe('auth server integrity checks', () => {
     createRequestContainer.mockResolvedValue({
       resolve: (name: string) => {
         if (name === 'em') return em
+        if (name === 'authService') return authService
         return null
       },
     })
@@ -57,7 +59,10 @@ describe('auth server integrity checks', () => {
     resolveCanonicalStaffAuthContext.mockResolvedValue(auth)
 
     await expect(getAuthFromCookies()).resolves.toEqual(auth)
-    expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledWith(em, auth)
+    expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledWith(em, auth, expect.any(Function))
+    const resolveAuthService = resolveCanonicalStaffAuthContext.mock.calls[0][2]
+    expect(resolveAuthService()).toBe(authService)
+    expect(createRequestContainer).toHaveBeenCalledTimes(1)
   })
 
   it('rejects stale request auth contexts before API handlers see them', async () => {
@@ -80,7 +85,7 @@ describe('auth server integrity checks', () => {
 
     await expect(getAuthFromRequest(request)).resolves.toBeNull()
     await expect(resolveAuthFromRequestDetailed(request)).resolves.toEqual({ auth: null, status: 'invalid' })
-    expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledWith(em, auth)
+    expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledWith(em, auth, expect.any(Function))
   })
 
   it('reports a transient DB failure as "error", never "invalid" (issue #4176 — no mass logout)', async () => {
@@ -210,7 +215,7 @@ describe('auth server integrity checks', () => {
         const resolution = await resolveAuthFromRequestDetailed(mfaPendingRequest(path, 'POST'))
         expect(resolution.status).toBe('authenticated')
         expect(resolution.auth).toEqual({ ...pendingAuth })
-        expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledWith(em, pendingAuth)
+        expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledWith(em, pendingAuth, expect.any(Function))
       }
     })
 
@@ -233,7 +238,7 @@ describe('auth server integrity checks', () => {
       })
 
       await expect(getAuthFromRequest(request)).resolves.toEqual({ ...verifiedAuth, roles: ['employee'] })
-      expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledWith(em, verifiedAuth)
+      expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledWith(em, verifiedAuth, expect.any(Function))
     })
 
     it('leaves tokens without MFA claims untouched', async () => {

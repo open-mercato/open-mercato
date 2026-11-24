@@ -1,5 +1,9 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+<<<<<<< HEAD
 import { isScimTokenError, type ScimTokenService } from '../../services/scimTokenService'
+=======
+import { isScimTokenError, ScimTokenService } from '../../services/scimTokenService'
+>>>>>>> b69e252f3f (fix(sso): enforce author privilege ceilings for SSO and SCIM (#10070))
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { RATE_LIMIT_UNAVAILABLE_KEY, RATE_LIMIT_UNAVAILABLE_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { SsoConfig } from '../../data/entities'
@@ -12,6 +16,7 @@ export interface ScimScope {
   organizationId: string
   tenantId: string | null
   config: SsoConfig
+  actorUserId?: string | null
 }
 
 export async function resolveScimContext(req: Request): Promise<
@@ -96,6 +101,7 @@ export async function resolveScimContext(req: Request): Promise<
       organizationId: config.organizationId,
       tenantId: verified.tenantId,
       config,
+      actorUserId: verified.createdBy ?? null,
     },
   }
 }

@@ -1,3 +1,4 @@
+import type { AuthService } from '../services/authService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -30,6 +31,7 @@ function resolveActorOrganizationId(auth: NonNullable<AuthContext>): NormalizedS
 export async function resolveCanonicalStaffAuthContext(
   em: EntityManager,
   auth: AuthContext,
+  resolveAuthService?: () => Pick<AuthService, 'isSessionEligible'>,
 ): Promise<AuthContext> {
   if (!auth) return null
   if (auth.isApiKey) return auth
@@ -108,6 +110,11 @@ export async function resolveCanonicalStaffAuthContext(
     return null
   }
   if (!(await isStaffTenantActive(em, currentTenantId))) return null
+
+  if (session?.ssoProvenance != null) {
+    const authService = resolveAuthService?.()
+    if (!(await authService?.isSessionEligible(session, user))) return null
+  }
 
   // Role links and the per-user super-admin flag are likewise independent, so they
   // run concurrently. The role-level super-admin lookup depends on the resolved
@@ -217,6 +224,7 @@ async function roleAclGrantsSuperAdmin(
 export async function isAuthContextValid(
   em: EntityManager,
   auth: AuthContext,
+  resolveAuthService?: () => Pick<AuthService, 'isSessionEligible'>,
 ): Promise<boolean> {
-  return (await resolveCanonicalStaffAuthContext(em, auth)) !== null
+  return (await resolveCanonicalStaffAuthContext(em, auth, resolveAuthService)) !== null
 }

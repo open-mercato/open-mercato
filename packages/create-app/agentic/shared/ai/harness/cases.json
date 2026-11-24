@@ -520,7 +520,11 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 65536,
+<<<<<<< HEAD
     "maxTotalContextBytes": 98304,
+=======
+    "maxTotalContextBytes": 133120,
+>>>>>>> b69e252f3f (fix(sso): enforce author privilege ceilings for SSO and SCIM (#10070))
     "relatedCases": [
       "OMH-008"
     ]
@@ -1736,7 +1740,11 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 65536,
+<<<<<<< HEAD
     "maxTotalContextBytes": 98304,
+=======
+    "maxTotalContextBytes": 120832,
+>>>>>>> b69e252f3f (fix(sso): enforce author privilege ceilings for SSO and SCIM (#10070))
     "relatedCases": [
       "OMH-023"
     ]
@@ -4553,7 +4561,11 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 40960,
+<<<<<<< HEAD
     "maxTotalContextBytes": 98304,
+=======
+    "maxTotalContextBytes": 125952,
+>>>>>>> b69e252f3f (fix(sso): enforce author privilege ceilings for SSO and SCIM (#10070))
     "relatedCases": [
       "OMH-058"
     ],
@@ -5144,7 +5156,11 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 65536,
+<<<<<<< HEAD
     "maxTotalContextBytes": 98304,
+=======
+    "maxTotalContextBytes": 133120,
+>>>>>>> b69e252f3f (fix(sso): enforce author privilege ceilings for SSO and SCIM (#10070))
     "relatedCases": [
       "OMH-065"
     ]
