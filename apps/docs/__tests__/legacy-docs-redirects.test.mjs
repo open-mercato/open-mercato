@@ -9,7 +9,6 @@ const newHost = 'https://www.openmercato.com'
 const entryRoutes = new Map([
   ['/', '/documentation'],
   ['/search', '/documentation'],
-  ['/introduction/overview', '/docs/platform-overview'],
 ])
 
 test('each source in the migration has a distinct rule', () => {

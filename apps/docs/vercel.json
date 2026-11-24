@@ -220,7 +220,7 @@
     {"source": "/installation/standalone{/}?", "destination": "https://www.openmercato.com/docs/installation-standalone", "permanent": true, "has": [{"type": "host", "value": "docs.openmercato.com"}]},
     {"source": "/installation/vps{/}?", "destination": "https://www.openmercato.com/docs/installation-vps", "permanent": true, "has": [{"type": "host", "value": "docs.openmercato.com"}]},
     {"source": "/installation/wsl2{/}?", "destination": "https://www.openmercato.com/docs/installation-wsl2", "permanent": true, "has": [{"type": "host", "value": "docs.openmercato.com"}]},
-    {"source": "/introduction/overview{/}?", "destination": "https://www.openmercato.com/docs/platform-overview", "permanent": true, "has": [{"type": "host", "value": "docs.openmercato.com"}]},
+    {"source": "/introduction/overview{/}?", "destination": "https://www.openmercato.com/docs/introduction-overview", "permanent": true, "has": [{"type": "host", "value": "docs.openmercato.com"}]},
     {"source": "/introduction/use-cases{/}?", "destination": "https://www.openmercato.com/docs/introduction-use-cases", "permanent": true, "has": [{"type": "host", "value": "docs.openmercato.com"}]},
     {"source": "/search{/}?", "destination": "https://www.openmercato.com/documentation", "permanent": true, "has": [{"type": "host", "value": "docs.openmercato.com"}]},
     {"source": "/tutorials/api-data-fetching{/}?", "destination": "https://www.openmercato.com/docs/tutorials-api-data-fetching", "permanent": true, "has": [{"type": "host", "value": "docs.openmercato.com"}]},
