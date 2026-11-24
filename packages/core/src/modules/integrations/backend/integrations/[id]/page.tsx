@@ -58,6 +58,7 @@ import {
   type SecretFieldsConfigured,
 } from '../credential-secret-fields'
 import { translateCredentialFields } from '../credential-translations'
+import { localizeIntegrationHealthMessage } from '../detail-page-health'
 import { isValidCredentialUrl } from '../../../lib/credentials-field-validation'
 import { useIntegrationCredentialsFeatureAccess } from '../useIntegrationCredentialsFeatureAccess'
 import { OAuthGrantReauthBanner, resolveOAuthGrantReconnectHref } from '../../../components/OAuthGrantReauthBanner'
@@ -951,7 +952,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     )) ?? null,
     [logs],
   )
-  const healthMessage =
+  const rawHealthMessage =
     latestHealthResult?.message ??
     (typeof latestHealthLog?.payload?.message === 'string'
       ? latestHealthLog.payload.message
@@ -962,6 +963,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const healthDetails = latestHealthLog?.code
     ? { ...healthDetailsSource, code: latestHealthLog.code }
     : healthDetailsSource
+  const healthMessage = localizeIntegrationHealthMessage(rawHealthMessage, healthDetailsSource, t)
   const healthDetailEntries = Object.entries(healthDetails)
   const resolvedIntegration = detail?.integration ?? null
   const resolvedState = detail?.state ?? null

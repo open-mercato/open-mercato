@@ -35,6 +35,7 @@
   "integrations.detail.health.lastChecked": "Zuletzt geprüft: {date}",
   "integrations.detail.health.lastResult": "Last result",
   "integrations.detail.health.meaning.unconfigured": "Hinterlegen Sie Zugangsdaten und führen Sie einen Health-Check aus, oder warten Sie auf den geplanten Lauf.",
+  "integrations.detail.health.missingOauthStateSecret": "Das OAuth-State-Secret ist nicht konfiguriert.",
   "integrations.detail.health.neverChecked": "Nie geprüft",
   "integrations.detail.health.title": "Gesundheitsstatus",
   "integrations.detail.health.unconfigured": "Nicht konfiguriert",

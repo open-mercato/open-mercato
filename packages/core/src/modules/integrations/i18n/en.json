@@ -35,6 +35,7 @@
   "integrations.detail.health.lastChecked": "Last checked: {date}",
   "integrations.detail.health.lastResult": "Last result",
   "integrations.detail.health.meaning.unconfigured": "Add credentials and run a health check, or wait for the scheduled probe.",
+  "integrations.detail.health.missingOauthStateSecret": "The OAuth state secret is not configured.",
   "integrations.detail.health.neverChecked": "Never checked",
   "integrations.detail.health.title": "Health Status",
   "integrations.detail.health.unconfigured": "Unconfigured",

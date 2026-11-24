@@ -35,6 +35,7 @@
   "integrations.detail.health.lastChecked": "Ostatnie sprawdzenie: {date}",
   "integrations.detail.health.lastResult": "Last result",
   "integrations.detail.health.meaning.unconfigured": "Dodaj dane uwierzytelniające i uruchom test zdrowia lub poczekaj na zaplanowany test.",
+  "integrations.detail.health.missingOauthStateSecret": "Sekret stanu OAuth nie jest skonfigurowany.",
   "integrations.detail.health.neverChecked": "Nigdy nie sprawdzano",
   "integrations.detail.health.title": "Stan zdrowia",
   "integrations.detail.health.unconfigured": "Nieskonfigurowana",

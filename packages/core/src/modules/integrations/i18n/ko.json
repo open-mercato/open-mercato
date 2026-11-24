@@ -35,6 +35,7 @@
   "integrations.detail.health.lastChecked": "마지막 확인: {date}",
   "integrations.detail.health.lastResult": "마지막 결과",
   "integrations.detail.health.meaning.unconfigured": "자격 증명을 추가하고 상태 확인을 실행하거나 예약된 프로브를 기다리세요.",
+  "integrations.detail.health.missingOauthStateSecret": "OAuth 상태 보안 비밀이 구성되지 않았습니다.",
   "integrations.detail.health.neverChecked": "확인된 적 없음",
   "integrations.detail.health.title": "상태",
   "integrations.detail.health.unconfigured": "구성되지 않음",

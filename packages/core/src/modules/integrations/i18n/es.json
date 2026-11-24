@@ -35,6 +35,7 @@
   "integrations.detail.health.lastChecked": "Última verificación: {date}",
   "integrations.detail.health.lastResult": "Last result",
   "integrations.detail.health.meaning.unconfigured": "Añade credenciales y ejecuta una comprobación de salud, o espera al sondeo programado.",
+  "integrations.detail.health.missingOauthStateSecret": "El secreto de estado de OAuth no está configurado.",
   "integrations.detail.health.neverChecked": "Nunca verificado",
   "integrations.detail.health.title": "Estado de salud",
   "integrations.detail.health.unconfigured": "Sin configurar",
