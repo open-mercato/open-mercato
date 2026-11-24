@@ -153,6 +153,18 @@ guessing a fallback currency. `AnalyticsEntityTypeConfig.currencyField` is likew
 and optional; analytics integrations without a per-row currency field keep their prior query
 behavior.
 
+Identifier & own-property hardening (#10332): `entityConfig.tableName`, optional
+`entityConfig.schema`, every `fieldMappings[*].dbColumn`, and every `labelResolvers[*]`
+(`table`, `idColumn`, `labelColumn`) must match `^[a-zA-Z_][a-zA-Z0-9_]*$`, and all
+registry/config lookups use own properties only. Unsafe identifiers or raw SQL fragments are
+rejected before any database connection call; valid schema-qualified configurations and JSONB
+path grouping remain unchanged. Third-party analytics modules using non-identifier fragments
+must migrate to plain SQL identifiers or views.
+
+An analytics entity is queryable only when it declares `requiredFeatures` as an own
+array of nonempty feature IDs. An explicit empty array keeps the route's baseline
+dashboard permission without adding entity-specific requirements.
+
 ## Caching
 
 Widget data responses are cached with 2-minute TTL. The cache system automatically falls back to in-memory storage if Redis is not configured.
@@ -306,6 +318,9 @@ const direction = determineChangeDirection(current, previous)
 ```
 
 ## Changelog
+
+### 2026-11-23
+- Enforced plain analytics identifiers and explicit entity permissions (#10332).
 
 ### 2026-08-01
 - Added optional `metadata.currency` propagation for money widgets.

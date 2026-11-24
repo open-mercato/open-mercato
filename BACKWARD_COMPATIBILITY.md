@@ -693,3 +693,7 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## Extension headers and analytics identifiers (2026-11-23, #10331, #10332)
+
+STABLE parser and analytics config contracts require own keys, plain SQL identifiers and explicit entity permission declarations. Retaining the old parsing or query paths preserves the authorization and input-validation flaws. [Migration](UPGRADE_NOTES.md#extension-header-parsing-and-analytics-sql-identifier-hardening-10331-10332).

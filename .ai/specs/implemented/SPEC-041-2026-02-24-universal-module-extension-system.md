@@ -413,6 +413,14 @@ UMES changes several public contract surfaces and therefore follows the deprecat
    - compatibility bridge for at least one minor version
    - RELEASE_NOTES entry with migration guidance
 
+### Migration & Backward Compatibility
+
+Extension header maps use own keys at both levels. Interceptors that called an
+`Object.prototype` method on `context.extensionHeaders` or a module's header map
+should use `Object.hasOwn` or direct key access. Rename any module or key segment
+using a reserved name listed in the [upgrade notes](../../../UPGRADE_NOTES.md#extension-header-parsing-and-analytics-sql-identifier-hardening-10331-10332).
+Existing valid header names and TypeScript shapes stay compatible.
+
 ### Migration Guidance for Module Authors
 
 - Existing injection widgets continue to work without migration.
@@ -645,6 +653,9 @@ Key implementation details from deep-diving into the actual codebase:
 ---
 
 ## Changelog
+
+### 2026-11-23
+- Reserved UMES header segments and restricted parsed maps to own keys (#10331).
 
 | Date | Change |
 |------|--------|
