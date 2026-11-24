@@ -1,16 +1,14 @@
-import path from 'node:path'
 import { Redis } from 'ioredis'
 import { startRespEngine } from '@open-mercato/cache-redis-protocol/test-support/engine'
 import type { StartedRespEngine } from '@open-mercato/cache-redis-protocol/test-support/engine'
-import { provider } from '../../test-support/fixture-provider'
-import { defineManagedProviderPreflight } from '../../test-support/preflight'
-import type { PreflightTarget } from '../../test-support/preflight'
+import { defineManagedProviderPreflight } from '@open-mercato/cache-provider-managed-kit/testing/preflight'
+import type { PreflightTarget } from '@open-mercato/cache-provider-managed-kit/testing/preflight'
+import { createAwsElastiCacheProvider } from '../index'
 
 defineManagedProviderPreflight({
   label: 'valkey/valkey:8.1 · standalone primary (node-based, cluster mode disabled stand-in) · rotating ACL credential as IAM token · TLS',
-  provider,
-  fixtureEntry: path.resolve(__dirname, '../../test-support/fixture-provider.ts'),
   packageDirName: 'cache-provider-aws-elasticache',
+  createProvider: (fixture) => createAwsElastiCacheProvider(fixture) as never,
   packed: { packageName: '@open-mercato/cache-provider-aws-elasticache', factoryExport: 'createAwsElastiCacheProvider', registrationExport: 'awsElastiCacheCacheProviderRegistration' },
   async start(): Promise<PreflightTarget> {
     const engine: StartedRespEngine = await startRespEngine({ image: 'valkey/valkey:8.1', serverBinary: 'valkey-server', tls: true })

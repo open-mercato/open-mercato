@@ -3,7 +3,7 @@ import type { Hash, Hmac } from 'node:crypto'
 import { z } from 'zod'
 import type { CacheProviderDefinition } from '@open-mercato/cache/provider'
 import type { RespSettings } from '@open-mercato/cache-redis-protocol'
-import type { ManagedAccessToken, ManagedAccessTokenSource } from './credentials'
+import type { ManagedAccessToken, ManagedAccessTokenSource } from '@open-mercato/cache-provider-managed-kit'
 import {
   createManagedRespProvider,
   MANAGED_REAUTH_LIMITS,
@@ -14,7 +14,7 @@ import {
   redactManagedTls,
   redactManagedTuning,
   toRespTls,
-} from './managed'
+} from '@open-mercato/cache-provider-managed-kit'
 
 export const AWS_ELASTICACHE_CACHE_PROVIDER_ID = 'open-mercato/aws-elasticache' as const
 

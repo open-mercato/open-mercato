@@ -5,7 +5,7 @@ import {
   settings,
   toMemorystoreRespSettings,
 } from '../index'
-import { createCachedCredentialsProvider } from '../credentials'
+import { createCachedCredentialsProvider } from '@open-mercato/cache-provider-managed-kit'
 
 const CA = '-----BEGIN CERTIFICATE-----\nSERVER-CA-MATERIAL\n-----END CERTIFICATE-----\n'
 const base = {

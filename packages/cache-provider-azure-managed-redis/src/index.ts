@@ -1,5 +1,5 @@
 import type { CacheProviderDefinition, CacheProviderRegistration } from '@open-mercato/cache/provider'
-import { defineEnterpriseCacheProviderRegistration } from './enterprise'
+import { defineEnterpriseCacheProviderRegistration } from '@open-mercato/cache-provider-managed-kit'
 import { AZURE_MANAGED_REDIS_CACHE_PROVIDER_ID, createAzureManagedRedisProvider } from './provider'
 import type { AzureManagedRedisSettings } from './provider'
 
@@ -30,9 +30,9 @@ export {
   ENTERPRISE_MODULES_ENV,
   isEnterpriseCacheProviderActivationEnabled,
   OFFICIAL_MANAGED_CACHE_PROVIDER_IDS,
-} from './enterprise'
-export type { OfficialManagedCacheProviderId } from './enterprise'
-export type { ManagedAccessToken, ManagedAccessTokenSource } from './credentials'
+} from '@open-mercato/cache-provider-managed-kit'
+export type { OfficialManagedCacheProviderId } from '@open-mercato/cache-provider-managed-kit'
+export type { ManagedAccessToken, ManagedAccessTokenSource } from '@open-mercato/cache-provider-managed-kit'
 
 export const provider: CacheProviderDefinition<AzureManagedRedisSettings> = createAzureManagedRedisProvider()
 

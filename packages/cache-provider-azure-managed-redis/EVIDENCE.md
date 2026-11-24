@@ -16,10 +16,10 @@ No profile of this package is supported. Promotion requires a protected live run
 |---|---|---|
 | Unit (Docker-free, default `yarn test`) | `yarn workspace @open-mercato/cache-provider-azure-managed-redis test` | 48 passed, 0 failed (23 container/live tests skipped by design) |
 | Container preflight — redis:7.2 standalone, TLS-only, ACL (default user off) | `yarn workspace @open-mercato/cache-provider-azure-managed-redis test:containers` | 22 passed, 0 failed (v1 conformance 16 incl. independent process + 6 managed identity/TLS/gate/packed) |
-| Packed install (inside the container suite) | `yarn pack` of cache, cache-redis-protocol and this package → `npm install` into a fresh temp app | passed: only these three @open-mercato packages installed; gate closed ⇒ `unavailable` without evaluating settings; injected identity connects over TLS; tarball has LICENSE/README/RUNBOOK, no tests/test-support, no secret patterns, no `workspace:` ranges; registration file typechecks |
+| Packed install (inside the container suite) | `yarn pack` of cache, cache-redis-protocol, cache-provider-managed-kit and this package → `npm install` into a fresh temp app | passed: only these four @open-mercato packages installed; gate closed ⇒ `unavailable` without evaluating settings; injected identity connects over TLS; provider tarball has LICENSE/README/RUNBOOK and kit tarball LICENSE/README, neither has tests/test-support, no secret patterns, no `workspace:` ranges; registration file typechecks |
 
 Container preflight simulates the cloud identity with a fake credential source whose ACL password rotates; it proves re-AUTH on rotation, reconnect with the rotated credential, denied-credential failure without leakage, CA + hostname verification, non-mutating healthcheck, idempotent close and zero connections while the Enterprise gate is closed. It does not exercise the cloud's own identity service.
 
 ## Pinned client versions
 
-ioredis 6.0.0 · @azure/identity 4.14.1 (MIT) · zod (workspace) · @open-mercato/cache-redis-protocol 0.11.0 (workspace)
+ioredis 6.0.0 · @azure/identity 4.14.1 (MIT) · zod (workspace) · @open-mercato/cache-redis-protocol 0.11.0 (workspace) · @open-mercato/cache-provider-managed-kit 0.11.0 (workspace, private)

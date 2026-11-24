@@ -5,9 +5,10 @@ import { randomNamespace } from '@open-mercato/cache/testing/conformance'
 import { createCacheProviderHostContext, defineCacheProviderRegistration, resolveCacheProvider } from '@open-mercato/cache/provider'
 import { buildRespKeyLayout } from '@open-mercato/cache-redis-protocol'
 import { APP_PASSWORD, APP_USER, describeContainers } from '@open-mercato/cache-redis-protocol/test-support/engine'
-import { provider } from '../../test-support/fixture-provider'
-import { defineManagedProviderPreflight } from '../../test-support/preflight'
-import type { PreflightTarget } from '../../test-support/preflight'
+import { defineManagedProviderPreflight } from '@open-mercato/cache-provider-managed-kit/testing/preflight'
+import type { PreflightTarget } from '@open-mercato/cache-provider-managed-kit/testing/preflight'
+import { PREFLIGHT_CREDENTIAL_FILE_ENV, preflightProviderFixture } from '@open-mercato/cache-provider-managed-kit/testing/file-credential'
+import { createGoogleMemorystoreProvider } from '../index'
 import { startTlsValkeyCluster } from '../../test-support/tls-cluster'
 import type { StartedTlsValkeyCluster } from '../../test-support/tls-cluster'
 
@@ -39,9 +40,8 @@ const target = (): PreflightTarget => ({
 
 defineManagedProviderPreflight({
   label: 'valkey/valkey:8.1 · 3-primary cluster via discovery seed (cluster mode enabled stand-in) · rotating ACL credential as IAM token · TLS (client + bus)',
-  provider,
-  fixtureEntry: path.resolve(__dirname, '../../test-support/fixture-provider.ts'),
   packageDirName: 'cache-provider-google-memorystore',
+  createProvider: (fixture) => createGoogleMemorystoreProvider(fixture) as never,
   packed: { packageName: '@open-mercato/cache-provider-google-memorystore', factoryExport: 'createGoogleMemorystoreProvider', registrationExport: 'googleMemorystoreCacheProviderRegistration' },
   async start() {
     cluster = await startTlsValkeyCluster()
@@ -53,18 +53,19 @@ defineManagedProviderPreflight({
 describeContainers('memorystore cluster-mode shard coverage (container preflight)', () => {
   jest.setTimeout(180_000)
   let local: StartedTlsValkeyCluster | null = null
+  const provider = createGoogleMemorystoreProvider(preflightProviderFixture())
 
   beforeAll(async () => {
     process.env.OM_ENABLE_ENTERPRISE_MODULES = 'true'
     process.env.OM_ENABLE_ENTERPRISE_MODULES_CACHE_PROVIDERS = 'true'
-    process.env.OM_PREFLIGHT_CREDENTIAL_FILE = path.join(os.tmpdir(), `om-shards-${process.pid}.json`)
-    writeFileSync(process.env.OM_PREFLIGHT_CREDENTIAL_FILE, JSON.stringify({ username: APP_USER, password: APP_PASSWORD }), { mode: 0o600 })
+    process.env[PREFLIGHT_CREDENTIAL_FILE_ENV] = path.join(os.tmpdir(), `om-shards-${process.pid}.json`)
+    writeFileSync(process.env[PREFLIGHT_CREDENTIAL_FILE_ENV]!, JSON.stringify({ username: APP_USER, password: APP_PASSWORD }), { mode: 0o600 })
     local = await startTlsValkeyCluster()
   }, 600_000)
 
   afterAll(async () => {
     await local?.stop()
-    rmSync(process.env.OM_PREFLIGHT_CREDENTIAL_FILE!, { force: true })
+    rmSync(process.env[PREFLIGHT_CREDENTIAL_FILE_ENV]!, { force: true })
   }, 600_000)
 
   it('authenticates new connections on every shard discovered from the seed and fences each namespace to one hash slot', async () => {

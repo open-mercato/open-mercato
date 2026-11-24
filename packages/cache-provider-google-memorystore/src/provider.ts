@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { CacheProviderError } from '@open-mercato/cache/provider'
 import type { CacheProviderDefinition } from '@open-mercato/cache/provider'
 import type { RespSettings } from '@open-mercato/cache-redis-protocol'
-import type { ManagedAccessToken, ManagedAccessTokenSource } from './credentials'
+import type { ManagedAccessToken, ManagedAccessTokenSource } from '@open-mercato/cache-provider-managed-kit'
 import {
   createManagedRespProvider,
   MANAGED_REAUTH_LIMITS,
@@ -13,7 +13,7 @@ import {
   redactManagedTls,
   redactManagedTuning,
   toRespTls,
-} from './managed'
+} from '@open-mercato/cache-provider-managed-kit'
 
 export const GOOGLE_MEMORYSTORE_CACHE_PROVIDER_ID = 'open-mercato/google-memorystore' as const
 

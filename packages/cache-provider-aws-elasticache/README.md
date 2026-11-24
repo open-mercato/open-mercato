@@ -12,7 +12,7 @@
 yarn add @open-mercato/cache-provider-aws-elasticache   # from the Enterprise registry
 ```
 
-Peer: `@open-mercato/cache` (>= 0.11.0). Runtime: `@open-mercato/cache-redis-protocol`, `ioredis` 6.x, `zod`, `@smithy/signature-v4` 5.x and `@aws-sdk/credential-provider-node` 3.x (both Apache-2.0). Both AWS modules are imported lazily, only after the Enterprise gate passes and the cache is first created.
+Peer: `@open-mercato/cache` (>= 0.11.0). Runtime: `@open-mercato/cache-provider-managed-kit` (private, Enterprise-licensed: activation gate, credential refresh, managed TLS/connection helpers), `@open-mercato/cache-redis-protocol`, `ioredis` 6.x, `zod`, `@smithy/signature-v4` 5.x and `@aws-sdk/credential-provider-node` 3.x (both Apache-2.0). Both AWS modules are imported lazily, only after the Enterprise gate passes and the cache is first created.
 
 ## Enterprise activation
 

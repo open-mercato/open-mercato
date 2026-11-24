@@ -1,16 +1,14 @@
-import path from 'node:path'
 import { Redis } from 'ioredis'
 import { startRespEngine } from '@open-mercato/cache-redis-protocol/test-support/engine'
 import type { StartedRespEngine } from '@open-mercato/cache-redis-protocol/test-support/engine'
-import { provider } from '../../test-support/fixture-provider'
-import { defineManagedProviderPreflight } from '../../test-support/preflight'
-import type { PreflightTarget } from '../../test-support/preflight'
+import { defineManagedProviderPreflight } from '@open-mercato/cache-provider-managed-kit/testing/preflight'
+import type { PreflightTarget } from '@open-mercato/cache-provider-managed-kit/testing/preflight'
+import { createAzureManagedRedisProvider } from '../index'
 
 defineManagedProviderPreflight({
   label: 'redis:7.2 · standalone (Non-clustered stand-in) · rotating ACL credential as Entra token · TLS',
-  provider,
-  fixtureEntry: path.resolve(__dirname, '../../test-support/fixture-provider.ts'),
   packageDirName: 'cache-provider-azure-managed-redis',
+  createProvider: (fixture) => createAzureManagedRedisProvider(fixture) as never,
   packed: { packageName: '@open-mercato/cache-provider-azure-managed-redis', factoryExport: 'createAzureManagedRedisProvider', registrationExport: 'azureManagedRedisCacheProviderRegistration' },
   async start(): Promise<PreflightTarget> {
     const engine: StartedRespEngine = await startRespEngine({ image: 'redis:7.2', serverBinary: 'redis-server', tls: true })

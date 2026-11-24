@@ -7,7 +7,7 @@ import {
   settings,
   toElastiCacheRespSettings,
 } from '../index'
-import { createCachedCredentialsProvider } from '../credentials'
+import { createCachedCredentialsProvider } from '@open-mercato/cache-provider-managed-kit'
 
 const FAKE = { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' }
 const FAKE_SESSION = { ...FAKE, sessionToken: 'session/token+value==' }

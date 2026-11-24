@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import type { LiveEnv, LiveProfile } from './live'
+import type { LiveEnv, LiveProfile } from '@open-mercato/cache-provider-managed-kit/testing/live'
 
 function optionalNumber(env: LiveEnv, name: string): number | undefined {
   const raw = env[name]?.trim()

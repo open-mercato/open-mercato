@@ -1,6 +1,6 @@
 import path from 'node:path'
+import { defineLiveProviderHarness } from '@open-mercato/cache-provider-managed-kit/testing/live'
 import { provider } from '../index'
-import { defineLiveProviderHarness } from '../../test-support/live'
 import { LIVE_PROFILES } from '../../test-support/live-profiles'
 
 defineLiveProviderHarness({

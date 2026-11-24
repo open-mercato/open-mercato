@@ -44,6 +44,7 @@
     "@open-mercato/cache": ">=0.11.0"
   },
   "dependencies": {
+    "@open-mercato/cache-provider-managed-kit": "workspace:*",
     "@open-mercato/cache-redis-protocol": "workspace:*",
     "google-auth-library": "^10.6.1",
     "ioredis": "^6.0.0",

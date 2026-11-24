@@ -25,17 +25,18 @@ function exec(command: string, args: string[], cwd: string, timeout = 240_000, e
 
 /**
  * Build and pack (`yarn pack`, which resolves `workspace:*` exactly like the
- * publish script) @open-mercato/cache, the RESP protocol library and one
- * provider, then install only those tarballs (plus their registry dependencies)
- * into a fresh app outside the workspace.
+ * publish script) @open-mercato/cache, the RESP protocol library, any extra
+ * workspace packages the provider depends on and one provider, then install
+ * only those tarballs (plus their registry dependencies) into a fresh app
+ * outside the workspace.
  */
-export function createPackedInstall(providerDirName: string): PackedInstall {
+export function createPackedInstall(providerDirName: string, options: { withPackages?: string[] } = {}): PackedInstall {
   const workDir = mkdtempSync(path.join(os.tmpdir(), `om-packed-${providerDirName}-`))
   const packDir = path.join(workDir, 'pack')
   const appDir = path.join(workDir, 'app')
   mkdirSync(packDir, { recursive: true })
   mkdirSync(appDir, { recursive: true })
-  const packageDirs = ['cache', 'cache-redis-protocol', providerDirName].map((name) => path.join(PACKAGES_DIR, name))
+  const packageDirs = ['cache', 'cache-redis-protocol', ...(options.withPackages ?? []), providerDirName].map((name) => path.join(PACKAGES_DIR, name))
   for (const packageDir of packageDirs) {
     exec(process.execPath, ['build.mjs'], packageDir)
     exec('yarn', ['pack', '--out', path.join(packDir, `${path.basename(packageDir)}.tgz`)], packageDir, 120_000)

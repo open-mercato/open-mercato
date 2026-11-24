@@ -12,7 +12,7 @@
 yarn add @open-mercato/cache-provider-azure-managed-redis   # from the Enterprise registry
 ```
 
-Peer: `@open-mercato/cache` (>= 0.11.0). Runtime: `@open-mercato/cache-redis-protocol`, `ioredis` 6.x, `zod`, `@azure/identity` 4.x (MIT). `@azure/identity` is imported lazily, only after the Enterprise gate passes and the cache is first created.
+Peer: `@open-mercato/cache` (>= 0.11.0). Runtime: `@open-mercato/cache-provider-managed-kit` (private, Enterprise-licensed: activation gate, credential refresh, managed TLS/connection helpers), `@open-mercato/cache-redis-protocol`, `ioredis` 6.x, `zod`, `@azure/identity` 4.x (MIT). `@azure/identity` is imported lazily, only after the Enterprise gate passes and the cache is first created.
 
 ## Enterprise activation
 

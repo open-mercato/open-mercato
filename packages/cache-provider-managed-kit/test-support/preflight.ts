@@ -11,10 +11,13 @@ import type { CacheStrategy } from '@open-mercato/cache/types'
 import { buildRespKeyLayout } from '@open-mercato/cache-redis-protocol'
 import { APP_PASSWORD, APP_USER, describeContainers } from '@open-mercato/cache-redis-protocol/test-support/engine'
 import type { TlsMaterial } from '@open-mercato/cache-redis-protocol/test-support/engine'
-import { buildConformanceHost, spawnRespRemote } from '@open-mercato/cache-redis-protocol/test-support/host'
+import { buildConformanceHost, PACKAGES_DIR, spawnRespRemote } from '@open-mercato/cache-redis-protocol/test-support/host'
 import { createPackedInstall } from '@open-mercato/cache-redis-protocol/test-support/packed'
 import type { PackedInstall } from '@open-mercato/cache-redis-protocol/test-support/packed'
-import { PREFLIGHT_CREDENTIAL_FILE_ENV, PREFLIGHT_REAUTH_INTERVAL_MS } from './fixture-provider'
+import { PREFLIGHT_CREDENTIAL_FILE_ENV, PREFLIGHT_REAUTH_INTERVAL_MS, preflightProviderFixture } from './file-credential'
+import type { PreflightProviderFixture } from './file-credential'
+
+export const MANAGED_KIT_PACKAGE_DIR_NAME = 'cache-provider-managed-kit'
 
 export const GATE_ENV = {
   OM_ENABLE_ENTERPRISE_MODULES: 'true',
@@ -34,9 +37,10 @@ export type PreflightTlsOverride = { ca?: string; servername?: string }
 
 export type ManagedPreflightOptions = {
   label: string
-  provider: CacheProviderDefinition<unknown>
-  fixtureEntry: string
+  /** Package directory under `packages/` (its `src/index.ts` exports `packed.factoryExport`). */
   packageDirName: string
+  /** Build the provider under test with the rotating file credential standing in for the cloud identity. */
+  createProvider(fixture: PreflightProviderFixture): CacheProviderDefinition<unknown>
   start(): Promise<PreflightTarget>
   /** Raw (pre-parse) provider settings for the started target. */
   settings(target: PreflightTarget, tls?: PreflightTlsOverride): Record<string, unknown>
@@ -101,6 +105,21 @@ process.exit(0)
 
 type Credential = { username?: string; password: string }
 
+/**
+ * Entry module for the independent conformance process: the provider built by
+ * the package factory over the same rotating file credential as in-process.
+ */
+function writeFixtureEntry(dir: string, options: ManagedPreflightOptions): string {
+  const entry = path.join(dir, 'fixture-provider.ts')
+  writeFileSync(entry, [
+    `import { preflightProviderFixture } from ${JSON.stringify(path.join(__dirname, 'file-credential.ts'))}`,
+    `import { ${options.packed.factoryExport} } from ${JSON.stringify(path.join(PACKAGES_DIR, options.packageDirName, 'src', 'index.ts'))}`,
+    `export const provider = ${options.packed.factoryExport}(preflightProviderFixture())`,
+    '',
+  ].join('\n'))
+  return entry
+}
+
 const SUITE_TIMEOUT_MS = 600_000
 
 function errorText(error: unknown): string {
@@ -160,7 +179,8 @@ async function keyCount(nodes: Redis[]): Promise<number> {
  * the cloud identity. Not live evidence: it never promotes a cloud profile.
  */
 export function defineManagedProviderPreflight(options: ManagedPreflightOptions): void {
-  const providerId = options.provider.id
+  const provider = options.createProvider(preflightProviderFixture())
+  const providerId = provider.id
   let target: PreflightTarget | null = null
   let hostModule = ''
   let credentialDir = ''
@@ -181,7 +201,7 @@ export function defineManagedProviderPreflight(options: ManagedPreflightOptions)
   const settingsFor = (tls?: PreflightTlsOverride) => options.settings(ctx(), tls)
 
   const resolve = async (namespace: string, settings: unknown = settingsFor()) => {
-    const registration = defineCacheProviderRegistration({ id: providerId, load: async () => options.provider, settings: () => settings })
+    const registration = defineCacheProviderRegistration({ id: providerId, load: async () => provider, settings: () => settings })
     const resolved = await resolveCacheProvider([registration], { env: { CACHE_PROVIDER: providerId, CACHE_PROVIDER_NAMESPACE: namespace } })
     if (!resolved) throw new Error('[internal] provider not selected')
     return resolved as ResolvedCacheProvider<unknown>
@@ -206,7 +226,7 @@ export function defineManagedProviderPreflight(options: ManagedPreflightOptions)
       process.env[PREFLIGHT_CREDENTIAL_FILE_ENV] = credentialFile
       writeCredential({ username: APP_USER, password: APP_PASSWORD })
       target = await options.start()
-      hostModule = await buildConformanceHost(options.packageDirName, options.fixtureEntry)
+      hostModule = await buildConformanceHost(options.packageDirName, writeFixtureEntry(credentialDir, options))
     }, SUITE_TIMEOUT_MS)
 
     afterAll(async () => {
@@ -286,7 +306,7 @@ export function defineManagedProviderPreflight(options: ManagedPreflightOptions)
         expect(wrongName).toBeInstanceOf(Error)
         const wrongCa = await openStrategy(randomNamespace('tls-ca'), { ...settingsFor({ ca: ctx().tls.otherCa }), connectTimeoutMs: 2_000 }).catch((error: unknown) => error)
         expect(wrongCa).toBeInstanceOf(Error)
-        expect(options.provider.settings.safeParse({ ...settingsFor(), tls: { rejectUnauthorized: false } }).success).toBe(false)
+        expect(provider.settings.safeParse({ ...settingsFor(), tls: { rejectUnauthorized: false } }).success).toBe(false)
       })
 
       it('healthcheck is non-mutating and close is idempotent', async () => {
@@ -302,18 +322,24 @@ export function defineManagedProviderPreflight(options: ManagedPreflightOptions)
       it('installs from packed tarballs alone, stays gated, connects with an injected identity and ships no secrets', async () => {
         let packed: PackedInstall | null = null
         try {
-          packed = createPackedInstall(options.packageDirName)
-          expect(packed.installedScopePackages).toEqual(['cache', 'cache-redis-protocol', options.packageDirName].sort())
-          const tarball = readdirSync(path.join(packed.workDir, 'pack')).find((name) => name.startsWith(options.packageDirName))!
-          const tarPath = path.join(packed.workDir, 'pack', tarball)
-          const entries = execFileSync('tar', ['-tzf', tarPath], { encoding: 'utf8' }).trim().split('\n')
-          expect(entries).toEqual(expect.arrayContaining(['package/LICENSE.md', 'package/README.md', 'package/RUNBOOK.md', 'package/package.json', 'package/dist/index.js']))
-          expect(entries.filter((entry) => /__tests__|test-support|\.test\.|\.env|\.pem$|\.key$/.test(entry))).toEqual([])
-          const contents = execFileSync('tar', ['-xzOf', tarPath], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-          for (const pattern of SECRET_PATTERNS) expect([pattern.source, pattern.test(contents)]).toEqual([pattern.source, false])
-          const packedManifest = JSON.parse(execFileSync('tar', ['-xzOf', tarPath, 'package/package.json'], { encoding: 'utf8' })) as { license: string; dependencies: Record<string, string> }
-          expect(packedManifest.license).toBe('SEE LICENSE IN LICENSE.md')
-          expect(JSON.stringify(packedManifest.dependencies)).not.toContain('workspace:')
+          packed = createPackedInstall(options.packageDirName, { withPackages: [MANAGED_KIT_PACKAGE_DIR_NAME] })
+          expect(packed.installedScopePackages).toEqual(['cache', 'cache-redis-protocol', MANAGED_KIT_PACKAGE_DIR_NAME, options.packageDirName].sort())
+          const tarballs = readdirSync(path.join(packed.workDir, 'pack'))
+          for (const [dirName, required] of [
+            [options.packageDirName, ['package/RUNBOOK.md']],
+            [MANAGED_KIT_PACKAGE_DIR_NAME, []],
+          ] as const) {
+            const tarball = tarballs.find((name) => name === `${dirName}.tgz`)!
+            const tarPath = path.join(packed.workDir, 'pack', tarball)
+            const entries = execFileSync('tar', ['-tzf', tarPath], { encoding: 'utf8' }).trim().split('\n')
+            expect(entries).toEqual(expect.arrayContaining(['package/LICENSE.md', 'package/README.md', 'package/package.json', 'package/dist/index.js', ...required]))
+            expect(entries.filter((entry) => /__tests__|test-support|jest\.|\.test\.|\.env|\.pem$|\.key$/.test(entry))).toEqual([])
+            const contents = execFileSync('tar', ['-xzOf', tarPath], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+            for (const pattern of SECRET_PATTERNS) expect([dirName, pattern.source, pattern.test(contents)]).toEqual([dirName, pattern.source, false])
+            const packedManifest = JSON.parse(execFileSync('tar', ['-xzOf', tarPath, 'package/package.json'], { encoding: 'utf8' })) as { license: string; dependencies: Record<string, string> }
+            expect(packedManifest.license).toBe('SEE LICENSE IN LICENSE.md')
+            expect(JSON.stringify(packedManifest.dependencies)).not.toContain('workspace:')
+          }
           const output = packed.run(packedSmokeScript(options.packed), {
             SMOKE_SETTINGS: JSON.stringify(settingsFor()),
             SMOKE_USER: current.username ?? '',

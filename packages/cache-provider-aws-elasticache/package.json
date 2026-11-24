@@ -45,6 +45,7 @@
   },
   "dependencies": {
     "@aws-sdk/credential-provider-node": "^3.972.76",
+    "@open-mercato/cache-provider-managed-kit": "workspace:*",
     "@open-mercato/cache-redis-protocol": "workspace:*",
     "@smithy/signature-v4": "^5.6.12",
     "ioredis": "^6.0.0",
