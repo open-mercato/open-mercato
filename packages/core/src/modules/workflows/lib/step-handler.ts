@@ -41,13 +41,20 @@ import {
   collectResolvedEntityTypes,
   flattenTaskText,
   resolveTaskAssignment,
-  resolveTaskDeadlineDuration,
+  resolveTaskDeadline,
   resolveTaskDecisions,
   resolveTaskEntityBindings,
   resolveTaskText,
+  type ResolvedTaskDeadline,
   type TaskInterpolate,
 } from './task-resolution'
 import { scheduleUserTaskSla } from './task-sla'
+import { TASK_DEADLINE_MESSAGES } from '../data/task-primitives'
+import {
+  buildRuntimeErrorMessageDetail,
+  formatRuntimeErrorFallback,
+  readRuntimeErrorMessageRef,
+} from './runtime-error-message'
 import type { TaskQuickActionInput } from './task-quick-action'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
@@ -78,6 +85,8 @@ export interface StepExecutionResult {
   nextSteps?: string[] // For parallel forks (Phase 7)
   waitReason?: 'USER_TASK' | 'SIGNAL' | 'TIMER' | 'FORK' | 'CONDITION'
   error?: string
+  /** Set only for an error naming its translation (`lib/runtime-error-message.ts`). */
+  details?: unknown
 }
 
 export class StepExecutionError extends Error {
@@ -399,7 +408,7 @@ export async function executeStep(
       // caller was free to tolerate. The row is now terminal on both paths.
       await markStepInstanceFailed(em, stepInstance, {
         error: result.error ?? 'Step execution failed',
-        details: result.outputData,
+        details: result.outputData ?? result.details,
         branchInstanceId: branch?.id ?? null,
         userId: context.userId,
       })
@@ -431,9 +440,11 @@ export async function executeStep(
       logger.error('Failed to update step instance with error', { err: updateError })
     }
 
+    const details = error instanceof StepExecutionError ? error.details : undefined
     return {
       status: 'FAILED',
       error: errorMessage,
+      ...(readRuntimeErrorMessageRef(details) ? { details } : {}),
     }
   }
 }
@@ -830,19 +841,53 @@ async function handleAutomatedStep(
 }
 
 /**
- * Resolve a user task's deadline from its authored duration.
- *
- * An unparseable duration fails the step with an actionable message instead of
- * quietly resolving to some default the author never asked for.
+ * Render a rejected `deadlineAt` value for the step error without ever invoking
+ * a context-supplied `toString`/`valueOf`: a single interpolation token keeps
+ * raw JSON values, and `String({ toString: 'x' })` throws, which would replace
+ * the `INVALID_USER_TASK_DEADLINE` diagnostic with a generic failure.
  */
-function resolveUserTaskDeadline(stepId: string, slaDuration: string): Date {
+export function formatResolvedDeadlineValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  if (value instanceof Date) {
+    const time = Date.prototype.getTime.call(value)
+    return Number.isNaN(time) ? 'Invalid Date' : Date.prototype.toISOString.call(value)
+  }
+  if (Array.isArray(value)) return '[array]'
+  if (typeof value === 'object') return '[object]'
+  if (typeof value === 'function') return '[function]'
+  if (typeof value === 'symbol') return '[symbol]'
+  return String(value)
+}
+
+/**
+ * Resolve a user task's deadline — an authored duration anchored to now, or an
+ * absolute `deadlineAt` already resolved against the run context.
+ *
+ * Either one that does not parse fails the step with an actionable message
+ * instead of quietly resolving to some default the author never asked for.
+ */
+function resolveUserTaskDeadline(stepId: string, deadline: ResolvedTaskDeadline): Date {
+  if (deadline.kind === 'at') {
+    if (deadline.dueDate) return deadline.dueDate
+    const rendered = formatResolvedDeadlineValue(deadline.resolved)
+    const resolved = rendered.length > 64 ? `${rendered.slice(0, 64)}…` : rendered
+    const { key, fallback } = TASK_DEADLINE_MESSAGES.invalidResolvedAt
+    const params = { authored: deadline.authored, resolved }
+    throw new StepExecutionError(
+      formatRuntimeErrorFallback(fallback, params),
+      'INVALID_USER_TASK_DEADLINE',
+      { stepId, deadlineAt: deadline.authored, resolved, ...buildRuntimeErrorMessageDetail(key, params) }
+    )
+  }
   try {
-    return calculateDueDate(slaDuration)
+    return calculateDueDate(deadline.duration)
   } catch (error) {
     throw new StepExecutionError(
-      `Invalid user task deadline "${slaDuration}": ${error instanceof Error ? error.message : String(error)}`,
+      `Invalid user task deadline "${deadline.duration}": ${error instanceof Error ? error.message : String(error)}`,
       'INVALID_USER_TASK_DEADLINE',
-      { stepId, slaDuration }
+      { stepId, slaDuration: deadline.duration }
     )
   }
 }
@@ -984,7 +1029,8 @@ async function handleUserTaskStep(
   const taskName = String(interpolate(stepDef.stepName) ?? stepDef.stepName)
   const instructions = resolveTaskText(userTaskConfig.instructions, interpolate)
   const decisions = resolveTaskDecisions(userTaskConfig.decisions, interpolate)
-  const deadlineDuration = resolveTaskDeadlineDuration(userTaskConfig)
+  const deadline = resolveTaskDeadline(userTaskConfig, interpolate)
+  const dueDate = deadline ? resolveUserTaskDeadline(stepDef.stepId, deadline) : null
 
   // Create user task
   const now = new Date()
@@ -1010,7 +1056,8 @@ async function handleUserTaskStep(
         assigneeKind: assignment.assigneeKind,
         ...(bindings.length ? { entityBindings: bindings } : {}),
         ...(decisions.length ? { decisions } : {}),
-        ...(deadlineDuration ? { deadlineDuration } : {}),
+        ...(deadline?.kind === 'duration' ? { deadlineDuration: deadline.duration } : {}),
+        ...(deadline?.kind === 'at' && dueDate ? { deadlineAt: dueDate.toISOString() } : {}),
       },
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
@@ -1053,9 +1100,7 @@ async function handleUserTaskStep(
     // Null for a task about nothing, which is what the vacuous-pass rule reads.
     entityTypes: bindings.length ? collectResolvedEntityTypes(bindings) : null,
     priority: userTaskConfig.priority ?? null,
-    dueDate: deadlineDuration
-      ? resolveUserTaskDeadline(stepDef.stepId, deadlineDuration)
-      : null,
+    dueDate,
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
     createdAt: now,
@@ -1281,6 +1326,7 @@ async function handleSubWorkflowStep(
       return {
         status: 'FAILED',
         error: `Sub-workflow failed: ${result.errors?.join(', ')}`,
+        ...(readRuntimeErrorMessageRef(result.errorDetails) ? { details: result.errorDetails } : {}),
       }
     } else {
       // The child parked at its first async/agent step (RUNNING / PAUSED /

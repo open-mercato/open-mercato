@@ -48,6 +48,8 @@ const logger = createLogger('workflows')
 export interface AdvanceBranchesResult {
   outcome: 'joined' | 'waiting' | 'failed'
   error?: string
+  /** The failed branch's error details, when it carries any. */
+  details?: unknown
 }
 
 export interface ResumeBranchOptions {
@@ -390,7 +392,7 @@ export async function advanceBranches(
         // A branch failed out-of-band (e.g. async-activity resume marked it
         // FAILED); cancel any non-terminal siblings before failing the instance.
         await cancelSiblings(em, instance, failed)
-        return { outcome: 'failed', error: failed.errorMessage || 'Branch failed' }
+        return { outcome: 'failed', error: failed.errorMessage || 'Branch failed', details: failed.errorDetails ?? undefined }
       }
       if (branches.every((b) => b.status === 'COMPLETED')) {
         await fireJoin(em, instance, definition, branches, forkStepId)
@@ -404,7 +406,7 @@ export async function advanceBranches(
       const result = await advanceOneBranch(em, container, instance, definition, branch, context)
       if (result === 'failed') {
         await cancelSiblings(em, instance, branch)
-        return { outcome: 'failed', error: branch.errorMessage || 'Branch failed' }
+        return { outcome: 'failed', error: branch.errorMessage || 'Branch failed', details: branch.errorDetails ?? undefined }
       }
     }
   }
@@ -491,7 +493,7 @@ async function advanceOneBranch(
         }
         return 'advanced'
       }
-      await failBranch(em, instance, branch, transitionResult.error || 'Branch transition failed')
+      await failBranch(em, instance, branch, transitionResult.error || 'Branch transition failed', transitionResult.details)
       return 'failed'
     }
 
@@ -591,10 +593,12 @@ async function failBranch(
   instance: WorkflowInstance,
   branch: WorkflowBranchInstance,
   message: string,
+  details?: unknown,
 ): Promise<void> {
   const now = new Date()
   branch.status = 'FAILED'
   branch.errorMessage = message
+  if (details !== undefined) branch.errorDetails = details
   branch.updatedAt = now
   await em.flush()
 

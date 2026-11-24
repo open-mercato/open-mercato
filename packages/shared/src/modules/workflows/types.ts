@@ -79,6 +79,8 @@ export interface CodeStepDefinition<TStepId extends string = string> {
     assignedTo?: string | string[]
     assignmentRule?: string
     slaDuration?: string
+    /** An absolute ISO date or datetime, usually `{{context.*}}`; validated at registration. */
+    deadlineAt?: string
     escalationRules?: Array<{
       trigger: 'sla_breach' | 'no_progress' | 'custom'
       action: 'reassign' | 'notify' | 'escalate'
@@ -96,6 +98,7 @@ export interface CodeStepDefinition<TStepId extends string = string> {
       label?: string | Record<string, string>
     }>
     priority?: 'low' | 'medium' | 'high' | 'extreme'
+    /** A duration anchored to task creation; mutually exclusive with `deadlineAt`. */
     deadline?: {
       duration: string
     }

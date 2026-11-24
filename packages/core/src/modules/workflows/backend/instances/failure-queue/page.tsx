@@ -16,6 +16,7 @@ import { InstanceStatusBadge } from '../../../components/run/RunStatusBadge'
 import { useLiveRunUpdates } from '../../../components/run/useLiveRunUpdates'
 import { formatElapsedSince } from '../../../lib/run-duration'
 import type { FailureGroup } from '../../../lib/failure-grouping'
+import { localizeRuntimeErrorMessage } from '../../../lib/runtime-error-message'
 
 const PAGE_SIZE = 50
 
@@ -26,6 +27,7 @@ type FailureQueueRow = {
   status: string
   currentStepId: string | null
   errorMessage: string | null
+  errorDetails?: unknown
   retryCount: number
   startedAt: string
   completedAt: string | null
@@ -152,7 +154,9 @@ export default function WorkflowFailureQueuePage() {
         meta: { truncate: true, maxWidth: 420 },
         cell: ({ row }) => {
           const attention = row.original.metadata?.attention
-          const message = row.original.errorMessage ?? attention?.reason ?? null
+          const message = row.original.errorMessage
+            ? localizeRuntimeErrorMessage(row.original.errorMessage, row.original.errorDetails, t)
+            : attention?.reason ?? null
           return (
             <div className="text-sm">
               <div className="text-foreground">

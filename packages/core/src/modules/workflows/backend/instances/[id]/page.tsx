@@ -50,6 +50,7 @@ import {
 import { useAgentLabels } from '../../../components/run/useAgentLabels'
 import { formatElapsedSince, formatRunDuration } from '../../../lib/run-duration'
 import { isRunMilestoneEvent } from '../../../lib/run-event-tone'
+import { localizeRuntimeErrorMessage } from '../../../lib/runtime-error-message'
 import type { Node } from '@xyflow/react'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -689,7 +690,9 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
               <h2 className="mb-4 text-lg font-semibold text-destructive">
                 {t('workflows.instances.fields.lastError')}
               </h2>
-              <pre className="whitespace-pre-wrap font-mono text-sm text-destructive">{instance.errorMessage}</pre>
+              <pre className="whitespace-pre-wrap font-mono text-sm text-destructive">
+                {localizeRuntimeErrorMessage(instance.errorMessage, instance.errorDetails, t)}
+              </pre>
               {instance.errorDetails && (
                 <div className="mt-4">
                   <JsonDisplay data={instance.errorDetails} className="border-destructive/20 bg-destructive/5" maxInitialDepth={1} />

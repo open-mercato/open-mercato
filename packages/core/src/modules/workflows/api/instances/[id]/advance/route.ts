@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -20,6 +21,7 @@ import { WorkflowInstance } from '../../../../data/entities'
 import * as workflowExecutor from '../../../../lib/workflow-executor'
 import * as stepHandler from '../../../../lib/step-handler'
 import * as transitionHandler from '../../../../lib/transition-handler'
+import { localizeRuntimeErrorMessage } from '../../../../lib/runtime-error-message'
 import { z } from 'zod'
 import {
   workflowsTag,
@@ -225,11 +227,22 @@ export async function POST(request: NextRequest, context: RouteContext) {
       execContext
     )
 
-    if (!transitionResult.success) {
+    const recovered =
+      !transitionResult.success && transitionResult.stepExecutionFailed
+        ? await applyExecutedStepFailure(em, container, instance, transitionResult, execContext, selectedTransition)
+        : false
+
+    if (!transitionResult.success && !recovered) {
+      const { translate } = await resolveTranslations()
       return NextResponse.json(
         {
           error: 'Transition failed',
-          reason: transitionResult.error || 'Unknown error',
+          reason: localizeRuntimeErrorMessage(
+            transitionResult.error || 'Unknown error',
+            transitionResult.details,
+            translate,
+          ),
+          ...(transitionResult.details !== undefined ? { details: transitionResult.details } : {}),
         },
         { status: 400 }
       )
@@ -284,6 +297,30 @@ export async function POST(request: NextRequest, context: RouteContext) {
       { status: 500 }
     )
   }
+}
+
+/**
+ * The transition advanced the cursor and the target step failed on entry, so
+ * the run now sits at a failed step. Apply the engine's failure contract (error
+ * route, handler step, failure-queue park, else FAILED) exactly as the executor
+ * loop and every out-of-band resume do. Returns true when an authored recovery
+ * moved the run on, so the caller continues it like a successful advance.
+ */
+async function applyExecutedStepFailure(
+  em: EntityManager,
+  container: Awaited<ReturnType<typeof createRequestContainer>>,
+  instance: WorkflowInstance,
+  transitionResult: transitionHandler.TransitionExecutionResult,
+  execContext: transitionHandler.TransitionExecutionContext,
+  selectedTransition: { fromStepId: string; toStepId: string },
+): Promise<boolean> {
+  const failure = await workflowExecutor.handleTransitionFailure(em, container, instance, transitionResult, {
+    evalContext: execContext,
+    fromStepId: selectedTransition.fromStepId,
+    toStepId: selectedTransition.toStepId,
+    source: 'manual-advance',
+  })
+  return failure.kind === 'errorRouted' || failure.kind === 'errorHandlerStarted'
 }
 
 export const metadata = {

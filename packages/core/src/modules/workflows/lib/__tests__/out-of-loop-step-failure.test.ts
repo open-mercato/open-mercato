@@ -316,6 +316,28 @@ describe('step failures outside the executor main loop (#8791)', () => {
       expect(executeWorkflow).not.toHaveBeenCalled()
     })
 
+    test('carries the failed step details onto the failed run', async () => {
+      setup({ stepType: 'USER_TASK' }, { task: task() })
+      spyOnEngine()
+      const details = {
+        code: 'INVALID_USER_TASK_DEADLINE',
+        i18n: { key: 'workflows.runtime.errors.invalidTaskDeadline', params: { value: 'soon' } },
+      }
+      jest
+        .spyOn(transitionHandler, 'executeTransition')
+        .mockImplementation(failingTransition(world, { ...stepFailure, failedStepId: 'next', details }) as never)
+
+      await completeUserTask(em, container, {
+        taskId,
+        formData: {},
+        userId,
+        scope: { tenantId, organizationId },
+      })
+
+      expectRunFailed(world)
+      expect(world.instance.errorDetails).toEqual(details)
+    })
+
     test('follows a wired error route out of the failed step and keeps the run going', async () => {
       setup(
         { stepType: 'USER_TASK' },
