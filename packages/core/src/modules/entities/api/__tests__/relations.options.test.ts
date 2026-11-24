@@ -21,12 +21,16 @@ const mockQE = {
 
 // Entity ids the fake ORM metadata knows about, keyed by the class name the
 // resolver derives from the id's entity segment.
+const mockRelationAccess = jest.fn()
+
 const registeredTables: Record<string, string> = {
+  StaffTimeEntry: 'staff_time_entries', Attachment: 'attachments',
   CatalogProduct: 'catalog_products', CustomerUser: 'customer_users',
   CatalogProductVariant: 'catalog_product_variants',
   CustomerEntity: 'customer_entities', CustomerPersonProfile: 'customer_person_profiles', SalesOrder: 'sales_orders', User: 'users',
 }
 const labelProperties: Record<string, Record<string, string>> = {
+  staff_time_entries: { notes: 'notes' }, attachments: { fileName: 'file_name' },
   catalog_products: { title: 'title' },
   catalog_product_variants: { sku: 'sku' },
   customer_entities: { title: 'title' },
@@ -62,7 +66,14 @@ const mockEm = {
 }
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: async () => ({ resolve: (key: string) => (key === 'queryEngine' ? mockQE : key === 'rbacService' ? mockRbac : mockEm) }),
+  createRequestContainer: async () => ({
+    resolve: (key: string) => {
+      if (key.startsWith('relationOptionAccess:')) return mockRelationAccess()
+      if (key === 'queryEngine') return mockQE
+      if (key === 'rbacService') return mockRbac
+      return mockEm
+    },
+  }),
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -76,6 +87,8 @@ jest.mock('@open-mercato/core/modules/entities/lib/entityClassification', () => 
 }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   getModules: () => [{ customEntities: [
+    { id: 'staff:staff_time_entry', labelField: 'notes' },
+    { id: 'attachments:attachment', labelField: 'fileName' },
     { id: 'customers:customer_entity', labelField: 'title' },
     { id: 'customers:customer_person_profile', labelField: 'displayName' },
     { id: 'catalog:catalog_product', labelField: 'name' },
@@ -94,6 +107,58 @@ describe('GET /api/entities/relations/options', () => {
     mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: true })
     mockResolveOrganizationScopeForRequest.mockResolvedValue({ tenantId: 't1', selectedId: 'org', filterIds: ['org'], allowedIds: ['org'] })
     mockGetSelectedOrganizationFromRequest.mockReturnValue(null)
+  })
+
+  it('fails closed when the owning module has no record policy', async () => {
+    mockRelationAccess.mockReturnValueOnce(undefined)
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=staff:staff_time_entry'))
+    expect(response.status).toBe(403)
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('intersects time-entry search with the owning module scope', async () => {
+    const filters = { staff_member_id: 'staff-1', $or: [{ time_project_id: 'project-1' }] }
+    mockRelationAccess.mockReturnValueOnce(async () => ({ filters }))
+    mockQE.query.mockResolvedValueOnce({ items: [{ id: 'entry-1', notes: 'Allowed' }] })
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=staff:staff_time_entry&q=allowed'))
+    expect(mockQE.query).toHaveBeenCalledWith('staff:staff_time_entry', expect.objectContaining({
+      filters: { $and: [{ tenant_id: 't1', organization_id: 'org' }, { notes: { $ilike: '%allowed%' } }, filters] },
+      omitAutomaticTenantOrgScope: true,
+    }))
+    await expect(response.json()).resolves.toEqual({ items: [{ value: 'entry-1', label: 'Allowed' }] })
+  })
+
+  it('returns no labels when the staff interceptor denies access', async () => {
+    mockRelationAccess.mockReturnValueOnce(async () => null)
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=staff:staff_time_entry'))
+    await expect(response.json()).resolves.toEqual({ items: [] })
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('searches and projects attachment labels only for owner-authorized ids', async () => {
+    const authorizeIds = jest.fn(async () => ['allowed'])
+    mockRelationAccess.mockReturnValueOnce(async () => ({ authorizeIds }))
+    mockQE.query
+      .mockResolvedValueOnce({ items: [{ id: 'allowed' }, { id: 'denied' }] })
+      .mockResolvedValueOnce({ items: [{ id: 'allowed', file_name: 'Allowed.pdf' }] })
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=attachments:attachment&q=pdf'))
+    expect(mockQE.query).toHaveBeenNthCalledWith(1, 'attachments:attachment', expect.objectContaining({
+      fields: ['id'],
+      filters: { $and: [{ tenant_id: 't1', organization_id: 'org' }, {}] },
+    }))
+    expect(authorizeIds).toHaveBeenCalledWith(['allowed', 'denied'])
+    expect(mockQE.query).toHaveBeenNthCalledWith(2, 'attachments:attachment', expect.objectContaining({
+      filters: { $and: [{ tenant_id: 't1', organization_id: 'org' }, { file_name: { $ilike: '%pdf%' } }, { id: { $in: ['allowed'] } }] },
+    }))
+    await expect(response.json()).resolves.toEqual({ items: [{ value: 'allowed', label: 'Allowed.pdf' }] })
+  })
+
+  it('skips label projection when no attachment is authorized', async () => {
+    mockRelationAccess.mockReturnValueOnce(async () => ({ authorizeIds: async () => [] }))
+    mockQE.query.mockResolvedValueOnce({ items: [{ id: 'denied' }] })
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=attachments:attachment&ids=denied'))
+    await expect(response.json()).resolves.toEqual({ items: [] })
+    expect(mockQE.query).toHaveBeenCalledTimes(1)
   })
 
   it('supports id-scoped lookups through the existing relation options permission surface', async () => {

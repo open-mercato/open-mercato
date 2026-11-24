@@ -5,12 +5,14 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { SortDir, type QueryEngine, type QueryOptions } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { relationOptionAccessKey, type RelationOptionAccess } from '@open-mercato/shared/lib/query/relationOptionAccess'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getModules, resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -26,6 +28,7 @@ export const metadata = {
 }
 
 const ALLOWED_ROUTE_CONTEXT_FIELDS = new Set(['kind', 'entity_id', 'product_id'])
+const RECORD_POLICY_TARGETS = new Set(['staff:staff_time_entry', 'attachments:attachment'])
 const DEFAULT_LABEL_FIELDS = ['name', 'title', 'code', 'email', 'id']
 
 const logger = createLogger('entities')
@@ -150,7 +153,8 @@ export async function GET(req: Request) {
   else if (ids.length > 1) filters.id = { $in: ids }
   if (q) filters[labelField] = { $ilike: `%${escapeLikePattern(q)}%` }
   const fields = Array.from(new Set(['id', labelField, ...routeContextFields]))
-  const res = await qe.query<Record<string, unknown>>(entityId, {
+  const pageSize = Math.min(ids.length || 50, 100)
+  const queryOptions: QueryOptions = {
     tenantId: scope.tenantId,
     ...(scope.organizationId
       ? { organizationId: scope.organizationId }
@@ -158,9 +162,74 @@ export async function GET(req: Request) {
     fields,
     filters,
     ...(classification.kind === 'custom' ? { forceCustomEntityStorage: true } : {}),
-    page: { page: 1, pageSize: Math.min(ids.length || 50, 100) },
-  })
-  const items = (res.items || []).map((it: Record<string, unknown>) => {
+    page: { page: 1, pageSize },
+  }
+  let rows: Record<string, unknown>[]
+  if (classification.kind === 'system' && RECORD_POLICY_TARGETS.has(entityId)) {
+    const resolveAccess = container.resolve<RelationOptionAccess>(relationOptionAccessKey(entityId), { allowUnregistered: true })
+    if (!resolveAccess) return forbidden()
+    const tenantId = scope.tenantId
+    const organizationIds = scope.organizationId
+      ? [scope.organizationId]
+      : organizationScope.filterIds ?? (await findWithDecryption(
+        em, Organization, { tenant: tenantId, deletedAt: null }, { fields: ['id'] }, { tenantId },
+      )).map((organization) => organization.id)
+    rows = []
+    try {
+      for (const organizationId of organizationIds) {
+        if (requirement && !(await rbac.userHasAllFeatures(auth.sub, requirement.view, { tenantId, organizationId }))) continue
+        const access = await resolveAccess({ auth: scopedAuth, container, tenantId, organizationId })
+        if (!access) continue
+        const scopedOptions = {
+          ...queryOptions,
+          organizationId,
+          organizationIds: undefined,
+          omitAutomaticTenantOrgScope: true,
+        }
+        const scopeFilters = { tenant_id: tenantId, organization_id: organizationId }
+        const remaining = pageSize - rows.length
+        if (access.authorizeIds) {
+          const candidateFilters = ids.length ? { id: { $in: ids } } : {}
+          let lastId: string | undefined
+          while (rows.length < pageSize) {
+            const candidates = await qe.query<{ id: string }>(entityId, {
+              ...scopedOptions,
+              fields: ['id'],
+              filters: { $and: [scopeFilters, candidateFilters, ...(lastId ? [{ id: { $gt: lastId } }] : [])] },
+              sort: [{ field: 'id', dir: SortDir.Asc }],
+              page: { page: 1, pageSize: 100 },
+            })
+            if (candidates.items.length === 0) break
+            const authorizedIds = await access.authorizeIds(candidates.items.map(({ id }) => id))
+            if (authorizedIds.length) {
+              const result = await qe.query<Record<string, unknown>>(entityId, {
+                ...scopedOptions,
+                filters: { $and: [scopeFilters, filters, { id: { $in: authorizedIds } }] },
+                page: { page: 1, pageSize: pageSize - rows.length },
+              })
+              rows.push(...result.items)
+            }
+            if (candidates.items.length < 100) break
+            lastId = candidates.items.at(-1)?.id
+          }
+        } else if (access.filters) {
+          const result = await qe.query<Record<string, unknown>>(entityId, {
+            ...scopedOptions,
+            filters: { $and: [scopeFilters, filters, access.filters] },
+            page: { page: 1, pageSize: remaining },
+          })
+          rows.push(...result.items)
+        }
+        if (rows.length >= pageSize) break
+      }
+    } catch (error) {
+      if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
+      throw error
+    }
+  } else {
+    rows = (await qe.query<Record<string, unknown>>(entityId, queryOptions)).items ?? []
+  }
+  const items = rows.map((it) => {
     const routeContext = routeContextFields.reduce<Record<string, unknown>>((acc, field) => {
       if (it[field] !== undefined) {
         acc[field] = it[field]
