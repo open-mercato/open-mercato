@@ -97,14 +97,14 @@ export function validateAndCloneFiniteJsonValue(
   }
   ancestors.add(value)
   try {
-    const cloned: Record<string, unknown> = {}
+    const entries: Array<[string, unknown]> = []
     for (const [propKey, propValue] of Object.entries(value)) {
       if (propValue === undefined) {
         continue
       }
-      cloned[propKey] = validateAndCloneFiniteJsonValue(propValue, ownerLabel, keyLabel, ancestors)
+      entries.push([propKey, validateAndCloneFiniteJsonValue(propValue, ownerLabel, keyLabel, ancestors)])
     }
-    return cloned
+    return Object.fromEntries(entries)
   } finally {
     ancestors.delete(value)
   }
