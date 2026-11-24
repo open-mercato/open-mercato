@@ -337,7 +337,7 @@ describe('GET /api/healthz cache provider readiness', () => {
     expect(JSON.stringify(body)).not.toContain('acme/fake')
     expect(logger.error).toHaveBeenCalledWith(
       '[healthz] Infrastructure probe failed',
-      { component: 'redis', error: 'Cache provider healthcheck failed' },
+      { component: 'cache', error: 'Cache provider healthcheck failed' },
     )
     expect(JSON.stringify(logger.error.mock.calls)).not.toContain('secret')
   })
@@ -360,7 +360,7 @@ describe('GET /api/healthz cache provider readiness', () => {
     expect(response.status).toBe(503)
     expect(logger.error).toHaveBeenCalledWith(
       '[healthz] Infrastructure probe failed',
-      { component: 'redis', error: 'Cache provider healthcheck failed (invalid_settings)' },
+      { component: 'cache', error: 'Cache provider healthcheck failed (invalid_settings)' },
     )
     expect(cache.healthcheck).not.toHaveBeenCalled()
   })

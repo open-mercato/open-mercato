@@ -59,7 +59,8 @@
     },
     "generate": {
       "cache": false,
-      "outputs": [".mercato/**"]
+      "outputs": [".mercato/**"],
+      "passThroughEnv": ["CACHE_*"]
     },
     "db:generate": {
       "cache": false,

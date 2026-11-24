@@ -24,7 +24,7 @@ type HealthcheckDependencies = {
 }
 
 type HealthcheckProbe = {
-  name: 'database' | 'redis'
+  name: 'database' | 'redis' | 'cache'
   run: () => Promise<unknown>
 }
 
@@ -38,6 +38,14 @@ function isCacheProviderSelected(dependencies: HealthcheckDependencies): boolean
     return dependencies.cacheProviderSelected()
   } catch (error) {
     throw sanitizeCacheProviderFailure(error)
+  }
+}
+
+function resolveCacheProbeName(dependencies: HealthcheckDependencies): HealthcheckProbe['name'] {
+  try {
+    return dependencies.cacheProviderSelected() ? 'cache' : 'redis'
+  } catch {
+    return 'cache'
   }
 }
 
@@ -110,13 +118,14 @@ export function createHealthcheckHandler(
       container = await dependencies.createContainer()
       const em = container.resolve<EntityManager>('em')
       const cache = container.resolve<CacheStrategy>('cache')
+      const cacheProbeName = resolveCacheProbeName(dependencies)
       const probes: HealthcheckProbe[] = [
         {
           name: 'database',
           run: () => em.getConnection().execute('SELECT 1'),
         },
         {
-          name: 'redis',
+          name: cacheProbeName,
           run: async () => {
             if (isCacheProviderSelected(dependencies)) {
               await probeCacheProvider(cache)
