@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { PortalUserDetailPageClient } from '../PortalUserDetailPageClient'
 
 type ApiResult = { ok: boolean; status: number; result: unknown }
@@ -134,5 +134,86 @@ describe('PortalUserDetailPageClient role options', () => {
     const query = new URLSearchParams(roleUrls[0].split('?')[1])
     expect(query.get('organizationId')).toBe('org-child')
     expect(query.get('pageSize')).toBe('100')
+  })
+
+  it('shows a retryable error instead of an empty role list when loading roles fails', async () => {
+    let rolesCalls = 0
+    apiCallMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customer_accounts/admin/roles')) {
+        rolesCalls += 1
+        return rolesCalls === 1
+          ? Promise.resolve({ ok: false, status: 500, result: { error: 'boom' } })
+          : Promise.resolve({ ok: true, status: 200, result: { items: [{ id: 'role-child', name: 'Child buyer' }] } })
+      }
+      return Promise.resolve({ ok: true, status: 200, result: {} })
+    })
+
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
+
+    expect(await screen.findByText('Failed to load roles.')).toBeInTheDocument()
+    expect(screen.queryByText('No roles available')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByText('Child buyer')).toBeInTheDocument()
+    expect(screen.queryByText('Failed to load roles.')).not.toBeInTheDocument()
+    expect(rolesCalls).toBe(2)
+  })
+
+  it('shows a retryable error when the role request throws', async () => {
+    apiCallMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customer_accounts/admin/roles')) return Promise.reject(new Error('network'))
+      return Promise.resolve({ ok: true, status: 200, result: {} })
+    })
+
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
+
+    expect(await screen.findByText('Failed to load roles.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+  })
+
+  it('shows "No roles available" only after a successful empty response', async () => {
+    apiCallMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customer_accounts/admin/roles')) {
+        return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
+      }
+      return Promise.resolve({ ok: true, status: 200, result: {} })
+    })
+
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
+
+    expect(await screen.findByText('No roles available')).toBeInTheDocument()
+    expect(screen.queryByText('Failed to load roles.')).not.toBeInTheDocument()
+  })
+
+  it('does not offer the previous organization roles after switching to a user of another organization', async () => {
+    const otherUser = { ...userDetail, id: 'user-2', organizationId: 'org-other', displayName: 'User Two' }
+    readApiResultOrThrowMock.mockImplementation((url: string) =>
+      Promise.resolve(String(url).includes('user-2') ? otherUser : userDetail),
+    )
+    let resolveOtherRoles: (value: ApiResult) => void = () => undefined
+    apiCallMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customer_accounts/admin/roles')) {
+        const organizationId = new URLSearchParams(url.split('?')[1]).get('organizationId')
+        if (organizationId === 'org-other') {
+          return new Promise<ApiResult>((resolve) => { resolveOtherRoles = resolve })
+        }
+        return Promise.resolve({ ok: true, status: 200, result: { items: [{ id: 'role-child', name: 'Child buyer' }] } })
+      }
+      return Promise.resolve({ ok: true, status: 200, result: {} })
+    })
+
+    const { rerender } = render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
+    expect(await screen.findByText('Child buyer')).toBeInTheDocument()
+
+    rerender(<PortalUserDetailPageClient params={{ id: 'user-2' }} portalOrigin="http://localhost:3000" />)
+
+    expect(await screen.findByText('Loading roles...')).toBeInTheDocument()
+    expect(screen.queryByText('Child buyer')).not.toBeInTheDocument()
+
+    resolveOtherRoles({ ok: true, status: 200, result: { items: [{ id: 'role-other', name: 'Other buyer' }] } })
+
+    expect(await screen.findByText('Other buyer')).toBeInTheDocument()
+    expect(screen.queryByText('Child buyer')).not.toBeInTheDocument()
   })
 })
