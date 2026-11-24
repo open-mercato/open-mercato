@@ -7,6 +7,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -95,6 +96,7 @@ export function TranslationManager({
   const editedTranslationsRef = React.useRef<Record<string, Record<string, string>>>({})
   const [hasUserEdited, setHasUserEdited] = React.useState(false)
   const hasUserEditedRef = React.useRef(false)
+  const saveInFlightRef = React.useRef(false)
 
   const entityType = isEmbedded ? (propEntityType ?? '') : selectedEntityType
   const recordId = isEmbedded ? (propRecordId ?? '') : selectedRecordId
@@ -209,7 +211,7 @@ export function TranslationManager({
       )
       if (!res.ok) {
         if (res.response?.status === 404) return null
-        return null
+        throw new Error(t('translations.manager.errors.loadTranslation', 'Failed to load translations'))
       }
       return res.result ?? null
     },
@@ -317,11 +319,11 @@ export function TranslationManager({
         mutationPayload: body,
       })
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       flash(t('translations.manager.flash.saved', 'Translations saved'), 'success')
       hasUserEditedRef.current = false
       setHasUserEdited(false)
-      void refetchTranslation()
+      await refetchTranslation()
     },
     onError: (err: unknown) => {
       if (surfaceRecordConflict(err, t)) return
@@ -329,6 +331,14 @@ export function TranslationManager({
       flash(message, 'error')
     },
   })
+
+  const saveTranslations = React.useCallback(() => {
+    if (saveInFlightRef.current || !hasUserEditedRef.current || !entityType || !recordId || loadingTranslation || translationError) return
+    saveInFlightRef.current = true
+    mutation.mutate(undefined, {
+      onSettled: () => { saveInFlightRef.current = false },
+    })
+  }, [entityType, recordId, loadingTranslation, translationError, mutation])
 
   const updateFieldValue = (locale: string, fieldKey: string, value: string) => {
     hasUserEditedRef.current = true
@@ -404,7 +414,7 @@ export function TranslationManager({
         <ErrorMessage
           label={t('translations.manager.errors.loadTranslation', 'Failed to load translations')}
           action={(
-            <Button variant="outline" size="sm" onClick={() => void refetchTranslation()}>
+            <Button type="button" variant="outline" size="sm" onClick={() => void refetchTranslation()}>
               {t('translations.manager.actions.retry', 'Retry')}
             </Button>
           )}
@@ -420,13 +430,14 @@ export function TranslationManager({
     }
 
     const localeTranslations = editedTranslations[activeLocale] ?? {}
+    const translationLabel = `${t('translations.manager.fields.translation', 'Translation')} (${activeLocale.toUpperCase()})`
 
     return (
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[480px] text-sm">
-          <thead>
+      <div className="min-w-0">
+        <table className="block w-full table-fixed text-sm sm:table">
+          <thead className="sr-only sm:not-sr-only sm:table-header-group">
             <tr className="text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-3 py-2 text-left w-[140px]">
+              <th className="w-1/4 px-3 py-2 text-left">
                 {t('translations.manager.fields.field', 'Field')}
               </th>
               {!compact && (
@@ -434,23 +445,30 @@ export function TranslationManager({
                   {t('translations.manager.fields.baseValue', 'Base value')}
                 </th>
               )}
-              <th className="px-3 py-2 text-left">
-                {t('translations.manager.fields.translation', 'Translation')} ({activeLocale.toUpperCase()})
+              <th className="w-1/2 px-3 py-2 text-left">
+                {translationLabel}
               </th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="block sm:table-row-group">
             {fieldList.map((field) => {
               const baseVal = field.baseValue ?? getBaseValue(field.key)
               const translatedVal = localeTranslations[field.key] ?? ''
+              const isPropertyTranslation = entityType === 'entities:custom_field_def' || entityType === 'dictionaries:dictionary_entry'
+              const fieldLabel = isPropertyTranslation && field.key === 'label'
+                ? t('translations.manager.fields.label', 'Label')
+                : isPropertyTranslation && field.key === 'description'
+                  ? t('translations.manager.fields.description', 'Description')
+                  : field.label
+              const inputLabel = `${fieldLabel} — ${translationLabel}`
 
               return (
-                <tr key={field.key} className="border-t">
-                  <td className="px-3 py-2 align-top text-xs font-medium text-muted-foreground">
-                    {field.label}
+                <tr key={field.key} className="block border-t py-2 sm:table-row sm:py-0">
+                  <td className="block break-words px-3 py-1 text-xs font-medium text-muted-foreground sm:table-cell sm:py-2 sm:align-top">
+                    {fieldLabel}
                   </td>
                   {!compact && (
-                    <td className="px-3 py-2 align-top text-xs text-muted-foreground max-w-[200px]">
+                    <td className="block break-words px-3 py-1 text-xs text-muted-foreground sm:table-cell sm:py-2 sm:align-top">
                       {baseVal ? (
                         <span className="line-clamp-3">{baseVal}</span>
                       ) : (
@@ -458,10 +476,10 @@ export function TranslationManager({
                       )}
                     </td>
                   )}
-                  <td className="px-3 py-2 align-top">
+                  <td className="block px-3 py-1 sm:table-cell sm:py-2 sm:align-top">
                     {field.multiline ? (
-                      <textarea
-                        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      <Textarea
+                        aria-label={inputLabel}
                         rows={3}
                         value={translatedVal}
                         onChange={(e) => updateFieldValue(activeLocale, field.key, e.target.value)}
@@ -469,6 +487,7 @@ export function TranslationManager({
                       />
                     ) : (
                       <Input
+                        aria-label={inputLabel}
                         value={translatedVal}
                         onChange={(e) => updateFieldValue(activeLocale, field.key, e.target.value)}
                         placeholder={baseVal || field.label}
@@ -488,12 +507,12 @@ export function TranslationManager({
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault()
-        if (entityType && recordId && !mutation.isPending) mutation.mutate()
+        saveTranslations()
       }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [entityType, recordId, mutation])
+  }, [saveTranslations])
 
   if (compact) {
     return (
@@ -504,8 +523,8 @@ export function TranslationManager({
           <Button
             type="button"
             size="sm"
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !entityType || !recordId}
+            onClick={saveTranslations}
+            disabled={!hasUserEdited || mutation.isPending || loadingTranslation || translationError || !entityType || !recordId}
             data-testid="translations-save"
           >
             <Save className="mr-2 h-3 w-3" />
@@ -571,8 +590,8 @@ export function TranslationManager({
         <div className="flex justify-end">
           <Button
             type="button"
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || loadingEntities || !!entitiesError || !entityType || !recordId}
+            onClick={saveTranslations}
+            disabled={!hasUserEdited || mutation.isPending || loadingTranslation || translationError || loadingEntities || !!entitiesError || !entityType || !recordId}
             data-testid="translations-save"
           >
             <Save className="mr-2 h-4 w-4" />

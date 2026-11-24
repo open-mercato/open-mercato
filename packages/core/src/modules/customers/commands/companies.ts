@@ -48,6 +48,7 @@ import {
 } from '../data/validators'
 import {
   findScopedCustomerCommandRecord,
+  findScopedCustomerCommandTarget,
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
@@ -276,7 +277,7 @@ async function loadCompanySnapshot(
   ctx: CommandRuntimeContext,
   options: { includeInteractionRestoreDetails?: boolean } = {},
 ): Promise<CompanySnapshot | null> {
-  const entity = await findScopedCustomerCommandRecord(em, CustomerEntity, { id, deletedAt: null }, undefined, ctx)
+  const entity = await findScopedCustomerCommandTarget(em, CustomerEntity, { id, deletedAt: null }, undefined, ctx)
   if (!entity || entity.kind !== 'company') return null
   ensureTenantScope(ctx, entity.tenantId)
   ensureOrganizationScope(ctx, entity.organizationId)
@@ -807,7 +808,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     const { parsed: parsedInput, custom } = parseWithCustomFields(companyUpdateSchema, rawInput)
     const parsed = withExactAmounts(parsedInput, rawInput, ['annualRevenue'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await findScopedCustomerCommandRecord(
+    const entity = await findScopedCustomerCommandTarget(
       em,
       CustomerEntity,
       { id: parsed.id, deletedAt: null },
@@ -1112,7 +1113,7 @@ const deleteCompanyCommand: CommandHandler<
         // person link, deal link, direct person, etc.) serializes behind
         // this transaction instead of racing the final delete with a 409
         // FOREIGN_KEY_VIOLATION. See issue #7613.
-        const entity = await findScopedCustomerCommandRecord(
+        const entity = await findScopedCustomerCommandTarget(
           em,
           CustomerEntity,
           { id, deletedAt: null },
