@@ -458,6 +458,10 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
+## Blocklisted Fields in the Stored Index Document (2026-08-28)
+
+ADDITIVE `stripBlocklistedDocFields` (`@open-mercato/shared/lib/search/config`); deliberate narrowing: `buildIndexDocument`/`buildIndexDoc` no longer store keys on the global search blocklist in `entity_indexes.doc`. Signatures, `search_text`/`search_tokens`, entity-scoped entries and `cf:`/`l10n:` keys unchanged. No bridge: it would mean keeping the credential stored. [Contract table, commitments and migration](.ai/specs/2026-08-28-blocklisted-fields-in-the-stored-index-document.md#migration--backward-compatibility).
+
 ## Query-index scope (2026-08-28)
 
 [Reindex/catalogue contracts and migration](UPGRADE_NOTES.md).
