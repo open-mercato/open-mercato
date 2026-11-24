@@ -45,10 +45,10 @@ Move shipped instance configuration defaults (`notifications.delivery_strategies
 
 ### Phase 1: Module-owned instance configuration defaults (Spec 1)
 
-- [ ] 1.1 Characterize current configs restore-defaults and CLI help/init behavior
-- [ ] 1.2 Add ModuleSetupConfig.instanceConfigDefaults and owner declarations in search and notifications
-- [ ] 1.3 Implement strict transactional instance restore and cut over configs CLI with comprehensive tests
-- [ ] 1.4 Document authoring contract and archive instance-config-defaults Delta
+- [x] 1.1 Characterize current configs restore-defaults and CLI help/init behavior — 978e2e5dfc
+- [x] 1.2 Add ModuleSetupConfig.instanceConfigDefaults and owner declarations in search and notifications — e4e0fef36a
+- [x] 1.3 Implement strict transactional instance restore and cut over configs CLI with comprehensive tests — 1f6ff95f42
+- [x] 1.4 Document authoring contract and archive instance-config-defaults Delta — d199725617, 8df6028d56
 
 ### Phase 2: API Keys provider for workflow requests (Spec 2)
 
