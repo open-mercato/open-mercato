@@ -190,6 +190,8 @@ export const RESERVED_CACHE_PROVIDER_IDS: ReadonlyArray<string> = ['memory', 're
 const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/
 const NAMESPACE_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/
 const SENSITIVE_META_KEY_PATTERN = /(pass|secret|token|key|credential|auth|cookie|session|dsn|url|uri|endpoint|cert)/i
+const URL_USER_INFO_PATTERN = /([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi
+const SECRET_PAIR_PATTERN = /\b([a-z0-9_.-]*(?:pass(?:word|wd)?|pwd|secret|token|api[_-]?key|access[_-]?key|auth|credentials?)[a-z0-9_.-]*)(\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s;,&]+)/gi
 
 export function defineCacheProvider<TConfig>(
   definition: Omit<CacheProviderDefinition<TConfig>, 'apiVersion'>,
@@ -413,6 +415,12 @@ export async function resolveCacheProvider(
   return { id, definition, config, placement, namespace }
 }
 
+function scrubSecretsInText(value: string): string {
+  return value
+    .replace(URL_USER_INFO_PATTERN, '$1***@')
+    .replace(SECRET_PAIR_PATTERN, '$1$2***')
+}
+
 function sanitizeLogMeta(meta: CacheProviderLogMeta | undefined): CacheProviderLogMeta | undefined {
   if (!meta || typeof meta !== 'object') return undefined
   const sanitized: CacheProviderLogMeta = {}
@@ -424,7 +432,8 @@ function sanitizeLogMeta(meta: CacheProviderLogMeta | undefined): CacheProviderL
     } else if (value === null || typeof value === 'number' || typeof value === 'boolean') {
       sanitized[key] = value
     } else if (typeof value === 'string') {
-      sanitized[key] = value.length > 200 ? `${value.slice(0, 200)}…` : value
+      const scrubbed = scrubSecretsInText(value)
+      sanitized[key] = scrubbed.length > 200 ? `${scrubbed.slice(0, 200)}…` : scrubbed
     } else {
       sanitized[key] = '[omitted]'
     }

@@ -443,5 +443,27 @@ describe('cache provider contract', () => {
         warn.mockRestore()
       }
     })
+
+    it('scrubs URL user-info and secret pairs from string meta values', () => {
+      const error = jest.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        const context = createCacheProviderHostContext({ id: 'acme/fixture', namespace: 'deploy-1' })
+        context.logger.error('connection lost', {
+          reason: `connect ECONNREFUSED rediss://default:${SECRET}@cache.internal:6380/0`,
+          detail: `host=db.internal port=5432 password=${SECRET} sslmode=require`,
+          quoted: `Server=x;User Id=app;Password="${SECRET}";`,
+          atSign: `redis://user:p@${SECRET}@host:6379`,
+          plain: 'retrying in 500ms',
+        })
+        const [, meta] = error.mock.calls[0] as [string, Record<string, string>]
+        expect(inspect(error.mock.calls)).not.toContain(SECRET)
+        expect(meta.reason).toBe('connect ECONNREFUSED rediss://***@cache.internal:6380/0')
+        expect(meta.detail).toBe('host=db.internal port=5432 password=*** sslmode=require')
+        expect(meta.atSign).toBe('redis://***@host:6379')
+        expect(meta.plain).toBe('retrying in 500ms')
+      } finally {
+        error.mockRestore()
+      }
+    })
   })
 })
