@@ -84,6 +84,7 @@ const ENABLED_BACKENDS = new Set(['console', 'signoz', 'newrelic', 'otlp'])
 
 type TelemetryRuntimeStore = {
   active?: TelemetryRuntime
+  errorReporter?: TelemetryRuntime['reportError']
   metricCollectors?: Set<TelemetryMetricCollector>
 }
 
@@ -120,6 +121,20 @@ export function registerTelemetryRuntime(runtime: TelemetryRuntime): () => void 
 
 export function getTelemetryRuntime(): TelemetryRuntime | undefined {
   return store().active
+}
+
+export function registerTelemetryErrorReporter(reporter: TelemetryRuntime['reportError']): () => void {
+  store().errorReporter = reporter
+  return () => {
+    const current = store()
+    if (current.errorReporter === reporter) current.errorReporter = undefined
+  }
+}
+
+export function reportTelemetryError(...args: Parameters<TelemetryRuntime['reportError']>): void {
+  const runtime = getTelemetryRuntime()
+  if (runtime) runtime.reportError(...args)
+  else store().errorReporter?.(...args)
 }
 
 export function recordTelemetryMetric(point: TelemetryMetricPoint): boolean {

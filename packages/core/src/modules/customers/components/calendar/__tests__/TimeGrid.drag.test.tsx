@@ -61,13 +61,55 @@ it('opens one event with the latest dragged range without updating its parent du
   }
 })
 
-it('ignores clicks, cancelled drags, and pointer movements without an active drag', () => {
+it('creates the half-hour slot under the pointer on a plain click', () => {
+  const onCreateRange = jest.fn()
+  const { container } = renderGrid(onCreateRange)
+  const layer = container.querySelector('.cursor-cell')!
+  act(() => {
+    dispatchPointer(layer, 'pointerdown', 1100)
+    dispatchPointer(layer, 'pointerup', 1100)
+  })
+  expect(onCreateRange).toHaveBeenCalledTimes(1)
+  expect(onCreateRange).toHaveBeenCalledWith(new Date(2026, 8, 29, 9), new Date(2026, 8, 29, 9, 30))
+})
+
+it('creates the highlighted slot when clicking just below a slot boundary', () => {
+  const onCreateRange = jest.fn()
+  const { container } = renderGrid(onCreateRange)
+  const layer = container.querySelector('.cursor-cell')!
+  act(() => {
+    dispatchPointer(layer, 'pointermove', 1138)
+  })
+  expect(container.querySelector('[data-calendar-hover-slot]')?.getAttribute('data-calendar-hover-slot')).toBe('540')
+  act(() => {
+    dispatchPointer(layer, 'pointerdown', 1138)
+    dispatchPointer(layer, 'pointerup', 1138)
+  })
+  expect(onCreateRange).toHaveBeenCalledTimes(1)
+  expect(onCreateRange).toHaveBeenCalledWith(new Date(2026, 8, 29, 9), new Date(2026, 8, 29, 9, 30))
+})
+
+it('highlights the hovered half-hour slot and clears it when the pointer leaves', () => {
+  const { container } = renderGrid(jest.fn())
+  const layer = container.querySelector('.cursor-cell')!
+  act(() => {
+    dispatchPointer(layer, 'pointermove', 1270)
+  })
+  const slot = container.querySelector('[data-calendar-hover-slot]')
+  expect(slot).not.toBeNull()
+  expect(slot?.getAttribute('data-calendar-hover-slot')).toBe('630')
+  act(() => {
+    // React derives onPointerLeave from the native pointerout event.
+    dispatchPointer(layer, 'pointerout')
+  })
+  expect(container.querySelector('[data-calendar-hover-slot]')).toBeNull()
+})
+
+it('ignores cancelled drags and pointer movements without an active drag', () => {
   const onCreateRange = jest.fn()
   const { container } = renderGrid(onCreateRange)
   const layer = container.querySelector('.cursor-cell')!
   dispatchPointer(layer, 'pointermove', 1200)
-  dispatchPointer(layer, 'pointerdown', 1080)
-  dispatchPointer(layer, 'pointerup', 1080)
   dispatchPointer(layer, 'pointerdown', 1080)
   dispatchPointer(layer, 'pointermove', 1200)
   dispatchPointer(layer, 'pointercancel')

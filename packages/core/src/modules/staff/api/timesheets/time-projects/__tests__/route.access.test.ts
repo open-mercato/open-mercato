@@ -139,6 +139,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import { GET, NO_PROJECT_ACCESS_REASON } from '../route'
+import { mergeAdvancedFilters } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { PROJECT_SCOPE_TENANT_HEADER, PROJECT_SCOPE_ORGANIZATION_HEADER } from '../../../../lib/time-tracking-ui/projectAccessScopeHeaders'
 
@@ -238,6 +239,24 @@ describe('time-projects list route project access scoping', () => {
       const filters = await buildFilters({}, listRequest())
 
       expect(filters.id).toEqual({ $in: [memberProjectId] })
+    })
+
+    it('keeps the membership narrowing when a client advanced filter targets id (#9896)', async () => {
+      const query = {
+        'filter[conditions][0][field]': 'id',
+        'filter[conditions][0][op]': 'is',
+        'filter[conditions][0][value]': foreignProjectId,
+      }
+      const filters = await buildFilters(query, listRequest(query))
+
+      const merged = mergeAdvancedFilters(filters, query)
+
+      expect(merged).toEqual({
+        $and: [
+          expect.objectContaining({ id: { $in: [memberProjectId] } }),
+          { id: { $eq: foreignProjectId } },
+        ],
+      })
     })
 
     it('still applies the search filter alongside the access narrowing', async () => {

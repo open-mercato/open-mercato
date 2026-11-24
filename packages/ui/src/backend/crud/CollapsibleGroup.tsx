@@ -12,8 +12,9 @@ export interface CollapsibleGroupProps {
   title?: string
   pageType: string
   defaultExpanded?: boolean
-  errorCount?: number
+  /** @deprecated No longer rendered; kept so existing callers keep compiling. */
   fieldCount?: number
+  errorCount?: number
   chevronPosition?: 'left' | 'right'
   icon?: React.ReactNode
   children: React.ReactNode
@@ -24,7 +25,7 @@ export interface CollapsibleGroupHandle {
 }
 
 export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, CollapsibleGroupProps>(
-  function CollapsibleGroup({ groupId, title, pageType, defaultExpanded = true, errorCount = 0, fieldCount, chevronPosition = 'right', icon, children }, ref) {
+  function CollapsibleGroup({ groupId, title, pageType, defaultExpanded = true, errorCount = 0, chevronPosition = 'right', icon, children }, ref) {
     const t = useT()
     const { expanded, toggle, setExpanded, isHydrated } = useGroupCollapse(pageType, groupId, defaultExpanded)
     const contentId = `collapsible-group-${groupId}`
@@ -44,16 +45,8 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
       />
     )
 
-    const fieldCountLabel = typeof fieldCount === 'number' && fieldCount > 0 ? (
-      <span className="text-xs font-normal text-muted-foreground">
-        · {fieldCount} {fieldCount === 1
-          ? t('ui.collapsible.fieldSingular', 'field')
-          : t('ui.collapsible.fieldPlural', 'fields')}
-      </span>
-    ) : null
-
     const errorBadge = errorCount > 0 ? (
-      <span className="inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+      <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
         {errorCount === 1
           ? t('ui.collapsible.errorSingular', '{{count}} error', { count: errorCount })
           : t('ui.collapsible.errorPlural', '{{count}} errors', { count: errorCount })}
@@ -110,7 +103,7 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
                 // row toggles to `bg-muted` together (Figma Accordion behaviour)
                 // instead of stacking a second hover layer over the trigger
                 // button.
-                'flex-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-transparent dark:hover:bg-transparent',
+                'h-auto min-h-9 min-w-0 flex-1 shrink whitespace-normal rounded-md px-2 py-1 text-left text-sm font-medium hover:bg-transparent dark:hover:bg-transparent',
                 chevronPosition === 'left' ? 'justify-start gap-2' : 'justify-between',
               )}
               aria-expanded={expanded}
@@ -119,19 +112,17 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
               {chevronPosition === 'left' ? (
                 <>
                   {chevronIcon}
-                  <span className="flex items-center gap-2">
+                  <span className="flex min-w-0 items-center gap-2">
                     {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
-                    <span>{title}</span>
-                    {fieldCountLabel}
+                    <span className="min-w-0 break-words">{title}</span>
                     {errorBadge}
                   </span>
                 </>
               ) : (
                 <>
-                  <span className="flex items-center gap-2">
+                  <span className="flex min-w-0 items-center gap-2">
                     {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
-                    <span>{title}</span>
-                    {fieldCountLabel}
+                    <span className="min-w-0 break-words">{title}</span>
                     {errorBadge}
                   </span>
                   {chevronIcon}

@@ -1,5 +1,9 @@
+import { isDeepStrictEqual } from 'node:util'
+import { LockMode, type EntityName, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   ensureOrganizationScope,
   ensureSameScope,
@@ -36,6 +40,59 @@ export const FORM_VERSION_RESOURCE_KIND = 'forms.form_version'
  */
 export function resolveEntityManager(ctx: CommandRuntimeContext): EntityManager {
   return ctx.container.resolve<EntityManager>('em')
+}
+
+async function throwFormsUndoConflict(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      'forms.errors.undo_conflict',
+      'This record changed after the action you are undoing. Undo was refused to keep the newer changes.',
+    ),
+    code: 'forms.errors.undo_conflict',
+  })
+}
+
+function toComparable(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value ?? null)) as unknown
+}
+
+/**
+ * Applies an undo to one row under a row lock. When the log entry carries the
+ * snapshot taken right after the action (`expected`), the undo is refused with
+ * a 409 if any field it restores no longer matches that snapshot, so a newer
+ * edit is never overwritten. Changes to other columns do not block it. `apply`
+ * returns false to skip the write. Returns the updated row, or null when
+ * nothing was written.
+ */
+export async function applyFormsUndo<TEntity extends object, TField extends keyof TEntity & string>(params: {
+  ctx: CommandRuntimeContext
+  entity: EntityName<TEntity>
+  target: { id: string; tenantId: string; organizationId: string }
+  expected?: Partial<Record<TField, unknown>> | null
+  fields: readonly TField[]
+  apply: (record: TEntity) => boolean | void
+}): Promise<TEntity | null> {
+  const { id, tenantId, organizationId } = params.target
+  ensureTenantScope(params.ctx, tenantId)
+  ensureOrganizationScope(params.ctx, organizationId)
+  return resolveEntityManager(params.ctx).fork().transactional(async (tx) => {
+    const record = await findOneWithDecryption(
+      tx,
+      params.entity,
+      { id, tenantId, organizationId } as FilterQuery<TEntity>,
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+      { tenantId, organizationId },
+    )
+    if (!record) return null
+    const expected = params.expected
+    if (expected && params.fields.some((field) => !isDeepStrictEqual(toComparable(record[field]), toComparable(expected[field])))) {
+      await throwFormsUndoConflict()
+    }
+    if (params.apply(record) === false) return null
+    await tx.flush()
+    return record
+  })
 }
 
 /**

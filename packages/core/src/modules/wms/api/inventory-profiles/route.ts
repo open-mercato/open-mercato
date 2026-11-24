@@ -72,6 +72,12 @@ const crud = makeCrudRoute({
       defaultStrategy: 'default_strategy',
       reorderPoint: 'reorder_point',
       safetyStock: 'safety_stock',
+      catalog_product_id: 'catalog_product_id',
+      catalogProductId: 'catalog_product_id',
+      catalog_variant_id: 'catalog_variant_id',
+      catalogVariantId: 'catalog_variant_id',
+      default_uom: 'default_uom',
+      defaultUom: 'default_uom',
     },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}

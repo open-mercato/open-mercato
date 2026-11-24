@@ -641,8 +641,8 @@ jobs:
       # semantic change behind an unchanged option name would pass both the mock and the
       # installed-BullMQ name guard. One server makes that suite run for real.
       #
-      # No other suite reaches for a default localhost Redis (they all mock ioredis,
-      # bullmq or the connection helper), so this changes nothing else in the job.
+      # Shared by the queue coalescing suite and the explicit Redis cache test step.
+      # Their fixtures use separate Redis databases.
       redis:
         image: redis:7-alpine
         ports:
@@ -664,10 +664,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-
-      - name: Fetch base branch for change detection
-        if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.base_ref }} --depth=1
+        with:
+          # On pull_request HEAD is the merge commit and HEAD^1 the base it was merged onto.
+          # Change detection below diffs against HEAD^1, which a depth-1 checkout lacks.
+          fetch-depth: 2
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -765,24 +765,46 @@ jobs:
 
       - name: Checking types
         # Stabilization PRs, workflow edits and protected branch pushes run the full gate.
-        # Other PRs scope to packages/app that changed since the base branch.
+        # Other PRs scope to packages/app that changed against the base commit they merge onto.
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ]; then
+            yarn typecheck
+          elif ! git rev-parse --quiet --verify 'HEAD^1^{commit}' >/dev/null; then
+            echo "::warning::PR base commit HEAD^1 is not in the checkout; running the full typecheck"
+            yarn typecheck
+          elif ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn typecheck
           else
-            yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
+            yarn turbo run typecheck --filter='[HEAD^1]...'
           fi
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
+      - name: Test Redis cache against real Redis
+        timeout-minutes: 5
+        env:
+          CACHE_REDIS_URL: redis://127.0.0.1:6379/1
+          CACHE_REDIS_TEST_URL: redis://127.0.0.1:6379/2
+        run: |
+          yarn workspace @open-mercato/cache test --runInBand --runTestsByPath \
+            src/__tests__/redis.compatibility.live.test.ts \
+            src/__tests__/redis.performance.live.test.ts
+          yarn workspace @open-mercato/shared test --runInBand --runTestsByPath \
+            src/lib/crud/__tests__/crud-factory.redis.live.test.ts
+
       - name: Test
         # Same scoping as typecheck, including full gates for workflow edits.
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ]; then
+            yarn test
+          elif ! git rev-parse --quiet --verify 'HEAD^1^{commit}' >/dev/null; then
+            echo "::warning::PR base commit HEAD^1 is not in the checkout; running the full unit suite"
+            yarn test
+          elif ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn test
           else
-            yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
+            yarn turbo run test --filter='[HEAD^1]...'
           fi
 
       - name: Test scripts
@@ -964,6 +986,18 @@ jobs:
       - name: Run integrations module suites against real Postgres
         if: ${{ !cancelled() }}
         run: yarn workspace @open-mercato/core test:pg-integration
+
+      - name: Run Discord auto-reply repeat-delivery suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/channel-discord test:pg-integration
+
+      - name: Run checkout migration suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/checkout test:pg-integration
+
+      - name: Run webhook delivery claim suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/webhooks test:pg-integration
 
       - name: Check OAuth grant import paths resolve against the built dist
         if: ${{ !cancelled() }}
@@ -1209,6 +1243,17 @@ jobs:
             .ai/qa/test-results/coverage-shard-${{ steps.shard-meta.outputs.shard_index }}/
           if-no-files-found: ignore
 
+      - name: Verify staff and portal auth rate limits
+        if: matrix.shard == 'none' || matrix.shard == '1/15'
+        env:
+          OM_INTEGRATION_AUTH_RATE_LIMIT_FIXTURE: '1'
+          OM_TEST_RATE_LIMIT_MODE: enabled
+          RATE_LIMIT_TRUST_PROXY_DEPTH: '0'
+          RATE_LIMIT_STRATEGY: memory
+          RATE_LIMIT_LOGIN_IP_POINTS: '2'
+          RATE_LIMIT_CUSTOMER_LOGIN_IP_POINTS: '2'
+        run: yarn test:integration:ephemeral TC-AUTH-016 --no-reuse-env
+
   # ── Merge shard coverage ─────────────────────────────────────────────────────
   # Final gate — runs after all integration shards AND the test job complete.
   # Ensures both typecheck/units and integration must pass before reporting green.
@@ -1237,10 +1282,13 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: integration-test-results-*
+          path: .ai/qa/test-results
           merge-multiple: true
 
       - name: Merge shard coverage reports
-        run: node scripts/merge-coverage.mjs .ai/qa/test-results
+        run: |
+          node scripts/merge-coverage.mjs .ai/qa/test-results
+          test -s .ai/qa/test-results/coverage/code/coverage-summary.json
 
       - name: Display merged integration coverage
         if: always()

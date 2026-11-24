@@ -3,6 +3,7 @@ import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/payment_gateways/extension-points'
 import { useSearchParams } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -187,6 +188,7 @@ export default function PaymentTransactionsPage() {
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
@@ -219,6 +221,11 @@ export default function PaymentTransactionsPage() {
       page: String(page),
       pageSize: '20',
     })
+    const selectedSort = sorting[0]
+    if (selectedSort) {
+      params.set('sortField', selectedSort.id)
+      params.set('sortDir', selectedSort.desc ? 'desc' : 'asc')
+    }
     if (search.trim()) params.set('search', search.trim())
     if (typeof filterValues.providerKey === 'string' && filterValues.providerKey) {
       params.set('providerKey', filterValues.providerKey)
@@ -243,7 +250,7 @@ export default function PaymentTransactionsPage() {
       setTotalPages(1)
     }
     setIsLoading(false)
-  }, [filterValues.providerKey, filterValues.status, page, search, t])
+  }, [filterValues.providerKey, filterValues.status, page, search, sorting, t])
 
   const loadDetail = React.useCallback(async (transactionId: string) => {
     setIsLoadingDetail(true)
@@ -402,6 +409,7 @@ export default function PaymentTransactionsPage() {
   const columns = React.useMemo<ColumnDef<TransactionRow>[]>(() => [
     {
       accessorKey: 'paymentId',
+      enableSorting: false,
       header: t('payment_gateways.transactions.columns.paymentId', 'Payment'),
       cell: ({ row }) => (
         <div className="space-y-1">
@@ -413,6 +421,7 @@ export default function PaymentTransactionsPage() {
     },
     {
       accessorKey: 'providerKey',
+      enableSorting: true,
       header: t('payment_gateways.transactions.columns.provider', 'Provider'),
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
@@ -423,6 +432,7 @@ export default function PaymentTransactionsPage() {
     },
     {
       accessorKey: 'unifiedStatus',
+      enableSorting: true,
       header: t('payment_gateways.transactions.columns.status', 'Status'),
       cell: ({ row }) => (
         <Badge variant="secondary" className={STATUS_STYLES[row.original.unifiedStatus] ?? ''}>
@@ -432,11 +442,13 @@ export default function PaymentTransactionsPage() {
     },
     {
       accessorKey: 'amount',
+      enableSorting: true,
       header: t('payment_gateways.transactions.columns.amount', 'Amount'),
       cell: ({ row }) => formatAmount(row.original.amount, row.original.currencyCode),
     },
     {
       accessorKey: 'providerSessionId',
+      enableSorting: false,
       header: t('payment_gateways.transactions.columns.session', 'Session'),
       cell: ({ row }) => (
         <span className="font-mono text-xs text-muted-foreground">
@@ -447,6 +459,7 @@ export default function PaymentTransactionsPage() {
     },
     {
       accessorKey: 'updatedAt',
+      enableSorting: true,
       header: t('payment_gateways.transactions.columns.updatedAt', 'Updated'),
       cell: ({ row }) => formatDateTime(row.original.updatedAt),
     },
@@ -474,6 +487,10 @@ export default function PaymentTransactionsPage() {
           titleHeadingLevel={2}
           columns={columns}
           data={rows}
+          sortable
+          manualSorting
+          sorting={sorting}
+          onSortingChange={(nextSorting) => { setSorting(nextSorting.slice(0, 1)); setPage(1) }}
           filters={filters}
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
