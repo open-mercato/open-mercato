@@ -21,11 +21,6 @@ type ProfileResponse = {
   name?: string | null
 }
 
-type ProfileUpdateResponse = {
-  ok?: boolean
-  email?: string | null
-}
-
 type ProfileFormValues = {
   email: string
   currentPassword?: string
@@ -39,7 +34,6 @@ export default function AuthProfilePage() {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [email, setEmail] = React.useState('')
-  const [formKey, setFormKey] = React.useState(0)
   const formId = React.useId()
   const passwordPolicy = React.useMemo(() => getPasswordPolicy(), [])
   const passwordRequirements = React.useMemo(
@@ -105,9 +99,9 @@ export default function AuthProfilePage() {
       password: optionalPasswordSchema,
       confirmPassword: z.string().optional(),
     }).superRefine((values, ctx) => {
-      const currentPassword = values.currentPassword?.trim() ?? ''
-      const password = values.password?.trim() ?? ''
-      const confirmPassword = values.confirmPassword?.trim() ?? ''
+      const currentPassword = values.currentPassword ?? ''
+      const password = values.password ?? ''
+      const confirmPassword = values.confirmPassword ?? ''
       const hasPasswordIntent = Boolean(password || confirmPassword)
       const emailChanged = values.email.trim() !== email
 
@@ -144,8 +138,8 @@ export default function AuthProfilePage() {
 
   const handleSubmit = React.useCallback(async (values: ProfileFormValues) => {
     const nextEmail = values.email?.trim() ?? ''
-    const currentPassword = values.currentPassword?.trim() ?? ''
-    const password = values.password?.trim() ?? ''
+    const currentPassword = values.currentPassword ?? ''
+    const password = values.password ?? ''
 
     const emailChanged = nextEmail !== email
     if (!password && !emailChanged) {
@@ -156,7 +150,7 @@ export default function AuthProfilePage() {
     if (emailChanged) payload.email = nextEmail
     if (password) payload.password = password
 
-    const result = await readApiResultOrThrow<ProfileUpdateResponse>(
+    await readApiResultOrThrow(
       '/api/auth/profile',
       {
         method: 'PUT',
@@ -166,15 +160,8 @@ export default function AuthProfilePage() {
       { errorMessage: t('auth.profile.form.errors.save', 'Failed to update profile.') },
     )
 
-    const resolvedEmail = typeof result?.email === 'string' ? result.email : nextEmail
-    setEmail(resolvedEmail)
-    setFormKey((prev) => prev + 1)
     flash(t('auth.profile.form.success', 'Profile updated.'), 'success')
-    if (emailChanged) {
-      router.replace('/login')
-      return
-    }
-    router.refresh()
+    router.replace('/login')
   }, [email, router, t])
 
   return (
@@ -199,7 +186,6 @@ export default function AuthProfilePage() {
               </Button>
             </header>
             <CrudForm<ProfileFormValues>
-              key={formKey}
               formId={formId}
               schema={schema}
               fields={fields}

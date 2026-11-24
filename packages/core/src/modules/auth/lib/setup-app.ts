@@ -20,6 +20,7 @@ import {
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isWithinPasswordByteLimit } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 const logger = createLogger('auth').child({ component: 'setup' })
 
@@ -344,8 +345,8 @@ export async function setupInitialTenant(
       const fallbackEmployeePwd = isProduction ? generateDerivedPassword() : DEMO_DERIVED_PASSWORD
       const adminPasswordPlain = envAdminPwd ?? fallbackAdminPwd
       const employeePasswordPlain = envEmployeePwd ?? fallbackEmployeePwd
-      const adminPasswordHash = await hash(adminPasswordPlain, 10)
-      const employeePasswordHash = await hash(employeePasswordPlain, 10)
+      const adminPasswordHash = await hashProvisionedPassword(adminPasswordPlain)
+      const employeePasswordHash = await hashProvisionedPassword(employeePasswordPlain)
       addUniqueBaseUser(baseUsers, {
         email: adminEmail,
         roles: ['admin'],
@@ -585,8 +586,15 @@ function shouldKeepDemoSuperadminDuringInit(): boolean {
 
 async function resolvePasswordHash(input: PrimaryUserInput): Promise<string | null> {
   if (typeof input.hashedPassword === 'string') return input.hashedPassword
-  if (input.password) return hash(input.password, 10)
+  if (input.password) return hashProvisionedPassword(input.password)
   return null
+}
+
+function hashProvisionedPassword(password: string): Promise<string> {
+  if (!isWithinPasswordByteLimit(password)) {
+    throw new Error('[internal] Provisioned password exceeds the bcrypt UTF-8 input limit')
+  }
+  return hash(password, 10)
 }
 
 export async function ensureDefaultRoleAcls(

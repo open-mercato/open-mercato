@@ -10,7 +10,6 @@ const USER_ID = '123e4567-e89b-12d3-a456-426614174010'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockCommandBusExecute = jest.fn()
-const mockGetUserRoles = jest.fn()
 const mockVerifyPassword = jest.fn()
 const mockFindUser = jest.fn()
 
@@ -20,7 +19,7 @@ const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
     if (token === 'commandBus') return { execute: (...args: unknown[]) => mockCommandBusExecute(...args) }
-    if (token === 'authService') return { getUserRoles: mockGetUserRoles, verifyPassword: mockVerifyPassword }
+    if (token === 'authService') return { verifyPassword: mockVerifyPassword }
     return null
   }),
 }
@@ -48,11 +47,14 @@ jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({
   signJwt: jest.fn(() => 'signed-token'),
 }))
 
-function updateRequest(currentPassword: string | null = 'current-password'): Request {
+function updateRequest(
+  currentPassword: string | null = 'current-password',
+  changes: { email?: string; password?: string } = { email: 'ada@example.com' },
+): Request {
   return new Request('http://localhost/api/auth/profile', {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'ada@example.com', ...(currentPassword === null ? {} : { currentPassword }) }),
+    body: JSON.stringify({ ...changes, ...(currentPassword === null ? {} : { currentPassword }) }),
   })
 }
 
@@ -64,7 +66,6 @@ beforeEach(() => {
     orgId: ORG_ID,
     roles: ['admin'],
   })
-  mockGetUserRoles.mockResolvedValue(['admin'])
   mockVerifyPassword.mockResolvedValue(true)
   mockFindUser.mockResolvedValue({ id: USER_ID, email: 'previous@example.com', passwordHash: 'existing-hash' })
   mockCommandBusExecute.mockResolvedValue({
@@ -84,12 +85,32 @@ describe('PUT /api/auth/profile command interceptor rejections', () => {
     expect(mockCommandBusExecute).not.toHaveBeenCalled()
     expect(signJwt).not.toHaveBeenCalled()
   })
-  it('updates the profile when nothing blocks the command', async () => {
+  it('ends the browser session after a successful email change', async () => {
     const response = await PUT(updateRequest())
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true, email: 'ada@example.com' })
     expect(mockVerifyPassword).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), 'current-password')
+    expect(response.headers.getSetCookie()).toEqual([
+      expect.stringMatching(/^auth_token=;.*Max-Age=0/),
+      expect.stringMatching(/^session_token=;.*Max-Age=0/),
+    ])
+    expect(signJwt).not.toHaveBeenCalled()
+  })
+
+  it('ends the browser session after a successful password-only change', async () => {
+    mockCommandBusExecute.mockResolvedValueOnce({
+      result: { id: USER_ID, email: 'previous@example.com', tenantId: TENANT_ID, organizationId: ORG_ID },
+    })
+    const response = await PUT(updateRequest(' current-password ', { password: ' Changed2@Secure ' }))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true, email: 'previous@example.com' })
+    expect(mockVerifyPassword).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), ' current-password ')
+    expect(mockCommandBusExecute).toHaveBeenCalledWith(
+      'auth.users.update',
+      expect.objectContaining({ input: { id: USER_ID, email: undefined, password: ' Changed2@Secure ' } }),
+    )
     expect(response.headers.getSetCookie()).toEqual([
       expect.stringMatching(/^auth_token=;.*Max-Age=0/),
       expect.stringMatching(/^session_token=;.*Max-Age=0/),

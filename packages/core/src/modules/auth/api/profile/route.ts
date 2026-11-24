@@ -4,7 +4,6 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
@@ -30,7 +29,7 @@ const passwordSchema = buildPasswordSchema()
 
 const updateSchemaBase = z.object({
   email: z.string().email().optional(),
-  currentPassword: z.string().trim().min(1).optional(),
+  currentPassword: z.string().min(1).optional(),
   password: passwordSchema.optional(),
 })
 
@@ -171,7 +170,7 @@ export async function PUT(req: Request) {
     const ctx: CommandRuntimeContext & { [PROFILE_PASSWORD_PROOF]?: ProfilePasswordProof } =
       buildCommandContext(container, auth, req)
     if (parsed.data.password || emailChanged) {
-      const currentPassword = parsed.data.currentPassword?.trim() ?? ''
+      const currentPassword = parsed.data.currentPassword ?? ''
       const verified = currentPassword && await authService.verifyPassword(user, currentPassword)
       if (!verified || !user.passwordHash) {
         const message = currentPassword ? translate(
@@ -206,34 +205,15 @@ export async function PUT(req: Request) {
       },
     )
     const res = NextResponse.json({ ok: true, email: String(result.email) })
-    if (emailChanged) {
-      for (const cookie of ['auth_token', 'session_token']) {
-        res.cookies.set(cookie, '', {
-          httpOnly: true,
-          path: '/',
-          sameSite: 'lax',
-          secure: process.env.NODE_ENV === 'production',
-          maxAge: 0,
-        })
-      }
-      return res
+    for (const cookie of ['auth_token', 'session_token']) {
+      res.cookies.set(cookie, '', {
+        httpOnly: true,
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 0,
+      })
     }
-    const roles = await authService.getUserRoles(result, result.tenantId ? String(result.tenantId) : null)
-    const jwt = signJwt({
-      sub: String(result.id),
-      sid: typeof auth.sid === 'string' ? auth.sid : undefined,
-      tenantId: result.tenantId ? String(result.tenantId) : null,
-      orgId: result.organizationId ? String(result.organizationId) : null,
-      email: result.email,
-      roles,
-    })
-    res.cookies.set('auth_token', jwt, {
-      httpOnly: true,
-      path: '/',
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 60 * 60 * 8,
-    })
     return res
   } catch (err) {
     if (isCrudHttpError(err)) {
@@ -264,7 +244,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update current profile',
-      description: 'Updates the sign-in email address or password after verification of the current password. Changing the email ends existing sessions.',
+      description: 'Updates the sign-in email address or password after verification of the current password. A credential change ends existing sessions.',
       requestBody: {
         contentType: 'application/json',
         schema: updateSchema,

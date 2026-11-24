@@ -16,7 +16,7 @@ import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/c
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { getAppBaseUrl, isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
 import { handleAuthRouteError } from '@open-mercato/core/modules/auth/api/routeError'
-import { isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
+import { capturePasswordSessionProof, isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -188,9 +188,10 @@ async function handleLoginRequest(req: Request) {
   // comparison even when the user is missing or has no hash — so unknown-email,
   // wrong-password, and multi-tenant cases return an identical 401 with
   // identical latency.
+  const proof = user ? capturePasswordSessionProof(user) : null
   const ok = await auth.verifyPassword(user, parsed.data.password)
   const tenantActive = user ? await isStaffTenantActive(container.resolve('em'), user.tenantId) : false
-  if (!user || !ok || user.isConfirmed === false || !tenantActive) {
+  if (!user || !proof || !ok || user.isConfirmed === false || !tenantActive) {
     // The 401 body stays identical for every branch so the response never reveals
     // which one fired. `reason` goes to the audit stream instead, where separating a
     // deactivated account from a mistyped password is the whole point — otherwise
@@ -233,7 +234,7 @@ async function handleLoginRequest(req: Request) {
     : new Date(Date.now() + accessTokenMaxAgeSeconds * 1000)
   let createdSession: Awaited<ReturnType<AuthService['createSession']>>
   try {
-    createdSession = await auth.createSession(user, sessionExpiresAt)
+    createdSession = await auth.createSession(user, sessionExpiresAt, proof)
   } catch (error) {
     if (!isAuthSessionRejectedError(error)) throw error
     void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason: 'account_deactivated' }).catch(() => undefined)

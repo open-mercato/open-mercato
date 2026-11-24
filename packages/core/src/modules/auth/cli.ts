@@ -21,7 +21,7 @@ import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { env } from 'process'
 import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import crypto from 'node:crypto'
-import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { formatPasswordRequirements, getPasswordPolicy, isWithinPasswordByteLimit, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getCliModules, type Module } from '@open-mercato/shared/modules/registry'
 import { lockUserRoleWriterAuthorizationState } from './lib/authorizationStateLocks'
@@ -476,7 +476,7 @@ const setupApp: ModuleCli = {
       process.exitCode = 2
       return
     }
-    if (!skipPasswordPolicy && !ensurePasswordPolicy(password)) {
+    if ((!skipPasswordPolicy || !isWithinPasswordByteLimit(password)) && !ensurePasswordPolicy(password)) {
       process.exitCode = 2
       return
     }

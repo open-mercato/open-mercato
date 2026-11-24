@@ -61,6 +61,7 @@ describe('passwordPolicy', () => {
       }),
     ).toEqual([
       { id: 'minLength', value: 10 },
+      { id: 'maxBytes', value: 72 },
       { id: 'uppercase' },
       { id: 'special' },
     ])
@@ -72,6 +73,8 @@ describe('passwordPolicy', () => {
         switch (key) {
           case 'custom.password.minLength':
             return `min:${String(params?.min)}`
+        case 'custom.password.maxBytes':
+          return `max:${String(params?.max)}`
           case 'custom.password.uppercase':
             return 'uppercase'
           case 'custom.password.special':
@@ -95,7 +98,7 @@ describe('passwordPolicy', () => {
         translate,
         'custom.password',
       ),
-    ).toBe('min:12 | uppercase')
+    ).toBe('min:12 | max:72 | uppercase')
 
     expect(translate).toHaveBeenCalledWith(
       'custom.password.minLength',
@@ -158,5 +161,16 @@ describe('passwordPolicy', () => {
     expect(tooLongResult.error.issues).toEqual(
       expect.arrayContaining([expect.objectContaining({ message: 'Weak password' })]),
     )
+  })
+
+  it('bounds new passwords by UTF-8 bytes, including multibyte input', () => {
+    const policy = { minLength: 12, requireDigit: false, requireUppercase: false, requireSpecial: false }
+    const schema = buildPasswordSchema({ policy })
+    expect(schema.safeParse('a'.repeat(72)).success).toBe(true)
+    expect(validatePassword('a'.repeat(73), policy)).toEqual({ ok: false, violations: ['maxBytes'] })
+    expect(schema.safeParse('é'.repeat(36)).success).toBe(true)
+    expect(schema.safeParse('é'.repeat(37)).success).toBe(false)
+    expect(schema.safeParse('🙂'.repeat(18)).success).toBe(true)
+    expect(validatePassword('🙂'.repeat(19), policy)).toEqual({ ok: false, violations: ['maxBytes'] })
   })
 })
