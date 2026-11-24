@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -9,6 +10,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EventBus } from '@open-mercato/events/types'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
+import { resolveLoginClientMeta } from '@open-mercato/core/modules/auth/lib/loginClientMeta'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit, resetAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
@@ -25,7 +27,7 @@ const logger = createLogger('auth.api')
 
 function reportLoginFailure(
   error: unknown,
-  code: 'auth.login_interceptor_failed' | 'auth.login_revoke_failed',
+  code: 'auth.login_interceptor_failed' | 'auth.login_revoke_failed' | 'auth.login_event_enqueue_failed',
   message: string,
   attributes?: Record<string, string | number | boolean>,
 ): void {
@@ -174,6 +176,34 @@ async function handleLoginRequest(req: Request) {
     // guidance is delivered out-of-band via the activation/login link.
     user = users.length === 1 ? users[0] : null
   }
+  const loginEventScope = {
+    tenantId: user?.tenantId ? String(user.tenantId) : null,
+    organizationId: user?.organizationId ? String(user.organizationId) : null,
+  }
+  const loginEventOptions = {
+    ...loginEventScope,
+    persistent: true,
+    skipPersistentSubscribersInline: true,
+  }
+  function reportLoginEventFailure(): void {
+    const message = 'Failed to enqueue login event'
+    reportLoginFailure(new Error(message), 'auth.login_event_enqueue_failed', message)
+  }
+  const loginUserId = user ? String(user.id) : null
+  async function emitLoginFailure(reason: string): Promise<void> {
+    try {
+      await emitAuthEvent('auth.login.failed', {
+        email: parsed.data.email,
+        reason,
+        userId: loginUserId,
+        ...loginEventScope,
+        ...resolveLoginClientMeta(req, container),
+        attemptId: randomUUID(),
+      }, loginEventOptions)
+    } catch {
+      reportLoginEventFailure()
+    }
+  }
   // Always verify the password — verifyPassword runs a constant-time bcrypt
   // comparison even when the user is missing or has no hash — so unknown-email,
   // wrong-password, and multi-tenant cases return an identical 401 with
@@ -190,7 +220,7 @@ async function handleLoginRequest(req: Request) {
     else if (user && !tenantActive) reason = 'tenant_unavailable'
     else if (user?.passwordHash) reason = 'invalid_password'
     else reason = 'invalid_credentials'
-    void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason }).catch(() => undefined)
+    await emitLoginFailure(reason)
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
   // Optional role requirement
@@ -198,6 +228,7 @@ async function handleLoginRequest(req: Request) {
     const userRoleNames = await auth.getUserRoles(user, tenantId ?? (user.tenantId ? String(user.tenantId) : null))
     const authorized = requiredRoles.some(r => userRoleNames.includes(r))
     if (!authorized) {
+      await emitLoginFailure('role_denied')
       return NextResponse.json({ ok: false, error: translate('auth.login.errors.permissionDenied', 'Not authorized for this area') }, { status: 403 })
     }
   }
@@ -226,7 +257,7 @@ async function handleLoginRequest(req: Request) {
     createdSession = await auth.createSession(user, sessionExpiresAt)
   } catch (error) {
     if (!isAuthSessionRejectedError(error)) throw error
-    void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason: 'account_deactivated' }).catch(() => undefined)
+    await emitLoginFailure('account_deactivated')
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
   const { session: loginSession, token: sessionRefreshToken } = createdSession
@@ -288,16 +319,23 @@ async function handleLoginRequest(req: Request) {
         'Failed to revoke provisional session after login after-interceptor failure',
       )
     }
-    void emitAuthEvent('auth.login.failed', {
-      email: parsed.data.email,
-      reason: 'after_interceptor_failed',
-    }).catch(() => undefined)
+    await emitLoginFailure('after_interceptor_failed')
     return NextResponse.json(
       { ok: false, error: translate('auth.login.errors.generic', 'An error occurred. Please try again.') },
       { status: interceptedResponse.statusCode },
     )
   }
-  void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
+  try {
+    await emitAuthEvent('auth.login.success', {
+      id: String(user.id),
+      email: user.email,
+      ...loginEventScope,
+      ...resolveLoginClientMeta(req, container),
+      attemptId: String(loginSession.id),
+    }, loginEventOptions)
+  } catch {
+    reportLoginEventFailure()
+  }
 
   const interceptedBody = interceptedResponse.body
   const authTokenForCookie = typeof interceptedBody.token === 'string' && interceptedBody.token.length > 0

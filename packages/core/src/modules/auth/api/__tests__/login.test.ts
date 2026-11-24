@@ -146,7 +146,8 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
     expect(emitAuthEvent as jest.Mock).toHaveBeenCalledWith(
       'auth.login.failed',
-      expect.objectContaining({ reason: 'account_deactivated' }),
+      expect.objectContaining({ reason: 'account_deactivated', attemptId: expect.any(String), tenantId }),
+      expect.objectContaining({ persistent: true, skipPersistentSubscribersInline: true, tenantId }),
     )
   })
 
@@ -406,10 +407,11 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     expect(res.headers.get('set-cookie')).toBeNull()
     expect(authServiceMock.deleteSessionById).toHaveBeenCalledWith('session-1')
     const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
-    expect(emitAuthEvent as jest.Mock).not.toHaveBeenCalledWith('auth.login.success', expect.anything())
+    expect(emitAuthEvent as jest.Mock).not.toHaveBeenCalledWith('auth.login.success', expect.anything(), expect.anything())
     expect(emitAuthEvent as jest.Mock).toHaveBeenCalledWith(
       'auth.login.failed',
       expect.objectContaining({ email: 'user@example.com', reason: 'after_interceptor_failed' }),
+      expect.objectContaining({ persistent: true, skipPersistentSubscribersInline: true }),
     )
     expect(mockReportError).toHaveBeenCalledWith(
       expect.any(Error),

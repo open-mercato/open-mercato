@@ -40,6 +40,7 @@ const mockContainer = {
     if (name === 'authService') return mockAuthService
     if (name === 'em') return mockEm
     if (name === 'eventBus') return { emitEvent: async () => undefined }
+    if (name === 'rateLimiterService') return undefined
     if (name === 'mfaVerificationService' && !serviceUnavailable) return mfaService
     throw new Error('[internal] Service unavailable')
   },
@@ -87,10 +88,11 @@ async function expectDenied(response: Response, status = 500) {
   expect(response.headers.get('set-cookie')).toBeNull()
   expect(mockAuthService.deleteSessionById).toHaveBeenCalledTimes(1)
   expect(mockAuthService.deleteSessionById).toHaveBeenCalledWith(sessionId)
-  expect(mockEmitAuthEvent).not.toHaveBeenCalledWith('auth.login.success', expect.anything())
+  expect(mockEmitAuthEvent).not.toHaveBeenCalledWith('auth.login.success', expect.anything(), expect.anything())
   expect(mockEmitAuthEvent).toHaveBeenCalledWith(
     'auth.login.failed',
     expect.objectContaining({ email: 'mfa-test@example.com', reason: 'after_interceptor_failed' }),
+    expect.objectContaining({ persistent: true, skipPersistentSubscribersInline: true }),
   )
 }
 
@@ -203,7 +205,7 @@ describe('login route with the registered MFA interceptor and verification servi
     expect(body.refreshToken).toBe('provisional-refresh')
     expect(mockEm.find).not.toHaveBeenCalled()
     expect(mockAuthService.deleteSessionById).not.toHaveBeenCalled()
-    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }), expect.objectContaining({ persistent: true }))
   })
 
   test('reports revocation failure and still returns no credentials', async () => {
@@ -240,7 +242,7 @@ describe('login route with the registered MFA interceptor and verification servi
     expect(response.headers.get('set-cookie')).toContain('auth_token=')
     expect(response.headers.get('set-cookie')).toContain('session_token=provisional-refresh')
     expect(mockAuthService.deleteSessionById).not.toHaveBeenCalled()
-    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }), expect.objectContaining({ persistent: true }))
   })
 
   test.each([false, true])('issues only pending credentials for an MFA account with remember=%s', async (remember) => {
@@ -258,7 +260,7 @@ describe('login route with the registered MFA interceptor and verification servi
       userId, isActive: true, deletedAt: null,
     }, expect.anything())
     expect(mockAuthService.deleteSessionById).not.toHaveBeenCalled()
-    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }), expect.objectContaining({ persistent: true }))
   })
 
   test('rejects invalid credentials before invoking MFA or creating a session', async () => {
