@@ -17,6 +17,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Save, Plus, X } from 'lucide-react'
+import { readRequestOrganizationScope } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { defaultLocale, locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
@@ -57,6 +58,11 @@ type TranslationLocales = {
   servable: string[]
 }
 
+function readTranslationRequestScopeKey(): string | null {
+  const scope = readRequestOrganizationScope()
+  return scope ? `${scope.tenantId ?? ''}:${scope.organizationId ?? ''}` : null
+}
+
 function useTranslationLocales() {
   return useQuery<TranslationLocales>({
     queryKey: ['translation-locales'],
@@ -87,6 +93,12 @@ export function TranslationManager({
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
   const isEmbedded = mode === 'embedded'
+  const [openedScopeKey] = React.useState(readTranslationRequestScopeKey)
+  const hasEditorScopeChanged = () => isEmbedded && readTranslationRequestScopeKey() !== openedScopeKey
+  const scopeChangedMessage = t(
+    'translations.manager.errors.organizationChanged',
+    'The organization selection changed. Close and reopen the translation editor to continue.',
+  )
 
   const [selectedEntityType, setSelectedEntityType] = React.useState(propEntityType ?? '')
   const [selectedRecordId, setSelectedRecordId] = React.useState(propRecordId ?? '')
@@ -202,9 +214,10 @@ export function TranslationManager({
     isError: translationError,
     refetch: refetchTranslation,
   } = useQuery<TranslationsResponse | null>({
-    queryKey: ['entity-translation', entityType, recordId, scopeVersion],
+    queryKey: ['entity-translation', entityType, recordId, scopeVersion, isEmbedded ? openedScopeKey : null],
     enabled: !!entityType && !!recordId,
     queryFn: async () => {
+      if (hasEditorScopeChanged()) throw new Error(scopeChangedMessage)
       const res = await apiCall<TranslationsResponse>(
         `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
       )
@@ -292,14 +305,17 @@ export function TranslationManager({
         operation: async () => {
           const res = await withScopedApiRequestHeaders(
             buildOptimisticLockHeader(translationRowUpdatedAt),
-            () => apiCall(
-              `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
-              {
-                method: 'PUT',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(body),
-              },
-            ),
+            () => {
+              if (hasEditorScopeChanged()) throw new Error(scopeChangedMessage)
+              return apiCall(
+                `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
+                {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify(body),
+                },
+              )
+            },
           )
           if (!res.ok) {
             await raiseCrudError(res.response, t('translations.manager.errors.save', 'Failed to save translations'))
@@ -409,6 +425,7 @@ export function TranslationManager({
       )
     }
     if (translationError) {
+      if (hasEditorScopeChanged()) return <ErrorMessage label={scopeChangedMessage} />
       return (
         <ErrorMessage
           label={t('translations.manager.errors.loadTranslation', 'Failed to load translations')}

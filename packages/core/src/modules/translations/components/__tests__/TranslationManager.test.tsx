@@ -159,6 +159,36 @@ describe('TranslationManager guarded mutations (#3316)', () => {
     )
   }
 
+  it('checks the opening scope again immediately before sending a guarded save', async () => {
+    document.cookie = 'om_selected_org=original-organization; path=/'
+    runMutationMock.mockImplementationOnce(async ({ operation }) => {
+      document.cookie = 'om_selected_org=__all__; path=/'
+      return operation()
+    })
+    try {
+      renderEmbeddedProductEditor()
+      const input = await screen.findByRole('textbox')
+      fireEvent.change(input, { target: { value: 'Old-scope draft' } })
+      fireEvent.click(screen.getByTestId('translations-save'))
+
+      await waitFor(() => expect(flashMock).toHaveBeenCalledWith(
+        'The organization selection changed. Close and reopen the translation editor to continue.',
+        'error',
+      ))
+      expect(apiCallMock).not.toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ method: 'PUT' }),
+      )
+      expect(input).toHaveValue('Old-scope draft')
+
+      document.cookie = 'om_selected_org=original-organization; path=/'
+      fireEvent.click(screen.getByTestId('translations-save'))
+      await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Translations saved', 'success'))
+    } finally {
+      document.cookie = 'om_selected_org=; Max-Age=0; path=/'
+    }
+  })
+
   function failTranslationSaveWith(status: number, body: Record<string, unknown>) {
     const defaultImplementation = apiCallMock.getMockImplementation()
     apiCallMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {

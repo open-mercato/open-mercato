@@ -40,10 +40,30 @@ test('TC-TRANS-019: injected dictionary action saves entry translations in a sel
     const dialog = page.getByRole('dialog', { name: `Translate: ${entryLabel}`, exact: true })
     await expect(dialog).toBeVisible()
     await dialog.getByRole('tab', { name: 'DE', exact: true }).click()
-    await dialog.getByPlaceholder(entryLabel, { exact: true }).fill('Übersetzter Wörterbucheintrag')
+    const translationInput = dialog.getByPlaceholder(entryLabel, { exact: true })
+    await translationInput.fill('Übersetzter Wörterbucheintrag')
+
+    const scopeCookie = (await page.context().cookies(baseURL!)).find(({ name }) => name === 'om_selected_org')
+    expect(scopeCookie?.value).toBeTruthy()
+    expect(scopeCookie?.value).not.toBe('__all__')
+    await page.context().addCookies([{ name: 'om_selected_org', value: '__all__', url: baseURL! }])
+    const staleWrites: Request[] = []
+    const recordStaleWrite = (outgoing: Request) => {
+      if (outgoing.method() === 'PUT' && decodeURIComponent(new URL(outgoing.url()).pathname) === translationPath) {
+        staleWrites.push(outgoing)
+      }
+    }
+    page.on('request', recordStaleWrite)
+    await translationInput.press('Control+Enter')
+    await expect(page.getByText('The organization selection changed. Close and reopen the translation editor to continue.', { exact: true })).toBeVisible()
+    expect(staleWrites).toHaveLength(0)
+    page.off('request', recordStaleWrite)
+    await expect(translationInput).toHaveValue('Übersetzter Wörterbucheintrag')
+    await page.context().addCookies([scopeCookie!])
+
     const saved = page.waitForResponse((response) => response.request().method() === 'PUT'
       && decodeURIComponent(new URL(response.url()).pathname) === translationPath)
-    await dialog.getByPlaceholder(entryLabel, { exact: true }).press('Control+Enter')
+    await translationInput.press('Control+Enter')
     expect((await saved).ok()).toBe(true)
 
     const translated = await apiRequest(request, 'GET', translationPath, { token })
