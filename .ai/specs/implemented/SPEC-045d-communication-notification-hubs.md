@@ -1278,9 +1278,11 @@ missing explicit mappings, and terminal delivery states.
 recipient, delivery uses the reply's saved recipient and subject, and derives
 the RFC reply headers from the outbound parent link in the resolved conversation.
 The same lookup applies to retries of failed links. The worker retries when
-the parent is still in flight or its provider thread is still being adopted.
-Regression coverage runs delivery through Gmail's MIME converter and checks
-that the adapter is skipped while the reply is waiting to retry.
+the parent is still in flight or its provider-native thread is still being adopted.
+Providers such as SMTP that retain an `outbound:` reference do not wait for
+adoption after the parent has been delivered. Regression coverage runs delivery
+through the Gmail and SMTP converters and checks that the adapter is skipped
+while the reply is waiting to retry.
 
 **Failure handling**: If `sendMessage` fails:
 - `MessageChannelLink.deliveryStatus = 'failed'`

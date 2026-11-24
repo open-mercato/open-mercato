@@ -395,8 +395,9 @@ const deliverOutboundMessageCommand: CommandHandler<
           const parentMetadata = parentLink.channelMetadata ?? {}
           const { deliveryStatus } = parentLink
           const parentInFlight = !parentLink.externalMessageId && (deliveryStatus === 'pending' || deliveryStatus === 'queued')
+          const parentProviderConversationId = stringOrUndefined(parentMetadata.providerConversationId)
           const awaitingThreadRef = isOutboundConversationRef(mapping.externalThreadRef) &&
-            stringOrUndefined(parentMetadata.providerConversationId)
+            parentProviderConversationId && !isOutboundConversationRef(parentProviderConversationId)
           if (parentInFlight || awaitingThreadRef) {
             throw Object.assign(new Error('[internal] Waiting for the parent email to finish sending'), { transient: true })
           }
