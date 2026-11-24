@@ -104,4 +104,77 @@ describe('useInteractions mutation outcomes', () => {
     expect(result.current.isMutating).toBe(false)
     expect(result.current.pendingId).toBeNull()
   })
+
+  it.each(mutations)('preserves the last loaded updatedAt header when a %s conflict refresh removes a deleted interaction', async (_name, mutate) => {
+    const conflict = Object.assign(new Error('record_modified'), { status: 409 })
+    readApiResultOrThrowMock
+      .mockResolvedValueOnce({ items: [interaction] })
+      .mockResolvedValue({ items: [] })
+    apiCallOrThrowMock.mockRejectedValue(conflict)
+    surfaceRecordConflictMock.mockReturnValue(true)
+    const { result } = await renderInteractions()
+
+    await act(async () => {
+      await expect(mutate(result.current)).rejects.toBe(conflict)
+    })
+    expect(result.current.interactions).toEqual([])
+
+    await act(async () => {
+      await expect(mutate(result.current)).rejects.toBe(conflict)
+    })
+
+    expect(withScopedApiRequestHeadersMock).toHaveBeenNthCalledWith(1, {
+      [OPTIMISTIC_LOCK_HEADER_NAME]: interaction.updatedAt,
+    })
+    expect(withScopedApiRequestHeadersMock).toHaveBeenNthCalledWith(2, {
+      [OPTIMISTIC_LOCK_HEADER_NAME]: interaction.updatedAt,
+    })
+  })
+
+  it('refreshes the cached updatedAt after a concurrent edit and clears cached versions when entityId changes', async () => {
+    const updatedInteraction: InteractionSummary = {
+      ...interaction,
+      title: 'Edited elsewhere',
+      updatedAt: '2026-10-22T12:00:00.000Z',
+    }
+    const conflict = Object.assign(new Error('record_modified'), { status: 409 })
+    readApiResultOrThrowMock
+      .mockResolvedValueOnce({ items: [interaction] })
+      .mockResolvedValueOnce({ items: [updatedInteraction] })
+      .mockResolvedValueOnce({ items: [updatedInteraction] })
+      .mockResolvedValueOnce({ items: [] })
+    apiCallOrThrowMock
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+    surfaceRecordConflictMock.mockReturnValueOnce(true)
+
+    const rendered = renderHook(
+      ({ entityId }: { entityId: string | null }) => useInteractions({ entityId, typeFilter: 'task' }),
+      { initialProps: { entityId: 'customer-1' as string | null } },
+    )
+    await waitFor(() => expect(rendered.result.current.interactions).toEqual([interaction]))
+
+    await act(async () => {
+      await expect(rendered.result.current.updateInteraction(interaction.id, { title: 'Retry' })).rejects.toBe(conflict)
+    })
+    await act(async () => {
+      await expect(rendered.result.current.updateInteraction(interaction.id, { title: 'Retry' })).resolves.toBeUndefined()
+    })
+
+    expect(withScopedApiRequestHeadersMock).toHaveBeenNthCalledWith(1, {
+      [OPTIMISTIC_LOCK_HEADER_NAME]: interaction.updatedAt,
+    })
+    expect(withScopedApiRequestHeadersMock).toHaveBeenNthCalledWith(2, {
+      [OPTIMISTIC_LOCK_HEADER_NAME]: updatedInteraction.updatedAt,
+    })
+
+    rendered.rerender({ entityId: 'customer-2' })
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(4))
+
+    await act(async () => {
+      await expect(rendered.result.current.updateInteraction(interaction.id, { title: 'Cross-entity' })).resolves.toBeUndefined()
+    })
+    expect(withScopedApiRequestHeadersMock).toHaveBeenNthCalledWith(3, {})
+  })
 })
