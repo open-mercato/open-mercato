@@ -59,6 +59,27 @@ export type CustomerGroupTermsDTO = {
   updatedAt: string
 }
 
+export type CustomerGroupInheritedTermsField =
+  | 'paymentTermsDays'
+  | 'allowPurchaseOnAccount'
+  | 'approvalRequiredAbove'
+  | 'minOrderValue'
+  | 'termsCurrencyCode'
+  | 'approvalPolicy'
+  | 'allowQuoteRequests'
+  | 'requiresPoNumber'
+
+// What the group resolves to for a field it leaves unset (US-C1), as returned by the
+// terms GET: the parent chain's value, or the tenant default / organization base currency.
+export type CustomerGroupInheritedTermsDTO = Record<
+  CustomerGroupInheritedTermsField,
+  {
+    value: string | number | boolean | null
+    source: 'group' | 'tenant_default' | 'base_currency'
+    sourceGroup: { id: string; code: string; name: string } | null
+  }
+>
+
 // Lock token sent with the first save of a group that has no terms row yet. No real
 // row can carry this `updated_at`, so if another editor created the row meanwhile the
 // route's lock check against that row answers 409 instead of silently overwriting it.
@@ -158,24 +179,29 @@ const TERMS_FIELD_IDS = [
   'termsWarnings',
 ]
 
-// Release 5 (spec §7.3, D-R5-CG4): warnings derived from the values being edited.
-// A threshold on the tenant's default group also applies to guests, who cannot be
-// approved (D-R5-12, D-R5-29); a threshold or minimum without a terms currency falls
-// back to the parent chain and then the organization's base currency (D-R5-37), and
-// without either every cart requires approval and no minimum is checked (D-R5-4).
+// Release 5 (spec §7.3, D-R5-CG4): warnings derived from the effective values — the
+// value being edited, or the inherited one when the field is left unset. A threshold on
+// the tenant's default group also applies to guests, who cannot be approved (D-R5-12,
+// D-R5-29); a threshold or minimum without a terms currency falls back to the parent
+// chain and then the organization's base currency (D-R5-37), and without either every
+// cart requires approval and no minimum is checked (D-R5-4).
 function CustomerGroupTermsWarnings({
   values,
   isDefaultGroup,
+  inherited,
 }: {
   values: Record<string, unknown> | undefined
   isDefaultGroup: boolean
+  inherited: CustomerGroupInheritedTermsDTO | null
 }) {
   const t = useT()
-  const hasApprovalThreshold = !isEmptyAmount(values?.approvalRequiredAbove)
-  const hasMinOrderValue = !isEmptyAmount(values?.minOrderValue)
-  const currency = typeof values?.termsCurrencyCode === 'string' ? values.termsCurrencyCode.trim() : ''
+  const hasApprovalThreshold =
+    !isEmptyAmount(values?.approvalRequiredAbove) || inherited?.approvalRequiredAbove.value != null
+  const hasMinOrderValue = !isEmptyAmount(values?.minOrderValue) || inherited?.minOrderValue.value != null
+  const ownCurrency = typeof values?.termsCurrencyCode === 'string' ? values.termsCurrencyCode.trim() : ''
+  const hasCurrency = ownCurrency.length > 0 || inherited?.termsCurrencyCode.value != null
   const showDefaultGroupWarning = isDefaultGroup && hasApprovalThreshold
-  const showMissingCurrencyWarning = (hasApprovalThreshold || hasMinOrderValue) && currency.length === 0
+  const showMissingCurrencyWarning = (hasApprovalThreshold || hasMinOrderValue) && !hasCurrency
   if (!showDefaultGroupWarning && !showMissingCurrencyWarning) return null
   return (
     <div className="space-y-2">
@@ -189,13 +215,87 @@ function CustomerGroupTermsWarnings({
       ) : null}
       {showMissingCurrencyWarning ? (
         <Alert status="warning" size="sm" data-testid="customer-group-terms-missing-currency-warning">
-          {t(
-            'customer_groups.groups.form.terms.warnings.missingTermsCurrency',
-            'No terms currency is set on this group. The threshold and minimum order value use the currency inherited from a parent group or, failing that, the organization base currency. Without either, every cart requires approval and no minimum order value is checked.',
-          )}
+          {inherited
+            ? t(
+                'customer_groups.groups.form.terms.warnings.unresolvedTermsCurrency',
+                'No terms currency resolves for this group: none is set here, on a parent group or as the organization base currency. Every cart requires approval and no minimum order value is checked.',
+              )
+            : t(
+                'customer_groups.groups.form.terms.warnings.missingTermsCurrency',
+                'No terms currency is set on this group. The threshold and minimum order value use the currency inherited from a parent group or, failing that, the organization base currency. Without either, every cart requires approval and no minimum order value is checked.',
+              )}
         </Alert>
       ) : null}
     </div>
+  )
+}
+
+type Translate = ReturnType<typeof useT>
+
+function formatInheritedValue(
+  field: CustomerGroupInheritedTermsField,
+  value: string | number | boolean | null,
+  t: Translate,
+): string {
+  if (value === null) return t('customer_groups.groups.form.terms.inherited.notSet', 'not set')
+  switch (field) {
+    case 'allowPurchaseOnAccount':
+      return value === true
+        ? t('customer_groups.groups.form.terms.field.allowPurchaseOnAccountOptions.allow', 'Allow')
+        : t('customer_groups.groups.form.terms.field.allowPurchaseOnAccountOptions.deny', 'Do not allow')
+    case 'allowQuoteRequests':
+      return value === true
+        ? t('customer_groups.groups.form.terms.field.allowQuoteRequestsOptions.allow', 'Allow')
+        : t('customer_groups.groups.form.terms.field.allowQuoteRequestsOptions.deny', 'Do not allow')
+    case 'requiresPoNumber':
+      return value === true
+        ? t('customer_groups.groups.form.terms.field.requiresPoNumberOptions.require', 'Require')
+        : t('customer_groups.groups.form.terms.field.requiresPoNumberOptions.notRequired', 'Do not require')
+    case 'approvalPolicy':
+      if (value === 'merchant') return t('customer_groups.groups.form.terms.field.approvalPolicyOptions.merchant', 'Merchant')
+      if (value === 'both') return t('customer_groups.groups.form.terms.field.approvalPolicyOptions.both', 'Buyer and merchant')
+      return t('customer_groups.groups.form.terms.field.approvalPolicyOptions.buyer', 'Buyer')
+    default:
+      return String(value)
+  }
+}
+
+function InheritedTermHint({
+  field,
+  inherited,
+}: {
+  field: CustomerGroupInheritedTermsField
+  inherited: CustomerGroupInheritedTermsDTO
+}) {
+  const t = useT()
+  const entry = inherited[field]
+  const source =
+    entry.source === 'base_currency'
+      ? t('customer_groups.groups.form.terms.inherited.source.baseCurrency', 'organization base currency')
+      : entry.source === 'group' && entry.sourceGroup
+        ? t('customer_groups.groups.form.terms.inherited.source.group', 'from {name}', { name: entry.sourceGroup.name })
+        : t('customer_groups.groups.form.terms.inherited.source.tenantDefault', 'tenant default')
+  return (
+    <span className="block" data-testid={`customer-group-terms-inherited-${field}`}>
+      {t('customer_groups.groups.form.terms.inherited.hint', 'Inherited: {value} ({source})', {
+        value: formatInheritedValue(field, entry.value, t),
+        source,
+      })}
+    </span>
+  )
+}
+
+function withInheritedHint(
+  field: CustomerGroupInheritedTermsField,
+  inherited: CustomerGroupInheritedTermsDTO | null,
+  description?: string,
+): React.ReactNode {
+  if (!inherited) return description
+  return (
+    <>
+      {description ? <span className="block">{description}</span> : null}
+      <InheritedTermHint field={field} inherited={inherited} />
+    </>
   )
 }
 
@@ -234,6 +334,7 @@ export function CustomerGroupTermsSection({
   loadError,
   canManage,
   isDefaultGroup = false,
+  inherited = null,
   onSaved,
 }: {
   groupId: string
@@ -249,6 +350,8 @@ export function CustomerGroupTermsSection({
   canManage: boolean
   // The tenant's default group also resolves guests' terms (spec §7.3 warning).
   isDefaultGroup?: boolean
+  // `null` when unknown: no inherited hints, and the currency warning judges own values only.
+  inherited?: CustomerGroupInheritedTermsDTO | null
   onSaved: (next: CustomerGroupTermsDTO) => void
 }) {
   const t = useT()
@@ -318,6 +421,7 @@ export function CustomerGroupTermsSection({
         label: t('customer_groups.groups.form.terms.field.paymentTermsDays', 'Payment terms (days)'),
         type: 'number',
         layout: 'half',
+        description: withInheritedHint('paymentTermsDays', inherited),
       },
       {
         id: 'allowPurchaseOnAccount',
@@ -325,6 +429,7 @@ export function CustomerGroupTermsSection({
         type: 'select',
         layout: 'half',
         required: true,
+        description: withInheritedHint('allowPurchaseOnAccount', inherited),
         options: [
           {
             value: 'inherit',
@@ -359,12 +464,14 @@ export function CustomerGroupTermsSection({
         label: t('customer_groups.groups.form.terms.field.approvalRequiredAbove', 'Approval required above'),
         type: 'decimal',
         layout: 'half',
+        description: withInheritedHint('approvalRequiredAbove', inherited),
       },
       {
         id: 'minOrderValue',
         label: t('customer_groups.groups.form.terms.field.minOrderValue', 'Minimum order value'),
         type: 'decimal',
         layout: 'half',
+        description: withInheritedHint('minOrderValue', inherited),
       },
       {
         id: 'termsCurrencyCode',
@@ -372,9 +479,13 @@ export function CustomerGroupTermsSection({
         type: 'text',
         layout: 'half',
         placeholder: t('customer_groups.groups.form.terms.field.termsCurrencyCodePlaceholder', 'Inherit (e.g., EUR)'),
-        description: t(
-          'customer_groups.groups.form.terms.field.termsCurrencyCodeHint',
-          'Currency of the approval threshold and the minimum order value. Carts in another currency always require approval.',
+        description: withInheritedHint(
+          'termsCurrencyCode',
+          inherited,
+          t(
+            'customer_groups.groups.form.terms.field.termsCurrencyCodeHint',
+            'Currency of the approval threshold and the minimum order value. Carts in another currency always require approval.',
+          ),
         ),
         maxLength: 3,
       },
@@ -384,9 +495,10 @@ export function CustomerGroupTermsSection({
         type: 'select',
         layout: 'half',
         required: true,
-        description: t(
-          'customer_groups.groups.form.terms.field.approvalPolicyHint',
-          'Who signs a purchase approval request.',
+        description: withInheritedHint(
+          'approvalPolicy',
+          inherited,
+          t('customer_groups.groups.form.terms.field.approvalPolicyHint', 'Who signs a purchase approval request.'),
         ),
         options: [
           { value: 'inherit', label: t('customer_groups.groups.form.terms.field.approvalPolicyOptions.inherit', 'Inherit') },
@@ -401,6 +513,7 @@ export function CustomerGroupTermsSection({
         type: 'select',
         layout: 'half',
         required: true,
+        description: withInheritedHint('allowQuoteRequests', inherited),
         options: [
           { value: 'inherit', label: t('customer_groups.groups.form.terms.field.allowQuoteRequestsOptions.inherit', 'Inherit') },
           { value: 'allow', label: t('customer_groups.groups.form.terms.field.allowQuoteRequestsOptions.allow', 'Allow') },
@@ -413,6 +526,7 @@ export function CustomerGroupTermsSection({
         type: 'select',
         layout: 'half',
         required: true,
+        description: withInheritedHint('requiresPoNumber', inherited),
         options: [
           { value: 'inherit', label: t('customer_groups.groups.form.terms.field.requiresPoNumberOptions.inherit', 'Inherit') },
           { value: 'allow', label: t('customer_groups.groups.form.terms.field.requiresPoNumberOptions.require', 'Require') },
@@ -423,7 +537,7 @@ export function CustomerGroupTermsSection({
         id: 'termsWarnings',
         label: '',
         type: 'custom',
-        component: ({ values }) => <CustomerGroupTermsWarnings values={values} isDefaultGroup={isDefaultGroup} />,
+        component: ({ values }) => <CustomerGroupTermsWarnings values={values} isDefaultGroup={isDefaultGroup} inherited={inherited} />,
       },
       scopePickerField(
         'categoryIds',
@@ -461,7 +575,7 @@ export function CustomerGroupTermsSection({
         !canManage,
       ),
     ],
-    [canManage, isDefaultGroup, t],
+    [canManage, inherited, isDefaultGroup, t],
   )
 
   const groups = React.useMemo<CrudFormGroup[]>(

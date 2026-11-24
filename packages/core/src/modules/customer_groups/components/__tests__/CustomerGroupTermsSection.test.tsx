@@ -7,12 +7,14 @@ import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import {
   CustomerGroupTermsSection,
   TERMS_NOT_YET_CREATED_LOCK_TOKEN,
+  type CustomerGroupInheritedTermsDTO,
   type CustomerGroupTermsDTO,
 } from '../CustomerGroupTermsSection'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/i18n/context'),
-  useT: () => (_key: string, fallback?: string) => fallback ?? _key,
+  useT: () => (_key: string, fallback?: string, params?: Record<string, string>) =>
+    (fallback ?? _key).replace(/\{(\w+)\}/g, (match, name: string) => params?.[name] ?? match),
 }))
 
 type MockCrudFormProps = {
@@ -23,7 +25,12 @@ type MockCrudFormProps = {
   optimisticLockUpdatedAt?: string | null
   initialValues?: Record<string, unknown>
   schema?: { safeParse: (value: unknown) => { success: boolean; data?: Record<string, unknown> } }
-  fields?: Array<{ id: string; type: string; component?: (props: { values?: Record<string, unknown> }) => React.ReactNode }>
+  fields?: Array<{
+    id: string
+    type: string
+    description?: React.ReactNode
+    component?: (props: { values?: Record<string, unknown> }) => React.ReactNode
+  }>
   onSubmit?: (values: Record<string, unknown>) => Promise<void>
 }
 
@@ -74,7 +81,12 @@ const storedTerms: CustomerGroupTermsDTO = {
   updatedAt: '2026-09-02T00:00:00.000Z',
 }
 
-function renderSection(terms: CustomerGroupTermsDTO | null, canManage: boolean, isDefaultGroup = false) {
+function renderSection(
+  terms: CustomerGroupTermsDTO | null,
+  canManage: boolean,
+  isDefaultGroup = false,
+  inherited: CustomerGroupInheritedTermsDTO | null = null,
+) {
   return render(
     <CustomerGroupTermsSection
       groupId="group-1"
@@ -82,6 +94,7 @@ function renderSection(terms: CustomerGroupTermsDTO | null, canManage: boolean, 
       loading={false}
       canManage={canManage}
       isDefaultGroup={isDefaultGroup}
+      inherited={inherited}
       onSaved={() => {}}
     />,
   )
@@ -334,5 +347,79 @@ describe('CustomerGroupTermsSection Release 5 terms', () => {
     unmount()
     renderWarnings({ termsCurrencyCode: '' })
     expect(screen.queryByTestId('customer-group-terms-missing-currency-warning')).toBeNull()
+  })
+})
+
+describe('CustomerGroupTermsSection inherited terms on a child group', () => {
+  const parentGroup = { id: 'parent-1', code: 'parent', name: 'Parent group' }
+  const tenantDefault = { source: 'tenant_default' as const, sourceGroup: null }
+  const parentInherited: CustomerGroupInheritedTermsDTO = {
+    paymentTermsDays: { value: null, ...tenantDefault },
+    allowPurchaseOnAccount: { value: false, ...tenantDefault },
+    approvalRequiredAbove: { value: 500, source: 'group', sourceGroup: parentGroup },
+    minOrderValue: { value: null, ...tenantDefault },
+    termsCurrencyCode: { value: 'EUR', source: 'group', sourceGroup: parentGroup },
+    approvalPolicy: { value: 'merchant', source: 'group', sourceGroup: parentGroup },
+    allowQuoteRequests: { value: false, ...tenantDefault },
+    requiresPoNumber: { value: false, ...tenantDefault },
+  }
+
+  beforeEach(() => {
+    lastFormProps = null
+  })
+
+  function renderFieldDescription(fieldId: string) {
+    const field = (lastFormProps?.fields ?? []).find((entry) => entry.id === fieldId)
+    return render(<>{field?.description}</>)
+  }
+
+  function renderWarnings(values: Record<string, unknown>) {
+    const warningsField = (lastFormProps?.fields ?? []).find((field) => field.id === 'termsWarnings')
+    return render(<>{warningsField?.component?.({ values })}</>)
+  }
+
+  it('shows the inherited approval policy and currency with the parent group as their source', () => {
+    renderSection(null, true, false, parentInherited)
+    fireEvent.click(screen.getByRole('button', { name: 'Set terms for this group' }))
+    renderFieldDescription('approvalPolicy')
+    expect(screen.getByTestId('customer-group-terms-inherited-approvalPolicy').textContent).toBe(
+      'Inherited: Merchant (from Parent group)',
+    )
+    renderFieldDescription('termsCurrencyCode')
+    expect(screen.getByTestId('customer-group-terms-inherited-termsCurrencyCode').textContent).toBe(
+      'Inherited: EUR (from Parent group)',
+    )
+    renderFieldDescription('requiresPoNumber')
+    expect(screen.getByTestId('customer-group-terms-inherited-requiresPoNumber').textContent).toBe(
+      'Inherited: Do not require (tenant default)',
+    )
+  })
+
+  it('names the organization base currency as the source of an inherited currency', () => {
+    renderSection(storedTerms, true, false, {
+      ...parentInherited,
+      termsCurrencyCode: { value: 'PLN', source: 'base_currency', sourceGroup: null },
+    })
+    renderFieldDescription('termsCurrencyCode')
+    expect(screen.getByTestId('customer-group-terms-inherited-termsCurrencyCode').textContent).toBe(
+      'Inherited: PLN (organization base currency)',
+    )
+  })
+
+  it('does not warn about a missing currency when the parent supplies one', () => {
+    renderSection(storedTerms, true, false, parentInherited)
+    renderWarnings({ minOrderValue: '10', termsCurrencyCode: '' })
+    expect(screen.queryByTestId('customer-group-terms-missing-currency-warning')).toBeNull()
+  })
+
+  it('warns when the threshold is inherited and no currency resolves anywhere', () => {
+    renderSection(storedTerms, true, false, {
+      ...parentInherited,
+      termsCurrencyCode: { value: null, ...tenantDefault },
+    })
+    renderWarnings({ termsCurrencyCode: '' })
+    expect(screen.getByTestId('customer-group-terms-missing-currency-warning').textContent).toContain(
+      'No terms currency resolves for this group',
+    )
   })
 })
