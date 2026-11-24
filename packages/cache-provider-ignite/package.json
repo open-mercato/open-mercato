@@ -1,0 +1,64 @@
+{
+  "name": "@open-mercato/cache-provider-ignite",
+  "version": "0.11.0",
+  "license": "MIT",
+  "description": "Apache Ignite 2.x cache provider for the Open Mercato cache service (thin client)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "docker",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "jest --config jest.config.cjs",
+    "test:container": "OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --config jest.config.cjs --runInBand --testPathPatterns container",
+    "qualify": "node scripts/qualify.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "cache",
+    "open-mercato",
+    "cache-provider",
+    "apache-ignite",
+    "ignite"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "@open-mercato/cache": ">=0.11.0"
+  },
+  "dependencies": {
+    "apache-ignite-client": "1.0.0",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@open-mercato/cache": "workspace:*",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.4.0",
+    "esbuild": "^0.28.2",
+    "jest": "^30.4.2",
+    "testcontainers": "^12.0.3",
+    "ts-jest": "^29.4.12",
+    "typescript": "7.0.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/cache-provider-ignite"
+  }
+}
