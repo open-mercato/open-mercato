@@ -747,7 +747,7 @@ function DefaultGridView({
                     key={date}
                     title={weekend ? `${date} · ${weekendLabel}` : date}
                     className={cn(
-                      'py-2 text-center font-medium px-1',
+                      'relative py-2 text-center font-medium px-1',
                       weekend ? 'bg-muted/80 text-muted-foreground' : null,
                     )}
                   >

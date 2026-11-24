@@ -455,6 +455,18 @@ describe('table semantics', () => {
     expect(weekendHeaders).toHaveLength(2)
     expect(weekendHeaders[0]).toHaveTextContent('Weekend day')
   })
+
+  it('contains hidden weekend labels inside the scrolling day headers', () => {
+    renderGrid()
+    const labels = screen.getAllByText('Weekend day')
+    expect(labels).toHaveLength(2)
+    for (const label of labels) {
+      const header = label.closest('th')
+      expect(header).toHaveAccessibleName(/Weekend day/)
+      expect(header).toHaveClass('relative')
+      expect(label).toHaveClass('sr-only')
+    }
+  })
 })
 
 /**
