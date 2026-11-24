@@ -1,0 +1,177 @@
+import { z } from 'zod'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
+import { emitIntegrationsEvent } from '@open-mercato/core/modules/integrations/events'
+import type { IntegrationOAuthGrantService } from '@open-mercato/core/modules/integrations/lib/oauth/grant-service'
+import { withXeroConnectionLock } from './connection-lock'
+import { XERO_INTEGRATION_ID } from './constants'
+import { readGuardedPayload } from './guarded-payload'
+import type { XeroScope } from './owner'
+import { userHoldsFeatures } from './route-auth'
+
+export type DisconnectStepOutcome = 'ok' | 'failed' | 'skipped'
+
+export type DisconnectSteps = {
+  healthCheck: DisconnectStepOutcome
+  disable: DisconnectStepOutcome
+  removeClientCredentials: DisconnectStepOutcome
+}
+
+export type DisconnectStepsResult = { steps: DisconnectSteps; reconnected: boolean }
+
+export const SKIPPED_DISCONNECT_STEPS: DisconnectSteps = { healthCheck: 'skipped', disable: 'skipped', removeClientCredentials: 'skipped' }
+
+const MANAGE_FEATURE = 'integrations.manage'
+
+const followUpGuardPayloadSchema = z.object({ isEnabled: z.boolean().optional(), removeClientCredentials: z.boolean() })
+
+type HealthRunner = { runHealthCheck(integrationId: string, scope: XeroScope): Promise<unknown> }
+type GrantStatusReader = Pick<IntegrationOAuthGrantService, 'readGrantStatus'>
+type StateWriter = {
+  upsert(integrationId: string, input: { isEnabled: boolean }, scope: XeroScope): Promise<{ isEnabled: boolean; reauthRequired: boolean }>
+}
+
+function reportStepFailure(error: unknown, step: keyof DisconnectSteps): void {
+  getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code: `sync_xero.disconnect_${step}_failed` })
+}
+
+async function emitStepEvent(step: keyof DisconnectSteps, emit: () => Promise<void>): Promise<void> {
+  try {
+    await emit()
+  } catch (error) {
+    getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code: `sync_xero.disconnect_${step}_event_failed` })
+  }
+}
+
+async function runStep(step: keyof DisconnectSteps, action: () => Promise<void>): Promise<DisconnectStepOutcome> {
+  try {
+    await action()
+    return 'ok'
+  } catch (error) {
+    reportStepFailure(error, step)
+    return 'failed'
+  }
+}
+
+/**
+ * The follow-up of an erased grant (App Spec US-1.2): one health check so the badge shows the
+ * disconnect, disabling the integration when the admin may (integrations.manage), and removing the
+ * Client ID and Secret on request while keeping every other credential value. A guard's
+ * transformation may skip a step; one that adds a step the admin did not ask for or may not run,
+ * or no longer validates, fails both steps like a block. A failed step never undoes the erase; it
+ * is reported. A step that ran emits the same `integrations.*` event as the core route doing that write.
+ * Disable and the credential removal run under the Xero connection lock, taken again after the erase and only while no grant is
+ * live: when the admin (or another one) reconnected meanwhile, they are skipped and the new
+ * connection keeps its state and Client ID and Secret; an unreadable grant status fails them unwritten.
+ */
+export async function runDisconnectSteps(input: {
+  container: AppContainer
+  req: Request
+  userId: string
+  scope: XeroScope
+  removeClientCredentials: boolean
+}): Promise<DisconnectStepsResult> {
+  const { container, req, userId, scope } = input
+  const healthCheck = await runStep('healthCheck', async () => {
+    await container.resolve<HealthRunner>('integrationHealthService').runHealthCheck(XERO_INTEGRATION_ID, scope)
+  })
+
+  let permissionCheckFailed = false
+  const mayDisable = await userHoldsFeatures(container, userId, [MANAGE_FEATURE], scope).catch((error: unknown) => {
+    reportStepFailure(error, 'disable')
+    permissionCheckFailed = true
+    return false
+  })
+  const withoutDisable: DisconnectStepOutcome = permissionCheckFailed ? 'failed' : 'skipped'
+  if (!mayDisable && !input.removeClientCredentials) {
+    return { steps: { healthCheck, disable: withoutDisable, removeClientCredentials: 'skipped' }, reconnected: false }
+  }
+
+  const payload: z.input<typeof followUpGuardPayloadSchema> = {
+    ...(mayDisable ? { isEnabled: false } : {}),
+    removeClientCredentials: input.removeClientCredentials,
+  }
+  const guard = await runRouteMutationGuards({
+    container,
+    req,
+    auth: { userId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    input: {
+      resourceKind: 'integrations.integration',
+      resourceId: XERO_INTEGRATION_ID,
+      operation: 'update',
+      mutationPayload: payload,
+    },
+  }).catch((error: unknown) => {
+    reportStepFailure(error, 'disable')
+    return null
+  })
+  const guarded = guard?.ok ? readGuardedPayload({ guard, payload, schema: followUpGuardPayloadSchema, fixedKeys: [] }) : null
+  const addsStep =
+    guarded !== null &&
+    ((guarded.isEnabled === false && !mayDisable) || (guarded.removeClientCredentials && !input.removeClientCredentials))
+  if (guard?.ok && (!guarded || addsStep)) {
+    reportStepFailure(new Error('[internal] the integration guard returned an invalid follow-up payload'), 'disable')
+  }
+  if (!guard?.ok || !guarded || addsStep) {
+    return {
+      steps: {
+        healthCheck,
+        disable: mayDisable ? 'failed' : withoutDisable,
+        removeClientCredentials: input.removeClientCredentials ? 'failed' : 'skipped',
+      },
+      reconnected: false,
+    }
+  }
+
+  const runDisable = mayDisable && guarded.isEnabled === false
+  const runRemove = guarded.removeClientCredentials
+  const requested: Pick<DisconnectSteps, 'disable' | 'removeClientCredentials'> = {
+    disable: runDisable ? 'failed' : withoutDisable,
+    removeClientCredentials: runRemove ? 'failed' : 'skipped',
+  }
+  if (!runDisable && !runRemove) return { steps: { healthCheck, ...requested }, reconnected: false }
+
+  const written = await withXeroConnectionLock(container, scope, async (): Promise<typeof requested & { reconnected: boolean }> => {
+    const grantStatus = await container.resolve<GrantStatusReader>('integrationOAuthGrantService').readGrantStatus(XERO_INTEGRATION_ID, scope)
+    if (grantStatus === 'unavailable') {
+      reportStepFailure(new Error('[internal] the Xero grant status was unreadable before the Disconnect follow-ups'), runDisable ? 'disable' : 'removeClientCredentials')
+      return { ...requested, reconnected: false }
+    }
+    if (grantStatus !== null) return { disable: runDisable ? 'skipped' : withoutDisable, removeClientCredentials: 'skipped', reconnected: true }
+    const disable: DisconnectStepOutcome = runDisable
+      ? await runStep('disable', async () => {
+          const state = await container.resolve<StateWriter>('integrationStateService').upsert(XERO_INTEGRATION_ID, { isEnabled: false }, scope)
+          await emitStepEvent('disable', () => emitIntegrationsEvent('integrations.state.updated', {
+            integrationId: XERO_INTEGRATION_ID,
+            isEnabled: state.isEnabled,
+            reauthRequired: state.reauthRequired,
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId,
+          }))
+        })
+      : withoutDisable
+    const removeClientCredentials: DisconnectStepOutcome = runRemove
+      ? await runStep('removeClientCredentials', async () => {
+          const credentialsService = container.resolve<CredentialsService>('integrationCredentialsService')
+          const current = (await credentialsService.getRaw(XERO_INTEGRATION_ID, scope)) ?? {}
+          await credentialsService.save(XERO_INTEGRATION_ID, { ...current, clientId: '', clientSecret: '' }, scope)
+          await emitStepEvent('removeClientCredentials', () => emitIntegrationsEvent('integrations.credentials.updated', {
+            integrationId: XERO_INTEGRATION_ID,
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId,
+          }))
+        })
+      : 'skipped'
+    return { disable, removeClientCredentials, reconnected: false }
+  }).catch((error: unknown) => {
+    reportStepFailure(error, runDisable ? 'disable' : 'removeClientCredentials')
+    return { ...requested, reconnected: false }
+  })
+  const { disable, removeClientCredentials, reconnected } = written
+  if (disable === 'ok' || removeClientCredentials === 'ok') await guard.runAfterSuccess()
+  return { steps: { healthCheck, disable, removeClientCredentials }, reconnected }
+}
