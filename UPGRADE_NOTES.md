@@ -1,5 +1,44 @@
 # Upgrade Notes
 
+## Sales line validators accept snapshot `null`s; quotes take external references (eCommerce Release 5, SA1)
+
+- **Sales line validators** (`packages/core/src/modules/sales/data/validators.ts`):
+  these shared line fields changed from `.optional()` to `.nullable().optional()`,
+  so their inferred TypeScript types gain `| null`: `quantityUnit`,
+  `discountAmountBasis`, `amountsMode`, `productId`, `productVariantId`, `name`,
+  `description`, `comment`, `configuration`, `promotionCode`, `metadata`,
+  `customFieldSetId` and `customFields` (`normalizedUnit` and `uomSnapshot`
+  already accepted `null`). They used to reject `null` with a 400; `null` now
+  means the same as omitting the field. They live in `linePricingSchema` /
+  `lineSharedSchema`, so the change applies to order and quote lines alike.
+  **Module authors:** code that reads these fields from `z.infer` types and
+  assumed "string or undefined" needs to handle `null` as well.
+- **Numeric line fields are unchanged.** `normalizedQuantity`, `unitPriceNet`,
+  `unitPriceGross`, `discountAmount`, `discountPercent`, `taxRate`, `taxAmount`,
+  `totalNetAmount` and `totalGrossAmount` are coerced numbers, so an explicit
+  `null` keeps meaning `0` on every entry point: document creation
+  (`sales.orders.create` / `sales.quotes.create`), the line routes and the
+  per-line and bulk upserts. In a `SalesLineSnapshot`, a numeric `null` means
+  "no value" instead. Pass each snapshot line through the new
+  `omitNullLineNumerics` (`@open-mercato/core/modules/sales/lib/lineSnapshotInput`)
+  before `sales.orders.create` / `sales.quotes.create` to get that meaning:
+  the helper drops those keys, so the field is computed or inherited as if
+  omitted. On an external-amounts order, a dropped required field such as
+  `taxAmount` is then reported as missing.
+- **`quoteCreateSchema`** gains optional `externalReference` and
+  `customerReference` (trimmed, at most 191 characters), the same pair
+  `orderCreateSchema` already has. `sales.quotes.create` and
+  `POST /api/sales/quotes` now write them to the quote; omitted, both stay
+  `null`. `quoteUpdateSchema` (derived from it) gains them too.
+- **Indexes:** `sales_quotes_external_reference_hash_idx` and
+  `sales_orders_external_reference_hash_idx`, hash indexes on
+  `external_reference` for checkout's equality lookup. Hash rather than B-tree
+  because the column is unbounded `text` and the document update path accepts
+  any length: a hash index stores a 4-byte hash, so no existing or future
+  reference can exceed its entry size. Both migrations build the index
+  `CONCURRENTLY` outside a transaction; run `yarn db:migrate` as usual. On a
+  large `sales_orders` table the build takes a while but does not block writes.
+
 ## MFA challenge creation failures deny sign-in (#10456)
 
 Staff sign-in now fails closed with the localized generic login error (`{ ok: false, error }`) when the enabled enterprise MFA service cannot read methods, resolve a registered provider, or create a challenge. Clients must treat that non-successful response as unauthenticated and retry after the service recovers; it contains no access token, refresh token, or authentication cookie, emits `auth.login.failed` instead of `auth.login.success`, and leaves no orphaned challenge rows. Successful MFA and accounts verified to have no active MFA methods retain their existing flows.

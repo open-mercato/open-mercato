@@ -23,6 +23,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
 import { SalesOrder, SalesQuote, SalesShipment, SalesShipmentItem } from '../../data/entities'
 import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
+import { omitNullLineNumerics } from '../../lib/lineSnapshotInput'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -596,5 +597,95 @@ describe.each([
     expect(num(document.grandTotalNetAmount)).toBeCloseTo(100, 4)
     expect(num(document.taxTotalAmount)).toBeCloseTo(20.7, 4)
     expect(num(document.grandTotalGrossAmount)).toBeCloseTo(120.7, 4)
+  })
+})
+
+describe.each([
+  { upsertCommandId: 'sales.orders.lines.upsert', documentIdField: 'orderId' },
+  { upsertCommandId: 'sales.quotes.lines.upsert', documentIdField: 'quoteId' },
+])('$upsertCommandId — clearing the discount of an existing line', ({ upsertCommandId, documentIdField }) => {
+  beforeAll(async () => {
+    await import('../documents')
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).__discountWorld
+  })
+
+  it.each([
+    { label: 'an explicit null discountAmount', discount: { discountAmount: null }, totalNetAmount: 100 },
+    { label: 'an explicit zero discountAmount', discount: { discountAmount: 0 }, totalNetAmount: 100 },
+    { label: 'an omitted discountAmount', discount: {}, totalNetAmount: 90 },
+  ])('writes the line total for $label', async ({ discount, totalNetAmount }) => {
+    setWorld([
+      buildLine({
+        id: EDITED_LINE_ID,
+        quantity: '4',
+        unitPriceNet: '25',
+        unitPriceGross: '25',
+        discountAmount: '10',
+        discountPercent: '0',
+        totalNetAmount: '90',
+        totalGrossAmount: '90',
+      }),
+    ])
+
+    const lines = await runUpsert(
+      {
+        id: EDITED_LINE_ID,
+        [documentIdField]: ORDER_ID,
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        currencyCode: 'USD',
+        kind: 'product',
+        quantity: 4,
+        unitPriceNet: 25,
+        unitPriceGross: 25,
+        discountPercent: 0,
+        taxRate: 0,
+        ...discount,
+      },
+      upsertCommandId,
+    )
+
+    const edited = lines.get(EDITED_LINE_ID)!
+    expect(num(edited.totalNetAmount)).toBeCloseTo(totalNetAmount, 4)
+    expect(num(edited.discountAmount)).toBeCloseTo(100 - totalNetAmount, 4)
+  })
+})
+
+describe.each([
+  { createCommandId: 'sales.orders.create' },
+  { createCommandId: 'sales.quotes.create' },
+])('$createCommandId — a numeric null on a computed line', ({ createCommandId }) => {
+  beforeAll(async () => {
+    await import('../documents')
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).__discountWorld
+  })
+
+  const GROSS_ONLY_LINE = {
+    kind: 'product',
+    lineNumber: 1,
+    name: 'Gross-priced item',
+    currencyCode: 'USD',
+    quantity: 1,
+    unitPriceNet: null,
+    unitPriceGross: 120,
+    taxRate: 20,
+  }
+
+  it('keeps reading an explicit null unit net price as zero', async () => {
+    const [line] = await runDocumentCreate(createCommandId, [GROSS_ONLY_LINE])
+    expect(num(line.unitPriceNet)).toBe(0)
+  })
+
+  it('derives the unit net price from gross once omitNullLineNumerics drops the null', async () => {
+    const [line] = await runDocumentCreate(createCommandId, [omitNullLineNumerics(GROSS_ONLY_LINE)])
+    expect(num(line.unitPriceNet)).toBeCloseTo(100, 4)
+    expect(num(line.totalNetAmount)).toBeCloseTo(100, 4)
+    expect(num(line.totalGrossAmount)).toBeCloseTo(120, 4)
   })
 })
