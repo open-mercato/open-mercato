@@ -11,7 +11,7 @@ import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '.
 import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, buildToolchainStep, containerRuntimeStep, databaseStep, hostGatewayStep, infraUpStep, serviceConfigurationStep, serviceConnectionsStep, buildUpSteps, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
+import { StepBlocked, buildToolchainStep, containerRuntimeStep, databaseStep, envFilesStep, hostGatewayStep, infraUpStep, serviceConfigurationStep, serviceConnectionsStep, buildUpSteps, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
 import { ensureEnvFiles, ensureOpenCodePassword } from '../env-setup.mjs'
 import { describeInfraProblem, devRuntimeArgs, externalDatabaseHost, removeLeftoverComposeResources, resolveUpMode, startInfra } from '../infra.mjs'
 import { detectDockerRuntime, detectWsl, findPortConflicts, findUnhealthyServices, formatInfraProblem, startInfraServices } from '../infra-preflight.mjs'
@@ -919,6 +919,51 @@ test('infraUpStep.check only converges once every container is healthy, not mere
   assert.equal(starting.ok, false)
   assert.deepEqual(ctx.infraMissing, ['postgres'])
   assert.match(starting.detail, /postgres \(starting\)/)
+})
+
+test('starter reconciles a healthy stack once after provisioning OpenCode credentials and stops on a mismatch', async () => {
+  const repoRoot = makeFakeAppRepo()
+  const rootEnv = path.join(repoRoot, '.env')
+  const appEnv = path.join(repoRoot, 'apps', 'mercato', '.env')
+  const calls = []
+  const running = ['postgres', 'redis', 'meilisearch', 'opencode'].map((service) => ({
+    Service: service, State: 'running', Health: 'healthy',
+  }))
+  const ctx = quietCtx({
+    repoRoot,
+    mode: 'hybrid',
+    env: {},
+    runComposeImpl() {
+      calls.push('inspect')
+      return { status: 0, stdout: JSON.stringify(running) }
+    },
+    async startInfraImpl() {
+      calls.push('reconcile')
+      const credential = readEnvValue(rootEnv, 'OPENCODE_PASSWORD')
+      assert.match(credential ?? '', /^[a-f0-9]{64}$/)
+      assert.equal(readEnvValue(appEnv, 'OPENCODE_PASSWORD'), credential)
+      return { ok: true }
+    },
+  })
+  const steps = [envFilesStep, infraUpStep]
+
+  try {
+    assert.deepEqual(await runSteps(steps, ctx), { ok: true })
+    assert.deepEqual(calls, ['inspect', 'reconcile'])
+
+    assert.deepEqual(await runSteps(steps, ctx), { ok: true })
+    assert.deepEqual(calls, ['inspect', 'reconcile', 'inspect'])
+
+    const rootText = fs.readFileSync(rootEnv, 'utf8')
+    setEnvValue(appEnv, 'OPENCODE_PASSWORD', 'different-test-only-secret')
+    const appText = fs.readFileSync(appEnv, 'utf8')
+    assert.deepEqual(await runSteps(steps, ctx), { ok: false, failedStep: 'env-files' })
+    assert.deepEqual(calls, ['inspect', 'reconcile', 'inspect'])
+    assert.equal(fs.readFileSync(rootEnv, 'utf8'), rootText)
+    assert.equal(fs.readFileSync(appEnv, 'utf8'), appText)
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true })
+  }
 })
 
 test('the database step initializes with --skip-if-initialized so a re-run never aborts on existing users', async () => {
