@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createFileMaintenanceStore } from '../lib/store/file'
-import { parseRedisDurability } from '../lib/store/redis'
+import { createRedisMaintenanceStore, parseRedisDurability } from '../lib/store/redis'
+import { waitForRedisReady } from '../lib/store'
 import { createInitialState } from '../lib/state'
 import { mutateState, MaintenanceStateConflictError, MaintenanceStateUnsupportedError } from '../lib/transitions'
 import { makeTempDir } from './helpers'
@@ -53,6 +54,100 @@ describe('file maintenance store', () => {
     expect(records.map((record) => record.processId)).toEqual(['host:1:abc'])
     await store.removeProcess('host:1:abc')
     expect(await store.listProcesses()).toEqual([])
+  })
+})
+
+function createWatchingRedisFake() {
+  let value: string | null = null
+  let watchedSnapshot: string | null | undefined
+  const client = {
+    get: async () => value,
+    set: async () => 'OK',
+    del: async () => 1,
+    watch: async () => {
+      watchedSnapshot = value
+      return 'OK'
+    },
+    unwatch: async () => {
+      watchedSnapshot = undefined
+      return 'OK'
+    },
+    multi: () => {
+      const writes: string[] = []
+      const chain = {
+        set: (_key: string, next: string) => {
+          writes.push(next)
+          return chain
+        },
+        exec: async () => {
+          await new Promise((resolve) => setImmediate(resolve))
+          const conflicted = watchedSnapshot !== undefined && watchedSnapshot !== value
+          watchedSnapshot = undefined
+          if (conflicted) return null
+          for (const next of writes) value = next
+          return writes.map(() => [null, 'OK'] as [Error | null, unknown])
+        },
+      }
+      return chain
+    },
+    scan: async () => ['0', []] as [string, string[]],
+    mget: async () => [],
+    time: async () => ['0', '0'] as [string, string],
+    info: async () => '',
+    config: async () => null,
+    quit: async () => 'OK',
+  }
+  return client
+}
+
+describe('redis maintenance store', () => {
+  it('serializes overlapping compare-and-set calls on one connection so no update is lost', async () => {
+    const store = createRedisMaintenanceStore(createWatchingRedisFake())
+    const base = createInitialState()
+    const results = await Promise.all([
+      store.compareAndSet(0, { ...base, revision: 1, epoch: 1 }),
+      store.compareAndSet(0, { ...base, revision: 1, epoch: 2 }),
+    ])
+    expect(results.sort()).toEqual([false, true])
+    const read = await store.readState()
+    expect(read.kind === 'ok' && read.state.revision).toBe(1)
+  })
+
+  it('waits for the connection to become ready before resolving', async () => {
+    const listeners = new Map<string, (error?: Error) => void>()
+    const client = {
+      ...createWatchingRedisFake(),
+      status: 'connecting',
+      once: (event: string, listener: (error?: Error) => void) => listeners.set(event, listener),
+      off: (event: string) => listeners.delete(event),
+      disconnect: jest.fn(),
+    }
+    let settled = false
+    const waiting = waitForRedisReady(client, 1000).then(() => {
+      settled = true
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(settled).toBe(false)
+    listeners.get('ready')?.()
+    await waiting
+    expect(settled).toBe(true)
+    expect(listeners.size).toBe(0)
+  })
+
+  it('rejects and disconnects when the connection fails before it is ready', async () => {
+    const listeners = new Map<string, (error?: Error) => void>()
+    const disconnect = jest.fn()
+    const client = {
+      ...createWatchingRedisFake(),
+      status: 'connecting',
+      once: (event: string, listener: (error?: Error) => void) => listeners.set(event, listener),
+      off: (event: string) => listeners.delete(event),
+      disconnect,
+    }
+    const waiting = waitForRedisReady(client, 1000)
+    listeners.get('error')?.(new Error('ECONNREFUSED'))
+    await expect(waiting).rejects.toThrow('ECONNREFUSED')
+    expect(disconnect).toHaveBeenCalledTimes(1)
   })
 })
 

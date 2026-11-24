@@ -163,7 +163,9 @@ export function createMaintenanceCoordinator(deps: CoordinatorDeps): Maintenance
         if (!durable) throw new MaintenanceStoreNotDurableError()
         if (!expected) throw new MaintenanceInventoryMissingError()
         if (!store.multiHost) {
-          const hosts = new Set((await store.listProcesses()).map((record) => record.host))
+          const [records, storeNow] = await Promise.all([store.listProcesses(), store.now()])
+          const live = records.filter((record) => !isHeartbeatStale(record.heartbeatAt, storeNow, deps.config.heartbeatMs))
+          const hosts = new Set(live.map((record) => record.host))
           hosts.delete(host)
           if (hosts.size > 0) throw new MaintenanceWriterFenceUnavailableError()
         }

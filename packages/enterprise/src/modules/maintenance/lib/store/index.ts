@@ -12,7 +12,49 @@ export function resolveMaintenanceRedisUrl(env: NodeJS.ProcessEnv = process.env)
   return env.MAINTENANCE_REDIS_URL || getRedisUrl('QUEUE') || getRedisUrl('CACHE') || null
 }
 
-type RedisConstructor = new (options: Record<string, unknown>) => RedisLike
+type ConnectingRedis = RedisLike & {
+  status?: string
+  once?(event: 'ready' | 'error' | 'end', listener: (error?: Error) => void): unknown
+  off?(event: 'ready' | 'error' | 'end', listener: (error?: Error) => void): unknown
+  disconnect?(): void
+}
+
+type RedisConstructor = new (options: Record<string, unknown>) => ConnectingRedis
+
+const REDIS_READY_TIMEOUT_MS = 5000
+
+/**
+ * The client runs without an offline queue so a dead Redis fails fast, which also means any
+ * command sent before the connection is ready is rejected. Wait for `ready` before handing out
+ * the store so the first state read and heartbeat do not fail spuriously.
+ */
+export async function waitForRedisReady(client: ConnectingRedis, timeoutMs: number = REDIS_READY_TIMEOUT_MS): Promise<void> {
+  if (client.status === undefined || client.status === 'ready') return
+  if (typeof client.once !== 'function') return
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer)
+      client.off?.('ready', onReady)
+      client.off?.('error', onError)
+      client.off?.('end', onEnd)
+    }
+    const fail = (error: Error) => {
+      cleanup()
+      client.disconnect?.()
+      reject(error)
+    }
+    const onReady = () => {
+      cleanup()
+      resolve()
+    }
+    const onError = (error?: Error) => fail(error ?? new Error('[internal] Maintenance Redis connection failed'))
+    const onEnd = () => fail(new Error('[internal] Maintenance Redis connection closed before it became ready'))
+    const timer = setTimeout(() => fail(new Error('[internal] Timed out connecting to the maintenance Redis store')), timeoutMs)
+    client.once!('ready', onReady)
+    client.once!('error', onError)
+    client.once!('end', onEnd)
+  })
+}
 
 function loadRedisConstructor(): RedisConstructor {
   const loaded = createRequire(`${process.cwd()}/package.json`)('ioredis') as {
@@ -38,6 +80,7 @@ export async function createMaintenanceStore(config: MaintenanceConfig, env: Nod
     enableOfflineQueue: false,
     connectTimeout: 2000,
   })
+  await waitForRedisReady(client)
   return createRedisMaintenanceStore(client, {
     assumeDurable: parseBooleanWithDefault(env.OM_MAINTENANCE_REDIS_ASSUME_DURABLE, false),
   })

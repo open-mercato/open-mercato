@@ -51,25 +51,33 @@ export function createRedisMaintenanceStore(
     return result.kind === 'ok' ? { kind: 'ok', state: result.state } : result
   }
 
+  async function watchedCompareAndSet(expectedRevision: number, next: MaintenanceStateV1): Promise<boolean> {
+    await client.watch(MAINTENANCE_STATE_KEY)
+    try {
+      const current = await readState()
+      const currentRevision = current.kind === 'ok' ? current.state.revision : current.kind === 'missing' ? 0 : -1
+      if (currentRevision !== expectedRevision) {
+        await client.unwatch()
+        return false
+      }
+      const result = await client.multi().set(MAINTENANCE_STATE_KEY, JSON.stringify(next)).exec()
+      return result !== null
+    } catch (error) {
+      await client.unwatch().catch(() => {})
+      throw error
+    }
+  }
+
+  let compareAndSetQueue: Promise<unknown> = Promise.resolve()
+
   return {
     kind: 'redis',
     multiHost: true,
     readState,
-    async compareAndSet(expectedRevision: number, next: MaintenanceStateV1): Promise<boolean> {
-      await client.watch(MAINTENANCE_STATE_KEY)
-      try {
-        const current = await readState()
-        const currentRevision = current.kind === 'ok' ? current.state.revision : current.kind === 'missing' ? 0 : -1
-        if (currentRevision !== expectedRevision) {
-          await client.unwatch()
-          return false
-        }
-        const result = await client.multi().set(MAINTENANCE_STATE_KEY, JSON.stringify(next)).exec()
-        return result !== null
-      } catch (error) {
-        await client.unwatch().catch(() => {})
-        throw error
-      }
+    compareAndSet(expectedRevision: number, next: MaintenanceStateV1): Promise<boolean> {
+      const run = compareAndSetQueue.then(() => watchedCompareAndSet(expectedRevision, next))
+      compareAndSetQueue = run.catch(() => undefined)
+      return run
     },
     async writeProcess(record: MaintenanceProcessRecord, ttlMs: number): Promise<void> {
       await client.set(`${MAINTENANCE_PROCESS_KEY_PREFIX}${record.processId}`, JSON.stringify(record), 'PX', Math.max(1000, Math.floor(ttlMs)))

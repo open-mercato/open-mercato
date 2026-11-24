@@ -64,6 +64,19 @@ describe('maintenance coordinator holds', () => {
     await expect(coordinator.acquireHold(holdInput)).rejects.toBeInstanceOf(MaintenanceWriterFenceUnavailableError)
   })
 
+  it('ignores stale records left by a previous host (for example a recreated container) on the file store', async () => {
+    const { coordinator, store } = setup()
+    await coordinator.enter({ operation: 'test' })
+    await store.writeProcess(processRecord({ processId: 'old', host: 'old-container', heartbeatAt: new Date(Date.now() - 60_000).toISOString() }), 1000)
+    let caught: unknown
+    try {
+      await coordinator.acquireHold(holdInput)
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).not.toBeInstanceOf(MaintenanceWriterFenceUnavailableError)
+  })
+
   it('times out when a writer never acknowledges the new revision, releasing only its own reservation', async () => {
     const { coordinator, store } = setup()
     const { windowId } = await coordinator.enter({ operation: 'test' })
