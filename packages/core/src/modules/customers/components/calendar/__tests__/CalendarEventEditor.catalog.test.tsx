@@ -3,8 +3,10 @@
 import * as React from 'react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
-import { calendarEventTypes } from '../../../calendar-event-types'
+import { calendarEventTypes, type CalendarEventTypePanelProps } from '../../../calendar-event-types'
+import { findConflicts } from '../../../lib/calendar/conflicts'
 import type { ScopedCalendarEventType } from '../../../lib/calendar/eventTypeResolver'
+import { mapInteractionToCalendarItem } from '../../../lib/calendar/mapItem'
 import { buildCalendarItem } from './fixtures'
 import * as timezoneHelpers from '../../../lib/calendar/timezone'
 
@@ -12,6 +14,7 @@ const crudPropsMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const confirmMock = jest.fn()
 const groupSetValueMock = jest.fn()
+const fetchCalendarCandidatesMock = jest.fn()
 let renderGroups = false
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
@@ -48,7 +51,18 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   },
 }))
 
-jest.mock('../editor/EventTypePanel', () => ({ EventTypePanel: () => <div data-testid="type-panel" /> }))
+jest.mock('../editor/EventTypePanel', () => ({
+  EventTypePanel: ({ definition, capabilities, setValue }: CalendarEventTypePanelProps) => (
+    <div data-testid="type-panel">
+      {capabilities.resourcesEnabled && definition.behavior.fields.resources ? (
+        <button type="button" onClick={() => setValue('resources', [])}>Remove resource</button>
+      ) : null}
+    </div>
+  ),
+}))
+jest.mock('../useCalendarItems', () => ({
+  fetchCalendarCandidates: (...args: unknown[]) => fetchCalendarCandidatesMock(...args),
+}))
 
 const visitType: ScopedCalendarEventType = {
   ...calendarEventTypes[0]!,
@@ -89,7 +103,51 @@ describe('CalendarEventEditor catalog host', () => {
     apiCallOrThrowMock.mockReset()
     confirmMock.mockReset()
     groupSetValueMock.mockReset()
+    fetchCalendarCandidatesMock.mockReset().mockResolvedValue({ payloads: [] })
     catalogState = { status: 'ready', items: [visitType] }
+  })
+
+  it.each([
+    { reason: 'the event type hides the picker', resourcesEnabled: true, typeAllowsResources: false, switchType: false },
+    { reason: 'the resources module is unavailable', resourcesEnabled: false, typeAllowsResources: true, switchType: false },
+    { reason: 'a type switch hides the picker after an unsaved removal', resourcesEnabled: true, typeAllowsResources: true, switchType: true },
+  ])('matches the grid for retained resources when $reason', async ({ resourcesEnabled, typeAllowsResources, switchType }) => {
+    renderGroups = true
+    const editableType = {
+      ...meetingType,
+      behavior: { ...meetingType.behavior, fields: { ...meetingType.behavior.fields, resources: typeAllowsResources } },
+    }
+    const note = calendarEventTypes.find((type) => type.key === 'note')!
+    const hiddenType = { ...meetingType, ...note, behavior: { ...note.behavior, fields: { ...note.behavior.fields, resources: false } } }
+    catalogState = { status: 'ready', items: [editableType, hiddenType] }
+    const interaction = {
+      id: 'retained-booking',
+      interactionType: 'meeting',
+      title: 'Retained booking',
+      status: 'planned',
+      scheduledAt: '2026-08-10T12:00:00.000Z',
+      timezone: 'UTC',
+      linkedEntities: [{ id: 'room-1', type: 'resource', label: 'Boardroom' }],
+    }
+    const overlapping = { ...interaction, id: 'other-booking', title: 'Overlapping booking', scheduledAt: '2026-08-10T12:15:00.000Z' }
+    const item = mapInteractionToCalendarItem(interaction, {})!
+    const other = mapInteractionToCalendarItem(overlapping, {})!
+    fetchCalendarCandidatesMock.mockResolvedValue({ payloads: [interaction, overlapping] })
+
+    expect(findConflicts([item, other]).get(item.id)).toEqual([other.id])
+    renderWithProviders(
+      <CalendarEventEditor open mode="edit" item={item} resourcesEnabled={resourcesEnabled} onOpenChange={() => {}} onSaved={() => {}} />,
+    )
+
+    const warning = /Overlapping booking \(Boardroom\)/
+    if (switchType) {
+      await screen.findByText(warning)
+      fireEvent.click(screen.getByRole('button', { name: 'Remove resource' }))
+      await waitFor(() => expect(screen.queryByText(warning)).not.toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: 'Note', exact: true }))
+    }
+
+    expect(await screen.findByText(warning)).toBeInTheDocument()
   })
 
   it('builds selected-type fields in the module and keeps the shared CrudForm generic', async () => {
