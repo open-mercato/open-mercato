@@ -88,6 +88,31 @@ describe('aws elasticache settings', () => {
 })
 
 describe('ElastiCache IAM token signing', () => {
+  it('matches a fixed known-answer vector so canonicalization drift is caught', async () => {
+    const vector = {
+      userId: 'test-user',
+      replicationGroupId: 'test-group',
+      region: 'us-east-1',
+      credentials: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+      signingDate: new Date('2015-08-30T12:36:00.000Z'),
+    }
+    expect(await createElastiCacheIamToken(vector)).toBe(
+      'test-group/?Action=connect&User=test-user&X-Amz-Algorithm=AWS4-HMAC-SHA256'
+        + '&X-Amz-Credential=AKIDEXAMPLE%2F20150830%2Fus-east-1%2Felasticache%2Faws4_request'
+        + '&X-Amz-Date=20150830T123600Z&X-Amz-Expires=900'
+        + '&X-Amz-Signature=994bc16a7ce5da8404c7b413840df3626c9341ceb3457cea8921b54f59f3e999'
+        + '&X-Amz-SignedHeaders=host',
+    )
+    expect(await createElastiCacheIamToken({ ...vector, credentials: { ...vector.credentials, sessionToken: 'session/token+value==' } })).toBe(
+      'test-group/?Action=connect&User=test-user&X-Amz-Algorithm=AWS4-HMAC-SHA256'
+        + '&X-Amz-Credential=AKIDEXAMPLE%2F20150830%2Fus-east-1%2Felasticache%2Faws4_request'
+        + '&X-Amz-Date=20150830T123600Z&X-Amz-Expires=900'
+        + '&X-Amz-Security-Token=session%2Ftoken%2Bvalue%3D%3D'
+        + '&X-Amz-Signature=d6d3b0c2d0be93e469638bb9df92700ba6fbc37cb9db3ac561da87885584468b'
+        + '&X-Amz-SignedHeaders=host',
+    )
+  })
+
   it('produces a deterministic SigV4 presigned connect token for fake credentials and a fixed clock', async () => {
     const input = { userId: 'om-cache', replicationGroupId: 'om-cache-rg', region: 'eu-west-1', credentials: FAKE, signingDate: SIGNING_DATE }
     const token = await createElastiCacheIamToken(input)
