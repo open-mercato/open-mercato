@@ -386,7 +386,7 @@ describe('customers.deals.update stage transitions', () => {
       expect(existingDeal.status).toBe(status)
       expect(existingDeal.closureOutcome).toBe(closureOutcome)
       expect(existingDeal.pipelineStageId).toBe(terminalStageId)
-      expect(existingDeal.pipelineStage).toBe(terminalStageLabel)
+      expect(existingDeal.pipelineStage).toBe(terminalStageLabel.toLowerCase())
       expect(existingDeal.lossReasonId).toBe(lossReasonId ?? null)
       expect(em.persist).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -515,7 +515,7 @@ describe('customers.deals.update stage transitions', () => {
       expect(existingDeal.status).toBe(status)
       expect(existingDeal.closureOutcome).toBe(closureOutcome)
       expect(existingDeal.pipelineStageId).toBe(terminalStageId)
-      expect(existingDeal.pipelineStage).toBe(terminalStageLabel)
+      expect(existingDeal.pipelineStage).toBe(terminalStageLabel.toLowerCase())
       expect(em.persist).toHaveBeenCalledWith(
         expect.objectContaining({
           stageId: terminalStageId,

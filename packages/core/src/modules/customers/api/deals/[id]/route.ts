@@ -34,6 +34,7 @@ import {
 } from '@open-mercato/shared/lib/crud/cache'
 import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { isMissingDealStageTransitionTable, warnMissingDealStageTransitionTable } from '../../../lib/dealStageTransitionTable'
+import { findDefaultPipelineStage } from '../../../lib/dictionaryDefaults'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
@@ -321,7 +322,11 @@ async function resolveEffectivePipelineStage(
     decryptionScope,
   )
 
-  const matchingStages = scopedStages.filter((stage) => normalizeStageLabel(stage.label) === normalizedStageLabel)
+  const exactMatches = scopedStages.filter((stage) => normalizeStageLabel(stage.label) === normalizedStageLabel)
+  const defaultStage = findDefaultPipelineStage(normalizedStageLabel)
+  const matchingStages = exactMatches.length || !defaultStage
+    ? exactMatches
+    : scopedStages.filter((stage) => findDefaultPipelineStage(stage.label)?.value === defaultStage.value)
   if (matchingStages.length === 1) return matchingStages[0] ?? null
   if (matchingStages.length > 1) {
     const distinctPipelineIds = new Set(matchingStages.map((stage) => stage.pipelineId))

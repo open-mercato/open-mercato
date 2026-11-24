@@ -19,6 +19,7 @@ import {
   CustomerDealPersonLink,
   CustomerDealCompanyLink,
   CustomerDealStageTransition,
+  CustomerDictionaryEntry,
   CustomerPipeline,
   CustomerPipelineStage,
 } from '../data/entities'
@@ -58,6 +59,7 @@ import {
   type PipelineStageSnapshot,
 } from '../lib/closureStage'
 import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
+import { findDefaultPipelineStage } from '../lib/dictionaryDefaults'
 import { resolveStageDefaultProbability } from '../lib/stageDefaultProbability'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { decimalToString, parseDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
@@ -155,20 +157,35 @@ function resolveRequestedClosureOutcome(input: DealUpdateInput): DealClosureOutc
 
 async function resolvePipelineStageValue(
   em: EntityManager,
-  pipelineStageId: string,
-  tenantId: string,
-  organizationId: string,
-  createdDictionaryKinds?: Set<string>,
-): Promise<string | null> {
-  const stage = await loadPipelineStageSnapshot(em, pipelineStageId, tenantId, organizationId)
-  if (!stage) return null
+  label: string,
+  scope: { tenantId: string; organizationId: string },
+  createdDictionaryKinds: Set<string>,
+): Promise<string> {
+  const defaultStage = findDefaultPipelineStage(label)
+  const value = defaultStage?.value ?? label
   const entry = await ensureDictionaryEntry(em, {
-    tenantId,
-    organizationId,
+    ...scope,
     kind: 'pipeline_stage',
-    value: stage.label,
+    value,
+    label: defaultStage?.label ?? label,
   }, createdDictionaryKinds)
-  return entry?.value ?? stage.label
+  return entry?.value ?? value
+}
+
+async function resolveLegacyPipelineStageValue(
+  em: EntityManager,
+  stage: string | null | undefined,
+  { tenantId, organizationId }: { tenantId: string; organizationId: string },
+): Promise<string | null> {
+  const defaultStage = stage == null ? undefined : findDefaultPipelineStage(stage)
+  if (!defaultStage) return stage ?? null
+  const scope = { tenantId, organizationId }
+  const entry = await findOneWithDecryption(em, CustomerDictionaryEntry, {
+    ...scope,
+    kind: 'pipeline_stage',
+    normalizedValue: defaultStage.value,
+  }, undefined, scope)
+  return entry?.value ?? defaultStage.value
 }
 
 async function resolvePipelineAssignment(em: EntityManager, input: {
@@ -599,7 +616,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       pipelineId: null,
       pipelineStageId: null,
     }
-    let resolvedPipelineStageLabel: string | null = null
+    let pipelineStageValue: string | null = null
     let stageDefaultProbability: number | null = null
     const createdDictionaryKinds = new Set<string>()
     await withAtomicFlush(em, [
@@ -614,14 +631,12 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           pipelineStageId: parsed.pipelineStageId,
           stageSnapshot,
         })
-        resolvedPipelineStageLabel = stageSnapshot
-          ? (await ensureDictionaryEntry(em, {
+        pipelineStageValue = stageSnapshot
+          ? await resolvePipelineStageValue(em, stageSnapshot.label, {
             tenantId: parsed.tenantId,
             organizationId: parsed.organizationId,
-            kind: 'pipeline_stage',
-            value: stageSnapshot.label,
-          }, createdDictionaryKinds))?.value ?? stageSnapshot.label
-          : parsed.pipelineStage ?? null
+          }, createdDictionaryKinds)
+          : await resolveLegacyPipelineStageValue(em, parsed.pipelineStage, parsed)
         stageDefaultProbability = pipelineAssignment.pipelineStageId && parsed.probability === undefined
           ? await resolveStageDefaultProbability(em, {
             stageId: pipelineAssignment.pipelineStageId,
@@ -637,7 +652,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           title: parsed.title,
           description: parsed.description ?? null,
           status: parsed.status ?? 'open',
-          pipelineStage: resolvedPipelineStageLabel,
+          pipelineStage: pipelineStageValue,
           pipelineId: pipelineAssignment.pipelineId,
           pipelineStageId: pipelineAssignment.pipelineStageId,
           valueAmount: toNumericString(parsed.valueAmountExact ?? parsed.valueAmount),
@@ -745,7 +760,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
         title: after.deal.title,
         description: after.deal.description,
         status: after.deal.status,
-        pipelineStage: after.deal.pipelineStage,
+        pipelineStage: await resolveLegacyPipelineStageValue(em, after.deal.pipelineStage, after.deal),
         pipelineId: after.deal.pipelineId,
         pipelineStageId: await resolveRestorablePipelineStageId(
           em,
@@ -832,8 +847,8 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       pipelineId: record.pipelineId ?? null,
       pipelineStageId: record.pipelineStageId ?? null,
     }
-    let nextPipelineStageLabel: string | null = null
-    let resolvedCurrentPipelineStageLabel: string | null = null
+    let nextPipelineStageValue: string | null = null
+    let requestedPipelineStageValue: string | null | undefined
     let pipelineStageAssignmentChanged = false
     let stageDefaultProbability: number | null = null
     let requestedClosureOutcome: DealClosureOutcome | null = null
@@ -893,18 +908,15 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
               stageSnapshot: nextStageSnapshot,
             })
           }
-          nextPipelineStageLabel = nextStageSnapshot
-            ? (await ensureDictionaryEntry(em, {
+          nextPipelineStageValue = nextStageSnapshot
+            ? await resolvePipelineStageValue(em, nextStageSnapshot.label, {
               tenantId: record.tenantId,
               organizationId: record.organizationId,
-              kind: 'pipeline_stage',
-              value: nextStageSnapshot.label,
-            }, createdDictionaryKinds))?.value ?? nextStageSnapshot.label
+            }, createdDictionaryKinds)
             : null
-          resolvedCurrentPipelineStageLabel =
-            !nextStageSnapshot && record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)
-              ? await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId, createdDictionaryKinds)
-              : null
+          if (parsed.pipelineStage !== undefined) {
+            requestedPipelineStageValue = await resolveLegacyPipelineStageValue(em, parsed.pipelineStage, record)
+          }
           const enteredStageId =
             pipelineStageAssignmentChanged && nextPipelineAssignment.pipelineStageId !== previousPipelineStageId
               ? nextPipelineAssignment.pipelineStageId
@@ -921,16 +933,14 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           if (parsed.title !== undefined) record.title = parsed.title
           if (parsed.description !== undefined) record.description = parsed.description ?? null
           if (parsed.status !== undefined) record.status = parsed.status ?? record.status
-          if (parsed.pipelineStage !== undefined) record.pipelineStage = parsed.pipelineStage ?? null
+          if (requestedPipelineStageValue !== undefined) record.pipelineStage = requestedPipelineStageValue
           if (parsed.pipelineId !== undefined || (pipelineStageAssignmentChanged && nextStageSnapshot)) {
             record.pipelineId = nextPipelineAssignment.pipelineId
           }
           if (pipelineStageAssignmentChanged) record.pipelineStageId = nextPipelineAssignment.pipelineStageId
 
-          if (nextPipelineStageLabel && (pipelineStageAssignmentChanged || !record.pipelineStage)) {
-            record.pipelineStage = nextPipelineStageLabel
-          } else if (resolvedCurrentPipelineStageLabel && (pipelineStageAssignmentChanged || !record.pipelineStage)) {
-            record.pipelineStage = resolvedCurrentPipelineStageLabel
+          if (nextPipelineStageValue && (pipelineStageAssignmentChanged || !record.pipelineStage)) {
+            record.pipelineStage = nextPipelineStageValue
           }
 
           if (parsed.valueAmount !== undefined) record.valueAmount = toNumericString(parsed.valueAmountExact ?? parsed.valueAmount)
@@ -988,7 +998,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             deal: record,
             pipelineId: snapshot.pipelineId,
             stageId: snapshot.id,
-            stageLabel: nextPipelineStageLabel ?? snapshot.label,
+            stageLabel: snapshot.label,
             stageOrder: snapshot.order,
             transitionedByUserId: normalizedTransitionAuthorUserId,
           })
@@ -1074,6 +1084,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       ? await loadPipelineStageSnapshot(em, before.deal.pipelineStageId, before.deal.tenantId, before.deal.organizationId)
       : null
     const restoredPipelineStageId = revertedStageSnapshot ? before.deal.pipelineStageId : null
+    const restoredPipelineStageValue = await resolveLegacyPipelineStageValue(em, before.deal.pipelineStage, before.deal)
     let deal = await findOneWithDecryption(em, CustomerDeal, { id: before.deal.id })
     if (!deal) {
       deal = em.create(CustomerDeal, {
@@ -1083,7 +1094,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         title: before.deal.title,
         description: before.deal.description,
         status: before.deal.status,
-        pipelineStage: before.deal.pipelineStage,
+        pipelineStage: restoredPipelineStageValue,
         pipelineId: before.deal.pipelineId,
         pipelineStageId: restoredPipelineStageId,
         valueAmount: before.deal.valueAmount,
@@ -1112,7 +1123,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         deal.title = before.deal.title
         deal.description = before.deal.description
         deal.status = before.deal.status
-        deal.pipelineStage = before.deal.pipelineStage
+        deal.pipelineStage = restoredPipelineStageValue
         deal.pipelineId = before.deal.pipelineId
         deal.pipelineStageId = restoredPipelineStageId
         deal.valueAmount = before.deal.valueAmount
@@ -1251,7 +1262,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           title: before.deal.title,
           description: before.deal.description,
           status: before.deal.status,
-          pipelineStage: before.deal.pipelineStage,
+          pipelineStage: await resolveLegacyPipelineStageValue(em, before.deal.pipelineStage, before.deal),
           pipelineId: before.deal.pipelineId,
           pipelineStageId: await resolveRestorablePipelineStageId(
             em,

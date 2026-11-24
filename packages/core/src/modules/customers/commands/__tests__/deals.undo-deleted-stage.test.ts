@@ -31,7 +31,7 @@ const LIVE_STAGE_ID = '550e8400-e29b-41d4-a716-446655440bbb'
 const CURRENT_STAGE_ID = '550e8400-e29b-41d4-a716-446655440ccc'
 
 const liveStages = new Map([
-  [LIVE_STAGE_ID, { id: LIVE_STAGE_ID, pipelineId: PIPELINE_ID, label: 'Proposal', order: 2 }],
+  [LIVE_STAGE_ID, { id: LIVE_STAGE_ID, pipelineId: PIPELINE_ID, label: 'Marketing Qualified Lead', order: 2 }],
   [CURRENT_STAGE_ID, { id: CURRENT_STAGE_ID, pipelineId: PIPELINE_ID, label: 'Negotiation', order: 3 }],
 ])
 
@@ -203,15 +203,16 @@ describe('deal undo/redo with a since-deleted pipeline stage', () => {
   it('update undo still restores a stage that exists and records the revert transition', async () => {
     const deal = makeDeal()
     const em = makeEm(deal)
-    const before = dealSnapshot(LIVE_STAGE_ID, 'Proposal')
+    const before = dealSnapshot(LIVE_STAGE_ID, 'Marketing Qualified Lead')
     const after = dealSnapshot(CURRENT_STAGE_ID, 'Negotiation')
 
     await handler('customers.deals.update').undo!(replayParams(em, { resourceId: DEAL_ID, commandPayload: { undo: { before, after } } }))
 
     expect(deal.pipelineStageId).toBe(LIVE_STAGE_ID)
     expect(deal.pipelineId).toBe(PIPELINE_ID)
+    expect(deal.pipelineStage).toBe('marketing_qualified_lead')
     expect(createdOf(em, CustomerDealStageTransition)).toEqual([
-      expect.objectContaining({ stageId: LIVE_STAGE_ID, pipelineId: PIPELINE_ID, stageLabel: 'Proposal', stageOrder: 2 }),
+      expect.objectContaining({ stageId: LIVE_STAGE_ID, pipelineId: PIPELINE_ID, stageLabel: 'Marketing Qualified Lead', stageOrder: 2 }),
     ])
   })
 
@@ -239,12 +240,12 @@ describe('deal undo/redo with a since-deleted pipeline stage', () => {
 
   it('create redo keeps a stage id that still exists', async () => {
     const em = makeEm(null)
-    const after = dealSnapshot(LIVE_STAGE_ID, 'Proposal')
+    const after = dealSnapshot(LIVE_STAGE_ID, 'Marketing Qualified Lead')
 
     await handler('customers.deals.create').redo!(replayParams(em, { resourceId: DEAL_ID, commandPayload: { undo: { after } } }))
 
     const [created] = createdOf(em, CustomerDeal)
-    expect(created).toEqual(expect.objectContaining({ pipelineStageId: LIVE_STAGE_ID }))
+    expect(created).toEqual(expect.objectContaining({ pipelineStageId: LIVE_STAGE_ID, pipelineStage: 'marketing_qualified_lead' }))
   })
 
   it('delete undo does not write a deleted stage id onto the restored deal', async () => {
@@ -259,11 +260,11 @@ describe('deal undo/redo with a since-deleted pipeline stage', () => {
 
   it('delete undo keeps a stage id that still exists', async () => {
     const em = makeEm(null)
-    const before = dealSnapshot(LIVE_STAGE_ID, 'Proposal')
+    const before = dealSnapshot(LIVE_STAGE_ID, 'Marketing Qualified Lead')
 
     await handler('customers.deals.delete').undo!(replayParams(em, { resourceId: DEAL_ID, commandPayload: { undo: { before } } }))
 
     const [created] = createdOf(em, CustomerDeal)
-    expect(created).toEqual(expect.objectContaining({ pipelineStageId: LIVE_STAGE_ID }))
+    expect(created).toEqual(expect.objectContaining({ pipelineStageId: LIVE_STAGE_ID, pipelineStage: 'marketing_qualified_lead' }))
   })
 })
