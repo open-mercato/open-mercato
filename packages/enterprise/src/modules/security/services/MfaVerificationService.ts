@@ -28,6 +28,8 @@ type ChallengeCreationResult = {
 
 export type MfaVerificationAuthScope = {
   userId: string
+  tenantId?: string | null
+  sessionId?: string | null
 }
 
 export class MfaVerificationServiceError extends Error {
@@ -40,6 +42,8 @@ export class MfaVerificationServiceError extends Error {
     this.name = 'MfaVerificationServiceError'
   }
 }
+
+class SignInReceiptWriteError extends Error {}
 
 export class MfaVerificationService {
   constructor(
@@ -86,14 +90,17 @@ export class MfaVerificationService {
     if (signIn && signIn.tenantId === challengeData.tenantId && signIn.userId === userId) {
       try {
         const challengeId = await this.em.transactional(async (em) => {
-          const challenge = em.create(MfaChallenge, { ...challengeData, signInAttemptId: signIn.attemptId })
-          em.persist(challenge)
-          await em.flush()
-          await persistSignInMfaReceipt(em, signIn, { status: 'pending', challengeId: challenge.id })
-          return challenge.id
+          return withSignInReceiptWrite(async () => {
+            const challenge = em.create(MfaChallenge, { ...challengeData, signInAttemptId: signIn.attemptId })
+            em.persist(challenge)
+            await em.flush()
+            await persistSignInMfaReceipt(em, signIn, { status: 'pending', challengeId: challenge.id })
+            return challenge.id
+          })
         })
         return { challengeId, availableMethods }
-      } catch {
+      } catch (error) {
+        if (!(error instanceof SignInReceiptWriteError)) throw error
         reportSignInMfaFailure('security.sign_in_mfa_receipt_failed')
       }
     } else if (signIn) {
@@ -222,28 +229,42 @@ export class MfaVerificationService {
     if (verified) {
       const verifiedAt = new Date()
       const attemptId = challenge.signInAttemptId
-      if (attemptId) {
-        // Keep the projected audit state and challenge verification in the same transaction.
-        await this.em.transactional(async (em) => {
-          await persistSignInMfaReceipt(em, {
-            tenantId: challenge.tenantId,
-            userId: challenge.userId,
-            attemptId,
-          }, { status: 'verified', challengeId: challenge.id, verifiedAt })
-          challenge.verifiedAt = verifiedAt
-          challenge.methodType = methodType
-          method.lastUsedAt = verifiedAt
-          await em.flush()
-        })
-      } else {
+      const markVerified = async (em: EntityManager) => {
         challenge.verifiedAt = verifiedAt
         challenge.methodType = methodType
         method.lastUsedAt = verifiedAt
-        await this.em.flush()
+        await em.flush()
+      }
+      let retryAuditReceipt = false
+      if (attemptId) {
+        try {
+          await this.em.transactional(async (em) => {
+            await withSignInReceiptWrite(() => persistSignInMfaReceipt(em, {
+              tenantId: challenge.tenantId,
+              userId: challenge.userId,
+              attemptId,
+            }, { status: 'verified', challengeId: challenge.id, verifiedAt }))
+            await markVerified(em)
+          })
+        } catch (error) {
+          if (!(error instanceof SignInReceiptWriteError)) throw error
+          reportSignInMfaFailure('security.sign_in_mfa_receipt_failed')
+          retryAuditReceipt = true
+          await markVerified(this.em)
+        }
+      } else {
+        await markVerified(this.em)
       }
       const event = { userId: challenge.userId, challengeId: challenge.id, methodType }
       if (attemptId) {
-        await emitSecurityEvent('security.mfa.verified', event, { tenantId: challenge.tenantId })
+        try {
+          await emitSecurityEvent('security.mfa.verified', event, {
+            tenantId: challenge.tenantId,
+            ...(retryAuditReceipt ? { persistent: true } : {}),
+          })
+        } catch {
+          reportSignInMfaFailure('security.sign_in_mfa_receipt_failed')
+        }
       } else {
         await emitSecurityEvent('security.mfa.verified', event)
       }
@@ -266,7 +287,11 @@ export class MfaVerificationService {
       id: challengeId,
       userId: scope.userId,
     })
-    if (!challenge) {
+    if (
+      !challenge
+      || (scope.tenantId !== undefined && scope.tenantId !== challenge.tenantId)
+      || (challenge.signInAttemptId && scope.sessionId !== undefined && scope.sessionId !== challenge.signInAttemptId)
+    ) {
       throw new MfaVerificationServiceError('MFA challenge not found', 404)
     }
     if (challenge.verifiedAt) {
@@ -351,6 +376,14 @@ export class MfaVerificationService {
       throw new MfaVerificationServiceError(`MFA method '${methodId}' not found`, 404)
     }
     return method
+  }
+}
+
+async function withSignInReceiptWrite<Result>(write: () => Promise<Result>): Promise<Result> {
+  try {
+    return await write()
+  } catch {
+    throw new SignInReceiptWriteError('[internal] Sign-in MFA receipt write failed')
   }
 }
 

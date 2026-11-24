@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       methodType,
       payload,
       { request: req },
-      { userId: context.auth.sub },
+      { userId: context.auth.sub, tenantId: context.auth.tenantId ?? null, sessionId: context.auth.sid ?? null },
     )
     if (!verified) {
       return securityApiError(401, 'Invalid MFA verification code.')

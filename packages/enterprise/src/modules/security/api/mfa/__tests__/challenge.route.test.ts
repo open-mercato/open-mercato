@@ -106,7 +106,7 @@ describe('security MFA challenge routes', () => {
       'totp',
       { code: '123456' },
       { request: expect.any(Request) },
-      { userId: 'user-1' },
+      { userId: 'user-1', tenantId: 'tenant-1', sessionId: null },
     )
     expect(mockedIssueVerifiedMfaToken).toHaveBeenCalledWith(context.auth, ['totp', 'otp_email'])
     expect(mockedSetAuthCookie).toHaveBeenCalledWith(expect.any(NextResponse), 'verified-token')
@@ -146,7 +146,7 @@ describe('security MFA challenge routes', () => {
       'challenge-1',
       'totp',
       { request: expect.any(Request) },
-      { userId: 'user-1' },
+      { userId: 'user-1', tenantId: 'tenant-1', sessionId: null },
     )
   })
 

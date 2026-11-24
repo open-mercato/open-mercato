@@ -9,6 +9,7 @@
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { readStaffSignInAttemptId } from '@open-mercato/shared/lib/events/staff-sign-in'
 
 const logger = createLogger('workflows').child({ component: 'event-trigger' })
 
@@ -50,7 +51,7 @@ export default async function handle(
   }
 
   // Skip excluded events
-  if (isExcludedEvent(eventName)) {
+  if (isExcludedEvent(eventName) || readStaffSignInAttemptId(eventName, payload)) {
     return
   }
 

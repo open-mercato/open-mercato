@@ -9,6 +9,7 @@ import {
   matchesEventPattern,
 } from '../lib/tasks/eventTriggerMatch'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { readStaffSignInAttemptId } from '@open-mercato/shared/lib/events/staff-sign-in'
 
 const logger = createLogger('agent_orchestrator').child({ subscriber: 'process-event-trigger' })
 
@@ -80,7 +81,7 @@ export default async function handle(
   },
 ): Promise<void> {
   const eventName = ctx.eventName
-  if (!eventName) return
+  if (!eventName || readStaffSignInAttemptId(eventName, payload)) return
   if (EXCLUDED_EVENT_PREFIXES.some((prefix) => eventName.startsWith(prefix))) return
 
   // Only trust scope attached by the emitter via event-bus options.

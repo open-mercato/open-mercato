@@ -35,5 +35,6 @@ export default async function subscribe(payload: unknown, context: SubscriberCon
     })
   } catch {
     reportSignInMfaFailure('security.sign_in_mfa_receipt_failed')
+    throw new Error('[internal] Sign-in MFA reconciliation failed')
   }
 }

@@ -185,24 +185,27 @@ async function handleLoginRequest(req: Request) {
     persistent: true,
     skipPersistentSubscribersInline: true,
   }
-  function reportLoginEventFailure(): void {
-    const message = 'Failed to enqueue login event'
-    reportLoginFailure(new Error(message), 'auth.login_event_enqueue_failed', message)
-  }
-  const loginUserId = user ? String(user.id) : null
-  async function emitLoginFailure(reason: string): Promise<void> {
+  async function emitLoginEvent(
+    event: 'auth.login.success' | 'auth.login.failed',
+    payload: { email: string; id?: string; userId?: string | null; reason?: string },
+    attemptId: string,
+  ): Promise<void> {
     try {
-      await emitAuthEvent('auth.login.failed', {
-        email: parsed.data.email,
-        reason,
-        userId: loginUserId,
+      await emitAuthEvent(event, {
+        ...payload,
         ...loginEventScope,
         ...resolveLoginClientMeta(req, container),
-        attemptId: randomUUID(),
+        attemptId,
       }, loginEventOptions)
     } catch {
-      reportLoginEventFailure()
+      const message = 'Failed to enqueue login event'
+      reportLoginFailure(new Error(message), 'auth.login_event_enqueue_failed', message)
     }
+  }
+  const loginEmail = parsed.data.email
+  const loginUserId = user ? String(user.id) : null
+  function emitLoginFailure(reason: string): void {
+    void emitLoginEvent('auth.login.failed', { email: loginEmail, userId: loginUserId, reason }, randomUUID())
   }
   // Always verify the password — verifyPassword runs a constant-time bcrypt
   // comparison even when the user is missing or has no hash — so unknown-email,
@@ -220,7 +223,7 @@ async function handleLoginRequest(req: Request) {
     else if (user && !tenantActive) reason = 'tenant_unavailable'
     else if (user?.passwordHash) reason = 'invalid_password'
     else reason = 'invalid_credentials'
-    await emitLoginFailure(reason)
+    emitLoginFailure(reason)
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
   // Optional role requirement
@@ -228,7 +231,7 @@ async function handleLoginRequest(req: Request) {
     const userRoleNames = await auth.getUserRoles(user, tenantId ?? (user.tenantId ? String(user.tenantId) : null))
     const authorized = requiredRoles.some(r => userRoleNames.includes(r))
     if (!authorized) {
-      await emitLoginFailure('role_denied')
+      emitLoginFailure('role_denied')
       return NextResponse.json({ ok: false, error: translate('auth.login.errors.permissionDenied', 'Not authorized for this area') }, { status: 403 })
     }
   }
@@ -257,7 +260,7 @@ async function handleLoginRequest(req: Request) {
     createdSession = await auth.createSession(user, sessionExpiresAt)
   } catch (error) {
     if (!isAuthSessionRejectedError(error)) throw error
-    await emitLoginFailure('account_deactivated')
+    emitLoginFailure('account_deactivated')
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
   const { session: loginSession, token: sessionRefreshToken } = createdSession
@@ -319,23 +322,13 @@ async function handleLoginRequest(req: Request) {
         'Failed to revoke provisional session after login after-interceptor failure',
       )
     }
-    await emitLoginFailure('after_interceptor_failed')
+    emitLoginFailure('after_interceptor_failed')
     return NextResponse.json(
       { ok: false, error: translate('auth.login.errors.generic', 'An error occurred. Please try again.') },
       { status: interceptedResponse.statusCode },
     )
   }
-  try {
-    await emitAuthEvent('auth.login.success', {
-      id: String(user.id),
-      email: user.email,
-      ...loginEventScope,
-      ...resolveLoginClientMeta(req, container),
-      attemptId: String(loginSession.id),
-    }, loginEventOptions)
-  } catch {
-    reportLoginEventFailure()
-  }
+  void emitLoginEvent('auth.login.success', { id: String(user.id), email: user.email }, String(loginSession.id))
 
   const interceptedBody = interceptedResponse.body
   const authTokenForCookie = typeof interceptedBody.token === 'string' && interceptedBody.token.length > 0
