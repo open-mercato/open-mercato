@@ -17,6 +17,7 @@ import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { ENTER_MAINTENANCE_FLAG, EXIT_MAINTENANCE_FLAG, runEncryptionMaintenance } from '@open-mercato/shared/lib/maintenance/cli'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { createKmsService, type KmsService, type TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import {
@@ -585,7 +586,8 @@ const rotateEncryptionKey: ModuleCli = {
       failCli('TENANT_DATA_ENCRYPTION is disabled; aborting.')
     }
 
-    const { resolve } = await createRequestContainer()
+    const container = await createRequestContainer()
+    const { resolve } = container
     const em = resolve('em') as any
     const conn: any = em?.getConnection?.()
     if (!conn || typeof conn.execute !== 'function') {
@@ -607,243 +609,257 @@ const rotateEncryptionKey: ModuleCli = {
       })
     }
 
-    const metaByEntityId = buildEntityMetaRegistry(em)
+    await runEncryptionMaintenance(
+      container,
+      {
+        operation: 'encryption.entities.rotate-encryption-key',
+        dryRun,
+        enterMaintenance: parseBooleanToken(String(args[ENTER_MAINTENANCE_FLAG] ?? '')) === true,
+        exitMaintenance: parseBooleanToken(String(args[EXIT_MAINTENANCE_FLAG] ?? '')) === true,
+      },
+      async (maintenance) => {
+      const metaByEntityId = buildEntityMetaRegistry(em)
 
-    const where: any = { deletedAt: null }
-    if (tenantIdArg) where.tenantId = tenantIdArg
-    if (organizationIdArg) where.organizationId = organizationIdArg
-    const allMaps = await em.find(EncryptionMap, where)
-    const systemScopedEntityIds = await getSystemScopedEntityIds()
-    const maps = allMaps.filter((map: EncryptionMap) => {
-      if (!systemScopedEntityIds.has(String(map.entityId))) return true
-      console.warn(
-        `Skipping ${map.entityId}: system-scoped entity. Its ciphertext is sealed under a system key and cannot be rotated with a tenant key — use "mercato entities backfill-system-encryption" instead.`,
-      )
-      return false
-    })
-    const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId)
-    const customDocuments = await rotateCustomEntityDocuments(em, {
-      encryptionService,
-      oldKms,
-      tenantId: tenantIdArg,
-      organizationId: organizationIdArg,
-      dryRun,
-    })
-    if (customDocuments > 0) {
-      console.log(`${dryRun ? '[dry-run] ' : ''}Encrypted ${customDocuments} custom entity document(s).`)
-    }
-    if (!maps.length) {
-      if (!customDocuments) console.log('No encryption maps found for the selected scope.')
-      return
-    }
-    const resolveScopes = async (tenantId: string, organizationId: string | null) => {
-      if (organizationId) return [{ tenantId, organizationId }]
-      const orgs = await em.find(Organization, { tenant: tenantId })
-      const scopes = orgs.map((org: Organization) => ({
-        tenantId,
-        organizationId: String(org.id),
-      }))
-      scopes.push({ tenantId, organizationId: null })
-      return scopes
-    }
-
-    const oldDekCache = new Map<string, TenantDek | null>()
-    // Rows this run could not rotate because their ciphertext opens under neither
-    // the previous nor the current tenant key — surfaced in the closing summary so an
-    // operator does not have to grep console.warn output for a batch of thousands.
-    const unrecoverableRows: Array<{ entityId: string; field: string; rowId: unknown }> = []
-    // A dry run must not provision key material. `encryptEntityPayload` creates and
-    // persists a tenant DEK in KMS/Vault the first time it runs for a tenant, so a
-    // read-only preview would silently mutate KMS state (#5950). Probe read-only
-    // once per tenant instead, and report what a real run would rewrite.
-    //
-    // The tenant id IS the key id here: this command skips every system-scoped
-    // entity above, and its service is built without `defaultEncryptionMaps`, so
-    // no map it sees can resolve to a `system:<entityId>` key.
-    const dekAvailability = new Map<string, boolean>()
-    const hasExistingDek = async (tenantId: string): Promise<boolean> => {
-      const cached = dekAvailability.get(tenantId)
-      if (cached !== undefined) return cached
-      const available = Boolean(await encryptionService.getDek(tenantId))
-      dekAvailability.set(tenantId, available)
-      if (!available) {
+      const where: any = { deletedAt: null }
+      if (tenantIdArg) where.tenantId = tenantIdArg
+      if (organizationIdArg) where.organizationId = organizationIdArg
+      const allMaps = await em.find(EncryptionMap, where)
+      const systemScopedEntityIds = await getSystemScopedEntityIds()
+      const maps = allMaps.filter((map: EncryptionMap) => {
+        if (!systemScopedEntityIds.has(String(map.entityId))) return true
         console.warn(
-          `[dry-run] Tenant ${tenantId} has no data-encryption key yet. Reporting the rows a real run would encrypt; no key material was provisioned.`,
+          `Skipping ${map.entityId}: system-scoped entity. Its ciphertext is sealed under a system key and cannot be rotated with a tenant key — use "mercato entities backfill-system-encryption" instead.`,
         )
+        return false
+      })
+      const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId)
+      await maintenance.assertLive()
+      const customDocuments = await rotateCustomEntityDocuments(em, {
+        beforeBatch: () => maintenance.assertLive(),
+        encryptionService,
+        oldKms,
+        tenantId: tenantIdArg,
+        organizationId: organizationIdArg,
+        dryRun,
+      })
+      if (customDocuments > 0) {
+        console.log(`${dryRun ? '[dry-run] ' : ''}Encrypted ${customDocuments} custom entity document(s).`)
       }
-      return available
-    }
-    const processScope = async (
-      entityId: string,
-      meta: any,
-      fields: Array<{ field: string; hashField?: string | null }>,
-      scope: { tenantId: string; organizationId: string | null },
-    ): Promise<number> => {
-      const pk = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
-      const columns = new Set<string>()
-      columns.add(pk)
-      for (const rule of fields) {
-        const resolved = resolveProperty(meta, rule.field)
-        if (resolved?.columnName) columns.add(resolved.columnName)
-        if (rule.hashField) {
-          const resolvedHash = resolveProperty(meta, rule.hashField)
-          if (resolvedHash?.columnName) columns.add(resolvedHash.columnName)
-        }
+      if (!maps.length) {
+        if (!customDocuments) console.log('No encryption maps found for the selected scope.')
+        return
       }
-      const columnList = Array.from(columns)
-      if (!columnList.length) return 0
-      const tableName = meta?.tableName
-      if (!tableName) return 0
-      const schema = meta?.schema
-      const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
-      const selectSql = `select ${columnList.map((c) => `"${c}"`).join(', ')} from ${qualifiedTable} where tenant_id = ? and organization_id is not distinct from ?`
-      const rows = await conn.execute(selectSql, [scope.tenantId, scope.organizationId])
-      const list = Array.isArray(rows) ? rows : []
-      if (!list.length) return 0
-      const dekAvailable = dryRun ? await hasExistingDek(scope.tenantId) : true
-      // The scope pins one tenant, so the current DEK is the same for every row here.
-      const currentDek = rotate && oldKms ? await encryptionService.getDek(scope.tenantId) : null
-      let updated = 0
-      for (const row of list) {
-        const payload: Record<string, unknown> = {}
-        for (const rule of fields) {
-          const resolved = resolveProperty(meta, rule.field)
-          const col = resolved?.columnName
-          if (!col) continue
-          const rawValue = row[col]
-          // Rotate mode only touches values that look like an envelope (candidates to
-          // re-key); encrypt mode only touches values that do not (plaintext to seal).
-          // A shape-valid envelope encountered in encrypt mode is either already
-          // correctly encrypted or sealed under a foreign DEK — either way, handing it
-          // to encryptEntityPayload would either no-op or throw WRONG_KEY and abort the
-          // whole run (#5951); mirror the filter the update path already applies below.
-          if (isEncryptedPayloadShape(rawValue) ? !rotate : rotate) {
-            continue
-          }
-          payload[rule.field] = rawValue
-          if (rule.hashField) {
-            const resolvedHash = resolveProperty(meta, rule.hashField)
-            const hashCol = resolvedHash?.columnName
-            if (hashCol) payload[rule.hashField] = row[hashCol]
-          }
-        }
-        if (rotate && !Object.keys(payload).length) {
-          continue
-        }
-        if (rotate && oldKms) {
-          let oldDek = oldDekCache.get(scope.tenantId) ?? null
-          if (!oldDekCache.has(scope.tenantId)) {
-            oldDek = await oldKms.getTenantDek(scope.tenantId)
-            oldDekCache.set(scope.tenantId, oldDek)
-          }
-          for (const rule of fields) {
-            const value = payload[rule.field]
-            if (typeof value !== 'string' || !isEncryptedPayloadShape(value)) continue
-            const decrypted = decryptWithOldKey(value, oldDek)
-            if (decrypted !== null) {
-              payload[rule.field] = parseDecryptedFieldValue(decrypted)
-              continue
-            }
-            // The old key did not open it. If the current key does, the row was already
-            // rotated (a resumed run) — leave it in the payload, where the service's own
-            // already-encrypted check skips it. Otherwise no key we hold can open it, and
-            // handing it to the encrypt path would abort the whole batch (#5951). Drop the
-            // field so this row is reported and skipped instead.
-            if (currentDek && decryptWithAesGcm(value, currentDek.key) !== null) continue
-            delete payload[rule.field]
-            if (rule.hashField) delete payload[rule.hashField]
-            unrecoverableRows.push({ entityId, field: rule.field, rowId: row[pk] })
-            console.warn(
-              `Skipping ${entityId}.${rule.field} for row ${row[pk]}: its ciphertext opens under neither the previous nor the current tenant key. Re-run with the key that sealed it.`,
-            )
-          }
-        }
-        if (!dekAvailable) {
-          // Nothing was encrypted because no key exists and this run refuses to
-          // create one. Count the rows a real run would rewrite by applying the
-          // same plaintext/ciphertext filters the update path uses below.
-          const wouldChange = fields.some((rule) => {
-            const col = resolveProperty(meta, rule.field)?.columnName
-            if (!col) return false
-            const value = row[col]
-            if (value === null || value === undefined) return false
-            return rotate ? isEncryptedPayloadShape(value) : !isEncryptedPayloadShape(value)
-          })
-          if (wouldChange) updated += 1
-          continue
-        }
-        const encrypted = await encryptionService.encryptEntityPayload(
-          entityId,
-          payload,
-          scope.tenantId,
-          scope.organizationId,
-          { createMissingDek: !dryRun },
-        )
-        const updates: Record<string, unknown> = {}
-        for (const rule of fields) {
-          const resolved = resolveProperty(meta, rule.field)
-          const col = resolved?.columnName
-          if (!col) continue
-          const nextValue = (encrypted as any)[rule.field]
-          if (nextValue !== undefined && nextValue !== row[col]) {
-            if (!rotate && isEncryptedPayloadShape(row[col])) continue
-            updates[col] = formatValueForColumn(resolved?.prop, nextValue)
-          }
-          if (rule.hashField) {
-            const resolvedHash = resolveProperty(meta, rule.hashField)
-            const hashCol = resolvedHash?.columnName
-            const hashValue = (encrypted as any)[rule.hashField]
-            if (hashCol && hashValue !== undefined && hashValue !== row[hashCol]) {
-              updates[hashCol] = formatValueForColumn(resolvedHash?.prop, hashValue)
-            }
-          }
-        }
-        if (!Object.keys(updates).length) continue
-        if (!dryRun) {
-          await updateEncryptionColumns(conn, qualifiedTable, pk, row, updates, scope)
-        }
-        updated += 1
+      const resolveScopes = async (tenantId: string, organizationId: string | null) => {
+        if (organizationId) return [{ tenantId, organizationId }]
+        const orgs = await em.find(Organization, { tenant: tenantId })
+        const scopes = orgs.map((org: Organization) => ({
+          tenantId,
+          organizationId: String(org.id),
+        }))
+        scopes.push({ tenantId, organizationId: null })
+        return scopes
       }
-      return updated
-    }
 
-    let total = 0
-    for (const { map, mapMeta } of resolvedMaps) {
-      const { entityId, meta, fields, tenantId } = mapMeta
-      const scopes = await resolveScopes(tenantId, map.organizationId ? String(map.organizationId) : null)
-      for (const scope of scopes) {
-        const updated = await processScope(entityId, meta, fields, scope)
-        if (updated > 0) {
-          console.log(
-            `${dryRun ? '[dry-run] ' : ''}Encrypted ${updated} record(s) for ${entityId} org=${scope.organizationId ?? 'null'}`
+      const oldDekCache = new Map<string, TenantDek | null>()
+      // Rows this run could not rotate because their ciphertext opens under neither
+      // the previous nor the current tenant key — surfaced in the closing summary so an
+      // operator does not have to grep console.warn output for a batch of thousands.
+      const unrecoverableRows: Array<{ entityId: string; field: string; rowId: unknown }> = []
+      // A dry run must not provision key material. `encryptEntityPayload` creates and
+      // persists a tenant DEK in KMS/Vault the first time it runs for a tenant, so a
+      // read-only preview would silently mutate KMS state (#5950). Probe read-only
+      // once per tenant instead, and report what a real run would rewrite.
+      //
+      // The tenant id IS the key id here: this command skips every system-scoped
+      // entity above, and its service is built without `defaultEncryptionMaps`, so
+      // no map it sees can resolve to a `system:<entityId>` key.
+      const dekAvailability = new Map<string, boolean>()
+      const hasExistingDek = async (tenantId: string): Promise<boolean> => {
+        const cached = dekAvailability.get(tenantId)
+        if (cached !== undefined) return cached
+        const available = Boolean(await encryptionService.getDek(tenantId))
+        dekAvailability.set(tenantId, available)
+        if (!available) {
+          console.warn(
+            `[dry-run] Tenant ${tenantId} has no data-encryption key yet. Reporting the rows a real run would encrypt; no key material was provisioned.`,
           )
         }
-        total += updated
+        return available
       }
-    }
+      const processScope = async (
+        entityId: string,
+        meta: any,
+        fields: Array<{ field: string; hashField?: string | null }>,
+        scope: { tenantId: string; organizationId: string | null },
+      ): Promise<number> => {
+        const pk = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
+        const columns = new Set<string>()
+        columns.add(pk)
+        for (const rule of fields) {
+          const resolved = resolveProperty(meta, rule.field)
+          if (resolved?.columnName) columns.add(resolved.columnName)
+          if (rule.hashField) {
+            const resolvedHash = resolveProperty(meta, rule.hashField)
+            if (resolvedHash?.columnName) columns.add(resolvedHash.columnName)
+          }
+        }
+        const columnList = Array.from(columns)
+        if (!columnList.length) return 0
+        const tableName = meta?.tableName
+        if (!tableName) return 0
+        const schema = meta?.schema
+        const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
+        const selectSql = `select ${columnList.map((c) => `"${c}"`).join(', ')} from ${qualifiedTable} where tenant_id = ? and organization_id is not distinct from ?`
+        const rows = await conn.execute(selectSql, [scope.tenantId, scope.organizationId])
+        const list = Array.isArray(rows) ? rows : []
+        if (!list.length) return 0
+        const dekAvailable = dryRun ? await hasExistingDek(scope.tenantId) : true
+        // The scope pins one tenant, so the current DEK is the same for every row here.
+        const currentDek = rotate && oldKms ? await encryptionService.getDek(scope.tenantId) : null
+        let updated = 0
+        for (const row of list) {
+          const payload: Record<string, unknown> = {}
+          for (const rule of fields) {
+            const resolved = resolveProperty(meta, rule.field)
+            const col = resolved?.columnName
+            if (!col) continue
+            const rawValue = row[col]
+            // Rotate mode only touches values that look like an envelope (candidates to
+            // re-key); encrypt mode only touches values that do not (plaintext to seal).
+            // A shape-valid envelope encountered in encrypt mode is either already
+            // correctly encrypted or sealed under a foreign DEK — either way, handing it
+            // to encryptEntityPayload would either no-op or throw WRONG_KEY and abort the
+            // whole run (#5951); mirror the filter the update path already applies below.
+            if (isEncryptedPayloadShape(rawValue) ? !rotate : rotate) {
+              continue
+            }
+            payload[rule.field] = rawValue
+            if (rule.hashField) {
+              const resolvedHash = resolveProperty(meta, rule.hashField)
+              const hashCol = resolvedHash?.columnName
+              if (hashCol) payload[rule.hashField] = row[hashCol]
+            }
+          }
+          if (rotate && !Object.keys(payload).length) {
+            continue
+          }
+          if (rotate && oldKms) {
+            let oldDek = oldDekCache.get(scope.tenantId) ?? null
+            if (!oldDekCache.has(scope.tenantId)) {
+              oldDek = await oldKms.getTenantDek(scope.tenantId)
+              oldDekCache.set(scope.tenantId, oldDek)
+            }
+            for (const rule of fields) {
+              const value = payload[rule.field]
+              if (typeof value !== 'string' || !isEncryptedPayloadShape(value)) continue
+              const decrypted = decryptWithOldKey(value, oldDek)
+              if (decrypted !== null) {
+                payload[rule.field] = parseDecryptedFieldValue(decrypted)
+                continue
+              }
+              // The old key did not open it. If the current key does, the row was already
+              // rotated (a resumed run) — leave it in the payload, where the service's own
+              // already-encrypted check skips it. Otherwise no key we hold can open it, and
+              // handing it to the encrypt path would abort the whole batch (#5951). Drop the
+              // field so this row is reported and skipped instead.
+              if (currentDek && decryptWithAesGcm(value, currentDek.key) !== null) continue
+              delete payload[rule.field]
+              if (rule.hashField) delete payload[rule.hashField]
+              unrecoverableRows.push({ entityId, field: rule.field, rowId: row[pk] })
+              console.warn(
+                `Skipping ${entityId}.${rule.field} for row ${row[pk]}: its ciphertext opens under neither the previous nor the current tenant key. Re-run with the key that sealed it.`,
+              )
+            }
+          }
+          if (!dekAvailable) {
+            // Nothing was encrypted because no key exists and this run refuses to
+            // create one. Count the rows a real run would rewrite by applying the
+            // same plaintext/ciphertext filters the update path uses below.
+            const wouldChange = fields.some((rule) => {
+              const col = resolveProperty(meta, rule.field)?.columnName
+              if (!col) return false
+              const value = row[col]
+              if (value === null || value === undefined) return false
+              return rotate ? isEncryptedPayloadShape(value) : !isEncryptedPayloadShape(value)
+            })
+            if (wouldChange) updated += 1
+            continue
+          }
+          const encrypted = await encryptionService.encryptEntityPayload(
+            entityId,
+            payload,
+            scope.tenantId,
+            scope.organizationId,
+            { createMissingDek: !dryRun },
+          )
+          const updates: Record<string, unknown> = {}
+          for (const rule of fields) {
+            const resolved = resolveProperty(meta, rule.field)
+            const col = resolved?.columnName
+            if (!col) continue
+            const nextValue = (encrypted as any)[rule.field]
+            if (nextValue !== undefined && nextValue !== row[col]) {
+              if (!rotate && isEncryptedPayloadShape(row[col])) continue
+              updates[col] = formatValueForColumn(resolved?.prop, nextValue)
+            }
+            if (rule.hashField) {
+              const resolvedHash = resolveProperty(meta, rule.hashField)
+              const hashCol = resolvedHash?.columnName
+              const hashValue = (encrypted as any)[rule.hashField]
+              if (hashCol && hashValue !== undefined && hashValue !== row[hashCol]) {
+                updates[hashCol] = formatValueForColumn(resolvedHash?.prop, hashValue)
+              }
+            }
+          }
+          if (!Object.keys(updates).length) continue
+          if (!dryRun) {
+            await updateEncryptionColumns(conn, qualifiedTable, pk, row, updates, scope)
+          }
+          updated += 1
+        }
+        return updated
+      }
 
-    if (total > 0) {
-      console.log(`Encrypted ${total} record(s) across mapped entities.`)
-    } else {
-      console.log('All mapped entity fields already encrypted for the selected scope.')
-    }
-    if (unrecoverableRows.length) {
-      const maxListed = 20
-      console.log(
-        `\n⚠️  ${unrecoverableRows.length} field(s) could not be rotated — their ciphertext opens under neither `
-          + 'the previous nor the current tenant key, so they were left untouched. See '
-          + '"Key management" in apps/docs/docs/architecture/data-encryption.mdx for how to resolve these manually.',
-      )
-      for (const row of unrecoverableRows.slice(0, maxListed)) {
-        console.log(`  - ${row.entityId}.${row.field} row=${String(row.rowId)}`)
+      let total = 0
+      for (const { map, mapMeta } of resolvedMaps) {
+        const { entityId, meta, fields, tenantId } = mapMeta
+        const scopes = await resolveScopes(tenantId, map.organizationId ? String(map.organizationId) : null)
+        for (const scope of scopes) {
+          await maintenance.assertLive()
+          const updated = await processScope(entityId, meta, fields, scope)
+          if (updated > 0) {
+            console.log(
+              `${dryRun ? '[dry-run] ' : ''}Encrypted ${updated} record(s) for ${entityId} org=${scope.organizationId ?? 'null'}`
+            )
+          }
+          total += updated
+        }
       }
-      if (unrecoverableRows.length > maxListed) {
-        console.log(`  ... and ${unrecoverableRows.length - maxListed} more`)
+
+      if (total > 0) {
+        console.log(`Encrypted ${total} record(s) across mapped entities.`)
+      } else {
+        console.log('All mapped entity fields already encrypted for the selected scope.')
       }
-      failCli(
-        `${unrecoverableRows.length} encrypted field(s) could not be rotated. The command left them untouched and did not complete successfully.`,
-      )
-    }
+      if (unrecoverableRows.length) {
+        const maxListed = 20
+        console.log(
+          `\n⚠️  ${unrecoverableRows.length} field(s) could not be rotated — their ciphertext opens under neither `
+            + 'the previous nor the current tenant key, so they were left untouched. See '
+            + '"Key management" in apps/docs/docs/architecture/data-encryption.mdx for how to resolve these manually.',
+        )
+        for (const row of unrecoverableRows.slice(0, maxListed)) {
+          console.log(`  - ${row.entityId}.${row.field} row=${String(row.rowId)}`)
+        }
+        if (unrecoverableRows.length > maxListed) {
+          console.log(`  ... and ${unrecoverableRows.length - maxListed} more`)
+        }
+        failCli(
+          `${unrecoverableRows.length} encrypted field(s) could not be rotated. The command left them untouched and did not complete successfully.`,
+        )
+      }
+      },
+    )
   },
 }
 
@@ -879,7 +895,8 @@ const decryptDatabase: ModuleCli = {
       failCli('--deactivate-maps requires all application and worker writers stopped. Confirm offline maintenance with --confirm-offline-maintenance <tenantUuid>; restart every replica before resuming writes.')
     }
 
-    const { resolve } = await createRequestContainer()
+    const container = await createRequestContainer()
+    const { resolve } = container
     const em = resolve('em') as any
     const conn: any = em?.getConnection?.()
     if (!conn || typeof conn.execute !== 'function') {
@@ -890,221 +907,125 @@ const decryptDatabase: ModuleCli = {
       failCli('TENANT_DATA_ENCRYPTION is disabled; aborting. Data may already be decrypted.')
     }
 
-    const metaByEntityId = buildEntityMetaRegistry(em)
+    await runEncryptionMaintenance(
+      container,
+      {
+        operation: 'encryption.entities.decrypt-database',
+        dryRun,
+        enterMaintenance: parseBooleanToken(String(args[ENTER_MAINTENANCE_FLAG] ?? '')) === true,
+        exitMaintenance: parseBooleanToken(String(args[EXIT_MAINTENANCE_FLAG] ?? '')) === true,
+      },
+      async (maintenance) => {
+      const metaByEntityId = buildEntityMetaRegistry(em)
 
-    const mapWhere: any = { tenantId: tenantIdArg, deletedAt: null, isActive: true }
-    if (organizationIdArg) mapWhere.$or = [{ organizationId: organizationIdArg }, { organizationId: null }]
-    if (entityIdArg) mapWhere.entityId = entityIdArg
-    const allMaps = await em.find(EncryptionMap, mapWhere, { orderBy: { organizationId: 'asc', createdAt: 'asc', id: 'asc' } })
-    const systemScopedEntityIds = await getSystemScopedEntityIds()
-    const maps = allMaps.filter((map: EncryptionMap) => {
-      if (!systemScopedEntityIds.has(String(map.entityId))) return true
-      console.warn(
-        `Skipping ${map.entityId}: system-scoped entity. Its ciphertext is sealed under a system key that the tenant DEK cannot open, so this command leaves it untouched.`,
-      )
-      return false
-    })
+      const mapWhere: any = { tenantId: tenantIdArg, deletedAt: null, isActive: true }
+      if (organizationIdArg) mapWhere.$or = [{ organizationId: organizationIdArg }, { organizationId: null }]
+      if (entityIdArg) mapWhere.entityId = entityIdArg
+      const allMaps = await em.find(EncryptionMap, mapWhere, { orderBy: { organizationId: 'asc', createdAt: 'asc', id: 'asc' } })
+      const systemScopedEntityIds = await getSystemScopedEntityIds()
+      const maps = allMaps.filter((map: EncryptionMap) => {
+        if (!systemScopedEntityIds.has(String(map.entityId))) return true
+        console.warn(
+          `Skipping ${map.entityId}: system-scoped entity. Its ciphertext is sealed under a system key that the tenant DEK cannot open, so this command leaves it untouched.`,
+        )
+        return false
+      })
 
-    if (!maps.length) {
-      console.log('No active encryption maps found for the selected scope.')
-      return
-    }
-    const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId)
-    const resolveProcessingMaps = async (
-      executeQuery: (query: string, parameters: unknown[]) => Promise<unknown> = (query, parameters) => conn.execute(query, parameters),
-    ) => {
-      const groups = new Map<string, typeof resolvedMaps>()
-      for (const entry of resolvedMaps) {
-        const key = JSON.stringify([entry.mapMeta.tenantId, entry.mapMeta.entityId])
-        groups.set(key, [...(groups.get(key) ?? []), entry])
+      if (!maps.length) {
+        console.log('No active encryption maps found for the selected scope.')
+        return
       }
-      const result: Array<{ mapMeta: EncryptionMapMeta; scope: { tenantId: string; organizationId: string | null } }> = []
-      for (const entries of groups.values()) {
-        const template = entries[0]!
-        const { entityId, tenantId, meta } = template.mapMeta
-        const table = meta.schema ? `"${meta.schema}"."${meta.tableName}"` : `"${meta.tableName}"`
-        const scopes = new Set<string | null>(organizationIdArg ? [organizationIdArg] : [null])
-        if (!organizationIdArg) {
-          const rows = await executeQuery(`SELECT DISTINCT organization_id FROM ${table} WHERE tenant_id = ?`, [tenantId])
-          for (const row of Array.isArray(rows) ? rows : []) scopes.add(row.organization_id ?? null)
+      const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId)
+      const resolveProcessingMaps = async (
+        executeQuery: (query: string, parameters: unknown[]) => Promise<unknown> = (query, parameters) => conn.execute(query, parameters),
+      ) => {
+        const groups = new Map<string, typeof resolvedMaps>()
+        for (const entry of resolvedMaps) {
+          const key = JSON.stringify([entry.mapMeta.tenantId, entry.mapMeta.entityId])
+          groups.set(key, [...(groups.get(key) ?? []), entry])
         }
-        for (const organizationId of scopes) {
-          const hasExactPolicy = organizationId !== null && allMaps.some((map: EncryptionMap) => map.entityId === entityId && map.tenantId === tenantId && map.organizationId === organizationId)
-          const applicable = organizationId === null ? [...entries].sort((left, right) => Number(Boolean(left.map.organizationId)) - Number(Boolean(right.map.organizationId))) : entries.filter(({ map }) => hasExactPolicy ? map.organizationId === organizationId : !map.organizationId)
-          const fields = new Map<string, EncryptionMapMeta['fields'][number]>()
-          for (const entry of applicable) {
-            for (const field of entry.mapMeta.fields) {
-              const existing = fields.get(field.field)
-              fields.set(field.field, existing ? { ...existing, hashField: existing.hashField ?? field.hashField } : field)
-            }
+        const result: Array<{ mapMeta: EncryptionMapMeta; scope: { tenantId: string; organizationId: string | null } }> = []
+        for (const entries of groups.values()) {
+          const template = entries[0]!
+          const { entityId, tenantId, meta } = template.mapMeta
+          const table = meta.schema ? `"${meta.schema}"."${meta.tableName}"` : `"${meta.tableName}"`
+          const scopes = new Set<string | null>(organizationIdArg ? [organizationIdArg] : [null])
+          if (!organizationIdArg) {
+            const rows = await executeQuery(`SELECT DISTINCT organization_id FROM ${table} WHERE tenant_id = ?`, [tenantId])
+            for (const row of Array.isArray(rows) ? rows : []) scopes.add(row.organization_id ?? null)
           }
-          if (fields.size) result.push({ mapMeta: { ...template.mapMeta, fields: [...fields.values()] }, scope: { tenantId, organizationId } })
-        }
-      }
-      return result
-    }
-    const processingMaps = await resolveProcessingMaps()
-
-
-    const kms = createKmsService()
-    const dekCache = new Map<string, TenantDek | null>()
-    const getDek = async (tenantId: string): Promise<TenantDek | null> => {
-      if (dekCache.has(tenantId)) return dekCache.get(tenantId) ?? null
-      const dek = await kms.getTenantDek(tenantId)
-      dekCache.set(tenantId, dek)
-      return dek
-    }
-
-    if (checkMode) {
-      const envValue = process.env.TENANT_DATA_ENCRYPTION ?? '(not set)'
-      console.log(`TENANT_DATA_ENCRYPTION = ${envValue}`)
-      console.log(`Active EncryptionMap records for scope: ${maps.length}`)
-      let encryptedCandidatesSampled = 0
-      let malformedPayloadCountSampled = 0
-      // --check writes nothing, so an unreachable DEK is the diagnosis the operator came for,
-      // not a reason to abort mid-inspection. Report every uninspectable entity, inspect the
-      // rest, and let the closing gate below make the incomplete run exit non-zero.
-      const uninspectableEntityIds: string[] = []
-      const failedSampleScopes: string[] = []
-      for (const { mapMeta, scope } of processingMaps) {
-        const { entityId, meta, fields, tenantId } = mapMeta
-        const dek = await getDek(tenantId).catch(() => null)
-        if (!dek) {
-          console.warn(`⚠ No DEK available for tenant ${tenantId}; cannot inspect ${entityId}.`)
-          uninspectableEntityIds.push(entityId)
-          continue
-        }
-        const pk = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
-        const tableName = meta.tableName
-        const schema = meta?.schema
-        const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
-        const scopes = [scope]
-        const fieldCols = fields.flatMap((field) => [
-          resolveProperty(meta, field.field).columnName,
-          field.hashField ? resolveProperty(meta, field.hashField).columnName : null,
-        ].filter((column): column is string => Boolean(column)))
-        const colList = Array.from(new Set([pk, ...fieldCols]))
-        for (const scope of scopes) {
-          let sampleRows: unknown
-          try {
-            sampleRows = await conn.execute(
-              `SELECT ${colList.map((c: string) => `"${c}"`).join(', ')} FROM ${qualifiedTable} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ? LIMIT 100`,
-              [scope.tenantId, scope.organizationId],
-            )
-          } catch (error: unknown) {
-            const scopeLabel = scope.organizationId ?? 'global'
-            const errorMessage = error instanceof Error ? error.message : String(error)
-            console.warn(`⚠ Could not sample ${entityId} for organization ${scopeLabel}: ${errorMessage}`)
-            failedSampleScopes.push(`${entityId} (organization_id=${scopeLabel})`)
-            continue
-          }
-          for (const row of Array.isArray(sampleRows) ? sampleRows : []) {
-            let rowHasEncrypted = false
-            for (const fieldRule of fields) {
-              const resolved = resolveProperty(meta, fieldRule.field)
-              const col = resolved?.columnName
-              if (!col) continue
-              const rawValue = row[col]
-              if (rawValue === null || rawValue === undefined) continue
-              try {
-                decryptWithAesGcmStrict(String(rawValue), dek.key)
-                rowHasEncrypted = true
-              } catch (error: unknown) {
-                if (isEncryptedPayloadShape(rawValue)) throw error
-                if (error instanceof TenantDataEncryptionError && error.code === TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD) {
-                  malformedPayloadCountSampled++
-                }
+          for (const organizationId of scopes) {
+            const hasExactPolicy = organizationId !== null && allMaps.some((map: EncryptionMap) => map.entityId === entityId && map.tenantId === tenantId && map.organizationId === organizationId)
+            const applicable = organizationId === null ? [...entries].sort((left, right) => Number(Boolean(left.map.organizationId)) - Number(Boolean(right.map.organizationId))) : entries.filter(({ map }) => hasExactPolicy ? map.organizationId === organizationId : !map.organizationId)
+            const fields = new Map<string, EncryptionMapMeta['fields'][number]>()
+            for (const entry of applicable) {
+              for (const field of entry.mapMeta.fields) {
+                const existing = fields.get(field.field)
+                fields.set(field.field, existing ? { ...existing, hashField: existing.hashField ?? field.hashField } : field)
               }
             }
-            if (rowHasEncrypted) encryptedCandidatesSampled++
+            if (fields.size) result.push({ mapMeta: { ...template.mapMeta, fields: [...fields.values()] }, scope: { tenantId, organizationId } })
           }
         }
+        return result
       }
-      console.log(`estimated encrypted candidates (sampled): ${encryptedCandidatesSampled}`)
-      if (malformedPayloadCountSampled > 0) {
-        console.warn(`⚠ malformed payloads (sampled): ${malformedPayloadCountSampled} — may indicate corruption`)
-      } else {
-        console.log(`malformed payloads (sampled): ${malformedPayloadCountSampled}`)
+      const processingMaps = await resolveProcessingMaps()
+
+
+      const kms = createKmsService()
+      const dekCache = new Map<string, TenantDek | null>()
+      const getDek = async (tenantId: string): Promise<TenantDek | null> => {
+        if (dekCache.has(tenantId)) return dekCache.get(tenantId) ?? null
+        const dek = await kms.getTenantDek(tenantId)
+        dekCache.set(tenantId, dek)
+        return dek
       }
-      console.log('not a proof of absence — run full command + rerun --check to confirm')
-      if (uninspectableEntityIds.length || failedSampleScopes.length) {
-        const unavailableDekSummary = uninspectableEntityIds.length
-          ? ` No DEK was available for ${uninspectableEntityIds.join(', ')}.`
-          : ''
-        const failedSampleSummary = failedSampleScopes.length
-          ? ` Sample queries failed for ${failedSampleScopes.join(', ')}.`
-          : ''
-        failCli(
-          `Encryption check incomplete.${unavailableDekSummary}${failedSampleSummary} `
-            + 'The counts above cover only successfully inspected scopes.',
-        )
-      }
-      return
-    }
 
-    let totalRowsFetched = 0
-    let totalRowsUpdated = 0
-    let totalHashFieldsCleared = 0
-    const totalHashFieldsSkipped = new Set<string>()
-    let totalMalformedPayloadCount = 0
-    const malformedByLocation = new Map<string, number>()
-    let totalEntitiesProcessed = 0
-
-    const deksByTenantId = new Map<string, TenantDek>()
-    for (const { mapMeta } of resolvedMaps) {
-      if (deksByTenantId.has(mapMeta.tenantId)) continue
-      const dek = await getDek(mapMeta.tenantId)
-      if (!dek) {
-        failCli(`No DEK available for tenant ${mapMeta.tenantId}. No rows were changed.`)
-      }
-      deksByTenantId.set(mapMeta.tenantId, dek)
-    }
-
-    for (const { mapMeta, scope } of processingMaps) {
-      const { entityId, meta, fields, tenantId } = mapMeta
-      const dek = deksByTenantId.get(tenantId)!
-      const pk = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
-      const tableName = meta.tableName
-      const schema = meta?.schema
-      const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
-      const fieldCols = fields.flatMap((field) => [
-        resolveProperty(meta, field.field).columnName,
-        field.hashField ? resolveProperty(meta, field.hashField).columnName : null,
-      ].filter((column): column is string => Boolean(column)))
-      const colList = Array.from(new Set([pk, ...fieldCols]))
-      totalEntitiesProcessed++
-
-      const scopes = [scope]
-
-      for (const scope of scopes) {
-        let lastId: string | null = null
-        let scopeMalformedCount = 0
-
-        while (true) {
-          let selectSql = `SELECT ${colList.map((c: string) => `"${c}"`).join(', ')} FROM ${qualifiedTable} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ?`
-          const selectParams: unknown[] = [scope.tenantId, scope.organizationId]
-          if (lastId !== null) {
-            selectSql += ` AND "${pk}" > ?`
-            selectParams.push(lastId)
+      if (checkMode) {
+        const envValue = process.env.TENANT_DATA_ENCRYPTION ?? '(not set)'
+        console.log(`TENANT_DATA_ENCRYPTION = ${envValue}`)
+        console.log(`Active EncryptionMap records for scope: ${maps.length}`)
+        let encryptedCandidatesSampled = 0
+        let malformedPayloadCountSampled = 0
+        // --check writes nothing, so an unreachable DEK is the diagnosis the operator came for,
+        // not a reason to abort mid-inspection. Report every uninspectable entity, inspect the
+        // rest, and let the closing gate below make the incomplete run exit non-zero.
+        const uninspectableEntityIds: string[] = []
+        const failedSampleScopes: string[] = []
+        for (const { mapMeta, scope } of processingMaps) {
+          const { entityId, meta, fields, tenantId } = mapMeta
+          const dek = await getDek(tenantId).catch(() => null)
+          if (!dek) {
+            console.warn(`⚠ No DEK available for tenant ${tenantId}; cannot inspect ${entityId}.`)
+            uninspectableEntityIds.push(entityId)
+            continue
           }
-          selectSql += ` ORDER BY "${pk}" LIMIT ?`
-          selectParams.push(batchSize)
-
-          const batchRows = await conn.execute(selectSql, selectParams)
-          const batch = Array.isArray(batchRows) ? batchRows : []
-          if (!batch.length) break
-
-          lastId = String(batch[batch.length - 1]![pk])
-          totalRowsFetched += batch.length
-
-          const batchStart = Date.now()
-          await conn.execute('BEGIN')
-          let batchCommitted = false
-          try {
-            for (const row of batch) {
-              const updates: Record<string, unknown> = {}
-              let rowDecrypted = false
-
+          const pk = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
+          const tableName = meta.tableName
+          const schema = meta?.schema
+          const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
+          const scopes = [scope]
+          const fieldCols = fields.flatMap((field) => [
+            resolveProperty(meta, field.field).columnName,
+            field.hashField ? resolveProperty(meta, field.hashField).columnName : null,
+          ].filter((column): column is string => Boolean(column)))
+          const colList = Array.from(new Set([pk, ...fieldCols]))
+          for (const scope of scopes) {
+            let sampleRows: unknown
+            try {
+              sampleRows = await conn.execute(
+                `SELECT ${colList.map((c: string) => `"${c}"`).join(', ')} FROM ${qualifiedTable} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ? LIMIT 100`,
+                [scope.tenantId, scope.organizationId],
+              )
+            } catch (error: unknown) {
+              const scopeLabel = scope.organizationId ?? 'global'
+              const errorMessage = error instanceof Error ? error.message : String(error)
+              console.warn(`⚠ Could not sample ${entityId} for organization ${scopeLabel}: ${errorMessage}`)
+              failedSampleScopes.push(`${entityId} (organization_id=${scopeLabel})`)
+              continue
+            }
+            for (const row of Array.isArray(sampleRows) ? sampleRows : []) {
+              let rowHasEncrypted = false
               for (const fieldRule of fields) {
                 const resolved = resolveProperty(meta, fieldRule.field)
                 const col = resolved?.columnName
@@ -1112,185 +1033,295 @@ const decryptDatabase: ModuleCli = {
                 const rawValue = row[col]
                 if (rawValue === null || rawValue === undefined) continue
                 try {
-                  const decrypted = decryptWithAesGcmStrict(String(rawValue), dek.key)
-                  let valueToWrite: string
-                  try {
-                    const parsed = JSON.parse(decrypted)
-                    valueToWrite = typeof parsed === 'string' ? parsed : decrypted
-                  } catch {
-                    valueToWrite = decrypted
-                  }
-                  updates[col] = valueToWrite
-                  rowDecrypted = true
+                  decryptWithAesGcmStrict(String(rawValue), dek.key)
+                  rowHasEncrypted = true
                 } catch (error: unknown) {
-                  if (error instanceof TenantDataEncryptionError) {
-                    if (error.code === TenantDataEncryptionErrorCode.AUTH_FAILED) {
-                      if (isEncryptedPayloadShape(rawValue)) throw error
-                    } else if (error.code === TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD) {
-                      scopeMalformedCount++
-                      const locationKey = `${tableName}:${col}`
-                      malformedByLocation.set(locationKey, (malformedByLocation.get(locationKey) ?? 0) + 1)
-                      console.warn(`⚠ MALFORMED_PAYLOAD for ${entityId} field "${col}" row ${row[pk]}; skipping field.`)
+                  if (isEncryptedPayloadShape(rawValue)) throw error
+                  if (error instanceof TenantDataEncryptionError && error.code === TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD) {
+                    malformedPayloadCountSampled++
+                  }
+                }
+              }
+              if (rowHasEncrypted) encryptedCandidatesSampled++
+            }
+          }
+        }
+        console.log(`estimated encrypted candidates (sampled): ${encryptedCandidatesSampled}`)
+        if (malformedPayloadCountSampled > 0) {
+          console.warn(`⚠ malformed payloads (sampled): ${malformedPayloadCountSampled} — may indicate corruption`)
+        } else {
+          console.log(`malformed payloads (sampled): ${malformedPayloadCountSampled}`)
+        }
+        console.log('not a proof of absence — run full command + rerun --check to confirm')
+        if (uninspectableEntityIds.length || failedSampleScopes.length) {
+          const unavailableDekSummary = uninspectableEntityIds.length
+            ? ` No DEK was available for ${uninspectableEntityIds.join(', ')}.`
+            : ''
+          const failedSampleSummary = failedSampleScopes.length
+            ? ` Sample queries failed for ${failedSampleScopes.join(', ')}.`
+            : ''
+          failCli(
+            `Encryption check incomplete.${unavailableDekSummary}${failedSampleSummary} `
+              + 'The counts above cover only successfully inspected scopes.',
+          )
+        }
+        return
+      }
+
+      let totalRowsFetched = 0
+      let totalRowsUpdated = 0
+      let totalHashFieldsCleared = 0
+      const totalHashFieldsSkipped = new Set<string>()
+      let totalMalformedPayloadCount = 0
+      const malformedByLocation = new Map<string, number>()
+      let totalEntitiesProcessed = 0
+
+      const deksByTenantId = new Map<string, TenantDek>()
+      for (const { mapMeta } of resolvedMaps) {
+        if (deksByTenantId.has(mapMeta.tenantId)) continue
+        const dek = await getDek(mapMeta.tenantId)
+        if (!dek) {
+          failCli(`No DEK available for tenant ${mapMeta.tenantId}. No rows were changed.`)
+        }
+        deksByTenantId.set(mapMeta.tenantId, dek)
+      }
+
+      for (const { mapMeta, scope } of processingMaps) {
+        const { entityId, meta, fields, tenantId } = mapMeta
+        const dek = deksByTenantId.get(tenantId)!
+        const pk = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
+        const tableName = meta.tableName
+        const schema = meta?.schema
+        const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
+        const fieldCols = fields.flatMap((field) => [
+          resolveProperty(meta, field.field).columnName,
+          field.hashField ? resolveProperty(meta, field.hashField).columnName : null,
+        ].filter((column): column is string => Boolean(column)))
+        const colList = Array.from(new Set([pk, ...fieldCols]))
+        totalEntitiesProcessed++
+
+        const scopes = [scope]
+
+        for (const scope of scopes) {
+          let lastId: string | null = null
+          let scopeMalformedCount = 0
+
+          while (true) {
+            await maintenance.assertLive()
+            let selectSql = `SELECT ${colList.map((c: string) => `"${c}"`).join(', ')} FROM ${qualifiedTable} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ?`
+            const selectParams: unknown[] = [scope.tenantId, scope.organizationId]
+            if (lastId !== null) {
+              selectSql += ` AND "${pk}" > ?`
+              selectParams.push(lastId)
+            }
+            selectSql += ` ORDER BY "${pk}" LIMIT ?`
+            selectParams.push(batchSize)
+
+            const batchRows = await conn.execute(selectSql, selectParams)
+            const batch = Array.isArray(batchRows) ? batchRows : []
+            if (!batch.length) break
+
+            lastId = String(batch[batch.length - 1]![pk])
+            totalRowsFetched += batch.length
+
+            const batchStart = Date.now()
+            await conn.execute('BEGIN')
+            let batchCommitted = false
+            try {
+              for (const row of batch) {
+                const updates: Record<string, unknown> = {}
+                let rowDecrypted = false
+
+                for (const fieldRule of fields) {
+                  const resolved = resolveProperty(meta, fieldRule.field)
+                  const col = resolved?.columnName
+                  if (!col) continue
+                  const rawValue = row[col]
+                  if (rawValue === null || rawValue === undefined) continue
+                  try {
+                    const decrypted = decryptWithAesGcmStrict(String(rawValue), dek.key)
+                    let valueToWrite: string
+                    try {
+                      const parsed = JSON.parse(decrypted)
+                      valueToWrite = typeof parsed === 'string' ? parsed : decrypted
+                    } catch {
+                      valueToWrite = decrypted
+                    }
+                    updates[col] = valueToWrite
+                    rowDecrypted = true
+                  } catch (error: unknown) {
+                    if (error instanceof TenantDataEncryptionError) {
+                      if (error.code === TenantDataEncryptionErrorCode.AUTH_FAILED) {
+                        if (isEncryptedPayloadShape(rawValue)) throw error
+                      } else if (error.code === TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD) {
+                        scopeMalformedCount++
+                        const locationKey = `${tableName}:${col}`
+                        malformedByLocation.set(locationKey, (malformedByLocation.get(locationKey) ?? 0) + 1)
+                        console.warn(`⚠ MALFORMED_PAYLOAD for ${entityId} field "${col}" row ${row[pk]}; skipping field.`)
+                      } else {
+                        throw error
+                      }
                     } else {
                       throw error
                     }
-                  } else {
-                    throw error
                   }
                 }
-              }
 
-              if (rowDecrypted) {
-                for (const fieldRule of fields) {
-                  if (!fieldRule.hashField) continue
-                  const resolvedHash = resolveProperty(meta, fieldRule.hashField)
-                  const hashCol = resolvedHash?.columnName
-                  if (!hashCol) {
-                    const skippedKey = `${tableName}:${fieldRule.hashField}`
-                    if (!totalHashFieldsSkipped.has(skippedKey)) {
-                      console.warn(`⚠ Hash column "${fieldRule.hashField}" not found in metadata for ${entityId}; skipping.`)
-                      totalHashFieldsSkipped.add(skippedKey)
+                if (rowDecrypted) {
+                  for (const fieldRule of fields) {
+                    if (!fieldRule.hashField) continue
+                    const resolvedHash = resolveProperty(meta, fieldRule.hashField)
+                    const hashCol = resolvedHash?.columnName
+                    if (!hashCol) {
+                      const skippedKey = `${tableName}:${fieldRule.hashField}`
+                      if (!totalHashFieldsSkipped.has(skippedKey)) {
+                        console.warn(`⚠ Hash column "${fieldRule.hashField}" not found in metadata for ${entityId}; skipping.`)
+                        totalHashFieldsSkipped.add(skippedKey)
+                      }
+                      continue
                     }
-                    continue
+                    updates[hashCol] = null
+                    totalHashFieldsCleared++
                   }
-                  updates[hashCol] = null
-                  totalHashFieldsCleared++
+                }
+
+                if (Object.keys(updates).length > 0) {
+                  if (!dryRun) {
+                    await updateEncryptionColumns(conn, qualifiedTable, pk, row, updates, scope)
+                  }
+                  totalRowsUpdated++
                 }
               }
+              await conn.execute('COMMIT')
+              batchCommitted = true
+            } catch (fatalErr: any) {
+              if (!batchCommitted) {
+                try { await conn.execute('ROLLBACK') } catch {}
+              }
+              console.error(`Fatal error during batch processing for ${entityId}: ${(fatalErr as Error)?.message || String(fatalErr)}`)
+              throw fatalErr
+            }
 
-              if (Object.keys(updates).length > 0) {
-                if (!dryRun) {
-                  await updateEncryptionColumns(conn, qualifiedTable, pk, row, updates, scope)
-                }
-                totalRowsUpdated++
+            const batchDurationMs = Date.now() - batchStart
+            if (debug) {
+              console.log(
+                `[debug] Batch ${entityId} org=${scope.organizationId ?? 'null'}: ${batch.length} rows in ${batchDurationMs}ms, scopeMalformed=${scopeMalformedCount}`,
+              )
+              if (batchDurationMs > 30_000) {
+                console.warn('⚠ Batch took >30s; consider reducing --batch-size.')
               }
             }
-            await conn.execute('COMMIT')
-            batchCommitted = true
-          } catch (fatalErr: any) {
-            if (!batchCommitted) {
-              try { await conn.execute('ROLLBACK') } catch {}
-            }
-            console.error(`Fatal error during batch processing for ${entityId}: ${(fatalErr as Error)?.message || String(fatalErr)}`)
-            throw fatalErr
-          }
-
-          const batchDurationMs = Date.now() - batchStart
-          if (debug) {
-            console.log(
-              `[debug] Batch ${entityId} org=${scope.organizationId ?? 'null'}: ${batch.length} rows in ${batchDurationMs}ms, scopeMalformed=${scopeMalformedCount}`,
-            )
-            if (batchDurationMs > 30_000) {
-              console.warn('⚠ Batch took >30s; consider reducing --batch-size.')
+            if (sleepMs > 0) {
+              await new Promise<void>((r) => setTimeout(r, sleepMs))
             }
           }
-          if (sleepMs > 0) {
-            await new Promise<void>((r) => setTimeout(r, sleepMs))
-          }
-        }
 
-        totalMalformedPayloadCount += scopeMalformedCount
-      }
-    }
-
-    const prefix = dryRun ? '[dry-run] ' : ''
-    console.log(`\n${prefix}Decryption summary:`)
-    console.log(`  Rows fetched:        ${totalRowsFetched}`)
-    console.log(`  Rows updated:        ${totalRowsUpdated}`)
-    console.log(`  Entities processed:  ${totalEntitiesProcessed}`)
-    console.log(`  Hash fields cleared: ${totalHashFieldsCleared}`)
-    if (totalHashFieldsSkipped.size > 0) {
-      console.log(`  Hash fields skipped (missing columns): ${Array.from(totalHashFieldsSkipped).join(', ')}`)
-    }
-    if (totalMalformedPayloadCount > 0) {
-      console.warn(
-        `  ⚠ ${totalMalformedPayloadCount} field value(s) returned MALFORMED_PAYLOAD and were skipped; these may be corrupted ciphertexts. Investigate before assuming decryption is complete.`,
-      )
-      if (debug && malformedByLocation.size > 0) {
-        const top = Array.from(malformedByLocation.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 10)
-        console.log('  Top malformed locations:')
-        for (const [loc, count] of top) {
-          console.log(`    ${loc}: ${count}`)
+          totalMalformedPayloadCount += scopeMalformedCount
         }
       }
-      failCli(
-        `${totalMalformedPayloadCount} field value(s) could not be decrypted because their ciphertext was malformed. Encryption maps were left active.`,
-      )
-    }
 
-    const retiring = resolvedMaps.filter(({ map }) => !organizationIdArg || Boolean(map.organizationId))
-    if (deactivateMaps && !dryRun) {
-      if (retiring.length) {
-        const policySignature = (policies: EncryptionMap[]) => JSON.stringify(policies.map((map) => [map.id, map.entityId, map.tenantId, map.organizationId, map.fieldsJson]).sort((left, right) => String(left[0]).localeCompare(String(right[0]))))
-        const selectedPolicySignature = policySignature(allMaps)
-        await (em as EntityManager).transactional(async (transaction) => {
-          const executeProtected = (query: string, parameters: unknown[] = []) =>
-            transaction.getConnection().execute(query, parameters, 'all', transaction.getTransactionContext())
-          const tables = Array.from(new Set(resolvedMaps.map(({ mapMeta }) => {
-            const { meta } = mapMeta
-            return meta.schema ? `"${meta.schema}"."${meta.tableName}"` : `"${meta.tableName}"`
-          }))).sort((left, right) => left.localeCompare(right))
-          await executeProtected(`LOCK TABLE encryption_maps, ${tables.join(', ')} IN SHARE ROW EXCLUSIVE MODE`)
-          const lockedPolicies = await transaction.find(EncryptionMap, mapWhere, { refresh: true })
-          if (policySignature(lockedPolicies) !== selectedPolicySignature) {
-            failCli('[internal] Encryption policies changed during maintenance. Maps remain active; retry against the current policies.')
+      const prefix = dryRun ? '[dry-run] ' : ''
+      console.log(`\n${prefix}Decryption summary:`)
+      console.log(`  Rows fetched:        ${totalRowsFetched}`)
+      console.log(`  Rows updated:        ${totalRowsUpdated}`)
+      console.log(`  Entities processed:  ${totalEntitiesProcessed}`)
+      console.log(`  Hash fields cleared: ${totalHashFieldsCleared}`)
+      if (totalHashFieldsSkipped.size > 0) {
+        console.log(`  Hash fields skipped (missing columns): ${Array.from(totalHashFieldsSkipped).join(', ')}`)
+      }
+      if (totalMalformedPayloadCount > 0) {
+        console.warn(
+          `  ⚠ ${totalMalformedPayloadCount} field value(s) returned MALFORMED_PAYLOAD and were skipped; these may be corrupted ciphertexts. Investigate before assuming decryption is complete.`,
+        )
+        if (debug && malformedByLocation.size > 0) {
+          const top = Array.from(malformedByLocation.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+          console.log('  Top malformed locations:')
+          for (const [loc, count] of top) {
+            console.log(`    ${loc}: ${count}`)
           }
-          for (const { mapMeta, scope } of await resolveProcessingMaps(executeProtected)) {
-            const { meta, fields, entityId, tenantId } = mapMeta
-            const table = meta.schema ? `"${meta.schema}"."${meta.tableName}"` : `"${meta.tableName}"`
-            const columns = fields.map((field) => resolveProperty(meta, field.field).columnName).filter((column): column is string => Boolean(column))
-            const scopes = [scope]
-            for (const scope of scopes) {
-              const primaryKey = meta.primaryKeys?.[0] ?? 'id'
-              const selectedColumns = [...new Set([primaryKey, ...columns])]
-              let lastVerifiedId: string | null = null
-              while (true) {
-                let query = `SELECT ${selectedColumns.map((column) => `"${column}"`).join(', ')} FROM ${table} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ?`
-                const parameters: unknown[] = [scope.tenantId, scope.organizationId]
-                if (lastVerifiedId !== null) {
-                  query += ` AND "${primaryKey}" > ?`
-                  parameters.push(lastVerifiedId)
+        }
+        failCli(
+          `${totalMalformedPayloadCount} field value(s) could not be decrypted because their ciphertext was malformed. Encryption maps were left active.`,
+        )
+      }
+
+      const retiring = resolvedMaps.filter(({ map }) => !organizationIdArg || Boolean(map.organizationId))
+      if (deactivateMaps && !dryRun) {
+        if (retiring.length) {
+          const policySignature = (policies: EncryptionMap[]) => JSON.stringify(policies.map((map) => [map.id, map.entityId, map.tenantId, map.organizationId, map.fieldsJson]).sort((left, right) => String(left[0]).localeCompare(String(right[0]))))
+          const selectedPolicySignature = policySignature(allMaps)
+          await maintenance.hold?.setReopenBarrier?.(null)
+          await (em as EntityManager).transactional(async (transaction) => {
+            const executeProtected = (query: string, parameters: unknown[] = []) =>
+              transaction.getConnection().execute(query, parameters, 'all', transaction.getTransactionContext())
+            const tables = Array.from(new Set(resolvedMaps.map(({ mapMeta }) => {
+              const { meta } = mapMeta
+              return meta.schema ? `"${meta.schema}"."${meta.tableName}"` : `"${meta.tableName}"`
+            }))).sort((left, right) => left.localeCompare(right))
+            await executeProtected(`LOCK TABLE encryption_maps, ${tables.join(', ')} IN SHARE ROW EXCLUSIVE MODE`)
+            const lockedPolicies = await transaction.find(EncryptionMap, mapWhere, { refresh: true })
+            if (policySignature(lockedPolicies) !== selectedPolicySignature) {
+              failCli('[internal] Encryption policies changed during maintenance. Maps remain active; retry against the current policies.')
+            }
+            for (const { mapMeta, scope } of await resolveProcessingMaps(executeProtected)) {
+              const { meta, fields, entityId, tenantId } = mapMeta
+              const table = meta.schema ? `"${meta.schema}"."${meta.tableName}"` : `"${meta.tableName}"`
+              const columns = fields.map((field) => resolveProperty(meta, field.field).columnName).filter((column): column is string => Boolean(column))
+              const scopes = [scope]
+              for (const scope of scopes) {
+                const primaryKey = meta.primaryKeys?.[0] ?? 'id'
+                const selectedColumns = [...new Set([primaryKey, ...columns])]
+                let lastVerifiedId: string | null = null
+                while (true) {
+                  let query = `SELECT ${selectedColumns.map((column) => `"${column}"`).join(', ')} FROM ${table} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ?`
+                  const parameters: unknown[] = [scope.tenantId, scope.organizationId]
+                  if (lastVerifiedId !== null) {
+                    query += ` AND "${primaryKey}" > ?`
+                    parameters.push(lastVerifiedId)
+                  }
+                  query += ` ORDER BY "${primaryKey}" LIMIT ?`
+                  parameters.push(batchSize)
+                  const rows = await executeProtected(query, parameters)
+                  const batch = Array.isArray(rows) ? rows : []
+                  if (!batch.length) break
+                  if (batch.some((row) => columns.some((column) => isEncryptedPayloadShape(row[column])))) {
+                    failCli('[internal] Encrypted values remain during the protected final sweep. Encryption maps remain active; stop writers and retry.')
+                  }
+                  lastVerifiedId = String(batch[batch.length - 1]![primaryKey])
                 }
-                query += ` ORDER BY "${primaryKey}" LIMIT ?`
-                parameters.push(batchSize)
-                const rows = await executeProtected(query, parameters)
-                const batch = Array.isArray(rows) ? rows : []
-                if (!batch.length) break
-                if (batch.some((row) => columns.some((column) => isEncryptedPayloadShape(row[column])))) {
-                  failCli('[internal] Encrypted values remain during the protected final sweep. Encryption maps remain active; stop writers and retry.')
-                }
-                lastVerifiedId = String(batch[batch.length - 1]![primaryKey])
               }
             }
-          }
-          const ids = retiring.map(({ map }) => map.id)
-          if (ids.some((id) => typeof id !== 'string' || !id)) failCli('[internal] Cannot retire an encryption map without its identifier.')
-          await executeProtected(`UPDATE encryption_maps SET is_active = false, deleted_at = now() WHERE tenant_id = ? AND id IN (${ids.map(() => '?').join(', ')}) AND deleted_at IS NULL`, [tenantIdArg, ...ids])
-        })
-        console.warn('⚠ Restart all application replicas before resuming writes — in-process map caches may still be active.')
+            const ids = retiring.map(({ map }) => map.id)
+            if (ids.some((id) => typeof id !== 'string' || !id)) failCli('[internal] Cannot retire an encryption map without its identifier.')
+            await executeProtected(`UPDATE encryption_maps SET is_active = false, deleted_at = now() WHERE tenant_id = ? AND id IN (${ids.map(() => '?').join(', ')}) AND deleted_at IS NULL`, [tenantIdArg, ...ids])
+          })
+          await maintenance.hold?.setReopenBarrier?.(new Date().toISOString())
+          console.warn('⚠ Restart all application replicas before resuming writes — in-process map caches may still be active.')
+        }
+        if (organizationIdArg && resolvedMaps.some(({ map }) => !map.organizationId)) {
+          console.warn('⚠ Tenant-wide fallback encryption maps remain active after organization-only decryption. Run a complete tenant sweep before retiring them.')
+        }
       }
-      if (organizationIdArg && resolvedMaps.some(({ map }) => !map.organizationId)) {
-        console.warn('⚠ Tenant-wide fallback encryption maps remain active after organization-only decryption. Run a complete tenant sweep before retiring them.')
+
+      if (deactivateMaps && dryRun) {
+        console.log(`[dry-run] Would deactivate ${retiring.length} EncryptionMap record(s).`)
       }
-    }
 
-    if (deactivateMaps && dryRun) {
-      console.log(`[dry-run] Would deactivate ${retiring.length} EncryptionMap record(s).`)
-    }
-
-    if (!dryRun && organizationIdArg) {
-      console.log(`\n✅ Organization-scoped decryption complete. Keep tenant encryption enabled; tenant-wide fallback policies may still protect other organizations. Restart replicas before resuming writes.`)
-    }
-    if (!dryRun && !organizationIdArg) {
-      console.log(`\n✅ Decryption complete. Required next steps:`)
-      console.log(`   1. Set TENANT_DATA_ENCRYPTION=false in your environment / secrets`)
-      console.log(`   2. Restart all application replicas`)
-      console.log(`   3. Run: mercato query_index reindex --tenant ${tenantIdArg}  ← run after env flip + restart; search/filter degraded until this completes`)
-      console.log(`   4. Run: mercato entities decrypt-database --tenant ${tenantIdArg} --check  to confirm no encrypted values remain`)
-      console.log(`   NOTE: if the run was long and concurrent inserts occurred, run again before step 4 — it is idempotent.`)
-    }
+      if (!dryRun && organizationIdArg) {
+        console.log(`\n✅ Organization-scoped decryption complete. Keep tenant encryption enabled; tenant-wide fallback policies may still protect other organizations. Restart replicas before resuming writes.`)
+      }
+      if (!dryRun && !organizationIdArg) {
+        console.log(`\n✅ Decryption complete. Required next steps:`)
+        console.log(`   1. Set TENANT_DATA_ENCRYPTION=false in your environment / secrets`)
+        console.log(`   2. Restart all application replicas`)
+        console.log(`   3. Run: mercato query_index reindex --tenant ${tenantIdArg}  ← run after env flip + restart; search/filter degraded until this completes`)
+        console.log(`   4. Run: mercato entities decrypt-database --tenant ${tenantIdArg} --check  to confirm no encrypted values remain`)
+        console.log(`   NOTE: if the run was long and concurrent inserts occurred, run again before step 4 — it is idempotent.`)
+      }
+      },
+    )
   },
 }
 
@@ -1336,7 +1367,8 @@ const backfillSystemEncryption: ModuleCli = {
       return
     }
 
-    const { resolve } = await createRequestContainer()
+    const container = await createRequestContainer()
+    const { resolve } = container
     const em = resolve('em') as any
     const conn: any = em?.getConnection?.()
     if (!conn || typeof conn.execute !== 'function') {
@@ -1353,153 +1385,165 @@ const backfillSystemEncryption: ModuleCli = {
       return
     }
 
-    const metaByEntityId = buildEntityMetaRegistry(em)
-    const prefix = dryRun ? '[dry-run] ' : ''
-    let totalRowsScanned = 0
-    let totalRowsUpdated = 0
-    let totalRowsUnchanged = 0
+    await runEncryptionMaintenance(
+      container,
+      {
+        operation: 'encryption.entities.backfill-system-encryption',
+        dryRun,
+        enterMaintenance: parseBooleanToken(String(args[ENTER_MAINTENANCE_FLAG] ?? '')) === true,
+        exitMaintenance: parseBooleanToken(String(args[EXIT_MAINTENANCE_FLAG] ?? '')) === true,
+      },
+      async (maintenance) => {
+      const metaByEntityId = buildEntityMetaRegistry(em)
+      const prefix = dryRun ? '[dry-run] ' : ''
+      let totalRowsScanned = 0
+      let totalRowsUpdated = 0
+      let totalRowsUnchanged = 0
 
-    for (const map of selectedMaps) {
-      const entityId = map.entityId
-      const meta = metaByEntityId.get(entityId)
-      if (!meta) {
-        console.warn(`Skipping ${entityId}: entity metadata not found (is the owning module enabled?).`)
-        continue
-      }
-      const tableName = meta?.tableName
-      if (!tableName) {
-        console.warn(`Skipping ${entityId}: entity has no table name.`)
-        continue
-      }
-      const primaryKey = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
-      const { columnName: primaryKeyColumn } = resolveProperty(meta, primaryKey)
-      const pkColumn = primaryKeyColumn ?? primaryKey
-      const qualifiedTable = meta?.schema ? `"${meta.schema}"."${tableName}"` : `"${tableName}"`
-
-      const columns = new Set<string>([pkColumn])
-      for (const rule of map.fields) {
-        const resolved = resolveProperty(meta, rule.field)
-        if (resolved.columnName) columns.add(resolved.columnName)
-        if (rule.hashField) {
-          const resolvedHash = resolveProperty(meta, rule.hashField)
-          if (resolvedHash.columnName) columns.add(resolvedHash.columnName)
+      for (const map of selectedMaps) {
+        const entityId = map.entityId
+        const meta = metaByEntityId.get(entityId)
+        if (!meta) {
+          console.warn(`Skipping ${entityId}: entity metadata not found (is the owning module enabled?).`)
+          continue
         }
-      }
-      const columnList = Array.from(columns)
-      const selectList = columnList.map((column) => `"${column}"`).join(', ')
+        const tableName = meta?.tableName
+        if (!tableName) {
+          console.warn(`Skipping ${entityId}: entity has no table name.`)
+          continue
+        }
+        const primaryKey = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
+        const { columnName: primaryKeyColumn } = resolveProperty(meta, primaryKey)
+        const pkColumn = primaryKeyColumn ?? primaryKey
+        const qualifiedTable = meta?.schema ? `"${meta.schema}"."${tableName}"` : `"${tableName}"`
 
-      // Same dry-run guarantee as rotate-encryption-key: previewing must not make
-      // the KMS provision this entity's system DEK as a side effect (#5950).
-      const systemDekAvailable = dryRun
-        ? Boolean(await encryptionService.getDek(resolveEncryptionKeyId(entityId, 'system', null)))
-        : true
-      if (!systemDekAvailable) {
+        const columns = new Set<string>([pkColumn])
+        for (const rule of map.fields) {
+          const resolved = resolveProperty(meta, rule.field)
+          if (resolved.columnName) columns.add(resolved.columnName)
+          if (rule.hashField) {
+            const resolvedHash = resolveProperty(meta, rule.hashField)
+            if (resolvedHash.columnName) columns.add(resolvedHash.columnName)
+          }
+        }
+        const columnList = Array.from(columns)
+        const selectList = columnList.map((column) => `"${column}"`).join(', ')
+
+        // Same dry-run guarantee as rotate-encryption-key: previewing must not make
+        // the KMS provision this entity's system DEK as a side effect (#5950).
+        const systemDekAvailable = dryRun
+          ? Boolean(await encryptionService.getDek(resolveEncryptionKeyId(entityId, 'system', null)))
+          : true
+        if (!systemDekAvailable) {
+          console.warn(
+            `[dry-run] ${entityId} has no system data-encryption key yet. Reporting the rows a real run would encrypt; no key material was provisioned.`,
+          )
+        }
+
+        let cursor: unknown = null
+        let entityRowsScanned = 0
+        let entityRowsUpdated = 0
+        let entityRowsUnchanged = 0
+
+        for (;;) {
+          await maintenance.assertLive()
+          const selectSql = cursor === null
+            ? `select ${selectList} from ${qualifiedTable} order by "${pkColumn}" asc limit ?`
+            : `select ${selectList} from ${qualifiedTable} where "${pkColumn}" > ? order by "${pkColumn}" asc limit ?`
+          const params = cursor === null ? [batchSize] : [cursor, batchSize]
+          const rows = await conn.execute(selectSql, params)
+          const list = Array.isArray(rows) ? rows : []
+          if (!list.length) break
+
+          for (const row of list) {
+            entityRowsScanned += 1
+            cursor = row[pkColumn]
+            const payload: Record<string, unknown> = {}
+            let hasPlaintext = false
+            for (const rule of map.fields) {
+              const resolved = resolveProperty(meta, rule.field)
+              if (!resolved.columnName) continue
+              const rawValue = row[resolved.columnName]
+              // Only plaintext belongs in the payload. An already-encrypted column produced no
+              // update anyway (the service skips what decrypts under the current key), but if the
+              // system key ever changed, passing its ciphertext through would abort the whole
+              // backfill rather than let the row's genuinely-plaintext fields through (#5951).
+              if (rawValue !== null && rawValue !== undefined && isEncryptedPayloadShape(rawValue)) continue
+              payload[rule.field] = rawValue
+              if (rawValue !== null && rawValue !== undefined) hasPlaintext = true
+              if (rule.hashField) {
+                const resolvedHash = resolveProperty(meta, rule.hashField)
+                if (resolvedHash.columnName) payload[rule.hashField] = row[resolvedHash.columnName]
+              }
+            }
+            if (!hasPlaintext) continue
+            if (!systemDekAvailable) {
+              // `hasPlaintext` already means a real run would rewrite this row.
+              entityRowsUpdated += 1
+              continue
+            }
+
+            const encrypted = await encryptionService.encryptEntityPayload(
+              entityId,
+              payload,
+              null,
+              null,
+              { createMissingDek: !dryRun },
+            )
+            const updates: Record<string, unknown> = {}
+            for (const rule of map.fields) {
+              const resolved = resolveProperty(meta, rule.field)
+              if (resolved.columnName) {
+                const nextValue = encrypted[rule.field]
+                if (nextValue !== undefined && nextValue !== row[resolved.columnName]) {
+                  updates[resolved.columnName] = formatValueForColumn(resolved.prop, nextValue)
+                }
+              }
+              if (rule.hashField) {
+                const resolvedHash = resolveProperty(meta, rule.hashField)
+                const nextHash = encrypted[rule.hashField]
+                if (resolvedHash.columnName && nextHash !== undefined && nextHash !== row[resolvedHash.columnName]) {
+                  updates[resolvedHash.columnName] = formatValueForColumn(resolvedHash.prop, nextHash)
+                }
+              }
+            }
+            if (!Object.keys(updates).length) {
+              entityRowsUnchanged += 1
+              if (debug) console.warn(`[backfill-system-encryption] ${entityId} ${String(row[pkColumn])}: plaintext left unchanged`)
+              continue
+            }
+            if (!dryRun) {
+              const setSql = Object.keys(updates).map((column) => `"${column}" = ?`).join(', ')
+              await conn.execute(
+                `update ${qualifiedTable} set ${setSql} where "${pkColumn}" = ?`,
+                [...Object.values(updates), row[pkColumn]],
+              )
+            }
+            entityRowsUpdated += 1
+          }
+
+          if (list.length < batchSize) break
+        }
+
+        totalRowsScanned += entityRowsScanned
+        totalRowsUpdated += entityRowsUpdated
+        totalRowsUnchanged += entityRowsUnchanged
+        console.log(`${prefix}${entityId}: scanned ${entityRowsScanned}, encrypted ${entityRowsUpdated}`)
+      }
+
+      console.log(`\n${prefix}Backfill summary:`)
+      console.log(`  Rows scanned:   ${totalRowsScanned}`)
+      console.log(`  Rows encrypted: ${totalRowsUpdated}`)
+      if (totalRowsUnchanged > 0) {
         console.warn(
-          `[dry-run] ${entityId} has no system data-encryption key yet. Reporting the rows a real run would encrypt; no key material was provisioned.`,
+          `  ⚠ ${totalRowsUnchanged} row(s) held plaintext that could not be encrypted — the system DEK was unavailable. Verify the KMS/fallback key, then re-run (use --debug to list the rows).`,
         )
       }
-
-      let cursor: unknown = null
-      let entityRowsScanned = 0
-      let entityRowsUpdated = 0
-      let entityRowsUnchanged = 0
-
-      for (;;) {
-        const selectSql = cursor === null
-          ? `select ${selectList} from ${qualifiedTable} order by "${pkColumn}" asc limit ?`
-          : `select ${selectList} from ${qualifiedTable} where "${pkColumn}" > ? order by "${pkColumn}" asc limit ?`
-        const params = cursor === null ? [batchSize] : [cursor, batchSize]
-        const rows = await conn.execute(selectSql, params)
-        const list = Array.isArray(rows) ? rows : []
-        if (!list.length) break
-
-        for (const row of list) {
-          entityRowsScanned += 1
-          cursor = row[pkColumn]
-          const payload: Record<string, unknown> = {}
-          let hasPlaintext = false
-          for (const rule of map.fields) {
-            const resolved = resolveProperty(meta, rule.field)
-            if (!resolved.columnName) continue
-            const rawValue = row[resolved.columnName]
-            // Only plaintext belongs in the payload. An already-encrypted column produced no
-            // update anyway (the service skips what decrypts under the current key), but if the
-            // system key ever changed, passing its ciphertext through would abort the whole
-            // backfill rather than let the row's genuinely-plaintext fields through (#5951).
-            if (rawValue !== null && rawValue !== undefined && isEncryptedPayloadShape(rawValue)) continue
-            payload[rule.field] = rawValue
-            if (rawValue !== null && rawValue !== undefined) hasPlaintext = true
-            if (rule.hashField) {
-              const resolvedHash = resolveProperty(meta, rule.hashField)
-              if (resolvedHash.columnName) payload[rule.hashField] = row[resolvedHash.columnName]
-            }
-          }
-          if (!hasPlaintext) continue
-          if (!systemDekAvailable) {
-            // `hasPlaintext` already means a real run would rewrite this row.
-            entityRowsUpdated += 1
-            continue
-          }
-
-          const encrypted = await encryptionService.encryptEntityPayload(
-            entityId,
-            payload,
-            null,
-            null,
-            { createMissingDek: !dryRun },
-          )
-          const updates: Record<string, unknown> = {}
-          for (const rule of map.fields) {
-            const resolved = resolveProperty(meta, rule.field)
-            if (resolved.columnName) {
-              const nextValue = encrypted[rule.field]
-              if (nextValue !== undefined && nextValue !== row[resolved.columnName]) {
-                updates[resolved.columnName] = formatValueForColumn(resolved.prop, nextValue)
-              }
-            }
-            if (rule.hashField) {
-              const resolvedHash = resolveProperty(meta, rule.hashField)
-              const nextHash = encrypted[rule.hashField]
-              if (resolvedHash.columnName && nextHash !== undefined && nextHash !== row[resolvedHash.columnName]) {
-                updates[resolvedHash.columnName] = formatValueForColumn(resolvedHash.prop, nextHash)
-              }
-            }
-          }
-          if (!Object.keys(updates).length) {
-            entityRowsUnchanged += 1
-            if (debug) console.warn(`[backfill-system-encryption] ${entityId} ${String(row[pkColumn])}: plaintext left unchanged`)
-            continue
-          }
-          if (!dryRun) {
-            const setSql = Object.keys(updates).map((column) => `"${column}" = ?`).join(', ')
-            await conn.execute(
-              `update ${qualifiedTable} set ${setSql} where "${pkColumn}" = ?`,
-              [...Object.values(updates), row[pkColumn]],
-            )
-          }
-          entityRowsUpdated += 1
-        }
-
-        if (list.length < batchSize) break
+      if (!dryRun && totalRowsUpdated > 0) {
+        console.log('\n✅ Backfill complete. Re-run with --dry-run to confirm no plaintext rows remain.')
       }
-
-      totalRowsScanned += entityRowsScanned
-      totalRowsUpdated += entityRowsUpdated
-      totalRowsUnchanged += entityRowsUnchanged
-      console.log(`${prefix}${entityId}: scanned ${entityRowsScanned}, encrypted ${entityRowsUpdated}`)
-    }
-
-    console.log(`\n${prefix}Backfill summary:`)
-    console.log(`  Rows scanned:   ${totalRowsScanned}`)
-    console.log(`  Rows encrypted: ${totalRowsUpdated}`)
-    if (totalRowsUnchanged > 0) {
-      console.warn(
-        `  ⚠ ${totalRowsUnchanged} row(s) held plaintext that could not be encrypted — the system DEK was unavailable. Verify the KMS/fallback key, then re-run (use --debug to list the rows).`,
-      )
-    }
-    if (!dryRun && totalRowsUpdated > 0) {
-      console.log('\n✅ Backfill complete. Re-run with --dry-run to confirm no plaintext rows remain.')
-    }
+      },
+    )
   },
 }
 

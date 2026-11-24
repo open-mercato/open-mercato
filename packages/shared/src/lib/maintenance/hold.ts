@@ -38,8 +38,10 @@ export function resolveMaintenanceCoordinator(container: ResolvableContainer): M
     if (typeof container.hasRegistration === 'function' && !container.hasRegistration(MAINTENANCE_COORDINATOR_DI_KEY)) {
       return null
     }
-    const coordinator = container.resolve<MaintenanceCoordinator | null | undefined>(MAINTENANCE_COORDINATOR_DI_KEY)
-    return coordinator ?? null
+    const coordinator = container.resolve<Partial<MaintenanceCoordinator> | null | undefined>(MAINTENANCE_COORDINATOR_DI_KEY)
+    if (!coordinator || typeof coordinator !== 'object') return null
+    if (typeof coordinator.acquireHold !== 'function' || typeof coordinator.getState !== 'function') return null
+    return coordinator as MaintenanceCoordinator
   } catch {
     return null
   }
