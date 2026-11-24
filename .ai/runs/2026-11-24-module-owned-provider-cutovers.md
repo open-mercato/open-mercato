@@ -39,7 +39,7 @@ PR: #10542
 
 ### Phase 4: Example workflows
 
-- [ ] 4.1 Migrate and verify scoped create-if-absent example seeding.
+- [x] 4.1 Migrate and verify scoped create-if-absent example seeding. — ec5269453f
 
 ### Phase 5: Integration
 
