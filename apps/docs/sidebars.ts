@@ -211,6 +211,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "enterprise/overview",
         "enterprise/record-locks",
+        "enterprise/maintenance-mode",
         {
           type: "category",
           label: "Security",

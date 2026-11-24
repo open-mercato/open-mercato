@@ -1,5 +1,27 @@
 # Upgrade Notes
 
+## Enterprise maintenance mode and protected key rotation
+
+The new Enterprise `maintenance` module turns on with `OM_ENABLE_ENTERPRISE_MODULES=true` ([guide](apps/docs/docs/enterprise/maintenance-mode.mdx), [specification](.ai/specs/enterprise/2026-11-13-maintenance-mode.md)). There is no database migration.
+
+- **OSS seams (additive, no-op without a registered gate).**
+  - `@open-mercato/shared/lib/runtime/request-gate`: evaluated by the API dispatcher, `api/auth/login` and `proxy.ts`.
+  - `@open-mercato/shared/lib/runtime/worker-gate`: consulted by `runWorker` and the local scheduler tick.
+  - `@open-mercato/shared/lib/maintenance/types`: the `maintenanceCoordinator` DI contract, plus `withMaintenanceHold` / `runEncryptionMaintenance`.
+  - **Standalone apps:** pick up the `proxy.ts` and `api/auth/login/route.ts` changes from the create-app template.
+- **Behavior change on Enterprise installs.** These commands now refuse to write unless they hold a drained maintenance window:
+  - `entities rotate-encryption-key`
+  - `auth rotate-encryption-key`
+  - `entities decrypt-database`
+  - `entities backfill-system-encryption`
+
+  Without a window they exit 7 with no writes. **Action:**
+  1. Set `OM_MAINTENANCE_EXPECTED_PROCESSES`.
+  2. Run `mercato maintenance on --wait-drain` before rotating, or add `--enter-maintenance` to the command.
+  3. Afterwards run `mercato maintenance off`, or pass `--exit-maintenance`.
+
+  Dry runs and OSS installs are unchanged. Unattended rotation scripts fail closed until they are updated.
+
 ## CRUD factory security and query correctness bundle
 
 These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.

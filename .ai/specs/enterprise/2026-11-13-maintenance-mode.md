@@ -14,7 +14,7 @@ Encryption key rotation **must** run inside a drained maintenance window on any 
 
 The mode lives in a new enterprise module, `maintenance`. Open Mercato Core gains only two generic, additive, no-op-by-default seams: a request-gate registry and a `maintenanceCoordinator` DI contract. OSS behavior does not change.
 
-Status: design for review. ⚠ Q2, Q3 and Q9 need human confirmation before implementation.
+Status: implemented (Phases 0–3, #10539). Q2, Q3 and Q9 were confirmed when the maintainer merged the spec and requested implementation.
 
 ## Resolved assumptions (autonomous defaults)
 
@@ -409,10 +409,16 @@ Illustrative proposals, not accepted designs:
   | `entities rotate-encryption-key` | Custom-entity document rewrite, then DEK provisioning and row updates |
   | `entities decrypt-database` | `BEGIN` and row updates; map retirement with `--deactivate-maps` |
   | `entities backfill-system-encryption` | System DEK provisioning and row updates |
-  | `entities seed-encryption` | `upsertEncryptionMaps` and map cache invalidation — in scope |
+  | `entities seed-encryption` | `upsertEncryptionMaps` — **out of scope** (see below) |
   | `auth rotate-encryption-key` | DEK provisioning and `auth:user` row updates |
 
   `entities rehash-lookups` (hash columns only), `seeds encrypt|decrypt` (files only) and `ai_assistant mcp:ensure-api-key --rotate` are out of scope.
+  `entities seed-encryption` is out of scope as well. It only upserts additive key maps: it rewrites no ciphertext and retires no policy. `mercato init` also runs it programmatically, so requiring a window there would break initialization on every Enterprise install.
+- **Writer fence.** The gate is the fence. A replacement process loads the active state at boot and is gated, its workers pause, and it heartbeats into the inventory.
+  - Store loss makes `assertLive()` fail, which stops the protected operation before its next batch.
+  - The single-host `file` backend refuses drained holds once writers on another host heartbeat.
+  - Redis must report AOF or RDB persistence. Managed Redis can set `OM_MAINTENANCE_REDIS_ASSUME_DURABLE=1` instead.
+- **Policy generation.** A process's loaded generation is its start time. A reopen barrier records the verified-success time of the retirement. `maintenance off` reopens only when every live writer started after that time and the inventory is complete, which proves every writer restarted.
 
 ### Phase 1 (OSS, no behavior change)
 
@@ -503,6 +509,14 @@ Illustrative proposals, not accepted designs:
 The CLI, the coordinator, the gate and the integrations all use the same `windowId`, `epoch` and hold model. Store unavailability is handled consistently: sticky last-known state for traffic, fail closed for operations. Q2, Q3 and Q9 remain open before implementation.
 
 ## Changelog
+
+- 2026-11-24: Implemented Phases 0–3 (#10539); Phase 4 ships with the `backups` module. The maintainer merged the spec PR and requested implementation, which confirms Q2, Q3 and Q9. Deviations from the original text:
+  - **Request gates track completion.** The gate seam adds `admitRequest()`, so a gate can count requests through to completion, and an optional `request` on page contexts, so the bypass form POST can be read.
+  - **Gate pages set their own CSP.** The proxy keeps a gate response's own Content-Security-Policy. The maintenance page pins its inline styles by hash instead of using the app nonce.
+  - **Worker pause point.** Jobs wait inside the handler wrapper rather than through BullMQ `pause()`.
+  - **Overlay polling.** The admin overlay polls every 30 s and on focus. Generic `apiCall` 503 handling stays unchanged, so the overlay does not react to each 503.
+  - **Scope.** `seed-encryption` is out of scope.
+  - **Status route path.** The status route lives at `api/status/route.ts`.
 
 - 2026-11-13: Initial spec. Autonomous defaults Q1–Q11; ⚠ Q2, Q3, Q9.
 - 2026-11-13: Applied the independent review:
