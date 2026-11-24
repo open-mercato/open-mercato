@@ -37,7 +37,7 @@ test('TC-DICT-8803: dictionary entries have no Translate action without translat
     const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: unique, exact: true }) })
     await expect(row).toBeVisible()
     await expect(row.getByRole('cell', { name: 'Entry without translations', exact: true })).toBeVisible()
-    await expect(row.getByRole('button', { name: 'Translate Entry without translations', exact: true })).toHaveCount(0)
+    await expect(row.getByRole('button', { name: /^Translate\b/ })).toHaveCount(0)
   } finally {
     await deleteEntityByPathIfExists(request, token, dictionaryId && entryId ? `/api/dictionaries/${dictionaryId}/entries/${entryId}` : null)
     await deleteEntityByPathIfExists(request, token, dictionaryId ? `/api/dictionaries/${dictionaryId}` : null)

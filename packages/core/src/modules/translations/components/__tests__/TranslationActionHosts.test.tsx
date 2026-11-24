@@ -113,7 +113,7 @@ describe('translation contributions at real rendered hosts', () => {
 
     await waitFor(() => expect(screen.getByText('Preferred customer')).toBeVisible())
     await act(async () => {})
-    expect(screen.queryByRole('button', { name: 'Translate Preferred customer' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Translate\b/ })).toBeNull()
   })
 
   it('keeps inherited dictionary entries read-only even with a registered translation widget', async () => {
@@ -122,7 +122,7 @@ describe('translation contributions at real rendered hosts', () => {
 
     expect(screen.getByText('Managed in parent organization')).toBeVisible()
     await act(async () => {})
-    expect(screen.queryByRole('button', { name: 'Translate Preferred customer' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Translate\b/ })).toBeNull()
   })
 
   it('mounts the field action through the page and real shared editor with wildcard grants', async () => {
@@ -152,6 +152,6 @@ describe('translation contributions at real rendered hosts', () => {
 
     await waitFor(() => expect(screen.getByText('Preferred customer')).toBeVisible())
     await act(async () => {})
-    expect(screen.queryByRole('button', { name: 'Translate Preferred customer' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Translate\b/ })).toBeNull()
   })
 })
