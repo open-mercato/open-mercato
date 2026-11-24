@@ -53,6 +53,15 @@ export const igniteCacheProviderSettingsSchema = z.strictObject({
 export type IgniteCacheProviderSettingsInput = z.input<typeof igniteCacheProviderSettingsSchema>
 export type IgniteCacheProviderConfig = z.output<typeof igniteCacheProviderSettingsSchema>
 
+export type IgniteTransportWarning = 'tls_verification_disabled' | 'credentials_over_plaintext'
+
+export function igniteTransportWarnings(config: Pick<IgniteCacheProviderConfig, 'tls' | 'password'>): IgniteTransportWarning[] {
+  const warnings: IgniteTransportWarning[] = []
+  if (config.tls && config.tls.rejectUnauthorized === false) warnings.push('tls_verification_disabled')
+  if (!config.tls && config.password !== undefined) warnings.push('credentials_over_plaintext')
+  return warnings
+}
+
 export function redactIgniteCacheProviderConfig(config: IgniteCacheProviderConfig): Record<string, unknown> {
   return {
     endpoints: [...config.endpoints],

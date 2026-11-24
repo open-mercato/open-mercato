@@ -138,7 +138,10 @@ export function createIgniteStrategy(
       const json = JSON.stringify(value === undefined ? null : value)
       const record = buildStoredRecord({ payload: helpers.encode(json), tags: options?.tags, ttl, now: Date.now() })
       const serialized = serializeStoredRecord(record)
-      if (Buffer.byteLength(serialized, 'utf8') > config.maxValueBytes) throw new IgniteCacheValueTooLargeError(config.maxValueBytes)
+      if (Buffer.byteLength(serialized, 'utf8') > config.maxValueBytes) {
+        await connection.run('delete', (cache) => cache.removeKey(key))
+        throw new IgniteCacheValueTooLargeError(config.maxValueBytes)
+      }
       await connection.run('set', (cache) => cache.put(key, serialized))
     },
 
