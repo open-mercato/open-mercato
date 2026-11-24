@@ -3,7 +3,7 @@
 const mockFetchStuckDealIds = jest.fn()
 
 jest.mock('../../../lib/stuckDeals', () => ({
-  fetchStuckDealIds: (...args: unknown[]) => mockFetchStuckDealIds(...args),
+  fetchScopedStuckDealIds: (...args: unknown[]) => mockFetchStuckDealIds(...args),
 }))
 
 import { buildDealListFilters, dealListQuerySchema } from '../route'
@@ -306,25 +306,40 @@ describe('customers deals list filters', () => {
     const openStuckDeal = '77777777-7777-4777-8777-777777777777'
     const closedStuckDeal = '88888888-8888-4888-8888-888888888888'
     const { ctx, execute } = createDealFilterContext([])
-    execute
-      .mockResolvedValueOnce([{ id: overdueDeal }])
-      .mockResolvedValueOnce([{ id: openStuckDeal }])
+    execute.mockResolvedValueOnce([{ id: overdueDeal }, { id: openStuckDeal }])
     mockFetchStuckDealIds.mockResolvedValue([openStuckDeal, closedStuckDeal])
 
     const parsed = dealListQuerySchema.parse({ needsAttention: 'true' })
     const filters = await buildDealListFilters(parsed, ctx)
 
     expect(filters.id).toEqual({ $in: [overdueDeal, openStuckDeal] })
-    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute).toHaveBeenCalledTimes(1)
     expect(execute.mock.calls[0]?.[0]).toContain('expected_close_at < CURRENT_DATE')
-    expect(execute.mock.calls[1]?.[0]).toContain('status IN (?,?)')
-    expect(execute.mock.calls[1]?.[1]).toEqual([
-      organizationId,
+    expect(execute.mock.calls[0]?.[0]).toContain('status IN (?,?)')
+    expect(execute.mock.calls[0]?.[1]).toEqual([
+      `{${organizationId}}`,
       tenantId,
       'open',
       'in_progress',
-      openStuckDeal,
-      closedStuckDeal,
+      `{${openStuckDeal},${closedStuckDeal}}`,
+    ])
+  })
+
+  it('resolves attention within all visible organizations without a selected organization', async () => {
+    const otherOrganizationId = '33333333-3333-4333-8333-333333333333'
+    const firstOverdueDeal = '66666666-6666-4666-8666-666666666666'
+    const otherOverdueDeal = '77777777-7777-4777-8777-777777777777'
+    const { ctx, execute } = createDealFilterContext([])
+    ctx.auth = { ...ctx.auth!, orgId: null }
+    ctx.organizationIds = [organizationId, otherOrganizationId]
+    execute.mockResolvedValueOnce([{ id: firstOverdueDeal }, { id: otherOverdueDeal }])
+
+    const filters = await buildDealListFilters(dealListQuerySchema.parse({ needsAttention: true }), ctx)
+
+    expect(filters.id).toEqual({ $in: [firstOverdueDeal, otherOverdueDeal] })
+    expect(mockFetchStuckDealIds).toHaveBeenCalledWith(expect.anything(), [organizationId, otherOrganizationId], tenantId)
+    expect(execute).toHaveBeenCalledWith(expect.stringContaining('organization_id = ANY(?::uuid[])'), [
+      `{${organizationId},${otherOrganizationId}}`, tenantId, 'open', 'in_progress', '{}',
     ])
   })
 
@@ -348,7 +363,7 @@ describe('customers deals list filters', () => {
     expect(execute.mock.calls[0]?.[0]).toContain('customer_deal_people')
     expect(execute.mock.calls[0]?.[0]).toContain('customer_deal_companies')
     expect(execute.mock.calls[0]?.[1]).toEqual([
-      organizationId,
+      `{${organizationId}}`,
       tenantId,
       personA,
       personB,
@@ -371,7 +386,7 @@ describe('customers deals list filters', () => {
 
     expect(filters.id).toEqual({ $in: [dealA] })
     expect(execute.mock.calls[0]?.[1]).toEqual([
-      organizationId,
+      `{${organizationId}}`,
       tenantId,
       personA,
       personB,

@@ -24,6 +24,7 @@ const executeMock = jest.fn()
 const getRatesMock = jest.fn()
 const runWithCacheTenantMock = jest.fn((_tenantId: string | null, operation: () => unknown) => operation())
 const findMatchingEntityIdsBySearchTokensAcrossSourcesMock = jest.fn()
+const findMatchingEntityIdsWithQueryEngineMock = jest.fn()
 const fetchStuckDealIdsMock = jest.fn()
 
 const cache = {
@@ -65,13 +66,18 @@ jest.mock('../../../../lib/optionalBaseCurrency', () => ({
 }))
 
 jest.mock('../../../utils', () => ({
+  ...jest.requireActual('../../../utils'),
   findMatchingEntityIdsBySearchTokensAcrossSources: jest.fn((...args: unknown[]) => (
     findMatchingEntityIdsBySearchTokensAcrossSourcesMock(...args)
+  )),
+  findMatchingEntityIdsWithQueryEngine: jest.fn((...args: unknown[]) => (
+    findMatchingEntityIdsWithQueryEngineMock(...args)
   )),
 }))
 
 jest.mock('../../../../lib/stuckDeals', () => ({
   fetchStuckDealIds: jest.fn((...args: unknown[]) => fetchStuckDealIdsMock(...args)),
+  fetchScopedStuckDealIds: jest.fn((...args: unknown[]) => fetchStuckDealIdsMock(...args)),
 }))
 
 jest.mock('@open-mercato/cache', () => ({
@@ -142,6 +148,7 @@ beforeEach(() => {
   cache.get.mockResolvedValue(null)
   cache.set.mockResolvedValue(undefined)
   findMatchingEntityIdsBySearchTokensAcrossSourcesMock.mockResolvedValue([])
+  findMatchingEntityIdsWithQueryEngineMock.mockResolvedValue([])
   fetchStuckDealIdsMock.mockResolvedValue([])
 })
 
@@ -150,6 +157,63 @@ afterAll(() => {
 })
 
 describe('GET /api/customers/deals/aggregate caching', () => {
+  it('composes a v2 tree with flat criteria and bypasses the legacy cache', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    cache.get.mockResolvedValue(cachedResponse)
+    resolveOrganizationScopeForRequestMock.mockResolvedValue(makeScope(otherTenantId))
+    resolveDealsOrganizationIdsMock.mockResolvedValue([organizationId, otherOrganizationId])
+    const dealId = '99999999-9999-4999-8999-999999999999'
+    findMatchingEntityIdsWithQueryEngineMock.mockResolvedValue([dealId])
+    const params = new URLSearchParams({
+      pipelineId,
+      'filter[v]': '2',
+      'filter[root][combinator]': 'and',
+      'filter[root][children][0][type]': 'rule',
+      'filter[root][children][0][field]': 'status',
+      'filter[root][children][0][op]': 'is',
+      'filter[root][children][0][value]': 'won',
+    })
+    const { GET } = await loadRoute()
+
+    const response = await GET(new Request(`http://localhost/api/customers/deals/aggregate?${params}`))
+
+    expect(response.status).toBe(200)
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+    expect(findMatchingEntityIdsWithQueryEngineMock).toHaveBeenCalledWith(expect.objectContaining({
+      ctx: expect.objectContaining({
+        auth: expect.objectContaining({ tenantId: otherTenantId }),
+        organizationIds: [organizationId, otherOrganizationId],
+      }),
+      filters: { $and: [{ pipeline_id: { $eq: pipelineId } }, { status: { $in: ['win', 'won'] } }] },
+    }))
+    expect(executeMock).toHaveBeenCalledWith(
+      expect.stringContaining('tenant_id = ? AND organization_id IN (?,?) AND deleted_at IS NULL AND id = ANY(?::uuid[])'),
+      [otherTenantId, organizationId, otherOrganizationId, `{${dealId}}`],
+    )
+  })
+
+  it('keeps explicit false cache-compatible and bypasses the cache for active attention', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    cache.get.mockResolvedValue(cachedResponse)
+    const { GET } = await loadRoute()
+    const url = 'http://localhost/api/customers/deals/aggregate'
+
+    const inactive = await GET(new Request(`${url}?needsAttention=false`))
+    expect(await inactive.json()).toEqual(cachedResponse)
+    expect(findMatchingEntityIdsWithQueryEngineMock).not.toHaveBeenCalled()
+
+    executeMock.mockResolvedValue([])
+    const active = await GET(new Request(`${url}?needsAttention=true`))
+    expect(await active.json()).toEqual({ baseCurrencyCode: 'USD', perStage: [] })
+    expect(cache.get).toHaveBeenCalledTimes(1)
+    expect(cache.set).not.toHaveBeenCalled()
+    expect(executeMock).toHaveBeenLastCalledWith(
+      expect.stringContaining('id = ANY(?::uuid[])'),
+      [tenantId, organizationId, '{}'],
+    )
+  })
+
   it('does not resolve or touch the cache when the CRUD cache flag is off', async () => {
     delete process.env.ENABLE_CRUD_API_CACHE
     const { GET } = await loadRoute()

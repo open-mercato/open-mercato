@@ -21,12 +21,13 @@ import {
   isCrudCacheEnabled,
   resolveCrudCache,
 } from '@open-mercato/shared/lib/crud/cache'
-import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
+import { buildQueryParams, readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
 import { expandDealStatusAliases } from '../../../lib/dealStatus'
-import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../utils'
+import { findMatchingEntityIdsBySearchTokensAcrossSources, findMatchingEntityIdsWithQueryEngine } from '../../utils'
+import { buildDealListFilters, dealListQuerySchema } from '../route'
 import { E } from '#generated/entities.ids.generated'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -53,6 +54,7 @@ const querySchema = z.object({
     const parsed = parseBooleanFromUnknown(value)
     return parsed === null ? value : parsed
   }, z.boolean()).optional(),
+  needsAttention: dealListQuerySchema.shape.needsAttention,
   expectedCloseAtFrom: z.string().optional(),
   expectedCloseAtTo: z.string().optional(),
 })
@@ -159,7 +161,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Per-stage counts and currency totals for kanban lane headers',
       description:
-        'Returns per-stage counts and totals for deals, with values converted to the tenant base currency where rates are available. Used to power kanban lane headers without loading every deal.',
+        'Returns per-stage counts and totals for deals, with values converted to the tenant base currency where rates are available. Supports the deals list advanced filter query parameters (filter[...]) and needsAttention.',
       query: querySchema,
       responses: [
         { status: 200, description: 'Per-stage aggregate payload', schema: aggregateResponseSchema },
@@ -205,6 +207,7 @@ export async function GET(req: Request) {
     companyId: readArrayParam(params, 'companyId') ?? undefined,
     isStuck: params.get('isStuck') ?? undefined,
     isOverdue: params.get('isOverdue') ?? undefined,
+    needsAttention: params.get('needsAttention') ?? undefined,
     expectedCloseAtFrom: params.get('expectedCloseAtFrom') ?? undefined,
     expectedCloseAtTo: params.get('expectedCloseAtTo') ?? undefined,
   })
@@ -225,7 +228,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const orgFilterIds = await resolveDealsOrganizationIds({ em, scope, auth, tenantId: effectiveTenantId })
-  const aggregateCache = isDealsAggregateCacheEligible(params) && isCrudCacheEnabled()
+  const treeParams = Object.entries(buildQueryParams(params)).filter(([key]) => key.startsWith('filter['))
+  const useListFilters = treeParams.length > 0 || parsed.data.needsAttention === true
+  const aggregateCache = !useListFilters && isDealsAggregateCacheEligible(params) && isCrudCacheEnabled()
     ? resolveCrudCache(container)
     : null
   const aggregateCacheKey = aggregateCache
@@ -282,101 +287,125 @@ export async function GET(req: Request) {
   ]
   const values: Array<string | number | null> = [effectiveTenantId, ...orgFilterIds]
 
-  if (parsed.data.pipelineId) {
-    where.push('pipeline_id = ?')
-    values.push(parsed.data.pipelineId)
-  }
-  const search = parsed.data.search?.trim()
-  if (search) {
-    const searchCtx: CrudCtx = {
+  if (useListFilters) {
+    const ctx: CrudCtx = {
       container,
-      auth,
+      auth: { ...auth, tenantId: effectiveTenantId, orgId: scope.selectedId },
       organizationScope: scope,
-      selectedOrganizationId: orgFilterIds[0],
+      selectedOrganizationId: scope.selectedId,
       organizationIds: orgFilterIds,
       request: req,
     }
-    const matchingIds = await findMatchingEntityIdsBySearchTokensAcrossSources({
-      ctx: searchCtx,
-      query: search,
-      sources: [
-        {
-          entityType: E.customers.customer_deal,
-          fields: [
-            'title',
-            'description',
-            'status',
-            'pipeline_stage',
-            'source',
-            'value_amount',
-            'value_currency',
-            'cf:competitive_risk',
-            'cf:implementation_complexity',
-          ],
-        },
-      ],
+    const query = dealListQuerySchema.parse({
+      ...Object.fromEntries(treeParams),
+      ...parsed.data,
+      search: parsed.data.search?.trim() || undefined,
     })
-    if (matchingIds !== null && matchingIds.length > 0) {
-      restrictToIds(where, values, matchingIds)
-    } else if (isTenantDataEncryptionEnabled()) {
-      // `customers:customer_deal.title` and `.description` are declared in
-      // `encryption.ts` as encrypted columns. A raw `ILIKE` over the ciphertext would
-      // silently match nothing on encrypted tenants and produce misleading lane totals,
-      // so we collapse the result to zero rows instead — consistent with the list
-      // endpoint's behavior when the token index has nothing to offer.
-      restrictToIds(where, values, [])
-    } else {
-      const searchPattern = `%${escapeLikePattern(search)}%`
-      where.push("(title ILIKE ? ESCAPE '\\' OR description ILIKE ? ESCAPE '\\')")
-      values.push(searchPattern, searchPattern)
+    const filters = await buildDealListFilters(query, ctx, { inlineAdvancedFilter: true })
+    const matchingIds = await findMatchingEntityIdsWithQueryEngine({
+      ctx,
+      entityId: E.customers.customer_deal,
+      filters,
+    })
+    where.push('id = ANY(?::uuid[])')
+    values.push(`{${matchingIds.join(',')}}`)
+  } else {
+    if (parsed.data.pipelineId) {
+      where.push('pipeline_id = ?')
+      values.push(parsed.data.pipelineId)
     }
-  }
-  if (parsed.data.status && parsed.data.status.length) {
-    // Non-empty input always expands to a non-empty set, so this always narrows.
-    const expandedStatuses = expandDealStatusAliases(parsed.data.status)
-    const placeholders = expandedStatuses.map(() => '?').join(',')
-    where.push(`status IN (${placeholders})`)
-    values.push(...expandedStatuses)
-  }
-  if (parsed.data.ownerUserId && parsed.data.ownerUserId.length) {
-    const placeholders = parsed.data.ownerUserId.map(() => '?').join(',')
-    where.push(`owner_user_id IN (${placeholders})`)
-    values.push(...parsed.data.ownerUserId)
-  }
-  if (parsed.data.expectedCloseAtFrom) {
-    where.push('expected_close_at >= ?')
-    values.push(parsed.data.expectedCloseAtFrom)
-  }
-  if (parsed.data.expectedCloseAtTo) {
-    where.push('expected_close_at <= ?')
-    values.push(parsed.data.expectedCloseAtTo)
-  }
-  if (parsed.data.isOverdue) {
-    // Mirror the list route's precedence: the caller-supplied status filter wins, and
-    // status='open' is injected only when none was provided.
-    const hasCallerStatus = !!parsed.data.status?.length
-    if (hasCallerStatus) {
-      where.push('expected_close_at < CURRENT_DATE')
-    } else {
-      where.push("expected_close_at < CURRENT_DATE AND status = 'open'")
+    const search = parsed.data.search?.trim()
+    if (search) {
+      const searchCtx: CrudCtx = {
+        container,
+        auth,
+        organizationScope: scope,
+        selectedOrganizationId: orgFilterIds[0],
+        organizationIds: orgFilterIds,
+        request: req,
+      }
+      const matchingIds = await findMatchingEntityIdsBySearchTokensAcrossSources({
+        ctx: searchCtx,
+        query: search,
+        sources: [
+          {
+            entityType: E.customers.customer_deal,
+            fields: [
+              'title',
+              'description',
+              'status',
+              'pipeline_stage',
+              'source',
+              'value_amount',
+              'value_currency',
+              'cf:competitive_risk',
+              'cf:implementation_complexity',
+            ],
+          },
+        ],
+      })
+      if (matchingIds !== null && matchingIds.length > 0) {
+        restrictToIds(where, values, matchingIds)
+      } else if (isTenantDataEncryptionEnabled()) {
+        // `customers:customer_deal.title` and `.description` are declared in
+        // `encryption.ts` as encrypted columns. A raw `ILIKE` over the ciphertext would
+        // silently match nothing on encrypted tenants and produce misleading lane totals,
+        // so we collapse the result to zero rows instead — consistent with the list
+        // endpoint's behavior when the token index has nothing to offer.
+        restrictToIds(where, values, [])
+      } else {
+        const searchPattern = `%${escapeLikePattern(search)}%`
+        where.push("(title ILIKE ? ESCAPE '\\' OR description ILIKE ? ESCAPE '\\')")
+        values.push(searchPattern, searchPattern)
+      }
     }
-  }
-  if (parsed.data.isStuck) {
-    // Reuse the list endpoint's stuck-deal lookup so kanban headers, lane counts, and the
-    // cards rendered inside each lane agree on the same definition of "stuck". Empty result
-    // → narrow to a sentinel UUID so the WHERE clause collapses to zero rows.
-    const stuckIds = await fetchStuckDealIds(em as unknown as PgEntityManager, orgFilterIds[0], effectiveTenantId)
-    restrictToIds(where, values, stuckIds)
-  }
-  if (parsed.data.personId && parsed.data.personId.length) {
-    const placeholders = parsed.data.personId.map(() => '?').join(',')
-    where.push(`EXISTS (SELECT 1 FROM customer_deal_people dp WHERE dp.deal_id = customer_deals.id AND dp.person_entity_id IN (${placeholders}))`)
-    values.push(...parsed.data.personId)
-  }
-  if (parsed.data.companyId && parsed.data.companyId.length) {
-    const placeholders = parsed.data.companyId.map(() => '?').join(',')
-    where.push(`EXISTS (SELECT 1 FROM customer_deal_companies dc WHERE dc.deal_id = customer_deals.id AND dc.company_entity_id IN (${placeholders}))`)
-    values.push(...parsed.data.companyId)
+    if (parsed.data.status && parsed.data.status.length) {
+      // Non-empty input always expands to a non-empty set, so this always narrows.
+      const expandedStatuses = expandDealStatusAliases(parsed.data.status)
+      const placeholders = expandedStatuses.map(() => '?').join(',')
+      where.push(`status IN (${placeholders})`)
+      values.push(...expandedStatuses)
+    }
+    if (parsed.data.ownerUserId && parsed.data.ownerUserId.length) {
+      const placeholders = parsed.data.ownerUserId.map(() => '?').join(',')
+      where.push(`owner_user_id IN (${placeholders})`)
+      values.push(...parsed.data.ownerUserId)
+    }
+    if (parsed.data.expectedCloseAtFrom) {
+      where.push('expected_close_at >= ?')
+      values.push(parsed.data.expectedCloseAtFrom)
+    }
+    if (parsed.data.expectedCloseAtTo) {
+      where.push('expected_close_at <= ?')
+      values.push(parsed.data.expectedCloseAtTo)
+    }
+    if (parsed.data.isOverdue) {
+      // Mirror the list route's precedence: the caller-supplied status filter wins, and
+      // status='open' is injected only when none was provided.
+      const hasCallerStatus = !!parsed.data.status?.length
+      if (hasCallerStatus) {
+        where.push('expected_close_at < CURRENT_DATE')
+      } else {
+        where.push("expected_close_at < CURRENT_DATE AND status = 'open'")
+      }
+    }
+    if (parsed.data.isStuck) {
+      // Reuse the list endpoint's stuck-deal lookup so kanban headers, lane counts, and the
+      // cards rendered inside each lane agree on the same definition of "stuck". Empty result
+      // → narrow to a sentinel UUID so the WHERE clause collapses to zero rows.
+      const stuckIds = await fetchStuckDealIds(em as unknown as PgEntityManager, orgFilterIds[0], effectiveTenantId)
+      restrictToIds(where, values, stuckIds)
+    }
+    if (parsed.data.personId && parsed.data.personId.length) {
+      const placeholders = parsed.data.personId.map(() => '?').join(',')
+      where.push(`EXISTS (SELECT 1 FROM customer_deal_people dp WHERE dp.deal_id = customer_deals.id AND dp.person_entity_id IN (${placeholders}))`)
+      values.push(...parsed.data.personId)
+    }
+    if (parsed.data.companyId && parsed.data.companyId.length) {
+      const placeholders = parsed.data.companyId.map(() => '?').join(',')
+      where.push(`EXISTS (SELECT 1 FROM customer_deal_companies dc WHERE dc.deal_id = customer_deals.id AND dc.company_entity_id IN (${placeholders}))`)
+      values.push(...parsed.data.companyId)
+    }
   }
 
   const whereSql = where.join(' AND ')
