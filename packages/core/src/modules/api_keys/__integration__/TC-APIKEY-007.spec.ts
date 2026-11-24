@@ -188,8 +188,11 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
         { token: actorToken },
       )
       const emptyScopeList = await readJsonSafe<KeyListBody>(emptyScopeProbe)
-      expect(emptyScopeProbe.status(), 'Deny-all actor should pass the API-key view feature guard').toBe(200)
-      expect(emptyScopeList?.items ?? [], 'organizations=[] should resolve to an empty visible key set').toEqual([])
+      expect(
+        emptyScopeProbe.status(),
+        'A deny-all actor is stopped at the feature guard: an empty organization scope is deny-all',
+      ).toBe(403)
+      expect(emptyScopeList?.items, 'A denied list must not carry any key').toBeUndefined()
 
       const unknownResponse = await apiRequest(
         request,
@@ -198,7 +201,10 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
         { token: actorToken },
       )
       const unknownBody = await readJsonSafe<ErrorBody>(unknownResponse)
-      expect(unknownResponse.status(), 'Unknown id establishes the non-enumerating response').toBe(404)
+      expect(
+        unknownResponse.status(),
+        'Unknown id establishes the non-enumerating response: the deny happens before any key lookup',
+      ).toBe(403)
 
       const denyAllResponse = await apiRequest(
         request,
