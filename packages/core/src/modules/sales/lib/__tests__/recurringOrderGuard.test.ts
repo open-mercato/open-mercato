@@ -11,6 +11,7 @@ import {
   assertOrderRecurrenceUnlocked,
   assertRecurringOrderDeletable,
   assertRecurringOrderStatusAllowed,
+  hasRecurringQuoteStarted,
 } from '../recurringOrderGuard'
 
 const order = { id: 'order-1', tenantId: 'ten-1', organizationId: 'org-1' }
@@ -36,10 +37,27 @@ describe('assertOrderRecurrenceUnlocked', () => {
       body: { code: 'recurring_order_locked' },
     })
   })
+
+  it('keeps the lock code and directs blocked returns to a credit memo', async () => {
+    const { em } = buildEm({ periods: 1 })
+    await expect(assertOrderRecurrenceUnlocked(em, order, 'return')).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'recurring_order_locked', error: expect.stringContaining('Issue a credit memo') },
+    })
+  })
+})
+
+describe('hasRecurringQuoteStarted', () => {
+  it('keeps a quote eligible on its start date and closes it the next day', () => {
+    const schedule = { startsOn: '2027-01-01' }
+    expect(hasRecurringQuoteStarted(schedule, '2027-01-01')).toBe(false)
+    expect(hasRecurringQuoteStarted(schedule, '2027-01-02')).toBe(true)
+    expect(hasRecurringQuoteStarted(null, '2027-01-02')).toBe(false)
+  })
 })
 
 describe('assertRecurringOrderStatusAllowed', () => {
-  it.each(['canceled', 'cancelled', 'on_hold'])('refuses %s while the recurrence is unfinished', async (status) => {
+  it.each(['canceled', 'cancelled', 'on_hold', 'rejected'])('refuses %s while the recurrence is unfinished', async (status) => {
     for (const recurrenceStatus of ['scheduled', 'active', 'cancelling']) {
       const { em } = buildEm({ recurrence: { status: recurrenceStatus } })
       await expect(assertRecurringOrderStatusAllowed(em, order, status)).rejects.toMatchObject({
@@ -49,7 +67,7 @@ describe('assertRecurringOrderStatusAllowed', () => {
     }
   })
 
-  it.each(['canceled', 'on_hold'])('refuses %s on an invoiced recurring order without pointing at removing the schedule', async (status) => {
+  it.each(['canceled', 'on_hold', 'rejected'])('refuses %s on an invoiced recurring order without pointing at removing the schedule', async (status) => {
     const { em, mock } = buildEm({ recurrence: { status: 'active' }, periods: 1 })
     await expect(assertRecurringOrderStatusAllowed(em, order, status)).rejects.toMatchObject({
       status: 409,

@@ -1,5 +1,6 @@
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import type { SalesRecurrenceFrequency } from './recurrence'
+import { recurrenceInputSchema } from './recurrenceInput'
 
 export type RecurrenceLabelInput = {
   frequency: SalesRecurrenceFrequency
@@ -30,6 +31,23 @@ export function formatRecurrenceFrequency(frequency: SalesRecurrenceFrequency, t
   return translate(`sales.recurring.frequency.${frequency}`, FREQUENCY_FALLBACKS[frequency])
 }
 
+const PAYMENT_INTERVAL_FALLBACKS: Record<SalesRecurrenceFrequency, string> = {
+  weekly: 'per week',
+  monthly: 'per month',
+  quarterly: 'per quarter',
+  yearly: 'per year',
+}
+
+export function formatRecurringTotalLabel(
+  label: string,
+  frequency: SalesRecurrenceFrequency | undefined,
+  translate: TranslateWithFallbackFn,
+): string {
+  if (!frequency) return label
+  const interval = translate(`sales.recurring.paymentInterval.${frequency}`, PAYMENT_INTERVAL_FALLBACKS[frequency])
+  return translate('sales.recurring.totalLabel', '{label} ({interval})', { label, interval })
+}
+
 /** "Monthly from 1 Oct 2026, 24 payments" / "Monthly from 1 Oct 2026, no end date". */
 export function formatRecurrenceSchedule(
   recurrence: RecurrenceLabelInput,
@@ -48,4 +66,15 @@ export function formatRecurrenceSchedule(
     return translate('sales.recurring.schedule.single', '{frequency} from {startsOn}, 1 payment', params)
   }
   return translate('sales.recurring.schedule.withCount', '{frequency} from {startsOn}, {count} payments', params)
+}
+
+export function formatRecurrenceConflictValue(value: unknown, translate: TranslateWithFallbackFn, locale?: string): unknown {
+  const parsed = recurrenceInputSchema.safeParse(value)
+  if (!parsed.success) return value
+
+  const { anchorDay } = parsed.data
+  const schedule = formatRecurrenceSchedule(parsed.data, translate, locale)
+  return anchorDay == null
+    ? schedule
+    : translate('sales.recurring.schedule.withAnchorDay', '{schedule} (billing day: {day})', { schedule, day: anchorDay })
 }

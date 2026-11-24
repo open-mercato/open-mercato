@@ -272,11 +272,15 @@ test.describe('TC-SALES-045 recurrence on quotes and orders', () => {
       await addQuoteLine(request, token, quoteId)
       await withClient(async (client) => {
         const result = await client.query(
-          `update sales_quotes set acceptance_token = $2, status = 'sent', updated_at = now() where id = $1`,
+          `update sales_quotes set acceptance_token = $2, status = 'sent', valid_until = now() + interval '7 days', updated_at = now() where id = $1`,
           [quoteId, hashAuthToken(publicToken)],
         )
         expect(result.rowCount).toBe(1)
       })
+
+      const view = await request.get(`${appBaseUrl()}/api/sales/quotes/public/${publicToken}`)
+      expect(view.status()).toBe(200)
+      expect(await readJson(view)).toMatchObject({ isExpired: false, isRecurrenceStarted: true })
 
       const accept = await request.post(`${appBaseUrl()}/api/sales/quotes/accept`, {
         headers: { 'Content-Type': 'application/json', Origin: appBaseUrl() },

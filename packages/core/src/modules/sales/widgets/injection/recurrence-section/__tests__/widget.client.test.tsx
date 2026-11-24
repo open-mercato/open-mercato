@@ -41,11 +41,19 @@ const order = {
   },
 }
 
-async function switchRecurringOff(kind: 'order' | 'quote') {
+async function requestScheduleRemoval(kind: 'order' | 'quote') {
   renderWithProviders(<RecurrenceSectionWidget context={{ kind }} data={order} />, { dict: {} })
   fireEvent.click(screen.getByTestId('sales-recurrence-edit'))
   const toggle = await screen.findByTestId('sales-recurrence-toggle')
   fireEvent.click(toggle)
+  await screen.findByRole('alertdialog', { name: 'Remove the recurring schedule?' })
+  return toggle
+}
+
+async function switchRecurringOff(kind: 'order' | 'quote') {
+  const toggle = await requestScheduleRemoval(kind)
+  expect(toggle).toHaveAttribute('data-state', 'checked')
+  fireEvent.click(screen.getByRole('button', { name: 'Remove schedule' }))
   await waitFor(() => expect(toggle).toHaveAttribute('data-state', 'unchecked'))
   return toggle
 }
@@ -57,12 +65,28 @@ function sentBody(): unknown {
 
 describe('recurring billing section', () => {
   const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
+  const dialogPrototype = HTMLDialogElement.prototype
+  const originalShowModal = Object.getOwnPropertyDescriptor(dialogPrototype, 'showModal')
+  const originalClose = Object.getOwnPropertyDescriptor(dialogPrototype, 'close')
   beforeAll(() => {
-    if (originalScrollIntoView) return
-    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: jest.fn() })
+    if (!originalScrollIntoView) {
+      Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: jest.fn() })
+    }
+    Object.defineProperty(dialogPrototype, 'showModal', {
+      configurable: true,
+      value(this: HTMLDialogElement) { this.setAttribute('open', '') },
+    })
+    Object.defineProperty(dialogPrototype, 'close', {
+      configurable: true,
+      value(this: HTMLDialogElement) { this.removeAttribute('open') },
+    })
   })
   afterAll(() => {
     if (!originalScrollIntoView) Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+    if (originalShowModal) Object.defineProperty(dialogPrototype, 'showModal', originalShowModal)
+    else Reflect.deleteProperty(dialogPrototype, 'showModal')
+    if (originalClose) Object.defineProperty(dialogPrototype, 'close', originalClose)
+    else Reflect.deleteProperty(dialogPrototype, 'close')
   })
   beforeEach(() => jest.clearAllMocks())
 
@@ -97,6 +121,14 @@ describe('recurring billing section', () => {
     expect(mockRunDocumentMutation).toHaveBeenCalledWith(expect.any(Function), { id: 'order-1', recurrence: null })
     expect(mockApiCallOrThrow.mock.calls[0][0]).toBe(kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes')
     expect(sentBody()).toEqual({ id: 'order-1', recurrence: null })
+  })
+
+  it('keeps the existing schedule and sends no write when removal is canceled', async () => {
+    const toggle = await requestScheduleRemoval('order')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(toggle).toHaveAttribute('data-state', 'checked')
+    expect(mockApiCallOrThrow).not.toHaveBeenCalled()
   })
 
   it('keeps the schedule draft while Escape closes the frequency list', async () => {

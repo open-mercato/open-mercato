@@ -5,11 +5,13 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { SearchX } from 'lucide-react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { SalesRecurrenceFrequency } from '../../../lib/recurrence'
-import { formatRecurrenceSchedule } from '../../../lib/recurrenceLabel'
+import { formatRecurrenceSchedule, formatRecurringTotalLabel } from '../../../lib/recurrenceLabel'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('sales')
 
@@ -52,6 +54,7 @@ type PublicQuoteResponse = {
     totalGrossAmount: string
   }>
   isExpired: boolean
+  isRecurrenceStarted?: boolean
 }
 
 export default function QuotePublicPage({ params }: { params: { token: string } }) {
@@ -62,6 +65,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
   const [accepting, setAccepting] = React.useState(false)
   const [data, setData] = React.useState<PublicQuoteResponse | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  const [acceptError, setAcceptError] = React.useState<'started' | 'failed' | null>(null)
   const [acceptedOrder, setAcceptedOrder] = React.useState<{ orderId: string; orderNumber: string } | null>(null)
 
   React.useEffect(() => {
@@ -70,6 +74,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       if (!token) return
       setLoading(true)
       setError(null)
+      setAcceptError(null)
       try {
         const call = await apiCallOrThrow<PublicQuoteResponse>(`/api/sales/quotes/public/${token}`, {
           method: 'GET',
@@ -93,7 +98,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
   const handleAccept = React.useCallback(async () => {
     if (!token) return
     setAccepting(true)
-    setError(null)
+    setAcceptError(null)
     try {
       const call = await apiCallOrThrow<{ orderId: string; orderNumber: string }>(`/api/sales/quotes/accept`, {
         method: 'POST',
@@ -102,12 +107,17 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       })
       setAcceptedOrder(call.result ?? null)
     } catch (err) {
-      logger.error('sales.quotes.accept', { err })
-      setError(t('sales.quotes.public.acceptFailed'))
+      if (err instanceof Error && 'code' in err && err.code === 'recurring_quote_started') {
+        setAcceptError('started')
+      } else {
+        logger.error('sales.quotes.accept', { err })
+        reportTelemetryError(err, { module: 'sales', code: 'sales.public_quote_accept_failed' })
+        setAcceptError('failed')
+      }
     } finally {
       setAccepting(false)
     }
-  }, [token, t])
+  }, [token])
 
   if (loading) {
     return (
@@ -143,6 +153,8 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
     )
   }
 
+  const recurrenceStarted = data.isRecurrenceStarted || acceptError === 'started'
+
   return (
     <main className="mx-auto max-w-3xl p-6 space-y-6">
       <header className="space-y-1">
@@ -157,9 +169,13 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
         ) : null}
       </header>
 
-      {data.isExpired ? (
+      {recurrenceStarted || data.isExpired ? (
         <section className="rounded-lg border p-4">
-          <p className="font-medium">{t('sales.quotes.public.expired')}</p>
+          <p className="font-medium">
+            {recurrenceStarted
+              ? t('sales.quotes.public.recurrenceStarted', 'The billing start date has passed, so this quote can no longer be accepted.')
+              : t('sales.quotes.public.expired')}
+          </p>
           <p className="text-sm text-muted-foreground">{t('sales.quotes.public.expiredMessage')}</p>
         </section>
       ) : null}
@@ -225,17 +241,21 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
           </span>
         </div>
         <div className="flex items-center justify-between font-medium">
-          <span>{t('sales.quotes.public.total')}</span>
+          <span>{formatRecurringTotalLabel(t('sales.quotes.public.total'), data.recurrence?.frequency, t)}</span>
           <span>
             {data.quote.grandTotalGrossAmount} {data.quote.currencyCode}
           </span>
         </div>
       </section>
 
-      {!data.isExpired ? (
+      {acceptError === 'failed' ? (
+        <Alert status="error">
+          <AlertDescription>{t('sales.quotes.public.acceptFailed')}</AlertDescription>
+        </Alert>
+      ) : null}
+      {!data.isExpired && !recurrenceStarted ? (
         <div className="space-y-2">
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Button onClick={() => void handleAccept()} disabled={accepting}>
+          <Button type="button" onClick={() => void handleAccept()} disabled={accepting}>
             {accepting ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
             {t('sales.quotes.public.acceptButton')}
           </Button>

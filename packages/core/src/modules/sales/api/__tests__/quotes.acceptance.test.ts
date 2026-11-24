@@ -216,7 +216,7 @@ describe('quote send + accept flow', () => {
     const primaryMessage = jest.mocked(sendEmail).mock.calls[0][0]
     const markup = renderToStaticMarkup(primaryMessage.react as ReactElement)
     expect(markup).toContain('/quote/')
-    expect(markup).toContain('Total: 25 USD')
+    expect(markup).toContain('Total: 25 USD (per quarter)')
     expect(markup).toContain('Quarterly from Oct 1, 2099, 4 payments')
   })
 
@@ -591,12 +591,12 @@ describe('quote send + accept flow', () => {
       grandTotalNetAmount: '0',
       grandTotalGrossAmount: '0',
     }
-    mockEm.findOne.mockResolvedValue(quote)
+    mockEm.findOne.mockImplementation(async (entity: unknown) => entity === SalesQuote ? quote : null)
     mockEm.find.mockResolvedValue([])
     const res = await getPublicQuote(new Request('http://localhost/api/sales/quotes/public/x'), { params: { token: '00000000-0000-4000-8000-000000000000' } } as any)
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.isExpired).toBe(true)
+    expect(body).toMatchObject({ isExpired: true, isRecurrenceStarted: false })
   })
 
   test('accept converts quote to order', async () => {
@@ -703,7 +703,7 @@ describe('public view - tenant isolation (fix: cross-tenant auth returns 404)', 
   beforeEach(async () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
-    mockEm.findOne.mockResolvedValue({ ...baseQuote })
+    mockEm.findOne.mockImplementation(async (entity: unknown) => entity === SalesQuote ? { ...baseQuote } : null)
     mockEm.find.mockResolvedValue([])
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue(null)

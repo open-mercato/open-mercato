@@ -142,6 +142,7 @@ test.describe('TC-SALES-053 recurring order state integrity', () => {
     const token = await getAuthToken(request, 'admin')
     const { id: onHold } = await recurringOrderStatuses.ensure('on_hold')
     const { id: canceled } = await recurringOrderStatuses.ensure('canceled')
+    const { id: rejected } = await recurringOrderStatuses.ensure('rejected')
     const recurrence = { frequency: 'monthly', startsOn: isoDayFromToday(10) }
     let orderId: string | null = null
     try {
@@ -174,6 +175,10 @@ test.describe('TC-SALES-053 recurring order state integrity', () => {
       const updated = await readOrder(request, token, orderId)
       expect(updated.status).toBeNull()
       expect(updated.recurrence).toMatchObject(recurrence)
+
+      const reject = await apiRequest(request, 'PUT', '/api/sales/orders', { token, data: { id: orderId, statusEntryId: rejected } })
+      expectCode(reject, await readJson(reject), 409, 'recurring_order_use_cancel', 'reject a recurring order')
+      expect(await readOrder(request, token, orderId)).toMatchObject({ status: null, recurrence })
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
     }
@@ -303,42 +308,44 @@ test.describe('TC-SALES-053 recurring order state integrity', () => {
     }
   })
 
-  test('refuses converting a canceled recurring quote and keeps the quote', async ({ request, recurringOrderStatuses }) => {
-    const token = await getAuthToken(request, 'admin')
-    const { id: canceled } = await recurringOrderStatuses.ensure('canceled')
-    const quoteIds: string[] = []
-    const orderIds: string[] = []
-    try {
-      const recurringQuoteId = await createQuoteWithLine(request, token, {
-        recurrence: { frequency: 'monthly', startsOn: isoDayFromToday(10) },
-      })
-      quoteIds.push(recurringQuoteId)
-      const plainQuoteId = await createQuoteWithLine(request, token)
-      quoteIds.push(plainQuoteId)
-      for (const quoteId of quoteIds) {
-        const update = await apiRequest(request, 'PUT', '/api/sales/quotes', { token, data: { id: quoteId, statusEntryId: canceled } })
-        expect(update.status(), 'cancel the quote').toBe(200)
+  for (const status of ['canceled', 'rejected']) {
+    test(`refuses converting a ${status} recurring quote and keeps the quote`, async ({ request, recurringOrderStatuses }) => {
+      const token = await getAuthToken(request, 'admin')
+      const { id: statusEntryId } = await recurringOrderStatuses.ensure(status)
+      const quoteIds: string[] = []
+      const orderIds: string[] = []
+      try {
+        const recurringQuoteId = await createQuoteWithLine(request, token, {
+          recurrence: { frequency: 'monthly', startsOn: isoDayFromToday(10) },
+        })
+        quoteIds.push(recurringQuoteId)
+        const plainQuoteId = await createQuoteWithLine(request, token)
+        quoteIds.push(plainQuoteId)
+        for (const quoteId of quoteIds) {
+          const update = await apiRequest(request, 'PUT', '/api/sales/quotes', { token, data: { id: quoteId, statusEntryId } })
+          expect(update.status(), `set the quote to ${status}`).toBe(200)
+        }
+
+        const refused = await apiRequest(request, 'POST', '/api/sales/quotes/convert', { token, data: { quoteId: recurringQuoteId } })
+        expectCode(refused, await readJson(refused), 409, 'recurring_order_use_cancel', `convert a ${status} recurring quote`)
+        const left = await withClient(async (client) => ({
+          quotes: (await client.query('select count(*)::int as count from sales_quotes where id = $1 and deleted_at is null', [recurringQuoteId])).rows[0].count,
+          orders: (await client.query('select count(*)::int as count from sales_orders where id = $1', [recurringQuoteId])).rows[0].count,
+          recurrences: (await client.query('select count(*)::int as count from sales_quote_recurrences where quote_id = $1', [recurringQuoteId])).rows[0].count,
+        }))
+        expect(left, 'the refused conversion leaves the quote and its schedule untouched').toEqual({ quotes: 1, orders: 0, recurrences: 1 })
+
+        const converted = await apiRequest(request, 'POST', '/api/sales/quotes/convert', { token, data: { quoteId: plainQuoteId } })
+        const convertedBody = await readJson(converted)
+        expect(converted.status(), `a ${status} quote without a schedule still converts: ${JSON.stringify(convertedBody).slice(0, 200)}`).toBeLessThan(300)
+        orderIds.push(convertedBody.orderId as string)
+        quoteIds.pop()
+      } finally {
+        for (const orderId of orderIds) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+        for (const quoteId of quoteIds) await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
       }
-
-      const refused = await apiRequest(request, 'POST', '/api/sales/quotes/convert', { token, data: { quoteId: recurringQuoteId } })
-      expectCode(refused, await readJson(refused), 409, 'recurring_order_use_cancel', 'convert a canceled recurring quote')
-      const left = await withClient(async (client) => ({
-        quotes: (await client.query('select count(*)::int as count from sales_quotes where id = $1 and deleted_at is null', [recurringQuoteId])).rows[0].count,
-        orders: (await client.query('select count(*)::int as count from sales_orders where id = $1', [recurringQuoteId])).rows[0].count,
-        recurrences: (await client.query('select count(*)::int as count from sales_quote_recurrences where quote_id = $1', [recurringQuoteId])).rows[0].count,
-      }))
-      expect(left, 'the refused conversion leaves the quote and its schedule untouched').toEqual({ quotes: 1, orders: 0, recurrences: 1 })
-
-      const converted = await apiRequest(request, 'POST', '/api/sales/quotes/convert', { token, data: { quoteId: plainQuoteId } })
-      const convertedBody = await readJson(converted)
-      expect(converted.status(), `a canceled quote without a schedule still converts: ${JSON.stringify(convertedBody).slice(0, 200)}`).toBeLessThan(300)
-      orderIds.push(convertedBody.orderId as string)
-      quoteIds.pop()
-    } finally {
-      for (const orderId of orderIds) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
-      for (const quoteId of quoteIds) await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
-    }
-  })
+    })
+  }
 
   test('never repeats a schedule version across order delete, undo and redo', async ({ request }) => {
     skipIfUndoTestsDisabled()

@@ -152,10 +152,19 @@ test.describe('TC-SALES-052 recurring billing UI', () => {
       await expect(section).toBeVisible({ timeout: 60_000 })
       await expect(page.getByTestId('sales-recurrence-schedule')).toContainText('12 payments')
       await expect(section).toContainText('Scheduled')
+      await expect(page.getByText('Grand total (gross) (per month)', { exact: true })).toBeVisible()
 
       await page.getByTestId('sales-recurrence-edit').click()
       const dialog = page.getByRole('dialog')
       await expect(dialog.getByRole('heading', { name: 'Recurring schedule' })).toBeFocused()
+      const toggle = dialog.getByTestId('sales-recurrence-toggle')
+      await toggle.click()
+      const confirmation = page.getByRole('alertdialog', { name: 'Remove the recurring schedule?' })
+      await expect(confirmation.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+      await page.keyboard.press('Escape')
+      await expect(confirmation).toBeHidden()
+      await expect(toggle).toHaveAttribute('aria-checked', 'true')
+
       const periodCount = dialog.getByTestId('sales-recurrence-period-count')
       await periodCount.fill('6')
 
@@ -175,12 +184,20 @@ test.describe('TC-SALES-052 recurring billing UI', () => {
       const stored = await apiRequest(request, 'GET', `/api/sales/orders?id=${orderId}`, { token })
       const item = (((await readJson(stored)).items ?? []) as JsonRecord[])[0]
       expect(item.recurrence).toMatchObject({ periodCount: 6, scheduleVersion: 2 })
+
+      await page.getByTestId('sales-recurrence-edit').click()
+      await toggle.click()
+      await confirmation.getByRole('button', { name: 'Remove schedule' }).click()
+      await expect(toggle).toHaveAttribute('aria-checked', 'false')
+      await dialog.getByRole('button', { name: 'Save schedule' }).click()
+      await expect(section).toContainText('This order is billed once.')
+      await expect(page.getByText('Grand total (gross) (per month)', { exact: true })).toHaveCount(0)
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
     }
   })
 
-  test('the public quote page shows the schedule', async ({ page, request }) => {
+  test('the public quote page keeps the schedule visible when acceptance closes', async ({ page, request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
     const publicToken = randomUUID()
@@ -205,6 +222,29 @@ test.describe('TC-SALES-052 recurring billing UI', () => {
       await expect(schedule).toBeVisible({ timeout: 60_000 })
       await expect(schedule).toContainText('Quarterly from')
       await expect(schedule).toContainText('8 payments')
+      await expect(page.getByText('Total (per quarter)', { exact: true })).toBeVisible()
+      const accept = page.getByRole('button', { name: 'Accept quote' })
+      await expect(accept).toBeVisible()
+
+      await withClient(async (client) => {
+        const result = await client.query(
+          'update sales_quote_recurrences set starts_on = $2 where quote_id = $1',
+          [quoteId, isoDayFromToday(-2)],
+        )
+        expect(result.rowCount).toBe(1)
+      })
+
+      await accept.click()
+      const notice = page.getByText('The billing start date has passed, so this quote can no longer be accepted.')
+      await expect(notice).toBeVisible()
+      await expect(page.getByText('Please contact the seller to request an updated quote.')).toBeVisible()
+      await expect(schedule).toBeVisible()
+      await expect(accept).toHaveCount(0)
+
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await expect(notice).toBeVisible()
+      await expect(schedule).toBeVisible()
+      await expect(accept).toHaveCount(0)
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
     }

@@ -19,9 +19,9 @@ const FALLBACK_MESSAGES: Record<RecurringErrorCode, string> = {
   recurring_quote_started: 'This recurring quote starts in the past. Create a new quote with a current start date.',
   recurring_quote_no_lines: 'Add at least one line before sending or converting a recurring quote.',
   recurring_order_locked: 'This recurring order has been invoiced. Create a new recurring order instead of editing it.',
-  recurring_order_use_cancel: "A canceled or on-hold order can't keep a recurring schedule. Remove the schedule first.",
+  recurring_order_use_cancel: "A canceled, rejected, or on-hold order can't keep a recurring schedule. Remove the schedule first.",
   recurring_order_invoiced: 'A recurring order with issued invoices cannot be deleted.',
-  recurring_order_invoiced_stop: "A recurring order with issued invoices can't be canceled or put on hold.",
+  recurring_order_invoiced_stop: "A recurring order with issued invoices can't be canceled, rejected, or put on hold.",
 }
 
 const STATUS_BY_CODE: Record<RecurringErrorCode, number> = {
@@ -33,12 +33,19 @@ const STATUS_BY_CODE: Record<RecurringErrorCode, number> = {
   recurring_order_invoiced_stop: 409,
 }
 
-export async function recurringError(code: RecurringErrorCode): Promise<CrudHttpError> {
+export async function recurringError(code: RecurringErrorCode, operation?: 'return'): Promise<CrudHttpError> {
   const { translate } = await resolveTranslations()
+  const error = code === 'recurring_order_locked' && operation === 'return'
+    ? translate('sales.recurring.errors.returnLocked', 'Returns cannot change an invoiced recurring order. Issue a credit memo to refund the customer.')
+    : translate(`sales.recurring.errors.${code}`, FALLBACK_MESSAGES[code])
   return new CrudHttpError(STATUS_BY_CODE[code], {
-    error: translate(`sales.recurring.errors.${code}`, FALLBACK_MESSAGES[code]),
+    error,
     code,
   })
+}
+
+export function hasRecurringQuoteStarted(recurrence: { startsOn: string } | null | undefined, today = localToday()): boolean {
+  return recurrence != null && compareIsoDates(recurrence.startsOn, today) < 0
 }
 
 /**
@@ -51,25 +58,25 @@ export async function assertRecurringQuoteConvertible(
   today: string = localToday(),
 ): Promise<void> {
   if (!recurrence) return
-  if (compareIsoDates(recurrence.startsOn, today) < 0) throw await recurringError('recurring_quote_started')
+  if (hasRecurringQuoteStarted(recurrence, today)) throw await recurringError('recurring_quote_started')
   if (lineCount < 1) throw await recurringError('recurring_quote_no_lines')
 }
 
 type OrderScope = { id: string; tenantId: string; organizationId: string }
 
-const STOPPING_ORDER_STATUSES = new Set(['canceled', 'cancelled', 'on_hold'])
+const STOPPING_ORDER_STATUSES = new Set(['canceled', 'cancelled', 'on_hold', 'rejected'])
 const UNFINISHED_RECURRENCE_STATUSES = new Set(['scheduled', 'active', 'cancelling'])
 
 /**
  * Lines, order-level adjustments, the recurrence and the fields that change what is billed
  * are frozen once a recurring order has an issued period (R5).
  */
-export async function assertOrderRecurrenceUnlocked(em: EntityManager, order: OrderScope): Promise<void> {
-  if (await hasRecurringPeriods(em, order)) throw await recurringError('recurring_order_locked')
+export async function assertOrderRecurrenceUnlocked(em: EntityManager, order: OrderScope, operation?: 'return'): Promise<void> {
+  if (await hasRecurringPeriods(em, order)) throw await recurringError('recurring_order_locked', operation)
 }
 
 /**
- * A canceled or on-hold order may not carry an unfinished recurrence (R10): the schedule has to
+ * A canceled, rejected, or on-hold order may not carry an unfinished recurrence (R10): the schedule has to
  * be removed first, or stopped with *Cancel recurring order* once that ships. An invoiced
  * schedule cannot be removed (R5), so that refusal does not point at removing it. `nextStatus` and
  * `nextRecurrence` are the values the write leaves on the order; `nextRecurrence` is `undefined`

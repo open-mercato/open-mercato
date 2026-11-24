@@ -1,4 +1,4 @@
-import { formatRecurrenceDate, formatRecurrenceSchedule } from '../recurrenceLabel'
+import { formatRecurrenceConflictValue, formatRecurrenceDate, formatRecurrenceSchedule, formatRecurringTotalLabel } from '../recurrenceLabel'
 
 function translate(_key: string, fallback?: string, params?: Record<string, string | number>): string {
   return (fallback ?? _key).replace(/\{(\w+)\}/g, (match, name) => (params && name in params ? String(params[name]) : match))
@@ -32,5 +32,29 @@ describe('formatRecurrenceDate', () => {
   it('returns an empty string for a missing date and the raw value for an invalid one', () => {
     expect(formatRecurrenceDate(null)).toBe('')
     expect(formatRecurrenceDate('not-a-date')).toBe('not-a-date')
+  })
+})
+
+describe('formatRecurringTotalLabel', () => {
+  it.each([
+    ['weekly', 'week'], ['monthly', 'month'], ['quarterly', 'quarter'], ['yearly', 'year'],
+  ] as const)('labels a %s total with its billing interval', (frequency, interval) => {
+    expect(formatRecurringTotalLabel('Total', frequency, translate)).toBe(`Total (per ${interval})`)
+  })
+
+  it('leaves one-time totals alone', () => {
+    expect(formatRecurringTotalLabel('Total', undefined, translate)).toBe('Total')
+  })
+})
+
+describe('formatRecurrenceConflictValue', () => {
+  it('shows the explicit billing day when the start is clamped to month end', () => {
+    expect(formatRecurrenceConflictValue({
+      frequency: 'monthly', startsOn: '2027-04-30', anchorDay: 31, periodCount: 3,
+    }, translate, 'en-GB')).toBe('Monthly from 30 Apr 2027, 3 payments (billing day: 31)')
+  })
+
+  it('leaves an absent schedule to the default conflict display', () => {
+    expect(formatRecurrenceConflictValue(null, translate)).toBeNull()
   })
 })

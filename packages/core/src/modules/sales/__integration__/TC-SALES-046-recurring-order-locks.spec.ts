@@ -265,7 +265,9 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
         token,
         data: { orderId, reason: 'QA TC-SALES-046 second return', lines: [{ orderLineId, quantity: 1 }] },
       })
-      expectCode(another, await readJson(another), 409, 'recurring_order_locked', 'create return')
+      const refusedReturn = await readJson(another)
+      expectCode(another, refusedReturn, 409, 'recurring_order_locked', 'create return')
+      expect(refusedReturn.error).toContain('Issue a credit memo')
 
       const deletion = await apiRequest(request, 'DELETE', '/api/sales/returns', { token, data: { id: returnId, orderId } })
       expectCode(deletion, await readJson(deletion), 409, 'recurring_order_locked', 'delete return')

@@ -21,7 +21,7 @@ import { SalesQuote, SalesQuoteLine } from '../../../data/entities'
 import { loadQuoteRecurrenceSnapshot } from '../../../lib/recurrenceStore'
 import { lockSalesDocumentRow } from '../../../commands/shared'
 import { assertRecurringQuoteConvertible } from '../../../lib/recurringOrderGuard'
-import { formatRecurrenceSchedule } from '../../../lib/recurrenceLabel'
+import { formatRecurrenceSchedule, formatRecurringTotalLabel } from '../../../lib/recurrenceLabel'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
@@ -314,10 +314,14 @@ export async function POST(req: Request) {
     const copy: QuoteSentEmailCopy = {
       preview: translate('sales.quotes.email.preview', 'Quote {quoteNumber} is ready for review', { quoteNumber: quote.quoteNumber }),
       heading: translate('sales.quotes.email.heading', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
-      total: translate('sales.quotes.email.total', 'Total: {amount} {currency}', {
-        amount: quote.grandTotalGrossAmount ?? quote.grandTotalNetAmount ?? '0',
-        currency: quote.currencyCode,
-      }),
+      total: formatRecurringTotalLabel(
+        translate('sales.quotes.email.total', 'Total: {amount} {currency}', {
+          amount: quote.grandTotalGrossAmount ?? quote.grandTotalNetAmount ?? '0',
+          currency: quote.currencyCode,
+        }),
+        recurrence?.frequency,
+        translate,
+      ),
       validUntil: translate('sales.quotes.email.validUntil', 'Valid until: {date}', { date: validUntilFormatted }),
       schedule: recurrence
         ? translate('sales.quotes.email.schedule', 'Billing: {schedule}', {

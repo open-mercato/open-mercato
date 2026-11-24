@@ -212,12 +212,13 @@ test.describe('TC-SALES-054 recurring schedule saves with record locks on', () =
     }
   })
 
-  test('quote: a schedule save does not block the next conversion', async ({ page, request }, testInfo) => {
+  test('quote: a stale schedule shows both versions and a fresh save does not block conversion', async ({ page, request }, testInfo) => {
     const token = await getAuthToken(request, 'admin')
     const settingsToken = await getAuthToken(request, 'superadmin')
     let previousSettings: RecordLockSettings | null = null
     let quoteId: string | null = null
     let orderId: string | null = null
+    let staleTab: Page | null = null
     try {
       previousSettings = await readRecordLockSettings(request, settingsToken)
       await writeRecordLockSettings(request, settingsToken, {
@@ -234,8 +235,22 @@ test.describe('TC-SALES-054 recurring schedule saves with record locks on', () =
       expect(lineResponse.status()).toBe(201)
 
       await login(page, 'admin')
+      staleTab = await page.context().newPage()
+      await openDocument(staleTab, quoteId, 'quote')
+      await staleTab.getByTestId('sales-recurrence-edit').click()
+      const stalePeriodCount = staleTab.getByTestId('sales-recurrence-period-count')
+      await stalePeriodCount.fill('5')
+
       await openDocument(page, quoteId, 'quote')
       await saveSchedulePeriodCount(page, 6)
+
+      await stalePeriodCount.press('ControlOrMeta+Enter')
+      const conflict = staleTab.getByTestId(CONFLICT_DIALOG_TESTID)
+      const recurrence = conflict.getByRole('row').filter({ hasText: 'Recurring schedule' })
+      await expect(recurrence).toContainText(/Monthly from .*6 payments/)
+      await expect(recurrence).toContainText(/Monthly from .*5 payments/)
+      await staleTab.close()
+      staleTab = null
 
       const converted = page.waitForResponse((response) =>
         new URL(response.url()).pathname === '/api/sales/quotes/convert' && response.request().method() === 'POST',
@@ -256,6 +271,7 @@ test.describe('TC-SALES-054 recurring schedule saves with record locks on', () =
       expect((await readDocument(request, token, 'orders', orderId as string)).recurrence).toMatchObject({ periodCount: 6 })
       await page.screenshot({ path: testInfo.outputPath('quote-converted-after-schedule-save.png'), fullPage: true })
     } finally {
+      await staleTab?.close()
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
       await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
       if (previousSettings) await writeRecordLockSettings(request, settingsToken, previousSettings)

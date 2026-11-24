@@ -7,7 +7,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection/mutationEvents'
 import { registerRecordLockConflictHandler } from '@open-mercato/ui/backend/conflicts'
@@ -23,6 +23,7 @@ import {
   ChangedFieldsTable,
   type ChangeRow,
 } from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
+import { formatRecurrenceConflictValue } from '@open-mercato/core/modules/sales/lib/recurrenceLabel'
 import {
   clearRecordLockFormState,
   getRecordLockFormState,
@@ -619,6 +620,7 @@ export default function RecordLockingWidget({
   data,
 }: InjectionWidgetComponentProps<CrudInjectionContext, Record<string, unknown>>) {
   const t = useT()
+  const locale = useLocale()
   const searchParams = useSearchParams()
   const resourceKind = React.useMemo(() => resolveResourceKind(context), [context])
   const resourceId = React.useMemo(() => resolveResourceId(context, data), [context, data])
@@ -1372,12 +1374,18 @@ export default function RecordLockingWidget({
 
   const noneLabel = t('audit_logs.common.none')
   const conflictChangeRows = React.useMemo<ChangeRow[]>(
-    () => (state?.conflict?.changes ?? []).map((change) => ({
-      field: change.field,
-      from: change.incomingValue,
-      to: change.mineValue,
-    })),
-    [state?.conflict?.changes],
+    () => (state?.conflict?.changes ?? []).map((change) => {
+      if (change.field === 'recurrence' && (resourceKind === 'sales.order' || resourceKind === 'sales.quote')) {
+        return {
+          field: change.field,
+          label: t('sales.recurring.section.dialogTitle', 'Recurring schedule'),
+          from: formatRecurrenceConflictValue(change.incomingValue, t, locale),
+          to: formatRecurrenceConflictValue(change.mineValue, t, locale),
+        }
+      }
+      return { field: change.field, from: change.incomingValue, to: change.mineValue }
+    }),
+    [locale, resourceKind, state?.conflict?.changes, t],
   )
   const canKeepMyChanges = Boolean(
     state?.conflict?.allowIncomingOverride

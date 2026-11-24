@@ -6,6 +6,7 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -65,6 +66,7 @@ export default function RecurrenceSectionWidget({
   const t = useT()
   const locale = useLocale()
   const [dialogOpen, setDialogOpen] = React.useState(false)
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
   const dialogTitleRef = React.useRef<HTMLHeadingElement | null>(null)
   const kind = context?.kind === 'quote' ? 'quote' : 'order'
@@ -85,14 +87,25 @@ export default function RecurrenceSectionWidget({
           return (
             <RecurrenceFields
               value={draft}
-              onChange={(next) => setValue(next)}
+              onChange={async (next) => {
+                if (recurrence && draft.enabled && !next.enabled) {
+                  const confirmed = await confirm({
+                    title: t('sales.recurring.section.confirmRemoval', 'Remove the recurring schedule?'),
+                    description: t('sales.recurring.section.removalDescription', 'Saving will remove the schedule and switch to one-time billing.'),
+                    confirmText: t('sales.recurring.section.remove', 'Remove schedule'),
+                    variant: 'destructive',
+                  })
+                  if (!confirmed) return
+                }
+                setValue(next)
+              }}
               errors={resolved && !resolved.ok ? resolved.fieldErrors : undefined}
             />
           )
         },
       },
     ],
-    [],
+    [confirm, recurrence, t],
   )
 
   const initialValues = React.useMemo<FormValues | null>(
@@ -217,6 +230,7 @@ export default function RecurrenceSectionWidget({
           </DialogContent>
         </Dialog>
       ) : null}
+      {ConfirmDialogElement}
     </div>
   )
 }

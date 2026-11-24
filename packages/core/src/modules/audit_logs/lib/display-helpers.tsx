@@ -104,7 +104,7 @@ export function ChangedFieldsTable({ changeRows, noneLabel, t, beforeLabel, afte
                 {changeRows.map((row) => (
                   <tr key={row.field} className="block px-4 py-3 align-top @lg/changes:table-row @lg/changes:p-0">
                     <td className="block font-medium @lg/changes:table-cell @lg/changes:px-4 @lg/changes:py-2 @lg/changes:align-top">
-                      {humanizeField(normalizeChangeField(row.field))}
+                      {row.label ?? humanizeField(normalizeChangeField(row.field))}
                     </td>
                     <td className="mt-2 block @lg/changes:mt-0 @lg/changes:table-cell @lg/changes:px-4 @lg/changes:py-2">
                       <span className="mb-0.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground @lg/changes:hidden">

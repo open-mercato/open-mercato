@@ -17,7 +17,8 @@ import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
 import { isForeignTenantActor } from "../../../../lib/publicQuoteTenantScope";
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { loadQuoteRecurrenceSnapshot, toRecurrenceResponse } from "../../../../lib/recurrenceStore";
-import { SALES_RECURRENCE_FREQUENCIES } from "../../../../lib/recurrence";
+import { localToday, SALES_RECURRENCE_FREQUENCIES } from "../../../../lib/recurrence";
+import { hasRecurringQuoteStarted } from "../../../../lib/recurringOrderGuard";
 
 const logger = createLogger('sales')
 
@@ -143,6 +144,7 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
         quoteLineId: adj.quoteLine?.id ?? null,
       })),
       isExpired,
+      isRecurrenceStarted: hasRecurringQuoteStarted(recurrence, localToday(now)),
     });
   } catch (err) {
     if (isCrudHttpError(err)) {
@@ -233,6 +235,7 @@ const publicQuoteResponseSchema = z.object({
     }),
   ),
   isExpired: z.boolean(),
+  isRecurrenceStarted: z.boolean().optional(),
 });
 
 export const openApi: OpenApiRouteDoc = {
