@@ -20,6 +20,10 @@
       "types": "./src/types.ts",
       "default": "./dist/types.js"
     },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "default": "./dist/testing/index.js"
+    },
     "./*": {
       "types": [
         "./src/*.ts"

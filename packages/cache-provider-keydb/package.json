@@ -1,0 +1,65 @@
+{
+  "name": "@open-mercato/cache-provider-keydb",
+  "version": "0.11.0",
+  "license": "MIT",
+  "description": "Open Mercato cache provider for a single writable KeyDB endpoint (ACL auth, TLS)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src",
+    "!src/**/__tests__",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node watch.mjs",
+    "test": "jest --config jest.config.cjs",
+    "test:containers": "OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --config jest.config.cjs --runInBand --testPathPatterns container",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "cache",
+    "keydb",
+    "redis",
+    "open-mercato",
+    "cache-provider"
+  ],
+  "peerDependencies": {
+    "@open-mercato/cache": ">=0.11.0"
+  },
+  "dependencies": {
+    "@open-mercato/cache-redis-protocol": "workspace:*",
+    "ioredis": "^6.0.0"
+  },
+  "devDependencies": {
+    "@open-mercato/cache": "workspace:*",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.4.0",
+    "esbuild": "^0.28.2",
+    "jest": "^30.4.2",
+    "testcontainers": "^12.0.3",
+    "ts-jest": "^29.4.12",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/cache-provider-keydb"
+  }
+}

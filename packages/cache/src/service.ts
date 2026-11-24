@@ -9,6 +9,14 @@ import { CacheDependencyUnavailableError } from './errors'
 import { matchCacheKeyPattern } from './patterns'
 import { parseCacheCompression, parseCacheCompressionMinBytes } from './codec'
 import type { CacheCodecOptions } from './codec'
+import type { CacheProviderHostContext, CacheProviderPlacement, ResolvedCacheProvider } from './provider'
+import {
+  CacheProviderError,
+  createCacheProviderHostContext,
+  getPreparedCacheProvider,
+  isCacheProviderError,
+  readSelectedCacheProviderId,
+} from './provider'
 
 function normalizeTenantKey(raw: string | null | undefined): string {
   const value = typeof raw === 'string' ? raw.trim() : ''
@@ -82,6 +90,20 @@ function storageKey(originalKey: string, prefixes: TenantPrefixes): string {
 
 function metaKey(originalKey: string, prefixes: TenantPrefixes): string {
   return `${prefixes.keyPrefix}meta:${hashIdentifier(originalKey)}`
+}
+
+/**
+ * Physical key under which the tenant-aware wrapper stores a logical key's value
+ * record. Providers receive these already-scoped keys; exposed so provider
+ * conformance tooling can target a specific record without copying the layout.
+ */
+export function resolvePhysicalCacheValueKey(originalKey: string, tenantId: string | null): string {
+  const tenant = normalizeTenantKey(tenantId)
+  return storageKey(originalKey, {
+    keyPrefix: `tenant:${tenant}:key:`,
+    tagPrefix: `tenant:${tenant}:tag:`,
+    scopeTag: `tenant:${tenant}:tag:__scope__`,
+  })
 }
 
 function hashedTag(tag: string, prefixes: TenantPrefixes): string {
@@ -251,21 +273,253 @@ function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: b
   }
 }
 
-function createConfiguredTenantAwareStrategy(options?: CacheServiceOptions): TenantAwareCacheStrategy {
-  const strategyType = resolveConfiguredStrategyType(options)
+export type CacheSelection =
+  | { kind: 'stock'; strategy: CacheStrategyName; placement: CacheProviderPlacement }
+  | { kind: 'provider'; id: string; placement: CacheProviderPlacement }
 
+type EffectiveCacheSelection =
+  | { kind: 'stock'; strategy: CacheStrategyName }
+  | { kind: 'provider'; provider: ResolvedCacheProvider }
+
+const DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS = 10_000
+const REQUIRED_PROVIDER_STRATEGY_METHODS = [
+  'get',
+  'set',
+  'has',
+  'delete',
+  'deleteByTags',
+  'clear',
+  'keys',
+  'stats',
+  'healthcheck',
+  'close',
+] as const
+
+type ProviderStrategy = CacheStrategy & {
+  healthcheck(): Promise<void>
+  close(): Promise<void>
+}
+
+function resolveEffectiveSelection(options?: CacheServiceOptions): EffectiveCacheSelection {
+  if (options?.strategy && options?.provider) {
+    throw new CacheProviderError(
+      'conflicting_selection',
+      'Cache service options must not combine an explicit stock strategy with an explicit cache provider',
+      { providerId: options.provider.id },
+    )
+  }
+  if (options?.strategy) return { kind: 'stock', strategy: resolveConfiguredStrategyType(options) }
+  if (options?.provider) return { kind: 'provider', provider: options.provider }
+  if (readSelectedCacheProviderId(process.env)) {
+    const prepared = getPreparedCacheProvider(process.env)
+    if (prepared) return { kind: 'provider', provider: prepared }
+  }
+  return { kind: 'stock', strategy: resolveConfiguredStrategyType(options) }
+}
+
+/**
+ * Describe the effective cache selection (stock strategy or registered provider)
+ * without constructing a backend. Throws a `CacheProviderError` when a provider
+ * is selected but invalid or not yet prepared.
+ */
+export function describeCacheSelection(options?: CacheServiceOptions): CacheSelection {
+  const selection = resolveEffectiveSelection(options)
+  if (selection.kind === 'provider') {
+    return { kind: 'provider', id: selection.provider.id, placement: selection.provider.placement }
+  }
+  return {
+    kind: 'stock',
+    strategy: selection.strategy,
+    placement: selection.strategy === 'redis' ? 'shared' : 'local',
+  }
+}
+
+function resolveProviderConnectTimeoutMs(): number {
+  const raw = process.env.CACHE_PROVIDER_CONNECT_TIMEOUT_MS
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS
+}
+
+function isProviderStrategy(value: unknown): value is ProviderStrategy {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  return REQUIRED_PROVIDER_STRATEGY_METHODS.every((method) => typeof record[method] === 'function')
+}
+
+async function closeQuietly(value: unknown): Promise<void> {
+  if (typeof value !== 'object' || value === null) return
+  const close = (value as { close?: unknown }).close
+  if (typeof close !== 'function') return
+  try {
+    await close.call(value)
+  } catch {
+    return
+  }
+}
+
+function connectProviderStrategy(
+  provider: ResolvedCacheProvider,
+  context: CacheProviderHostContext,
+  timeoutMs: number,
+): Promise<ProviderStrategy> {
+  return new Promise<ProviderStrategy>((resolve, reject) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(new CacheProviderError(
+        'timeout',
+        `Cache provider "${provider.id}" did not initialize within ${timeoutMs}ms`,
+        { providerId: provider.id },
+      ))
+    }, timeoutMs)
+    if (typeof timer === 'object' && typeof timer.unref === 'function') timer.unref()
+
+    Promise.resolve()
+      .then(() => provider.definition.create(provider.config, context))
+      .then(
+        async (strategy) => {
+          if (settled) {
+            await closeQuietly(strategy)
+            return
+          }
+          clearTimeout(timer)
+          settled = true
+          if (!isProviderStrategy(strategy)) {
+            await closeQuietly(strategy)
+            reject(new CacheProviderError(
+              'invalid_registration',
+              `Cache provider "${provider.id}" create() must return a cache strategy implementing ${REQUIRED_PROVIDER_STRATEGY_METHODS.join(', ')}`,
+              { providerId: provider.id },
+            ))
+            return
+          }
+          resolve(strategy)
+        },
+        (error: unknown) => {
+          if (settled) return
+          clearTimeout(timer)
+          settled = true
+          reject(isCacheProviderError(error)
+            ? error
+            : new CacheProviderError('unavailable', `Cache provider "${provider.id}" failed to initialize`, { providerId: provider.id, cause: error }))
+        },
+      )
+  })
+}
+
+function createLazyProviderStrategy(
+  provider: ResolvedCacheProvider,
+  context: CacheProviderHostContext,
+  timeoutMs: number,
+): ProviderStrategy {
+  let active: ProviderStrategy | null = null
+  let pending: Promise<ProviderStrategy> | null = null
+  let closing: Promise<void> | null = null
+  let generation = 0
+
+  const ensure = async (): Promise<ProviderStrategy> => {
+    if (closing) await closing
+    if (active) return active
+    if (!pending) {
+      const attemptGeneration = generation
+      const attempt: Promise<ProviderStrategy> = connectProviderStrategy(provider, context, timeoutMs).then(
+        async (strategy) => {
+          if (attemptGeneration !== generation) {
+            await closeQuietly(strategy)
+            throw new CacheProviderError('unavailable', `Cache provider "${provider.id}" was closed during initialization`, { providerId: provider.id })
+          }
+          active = strategy
+          if (pending === attempt) pending = null
+          return strategy
+        },
+        (error: unknown) => {
+          if (pending === attempt) pending = null
+          throw error
+        },
+      )
+      pending = attempt
+    }
+    return pending
+  }
+
+  const close = async (): Promise<void> => {
+    if (!closing) {
+      const current = active
+      const inflight = pending
+      active = null
+      pending = null
+      generation += 1
+      closing = (async () => {
+        if (inflight) await inflight.catch(() => undefined)
+        if (current) await current.close()
+      })().finally(() => {
+        closing = null
+      })
+    }
+    return closing
+  }
+
+  return {
+    get: async (key, options) => (await ensure()).get(key, options),
+    set: async (key, value, options) => (await ensure()).set(key, value, options),
+    has: async (key) => (await ensure()).has(key),
+    delete: async (key) => (await ensure()).delete(key),
+    deleteByTags: async (tags) => (await ensure()).deleteByTags(tags),
+    clear: async () => (await ensure()).clear(),
+    keys: async (pattern) => (await ensure()).keys(pattern),
+    stats: async () => (await ensure()).stats(),
+    healthcheck: async () => (await ensure()).healthcheck(),
+    cleanup: async () => {
+      const strategy = await ensure()
+      return strategy.cleanup ? strategy.cleanup() : 0
+    },
+    close,
+  }
+}
+
+function resolveDefaultTtl(options?: CacheServiceOptions): number | undefined {
   const envTtl = process.env.CACHE_TTL
   const parsedEnvTtl = envTtl ? Number.parseInt(envTtl, 10) : undefined
-  const defaultTtl = options?.defaultTtl ?? (typeof parsedEnvTtl === 'number' && Number.isFinite(parsedEnvTtl) ? parsedEnvTtl : undefined)
+  return options?.defaultTtl ?? (typeof parsedEnvTtl === 'number' && Number.isFinite(parsedEnvTtl) ? parsedEnvTtl : undefined)
+}
+
+function resolveCodecOptions(options?: CacheServiceOptions): CacheCodecOptions {
+  return {
+    compression: options?.compression ?? parseCacheCompression(process.env.CACHE_COMPRESSION),
+    compressionMinBytes: options?.compressionMinBytes ?? parseCacheCompressionMinBytes(process.env.CACHE_COMPRESSION_MIN_BYTES),
+  }
+}
+
+function createProviderTenantAwareStrategy(provider: ResolvedCacheProvider, options?: CacheServiceOptions): TenantAwareCacheStrategy {
+  const context = createCacheProviderHostContext(provider, {
+    defaultTtl: resolveDefaultTtl(options),
+    codec: resolveCodecOptions(options),
+  })
+  const lazyStrategy = createLazyProviderStrategy(provider, context, resolveProviderConnectTimeoutMs())
+  return createTenantAwareWrapper(lazyStrategy, false)
+}
+
+function createTenantAwareStrategyForSelection(
+  selection: EffectiveCacheSelection,
+  options?: CacheServiceOptions,
+): TenantAwareCacheStrategy {
+  if (selection.kind === 'provider') return createProviderTenantAwareStrategy(selection.provider, options)
+  return createStockTenantAwareStrategy(selection.strategy, options)
+}
+
+function createConfiguredTenantAwareStrategy(options?: CacheServiceOptions): TenantAwareCacheStrategy {
+  return createTenantAwareStrategyForSelection(resolveEffectiveSelection(options), options)
+}
+
+function createStockTenantAwareStrategy(strategyType: CacheStrategyName, options?: CacheServiceOptions): TenantAwareCacheStrategy {
+  const defaultTtl = resolveDefaultTtl(options)
 
   const envMaxEntries = process.env.CACHE_MEMORY_MAX_ENTRIES
   const parsedEnvMaxEntries = envMaxEntries ? Number.parseInt(envMaxEntries, 10) : undefined
   const maxEntries = options?.maxEntries ?? (typeof parsedEnvMaxEntries === 'number' && Number.isFinite(parsedEnvMaxEntries) ? parsedEnvMaxEntries : undefined)
 
-  const codecOptions: CacheCodecOptions = {
-    compression: options?.compression ?? parseCacheCompression(process.env.CACHE_COMPRESSION),
-    compressionMinBytes: options?.compressionMinBytes ?? parseCacheCompressionMinBytes(process.env.CACHE_COMPRESSION_MIN_BYTES),
-  }
+  const codecOptions = resolveCodecOptions(options)
 
   const baseStrategy = createStrategyForType(strategyType, options, defaultTtl, maxEntries, codecOptions)
   const resilientStrategy = withDependencyFallback(baseStrategy, strategyType, defaultTtl, maxEntries)
@@ -309,9 +563,10 @@ export async function purgeConfiguredCachePatternsAcrossTenantScopes(
   // A newly-created memory strategy cannot reach the running app's process-local
   // cache, so constructing one here would only allocate and immediately discard
   // an empty store. Persistent stock backends remain cross-process maintainable.
-  if (resolveConfiguredStrategyType(options) === 'memory') return 0
+  const selection = resolveEffectiveSelection(options)
+  if (selection.kind === 'stock' && selection.strategy === 'memory') return 0
 
-  const cache = createConfiguredTenantAwareStrategy(options)
+  const cache = createTenantAwareStrategyForSelection(selection, options)
   try {
     return await cache.deleteByPatternsAcrossScopes(patterns)
   } finally {

@@ -45,7 +45,11 @@ import { parseModuleInstallArgs } from './lib/module-install-args'
 import type { ModuleCommandResult } from './lib/module-install'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
-import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
+import {
+  assertSingleInstanceStrategies,
+  readInfraStrategySnapshot,
+  resolveEffectiveCacheProviderSnapshot,
+} from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
 import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
@@ -857,6 +861,7 @@ async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
     generateModulePackageSources,
     generateOpenApi,
     generateWebResearchAdapters,
+    generateCacheProviders,
   } = await import('./lib/generators')
   const resolver = createResolver()
   const results = [
@@ -866,6 +871,7 @@ async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
     await generateModuleDi({ resolver, quiet }),
     await generateModulePackageSources({ resolver, quiet }),
     await generateWebResearchAdapters({ resolver, quiet }),
+    await generateCacheProviders({ resolver, quiet }),
     await generateOpenApi({ resolver, quiet }),
   ]
   return results.some((result) => (result?.filesWritten.length ?? 0) > 0)
@@ -1238,7 +1244,7 @@ export async function run(argv = process.argv) {
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi, generateWebResearchAdapters } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi, generateWebResearchAdapters, generateCacheProviders } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistries({ resolver, quiet: true })
@@ -1246,6 +1252,7 @@ export async function run(argv = process.argv) {
       await generateModuleDi({ resolver, quiet: true })
       await generateModulePackageSources({ resolver, quiet: true })
       await generateWebResearchAdapters({ resolver, quiet: true })
+      await generateCacheProviders({ resolver, quiet: true })
       await generateOpenApi({ resolver, quiet: true })
       console.log('✅ Modules prepared\n')
 
@@ -2612,7 +2619,10 @@ export async function run(argv = process.argv) {
           applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
           // Throws on single-instance strategies under a multi-instance topology,
           // aborting before the start lock is acquired or any process is spawned.
-          assertSingleInstanceStrategies(runtimeEnv)
+          const cacheProvider = await resolveEffectiveCacheProviderSnapshot(appDir, runtimeEnv)
+          assertSingleInstanceStrategies(runtimeEnv, {
+            snapshot: readInfraStrategySnapshot(runtimeEnv, { cacheProvider }),
+          })
           const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
           const serverStartLock = acquireServerStartLock(appDir, {
             port: runtimeEnv.PORT ?? process.env.PORT ?? null,

@@ -1,3 +1,5 @@
+import type { ResolvedCacheProvider } from './provider'
+
 export type CacheValue = unknown
 
 export type CacheEntry = {
@@ -108,6 +110,12 @@ export type CacheStrategy = {
 
 export type CacheServiceOptions = {
   strategy?: 'memory' | 'redis' | 'sqlite' | 'jsonfile'
+  /**
+   * Explicitly resolved npm cache provider (see `@open-mercato/cache/provider`).
+   * Takes precedence over the ambient `CACHE_PROVIDER` selection; combining it
+   * with an explicit `strategy` is a `conflicting_selection` error.
+   */
+  provider?: ResolvedCacheProvider
   redisUrl?: string
   sqlitePath?: string
   jsonFilePath?: string
