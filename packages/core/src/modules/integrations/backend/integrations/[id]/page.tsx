@@ -970,9 +970,12 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const displayHealthStatus =
     latestHealthResult?.status ?? detail?.healthStatus ?? resolvedState?.lastHealthStatus ?? 'unconfigured'
 
+  const healthStatusTranslation = displayHealthStatus === 'unhealthy' && integration?.id !== 'gateway_stripe'
+    ? 'genericUnhealthy'
+    : displayHealthStatus
   const healthStatusDescription = displayHealthStatus && displayHealthStatus !== 'unconfigured'
     ? t(
-      `integrations.detail.health.meaning.${displayHealthStatus}`,
+      `integrations.detail.health.meaning.${healthStatusTranslation}`,
       displayHealthStatus === 'healthy'
         ? 'The provider responded successfully using the current credentials.'
         : displayHealthStatus === 'degraded'
@@ -1447,7 +1450,9 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                           <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
                             {healthDetailEntries.map(([key, value]) => (
                               <div key={key}>
-                                <dt className="text-xs font-medium text-muted-foreground">{formatLogDetailLabel(key)}</dt>
+                                <dt className="text-xs font-medium text-muted-foreground">
+                                  {t(`integrations.detail.health.detailLabels.${key}`, formatLogDetailLabel(key))}
+                                </dt>
                                 <dd className="mt-0.5 text-sm">{formatHealthValue(value)}</dd>
                               </div>
                             ))}
