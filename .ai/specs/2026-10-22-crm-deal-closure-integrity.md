@@ -1,5 +1,7 @@
 # CRM deal closure integrity
 
+> ⚠️ Superseded by `.ai/specs/2026-11-24-deal-actual-close-date.md` (2026-11-24) — close-date rules for terminal-to-terminal changes and historical migration.
+
 ## 📝 TLDR
 
 Make stage, semantic outcome, actual close date and closure events agree for every deal write. Add explicit stage outcomes and a stable `closed_at` separate from `expected_close_at`; preserve all existing status spellings and integrate with the tenant vocabulary proposed in [PR #7625](https://github.com/open-mercato/open-mercato/pull/7625). This is the closure capability of [issue #7700](https://github.com/open-mercato/open-mercato/issues/7700), independently shippable before other CRM field work.
