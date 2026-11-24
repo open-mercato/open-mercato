@@ -3,6 +3,6 @@ import { defineCommercialPackagingSuite } from '@open-mercato/cache-provider-man
 
 defineCommercialPackagingSuite({
   packageDir: path.resolve(__dirname, '../..'),
-  allowedRuntimeDependencies: ['@open-mercato/cache-provider-managed-kit', '@open-mercato/cache-redis-protocol', 'ioredis', 'zod', 'google-auth-library'],
+  allowedRuntimeDependencies: ['@open-mercato/cache-provider-managed-kit', '@open-mercato/cache-redis-protocol', 'zod', 'google-auth-library'],
   requiredFiles: ['RUNBOOK.md'],
 })

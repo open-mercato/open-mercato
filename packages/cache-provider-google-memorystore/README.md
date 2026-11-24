@@ -12,7 +12,7 @@
 yarn add @open-mercato/cache-provider-google-memorystore   # from the Enterprise registry
 ```
 
-Peer: `@open-mercato/cache` (>= 0.11.0). Runtime: `@open-mercato/cache-provider-managed-kit` (private, Enterprise-licensed: activation gate, credential refresh, managed TLS/connection helpers), `@open-mercato/cache-redis-protocol`, `ioredis` 6.x, `zod`, `google-auth-library` 10.x (Apache-2.0), imported lazily only after the Enterprise gate passes and the cache is first created.
+Peer: `@open-mercato/cache` (>= 0.11.0). Runtime: `@open-mercato/cache-provider-managed-kit` (private, Enterprise-licensed: activation gate, credential refresh, managed TLS/connection helpers), `@open-mercato/cache-redis-protocol`, `zod`, `google-auth-library` 10.x (Apache-2.0), imported lazily only after the Enterprise gate passes and the cache is first created.
 
 ## Enterprise activation
 

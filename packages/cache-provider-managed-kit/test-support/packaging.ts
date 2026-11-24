@@ -17,11 +17,18 @@ type PackageJson = {
   private?: boolean
   license?: string
   files?: string[]
+  exports?: unknown
   publishConfig?: Record<string, unknown>
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
   optionalDependencies?: Record<string, string>
+}
+
+function exportTargets(exportsField: unknown): string[] {
+  if (typeof exportsField === 'string') return [exportsField]
+  if (typeof exportsField !== 'object' || exportsField === null) return []
+  return Object.values(exportsField).flatMap((value) => exportTargets(value))
 }
 
 function readJson<T>(file: string): T {
@@ -104,6 +111,19 @@ export function defineCommercialPackagingSuite(options: CommercialPackagingSuite
       expect(manifest.files).not.toContain('test-support')
       const license = readFileSync(path.join(packageDir, 'LICENSE.md'), 'utf8')
       expect(license).toBe(readFileSync(path.join(REPO_ROOT, 'packages/enterprise/LICENSE.md'), 'utf8'))
+    })
+
+    it('exports only paths that ship in the packed tarball, never workspace test support', () => {
+      const shipped = ['package.json', ...(manifest.files ?? []).filter((entry) => !entry.startsWith('!'))]
+      const exportKeys = typeof manifest.exports === 'object' && manifest.exports !== null ? Object.keys(manifest.exports) : []
+      expect(exportKeys.filter((key) => key.includes('testing'))).toEqual([])
+      const targets = exportTargets(manifest.exports)
+      expect(targets.length).toBeGreaterThan(0)
+      for (const target of targets) {
+        const relative = target.replace(/^\.\//, '')
+        expect([target, relative.startsWith('test-support')]).toEqual([target, false])
+        expect([target, shipped.some((entry) => relative === entry || relative.startsWith(`${entry}/`))]).toEqual([target, true])
+      }
     })
 
     it('is not listed by the publish script workspace query', () => {

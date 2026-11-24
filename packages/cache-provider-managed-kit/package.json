@@ -26,14 +26,6 @@
       "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
-    "./testing": {
-      "types": "./test-support/index.ts",
-      "default": "./test-support/index.ts"
-    },
-    "./testing/*": {
-      "types": "./test-support/*.ts",
-      "default": "./test-support/*.ts"
-    },
     "./package.json": "./package.json"
   },
   "keywords": [

@@ -48,7 +48,6 @@
     "@open-mercato/cache-provider-managed-kit": "workspace:*",
     "@open-mercato/cache-redis-protocol": "workspace:*",
     "@smithy/signature-v4": "^5.6.12",
-    "ioredis": "^6.0.0",
     "zod": "^4.6.6"
   },
   "devDependencies": {
@@ -56,6 +55,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^26.4.0",
     "esbuild": "^0.28.2",
+    "ioredis": "^6.0.0",
     "jest": "^30.4.2",
     "testcontainers": "^12.0.3",
     "ts-jest": "^29.4.12",

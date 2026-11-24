@@ -3,6 +3,6 @@ import { defineCommercialPackagingSuite } from '@open-mercato/cache-provider-man
 
 defineCommercialPackagingSuite({
   packageDir: path.resolve(__dirname, '../..'),
-  allowedRuntimeDependencies: ['@open-mercato/cache-provider-managed-kit', '@open-mercato/cache-redis-protocol', 'ioredis', 'zod', '@azure/identity'],
+  allowedRuntimeDependencies: ['@open-mercato/cache-provider-managed-kit', '@open-mercato/cache-redis-protocol', 'zod', '@azure/identity'],
   requiredFiles: ['RUNBOOK.md'],
 })
