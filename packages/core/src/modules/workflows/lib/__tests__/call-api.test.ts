@@ -1,13 +1,16 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
+import type { ApiKeyOneTimeIssuer } from '@open-mercato/shared/lib/auth/principal-service'
 import { executeActivity, executeCallApi } from '../activity-executor'
 import type { WorkflowInstance } from '../../data/entities'
 import { createTransactionalEntityManagerDouble } from '../../../../test-utils/transactionalEntityManagerDouble'
+import { createApiKeyOneTimeIssuer } from '../../../api_keys/services/oneTimeIssuerService'
 import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { invalidateDictionaryCache } from '@open-mercato/shared/lib/i18n/server'
 import workflowsPl from '../../i18n/pl.json'
-import { getEntityIds, registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(async (em: any, Entity: any, query: any) => em.findOne(Entity, query)),
@@ -91,10 +94,13 @@ describe('executeCallApi', () => {
     entityManagerDouble.fork = jest.fn(() => createIsolatedFork())
     mockEm = entityManagerDouble as any
 
-    // Mock Container
+    // Mock Container with the API Keys-owned one-time issuer registered
+    const apiKeyOneTimeIssuer = createApiKeyOneTimeIssuer(mockEm)
     mockContainer = {
+      hasRegistration: jest.fn((key: string) => key === 'em' || key === 'apiKeyOneTimeIssuer'),
       resolve: jest.fn((key: string) => {
         if (key === 'em') return mockEm
+        if (key === 'apiKeyOneTimeIssuer') return apiKeyOneTimeIssuer
         return null
       }),
     } as any
@@ -461,30 +467,63 @@ describe('executeCallApi', () => {
     expect(headers['X-Tenant-Id']).toBe('tenant-456')
   })
 
-  describe('when the api_keys module is disabled (#9217)', () => {
-    let previousEntityIds: EntityIds
-
-    beforeEach(() => {
-      previousEntityIds = getEntityIds(false)
-      registerEntityIds({ workflows: { workflow_instance: 'workflows:workflow_instance' } })
+  describe('apiKeyOneTimeIssuer DI boundary (#10476 / #9217)', () => {
+    it('does not directly import api_keys in activity-executor.ts', () => {
+      const executorSource = fs.readFileSync(path.resolve(__dirname, '../activity-executor.ts'), 'utf8')
+      expect(executorSource).not.toContain('api_keys/services/apiKeyService')
+      expect(executorSource).not.toContain('withOnetimeApiKey')
     })
 
-    afterEach(() => {
-      registerEntityIds(previousEntityIds)
-    })
+    it('refuses with the translated unavailable error (non-retriable) when apiKeyOneTimeIssuer is not registered', async () => {
+      const containerWithoutIssuer = {
+        hasRegistration: jest.fn((key: string) => key === 'em'),
+        resolve: jest.fn((key: string) => {
+          if (key === 'em') return mockEm
+          throw Object.assign(new Error(`Could not resolve '${key}'`), { name: 'AwilixResolutionError' })
+        }),
+      } as unknown as AwilixContainer
 
-    it('refuses with a readable error before minting a key or sending the request', async () => {
-      const config = { endpoint: '/api/sales/orders', method: 'POST', body: {} }
+      const result = await executeActivity(mockEm, containerWithoutIssuer, {
+        activityId: 'call-api-no-issuer',
+        activityType: 'CALL_API',
+        config: { endpoint: '/api/sales/orders', method: 'POST', body: {} },
+        retryPolicy: { maxAttempts: 3, initialIntervalMs: 1, backoffCoefficient: 1, maxIntervalMs: 1 },
+      }, mockContext)
 
-      await expect(executeCallApi(mockEm, config, mockContext, mockContainer))
-        .rejects.toThrow('CALL_API needs the api_keys module to authenticate internal calls')
+      expect(result.success).toBe(false)
+      expect(result.retryCount).toBe(1)
+      expect(result.error).toContain('CALL_API needs the api_keys module to authenticate internal calls')
       expect(createdApiKeys).toHaveLength(0)
       expect(mockFetch).not.toHaveBeenCalled()
     })
 
-    it('still calls the API when api_keys is registered', async () => {
-      registerEntityIds({ api_keys: { api_key: 'api_keys:api_key' } })
-      mockFetch.mockResolvedValue({
+    it('also refuses cleanly when apiKeyOneTimeIssuer resolves to undefined (DI unregister override)', async () => {
+      const containerUnregistered = {
+        hasRegistration: jest.fn(() => true),
+        resolve: jest.fn((key: string) => (key === 'em' ? mockEm : undefined)),
+      } as unknown as AwilixContainer
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, containerUnregistered),
+      ).rejects.toThrow('CALL_API needs the api_keys module to authenticate internal calls')
+      expect(createdApiKeys).toHaveLength(0)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('routes through a DI override of apiKeyOneTimeIssuer and propagates present-issuer failures with normal retry classification', async () => {
+      const customIssuer: ApiKeyOneTimeIssuer = {
+        withOneTimeApiKey: jest.fn(async (_input, callback) => callback('omk_override.secretvalue')),
+      }
+      const overriddenContainer = {
+        hasRegistration: jest.fn(() => true),
+        resolve: jest.fn((key: string) => {
+          if (key === 'em') return mockEm
+          if (key === 'apiKeyOneTimeIssuer') return customIssuer
+          return null
+        }),
+      } as unknown as AwilixContainer
+
+      mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
         statusText: 'OK',
@@ -492,10 +531,60 @@ describe('executeCallApi', () => {
         json: async () => ({ ok: true }),
       } as any)
 
-      const result = await executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer)
+      const okResult = await executeCallApi(
+        mockEm,
+        { endpoint: '/api/sales/orders' },
+        mockContext,
+        overriddenContainer,
+      )
+      expect(okResult.status).toBe(200)
+      expect(customIssuer.withOneTimeApiKey).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: 'tenant-456',
+          organizationId: 'org-789',
+          roles: ['role-author-uuid'],
+        }),
+        expect.any(Function),
+      )
+      const [, fetchInit] = mockFetch.mock.calls[0] as any
+      expect(fetchInit.headers.Authorization).toBe('apikey omk_override.secretvalue')
 
-      expect(result.status).toBe(200)
-      expect(createdApiKeys).toHaveLength(1)
+      // Present issuer failing transiently retries under the normal retry policy
+      let attempts = 0
+      const flakyIssuer: ApiKeyOneTimeIssuer = {
+        withOneTimeApiKey: jest.fn(async (_input, callback) => {
+          attempts += 1
+          if (attempts === 1) throw new Error('temporary database timeout')
+          return callback('omk_retry.secretvalue')
+        }),
+      }
+      const flakyContainer = {
+        hasRegistration: jest.fn(() => true),
+        resolve: jest.fn((key: string) => {
+          if (key === 'em') return mockEm
+          if (key === 'apiKeyOneTimeIssuer') return flakyIssuer
+          return null
+        }),
+      } as unknown as AwilixContainer
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Map([['content-type', 'application/json']]),
+        json: async () => ({ recovered: true }),
+      } as any)
+
+      const retryResult = await executeActivity(mockEm, flakyContainer, {
+        activityId: 'call-api-flaky-issuer',
+        activityType: 'CALL_API',
+        config: { endpoint: '/api/sales/orders' },
+        retryPolicy: { maxAttempts: 2, initialIntervalMs: 1, backoffCoefficient: 1, maxIntervalMs: 1 },
+      }, mockContext)
+
+      expect(retryResult.success).toBe(true)
+      expect(retryResult.retryCount).toBe(1)
+      expect(flakyIssuer.withOneTimeApiKey).toHaveBeenCalledTimes(2)
     })
   })
 
