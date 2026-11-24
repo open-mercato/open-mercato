@@ -2,7 +2,7 @@ import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleC
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { type Kysely, sql } from 'kysely'
+import { type Kysely, type SelectQueryBuilder, sql } from 'kysely'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
@@ -24,6 +24,7 @@ import {
 } from './lib/batch'
 import { createSearchTokenGateQueryEngine } from './lib/search-entity-policy'
 import { reindexEntity, isTenantlessReindexTarget, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
+import { upsertIndexRow } from './lib/indexer'
 import type { ReindexJobResult } from './lib/reindexer'
 
 /**
@@ -40,6 +41,7 @@ function warnIfReindexRefused(entityType: string, result: ReindexJobResult): voi
   console.warn(`  -> ${entityType}: reindex REFUSED, nothing was indexed - ${detail}`)
 }
 import { purgeIndexScope } from './lib/purge'
+import { customerProfileParentActive, isCustomerProfileEntityType } from './lib/customer-profile-parent'
 import { refreshCoverageSnapshot } from './lib/coverage'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 import type { VectorIndexService } from '@open-mercato/search/vector'
@@ -167,9 +169,13 @@ type RebuildExecutionOptions = {
   supportsDeletedFilter: boolean
 }
 
+type ProfileScopeRow = { id: string; organization_id: string | null; tenant_id: string | null }
+type ProfileScopeTables = Record<string, ProfileScopeRow>
+
 type RebuildResult = {
   processed: number
   matched: number
+  removedRecord?: { tenantId: string | null; organizationId: string | null }
 }
 async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<RebuildResult> {
   const {
@@ -225,7 +231,9 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     )
   }
 
-  const applyFilters = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
+  const filtersOutDeletedParents = !includeDeleted && isCustomerProfileEntityType(entityType)
+
+  const applyScopeFilters = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
     let chain = q
     if (!global) {
       if (orgOverride !== undefined && supportsOrgFilter) {
@@ -241,12 +249,35 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     return chain
   }
 
+  const applyFilters = <O>(
+    q: SelectQueryBuilder<ProfileScopeTables, string, O>,
+  ): SelectQueryBuilder<ProfileScopeTables, string, O> => {
+    const chain = applyScopeFilters(q)
+    return filtersOutDeletedParents ? chain.where(customerProfileParentActive(tableName)) : chain
+  }
+
   if (recordId) {
     const row = await applyFilters(
       db.selectFrom(tableName as any).selectAll() as any,
     )
       .where('id' as any, '=', recordId)
       .executeTakeFirst() as AnyRow | undefined
+    if (!row && filtersOutDeletedParents) {
+      const scopeDb = db as Kysely<ProfileScopeTables>
+      const orphanedProfile: ProfileScopeRow | undefined = await applyScopeFilters(
+        scopeDb.selectFrom(tableName).select(['id', 'organization_id', 'tenant_id']),
+      )
+        .where('id', '=', recordId)
+        .executeTakeFirst()
+      if (orphanedProfile) {
+        const removedScope = {
+          organizationId: orgOverride ?? orphanedProfile.organization_id ?? null,
+          tenantId: tenantOverride ?? orphanedProfile.tenant_id ?? null,
+        }
+        await upsertIndexRow(em, { entityType, recordId, ...removedScope })
+        return { processed: 0, matched: 0, removedRecord: removedScope }
+      }
+    }
     if (!row) return { processed: 0, matched: 0 }
     const bar = createProgressBar(progressLabel ?? `Rebuilding ${entityType}`, 1)
     const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine })
@@ -354,7 +385,7 @@ const MAX_TARGETED_REPAIR_RECORDS = 5000
  * List the base records in scope that have no live index row, so a repair rebuilds only
  * what is actually missing instead of re-upserting the whole entity for a one-row gap.
  */
-async function findUnindexedRecordIds(
+export async function findUnindexedRecordIds(
   db: Kysely<any>,
   options: {
     entityType: string
@@ -379,6 +410,7 @@ async function findUnindexedRecordIds(
     )
     .limit(options.limit)
   if (columns.has('deleted_at')) query = query.where('b.deleted_at' as any, 'is', null as any)
+  if (isCustomerProfileEntityType(options.entityType)) query = query.where(customerProfileParentActive('b'))
   if (options.tenantId != null && columns.has('tenant_id')) {
     query = query.where('b.tenant_id' as any, '=', options.tenantId)
   }
@@ -537,6 +569,7 @@ const rebuild: ModuleCli = {
       const supportsOrg = columns.has('organization_id')
       const supportsTenant = columns.has('tenant_id')
       const supportsDeleted = columns.has('deleted_at')
+      const skipsDeletedRows = supportsDeleted || isCustomerProfileEntityType(entity)
 
       if (!globalFlag && orgId && !supportsOrg) {
         console.warn(`[query_index] ${entity} does not expose organization_id, ignoring --org filter`)
@@ -544,7 +577,7 @@ const rebuild: ModuleCli = {
       if (!globalFlag && tenantId && !supportsTenant) {
         console.warn(`[query_index] ${entity} does not expose tenant_id, ignoring --tenant filter`)
       }
-      if (!includeDeleted && !supportsDeleted) {
+      if (!includeDeleted && !skipsDeletedRows) {
         console.warn(`[query_index] ${entity} does not expose deleted_at, cannot skip deleted rows`)
       }
 
@@ -568,7 +601,18 @@ const rebuild: ModuleCli = {
       })
 
       if (recordId) {
-        if (result.processed === 0) {
+        if (result.removedRecord) {
+          const bus = container.resolve('eventBus') as {
+            emitEvent(event: string, payload: Record<string, unknown>, options?: Record<string, unknown>): Promise<void>
+          }
+          await bus.emitEvent('search.delete_record', {
+            entityId: entity,
+            recordId,
+            organizationId: result.removedRecord.organizationId,
+            tenantId: result.removedRecord.tenantId,
+          }, { rethrowHandlerErrors: true })
+          console.log(`Removed index entry for ${entity} record ${recordId}: its parent customer entity is deleted`)
+        } else if (result.processed === 0) {
           console.log(`No matching row found for ${entity} with id ${recordId}`)
         } else {
           console.log(`Rebuilt index for ${entity} record ${recordId}`)
@@ -583,7 +627,7 @@ const rebuild: ModuleCli = {
         includeDeleted,
         supportsOrg,
         supportsTenant,
-        supportsDeleted,
+        supportsDeleted: skipsDeletedRows,
       })
 
       if (result.matched === 0) {
@@ -652,6 +696,7 @@ const rebuildAll: ModuleCli = {
         const supportsOrg = columns.has('organization_id')
         const supportsTenant = columns.has('tenant_id')
         const supportsDeleted = columns.has('deleted_at')
+        const skipsDeletedRows = supportsDeleted || isCustomerProfileEntityType(entity)
 
         if (!globalFlag && orgId && !supportsOrg) {
           console.warn(`[query_index] ${entity} does not expose organization_id, ignoring --org filter`)
@@ -659,7 +704,7 @@ const rebuildAll: ModuleCli = {
         if (!globalFlag && tenantId && !supportsTenant) {
           console.warn(`[query_index] ${entity} does not expose tenant_id, ignoring --tenant filter`)
         }
-        if (!includeDeleted && !supportsDeleted) {
+        if (!includeDeleted && !skipsDeletedRows) {
           console.warn(`[query_index] ${entity} does not expose deleted_at, cannot skip deleted rows`)
         }
 
@@ -670,7 +715,7 @@ const rebuildAll: ModuleCli = {
           includeDeleted,
           supportsOrg,
           supportsTenant,
-          supportsDeleted,
+          supportsDeleted: skipsDeletedRows,
         })
 
         console.log(`[${idx + 1}/${entityIds.length}] Rebuilding ${entity}${scopeLabel}`)

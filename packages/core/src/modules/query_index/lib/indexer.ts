@@ -19,6 +19,7 @@ import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
 import { applyIndexDocEnrichers } from './doc-enrichers'
+import { isCustomerProfileEntityType } from './customer-profile-parent'
 import {
   createSearchTokenGateQueryEngine,
   passesSearchTokenIndexGates,
@@ -66,7 +67,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
 
   // Attach the core customer entity when indexing customer profiles so search tokens see the combined row
   let parentEntityRow: Record<string, any> | null = null
-  if (params.entityType === 'customers:customer_person_profile' || params.entityType === 'customers:customer_company_profile') {
+  if (isCustomerProfileEntityType(params.entityType)) {
     const entityId = (baseRow as any).entity_id ?? (baseRow as any).entityId
     if (entityId) {
       const entityRow = await db
@@ -74,10 +75,9 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
         .selectAll()
         .where('id' as any, '=', entityId)
         .executeTakeFirst() as Record<string, any> | undefined
-      if (entityRow) {
-        docSources.push(entityRow)
-        parentEntityRow = entityRow
-      }
+      if (!entityRow || entityRow.deleted_at != null) return null
+      docSources.push(entityRow)
+      parentEntityRow = entityRow
     }
   }
   void parentEntityRow
