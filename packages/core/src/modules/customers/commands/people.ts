@@ -49,6 +49,7 @@ import {
 } from '../data/validators'
 import {
   findScopedCustomerCommandRecord,
+  findScopedCustomerCommandTarget,
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
@@ -422,7 +423,7 @@ async function loadPersonSnapshot(
   ctx: CommandRuntimeContext,
   options: { includeInteractionRestoreDetails?: boolean } = {},
 ): Promise<PersonSnapshot | null> {
-  const entity = await findScopedCustomerCommandRecord(
+  const entity = await findScopedCustomerCommandTarget(
     em,
     CustomerEntity,
     { id: entityId, deletedAt: null },
@@ -1006,7 +1007,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(personUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await findScopedCustomerCommandRecord(
+    const entity = await findScopedCustomerCommandTarget(
       em,
       CustomerEntity,
       { id: parsed.id, deletedAt: null },
@@ -1261,6 +1262,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           entity.nextInteractionIcon = before.entity.nextInteractionIcon
           entity.nextInteractionColor = before.entity.nextInteractionColor
           entity.isActive = before.entity.isActive
+          entity.updatedAt = new Date()
         },
         async () => {
           const profile = await findOneWithDecryption(
@@ -1362,7 +1364,7 @@ const deletePersonCommand: CommandHandler<
           // concurrent insert of a child row (e.g. a label assignment) serializes
           // behind this transaction instead of racing the final delete with a
           // 409 FOREIGN_KEY_VIOLATION. See issue #7613.
-          const entity = await findScopedCustomerCommandRecord(
+          const entity = await findScopedCustomerCommandTarget(
             em,
             CustomerEntity,
             { id, deletedAt: null },
