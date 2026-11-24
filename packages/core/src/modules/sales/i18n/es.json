@@ -1532,5 +1532,6 @@
   "sales.widgets.newQuotes.settings.last30d": "Últimos 30 días",
   "sales.widgets.newQuotes.settings.last7d": "Últimos 7 días",
   "sales.widgets.newQuotes.settings.pageSize": "Número de cotizaciones",
+  "sales.workflow.actionNotAllowed": "No se puede crear este documento en el estado actual del pedido. Confirme el pedido, revise sus envíos y las cantidades devueltas e inténtelo de nuevo.",
   "sales.workflows.commands.orders.update": "Actualizar pedido de venta"
 }

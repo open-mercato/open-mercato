@@ -48,6 +48,11 @@ import { resolveCurrencyAmountDecimalPlaces } from '@open-mercato/shared/lib/cur
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { SHIPMENT_EXACT_AMOUNT_FIELDS } from '../lib/exactAmountFields'
 import { assertOrderCanBeCancelled, isCancelledOrderStatus } from '../lib/orderCancellationGuard'
+import {
+  enforceSalesDocumentWorkflowPolicy,
+  isSalesDocumentWorkflowGuardEnabled,
+  rejectSalesDocumentWorkflowAction,
+} from '../lib/documentWorkflowPolicy'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -491,8 +496,16 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
     const shipment = await em.transactional(async (tx) => {
+      if (isSalesDocumentWorkflowGuardEnabled()) {
+        const locked = await lockSalesDocumentRow(tx, 'sales_orders', input.orderId, {
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+        })
+        if (!locked) throw notFound('sales.shipments.not_found')
+      }
       const order = await loadOrder(tx, input.orderId, { tenantId: input.tenantId, organizationId: input.organizationId })
       ensureSameScope(order, input.organizationId, input.tenantId)
+      const workflowPolicy = await enforceSalesDocumentWorkflowPolicy(ctx, order, 'shipment')
       const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
       if (input.shippingMethodId) {
         const method = await findOneWithDecryption(tx, SalesShippingMethod, {
@@ -526,6 +539,11 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         items: input.items,
         lockOrderLines: true,
       })
+      const positiveLines = [...lineMap.values()].filter((line) => !line.deletedAt && toNumber(line.quantity) > 0)
+      if (workflowPolicy && positiveLines.length > 0
+        && positiveLines.every((line) => toNumber(line.returnedQuantity) >= toNumber(line.quantity))) {
+        await rejectSalesDocumentWorkflowAction('shipment')
+      }
       const trackingNumbers = parseTrackingNumbers(input.trackingNumbers) ?? null
       const metadata =
         mergeAddressSnapshot(

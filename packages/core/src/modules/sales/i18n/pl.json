@@ -1532,5 +1532,6 @@
   "sales.widgets.newQuotes.settings.last30d": "Ostatnie 30 dni",
   "sales.widgets.newQuotes.settings.last7d": "Ostatnie 7 dni",
   "sales.widgets.newQuotes.settings.pageSize": "Liczba ofert",
+  "sales.workflow.actionNotAllowed": "Nie można utworzyć dokumentu w obecnym stanie zamówienia. Potwierdź zamówienie, sprawdź jego wysyłki i zwrócone ilości, a następnie spróbuj ponownie.",
   "sales.workflows.commands.orders.update": "Aktualizuj zamówienie sprzedaży"
 }

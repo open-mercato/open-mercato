@@ -18,6 +18,8 @@ This catalog indexes 197 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+- [Exclude deleted rows from aggregate eligibility decisions](lessons/exclude-deleted-rows-from-aggregate-eligibility.md) — area:module-data,testing; module:sales; topic:soft-delete,aggregate-validation,workflow-guards,testing
+
 - [Preserve peer resolution when copying test dependencies](lessons/preserve-peer-resolution-when-copying-test-dependencies.md) — area:testing,debugging; module:platform; topic:package-runtime,worktrees,peer-dependencies,lockfile
 
 - [Queue triage stops do not complete a fix quota](lessons/queue-triage-stops-do-not-complete-a-fix-quota.md) — area:ai-workflow; module:platform; topic:autofix,triage,completion

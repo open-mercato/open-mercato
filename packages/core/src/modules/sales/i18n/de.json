@@ -1532,5 +1532,6 @@
   "sales.widgets.newQuotes.settings.last30d": "Letzte 30 Tage",
   "sales.widgets.newQuotes.settings.last7d": "Letzte 7 Tage",
   "sales.widgets.newQuotes.settings.pageSize": "Anzahl der Angebote",
+  "sales.workflow.actionNotAllowed": "Dieses Dokument kann im aktuellen Auftragsstatus nicht erstellt werden. Bestätigen Sie den Auftrag, prüfen Sie seine Lieferungen und retournierten Mengen und versuchen Sie es erneut.",
   "sales.workflows.commands.orders.update": "Verkaufsauftrag aktualisieren"
 }
