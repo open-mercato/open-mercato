@@ -1,7 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { staffTeamMemberJobHistoryUpdateSchema } from '../../data/validators'
+import {
+  staffTeamMemberJobHistoryCreateSchema,
+  staffTeamMemberJobHistoryUpdateSchema,
+} from '../../data/validators'
 
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   const actual = jest.requireActual('@open-mercato/shared/lib/commands/helpers')
@@ -275,6 +278,93 @@ describe('staff job history optimistic locking', () => {
     ).rejects.toMatchObject({ status: 409 })
     // The stale write must not have mutated the record before the guard rejected.
     expect(record.name).toBe('Engineer')
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+})
+
+describe('staff job history date range', () => {
+  const jobHistoryId = '123e4567-e89b-41d3-a456-426614174000'
+  const base = {
+    tenantId: '11111111-1111-4111-8111-111111111111',
+    organizationId: '22222222-2222-4222-8222-222222222222',
+    entityId: '33333333-3333-4333-8333-333333333333',
+    name: 'Engineer',
+  }
+
+  it('rejects create input whose endDate is before startDate', () => {
+    const result = staffTeamMemberJobHistoryCreateSchema.safeParse({
+      ...base,
+      startDate: '2026-06-10',
+      endDate: '2026-06-01',
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues[0].path).toEqual(['endDate'])
+  })
+
+  it('accepts create input with equal dates or no endDate', () => {
+    expect(staffTeamMemberJobHistoryCreateSchema.safeParse({ ...base, startDate: '2026-06-10', endDate: '2026-06-10' }).success).toBe(true)
+    expect(staffTeamMemberJobHistoryCreateSchema.safeParse({ ...base, startDate: '2026-06-10', endDate: null }).success).toBe(true)
+    expect(staffTeamMemberJobHistoryCreateSchema.safeParse({ ...base, startDate: '2026-06-10' }).success).toBe(true)
+  })
+
+  it('rejects update input whose endDate is before startDate', () => {
+    const result = staffTeamMemberJobHistoryUpdateSchema.safeParse({
+      id: jobHistoryId,
+      startDate: '2026-06-10',
+      endDate: '2026-06-01',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects an update patch whose endDate lands before the stored startDate', async () => {
+    const { update } = await loadCommands()
+    const record = {
+      id: jobHistoryId,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      updatedAt: new Date('2026-05-30T10:00:00.000Z'),
+      member: { id: 'member-1' },
+      name: 'Engineer',
+      companyName: null,
+      description: null,
+      startDate: new Date('2026-06-10T00:00:00.000Z'),
+      endDate: null,
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue(record),
+      flush: jest.fn().mockResolvedValue(undefined),
+    }
+
+    await expect(
+      update.execute({ id: jobHistoryId, endDate: '2026-06-01' }, createCtx(em)),
+    ).rejects.toMatchObject({ status: 400, body: { fieldErrors: { endDate: 'End date must be after start date.' } } })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('rejects an update patch whose startDate lands after the stored endDate', async () => {
+    const { update } = await loadCommands()
+    const record = {
+      id: jobHistoryId,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      updatedAt: new Date('2026-05-30T10:00:00.000Z'),
+      member: { id: 'member-1' },
+      name: 'Engineer',
+      companyName: null,
+      description: null,
+      startDate: new Date('2026-06-01T00:00:00.000Z'),
+      endDate: new Date('2026-06-10T00:00:00.000Z'),
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue(record),
+      flush: jest.fn().mockResolvedValue(undefined),
+    }
+
+    await expect(
+      update.execute({ id: jobHistoryId, startDate: '2026-06-20' }, createCtx(em)),
+    ).rejects.toMatchObject({ status: 400 })
     expect(em.flush).not.toHaveBeenCalled()
   })
 })

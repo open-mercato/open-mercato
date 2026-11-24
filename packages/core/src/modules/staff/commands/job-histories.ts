@@ -270,6 +270,19 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.startDate !== undefined) record.startDate = parsed.startDate
     if (parsed.endDate !== undefined) record.endDate = parsed.endDate ?? null
+    if (
+      (parsed.startDate !== undefined || parsed.endDate !== undefined)
+      && record.endDate
+      && record.endDate.getTime() < record.startDate.getTime()
+    ) {
+      const { translate } = await resolveTranslations()
+      const message = translate('staff.leaveRequests.errors.invalidDateRange', 'End date must be after start date.')
+      throw new CrudHttpError(400, {
+        error: message,
+        fieldErrors: { endDate: message },
+        details: [{ path: ['endDate'], message, code: 'custom', origin: 'validation' }],
+      })
+    }
 
     await em.flush()
 

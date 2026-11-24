@@ -121,7 +121,21 @@ export const staffTeamMemberActivityUpdateSchema = z
   })
   .merge(staffTeamMemberActivityCreateSchema.partial())
 
-export const staffTeamMemberJobHistoryCreateSchema = z.object({
+const validateStaffJobHistoryDateRange = (
+  value: { startDate?: Date; endDate?: Date | null },
+  ctx: z.RefinementCtx,
+) => {
+  if (!value.startDate || !value.endDate) return
+  if (value.endDate < value.startDate) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'End date must be after start date.',
+      path: ['endDate'],
+    })
+  }
+}
+
+const staffTeamMemberJobHistoryBaseSchema = z.object({
   ...scopedCreateFields,
   entityId: z.string().uuid(),
   name: z.string().min(1).max(200),
@@ -131,12 +145,17 @@ export const staffTeamMemberJobHistoryCreateSchema = z.object({
   endDate: z.coerce.date().optional().nullable(),
 })
 
+export const staffTeamMemberJobHistoryCreateSchema = staffTeamMemberJobHistoryBaseSchema.superRefine(
+  validateStaffJobHistoryDateRange,
+)
+
 export const staffTeamMemberJobHistoryUpdateSchema = z
   .object({
     id: z.string().uuid(),
     updatedAt: optimisticUpdatedAtSchema.optional(),
   })
-  .merge(staffTeamMemberJobHistoryCreateSchema.partial())
+  .merge(staffTeamMemberJobHistoryBaseSchema.partial())
+  .superRefine(validateStaffJobHistoryDateRange)
 
 export const staffTeamMemberCommentCreateSchema = z.object({
   ...scopedCreateFields,
