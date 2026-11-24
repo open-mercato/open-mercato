@@ -22,7 +22,8 @@ export const integrationMeta = {
  * Under "All organizations" a staff user opens a customer user of a child organization from the
  * list, sees the child organization roles (not the home organization roles), and a stale first
  * save of a new record is refused with a conflict twice while the typed value is preserved and
- * the record keeps the concurrent change.
+ * the record keeps the concurrent change. A save carrying a role of another organization is
+ * refused with 400 and leaves the record unchanged.
  */
 const BASE_URL = process.env.BASE_URL?.trim() || null
 
@@ -174,6 +175,36 @@ test.describe('TC-CACC-ORGSCOPE-UI-001: customer user detail from "All organizat
       })
       const storedBody = await readJsonSafe<{ displayName?: string }>(stored)
       expect(storedBody?.displayName, 'the concurrent change is kept').toBe(concurrentName)
+
+      // A save carrying a role of another organization is refused and leaves the record intact.
+      await page.reload()
+      await expect(page.getByRole('button', { name: childRoleName, exact: true })).toBeVisible()
+      const beforeInvalid = await readJsonSafe<{ displayName?: string; updatedAt?: string | null; roles?: Array<{ id: string }> }>(
+        await scopedRequest(request, 'GET', `/api/customer_accounts/admin/users/${customerUserId}`, { token: adminToken, cookie: childScope }),
+      )
+      const foreignRoleId = expectId(homeRoleId, 'home role id')
+      await page.route(`**/api/customer_accounts/admin/users/${customerUserId}`, async (route) => {
+        if (route.request().method() !== 'PUT') return route.continue()
+        const body = JSON.parse(route.request().postData() || '{}') as Record<string, unknown>
+        await route.continue({ postData: JSON.stringify({ ...body, roleIds: [foreignRoleId] }) })
+      })
+      const invalidName = `QA invalid role ${suffix}`
+      await displayName.fill(invalidName)
+      const invalidResponse = page.waitForResponse((res) =>
+        res.url().includes(`/api/customer_accounts/admin/users/${customerUserId}`) && res.request().method() === 'PUT',
+      )
+      await page.getByRole('button', { name: 'Save Changes', exact: true }).click()
+      expect((await invalidResponse).status(), 'a role of another organization is refused').toBe(400)
+      await expect(displayName).toHaveValue(invalidName)
+      await page.unroute(`**/api/customer_accounts/admin/users/${customerUserId}`)
+
+      const afterInvalid = await readJsonSafe<{ displayName?: string; updatedAt?: string | null; roles?: Array<{ id: string }> }>(
+        await scopedRequest(request, 'GET', `/api/customer_accounts/admin/users/${customerUserId}`, { token: adminToken, cookie: childScope }),
+      )
+      expect(afterInvalid?.displayName, 'display name unchanged after the refused save').toBe(beforeInvalid?.displayName)
+      expect(afterInvalid?.updatedAt, 'record version unchanged after the refused save').toBe(beforeInvalid?.updatedAt)
+      expect((afterInvalid?.roles ?? []).map((role) => role.id), 'roles unchanged after the refused save')
+        .toEqual((beforeInvalid?.roles ?? []).map((role) => role.id))
     } finally {
       if (customerUserId && childOrgId) {
         await scopedRequest(request, 'DELETE', `/api/customer_accounts/admin/users/${customerUserId}`, {
