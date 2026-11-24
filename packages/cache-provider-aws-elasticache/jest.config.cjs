@@ -10,6 +10,7 @@ module.exports = {
   moduleNameMapper: {
     '^@open-mercato/cache-redis-protocol$': '<rootDir>/../cache-redis-protocol/src/index.ts',
     '^@open-mercato/cache-redis-protocol/test-support/(.*)$': '<rootDir>/../cache-redis-protocol/test-support/$1',
+    '^@open-mercato/cache-redis-protocol/(.*)$': '<rootDir>/../cache-redis-protocol/src/$1',
     '^@open-mercato/cache/(.*)$': '<rootDir>/../cache/src/$1',
     '^@open-mercato/cache$': '<rootDir>/../cache/src/index.ts',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',

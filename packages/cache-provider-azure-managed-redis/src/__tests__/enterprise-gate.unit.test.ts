@@ -15,9 +15,10 @@ import {
   OFFICIAL_MANAGED_CACHE_PROVIDER_IDS,
   provider,
 } from '../index'
+import type { OfficialManagedCacheProviderId } from '../index'
 import { GATE_FIXTURE } from './gate-fixture'
 
-const PROVIDER_ID = provider.id
+const PROVIDER_ID = provider.id as OfficialManagedCacheProviderId
 const SECRET = 'gate-secret-never-printed'
 const ENV_KEYS = [ENTERPRISE_MODULES_ENV, ENTERPRISE_CACHE_PROVIDERS_ENV, 'CACHE_PROVIDER', 'CACHE_PROVIDER_NAMESPACE'] as const
 
