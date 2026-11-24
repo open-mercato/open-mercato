@@ -24,6 +24,7 @@
   "scheduler.details.scope": "Bereich",
   "scheduler.details.source_module": "Modul",
   "scheduler.details.source_user": "Vom Benutzer erstellt",
+  "scheduler.details.title": "Zeitplandetails",
   "scheduler.details.triggering": "Wird ausgeführt...",
   "scheduler.edit.title": "Zeitplan bearbeiten",
   "scheduler.error.access_denied": "Zugriff verweigert",
