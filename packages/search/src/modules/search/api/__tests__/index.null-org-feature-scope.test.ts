@@ -72,15 +72,19 @@ const hierarchy = {
 }
 let rbac = new RbacService(em as never, undefined, hierarchy as never)
 
-type ListOptions = { tenantId: string; organizationId?: string; entityId?: string; limit: number; offset: number }
+const DRIVER_LIMIT_CAP = 200
+type ListOptions = { tenantId: string; organizationId?: string; organizationIds?: string[]; entityId?: string; limit: number; offset: number }
 const vectorStrategy = {
   id: 'vector',
   isAvailable: jest.fn(async () => true),
-  listEntries: jest.fn(async ({ organizationId, limit, offset }: ListOptions) => (
-    indexedEntries
-      .filter((entry) => !organizationId || entry.organizationId === organizationId)
-      .slice(offset, offset + limit)
-  )),
+  listEntries: jest.fn(async ({ organizationId, organizationIds, limit, offset }: ListOptions) => {
+    const cappedLimit = Math.min(limit, DRIVER_LIMIT_CAP)
+    return indexedEntries
+      .filter((entry) => (organizationId
+        ? entry.organizationId === organizationId
+        : !organizationIds || organizationIds.includes(entry.organizationId)))
+      .slice(offset, offset + cappedLimit)
+  }),
 }
 const searchIndexer = {
   listEnabledEntities: jest.fn(() => ['customers:customer_entity']),
@@ -118,7 +122,8 @@ async function dispatch(handler: (req: Request) => Promise<Response>, method: st
   return { gateOk: true, status: response.status, featureContext, body: await response.json() as { entries: IndexEntry[]; limit: number; offset: number } }
 }
 
-const listedOrganizations = () => vectorStrategy.listEntries.mock.calls.map(([options]) => options.organizationId)
+const listedOrganizations = () => vectorStrategy.listEntries.mock.calls.map(([options]) => options.organizationIds ?? options.organizationId)
+const baseEntries = [...indexedEntries]
 const entryIds = (body: { entries: IndexEntry[] } | null) => (body?.entries ?? []).map((entry) => entry.id)
 
 describe('GET /api/search/index for a tenant-level API key without an organization', () => {
@@ -126,6 +131,7 @@ describe('GET /api/search/index for a tenant-level API key without an organizati
     vectorStrategy.listEntries.mockClear()
     searchIndexer.purgeEntity.mockClear()
     world.searchRoleOrganizations = [ORG_A]
+    indexedEntries.splice(0, indexedEntries.length, ...baseEntries)
     rbac = new RbacService(em as never, undefined, hierarchy as never)
   })
 
@@ -138,28 +144,38 @@ describe('GET /api/search/index for a tenant-level API key without an organizati
     expect(result.gateOk).toBe(true)
     expect(result.featureContext.scope.filterIds).toEqual([ORG_A])
     expect(result.status).toBe(200)
-    expect(listedOrganizations()).toEqual([ORG_A])
+    expect(listedOrganizations()).toEqual([[ORG_A]])
     const call = vectorStrategy.listEntries.mock.calls[0][0]
     expect(call.tenantId).toBe(TENANT)
     expect(entryIds(result.body)).toEqual(['a1', 'a2', 'a3'])
   })
 
-  it('pages across every approved organization when restricted to A and B', async () => {
+  it('pages across every approved organization in one driver call when restricted to A and B', async () => {
     world.searchRoleOrganizations = [ORG_A, ORG_B]
     const result = await dispatch(GET, 'GET', 'http://localhost/api/search/index?limit=3&offset=2', 'search.view')
     expect(result.featureContext.scope.filterIds).toEqual([ORG_A, ORG_B])
     expect(result.status).toBe(200)
-    expect(listedOrganizations()).toEqual([ORG_A, ORG_B])
-    expect(listedOrganizations()).not.toContain(undefined)
+    expect(vectorStrategy.listEntries).toHaveBeenCalledTimes(1)
+    expect(vectorStrategy.listEntries.mock.calls[0][0]).toMatchObject({ organizationIds: [ORG_A, ORG_B], limit: 3, offset: 2 })
     expect(entryIds(result.body)).toEqual(['a3', 'b1', 'b2'])
     expect(result.body).toMatchObject({ limit: 3, offset: 2 })
   })
 
-  it('stops listing once the requested window is filled by the first organization', async () => {
+  it('reads past the driver limit cap when one organization holds more than 200 entries', async () => {
     world.searchRoleOrganizations = [ORG_A, ORG_B]
-    const result = await dispatch(GET, 'GET', 'http://localhost/api/search/index?limit=2&offset=0', 'search.view')
-    expect(listedOrganizations()).toEqual([ORG_A])
-    expect(entryIds(result.body)).toEqual(['a1', 'a2'])
+    const manyA = Array.from({ length: 500 }, (_, index) => ({ id: `a-${index}`, organizationId: ORG_A }))
+    indexedEntries.splice(0, indexedEntries.length, ...manyA, ...baseEntries.filter((entry) => entry.organizationId === ORG_B))
+    const result = await dispatch(GET, 'GET', 'http://localhost/api/search/index?limit=50&offset=200', 'search.view')
+    expect(result.status).toBe(200)
+    expect(entryIds(result.body)).toEqual(manyA.slice(200, 250).map((entry) => entry.id))
+    const tail = await dispatch(GET, 'GET', 'http://localhost/api/search/index?limit=200&offset=400', 'search.view')
+    expect(entryIds(tail.body)).toEqual([...manyA.slice(400).map((entry) => entry.id), 'b1', 'b2', 'b3'])
+  })
+
+  it('drops entries outside the approved organizations even if a driver ignores the set filter', async () => {
+    vectorStrategy.listEntries.mockImplementationOnce(async () => indexedEntries)
+    const result = await dispatch(GET, 'GET', 'http://localhost/api/search/index', 'search.view')
+    expect(entryIds(result.body)).toEqual(['a1', 'a2', 'a3'])
   })
 
   it('keeps one tenant-wide call for a key whose search role is not organization-restricted', async () => {

@@ -120,12 +120,12 @@ describe('GET /api/agent_orchestrator/audit/by-instigator/[humanUserId] organiza
     expect(await rbac.userHasAllFeatures(apiKeyAuth(null).sub, [FEATURE], { tenantId: TENANT, organizationId: ORG_B })).toBe(false)
   })
 
-  it('pins the query to auth.orgId when the key has an organization', async () => {
+  it('pins the query to the selected organization when the key has an organization', async () => {
     world.keyOrganizationId = ORG_A
     const result = await dispatch(apiKeyAuth(ORG_A))
     expect(result.gateOk).toBe(true)
     expect(result.status).toBe(200)
-    expect(kyselyWheres).toContainEqual(['action_logs.organization_id', '=', ORG_A])
+    expect(result.featureContext.scope.selectedId).toBe(ORG_A)
     expect(organizationPredicate()).toEqual([ORG_A])
   })
 
@@ -138,13 +138,13 @@ describe('GET /api/agent_orchestrator/audit/by-instigator/[humanUserId] organiza
     expect(organizationPredicate()).toEqual([ORG_A])
   })
 
-  it('limits a key without an organization approved in two organizations to the first approved one', async () => {
-    world.identityRoleOrganizations = [ORG_A, ORG_B]
+  it('reads every approved organization for a key without an organization approved in two organizations', async () => {
+    world.identityRoleOrganizations = [ORG_B, ORG_A]
     const result = await dispatch(apiKeyAuth(null))
     expect(result.gateOk).toBe(true)
     expect(result.featureContext.scope.filterIds).toEqual([ORG_A, ORG_B])
     expect(result.featureContext.organizationId).toBe(ORG_A)
-    expect(organizationPredicate()).toEqual([ORG_A])
+    expect(organizationPredicate()).toEqual([ORG_A, ORG_B])
   })
 
   it('returns an empty result without querying when no organization is approved', async () => {

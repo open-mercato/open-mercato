@@ -9,8 +9,17 @@ jest.mock('@/bootstrap-api', () => ({
   isBootstrapped: jest.fn(() => true),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => {
+  const actual = jest.requireActual('@open-mercato/core/modules/directory/utils/organizationScope')
+  return {
+    ...actual,
+    resolveFeatureCheckContext: jest.fn((...args: unknown[]) => actual.resolveFeatureCheckContext(...args)),
+  }
+})
+
 // Import route handlers after bootstrap mock is set up
 import { GET, POST, PUT, PATCH, DELETE } from '@/app/api/[...slug]/route'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 // Mock the auth module
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -264,6 +273,36 @@ describe('API Route Authorization', () => {
 
       expect(response.status).toBe(403)
       await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
+    })
+
+    it('denies a caller with no organization when feature narrowing approves no organization', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
+      ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValueOnce({
+        organizationId: null,
+        scope: { selectedId: null, filterIds: [], allowedIds: [], tenantId: 'tenant1' },
+        allowedOrganizationIds: [],
+      })
+
+      const request = new NextRequest('http://localhost:3001/api/example/test')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(403)
+      expect(mockRbac.userHasAllFeatures).not.toHaveBeenCalled()
+    })
+
+    it('still checks features for a caller with no organization whose scope is unrestricted', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
+      ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValueOnce({
+        organizationId: null,
+        scope: { selectedId: null, filterIds: null, allowedIds: null, tenantId: 'tenant1' },
+        allowedOrganizationIds: null,
+      })
+
+      const request = new NextRequest('http://localhost:3001/api/example/test')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(200)
+      expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('user1', ['example.todos.view'], { tenantId: 'tenant1', organizationId: null })
     })
 
     it('should enforce top-level metadata for route files when method metadata is absent', async () => {

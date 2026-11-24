@@ -1036,6 +1036,26 @@ describe('resolveFeatureCheckContext for a principal without a home organization
     })).resolves.toBe(true)
   })
 
+  it('anchors to the same approved organization whatever order the database returns them in', async () => {
+    organizations.reverse()
+    try {
+      const { container } = createNullOrgContainer(['org-c', 'org-b'])
+      const auth = createAuth({ sub: 'user-no-org', orgId: null })
+
+      const featureContext = await resolveFeatureCheckContext({
+        container,
+        auth,
+        request: noCookieRequest(),
+        requiredFeatures: [requiredFeature],
+      })
+
+      expect(featureContext.organizationId).toBe('org-b')
+      expect(featureContext.scope.filterIds).toEqual(['org-b', 'org-c'])
+    } finally {
+      organizations.reverse()
+    }
+  })
+
   it('keeps a null organization and an empty filter when nothing is approved', async () => {
     const { container } = createNullOrgContainer(['org-outside'])
     const auth = createAuth({ sub: 'user-no-org', orgId: null })

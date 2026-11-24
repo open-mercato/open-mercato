@@ -144,9 +144,6 @@ export async function GET(req: Request) {
     const qe = resolve('queryEngine') as QueryEngine
     const em = resolve('em') as any
     const rbac = resolve('rbacService') as RbacService
-    // Request-aware resolution picks up the scope the API dispatcher already narrowed to the
-    // organizations where the caller holds `entities.records.view`; resolving from the ACL
-    // alone would hand an organization-restricted grant the whole tenant.
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     let organizationIds: string[] | null = scope.filterIds
     // Module-declared custom entities (ce.ts) carry frozen system-style ids and are never

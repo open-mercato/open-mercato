@@ -251,6 +251,7 @@ export class VectorSearchStrategy implements SearchStrategy {
   async listEntries(options: {
     tenantId: string
     organizationId?: string | null
+    organizationIds?: string[] | null
     entityId?: string
     limit?: number
     offset?: number
@@ -268,6 +269,7 @@ export class VectorSearchStrategy implements SearchStrategy {
       list?: (options: {
         tenantId: string
         organizationId?: string | null
+        organizationIds?: string[] | null
         entityId?: string
         limit?: number
         offset?: number
