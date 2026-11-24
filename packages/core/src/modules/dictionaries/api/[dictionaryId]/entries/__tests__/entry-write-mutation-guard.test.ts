@@ -92,6 +92,8 @@ describe('dictionary entry write routes mutation guard', () => {
   })
 
   it('runs the mutation guard lifecycle when creating an entry', async () => {
+    em.findOne.mockResolvedValueOnce(dictionaryRecord)
+
     const response = await createEntry(
       new Request(`http://localhost/api/dictionaries/${dictionaryId}/entries`, {
         method: 'POST',
@@ -114,6 +116,7 @@ describe('dictionary entry write routes mutation guard', () => {
   })
 
   it('blocks entry creation when the guard rejects the mutation', async () => {
+    em.findOne.mockResolvedValueOnce(dictionaryRecord)
     validateCrudMutationGuardMock.mockResolvedValueOnce({ ok: false, status: 423, body: { error: 'locked' } })
 
     const response = await createEntry(
