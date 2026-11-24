@@ -1,6 +1,8 @@
 import { RoleAcl, Session, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { isAuthContextValid, resolveCanonicalStaffAuthContext } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 
 const findOneWithDecryption = jest.fn()
@@ -423,6 +425,21 @@ describe('isAuthContextValid', () => {
 
     await expect(resolveCanonicalStaffAuthContext(em, {
       sub: userId, sid: sessionId, tenantId, orgId: organizationId, email: 'previous@example.test', roles: [],
+    })).resolves.toBeNull()
+  })
+
+  it('checks the login email lookup hash when the persisted email is still encrypted', async () => {
+    const email = 'current@example.test'
+    const storedEmail = encryptWithAesGcm(email, generateDek()).value
+    mockFindOneByEntity({
+      session: validSession,
+      user: { id: userId, tenantId, organizationId, email: storedEmail, emailHash: computeEmailHash(email) },
+    })
+    const auth = { sub: userId, sid: sessionId, tenantId, orgId: organizationId, email, roles: [] }
+
+    await expect(resolveCanonicalStaffAuthContext(em, auth)).resolves.toMatchObject({ sub: userId, email })
+    await expect(resolveCanonicalStaffAuthContext(em, {
+      ...auth, email: 'previous@example.test',
     })).resolves.toBeNull()
   })
 

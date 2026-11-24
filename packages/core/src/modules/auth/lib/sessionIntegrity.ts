@@ -1,8 +1,10 @@
 import type { AuthService } from '../services/authService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Role, RoleAcl, Session, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
 import { roleAclHasGlobalOrganizationScope, userAclHasGlobalOrganizationScope } from '../services/roleOrganizationScope'
 
@@ -99,7 +101,14 @@ export async function resolveCanonicalStaffAuthContext(
   }
 
   if (!user || user.isConfirmed === false) return null
-  if (typeof auth.email === 'string' && auth.email !== user.email) return null
+  if (typeof auth.email === 'string' && auth.email !== user.email) {
+    const emailHash = user.emailHash
+    if (
+      !looksLikeEncryptedPayload(user.email)
+      || !emailHash
+      || !emailHashLookupValues(auth.email).includes(emailHash)
+    ) return null
+  }
 
   const currentTenantId = normalizeScopeId(user.tenantId ?? null)
   const currentOrganizationId = normalizeScopeId(user.organizationId ?? null)
