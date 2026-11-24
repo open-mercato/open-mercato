@@ -60,7 +60,7 @@ export class MfaVerificationService {
       throw new MfaVerificationServiceError(
         'No MFA methods configured',
         400,
-        isEnforced ? MFA_ENROLLMENT_REQUIRED_CODE : MFA_NO_METHODS_CONFIGURED_CODE,
+        isEnforced && signIn ? MFA_ENROLLMENT_REQUIRED_CODE : MFA_NO_METHODS_CONFIGURED_CODE,
       )
     }
 
