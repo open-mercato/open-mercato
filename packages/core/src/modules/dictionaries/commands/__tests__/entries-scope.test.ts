@@ -142,7 +142,7 @@ describe('dictionaries.entries commands selected-organization enforcement', () =
       id: entryId,
       tenantId,
       organizationId: orgAId,
-      dictionary: { id: dictionaryId, key: 'colors', deletedAt: null },
+      dictionary: { id: dictionaryId, key: 'colors', deletedAt: new Date('2026-05-01T00:00:00.000Z') },
       value: 'red',
       label: 'Red',
     })
@@ -150,7 +150,10 @@ describe('dictionaries.entries commands selected-organization enforcement', () =
 
     await expect(
       deleteHandler!.execute({ body: { id: entryId } }, ctx),
-    ).rejects.toMatchObject({ status: 404 } satisfies Partial<CrudHttpError>)
+    ).rejects.toMatchObject({
+      status: 404,
+      body: { error: 'Dictionary entry not found' },
+    } satisfies Partial<CrudHttpError>)
     expect(em.remove).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
   })

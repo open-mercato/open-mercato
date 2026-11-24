@@ -70,9 +70,6 @@ registerDictionaryEntryCommands({
     if (!entry) {
       throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
     }
-    if (entry.dictionary.deletedAt) {
-      throw new CrudHttpError(404, { error: 'Dictionary not found' })
-    }
     const tenantId = resolveContextTenantId(ctx)
     const selectedOrganizationId = resolveSelectedOrganizationId(ctx)
     if (
@@ -80,6 +77,9 @@ registerDictionaryEntryCommands({
       (selectedOrganizationId && entry.organizationId !== selectedOrganizationId)
     ) {
       throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
+    }
+    if (entry.dictionary.deletedAt) {
+      throw new CrudHttpError(404, { error: 'Dictionary not found' })
     }
     const scope = { tenantId: entry.tenantId, organizationId: entry.organizationId }
     ensureDictionaryEntryScope(ctx, scope)
