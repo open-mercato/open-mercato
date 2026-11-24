@@ -126,7 +126,6 @@ describe('POST /api/auth/login with custom route interceptors', () => {
   test('rejects a correct password for a deactivated user with the generic 401', async () => {
     const deactivated = { id: 1, email: 'user@example.com', passwordHash: 'hash', tenantId, organizationId: orgId, isConfirmed: false }
     authServiceMock.findUsersByEmail.mockResolvedValueOnce([deactivated] as never)
-    authServiceMock.findUserByEmailAndTenant.mockResolvedValueOnce(deactivated as never)
     authServiceMock.verifyPassword.mockResolvedValueOnce(true as never)
 
     const req = new Request('http://localhost/api/auth/login', {
@@ -148,6 +147,70 @@ describe('POST /api/auth/login with custom route interceptors', () => {
       'auth.login.failed',
       expect.objectContaining({ reason: 'account_deactivated', attemptId: expect.any(String), tenantId }),
       expect.objectContaining({ persistent: true, skipPersistentSubscribersInline: true, tenantId }),
+    )
+  })
+
+  test('emits the existing password failure with resolved scope', async () => {
+    authServiceMock.verifyPassword.mockResolvedValueOnce(false)
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'wrong-password' }),
+    }))
+    expect(response.status).toBe(401)
+    const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
+    expect(emitAuthEvent).toHaveBeenCalledWith(
+      'auth.login.failed',
+      expect.objectContaining({ reason: 'invalid_password', userId: '1', tenantId, organizationId: orgId }),
+      { persistent: true, skipPersistentSubscribersInline: true, tenantId, organizationId: orgId },
+    )
+  })
+
+  test('does not take trusted event scope from an unknown account request', async () => {
+    authServiceMock.findUserByEmailAndTenant.mockResolvedValueOnce(null as never)
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'unknown@example.com', password: 'wrong-password', tenantId }),
+    }))
+    expect(response.status).toBe(401)
+    const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
+    expect(emitAuthEvent).toHaveBeenCalledWith(
+      'auth.login.failed',
+      expect.objectContaining({ reason: 'invalid_credentials', userId: null, tenantId: null }),
+      { persistent: true, skipPersistentSubscribersInline: true, tenantId: null, organizationId: null },
+    )
+  })
+
+  test('records a required-role denial without issuing a session', async () => {
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret', requireRole: 'other' }),
+    }))
+    expect(response.status).toBe(403)
+    expect(authServiceMock.createSession).not.toHaveBeenCalled()
+    const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
+    expect(emitAuthEvent).toHaveBeenCalledWith(
+      'auth.login.failed',
+      expect.objectContaining({ reason: 'role_denied', userId: '1', tenantId }),
+      expect.objectContaining({ tenantId, persistent: true }),
+    )
+  })
+
+  test('preserves the successful response when event enqueue fails and reports a safe error', async () => {
+    const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
+    jest.mocked(emitAuthEvent).mockRejectedValueOnce(new Error('sensitive job payload'))
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+    expect(response.status).toBe(200)
+    expect(emitAuthEvent).toHaveBeenCalledWith(
+      'auth.login.success',
+      expect.objectContaining({ attemptId: 'session-1', occurredAt: expect.any(String) }),
+      { persistent: true, skipPersistentSubscribersInline: true, tenantId, organizationId: orgId },
+    )
+    expect(mockReportError).toHaveBeenCalledWith(
+      new Error('Failed to enqueue login event'),
+      { module: 'auth', code: 'auth.login_event_enqueue_failed' },
     )
   })
 
