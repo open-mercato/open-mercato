@@ -434,7 +434,7 @@ The E3 fix adds these exact render-widget hosts. Existing hosts and the translat
 
 `translations.injection.dictionary-entry-translation` and `translations.injection.field-definition-translation` own the buttons and dialogs. Both require `translations.manage` and their host module. They reuse `TranslationManager`, preserving the dictionary entry UUID, the `${entityId}:${fieldKey}` custom-field record ID, the label/description/option translation keys, mutation guards and optimistic locking. `FieldDefinitionsEditorProps.renderFieldActions` is an optional generic renderer; the existing `onTranslate` callback remains supported unchanged.
 
-Regression coverage: dictionary and entity `8803-optional-translations` integration specs run without a translations module dependency and assert absent actions when its route is absent; `TC-TRANS-019` and `TC-TRANS-020` exercise the contributed actions and saved translations with the module enabled. Component tests cover real host mounts, custom-field option mapping and the legacy editor callback.
+Regression coverage: dictionary and entity `8803-optional-translations` integration specs run without a translations module dependency and assert absent actions when its route is absent; `TC-TRANS-019` and `TC-TRANS-021` exercise the contributed actions and saved translations with the module enabled. Component tests cover real host mounts, custom-field option mapping and the legacy editor callback.
 
 **Behavior that can newly fail.** Declaring a missing hard dependency in a module's `requires` makes `yarn generate` reject an app that enabled that module without the dependency. Each such addition is listed in `UPGRADE_NOTES.md` with the module to enable, following the precedent of the Catalog change. A reference is declared hard only when the code cannot run without the peer.
 
@@ -689,4 +689,4 @@ None against AGENTS rules. The scope-cohesion review returned SPLIT (Q1); the sp
 
 ### 2026-11-21 — E3 bundled QA repairs (#10129)
 - Carried the four focused #9569 UI repairs into the kernel bundle: non-submit field-editor controls, serialized translation saves through version refresh, visible/retryable non-404 load failures and localized built-in property captions. Existing mutation guards, translation-row optimistic headers and legacy editor callbacks remain.
-- Included enclosing-form, duplicate mouse/keyboard save, failed-load/retry and Polish-caption regressions. The All-organizations translation target decision remains unapproved; no scope filter or storage contract changes, and final-head browser QA remains required.
+- Included enclosing-form, duplicate mouse/keyboard save, failed-load/retry and Polish-caption regressions. When All Organizations is selected, dictionary translation asks the user to choose one organization in the existing switcher before opening the editor. The scoped flow uses the existing translation authorization and storage rules.
