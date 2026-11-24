@@ -1273,7 +1273,7 @@ describe('HybridQueryEngine', () => {
     })
   })
 
-  test('does not join historical tenant-stamped documents for a tenantless source', async () => {
+  test('denies an implicitly global source before joining historical tenant-stamped documents', async () => {
     const db = createFakeKysely({
       baseTable: 'feature_toggles', hasIndexAny: true, baseCount: 1, indexCount: 1,
       customFieldKeys: { 'feature_toggles:feature_toggle': ['name'] },
@@ -1299,9 +1299,9 @@ describe('HybridQueryEngine', () => {
     const em = buildEmWithOrmMetadata(db, { FeatureToggle: 'feature_toggles' })
     const fallback = { query: jest.fn() }
     const engine = new HybridQueryEngine(em, fallback as never)
-    await engine.query('feature_toggles:feature_toggle', { tenantId: 'victim-tenant', fields: ['id', 'cf:name'], includeCustomFields: ['name'] })
+    await expect(engine.query('feature_toggles:feature_toggle', { tenantId: 'victim-tenant', fields: ['id', 'cf:name'], includeCustomFields: ['name'] })).rejects.toThrow('unscoped base table requires explicit scope opt-out')
     expect(fallback.query).not.toHaveBeenCalled()
-    expect(conditions).toContainEqual(['ei.tenant_id', 'is', null])
+    expect(conditions).toEqual([])
   })
 
   test('joins entity index aliases for customFieldSources', async () => {
@@ -1799,7 +1799,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
         baseCount: 10,
         indexCount: 10,
         customFieldKeys: {},
-        columns: [{ table_name: 'users', column_name: 'display_name' }],
+        columns: [{ table_name: 'users', column_name: 'display_name' }, { table_name: 'todos', column_name: 'tenant_id' }],
       })
       const engine = buildHybridEngine(buildEm(db))
 
