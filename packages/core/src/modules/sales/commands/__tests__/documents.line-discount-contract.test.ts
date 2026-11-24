@@ -23,6 +23,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
 import { SalesOrder, SalesQuote, SalesShipment, SalesShipmentItem } from '../../data/entities'
 import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
+import { omitNullLineNumerics } from '../../lib/lineSnapshotInput'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -650,5 +651,41 @@ describe.each([
     const edited = lines.get(EDITED_LINE_ID)!
     expect(num(edited.totalNetAmount)).toBeCloseTo(totalNetAmount, 4)
     expect(num(edited.discountAmount)).toBeCloseTo(100 - totalNetAmount, 4)
+  })
+})
+
+describe.each([
+  { createCommandId: 'sales.orders.create' },
+  { createCommandId: 'sales.quotes.create' },
+])('$createCommandId — a numeric null on a computed line', ({ createCommandId }) => {
+  beforeAll(async () => {
+    await import('../documents')
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).__discountWorld
+  })
+
+  const GROSS_ONLY_LINE = {
+    kind: 'product',
+    lineNumber: 1,
+    name: 'Gross-priced item',
+    currencyCode: 'USD',
+    quantity: 1,
+    unitPriceNet: null,
+    unitPriceGross: 120,
+    taxRate: 20,
+  }
+
+  it('keeps reading an explicit null unit net price as zero', async () => {
+    const [line] = await runDocumentCreate(createCommandId, [GROSS_ONLY_LINE])
+    expect(num(line.unitPriceNet)).toBe(0)
+  })
+
+  it('derives the unit net price from gross once omitNullLineNumerics drops the null', async () => {
+    const [line] = await runDocumentCreate(createCommandId, [omitNullLineNumerics(GROSS_ONLY_LINE)])
+    expect(num(line.unitPriceNet)).toBeCloseTo(100, 4)
+    expect(num(line.totalNetAmount)).toBeCloseTo(100, 4)
+    expect(num(line.totalGrossAmount)).toBeCloseTo(120, 4)
   })
 })

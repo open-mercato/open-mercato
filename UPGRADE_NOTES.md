@@ -13,21 +13,18 @@
   `lineSharedSchema`, so the change applies to order and quote lines alike.
   **Module authors:** code that reads these fields from `z.infer` types and
   assumed "string or undefined" needs to handle `null` as well.
-- **Numeric line fields keep their `null` → `0` meaning on line writes.**
-  `normalizedQuantity`, `unitPriceNet`, `unitPriceGross`, `discountAmount`,
-  `discountPercent`, `taxRate`, `taxAmount`, `totalNetAmount` and
-  `totalGrossAmount` are coerced numbers, so an explicit `null` has always been
-  read as `0`. That is unchanged for `orderLineCreateSchema` /
-  `orderLineUpdateSchema`, `quoteLineCreateSchema` / `quoteLineUpdateSchema`,
-  `orderLineBulkUpsertEntrySchema` and the `sales.orders.lines.upsert` /
-  `sales.quotes.lines.upsert` commands: `discountAmount: null` on an existing
-  line still clears its discount. Only the `lines` of `orderCreateSchema` and
-  `quoteCreateSchema` (new exports `orderDocumentLineCreateSchema` /
-  `quoteDocumentLineCreateSchema`, types `OrderDocumentLineCreateInput` /
-  `QuoteDocumentLineCreateInput`) read a numeric `null` as omitted, so a
-  `SalesLineSnapshot` can be passed to `sales.orders.create` /
-  `sales.quotes.create` as is. A document-creation caller that sent `null` to
-  mean zero must send `0` instead.
+- **Numeric line fields are unchanged.** `normalizedQuantity`, `unitPriceNet`,
+  `unitPriceGross`, `discountAmount`, `discountPercent`, `taxRate`, `taxAmount`,
+  `totalNetAmount` and `totalGrossAmount` are coerced numbers, so an explicit
+  `null` keeps meaning `0` on every entry point: document creation
+  (`sales.orders.create` / `sales.quotes.create`), the line routes and the
+  per-line and bulk upserts. In a `SalesLineSnapshot`, a numeric `null` means
+  "no value" instead. Pass each snapshot line through the new
+  `omitNullLineNumerics` (`@open-mercato/core/modules/sales/lib/lineSnapshotInput`)
+  before `sales.orders.create` / `sales.quotes.create` to get that meaning:
+  the helper drops those keys, so the field is computed or inherited as if
+  omitted. On an external-amounts order, a dropped required field such as
+  `taxAmount` is then reported as missing.
 - **`quoteCreateSchema`** gains optional `externalReference` and
   `customerReference` (trimmed, at most 191 characters), the same pair
   `orderCreateSchema` already has. `sales.quotes.create` and

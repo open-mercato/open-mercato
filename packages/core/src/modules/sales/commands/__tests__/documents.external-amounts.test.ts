@@ -5,6 +5,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
 import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
+import { omitNullLineNumerics } from '../../lib/lineSnapshotInput'
 
 jest.mock('#generated/entities.ids.generated', () => ({
   E: {
@@ -324,6 +325,36 @@ describe('sales.orders.create — external amounts', () => {
 
     expect(rejection.status).toBe(400)
     expect(rejection.error).toContain('unitPriceNet')
+  })
+
+  it('keeps reading an explicit null taxAmount on an external line as zero', async () => {
+    const { ctx, persisted } = buildHarness()
+
+    await create().execute(
+      buildCreateInput({ totalsMode: 'external', ...SUPPLIED_TOTALS }, [
+        externalLineInput({ taxAmount: null }),
+      ]) as never,
+      ctx,
+    )
+
+    const [line] = persistedLines(persisted)
+    expect(num(line.taxAmount)).toBe(0)
+  })
+
+  it('treats a snapshot null dropped by omitNullLineNumerics as missing on an external line', async () => {
+    const { ctx } = buildHarness()
+
+    const rejection = await expectRejection(
+      create().execute(
+        buildCreateInput({ totalsMode: 'external', ...SUPPLIED_TOTALS }, [
+          omitNullLineNumerics(externalLineInput({ taxAmount: null })),
+        ]) as never,
+        ctx,
+      ),
+    )
+
+    expect(rejection.status).toBe(400)
+    expect(rejection.error).toContain('taxAmount')
   })
 
   it('rejects an external order that supplies no document totals', async () => {

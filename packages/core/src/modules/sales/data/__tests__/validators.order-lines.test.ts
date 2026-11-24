@@ -7,6 +7,7 @@ import {
   quoteLineCreateSchema,
   SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY,
 } from '../validators'
+import { omitNullLineNumerics, SALES_LINE_NUMERIC_INPUT_FIELDS } from '../../lib/lineSnapshotInput'
 
 const SCOPE = {
   organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -111,18 +112,32 @@ describe('sales order line invariant', () => {
     expect(result.success).toBe(false)
   })
 
-  it('reads a null snapshot amount on document creation as omitted', () => {
+  it('keeps reading a null amount on document creation as zero', () => {
     const result = orderCreateSchema.parse({
       ...SCOPE,
       currencyCode: 'USD',
       lines: [{ ...LINE, discountAmount: null, taxRate: null }],
     })
-    expect(result.lines[0].discountAmount).toBeNull()
-    expect(result.lines[0].taxRate).toBeNull()
+    expect(result.lines[0].discountAmount).toBe(0)
+    expect(result.lines[0].taxRate).toBe(0)
   })
 
-  // Line write entry points keep the pre-existing `null` → `0` coercion, so a caller
-  // clearing a stored discount with `discountAmount: null` still sends a zero.
+  it('reads a snapshot line passed through omitNullLineNumerics as omitted', () => {
+    const result = quoteCreateSchema.parse({
+      ...SCOPE,
+      currencyCode: 'USD',
+      lines: [omitNullLineNumerics(SNAPSHOT_SHAPED_LINE)],
+    })
+    const [line] = result.lines ?? []
+    for (const field of SALES_LINE_NUMERIC_INPUT_FIELDS) {
+      if (field in LINE) continue
+      expect(line).not.toHaveProperty(field)
+    }
+    expect(line.productVariantId).toBeNull()
+  })
+
+  // Line write entry points keep the `null` → `0` coercion too, so a caller clearing
+  // a stored discount with `discountAmount: null` still sends a zero.
   it.each([
     ['orderLineCreateSchema', orderLineCreateSchema, { orderId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }],
     ['quoteLineCreateSchema', quoteLineCreateSchema, { quoteId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }],

@@ -80,14 +80,12 @@ import {
   RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE,
   quoteCreateSchema,
   quoteLineCreateSchema,
-  quoteDocumentLineCreateSchema,
   quoteAdjustmentCreateSchema,
   orderCreateSchema,
   ORDER_PAYMENT_LEDGER_WARNING_CODE,
   resolveSuppliedOrderPaymentLedgerFields,
   amountsModeSchema,
   orderLineCreateSchema,
-  orderDocumentLineCreateSchema,
   orderLineBulkUpsertSchema,
   orderHeaderTotalsSchema,
   orderAdjustmentCreateSchema,
@@ -97,11 +95,11 @@ import {
   creditMemoUpdateSchema,
   customerSnapshotSchema,
   type QuoteCreateInput,
-  type QuoteDocumentLineCreateInput,
+  type QuoteLineCreateInput,
   type QuoteAdjustmentCreateInput,
   type OrderCreateInput,
   type OrderPaymentLedgerWarning,
-  type OrderDocumentLineCreateInput,
+  type OrderLineCreateInput,
   type OrderAdjustmentCreateInput,
   type InvoiceCreateInput,
   type CreditMemoCreateInput,
@@ -767,7 +765,7 @@ const documentEditSchema = documentUpdateFieldsSchema.refine(carriesDocumentEdit
 
 export type DocumentUpdateInput = z.infer<typeof documentUpdateSchema>;
 
-type DocumentLineCreateInput = QuoteDocumentLineCreateInput | OrderDocumentLineCreateInput;
+type DocumentLineCreateInput = QuoteLineCreateInput | OrderLineCreateInput;
 type DocumentAdjustmentCreateInput =
   | QuoteAdjustmentCreateInput
   | OrderAdjustmentCreateInput;
@@ -3640,7 +3638,7 @@ async function replaceQuoteLines(
   em: EntityManager,
   quote: SalesQuote,
   calculation: SalesDocumentCalculationResult,
-  lineInputs: QuoteDocumentLineCreateInput[],
+  lineInputs: QuoteLineCreateInput[],
 ): Promise<SalesQuoteLine[]> {
   const linesWithCustomFields: SalesQuoteLine[] = [];
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
@@ -3768,7 +3766,7 @@ async function replaceOrderLines(
   em: EntityManager,
   order: SalesOrder,
   calculation: SalesDocumentCalculationResult,
-  lineInputs: OrderDocumentLineCreateInput[],
+  lineInputs: OrderLineCreateInput[],
 ): Promise<SalesOrderLine[]> {
   const linesWithCustomFields: SalesOrderLine[] = [];
   await em.nativeDelete(SalesOrderLine, { order: order.id });
@@ -5427,7 +5425,7 @@ const createQuoteCommand: CommandHandler<
     await assertAmountsModeUnsupportedOnQuote(parsed.lines ?? []);
     const lineInputs = (parsed.lines ?? []).map((line, index) =>
       withExactAmounts(
-        quoteDocumentLineCreateSchema.parse({
+        quoteLineCreateSchema.parse({
           ...line,
           organizationId: parsed.organizationId,
           tenantId: parsed.tenantId,
@@ -6842,7 +6840,7 @@ const createOrderCommand: CommandHandler<
     });
     const lineInputs = (parsed.lines ?? []).map((line, index) =>
       withExactAmounts(
-        orderDocumentLineCreateSchema.parse({
+        orderLineCreateSchema.parse({
           ...line,
           organizationId: parsed.organizationId,
           tenantId: parsed.tenantId,
