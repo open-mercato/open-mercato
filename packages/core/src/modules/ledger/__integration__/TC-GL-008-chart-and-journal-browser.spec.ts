@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import {
   createCurrencyFixture, deleteCurrenciesEntityIfExists, generateUniqueCurrencyCode,
@@ -59,11 +60,13 @@ test('manages the chart of accounts and reads a posted entry as a viewer', async
     const creditAccountId = await createAccountFixture(request, token, {
       ...scope, accountTypeId, number: '456-02', description: 'QA Stored credit account',
     }, { headers })
+    const baseCurrencyCode = generateUniqueCurrencyCode()
+    const foreignCurrencyCode = generateUniqueCurrencyCode()
     baseCurrencyId = await createCurrencyFixture(request, token, {
-      ...scope, headers, code: generateUniqueCurrencyCode(), name: 'QA Journal base currency',
+      ...scope, headers, code: baseCurrencyCode, name: 'QA Journal base currency',
     })
     foreignCurrencyId = await createCurrencyFixture(request, token, {
-      ...scope, headers, code: generateUniqueCurrencyCode(), name: 'QA Journal foreign currency',
+      ...scope, headers, code: foreignCurrencyCode, name: 'QA Journal foreign currency',
     })
     const sequenceNumber = 1
     const foreignLine = { currencyId: foreignCurrencyId, exchangeRate: '4.30001234', amountCurrency: '100.0001' }
@@ -82,6 +85,16 @@ test('manages the chart of accounts and reads a posted entry as a viewer', async
       lines: [
         { accountId: debitAccountId, debit: '0', credit: balance, originalCurrency: baseLine },
         { accountId: creditAccountId, debit: balance, credit: '0', originalCurrency: foreignLine },
+      ],
+    })
+    const unresolvedCurrencyId = randomUUID()
+    const unresolvedLine = { currencyId: unresolvedCurrencyId, exchangeRate: '4.30001234', amountCurrency: '100.0001' }
+    const unresolvedEntryId = await seedJournalEntryInDb({
+      ...scope, currencyId: unresolvedCurrencyId, operationDate: '2034-01-17', sequenceNumber: sequenceNumber + 2,
+      description: 'QA Browser unresolved currency',
+      lines: [
+        { accountId: debitAccountId, debit: balance, credit: '0', originalCurrency: baseLine },
+        { accountId: creditAccountId, debit: '0', credit: balance, originalCurrency: unresolvedLine },
       ],
     })
 
@@ -109,8 +122,8 @@ test('manages the chart of accounts and reads a posted entry as a viewer', async
       ])
       const debitCells = table.getByRole('row', { name: /QA Stored debit account/ }).getByRole('cell')
       const creditCells = table.getByRole('row', { name: /QA Stored credit account/ }).getByRole('cell')
-      const debitFields = ['456-01', 'QA Stored debit account', baseCurrencyId, '1.00000000', '430.0017']
-      const creditFields = ['456-02', 'QA Stored credit account', foreignCurrencyId, '4.30001234', '100.0001']
+      const debitFields = ['456-01', 'QA Stored debit account', baseCurrencyCode, '1.00000000', '430.0017']
+      const creditFields = ['456-02', 'QA Stored credit account', foreignCurrencyCode, '4.30001234', '100.0001']
       await expect(debitCells).toHaveText([...debitFields, balance, ''])
       await expect(creditCells).toHaveText([...creditFields, '', balance])
       await viewer.screenshot({ path: test.info().outputPath('ledger-journal-detail.png') })
@@ -124,6 +137,19 @@ test('manages the chart of accounts and reads a posted entry as a viewer', async
         'href', `/backend/ledger/journal-entries/${entryId}`,
       )
       await viewer.screenshot({ path: test.info().outputPath('ledger-journal-reversal.png') })
+
+      const detail = await viewer.request.get(`/api/ledger/journal-entries?id=${reversalId}`)
+      expect(detail.status()).toBe(200)
+      const detailLines = ((await detail.json()) as { items: Array<{ lines?: Array<{ currencyId: string; currencyCode: string }> }> }).items[0].lines ?? []
+      expect(detailLines.map(({ currencyId, currencyCode }) => [currencyId, currencyCode]).sort()).toEqual([
+        [baseCurrencyId, baseCurrencyCode],
+        [foreignCurrencyId, foreignCurrencyCode],
+      ].sort())
+
+      await viewer.goto(`/backend/ledger/journal-entries/${unresolvedEntryId}`)
+      await expect(content.getByRole('heading', { name: `Journal entry #${sequenceNumber + 2}` })).toBeVisible()
+      await expect(debitCells).toHaveText([...debitFields, balance, ''])
+      await expect(creditCells).toHaveText(['456-02', 'QA Stored credit account', unresolvedCurrencyId, '4.30001234', '100.0001', '', balance])
     } finally {
       await viewer.close()
     }
