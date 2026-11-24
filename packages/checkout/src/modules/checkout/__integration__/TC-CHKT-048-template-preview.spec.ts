@@ -9,7 +9,8 @@ import {
 
 test('TC-CHKT-048: the template preview loads from the back office origin and shows payments disabled', async ({ page, request }) => {
   const token = await getAuthToken(request, 'admin')
-  const template = createFixedTemplateInput({ collectCustomerDetails: false })
+  const title = `QA checkout template preview ${Date.now()}`
+  const template = createFixedTemplateInput({ title, collectCustomerDetails: false })
   const templateId = await createTemplateFixture(request, token, template)
 
   try {
@@ -26,7 +27,7 @@ test('TC-CHKT-048: the template preview loads from the back office origin and sh
 
     expect(previewResponse.status()).toBe(200)
     expect(new URL(previewResponse.url()).origin).toBe(new URL(page.url()).origin)
-    await expect(page.getByRole('heading', { name: template.title, exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
     await expect(page.getByText('Preview mode. Payments are disabled.', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Preview only', exact: true })).toBeDisabled()
   } finally {

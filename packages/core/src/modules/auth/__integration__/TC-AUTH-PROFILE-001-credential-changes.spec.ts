@@ -3,8 +3,11 @@ import { randomUUID } from 'node:crypto'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { acknowledgeGlobalNotices } from '@open-mercato/core/helpers/integration/auth'
 import {
+  createRoleFixture,
   createUserFixture,
+  deleteRoleIfExists,
   deleteUserIfExists,
+  setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 
@@ -29,34 +32,52 @@ async function sessionCookieNames(page: Page) {
     .sort()
 }
 
-const profileTest = test.extend<{ account: { email: string; suffix: string } }>({
+const profileTest = test.extend<{ account: { email: string; suffix: string; securityEnabled: boolean } }>({
   account: async ({ page, request }, use) => {
+    const securityProbe = await request.get('/api/security/mfa')
+    const securityEnabled = securityProbe.status() !== 404
     const adminToken = await getAuthToken(request, 'superadmin')
-    const { organizationId } = getTokenContext(adminToken)
+    const { organizationId, tenantId } = getTokenContext(adminToken)
     const suffix = randomUUID()
     const email = `qa-profile-${suffix}@example.test`
-    const userId = await createUserFixture(request, adminToken, {
-      email,
-      password: initialPassword,
-      organizationId,
-      roles: [],
-    })
+    let roleId: string | null = null
+    let userId: string | null = null
 
     try {
+      if (securityEnabled) {
+        roleId = await createRoleFixture(request, adminToken, { name: `qa-profile-${suffix}`, tenantId })
+        await setRoleAclFeatures(request, adminToken, {
+          roleId,
+          features: ['security.profile.view'],
+          organizations: [organizationId],
+        })
+      }
+      userId = await createUserFixture(request, adminToken, {
+        email,
+        password: initialPassword,
+        organizationId,
+        roles: roleId ? [roleId] : [],
+      })
       await acknowledgeGlobalNotices(page)
-      await use({ email, suffix })
+      await use({ email, suffix, securityEnabled })
     } finally {
       await deleteUserIfExists(request, adminToken, userId)
+      await deleteRoleIfExists(request, adminToken, roleId)
     }
   },
 })
 
 profileTest.describe('TC-AUTH-PROFILE-001: Self-service credentials in the browser', () => {
-  profileTest('requires the current password to change the login email and signs in again with the new email', async ({ page, account }) => {
-    profileTest.slow()
+  profileTest('opens the Enterprise Security profile or verifies the OSS login-email change', async ({ page, account }) => {
     await signIn(page, account.email, initialPassword)
     expect(await sessionCookieNames(page)).toEqual(['auth_token', 'session_token'])
     await page.goto('/backend/auth/profile')
+
+    if (account.securityEnabled) {
+      await expect(page).toHaveURL(/\/backend\/profile\/security$/)
+      await expect(page.getByRole('heading', { name: 'Change password', exact: true })).toBeVisible()
+      return
+    }
 
     const nextEmail = `qa-profile-updated-${account.suffix}@example.test`
     const email = page.getByRole('textbox', { name: 'Email *', exact: true })
@@ -78,10 +99,8 @@ profileTest.describe('TC-AUTH-PROFILE-001: Self-service credentials in the brows
     await expect(email).toHaveValue(nextEmail)
   })
 
-  profileTest('shows password byte limits and requires a fresh sign-in after an OSS password change', async ({ page, request, account }) => {
-    profileTest.slow()
-    const securityProbe = await request.get('/api/security/mfa')
-    profileTest.skip(securityProbe.status() !== 404, 'Enterprise delegates password changes to the Security profile')
+  profileTest('shows password byte limits and requires a fresh sign-in after an OSS password change', async ({ page, account }) => {
+    profileTest.skip(account.securityEnabled, 'Enterprise delegates password changes to the Security profile')
     await signIn(page, account.email, initialPassword)
     expect(await sessionCookieNames(page)).toEqual(['auth_token', 'session_token'])
     await page.goto('/backend/profile/change-password')
