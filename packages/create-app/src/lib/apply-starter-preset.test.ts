@@ -215,7 +215,7 @@ function makeTempDir(): string {
 
 function extractExampleModuleEntry(content: string): string {
   const startMarker = "  {\n    id: 'example',"
-  const endMarker = "\n  { id: 'ratelimit_probe'"
+  const endMarker = '\n]'
   const start = content.indexOf(startMarker)
   const end = content.indexOf(endMarker, start)
 

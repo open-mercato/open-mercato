@@ -1261,6 +1261,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           entity.nextInteractionIcon = before.entity.nextInteractionIcon
           entity.nextInteractionColor = before.entity.nextInteractionColor
           entity.isActive = before.entity.isActive
+          entity.updatedAt = new Date()
         },
         async () => {
           const profile = await findOneWithDecryption(
