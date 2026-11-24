@@ -292,6 +292,7 @@
   "customer_accounts.domainMapping.tls.diagnostics.title": "SSL certificate issue",
   "customer_accounts.domainMapping.tls.retryButton": "Retry SSL",
   "customer_accounts.domainMapping.verifyNow": "Check Now",
+  "customer_accounts.errors.busy": "Die Anmeldung ist vorübergehend nicht verfügbar. Öffne die Anmeldeseite und starte die Anmeldung in Kürze neu.",
   "customer_accounts.errors.cancelInvitationAuth": "Authentifizierung erforderlich",
   "customer_accounts.errors.cancelInvitationIdentifier": "Ungültige Einladungskennung",
   "customer_accounts.errors.cancelInvitationPermission": "Unzureichende Berechtigungen",

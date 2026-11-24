@@ -24,6 +24,7 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
 import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
+import { sessionIssuanceUnavailableResponse } from '@open-mercato/core/modules/customer_accounts/lib/sessionIssuanceUnavailableResponse'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
@@ -140,7 +141,10 @@ export async function POST(req: Request) {
 
   const ip = getClientIp(req, 0)
   const userAgent = req.headers.get('user-agent') || null
-  const { rawToken, jwt, session } = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
+  const issuance = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
+    .catch((error: unknown) => sessionIssuanceUnavailableResponse(error, 'same-request'))
+  if (issuance instanceof NextResponse) return issuance
+  const { rawToken, jwt } = issuance
 
   void emitCustomerAccountsEvent('customer_accounts.login.success', {
     id: user.id,
@@ -210,6 +214,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 401, description: 'Invalid credentials', schema: errorSchema },
     { status: 403, description: 'Request was submitted cross-site', schema: errorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
+    { status: 503, description: 'Session issuance temporarily unavailable. Honor Retry-After before retrying.', schema: errorSchema },
   ],
 }
 

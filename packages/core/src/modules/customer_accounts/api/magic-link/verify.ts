@@ -12,6 +12,7 @@ import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_a
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
+import { sessionIssuanceUnavailableResponse } from '@open-mercato/core/modules/customer_accounts/lib/sessionIssuanceUnavailableResponse'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -65,7 +66,10 @@ export async function POST(req: Request) {
 
   const ip = getClientIp(req, 0)
   const userAgent = req.headers.get('user-agent') || null
-  const { rawToken, jwt } = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
+  const issuance = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
+    .catch((error: unknown) => sessionIssuanceUnavailableResponse(error, 'fresh-sign-in'))
+  if (issuance instanceof NextResponse) return issuance
+  const { rawToken, jwt } = issuance
 
   void emitCustomerAccountsEvent('customer_accounts.login.success', {
     id: user.id,
@@ -131,6 +135,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Invalid or expired token', schema: errorSchema },
     { status: 401, description: 'Account not found', schema: errorSchema },
     { status: 403, description: 'Request was submitted cross-site', schema: errorSchema },
+    { status: 503, description: 'Session issuance temporarily unavailable. Start a fresh sign-in with a new magic link.', schema: errorSchema },
   ],
 }
 

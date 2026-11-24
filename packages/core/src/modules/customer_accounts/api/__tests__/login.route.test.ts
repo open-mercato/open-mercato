@@ -8,6 +8,7 @@
  * comparison so the response cannot be used to enumerate accounts per tenant.
  */
 import { POST } from '@open-mercato/core/modules/customer_accounts/api/login'
+import { AdvisoryLockUnavailableError } from '@open-mercato/shared/lib/db/advisoryLock'
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/tenantEligibility', () => ({
   isCustomerTenantActive: jest.fn(async () => true),
@@ -80,6 +81,12 @@ jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    translate: (key: string) => `translated:${key}`,
+  }),
 }))
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -236,6 +243,42 @@ describe('POST /api/customer_accounts/login — lockout under concurrent attempt
     expect(mockResetFailedAttemptsUnlessLocked).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }))
     expect(mockCreateSession).toHaveBeenCalledTimes(1)
     expect(mockIncrementFailedAttempts).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/customer_accounts/login — session issuance failures', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockCheckAuthRateLimit.mockResolvedValue({ error: null, compoundKey: null })
+    mockResolveTenantContext.mockResolvedValue({ tenantId })
+    mockFindByEmail.mockResolvedValueOnce({ id: 'u1', isActive: true, passwordHash: 'hash', emailVerifiedAt: new Date() })
+    mockCheckLockout.mockReturnValue(false)
+    mockVerifyPassword.mockResolvedValueOnce(true)
+    mockResetFailedAttemptsUnlessLocked.mockResolvedValueOnce(true)
+  })
+
+  test.each(['deadline', 'transient_db'] as const)('answers 503 and advertises a password retry for %s', async (reason) => {
+    mockCreateSession.mockRejectedValueOnce(new AdvisoryLockUnavailableError(reason, 'synthetic-lock-key'))
+
+    const res = await POST(makeRequest(baseBody()))
+
+    expect(res.status).toBe(503)
+    expect(res.headers.get('retry-after')).toBe('1')
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    expect(res.headers.get('set-cookie')).toBeNull()
+    await expect(res.json()).resolves.toEqual({ ok: false, error: 'translated:customer_accounts.errors.busy' })
+    expect(mockCreateSession).toHaveBeenCalledTimes(1)
+    expect(mockEmitCustomerAccountsEvent).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    new AdvisoryLockUnavailableError('commit_unknown', 'synthetic-lock-key'),
+    new Error('Unrelated session failure'),
+  ])('leaves %s to the API error handler', async (error) => {
+    mockCreateSession.mockRejectedValueOnce(error)
+
+    await expect(POST(makeRequest(baseBody()))).rejects.toBe(error)
+    expect(mockEmitCustomerAccountsEvent).not.toHaveBeenCalled()
   })
 })
 

@@ -292,6 +292,7 @@
   "customer_accounts.domainMapping.tls.diagnostics.title": "SSL certificate issue",
   "customer_accounts.domainMapping.tls.retryButton": "Retry SSL",
   "customer_accounts.domainMapping.verifyNow": "Check Now",
+  "customer_accounts.errors.busy": "Sign-in is temporarily unavailable. Go to the sign-in page and start again in a moment.",
   "customer_accounts.errors.cancelInvitationAuth": "Authentication required",
   "customer_accounts.errors.cancelInvitationIdentifier": "Invalid invitation identifier",
   "customer_accounts.errors.cancelInvitationPermission": "Insufficient permissions",

@@ -3,12 +3,24 @@ import { POST } from '@open-mercato/core/modules/customer_accounts/api/invitatio
 import {
   CustomerInvitationEmailConflictError,
 } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import { AdvisoryLockUnavailableError } from '@open-mercato/shared/lib/db/advisoryLock'
 
 const mockAcceptInvitation = jest.fn()
 const mockGetEffectiveFeatures = jest.fn()
 const mockCreateSession = jest.fn()
 const mockEmitCustomerAccountsEvent = jest.fn()
 const mockResolveTranslations = jest.fn()
+
+const acceptedInvitation = {
+  user: {
+    id: '33333333-3333-4333-8333-333333333333',
+    email: 'new@example.com',
+    displayName: 'New User',
+    tenantId: '11111111-1111-4111-8111-111111111111',
+    organizationId: '22222222-2222-4222-8222-222222222222',
+  },
+  invitation: { id: 'inv-1' },
+}
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
@@ -95,20 +107,56 @@ describe('POST /api/customer_accounts/invitations/accept', () => {
   })
 
   it('still creates the account and signs the invitee in on the happy path', async () => {
-    mockAcceptInvitation.mockResolvedValue({
-      user: {
-        id: '33333333-3333-4333-8333-333333333333',
-        email: 'new@example.com',
-        displayName: 'New User',
-        tenantId: '11111111-1111-4111-8111-111111111111',
-        organizationId: '22222222-2222-4222-8222-222222222222',
-      },
-      invitation: { id: 'inv-1' },
-    })
+    mockAcceptInvitation.mockResolvedValueOnce(acceptedInvitation)
 
     const res = await POST(acceptRequest())
     expect(res.status).toBe(201)
     await expect(res.json()).resolves.toMatchObject({ ok: true, user: { email: 'new@example.com' } })
     expect(mockCreateSession).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['deadline', 'transient_db'] as const)(
+    'reports unavailable sign-in after accepting the invitation for %s',
+    async (reason) => {
+      mockAcceptInvitation.mockResolvedValueOnce(acceptedInvitation).mockResolvedValue(null)
+      mockCreateSession.mockRejectedValueOnce(new AdvisoryLockUnavailableError(reason, 'synthetic-lock-key'))
+      const translate = jest.fn((key: string) => `translated:${key}`)
+      mockResolveTranslations.mockReturnValue({ translate })
+
+      const res = await POST(acceptRequest())
+
+      expect(res.status).toBe(503)
+      expect(res.headers.get('retry-after')).toBeNull()
+      expect(res.headers.get('cache-control')).toBe('no-store')
+      expect(res.headers.get('set-cookie')).toBeNull()
+      await expect(res.json()).resolves.toEqual({ ok: false, error: 'translated:customer_accounts.errors.busy' })
+      expect(mockEmitCustomerAccountsEvent.mock.calls.map(([name]) => name)).toEqual([
+        'customer_accounts.user.created',
+        'customer_accounts.invitation.accepted',
+      ])
+
+      expect((await POST(acceptRequest())).status).toBe(400)
+      expect(mockCreateSession).toHaveBeenCalledTimes(1)
+      expect(mockEmitCustomerAccountsEvent).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it.each([
+    new AdvisoryLockUnavailableError('commit_unknown', 'synthetic-lock-key'),
+    new Error('Unrelated session failure'),
+  ])('leaves %s to the API error handler', async (error) => {
+    mockAcceptInvitation.mockResolvedValueOnce(acceptedInvitation)
+    mockCreateSession.mockRejectedValueOnce(error)
+
+    await expect(POST(acceptRequest())).rejects.toBe(error)
+    expect(mockEmitCustomerAccountsEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not classify a lock failure from invitation acceptance as a session failure', async () => {
+    const error = new AdvisoryLockUnavailableError('transient_db', 'synthetic-lock-key')
+    mockAcceptInvitation.mockRejectedValueOnce(error)
+
+    await expect(POST(acceptRequest())).rejects.toBe(error)
+    expect(mockCreateSession).not.toHaveBeenCalled()
   })
 })
