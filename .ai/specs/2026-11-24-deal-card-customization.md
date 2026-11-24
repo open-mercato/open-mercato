@@ -20,6 +20,14 @@ Expose the authorized list item as `deal.record` of type `Readonly<Record<string
 
 ### Frontend architecture and UI
 
+The current card, rendered in Chromium with synthetic deal data:
+
+![Built-in deal card with its generated reference](assets/deal-card-customization/current-01-deal-card-component.png)
+
+The proposed override changes the reference shown in that position:
+
+![Illustrative pipeline card showing SPD-12 as the deal reference](assets/deal-card-customization/mockup-01-deal-card.png)
+
 The page, lane and card already run in the backend client tree. Resolve the host once in the lane component, outside the card loop. Reuse the existing override provider and page fetches. The implementation adds zero network requests per card, zero data copies per API record, and zero new client entry points or dependencies. The drag overlay keeps its existing title-only preview. Applications that require the built-in interactions should use a prop transform or wrap the original card.
 
 ## Migration & Backward Compatibility
