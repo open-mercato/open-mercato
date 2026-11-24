@@ -41,17 +41,19 @@ Move shipped instance configuration defaults (`notifications.delivery_strategies
 
 ## Progress
 
+PR: #10540
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Module-owned instance configuration defaults (Spec 1)
 
-- [ ] 1.1 Characterize current configs restore-defaults and CLI help/init behavior
-- [ ] 1.2 Add ModuleSetupConfig.instanceConfigDefaults and owner declarations in search and notifications
-- [ ] 1.3 Implement strict transactional instance restore and cut over configs CLI with comprehensive tests
-- [ ] 1.4 Document authoring contract and archive instance-config-defaults Delta
+- [x] 1.1 Characterize current configs restore-defaults and CLI help/init behavior — 978e2e5dfc
+- [x] 1.2 Add ModuleSetupConfig.instanceConfigDefaults and owner declarations in search and notifications — e4e0fef36a
+- [x] 1.3 Implement strict transactional instance restore and cut over configs CLI with comprehensive tests — 1f6ff95f42
+- [x] 1.4 Document authoring contract and archive instance-config-defaults Delta — d199725617, 8df6028d56
 
 ### Phase 2: API Keys provider for workflow requests (Spec 2)
 
-- [ ] 2.1 Characterize CALL_API credential lifecycle, identity, and missing-api_keys behavior
-- [ ] 2.2 Add ApiKeyOneTimeIssuer contract and api_keys DI registration
-- [ ] 2.3 Cut over executeCallApi to soft-resolve apiKeyOneTimeIssuer with unit and decoupling tests
+- [x] 2.1 Characterize CALL_API credential lifecycle, identity, and missing-api_keys behavior — b9dc1060c8
+- [x] 2.2 Add ApiKeyOneTimeIssuer contract and api_keys DI registration — 0f8fb8993f
+- [x] 2.3 Cut over executeCallApi to soft-resolve apiKeyOneTimeIssuer with unit and decoupling tests — 25624cd848

@@ -30,7 +30,29 @@ export type DefaultCustomerRoleFeatures = {
   [roleSlug: string]: string[] | undefined
 }
 
+export type InstanceConfigDefaultEntry = {
+  /** Configuration key name within the owning module's namespace. */
+  name: string
+  /** Finite JSON-serializable default value restored at instance scope. */
+  value: unknown
+  /**
+   * Optional legacy storage namespace reserved strictly for compatibility exceptions
+   * validated by Configs (currently only `vector` for `search`'s `auto_index_enabled`).
+   */
+  legacyStorageNamespace?: string
+}
+
+export type InstanceConfigDefaultsProvider = () => readonly InstanceConfigDefaultEntry[]
+
 export type ModuleSetupConfig = {
+  /**
+   * Synchronous server-only provider returning instance-level module configuration defaults
+   * restored by `yarn mercato configs restore-defaults` before tenant setup.
+   * Providers may read environment policy at invocation time and must run without an
+   * EntityManager, tenant, credentials, or network I/O.
+   */
+  instanceConfigDefaults?: InstanceConfigDefaultsProvider
+
   /**
    * Called inside setupInitialTenant() right after the tenant/org is created.
    * For lightweight structural defaults: settings rows, numbering sequences, configs.

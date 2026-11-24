@@ -2,8 +2,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 import { ModuleConfig } from '../data/entities'
 import { moduleConfigKeySchema } from '../data/validators'
+import { compareConfigKeys, validateAndCloneFiniteJsonValue } from './instance-defaults'
 
 const CACHE_VERSION = 'v3'
 const CACHE_TTL_MS = 60_000
@@ -119,6 +121,11 @@ export type ModuleConfigDefault = {
   value: unknown
 }
 
+export type RestoreDefaultsStrictOptions = {
+  force?: boolean
+  maxConflictRetries?: number
+}
+
 export type ModuleConfigService = {
   getRecord(moduleId: string, name: string, scope?: ConfigScope): Promise<ModuleConfigRecord | null>
   getValue<T = unknown>(
@@ -128,7 +135,148 @@ export type ModuleConfigService = {
   ): Promise<T | null>
   setValue(moduleId: string, name: string, value: unknown, scope?: ConfigScope): Promise<ModuleConfigRecord | null>
   restoreDefaults(defaults: ModuleConfigDefault[], options?: { force?: boolean }): Promise<void>
+  restoreDefaultsStrict?(
+    defaults: readonly ModuleConfigDefault[],
+    options?: RestoreDefaultsStrictOptions,
+  ): Promise<ModuleConfigRecord[]>
   invalidate(moduleId: string, name?: string, scope?: ConfigScope): Promise<void>
+}
+
+function prepareStrictDefaults(
+  defaults: readonly ModuleConfigDefault[],
+): Array<{ moduleId: string; name: string; value: unknown }> {
+  if (!Array.isArray(defaults)) {
+    throw new Error('[configs] Invalid instance config defaults catalog: expected an array.')
+  }
+  const seen = new Set<string>()
+  const validated: Array<{ moduleId: string; name: string; value: unknown }> = []
+  for (let index = 0; index < defaults.length; index += 1) {
+    const entry = defaults[index]
+    const parsedKey = moduleConfigKeySchema.safeParse({
+      moduleId: entry?.moduleId,
+      name: entry?.name,
+    })
+    if (!parsedKey.success) {
+      throw new Error(
+        `[configs] Invalid instance config default key at index ${index}: ${parsedKey.error.issues[0]?.message ?? 'invalid key'}.`,
+      )
+    }
+    const { moduleId, name } = parsedKey.data
+    const keyLabel = `${moduleId}.${name}`
+    const dedupeKey = `${moduleId}:${name}`
+    if (seen.has(dedupeKey)) {
+      throw new Error(`[configs] Duplicate instance config default key "${keyLabel}".`)
+    }
+    seen.add(dedupeKey)
+    const value = validateAndCloneFiniteJsonValue(entry.value, moduleId, keyLabel)
+    validated.push({ moduleId, name, value })
+  }
+  validated.sort(compareConfigKeys)
+  return validated
+}
+
+/**
+ * Strictly restores instance-scoped module configuration defaults in a single
+ * transaction on a fresh EntityManager.
+ *
+ * - An empty catalog is a successful no-op.
+ * - All keys and finite JSON values are validated before any DB writes occur.
+ * - Missing EntityManager, lookup, persistence, flush, or commit errors propagate
+ *   with transaction rollback and zero cache writes.
+ * - Concurrent unique-index conflicts (SQLSTATE 23505) retry with a fresh EM fork.
+ * - Cache entries are published only after the transaction commits.
+ */
+export async function restoreInstanceDefaultsStrict(
+  container: AppContainer,
+  defaults: readonly ModuleConfigDefault[],
+  options?: RestoreDefaultsStrictOptions,
+): Promise<ModuleConfigRecord[]> {
+  const validated = prepareStrictDefaults(defaults)
+  if (validated.length === 0) return []
+
+  const em = resolveEm(container)
+  if (!em) {
+    throw new Error(
+      '[configs] Cannot restore instance defaults: EntityManager is not registered in the container.',
+    )
+  }
+
+  const force = options?.force ?? true
+  const maxAttempts = Math.max(1, options?.maxConflictRetries ?? 3)
+  let committedRecords: ModuleConfigRecord[] | null = null
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const freshEm =
+      typeof (em as { fork?: unknown }).fork === 'function'
+        ? (em.fork({
+            clear: true,
+            freshEventManager: true,
+            useContext: false,
+          }) as EntityManager)
+        : em
+
+    if (typeof (freshEm as { transactional?: unknown }).transactional !== 'function') {
+      throw new Error(
+        '[configs] Cannot restore instance defaults: EntityManager does not support transactions.',
+      )
+    }
+
+    try {
+      committedRecords = await freshEm.transactional(async (txEm) => {
+        const repo = txEm.getRepository(ModuleConfig)
+        const touched: ModuleConfig[] = []
+        for (const entry of validated) {
+          const existing = await repo.findOne({
+            moduleId: entry.moduleId,
+            name: entry.name,
+            tenantId: null,
+          })
+          const now = new Date()
+          if (!existing) {
+            const created = repo.create({
+              moduleId: entry.moduleId,
+              name: entry.name,
+              valueJson: entry.value,
+              tenantId: null,
+              organizationId: null,
+              createdAt: now,
+              updatedAt: now,
+            })
+            txEm.persist(created)
+            touched.push(created)
+          } else if (force) {
+            existing.valueJson = entry.value
+            existing.updatedAt = now
+            txEm.persist(existing)
+            touched.push(existing)
+          }
+        }
+        if (touched.length > 0) {
+          await txEm.flush()
+        }
+        return touched.map((entity) => toRecord(entity, 'instance'))
+      })
+      break
+    } catch (error) {
+      if (isUniqueViolation(error) && attempt < maxAttempts) {
+        continue
+      }
+      throw error
+    }
+  }
+
+  const records = committedRecords ?? []
+  const cache = resolveCache(container)
+  for (const record of records) {
+    await writeCache(
+      cache,
+      cacheKey(record.moduleId, record.name, null),
+      { found: true, record },
+      record.moduleId,
+      null,
+    )
+  }
+  return records
 }
 
 export function createModuleConfigService(container: AppContainer): ModuleConfigService {
@@ -270,11 +418,17 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
     await deleteCacheByModule(cache, moduleId, [tenantId, getCurrentCacheTenant(), null])
   }
 
+  const restoreDefaultsStrict = async (
+    defaults: readonly ModuleConfigDefault[],
+    options?: RestoreDefaultsStrictOptions,
+  ): Promise<ModuleConfigRecord[]> => restoreInstanceDefaultsStrict(container, defaults, options)
+
   return {
     getRecord,
     getValue,
     setValue,
     restoreDefaults,
+    restoreDefaultsStrict,
     invalidate,
   }
 }
