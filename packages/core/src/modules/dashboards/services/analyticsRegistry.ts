@@ -6,6 +6,7 @@ import type {
   AnalyticsModuleConfig,
 } from '@open-mercato/shared/modules/analytics'
 import { getAnalyticsModuleConfigs } from '@open-mercato/shared/modules/analytics'
+import { assertSafeIdentifier, hasOwnProperty, readOwnProperty } from '../lib/identifiers'
 
 export interface AnalyticsRegistry {
   getAllEntityConfigs(): AnalyticsEntityConfig[]
@@ -16,6 +17,27 @@ export interface AnalyticsRegistry {
   getRequiredFeatures(entityId: string): string[] | null
   getLabelResolverConfig(entityId: string, field: string): AnalyticsLabelResolverConfig | null
   getAllFieldMappings(entityId: string): Record<string, AnalyticsFieldMapping> | null
+}
+
+function normalizeFieldMapping(mapping: unknown): AnalyticsFieldMapping | null {
+  if (!mapping || typeof mapping !== 'object') return null
+  const candidate = mapping as AnalyticsFieldMapping
+  const dbColumn = assertSafeIdentifier(readOwnProperty(candidate, 'dbColumn'), 'column name')
+  const type = readOwnProperty(candidate, 'type')
+  if (typeof type !== 'string') return null
+  const normalized = Object.create(null) as AnalyticsFieldMapping
+  normalized.dbColumn = dbColumn
+  normalized.type = type
+  return normalized
+}
+
+function readRequiredFeatures(config: AnalyticsEntityConfig): string[] | null {
+  const features = readOwnProperty(config, 'requiredFeatures')
+  if (!Array.isArray(features)) return null
+  for (const feature of features) {
+    if (typeof feature !== 'string' || !feature) return null
+  }
+  return features
 }
 
 export class DefaultAnalyticsRegistry implements AnalyticsRegistry {
@@ -30,47 +52,97 @@ export class DefaultAnalyticsRegistry implements AnalyticsRegistry {
 
   private buildEntityConfigMap(): void {
     for (const moduleConfig of this.configs) {
-      for (const entityConfig of moduleConfig.entities) {
-        this.entityConfigMap.set(entityConfig.entityId, entityConfig)
+      const entities = readOwnProperty(moduleConfig, 'entities')
+      if (!Array.isArray(entities)) continue
+      for (const entityConfig of entities) {
+        const entityId = readOwnProperty(entityConfig, 'entityId')
+        if (typeof entityId !== 'string' || !entityId) continue
+        this.entityConfigMap.set(entityId, entityConfig)
       }
     }
   }
 
   getAllEntityConfigs(): AnalyticsEntityConfig[] {
-    return Array.from(this.entityConfigMap.values())
+    return Array.from(this.entityConfigMap.values()).filter((config) => readRequiredFeatures(config) !== null)
   }
 
   getEntityConfig(entityId: string): AnalyticsEntityConfig | null {
-    return this.entityConfigMap.get(entityId) ?? null
+    const config = this.entityConfigMap.get(entityId)
+    return config && readRequiredFeatures(config) !== null ? config : null
   }
 
   isValidEntityType(entityId: string): boolean {
-    return this.entityConfigMap.has(entityId)
+    return this.getEntityConfig(entityId) !== null
   }
 
   getEntityTypeConfig(entityId: string): AnalyticsEntityTypeConfig | null {
     const config = this.getEntityConfig(entityId)
-    return config?.entityConfig ?? null
+    const entityConfig = readOwnProperty(config, 'entityConfig')
+    if (!entityConfig || typeof entityConfig !== 'object') return null
+
+    const tableName = assertSafeIdentifier(readOwnProperty(entityConfig, 'tableName'), 'table name')
+    const schema = readOwnProperty(entityConfig, 'schema')
+    if (schema !== undefined) {
+      assertSafeIdentifier(schema, 'schema name')
+    }
+
+    const normalized = Object.create(null) as AnalyticsEntityTypeConfig
+    normalized.tableName = tableName
+    normalized.dateField = readOwnProperty(entityConfig, 'dateField') as string
+    normalized.defaultScopeFields = readOwnProperty(entityConfig, 'defaultScopeFields') as string[]
+    if (schema !== undefined) {
+      normalized.schema = schema
+    }
+    const currencyField = readOwnProperty(entityConfig, 'currencyField')
+    if (currencyField !== undefined) {
+      normalized.currencyField = currencyField
+    }
+    return normalized
   }
 
   getFieldMapping(entityId: string, field: string): AnalyticsFieldMapping | null {
     const config = this.getEntityConfig(entityId)
-    return config?.fieldMappings[field] ?? null
+    const fieldMappings = readOwnProperty(config, 'fieldMappings')
+    if (!fieldMappings || typeof fieldMappings !== 'object') return null
+    if (!hasOwnProperty(fieldMappings, field)) return null
+    return normalizeFieldMapping(fieldMappings[field])
   }
 
   getRequiredFeatures(entityId: string): string[] | null {
-    const config = this.getEntityConfig(entityId)
-    return config?.requiredFeatures ?? null
+    const config = this.entityConfigMap.get(entityId)
+    return config ? readRequiredFeatures(config) : null
   }
 
   getLabelResolverConfig(entityId: string, field: string): AnalyticsLabelResolverConfig | null {
     const config = this.getEntityConfig(entityId)
-    return config?.labelResolvers?.[field] ?? null
+    const labelResolvers = readOwnProperty(config, 'labelResolvers')
+    if (!labelResolvers || typeof labelResolvers !== 'object') return null
+    if (!hasOwnProperty(labelResolvers, field)) return null
+    const resolver = labelResolvers[field]
+    if (!resolver || typeof resolver !== 'object') return null
+
+    const table = assertSafeIdentifier(readOwnProperty(resolver, 'table'), 'table name')
+    const idColumn = assertSafeIdentifier(readOwnProperty(resolver, 'idColumn'), 'id column')
+    const labelColumn = assertSafeIdentifier(readOwnProperty(resolver, 'labelColumn'), 'label column')
+    const normalized = Object.create(null) as AnalyticsLabelResolverConfig
+    normalized.table = table
+    normalized.idColumn = idColumn
+    normalized.labelColumn = labelColumn
+    return normalized
   }
 
   getAllFieldMappings(entityId: string): Record<string, AnalyticsFieldMapping> | null {
     const config = this.getEntityConfig(entityId)
-    return config?.fieldMappings ?? null
+    const fieldMappings = readOwnProperty(config, 'fieldMappings')
+    if (!fieldMappings || typeof fieldMappings !== 'object') return null
+    const normalized = Object.create(null) as Record<string, AnalyticsFieldMapping>
+    for (const key of Object.keys(fieldMappings)) {
+      const mapping = normalizeFieldMapping(fieldMappings[key])
+      if (mapping) {
+        normalized[key] = mapping
+      }
+    }
+    return normalized
   }
 }
 

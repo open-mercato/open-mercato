@@ -4,6 +4,7 @@ import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { SsoService } from '../../../services/ssoService'
 import { emitSsoEvent } from '../../../events'
+import { sanitizeReturnUrl } from '../../../lib/return-url'
 import { resolveSsoCallbackErrorCode } from '../../../lib/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -60,7 +61,7 @@ async function handleCallback(req: Request): Promise<NextResponse> {
 
     const result = await ssoService.handleOidcCallback(callbackParams, stateCookie, redirectUri)
 
-    const res = NextResponse.redirect(toAbsoluteUrl(req, result.redirectUrl))
+    const res = NextResponse.redirect(toAbsoluteUrl(req, sanitizeReturnUrl(result.redirectUrl)))
 
     res.cookies.set('auth_token', result.token, {
       httpOnly: true,

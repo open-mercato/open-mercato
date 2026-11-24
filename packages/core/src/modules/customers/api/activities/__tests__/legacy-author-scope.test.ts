@@ -4,6 +4,7 @@ import { CustomerActivity } from '../../../data/entities'
 import { GET } from '../route'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findAndCountWithDecryption: (em: EntityManager, entity: typeof CustomerActivity, where: Record<string, unknown>, options: Record<string, unknown>) => em.findAndCount(entity, where, options),
   findWithDecryption: (em: EntityManager, entity: typeof User, where: Record<string, unknown>) => em.find(entity, where),
 }))
 
