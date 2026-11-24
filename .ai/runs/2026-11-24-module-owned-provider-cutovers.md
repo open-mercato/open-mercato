@@ -21,11 +21,13 @@ A missing provider must preserve optional-peer behavior. Test authorization befo
 
 ## Progress
 
+PR: #10542
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Named workflow rules
 
-- [ ] 1.1 Migrate and verify named START and transition evaluation.
+- [x] 1.1 Migrate and verify named START and transition evaluation. — 7609d9ad67
 
 ### Phase 2: Audit history
 
