@@ -1,16 +1,21 @@
-import { asFunction, createContainer, asValue, AwilixContainer, InjectionMode, type Resolver } from 'awilix'
+import { asFunction, createContainer, asValue, AwilixContainer, InjectionMode, type Resolver, Lifetime } from 'awilix'
 import { RequestContext } from '@mikro-orm/core'
 import { getOrm } from '@open-mercato/shared/lib/db/mikro'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
-import { applyDiOverridesToContainer } from '@open-mercato/shared/modules/overrides'
+import { applyDiOverridesToContainer, composeDiOverrides } from '@open-mercato/shared/modules/overrides'
 import { createOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { getAllOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { createCommandOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { createLogger } from '../logger'
+import { getTelemetryRuntime } from '../telemetry/runtime'
+import { bindRequestScopeContainer, runWithRequestScopeContainer, trackRequestScopeDisposal, runWithRequestScopeAcquisition } from './request-scope'
+import { parseBooleanWithDefault } from '../boolean'
+import { onModulesRegistered } from '../modules/registry'
+import { asScopedService, getProcessDiRegistrar, isProcessDiRegistrar, runCallerSetups, runProcessActivations } from './process-registrar'
 
 const logger = createLogger('shared').child({ component: 'di' })
 
@@ -32,13 +37,6 @@ const APP_DI_REGISTER_WARNING_KEY = '__openMercatoAppDiRegisterWarningEmitted__'
 // exist, so retrying the import per request container only repeats a failed module resolution
 // (and its log line) once per job.
 const APP_DI_MODULE_UNRESOLVABLE_KEY = '__openMercatoAppDiModuleUnresolvable__'
-// Phase 5 — process-scoped bootstrap cache. The cache/event-bus/encryption
-// services bootstrap() creates are inherently process-scoped (they hold
-// state across requests). Caching them on globalThis after the first
-// successful bootstrap call lets every subsequent request skip the
-// `await bootstrap(container)` body and just re-register the cached
-// instances. Same globalThis pattern as registerDiRegistrars so HMR
-// keeps working.
 const BOOTSTRAP_CACHE_KEY = '__openMercatoBootstrapCache__'
 const ENCRYPTION_ENABLED_KEY = '__openMercatoEncryptionEnabledCache__'
 
@@ -52,16 +50,16 @@ const BOOTSTRAP_CACHE_KEYS = [
   'searchIndexer',
 ] as const
 
-type BootstrapCacheEntry = Partial<Record<(typeof BOOTSTRAP_CACHE_KEYS)[number], unknown>>
+type BootstrapCacheEntry = Partial<Record<(typeof BOOTSTRAP_CACHE_KEYS)[number], unknown>> & { eventBus?: Resolver<unknown> }
 
 // Phase 5 is opt-in. Some bootstrap services close over per-request state
-// (e.g. tenantEncryptionService captures the first request's `em.fork`, the
-// event-bus's resolver closes over the first container) so naively replaying
+// (e.g. tenantEncryptionService captures the first request's `em.fork`) so replaying
 // them on later requests yields stale references — observed as a 500 from
 // CRUD list endpoints in `next start`. Default OFF preserves develop's
 // per-request bootstrap. Set `OM_BOOTSTRAP_CACHE=1` to opt in once each
 // cached service is verified safe for cross-request reuse.
 function isBootstrapCacheEnabled(): boolean {
+  if (isProcessContainerRootEnabled()) return false
   const raw = process.env.OM_BOOTSTRAP_CACHE
   if (raw === undefined) return false
   const normalized = raw.trim().toLowerCase()
@@ -73,7 +71,10 @@ function isBootstrapCacheEnabled(): boolean {
 function getBootstrapCache(): BootstrapCacheEntry | null {
   if (!isBootstrapCacheEnabled()) return null
   const existing = (globalThis as any)[BOOTSTRAP_CACHE_KEY]
-  return existing && typeof existing === 'object' ? (existing as BootstrapCacheEntry) : null
+  if (!existing || typeof existing !== 'object') return null
+  const entry = existing as BootstrapCacheEntry
+  if (entry.eventBus && typeof entry.eventBus.resolve !== 'function') return null
+  return entry
 }
 
 function setBootstrapCache(entry: BootstrapCacheEntry): void {
@@ -85,8 +86,12 @@ function harvestBootstrapCache(container: AwilixContainer): BootstrapCacheEntry 
   const entry: BootstrapCacheEntry = {}
   for (const key of BOOTSTRAP_CACHE_KEYS) {
     try {
-      const value: unknown = container.resolve(key as never)
-      if (value !== undefined && value !== null) entry[key] = value
+      if (key === 'eventBus') {
+        entry.eventBus = container.registrations.eventBus
+      } else {
+        const value: unknown = container.resolve(key as never)
+        if (value !== undefined && value !== null) entry[key] = value
+      }
     } catch {
       // not registered — skip
     }
@@ -122,6 +127,7 @@ export function registerDiRegistrars(registrars: DiRegistrar[]) {
     logger.debug('DI registrars re-registered (this may occur during HMR)')
   }
   setGlobalRegistrars(registrars)
+  invalidateProcessContainer()
   // Force re-bootstrap on HMR — module subscribers may have changed.
   ;(globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
   ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
@@ -145,11 +151,13 @@ function getAppDiRegistrar(): AppDiRegistrar | null {
 
 export function registerAppDiRegistrar(registrar: AppDiRegistrar | null): void {
   ;(globalThis as Record<string, unknown>)[APP_DI_REGISTRAR_KEY] = registrar
+  invalidateProcessContainer()
 }
 
 /** Test-only helper to drop process-scoped request-container state. */
 export function resetBootstrapCache(): void {
-  (globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
+  invalidateProcessContainer()
+  ;(globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
   ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
   ;(globalThis as Record<string, unknown>)[APP_DI_LOAD_WARNING_KEY] = undefined
   ;(globalThis as Record<string, unknown>)[APP_DI_REGISTER_WARNING_KEY] = undefined
@@ -200,13 +208,420 @@ function toAwilixRegistrations(registrations: Record<string, unknown>): Record<s
   )
 }
 
-export async function createRequestContainer(): Promise<AppContainer> {
+const PROCESS_ROOT_STATE_KEY = Symbol.for('@open-mercato/shared/di/process-root')
+
+type InitializedProcessRoot = { container: AppContainer; activate: () => void }
+type ProcessRootLifetime = {
+  container: AppContainer
+  activeScopes: number
+  retired: boolean
+  published: boolean
+  retire: () => Promise<void>
+}
+
+type ProcessRootState = {
+  currentRoot?: ProcessRootLifetime
+  lifetimes?: WeakMap<AppContainer, ProcessRootLifetime>
+  generation: number
+  pending: Promise<AppContainer | null> | null
+  rootInitializations: number
+  registrarExecutions: number
+  callerScopes: number
+  legacyContainers: number
+  compatibilityReason: string | null
+  overrideEntries: Array<[string, unknown]>
+  registryListenerInstalled: boolean
+}
+
+type ProcessRootGlobal = typeof globalThis & { [PROCESS_ROOT_STATE_KEY]?: ProcessRootState }
+
+function getProcessRootState(): ProcessRootState {
+  const globalState = globalThis as ProcessRootGlobal
+  if (!globalState[PROCESS_ROOT_STATE_KEY]) {
+    globalState[PROCESS_ROOT_STATE_KEY] = {
+      generation: 0,
+      pending: null,
+      rootInitializations: 0,
+      registrarExecutions: 0,
+      callerScopes: 0,
+      legacyContainers: 0,
+      compatibilityReason: null,
+      overrideEntries: [],
+      registryListenerInstalled: false,
+    }
+  }
+  return globalState[PROCESS_ROOT_STATE_KEY]
+}
+
+export function isProcessContainerRootEnabled(): boolean {
+  return parseBooleanWithDefault(process.env.OM_PROCESS_CONTAINER_ROOT, false)
+}
+
+export function invalidateProcessContainer(): void {
+  const state = getProcessRootState()
+  state.generation += 1
+  state.pending = null
+  const root = state.currentRoot
+  state.currentRoot = undefined
+  if (root) void root.retire()
+}
+
+async function settleContainerDisposal(container: AppContainer, dispose: () => Promise<void>): Promise<void> {
+  const pending: Promise<unknown>[] = []
+  for (const [key, entry] of container.cache) {
+    const resolver = entry.resolver as Resolver<unknown> & { dispose?: (value: unknown) => unknown }
+    const disposeValue = resolver.dispose
+    if (!disposeValue) continue
+    const trackedResolver: typeof resolver = {
+      ...resolver,
+      dispose: (value: unknown) => {
+        const completion = Promise.resolve().then(() => disposeValue.call(resolver, value))
+        pending.push(completion)
+        return completion
+      },
+    }
+    container.cache.set(key, { ...entry, resolver: trackedResolver })
+  }
+  let failure: { error: unknown } | undefined
+  try {
+    await dispose()
+  } catch (error) {
+    failure = { error }
+  }
+  await Promise.allSettled(pending)
+  if (failure) throw failure.error
+}
+
+function observeCleanup(action: () => void): void {
+  try {
+    action()
+  } catch {
+    return
+  }
+}
+
+function observeRootRetirementFailure(error: unknown, published: boolean): void {
+  observeCleanup(() => logger.error('Failed to dispose DI root', { err: error }))
+  observeCleanup(() => getTelemetryRuntime()?.reportError(error, {
+    module: 'shared',
+    code: published ? 'shared.root_retirement_cleanup_failed' : 'shared.root_initialization_cleanup_failed',
+  }))
+}
+
+function ownProcessRoot(root: AppContainer): ProcessRootLifetime {
+  const disposeRoot = root.dispose.bind(root)
+  const createRootScope = root.createScope.bind(root)
+  let completeRetirement!: () => void
+  const completion = new Promise<void>((resolve) => { completeRetirement = resolve })
+  let disposalStarted = false
+  const lifetime: ProcessRootLifetime = {
+    container: root,
+    activeScopes: 0,
+    retired: false,
+    published: false,
+    retire: () => {
+      lifetime.retired = true
+      drain()
+      return completion
+    },
+  }
+  const drain = () => {
+    if (!lifetime.retired || lifetime.activeScopes !== 0 || disposalStarted) return
+    disposalStarted = true
+    void settleContainerDisposal(root, disposeRoot)
+      .catch((error) => observeRootRetirementFailure(error, lifetime.published))
+      .then(completeRetirement)
+  }
+  const ownScope = (scope: AppContainer): AppContainer => {
+    lifetime.activeScopes += 1
+    const dispose = scope.dispose.bind(scope)
+    const createScope = scope.createScope.bind(scope)
+    let disposing: Promise<void> | undefined
+    scope.createScope = (() => {
+      if (disposing) throw new Error('[internal] Cannot create a child of a disposing DI scope')
+      return ownScope(createScope())
+    }) as AppContainer['createScope']
+    scope.dispose = () => {
+      disposing ??= settleContainerDisposal(scope, dispose).finally(async () => {
+        lifetime.activeScopes -= 1
+        drain()
+        if (lifetime.retired && lifetime.activeScopes === 0) await completion
+      })
+      return disposing
+    }
+    trackRequestScopeDisposal(scope)
+    return scope
+  }
+  root.createScope = (() => {
+    if (lifetime.retired) throw new Error('[internal] Cannot create a scope from a retired DI root')
+    return ownScope(createRootScope())
+  }) as AppContainer['createScope']
+  root.dispose = () => {
+    if (getProcessRootState().currentRoot === lifetime) invalidateProcessContainer()
+    return lifetime.retire()
+  }
+  const state = getProcessRootState()
+  state.lifetimes ??= new WeakMap()
+  state.lifetimes.set(root, lifetime)
+  return lifetime
+}
+
+export function getProcessContainerStats() {
+  const { generation, rootInitializations, registrarExecutions, callerScopes, legacyContainers, compatibilityReason } = getProcessRootState()
+  return { generation, rootInitializations, registrarExecutions, callerScopes, legacyContainers, compatibilityReason }
+}
+
+function processContainerCompatibilityReason(registrars: DiRegistrar[], appRegistrar: AppDiRegistrar | null): string | null {
+  if (!parseBooleanWithDefault(process.env.OM_EVENTS_SHARED_PRODUCER, true)) return 'process event producer sharing is disabled'
+  if (!parseBooleanWithDefault(process.env.OM_CACHE_SINGLETON, true)) return 'process cache singleton is disabled'
+  if (parseBooleanWithDefault(process.env.SEARCH_DISABLE_SINGLETON_CACHE, false)) return 'process search infrastructure is disabled'
+  if (registrars.some((registrar) => !isProcessDiRegistrar(registrar))) return 'an enabled module registrar is not process-safe'
+  if (appRegistrar && !isProcessDiRegistrar(appRegistrar)) return 'the app registrar is not process-safe'
+  if (!appRegistrar && !isAppDiModuleUnresolvable()) {
+    return 'the app registrar has not been explicitly registered'
+  }
+  const state = getProcessRootState()
+  const entries = typeof composeDiOverrides === 'function' ? Object.entries(composeDiOverrides()) : []
+  if (entries.length !== state.overrideEntries.length || entries.some(([key, value], index) => {
+    const previous = state.overrideEntries[index]
+    return previous?.[0] !== key || previous?.[1] !== value
+  })) {
+    state.overrideEntries = entries
+    invalidateProcessContainer()
+  }
+  return entries.length > 0 ? 'module DI overrides require legacy registration ordering' : null
+}
+
+function guardProcessRootRegistrations(root: AppContainer): void {
+  const register = root.register.bind(root)
+  const wrap = (resolver: Resolver<unknown>): Resolver<unknown> => ({
+    ...resolver,
+    resolve: (caller) => {
+      if (caller === root && resolver.isLeakSafe !== true && resolver.lifetime !== Lifetime.SINGLETON) {
+        throw new Error('[internal] Request-scoped services cannot be resolved from the process DI root')
+      }
+      return resolver.resolve(resolver.lifetime === Lifetime.SINGLETON ? root : caller)
+    },
+  })
+  root.register = ((nameOrRegistrations: string | symbol | Record<string | symbol, Resolver<unknown>>, resolver?: Resolver<unknown>) => {
+    if (typeof nameOrRegistrations === 'string' || typeof nameOrRegistrations === 'symbol') {
+      if (!resolver) throw new Error('[internal] Missing DI resolver')
+      return register(nameOrRegistrations, wrap(resolver))
+    }
+    return register(Object.fromEntries(Reflect.ownKeys(nameOrRegistrations).map((key) => [key, wrap(nameOrRegistrations[key])])))
+  }) as AppContainer['register']
+}
+
+function isolateCallerRegistrations(caller: AppContainer): void {
+  const register = caller.register.bind(caller)
+  const createScope = caller.createScope.bind(caller)
+  caller.createScope = (() => {
+    const nested = createScope()
+    isolateCallerRegistrations(nested)
+    return nested
+  }) as AppContainer['createScope']
+  const local = (name: string | symbol, resolver: Resolver<unknown>): Resolver<unknown> => {
+    if (resolver.lifetime !== Lifetime.SINGLETON) return resolver
+    return {
+      ...resolver,
+      lifetime: Lifetime.TRANSIENT,
+      resolve: (resolvingScope) => {
+        const cached = caller.cache.get(name)
+        if (cached) return cached.value
+        const value = resolver.resolve(resolvingScope)
+        caller.cache.set(name, { resolver, value })
+        return value
+      },
+    }
+  }
+  caller.register = ((nameOrRegistrations: string | symbol | Record<string | symbol, Resolver<unknown>>, resolver?: Resolver<unknown>) => {
+    if (typeof nameOrRegistrations === 'string' || typeof nameOrRegistrations === 'symbol') {
+      if (!resolver) throw new Error('[internal] Missing DI resolver')
+      return register(nameOrRegistrations, local(nameOrRegistrations, resolver))
+    }
+    return register(Object.fromEntries(Reflect.ownKeys(nameOrRegistrations).map((key) => [key, local(key, nameOrRegistrations[key])])))
+  }) as AppContainer['register']
+}
+
+async function buildProcessContainer(
+  registrars: DiRegistrar[],
+  appRegistrar: AppDiRegistrar | null,
+): Promise<InitializedProcessRoot | null> {
+  const orm = await getOrm()
+  const root = createContainer<DynamicCradle>({ injectionMode: InjectionMode.CLASSIC })
+  guardProcessRootRegistrations(root)
+  root.register({
+    em: asScopedService(() => {
+      const baseEm = RequestContext.getEntityManager() ?? orm.em
+      return baseEm.fork({ clear: true, freshEventManager: true, useContext: true }) as unknown as EntityManager
+    }),
+    queryEngine: asScopedService((caller) => new BasicQueryEngine(caller.resolve<EntityManager>('em'), undefined, () => {
+      try { return caller.resolve('tenantEncryptionService') } catch { return null }
+    })),
+    dataEngine: asScopedService((caller) => new DefaultDataEngine(caller.resolve<EntityManager>('em'), caller)),
+    commandRegistry: asValue(commandRegistry),
+    commandBus: asScopedService(() => new CommandBus()),
+    crudMutationGuardService: asScopedService((caller) => createOptimisticLockGuardService({
+      getEm: () => caller.resolve<EntityManager>('em'),
+      readers: getAllOptimisticLockReaders(),
+    })),
+    commandOptimisticLockGuardService: asScopedService(() => createCommandOptimisticLockGuardService()),
+  })
+  try {
+    for (const registrar of registrars) {
+      const processRegistrar = getProcessDiRegistrar(registrar)
+      if (!processRegistrar) throw new Error('[internal] Process DI registrar lost its safety declaration')
+      getProcessRootState().registrarExecutions += 1
+      await processRegistrar(root)
+    }
+    if (root.hasRegistration('eventBus')) {
+      await root.dispose()
+      return null
+    }
+    const { bootstrapProcessRoot, finalizeProcessRoot } = await import('@open-mercato/core/bootstrap')
+    const activate = await bootstrapProcessRoot(root)
+    const generationEventBus = root.registrations.eventBus
+    if (appRegistrar) {
+      const processRegistrar = getProcessDiRegistrar(appRegistrar)
+      if (!processRegistrar) throw new Error('[internal] Process app registrar lost its safety declaration')
+      getProcessRootState().registrarExecutions += 1
+      await processRegistrar(root)
+    }
+    if (root.registrations.eventBus !== generationEventBus) {
+      await root.dispose()
+      return null
+    }
+    await finalizeProcessRoot(root)
+    return { container: root, activate }
+  } catch (error) {
+    return disposeFailedContainer(root, error, 'root')
+  }
+}
+
+export async function initializeProcessContainer(): Promise<AppContainer | null> {
+  if (!isProcessContainerRootEnabled()) return null
+  const state = getProcessRootState()
+  if (!state.registryListenerInstalled) {
+    onModulesRegistered(invalidateProcessContainer)
+    state.registryListenerInstalled = true
+  }
+  for (;;) {
+    const registrars = getDiRegistrars()
+    const appRegistrar = getAppDiRegistrar()
+    const reason = processContainerCompatibilityReason(registrars, appRegistrar)
+    if (reason) {
+      if (state.compatibilityReason !== reason) logger.debug('Process DI root unavailable; using legacy containers', { reason })
+      state.compatibilityReason = reason
+      return null
+    }
+    state.compatibilityReason = null
+    const generation = state.generation
+    if (!state.pending) {
+      state.rootInitializations += 1
+      const pending = buildProcessContainer(registrars, appRegistrar).then(async (initialized) => {
+        if (!initialized) return null
+        const { container, activate } = initialized
+        if (state.generation !== generation) {
+          await container.dispose()
+          return container
+        }
+        const lifetime = ownProcessRoot(container)
+        try {
+          runProcessActivations(container)
+          if (state.generation !== generation || lifetime.retired) {
+            if (state.generation === generation) invalidateProcessContainer()
+            void lifetime.retire()
+            return container
+          }
+          activate()
+          lifetime.published = true
+          if (state.generation === generation && !lifetime.retired) state.currentRoot = lifetime
+          else {
+            if (state.generation === generation) invalidateProcessContainer()
+            void lifetime.retire()
+          }
+          return container
+        } catch (error) {
+          const retirement = lifetime.retire()
+          if (lifetime.activeScopes === 0) await retirement
+          throw error
+        }
+      })
+      state.pending = pending
+      void pending.catch(() => {
+        if (state.pending === pending) state.pending = null
+      })
+    }
+    try {
+      const root = await state.pending
+      if (state.generation === generation) {
+        state.compatibilityReason = root ? null : 'custom event buses require legacy registration ordering'
+        return root
+      }
+    } catch (error) {
+      if (state.generation === generation) throw error
+    }
+  }
+}
+
+async function disposeFailedContainer(
+  container: AppContainer,
+  initializationError: unknown,
+  owner: 'caller' | 'root',
+): Promise<never> {
+  try {
+    await container.dispose()
+  } catch (cleanupError) {
+    try {
+      logger.error('Failed to dispose partially initialized DI container', { owner, err: cleanupError })
+      getTelemetryRuntime()?.reportError(cleanupError, {
+        module: 'shared',
+        code: owner === 'caller'
+          ? 'shared.caller_initialization_cleanup_failed'
+          : 'shared.root_initialization_cleanup_failed',
+      })
+    } catch {
+      throw initializationError
+    }
+  }
+  throw initializationError
+}
+
+export function createRequestContainer(): Promise<AppContainer> {
+  return runWithRequestScopeAcquisition(buildRequestContainer)
+}
+
+async function buildRequestContainer(): Promise<AppContainer> {
+  let root = await initializeProcessContainer()
+  while (root && getProcessRootState().lifetimes?.get(root)?.retired) {
+    root = await initializeProcessContainer()
+  }
+  if (root) {
+    const caller = root.createScope()
+    try {
+      isolateCallerRegistrations(caller)
+      caller.register({ em: asValue(caller.resolve<EntityManager>('em')) })
+      await attachRequestEncryptionSubscriber(caller)
+      await runWithRequestScopeContainer(caller, () => runCallerSetups(root, caller))
+    } catch (error) {
+      return disposeFailedContainer(caller, error, 'caller')
+    }
+    getProcessRootState().callerScopes += 1
+    bindRequestScopeContainer(caller)
+    return caller
+  }
+  getProcessRootState().legacyContainers += 1
+  return buildLegacyRequestContainer()
+}
+
+async function buildLegacyRequestContainer(): Promise<AppContainer> {
   const diRegistrars = getDiRegistrars()
   const orm = await getOrm()
   // Use a fresh event manager so request-level subscribers (e.g., encryption) don't pile up globally
   const baseEm = (RequestContext.getEntityManager() as any) ?? orm.em
   const em = baseEm.fork({ clear: true, freshEventManager: true, useContext: true }) as unknown as EntityManager
   const container = createContainer<DynamicCradle>({ injectionMode: InjectionMode.CLASSIC })
+  trackRequestScopeDisposal(container)
   // Core registrations
   container.register({
     em: asValue(em),
@@ -255,7 +670,12 @@ export async function createRequestContainer(): Promise<AppContainer> {
   // module's services would otherwise vanish with no trace until an unrelated
   // Awilix resolution error surfaces much later.
   for (const [registrarIndex, reg] of diRegistrars.entries()) {
-    try { reg?.(container) } catch (error) {
+    try {
+      if (reg) {
+        getProcessRootState().registrarExecutions += 1
+        reg(container)
+      }
+    } catch (error) {
       logger.error('Module DI registrar failed', { registrarIndex, err: error })
     }
   }
@@ -269,9 +689,11 @@ export async function createRequestContainer(): Promise<AppContainer> {
   if (!alreadyBootstrappedOnThisContainer) {
     const cached = getBootstrapCache()
     if (cached) {
-      const replay: Record<string, any> = {}
+      const replay: Record<string, Resolver<unknown>> = {}
       for (const [key, value] of Object.entries(cached)) {
-        if (value !== undefined && value !== null) replay[key] = asValue(value)
+        if (value !== undefined && value !== null) {
+          replay[key] = key === 'eventBus' ? cached.eventBus! : asValue(value)
+        }
       }
       if (Object.keys(replay).length > 0) container.register(replay)
     } else {
@@ -289,6 +711,7 @@ export async function createRequestContainer(): Promise<AppContainer> {
   const appDiRegistrar = getAppDiRegistrar()
   if (appDiRegistrar) {
     try {
+      getProcessRootState().registrarExecutions += 1
       await appDiRegistrar(container)
     } catch (error) {
       logger.error('App-level DI registrar failed', { err: error })
@@ -300,6 +723,7 @@ export async function createRequestContainer(): Promise<AppContainer> {
       const appDi = await import('@/di') as any
       if (appDi?.register) {
         try {
+          getProcessRootState().registrarExecutions += 1
           const maybe = appDi.register(container)
           if (maybe && typeof maybe.then === 'function') await maybe
         } catch (err) {
@@ -327,6 +751,11 @@ export async function createRequestContainer(): Promise<AppContainer> {
     register: (registrations) => container.register(toAwilixRegistrations(registrations)),
     unregister: (key) => container.register({ [key]: asValue(undefined) }),
   })
+  await attachRequestEncryptionSubscriber(container)
+  bindRequestScopeContainer(container)
+  return container
+}
+async function attachRequestEncryptionSubscriber(container: AppContainer): Promise<void> {
   // Ensure tenant encryption subscriber is always registered on the fresh request-scoped EM
   // Phase 5 — cache the tenant-encryption config toggle for the process
   // lifetime. That toggle does not change at runtime, so reading it once skips
@@ -347,8 +776,8 @@ export async function createRequestContainer(): Promise<AppContainer> {
   } catch {
     // best-effort; do not block container creation
   }
-  return container
 }
+
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   require('server-only')

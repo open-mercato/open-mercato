@@ -184,3 +184,52 @@ describe('messages GET — encrypted-sort audit (#3386 P3)', () => {
     expect(body.items[1]!.subject).toBe('Subject msg-b')
   })
 })
+
+describe('messages GET without the attachments module (#9201)', () => {
+  function useEmWithoutAttachments() {
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: {
+        container: {
+          resolve: (name: string) => (name === 'em'
+            ? { ...buildMockEm(), getMetadata: () => ({ find: () => false }) }
+            : null),
+        },
+      },
+      scope: { tenantId, organizationId: orgId, userId },
+    })
+  }
+
+  function referencesAttachmentsTable(): boolean {
+    return recordedQueries.some((query) => /"attachments"/.test(query.sql))
+  }
+
+  it('loads the inbox with zero attachment counts and never queries the attachments table', async () => {
+    useEmWithoutAttachments()
+
+    const res = await GET(new Request('http://localhost/api/messages?pageSize=2'))
+    const body = await res.json() as { items: { id: string; attachmentCount: number; hasAttachments: boolean }[] }
+
+    expect(res.status).toBe(200)
+    expect(body.items.map((item) => [item.attachmentCount, item.hasAttachments])).toEqual([[0, false], [0, false]])
+    expect(referencesAttachmentsTable()).toBe(false)
+  })
+
+  it('matches nothing for hasAttachments=true and adds no condition for hasAttachments=false', async () => {
+    useEmWithoutAttachments()
+    await GET(new Request('http://localhost/api/messages?pageSize=2&hasAttachments=true'))
+    const withFilter = recordedQueries.find(isScopeQuery)
+    expect(withFilter?.parameters).toContain('00000000-0000-0000-0000-000000000000')
+    expect(referencesAttachmentsTable()).toBe(false)
+
+    recordedQueries.length = 0
+    await GET(new Request('http://localhost/api/messages?pageSize=2&hasAttachments=false'))
+    const withoutFilter = recordedQueries.find(isScopeQuery)
+    expect(withoutFilter?.parameters).not.toContain('00000000-0000-0000-0000-000000000000')
+    expect(referencesAttachmentsTable()).toBe(false)
+  })
+
+  it('still counts attachments when the module is registered', async () => {
+    await GET(new Request('http://localhost/api/messages?pageSize=2'))
+    expect(referencesAttachmentsTable()).toBe(true)
+  })
+})

@@ -32,6 +32,7 @@ import { resolveChannelInboxPredicate } from '../lib/channelThreadWidening'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveMessageActionData } from '../lib/actions'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
+import { isAttachmentsModuleAvailable } from '../lib/optionalModules'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { attachOperationMetadataHeader } from '../lib/operationMetadata'
@@ -204,6 +205,7 @@ export async function GET(req: Request) {
 
   const em = ctx.container.resolve('em') as EntityManager
   const db = getDb(em)
+  const attachmentsAvailable = await isAttachmentsModuleAvailable(em)
 
   const searchIds = input.search
     ? await findMessageIdsBySearchTokens({
@@ -311,7 +313,9 @@ export async function GET(req: Request) {
       })
     }
 
-    if (input.hasAttachments !== undefined) {
+    if (input.hasAttachments === true && !attachmentsAvailable) {
+      q = q.where('m.id', '=', NO_MATCH_ID)
+    } else if (input.hasAttachments !== undefined && attachmentsAvailable) {
       q = q.where((eb) => {
         const exists = eb.exists(eb.selectFrom('attachments')
           .select(sql<number>`1`.as('one'))
@@ -386,8 +390,8 @@ export async function GET(req: Request) {
     return acc
   }, {} as Record<string, MessageObject[]>)
 
-  const attachmentCounts: AttachmentCountRow[] = messageIds.length > 0
-    ? await getDb(em)
+  const attachmentCounts: AttachmentCountRow[] = attachmentsAvailable && messageIds.length > 0
+    ? await db
         .selectFrom('attachments')
         .select(['record_id', sql<string>`count(*)`.as('count')])
         .where('entity_id', '=', MESSAGE_ATTACHMENT_ENTITY_ID)

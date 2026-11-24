@@ -3,9 +3,7 @@ import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { LockMode, type FilterQuery } from '@mikro-orm/core'
-import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
-import { isUnrestrictedOrganizationScope } from '@open-mercato/shared/lib/auth/organizationAccess'
+import { LockMode } from '@mikro-orm/core'
 import { CustomerEntity, CustomerTag, CustomerTagAssignment } from '../data/entities'
 import {
   tagCreateSchema,
@@ -16,6 +14,9 @@ import {
   type TagAssignmentInput,
 } from '../data/validators'
 import {
+  commandScopeWhere,
+  type CommandScopeWhere,
+  buildCustomerCommandLookup,
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
@@ -25,7 +26,7 @@ import {
   emitQueryIndexUpsertEvents,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
@@ -89,39 +90,18 @@ type TagAssignmentUndoPayload = {
 }
 
 function tagDeleteLookup(id: string, ctx: CommandRuntimeContext) {
-  const isSuperAdmin = ctx.auth?.isSuperAdmin === true
-  const organizationScope = ctx.organizationScope
-  const tenantId = ctx.auth ? (ctx.auth.tenantId ?? null) : (organizationScope?.tenantId ?? null)
-  if (ctx.auth && !isSuperAdmin && (!tenantId || (organizationScope && !organizationScope.tenantId))) {
-    throw forbidden()
-  }
-  let organizationIds: string[] | undefined
-  if (organizationScope) {
-    if (!isUnrestrictedOrganizationScope({ isSuperAdmin, allowedOrganizationIds: organizationScope.allowedIds })) {
-      organizationIds = organizationScope.allowedIds ?? []
-    }
-  } else if (!isSuperAdmin) {
-    const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId
-    if (organizationId) organizationIds = [organizationId]
-  }
-  return {
-    where: buildScopedWhere({ id }, {
-      tenantId: tenantId ?? undefined,
-      organizationIds,
-      softDeleteField: null,
-    }) as FilterQuery<CustomerTag>,
-    scope: { tenantId, organizationId: organizationIds?.length === 1 ? organizationIds[0] : null },
-  }
+  return buildCustomerCommandLookup({ id }, ctx)
 }
 
 async function loadTagSnapshot(
   em: EntityManager,
   id: string,
   lookup?: ReturnType<typeof tagDeleteLookup>,
+  scopeWhere: CommandScopeWhere = {},
 ): Promise<TagSnapshot | null> {
   const tag = lookup
     ? await findOneWithDecryption(em, CustomerTag, lookup.where, {}, lookup.scope)
-    : await em.findOne(CustomerTag, { id })
+    : await em.findOne(CustomerTag, { id, ...scopeWhere })
   if (!tag) return null
   return {
     id: tag.id,
@@ -260,13 +240,13 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
   async prepare(rawInput, ctx) {
     const parsed = tagUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTagSnapshot(em, parsed.id)
+    const snapshot = await loadTagSnapshot(em, parsed.id, undefined, commandScopeWhere(ctx))
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = tagUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const tag = await em.findOne(CustomerTag, { id: parsed.id })
+    const tag = await em.findOne(CustomerTag, { id: parsed.id, ...commandScopeWhere(ctx) })
     if (!tag) throw notFound('Tag not found')
     ensureTenantScope(ctx, tag.tenantId)
     ensureOrganizationScope(ctx, tag.organizationId)

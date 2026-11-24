@@ -1,7 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Message, MessageRecipient } from '../data/entities'
+import { messageRouteIdSchema } from '../data/validators'
 import {
   CHANNEL_THREAD_FALLBACK_FEATURE,
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
@@ -30,10 +33,14 @@ export type MessageScope = {
   userId: string
 }
 
-export async function resolveMessageContext(req: Request): Promise<{
+export async function resolveMessageContext(req: Request, messageId?: string): Promise<{
   ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx']
   scope: MessageScope
 }> {
+  if (messageId !== undefined && !messageRouteIdSchema.safeParse(messageId).success) {
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(404, { error: translate('api.errors.notFound', 'Not found') })
+  }
   const { ctx } = await resolveRequestContext(req)
   return {
     ctx,

@@ -1,5 +1,7 @@
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { defineProcessDiRegistrar, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
+import { getRequestScopeContainer, runInRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { registerEmailTransport } from '@open-mercato/shared/lib/email/transport'
 import {
   CommunicationChannel,
@@ -17,7 +19,7 @@ import { resolveChannelTypeSafely } from './lib/resolve-channel-type'
 import { resolveChannelThreadAccessSafely } from './lib/channel-thread-access'
 import { buildChannelInboxPredicate } from './lib/channel-inbox-predicate'
 
-export function register(container: AppContainer) {
+function registerLegacy(container: AppContainer) {
   // Test-only: register the network-free stub channel adapter when
   // `OM_ENABLE_TEST_CHANNEL_SEEDING` is set (no-op in production). Lets the
   // integration harness connect a channel + complete the outbound send chain.
@@ -29,6 +31,10 @@ export function register(container: AppContainer) {
     isConfigured: isSystemEmailTransportConfigured,
   })
 
+  registerServices(container)
+}
+
+function registerServices(container: AppContainer) {
   container.register({
     // Entity class registrations (for EntityManager lookups by string)
     CommunicationChannel: asValue(CommunicationChannel),
@@ -67,3 +73,30 @@ export function register(container: AppContainer) {
     communicationChannelsBuildChannelInboxPredicate: asValue(buildChannelInboxPredicate),
   })
 }
+
+
+async function sendFromCurrentCaller(payload: Parameters<typeof sendSystemEmail>[1]): Promise<void> {
+  const active = getRequestScopeContainer()
+  if (active) return sendSystemEmail(active as AppContainer, payload)
+  return runInRequestScope(async () => {
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    const caller = await createRequestContainer()
+    try {
+      await sendSystemEmail(caller, payload)
+    } finally {
+      await caller.dispose()
+    }
+  })
+}
+
+export const register = defineProcessDiRegistrar((container: AppContainer) => {
+  registerServices(container)
+  registerProcessActivation(container, () => {
+    ensureTestSeedAdapterRegistered()
+    registerEmailTransport({
+      id: 'communication_channels',
+      send: sendFromCurrentCaller,
+      isConfigured: isSystemEmailTransportConfigured,
+    })
+  })
+}, { legacy: registerLegacy })
