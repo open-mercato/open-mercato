@@ -6,7 +6,7 @@ import { readBoundedRequestBody, WebhookBodyTooLargeError } from '@open-mercato/
 import { traceIngestSchema } from '../../../data/validators'
 import { enforcePublicEndpointRateLimit } from '../../../lib/guardrails/publicEndpointRateLimit'
 import { verifyTraceIngestRequest } from '../../../lib/trace/ingestAuth'
-import { withTraceIngestAuthority } from '../../../lib/trace/ingestScope'
+import { withTraceIngestAuthority } from '../../../lib/trace/ingestAuthority'
 import type { IngestTraceCommandInput } from '../../../commands/trace'
 import type { IngestTraceResult } from '../../../lib/trace/traceIngestionService'
 import { agentOrchestratorTag } from '../../openapi'

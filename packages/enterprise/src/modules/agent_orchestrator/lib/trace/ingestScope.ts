@@ -1,32 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { AgentRun } from '../../data/entities'
 import type { TraceIngest } from '../../data/validators'
 
 type TraceIngestScope = { tenantId: string; organizationId: string }
-
-type TraceIngestAuthority = TraceIngestScope & (
-  | { source: 'webhook' }
-  | { source: 'opencode'; runId: string }
-)
-
-const traceIngestAuthorities = new WeakMap<CommandRuntimeContext, TraceIngestAuthority>()
-
-export function withTraceIngestAuthority(
-  ctx: CommandRuntimeContext,
-  authority: TraceIngestAuthority,
-): CommandRuntimeContext {
-  const ingestContext = { ...ctx }
-  traceIngestAuthorities.set(ingestContext, authority)
-  return ingestContext
-}
-
-export function getTraceIngestAuthority(ctx: CommandRuntimeContext): TraceIngestAuthority | undefined {
-  return traceIngestAuthorities.get(ctx)
-}
 
 type WorkflowReferenceReader = {
   hasWorkflowStepReference: (

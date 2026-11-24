@@ -5,7 +5,7 @@ import { DEFAULT_WEBHOOK_BODY_LIMIT_BYTES } from '@open-mercato/shared/lib/webho
 import { traceIngestSchema } from '../data/validators'
 import { enforcePublicEndpointRateLimit } from '../lib/guardrails/publicEndpointRateLimit'
 import { signTraceIngest, TRACE_INGEST_HEADERS, verifyTraceIngestRequest } from '../lib/trace/ingestAuth'
-import { getTraceIngestAuthority } from '../lib/trace/ingestScope'
+import { getTraceIngestAuthority } from '../lib/trace/ingestAuthority'
 import { POST } from '../api/trace/ingest/route'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -118,6 +118,12 @@ describe('trace ingest request body limit', () => {
     const { ctx } = execute.mock.calls[0][1]
     expect(ctx.systemActor).toBeUndefined()
     expect(getTraceIngestAuthority(ctx)).toEqual({ source: 'webhook', tenantId, organizationId })
+    jest.isolateModules(() => {
+      const duplicate = jest.requireActual<typeof import('../lib/trace/ingestAuthority')>('../lib/trace/ingestAuthority')
+      expect(duplicate.getTraceIngestAuthority).not.toBe(getTraceIngestAuthority)
+      expect(duplicate.getTraceIngestAuthority(ctx)).toEqual({ source: 'webhook', tenantId, organizationId })
+      expect(duplicate.getTraceIngestAuthority({ ...ctx })).toBeUndefined()
+    })
   })
 
   it('rejects an oversized declared length without consuming the body', async () => {

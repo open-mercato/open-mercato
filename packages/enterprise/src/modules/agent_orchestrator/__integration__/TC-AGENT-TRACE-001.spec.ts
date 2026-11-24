@@ -216,6 +216,10 @@ test.describe('TC-AGENT-TRACE-001: trace ingest, query, idempotency, HMAC gate',
       await deleteAgentRunsWithTraceByIds(runIds)
       await withClient(async (client) => {
         await client.query('delete from action_logs where resource_id = any($1::text[])', [runIds])
+        await client.query(
+          'delete from process_instances where workflow_instance_id = $1 and tenant_id = $2 and organization_id = $3',
+          [workflowInstanceId, tenantId, organizationId],
+        )
         await client.query('delete from step_instances where id = $1', [currentAttemptId])
         await client.query('delete from workflow_instances where id = $1', [workflowInstanceId])
       })

@@ -46,7 +46,7 @@ import { aiTools, SUBMIT_OUTCOME_TOOL_ID } from '../ai-tools'
 import { compileOutcome } from '../lib/sdk/outcomeSchema'
 import { InMemoryAgentRunSessionStore } from '../lib/runtime/agentRunSessionStore'
 import { RUN_MANIFEST_SPAN_NAME } from '../lib/trace/runManifest'
-import { getTraceIngestAuthority } from '../lib/trace/ingestScope'
+import { getTraceIngestAuthority } from '../lib/trace/ingestAuthority'
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 

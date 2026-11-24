@@ -49,7 +49,7 @@ import { stageAttachments, type StagedInput } from './attachmentStager'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { withAuditedCommand } from '../identity/agentWriteScope'
 import type { IngestTraceCommandInput } from '../../commands/trace'
-import { withTraceIngestAuthority } from '../trace/ingestScope'
+import { withTraceIngestAuthority } from '../trace/ingestAuthority'
 import type { IngestTraceResult } from '../trace/traceIngestionService'
 import type { TraceLlmRequestIngest, TraceSpanIngest } from '../../data/validators'
 import {
