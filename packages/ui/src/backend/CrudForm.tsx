@@ -105,7 +105,7 @@ import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { parseLocaleDecimal, parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
-import { addDecimals, decimalToString } from '@open-mercato/shared/lib/decimal'
+import { addDecimals, decimalToString, isDecimalInput } from '@open-mercato/shared/lib/decimal'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -127,6 +127,12 @@ import MarkdownField from './inputs/MarkdownField'
 
 // Stable empty options array to avoid creating a new [] every render
 const logger = createLogger('ui').child({ component: 'CrudForm' })
+
+function hasInvalidNumericValue(field: CrudField, value: unknown): boolean {
+  if (field.type !== 'number' && field.type !== 'decimal') return false
+  if (value === undefined || value === null || value === '') return false
+  return (typeof value !== 'string' && typeof value !== 'number') || !isDecimalInput(value)
+}
 
 const EMPTY_OPTIONS: CrudFieldOption[] = []
 
@@ -2310,6 +2316,8 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
 
     if (field.required && empty) {
       nextFieldErrors[fieldId] = requiredMessage
+    } else if (hasInvalidNumericValue(field, value)) {
+      nextFieldErrors[fieldId] = t('ui.forms.errors.invalidType')
     }
 
     const customFieldKey = customEntity
@@ -3186,7 +3194,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     // Basic required-field validation when no zod schema is provided
     const requiredErrors: Record<string, string> = {}
     for (const field of allFields) {
-      if (!field.required) continue
       if (field.disabled) continue
       if (hiddenBaseFieldIds.has(field.id) || hiddenInjectedFieldIds.has(field.id)) continue
       if (hiddenGroupFieldIds.has(field.id)) continue
@@ -3199,7 +3206,8 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         (isString && v.trim() === '') ||
         (isArray && v.length === 0) ||
         (field.type === 'checkbox' && v !== true)
-      if (empty) requiredErrors[field.id] = requiredMessage
+      if (empty && field.required) requiredErrors[field.id] = requiredMessage
+      else if (hasInvalidNumericValue(field, v)) requiredErrors[field.id] = t('ui.forms.errors.invalidType')
     }
     if (Object.keys(requiredErrors).length) {
       if (process.env.NODE_ENV !== 'production') {
@@ -4457,6 +4465,7 @@ function NumberInput({
   const locale = useOptionalLocale()
   const serializedValue = React.useMemo(() => {
     if (value === undefined || value === null) return ''
+    if (!isDecimalInput(value)) return String(value)
     const { decimal } = resolveLocaleNumberSeparators(locale)
     return decimal === '.' ? String(value) : String(value).replace('.', decimal)
   }, [value, locale])
@@ -4467,7 +4476,7 @@ function NumberInput({
   const parse = React.useCallback(
     (raw: string): number | string | undefined => {
       if (raw === '') return undefined
-      return (exact ? parseLocaleDecimal(raw, locale) : parseLocaleNumber(raw, locale)) ?? undefined
+      return (exact ? parseLocaleDecimal(raw, locale) : parseLocaleNumber(raw, locale)) ?? raw
     },
     [exact, locale],
   )
@@ -4502,7 +4511,7 @@ function NumberInput({
       e.preventDefault()
       // Binary floating point puts 8.2 - 1 at 7.199999999999999; the native spinner
       // re-serialized against the step rather than committing that to form state.
-      const base = parse(local) ?? 0
+      const base = (exact ? parseLocaleDecimal(local, locale) : parseLocaleNumber(local, locale)) ?? 0
       const step = e.key === 'ArrowUp' ? 1 : -1
       const stepped = exact
         ? decimalToString(addDecimals(base, step))
