@@ -1,7 +1,3 @@
-import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import { Cluster, Redis } from 'ioredis'
 import type { RedisOptions } from 'ioredis'
 import { GenericContainer, Wait } from 'testcontainers'
@@ -12,6 +8,7 @@ import {
   APP_ACL_RULES,
   APP_USER,
   freePort,
+  generateTlsMaterial,
 } from '@open-mercato/cache-redis-protocol/test-support/engine'
 import type { TlsMaterial } from '@open-mercato/cache-redis-protocol/test-support/engine'
 import { CLUSTER_ACL_RULES } from '@open-mercato/cache-redis-protocol/test-support/cluster'
@@ -26,30 +23,6 @@ export type StartedTlsValkeyCluster = {
 }
 
 const ACL = ['user default off', `user ${ADMIN_USER} on >${ADMIN_PASSWORD} ~* &* +@all`, `user ${APP_USER} ${APP_ACL_RULES} ${CLUSTER_ACL_RULES}`, ''].join('\n')
-
-function openssl(args: string[], cwd: string): void {
-  execFileSync('openssl', args, { cwd, stdio: 'pipe', timeout: 60_000 })
-}
-
-/**
- * Throwaway CA plus a node certificate valid for both serverAuth and
- * clientAuth: the TLS cluster bus is mutually authenticated, so each node
- * presents its certificate as a client to its peers.
- */
-function generateClusterTlsMaterial(): TlsMaterial {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'om-gcp-tls-'))
-  try {
-    openssl(['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'ca.key', '-out', 'ca.crt', '-days', '2', '-subj', '/CN=om-cache-cluster-test-ca'], dir)
-    openssl(['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'other.key', '-out', 'other.crt', '-days', '2', '-subj', '/CN=om-cache-other-ca'], dir)
-    openssl(['req', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'server.key', '-out', 'server.csr', '-subj', '/CN=localhost'], dir)
-    writeFileSync(path.join(dir, 'ext.cnf'), 'subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth,clientAuth\n')
-    openssl(['x509', '-req', '-in', 'server.csr', '-CA', 'ca.crt', '-CAkey', 'ca.key', '-CAcreateserial', '-out', 'server.crt', '-days', '2', '-extfile', 'ext.cnf'], dir)
-    const read = (name: string) => readFileSync(path.join(dir, name), 'utf8')
-    return { ca: read('ca.crt'), cert: read('server.crt'), key: read('server.key'), otherCa: read('other.crt') }
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-}
 
 function adminOptions(tls: TlsMaterial, port?: number): RedisOptions {
   return {
@@ -90,7 +63,7 @@ async function waitForClusterOk(ports: number[], tls: TlsMaterial, timeoutMs: nu
  * Valkey instance with cluster mode enabled and in-transit encryption.
  */
 export async function startTlsValkeyCluster(image = 'valkey/valkey:8.1'): Promise<StartedTlsValkeyCluster> {
-  const tls = generateClusterTlsMaterial()
+  const tls = generateTlsMaterial()
   const ports = [await freePort(), await freePort(), await freePort()]
   const tlsArgs = '--tls-cert-file /om/tls/server.crt --tls-key-file /om/tls/server.key --tls-ca-cert-file /om/tls/ca.crt --tls-auth-clients no --tls-cluster yes --tls-replication yes'
   const startNodes = ports.map((port) => `valkey-server --port 0 --tls-port ${port} ${tlsArgs} --cluster-enabled yes --cluster-config-file /data/nodes-${port}.conf --cluster-announce-ip 127.0.0.1 --cluster-node-timeout 5000 --save '' --appendonly no --aclfile /om/users.acl --daemonize yes --logfile /data/node-${port}.log`).join(' && ')
