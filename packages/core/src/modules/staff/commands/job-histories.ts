@@ -80,10 +80,26 @@ async function loadJobHistorySnapshot(
   }
 }
 
+async function ensureValidJobHistoryDateRange(
+  startDate: Date | null | undefined,
+  endDate: Date | null | undefined,
+): Promise<void> {
+  if (!startDate || !endDate) return
+  if (endDate.getTime() >= startDate.getTime()) return
+  const { translate } = await resolveTranslations()
+  const message = translate('staff.leaveRequests.errors.invalidDateRange', 'End date must be after start date.')
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { endDate: message },
+    details: [{ path: ['endDate'], message, code: 'custom', origin: 'validation' }],
+  })
+}
+
 const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInput, { jobHistoryId: string }> = {
   id: 'staff.team-member-job-histories.create',
   async execute(rawInput, ctx) {
     const parsed = staffTeamMemberJobHistoryCreateSchema.parse(rawInput)
+    await ensureValidJobHistoryDateRange(parsed.startDate, parsed.endDate)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
@@ -270,18 +286,8 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.startDate !== undefined) record.startDate = parsed.startDate
     if (parsed.endDate !== undefined) record.endDate = parsed.endDate ?? null
-    if (
-      (parsed.startDate !== undefined || parsed.endDate !== undefined)
-      && record.endDate
-      && record.endDate.getTime() < record.startDate.getTime()
-    ) {
-      const { translate } = await resolveTranslations()
-      const message = translate('staff.leaveRequests.errors.invalidDateRange', 'End date must be after start date.')
-      throw new CrudHttpError(400, {
-        error: message,
-        fieldErrors: { endDate: message },
-        details: [{ path: ['endDate'], message, code: 'custom', origin: 'validation' }],
-      })
+    if (parsed.startDate !== undefined || parsed.endDate !== undefined) {
+      await ensureValidJobHistoryDateRange(record.startDate, record.endDate)
     }
 
     await em.flush()

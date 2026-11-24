@@ -1,10 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
+import { z } from 'zod'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import {
-  staffTeamMemberJobHistoryCreateSchema,
-  staffTeamMemberJobHistoryUpdateSchema,
-} from '../../data/validators'
+import { staffTeamMemberJobHistoryUpdateSchema } from '../../data/validators'
 
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   const actual = jest.requireActual('@open-mercato/shared/lib/commands/helpers')
@@ -31,6 +29,7 @@ async function loadCommands() {
   commandRegistry.clear()
   await import('../job-histories')
   return {
+    create: commandRegistry.get('staff.team-member-job-histories.create') as RegisteredCommand,
     update: commandRegistry.get('staff.team-member-job-histories.update') as RegisteredCommand,
     del: commandRegistry.get('staff.team-member-job-histories.delete') as RegisteredCommand,
   }
@@ -291,29 +290,20 @@ describe('staff job history date range', () => {
     name: 'Engineer',
   }
 
-  it('rejects create input whose endDate is before startDate', () => {
-    const result = staffTeamMemberJobHistoryCreateSchema.safeParse({
-      ...base,
-      startDate: '2026-06-10',
-      endDate: '2026-06-01',
-    })
-    expect(result.success).toBe(false)
-    if (!result.success) expect(result.error.issues[0].path).toEqual(['endDate'])
+  it('rejects create input whose endDate is before startDate', async () => {
+    const { create } = await loadCommands()
+    const em = { fork: jest.fn().mockReturnThis(), findOne: jest.fn(), flush: jest.fn() }
+    await expect(
+      create.execute({ ...base, startDate: '2026-06-10', endDate: '2026-06-01' }, createCtx(em)),
+    ).rejects.toMatchObject({ status: 400, body: { fieldErrors: { endDate: 'End date must be after start date.' } } })
+    expect(em.findOne).not.toHaveBeenCalled()
   })
 
-  it('accepts create input with equal dates or no endDate', () => {
-    expect(staffTeamMemberJobHistoryCreateSchema.safeParse({ ...base, startDate: '2026-06-10', endDate: '2026-06-10' }).success).toBe(true)
-    expect(staffTeamMemberJobHistoryCreateSchema.safeParse({ ...base, startDate: '2026-06-10', endDate: null }).success).toBe(true)
-    expect(staffTeamMemberJobHistoryCreateSchema.safeParse({ ...base, startDate: '2026-06-10' }).success).toBe(true)
-  })
-
-  it('rejects update input whose endDate is before startDate', () => {
-    const result = staffTeamMemberJobHistoryUpdateSchema.safeParse({
-      id: jobHistoryId,
-      startDate: '2026-06-10',
-      endDate: '2026-06-01',
-    })
-    expect(result.success).toBe(false)
+  it('keeps the exported schemas composable and free of date-range refinements', () => {
+    expect(() => staffTeamMemberJobHistoryUpdateSchema.extend({ extra: z.string().optional() })).not.toThrow()
+    expect(
+      staffTeamMemberJobHistoryUpdateSchema.safeParse({ id: jobHistoryId, startDate: '2026-06-10', endDate: '2026-06-01' }).success,
+    ).toBe(true)
   })
 
   it('rejects an update patch whose endDate lands before the stored startDate', async () => {
