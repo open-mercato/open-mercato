@@ -17,6 +17,8 @@ import type { KeyboardSensorOptions } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { DataLoader } from '../primitives/DataLoader'
+import { LoadingMessage } from './detail/LoadingMessage'
+import { ErrorMessage } from './detail/ErrorMessage'
 import { Checkbox } from '../primitives/checkbox'
 import { Input } from '../primitives/input'
 import { PasswordInput } from '../primitives/password-input'
@@ -103,7 +105,6 @@ import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './c
 import { useConfirmDialog } from './confirm-dialog'
 import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './injection/InjectionSpot'
 import { dispatchBackendMutationError } from './injection/mutationEvents'
-import { LoadingMessage } from './detail/LoadingMessage'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { parseLocaleDecimal, parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
@@ -3601,7 +3602,7 @@ function CrudFormImpl<
           try {
             dynamicOptionLoadersRef.current.set(f.id, f.loadOptions)
             const opts = await f.loadOptions()
-            if (!cancelled) storeDynamicOptions(f.id, opts)
+            if (!cancelled && dynamicOptionLoadersRef.current.get(f.id) === f.loadOptions) storeDynamicOptions(f.id, opts)
           } catch {
             // ignore
           }
@@ -3628,11 +3629,12 @@ function CrudFormImpl<
       }
       try {
         const fetched = await loader(query)
-        if (query === undefined) {
+        if (query === undefined && dynamicOptionLoadersRef.current.get(field.id) === loader) {
           storeDynamicOptions(field.id, fetched)
         }
         return fetched
-      } catch {
+      } catch (error) {
+        if (builtin.type === 'select') throw error
         return builtin.options ?? EMPTY_OPTIONS
       }
     }
@@ -3645,7 +3647,9 @@ function CrudFormImpl<
       if (!('type' in f) || f.type === 'custom') continue
       const builtin = f as CrudBuiltinField
       const staticOptions = builtin.options ?? EMPTY_OPTIONS
-      const dynamic = dynamicOptions[f.id]
+      const dynamic = !builtin.loadOptions || dynamicOptionLoadersRef.current.get(f.id) === builtin.loadOptions
+        ? dynamicOptions[f.id]
+        : undefined
       if (dynamic && dynamic.length) {
         const merged: CrudFieldOption[] = []
         const seen = new Set<string>()
@@ -4939,10 +4943,20 @@ const FieldControl = React.memo(function FieldControlImpl({
   const readOnly = Boolean(field.readOnly)
   const autoFocusField = autoFocus && !disabled
 
+  const [optionLoadState, setOptionLoadState] = React.useState<'loading' | 'ready' | 'error'>('loading')
+  const [optionRetry, setOptionRetry] = React.useState(0)
+  const optionLoader = builtin?.loadOptions
+
   React.useEffect(() => {
     if (!hasLoader || field.type === 'custom') return
-    loadFieldOptions(field).catch(() => {})
-  }, [field, hasLoader, loadFieldOptions])
+    let active = true
+    setOptionLoadState('loading')
+    loadFieldOptions(field).then(
+      () => { if (active) setOptionLoadState('ready') },
+      () => { if (active) setOptionLoadState('error') },
+    )
+    return () => { active = false }
+  }, [field.id, field.type, hasLoader, optionLoader, optionRetry, loadFieldOptions])
 
   const loadFieldSuggestions = React.useMemo(() => {
     if (!hasLoader) return undefined
@@ -4953,19 +4967,22 @@ const FieldControl = React.memo(function FieldControlImpl({
   }, [field, hasLoader, loadFieldOptions, t])
 
   const placeholder = builtin?.placeholder
-  const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
+  const rootClassName = wrapperClassName ? `min-w-0 space-y-1 ${wrapperClassName}` : 'min-w-0 space-y-1'
   const validateOnWrapperBlur = supportsWrapperBlurValidation(field)
   const singleSelectValue = Array.isArray(value)
     ? String(value[0] ?? '')
     : value == null
       ? ''
       : String(value)
+  const singleSelectOptions = hasLoader && optionLoadState !== 'ready'
+    ? builtin?.options ?? EMPTY_OPTIONS
+    : options
   const singleSelectOptionsKey = React.useMemo(
-    () => options.map((opt) => `${opt.value}:${opt.label}`).join('\0'),
-    [options],
+    () => singleSelectOptions.map((opt) => `${opt.value}:${opt.label}`).join('\0'),
+    [singleSelectOptions],
   )
   const singleSelectLabel = singleSelectValue
-    ? options.find((option) => option.value === singleSelectValue)?.label
+    ? singleSelectOptions.find((option) => option.value === singleSelectValue)?.label
     : undefined
 
   // Fields rendering a single focusable control get a real htmlFor/id pair;
@@ -5219,29 +5236,47 @@ const FieldControl = React.memo(function FieldControlImpl({
             }
             setValue(field.id, next)
           }}
-          disabled={disabled || readOnly}
+          disabled={disabled || readOnly || (hasLoader && optionLoadState !== 'ready' && singleSelectOptions.length === 0)}
         >
           <SelectTrigger id={controlId} data-crud-focus-target="">
             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>
               {singleSelectLabel}
             </SelectValue>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-content-available-width)]">
             {!field.required && value != null && value !== '' && (
               <SelectItem value={SELECT_CLEAR_SENTINEL}>
                 {t('ui.forms.select.clearOption', '— Clear —')}
               </SelectItem>
             )}
-            {options
+            {singleSelectOptions
               .filter((opt) => opt.value !== '')
               .map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
+                  <span className="min-w-0 whitespace-normal break-words">{opt.label}</span>
                 </SelectItem>
               ))}
           </SelectContent>
         </Select>
       )}
+      {field.type === 'select' && hasLoader ? (
+        <div aria-live="polite" aria-busy={optionLoadState === 'loading'}>
+          {optionLoadState === 'loading' ? <LoadingMessage label={t('ui.forms.select.loadingOptions')} /> : null}
+          {optionLoadState === 'error' ? (
+            <ErrorMessage
+              label={t('ui.forms.select.loadOptionsError')}
+              action={
+                <Button type="button" variant="outline" size="sm" disabled={disabled || readOnly} onClick={() => setOptionRetry((attempt) => attempt + 1)}>
+                  {t('ui.forms.select.retryOptions')}
+                </Button>
+              }
+            />
+          ) : null}
+          {optionLoadState === 'ready' && options.length === 0 ? (
+            <p role="status" className="text-sm text-muted-foreground">{t('ui.forms.select.noOptions')}</p>
+          ) : null}
+        </div>
+      ) : null}
       {field.type === 'select' && builtin?.multiple && builtin.listbox === true && (
         <div role="group" aria-labelledby={labelId}>
           <ListboxMultiSelect
@@ -5331,7 +5366,10 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.field.type === next.field.type &&
   prev.field.label === next.field.label && prev.field.labelKey === next.field.labelKey &&
   prev.field.description === next.field.description &&
-  prev.field.required === next.field.required && prev.field.readOnly === next.field.readOnly && prev.field.disabled === next.field.disabled &&
+  prev.field.required === next.field.required &&
+  prev.field.readOnly === next.field.readOnly &&
+  prev.field.disabled === next.field.disabled &&
+  (prev.field.type === 'custom' || next.field.type === 'custom' || prev.field.loadOptions === next.field.loadOptions) &&
   prev.markRequired === next.markRequired &&
   prev.value === next.value &&
   prev.error === next.error &&
