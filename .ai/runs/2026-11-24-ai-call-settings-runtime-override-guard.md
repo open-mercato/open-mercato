@@ -36,4 +36,4 @@ Decision (user): reject with 400, not silently ignore.
 
 ### Phase 2: Validation
 
-- [ ] 2.1 Run the validation gate
+- [x] 2.1 Run the validation gate — 90ef1939e0
