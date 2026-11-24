@@ -399,7 +399,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate, {
+          organizationNotFoundMessage: translate('customers.errors.person_not_found', 'Person not found'),
+        })
         const normalized = normalizeProfilePayload(scoped, translate)
         const { base, custom } = splitCustomFieldPayload(normalized)
         const parsed = personUpdateSchema.parse(base)

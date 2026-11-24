@@ -564,7 +564,9 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         return withExactAmounts(
-          parseScopedCommandInput(dealUpdateSchema, raw ?? {}, ctx, translate),
+          parseScopedCommandInput(dealUpdateSchema, raw ?? {}, ctx, translate, {
+            organizationNotFoundMessage: translate('customers.errors.deal_not_found', 'Deal not found'),
+          }),
           raw,
           DEAL_MONEY_FIELDS,
         )

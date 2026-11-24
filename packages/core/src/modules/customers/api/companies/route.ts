@@ -411,7 +411,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate, {
+          organizationNotFoundMessage: translate('customers.errors.company_not_found', 'Company not found'),
+        })
         const normalized = normalizeCompanyProfilePayload(scoped, translate)
         const { base, custom } = splitCustomFieldPayload(normalized)
         const parsed = withExactAmounts(companyUpdateSchema.parse(base), base, COMPANY_MONEY_FIELDS)
