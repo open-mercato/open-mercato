@@ -44,6 +44,7 @@ describe('messages send-email worker handler', () => {
   function createWorkerContext(overrides: Partial<{
     recipient: unknown
     nativeUpdateResults: number[]
+    hasEmail: boolean
   }> = {}) {
     const nativeUpdateResults = [...(overrides.nativeUpdateResults ?? [1])]
 
@@ -73,12 +74,21 @@ describe('messages send-email worker handler', () => {
       queueName: 'messages-email',
       resolve: (name: string) => {
         if (name === 'em') return emFork
+        if (name === 'rbacService') return { userHasAllFeatures: async () => overrides.hasEmail !== false }
         return null
       },
     }
 
     return { emFork, ctx }
   }
+
+  it('rejects delivery when the sender has lost messages.email and releases the delivery claim', async () => {
+    const { ctx, emFork } = createWorkerContext({ hasEmail: false, nativeUpdateResults: [1, 1] })
+    await handle({ payload: { type: 'external', messageId: 'message-1', email: 'outside@example.com', tenantId: 'tenant-1', organizationId: 'org-1' } } as never, ctx as never)
+    expect(sendMessageEmailToExternalMock).not.toHaveBeenCalled()
+    expect(sendMessageEmailToRecipientMock).not.toHaveBeenCalled()
+    expect(emFork.nativeUpdate).toHaveBeenLastCalledWith(Message, expect.any(Object), expect.objectContaining({ externalEmailSentAt: null, externalEmailError: expect.any(String) }))
+  })
 
   it('skips when message does not exist', async () => {
     findOneWithDecryptionMock.mockResolvedValue(null)

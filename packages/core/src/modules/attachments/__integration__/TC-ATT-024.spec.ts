@@ -138,7 +138,7 @@ test.describe('TC-ATT-024: Shared stored files survive deleting one referencing 
 
     try {
       const uploaded = await uploadAttachmentFixture(request, adminToken, {
-        entityId: 'messages:message',
+        entityId: 'attachments:library',
         recordId: randomUUID(),
         fileName,
         mimeType: 'text/plain',
@@ -191,6 +191,15 @@ test.describe('TC-ATT-024: Shared stored files survive deleting one referencing 
       await expectAttachmentDeleted(request, adminToken, originalAttachmentId)
       originalAttachmentId = null
       await expectFileContent(request, adminToken, forwardCopyIds[1], content)
+      const copyListing = await apiRequest(request, 'GET', `/api/messages/${forwardIds[1]}/attachments`, { token: adminToken })
+      expect(copyListing.status()).toBe(200)
+      const copyBody = await readJsonSafe<{ attachments?: Array<{ id: string; url: string }> }>(copyListing)
+      const survivingCopy = copyBody?.attachments?.find((attachment) => attachment.id === forwardCopyIds[1])
+      expect(survivingCopy).toBeTruthy()
+      expect(survivingCopy!.url).toContain(forwardCopyIds[1])
+      const copyDownload = await apiRequest(request, 'GET', survivingCopy!.url, { token: adminToken })
+      expect(copyDownload.status(), 'the displayed copy URL survives deleting the original').toBe(200)
+      expect((await copyDownload.body()).toString('utf8')).toBe(content)
       forwardCopyIds = forwardCopyIds.slice(1)
     } finally {
       for (const copyId of forwardCopyIds) await deleteAttachmentIfExists(request, adminToken, copyId)

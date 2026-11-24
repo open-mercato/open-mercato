@@ -25,6 +25,7 @@ function createEm() {
     persist: jest.fn(),
     flush: jest.fn(async () => {}),
     nativeDelete: jest.fn(),
+    nativeUpdate: jest.fn(async () => 1),
     begin: jest.fn(async () => {}),
     commit: jest.fn(async () => {}),
     rollback: jest.fn(async () => {}),
@@ -40,27 +41,23 @@ function snapshot(): MessageAggregateSnapshot {
   } as unknown as MessageAggregateSnapshot
 }
 
-describe('restoreMessageAggregateSnapshot attachment cleanup', () => {
+describe('restoreMessageAggregateSnapshot attachment detach', () => {
   beforeEach(() => jest.clearAllMocks())
 
-  it('purges attachments missing from the snapshot and queues search cleanup after commit', async () => {
+  it('detaches attachments missing from the snapshot instead of deleting or purging them', async () => {
     const em = createEm()
-    const deleted = { deletedCount: 1, purgedSections: [{ scope: { tenantId, organizationId }, sectionIds: ['section-1'] }] }
-    deleteMessageAttachmentRowsMock.mockResolvedValue(deleted)
 
     await restoreMessageAggregateSnapshot(em as never, snapshot())
 
-    expect(em.nativeDelete).not.toHaveBeenCalled()
-    expect(deleteMessageAttachmentRowsMock).toHaveBeenCalledWith(em, {
-      messageId,
-      tenantId,
-      organizationId,
-      excludeIds: [keptAttachmentId],
-    })
-    expect(enqueueMessageAttachmentSectionCleanupMock).toHaveBeenCalledWith(deleted)
-    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(
-      enqueueMessageAttachmentSectionCleanupMock.mock.invocationCallOrder[0],
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ recordId: messageId, tenantId, organizationId, id: { $nin: [keptAttachmentId] } }),
+      { entityId: 'attachments:library', recordId: `messages-detached:${messageId}` },
     )
+    expect(em.nativeDelete).not.toHaveBeenCalled()
+    expect(deleteMessageAttachmentRowsMock).not.toHaveBeenCalled()
+    expect(enqueueMessageAttachmentSectionCleanupMock).not.toHaveBeenCalled()
+    expect(em.commit).toHaveBeenCalledTimes(1)
   })
 
   it('queues nothing when the restore rolls back', async () => {

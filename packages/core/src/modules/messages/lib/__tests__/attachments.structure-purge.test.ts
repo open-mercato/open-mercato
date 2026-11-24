@@ -4,14 +4,16 @@ import {
 } from '../attachments'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../constants'
 
-class Attachment {}
-
 const mockPurgeDocumentStructure = jest.fn()
 const mockEnqueuePurgedSectionSearchDelete = jest.fn()
 
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
-  Attachment,
+  Attachment: class Attachment {},
 }))
+
+const { Attachment } = jest.requireMock('@open-mercato/core/modules/attachments/data/entities') as {
+  Attachment: new () => unknown
+}
 
 jest.mock('@open-mercato/core/modules/attachments/lib/documentStructure/purge', () => ({
   purgeDocumentStructure: (...args: unknown[]) => mockPurgeDocumentStructure(...args),

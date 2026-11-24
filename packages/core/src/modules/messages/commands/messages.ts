@@ -12,27 +12,23 @@ import {
   replyMessageSchema,
   updateDraftSchema,
 } from '../data/validators'
-import {
-  copyAttachmentsForForwardMessages,
-  deleteMessageAttachmentRows,
-  enqueueMessageAttachmentSectionCleanup,
-  linkAttachmentsToMessage,
-  linkLibraryAttachmentsToMessage,
-  type DeletedMessageAttachmentRows,
-} from '../lib/attachments'
+import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages, detachMessageAttachments } from '../lib/attachments'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveActorFeatures,
   resolveMessageChannelThreadAccess,
 } from '../lib/channelThreadAccess'
 import { MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID } from '../lib/constants'
-import { canUseChannelThreadFallback } from '../lib/routeHelpers'
+import { canUseChannelThreadFallback, canUseMessageEmailFeature } from '../lib/routeHelpers'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { assertExternalEmailBudget } from '../lib/externalEmailBudget'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
 import {
   assertOrganizationAccess,
+  getAttachmentIdsForMessage,
   loadMessageAggregateSnapshot,
   restoreMessageAggregateSnapshot,
   type MessageAggregateSnapshot,
@@ -411,6 +407,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
           input.attachmentIds,
           input.organizationId,
           input.tenantId,
+          { container: ctx.container, auth: ctx.auth },
         )
       }
 
@@ -421,6 +418,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
           input.attachmentRecordId,
           input.organizationId,
           input.tenantId,
+          { container: ctx.container, auth: ctx.auth },
         )
       }
 
@@ -591,6 +589,11 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
 
     const finalSendViaEmail = input.sendViaEmail ?? message.sendViaEmail
     const finalExternalEmail = input.externalEmail ?? message.externalEmail
+    if (isSending && (finalVisibility === 'public' || finalSendViaEmail)
+      && !(await canUseMessageEmailFeature(ctx, input))) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(403, { error: translate('messages.errors.emailFeatureRequired') })
+    }
     if (isSending && (finalVisibility === 'public' || finalSendViaEmail) && finalExternalEmail) {
       await assertExternalEmailBudget(
         ctx.container,
@@ -599,7 +602,6 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       )
     }
 
-    let deletedAttachments: DeletedMessageAttachmentRows | null = null
     // Phase 1 mutates the managed `message` scalars; the per-phase flush issues
     // those changes before phase 2's interleaved reads run (e.g.
     // `linkAttachmentsToMessage` issues an `em.find`). Under MikroORM v7 a read
@@ -648,18 +650,20 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
 
       if (input.attachmentIds) {
-        deletedAttachments = await deleteMessageAttachmentRows(em, {
-          messageId: message.id,
-          tenantId: input.tenantId,
-          organizationId: input.organizationId,
-          excludeIds: input.attachmentIds,
+        const currentIds = await getAttachmentIdsForMessage(em, message.id, {
+          tenantId: input.tenantId, organizationId: input.organizationId,
         })
+        await detachMessageAttachments(
+          em, message.id, currentIds.filter((id) => !input.attachmentIds!.includes(id)),
+          input.organizationId, input.tenantId, { container: ctx.container, auth: ctx.auth },
+        )
         await linkAttachmentsToMessage(
           em,
           message.id,
           input.attachmentIds,
           input.organizationId,
           input.tenantId,
+          { container: ctx.container, auth: ctx.auth },
         )
       }
 
@@ -672,7 +676,6 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
         if (!message.threadId) message.threadId = message.id
       }
     }], { transaction: true })
-    if (deletedAttachments) await enqueueMessageAttachmentSectionCleanup(deletedAttachments)
 
     await emitMessageIndexUpsert(ctx.container, {
       messageId: message.id,
@@ -892,6 +895,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
           input.attachmentIds,
           input.organizationId,
           input.tenantId,
+          { container: ctx.container, auth: ctx.auth },
         )
       }
       if (input.attachmentRecordId) {
@@ -901,6 +905,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
           input.attachmentRecordId,
           input.organizationId,
           input.tenantId,
+          { container: ctx.container, auth: ctx.auth },
         )
       }
       messageId = message.id
@@ -1074,6 +1079,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
           forwardThreadSlice.map((item) => item.id),
           newMessage.id,
           input.tenantId,
+          { container: ctx.container, auth: ctx.auth },
         )
       }
       newMessageId = newMessage.id

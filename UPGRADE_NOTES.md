@@ -138,6 +138,18 @@ on every request:
 
 No configuration, database, route, event or DI-key change is required.
 
+<a id="issue-9017"></a>
+
+## Message attachment source authorization (#9017)
+
+Messages now link only the caller's authenticated staging uploads, readable message attachments, or sources authorized by both `attachments.manage` and a registered owner policy. Other same-org files and resolver-less external owners are refused. Draft removal detaches message references instead of hard-deleting source attachments. Draft email sends require `messages.email`, including saved delivery settings; workers recheck current sender permission and read attachments through the owner-authorized attachment service.
+
+**Users:** re-upload transient library staging created before this change when a composer reports attachment access denied. Already sent message attachments remain usable. A failed queued delivery after permission revocation is not repaired by retrying without restoring legitimate permission.
+
+**Module authors:** pass `{ container, auth }` as the optional final argument to the messages attachment-link/forward-copy helpers. Direct callers of the message email helpers must provide `attachmentId` for each descriptor plus `attachmentAccess: { auth, service }`, where `service` is the DI-resolved `attachmentService` and `auth` is the authenticated sender. Omitted contexts now fail closed for files; do not fabricate a user principal for an API key.
+
+**Operators:** communicate the transient staging re-upload requirement and review any suspicious drafts created before upgrading. This fix cannot reconstruct historical source ownership already overwritten by the old behavior. No schema migration, startup change or new configuration is required. This is a narrow security tightening under the Emergency Security Exception; named human-maintainer acknowledgment remains a merge prerequisite. [Specification](.ai/specs/2026-11-16-message-attachment-source-authorization.md).
+
 ## Optional process DI root (#8989)
 
 `OM_PROCESS_CONTAINER_ROOT=on` enables generation-owned registration/bootstrap with isolated caller scopes. It defaults to off pending workload qualification. Existing `createRequestContainer()` calls retain separate EntityManagers and mutation boundaries. No schema migration is required.

@@ -2,342 +2,108 @@ import {
   copyAttachmentsForForwardMessages,
   copyAttachmentsForForward,
   getMessageAttachments,
+  getMessageEmailAttachments,
   linkLibraryAttachmentsToMessage,
   linkAttachmentsToMessage,
+  detachMessageAttachments,
 } from '../attachments'
+import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { assertMessageAttachmentSources } from '../attachmentAccess'
 
-class Attachment {}
-
-jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
-  Attachment,
+jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({ Attachment: class Attachment {} }))
+jest.mock('../attachmentAccess', () => ({
+  ...jest.requireActual('../attachmentAccess'),
+  assertMessageAttachmentSources: jest.fn(async () => undefined),
+}))
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (em: { find: (...args: unknown[]) => unknown }, ...args: unknown[]) => em.find(...args.slice(0, 3)),
 }))
 
-type AttachmentLike = {
-  id: string
-  tenantId: string
-  organizationId: string | null
-  fileName: string
-  fileSize: number
-  mimeType: string
-  url: string
-  entityId?: string
-  recordId?: string
-  storageDriver?: string
-  storagePath?: string
-  storageMetadata?: Record<string, unknown> | null
-  partitionCode?: string | null
-}
-
-function createEm(overrides: Partial<Record<'find' | 'findOne' | 'create' | 'persist' | 'flush', jest.Mock>> = {}) {
+const access = { auth: { sub: 'actor', tenantId: 'tenant', orgId: 'org' }, container: {} } as never
+function source(overrides: Record<string, unknown> = {}) {
   return {
-    find: overrides.find ?? jest.fn(),
-    findOne: overrides.findOne ?? jest.fn(),
-    create: overrides.create ?? jest.fn((_entity, payload) => payload),
-    persist: overrides.persist ?? jest.fn(),
-    flush: overrides.flush ?? jest.fn(async () => {}),
+    id: 'file', entityId: 'messages:message', recordId: 'source', tenantId: 'tenant', organizationId: 'org',
+    fileName: 'secret.txt', fileSize: 8, mimeType: 'text/plain', url: '/file', partitionCode: 'private',
+    storageDriver: 'local', storagePath: 'blob', content: 'contents', storageMetadata: {}, ...overrides,
   }
 }
+function createEm(rows: ReturnType<typeof source>[] = []) {
+  return {
+    find: jest.fn(async () => rows), create: jest.fn((_entity: unknown, payload: unknown) => payload),
+    persist: jest.fn(), flush: jest.fn(async () => undefined),
+    begin: jest.fn(async () => undefined), commit: jest.fn(async () => undefined), rollback: jest.fn(async () => undefined),
+  }
+}
+beforeEach(() => jest.clearAllMocks())
 
-describe('messages attachments helpers', () => {
-  it('skips linking when attachment list is empty', async () => {
-    const em = createEm()
+it('does not query or open a transaction for an empty explicit attachment list', async () => {
+  const em = createEm()
+  await linkAttachmentsToMessage(em as never, 'target', [], 'org', 'tenant')
+  expect(em.find).not.toHaveBeenCalled()
+  expect(em.begin).not.toHaveBeenCalled()
+})
 
-    await linkAttachmentsToMessage(
-      em as never,
-      'message-1',
-      [],
-      'org-1',
-      'tenant-1',
-    )
+it('links authorized staging under an exact scope', async () => {
+  const row = source({ entityId: 'attachments:library' })
+  const em = createEm([row])
+  await linkLibraryAttachmentsToMessage(em as never, 'target', 'source', 'org', 'tenant', access)
+  expect(em.find).toHaveBeenCalledWith(Attachment, expect.objectContaining({ organizationId: 'org', tenantId: 'tenant' }), expect.any(Object))
+  expect(assertMessageAttachmentSources).toHaveBeenCalled()
+  expect(row.recordId).toBe('target')
+  expect(row.entityId).toBe('messages:message')
+})
 
-    expect(em.find).not.toHaveBeenCalled()
-    expect(em.flush).not.toHaveBeenCalled()
-  })
+it('returns display metadata with an exact organization filter', async () => {
+  const em = createEm([source()])
+  expect(await getMessageAttachments(em as never, 'source', null, 'tenant')).toEqual([
+    { id: 'file', fileName: 'secret.txt', fileSize: 8, mimeType: 'text/plain', url: '/file' },
+  ])
+  expect(em.find).toHaveBeenCalledWith(Attachment, expect.objectContaining({ organizationId: null }))
+})
 
-  it('links attachments with org scope fallback and flushes', async () => {
-    const attachments: AttachmentLike[] = [
-      {
-        id: 'att-1',
-        tenantId: 'tenant-1',
-        organizationId: 'org-1',
-        fileName: 'a.pdf',
-        fileSize: 1,
-        mimeType: 'application/pdf',
-        url: 'https://example/a.pdf',
-      },
-    ]
+it('includes attachment identity for authorization at email byte read', async () => {
+  const em = createEm([source()])
+  expect(await getMessageEmailAttachments(em as never, 'source', 'org', 'tenant')).toEqual([
+    expect.objectContaining({ attachmentId: 'file', storagePath: 'blob' }),
+  ])
+})
 
-    const em = createEm({
-      find: jest.fn(async () => attachments),
-    })
+it('copies a forward without changing the source and retains existing protected assignments', async () => {
+  const row = source({ storageMetadata: { assignments: [{ type: 'documents:document', id: 'document' }] } })
+  const em = createEm([row])
+  expect(await copyAttachmentsForForward(em as never, 'source', 'target', 'tenant', access)).toBe(1)
+  expect(row.recordId).toBe('source')
+  expect(em.create).toHaveBeenCalledWith(Attachment, expect.objectContaining({
+    recordId: 'target', tenantId: 'tenant', organizationId: 'org', storagePath: 'blob',
+    storageMetadata: expect.objectContaining({ assignments: [{ type: 'documents:document', id: 'document' }] }),
+  }))
+})
 
-    await linkAttachmentsToMessage(
-      em as never,
-      'message-1',
-      ['att-1'],
-      'org-1',
-      'tenant-1',
-    )
+it('deduplicates sources in a forwarded thread slice', async () => {
+  const row = source()
+  const em = createEm([row, { ...row }, source({ id: 'second' })])
+  expect(await copyAttachmentsForForwardMessages(em as never, ['source', 'previous'], 'target', 'tenant', access)).toBe(2)
+  expect(em.create).toHaveBeenCalledTimes(2)
+})
 
-    expect(em.find).toHaveBeenCalledWith(
-      Attachment,
-      expect.objectContaining({
-        id: { $in: ['att-1'] },
-        tenantId: 'tenant-1',
-        $or: [{ organizationId: 'org-1' }, { organizationId: null }],
-      }),
-    )
-    expect(attachments[0].entityId).toBe('messages:message')
-    expect(attachments[0].recordId).toBe('message-1')
-    expect(em.flush).toHaveBeenCalledTimes(1)
-  })
+it('detaches a draft reference without deleting its row or provider bytes', async () => {
+  const row = source({ recordId: 'draft' })
+  const em = createEm([row])
+  await detachMessageAttachments(em as never, 'draft', ['file'], 'org', 'tenant', access)
+  expect(row.entityId).toBe('attachments:library')
+  expect(row.recordId).toBe('messages-detached:draft')
+  expect(row.storagePath).toBe('blob')
+  expect(em.find).toHaveBeenCalledWith(Attachment, expect.objectContaining({ recordId: 'draft', entityId: 'messages:message', id: { $in: ['file'] } }), expect.any(Object))
+})
 
-  it('returns mapped attachments for message', async () => {
-    const em = createEm({
-      find: jest.fn(async () => [
-        {
-          id: 'att-1',
-          fileName: 'invoice.pdf',
-          fileSize: 1024,
-          mimeType: 'application/pdf',
-          url: '/files/invoice.pdf',
-        },
-      ]),
-    })
+it.each(['link', 'forward'] as const)('assigns copied %s rows a download URL bound to their new identity', async (operation) => {
+  const row = source({ url: '/api/attachments/file/source-file' })
+  const em = createEm([row])
+  if (operation === 'link') await linkAttachmentsToMessage(em as never, 'target', ['file'], 'org', 'tenant', access)
+  else await copyAttachmentsForForward(em as never, 'source', 'target', 'tenant', access)
 
-    const result = await getMessageAttachments(
-      em as never,
-      'message-1',
-      null,
-      'tenant-1',
-    )
-
-    expect(em.find).toHaveBeenCalledWith(
-      Attachment,
-      expect.objectContaining({
-        entityId: 'messages:message',
-        recordId: 'message-1',
-        tenantId: 'tenant-1',
-        organizationId: null,
-      }),
-    )
-    expect(result).toEqual([
-      {
-        id: 'att-1',
-        fileName: 'invoice.pdf',
-        fileSize: 1024,
-        mimeType: 'application/pdf',
-        url: '/files/invoice.pdf',
-      },
-    ])
-  })
-
-  it('links library attachments by temporary record id', async () => {
-    const attachments: AttachmentLike[] = [
-      {
-        id: 'att-1',
-        tenantId: 'tenant-1',
-        organizationId: 'org-1',
-        fileName: 'draft.pdf',
-        fileSize: 16,
-        mimeType: 'application/pdf',
-        url: '/files/draft.pdf',
-        entityId: 'attachments:library',
-        recordId: 'messages-composer:temp-1',
-      },
-    ]
-
-    const em = createEm({
-      find: jest.fn(async () => attachments),
-    })
-
-    await linkLibraryAttachmentsToMessage(
-      em as never,
-      'message-1',
-      'messages-composer:temp-1',
-      'org-1',
-      'tenant-1',
-    )
-
-    expect(em.find).toHaveBeenCalledWith(
-      Attachment,
-      expect.objectContaining({
-        entityId: 'attachments:library',
-        recordId: 'messages-composer:temp-1',
-        tenantId: 'tenant-1',
-        $or: [{ organizationId: 'org-1' }, { organizationId: null }],
-      }),
-    )
-    expect(attachments[0].entityId).toBe('messages:message')
-    expect(attachments[0].recordId).toBe('message-1')
-    expect(em.flush).toHaveBeenCalledTimes(1)
-  })
-
-  it('copies attachments for forward and persists clones', async () => {
-    const sourceAttachment = {
-      id: 'att-1',
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      fileName: 'contract.pdf',
-      mimeType: 'application/pdf',
-      fileSize: 12,
-      storageDriver: 'local',
-      storagePath: '/tmp/contract.pdf',
-      storageMetadata: { key: 'v' },
-      url: '/f/contract.pdf',
-      partitionCode: 'messages',
-    }
-
-    const em = createEm({
-      find: jest.fn(async (_entity, where) => {
-        const ids = where.recordId?.$in as string[] | undefined
-        if (ids?.includes('source-msg')) {
-          return [sourceAttachment]
-        }
-        return []
-      }),
-    })
-
-    const copiedCount = await copyAttachmentsForForward(
-      em as never,
-      'source-msg',
-      'target-msg',
-      'tenant-1',
-    )
-
-    expect(copiedCount).toBe(1)
-    expect(em.create).toHaveBeenCalledWith(
-      Attachment,
-      expect.objectContaining({
-        entityId: 'messages:message',
-        recordId: 'target-msg',
-        organizationId: 'org-1',
-        tenantId: 'tenant-1',
-        fileName: 'contract.pdf',
-      }),
-    )
-    expect(em.persist).toHaveBeenCalledTimes(1)
-    expect(em.flush).toHaveBeenCalledTimes(1)
-  })
-
-  it('inherits the source attachment scope pair rather than a caller-supplied org', async () => {
-    const globalAttachment = {
-      id: 'att-global',
-      tenantId: null,
-      organizationId: null,
-      fileName: 'global.pdf',
-      mimeType: 'application/pdf',
-      fileSize: 12,
-      storageDriver: 'local',
-      storagePath: '/tmp/global.pdf',
-      storageMetadata: null,
-      url: '/f/global.pdf',
-      partitionCode: 'messages',
-    }
-
-    const em = createEm({
-      find: jest.fn(async () => [globalAttachment]),
-    })
-
-    const copiedCount = await copyAttachmentsForForward(
-      em as never,
-      'source-msg',
-      'target-msg',
-      'tenant-1',
-    )
-
-    expect(copiedCount).toBe(1)
-    expect(em.create).toHaveBeenCalledWith(
-      Attachment,
-      expect.objectContaining({
-        recordId: 'target-msg',
-        organizationId: null,
-        tenantId: null,
-        fileName: 'global.pdf',
-      }),
-    )
-  })
-
-  it('skips partial-null source rows instead of propagating an invalid scope', async () => {
-    const partialNullAttachment = {
-      id: 'att-bad',
-      tenantId: 'tenant-1',
-      organizationId: null,
-      fileName: 'orphan.pdf',
-      mimeType: 'application/pdf',
-      fileSize: 12,
-      storageDriver: 'local',
-      storagePath: '/tmp/orphan.pdf',
-      storageMetadata: null,
-      url: '/f/orphan.pdf',
-      partitionCode: 'messages',
-    }
-
-    const em = createEm({
-      find: jest.fn(async () => [partialNullAttachment]),
-    })
-
-    const copiedCount = await copyAttachmentsForForward(
-      em as never,
-      'source-msg',
-      'target-msg',
-      'tenant-1',
-    )
-
-    expect(copiedCount).toBe(0)
-    expect(em.create).not.toHaveBeenCalled()
-    expect(em.persist).not.toHaveBeenCalled()
-    expect(em.flush).not.toHaveBeenCalled()
-  })
-
-  it('copies and deduplicates attachments for forward across thread slice message ids', async () => {
-    const firstAttachment = {
-      id: 'att-1',
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      fileName: 'one.txt',
-      mimeType: 'text/plain',
-      fileSize: 12,
-      storageDriver: 'local',
-      storagePath: '/tmp/one.txt',
-      storageMetadata: null,
-      url: '/f/one.txt',
-      partitionCode: 'messages',
-    }
-    const duplicateOfFirst = { ...firstAttachment }
-    const secondAttachment = {
-      ...firstAttachment,
-      id: 'att-2',
-      fileName: 'two.txt',
-      storagePath: '/tmp/two.txt',
-      url: '/f/two.txt',
-    }
-
-    const em = createEm({
-      find: jest.fn(async (_entity, where) => {
-        const ids = where.recordId?.$in as string[] | undefined
-        if (!ids?.includes('source-1') || !ids?.includes('source-2')) return []
-        return [firstAttachment, duplicateOfFirst, secondAttachment]
-      }),
-    })
-
-    const copiedCount = await copyAttachmentsForForwardMessages(
-      em as never,
-      ['source-1', 'source-2'],
-      'target-msg',
-      'tenant-1',
-    )
-
-    expect(copiedCount).toBe(2)
-    expect(em.find).toHaveBeenCalledWith(
-      Attachment,
-      expect.objectContaining({
-        entityId: 'messages:message',
-        recordId: { $in: ['source-1', 'source-2'] },
-        tenantId: 'tenant-1',
-      }),
-    )
-    expect(em.persist).toHaveBeenCalledTimes(2)
-    expect(em.flush).toHaveBeenCalledTimes(1)
-  })
+  const copy = em.create.mock.calls[0][1] as { id: string; url: string }
+  expect(copy.id).not.toBe(row.id)
+  expect(copy.url).toBe(`/api/attachments/file/${copy.id}`)
+  expect(row.url).toBe('/api/attachments/file/source-file')
 })

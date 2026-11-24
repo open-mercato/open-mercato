@@ -16,8 +16,11 @@ jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   Attachment: class Attachment {},
 }))
 
+const detachMessageAttachmentsMock = jest.fn()
+
 jest.mock('../../lib/attachments', () => ({
   linkAttachmentsToMessage: jest.fn(),
+  detachMessageAttachments: (...args: unknown[]) => detachMessageAttachmentsMock(...args),
   deleteMessageAttachmentRows: (...args: unknown[]) => deleteMessageAttachmentRowsMock(...args),
   enqueueMessageAttachmentSectionCleanup: (...args: unknown[]) => enqueueMessageAttachmentSectionCleanupMock(...args),
 }))
@@ -40,11 +43,13 @@ function createCtx() {
     find: jest.fn(async () => []),
     flush: jest.fn(async () => {}),
     nativeDelete: jest.fn(),
+    nativeUpdate: jest.fn(async () => 1),
   }
-  return { em, ctx: { container: { resolve: () => ({ fork: () => em }) } } }
+  const auth = { sub: userId, tenantId, orgId: organizationId }
+  return { em, auth, ctx: { container: { resolve: () => ({ fork: () => em }) }, auth } }
 }
 
-describe('message draft attachment commands purge document structure', () => {
+describe('message draft attachment commands detach instead of deleting and purging', () => {
   beforeAll(() => {
     require('../attachments')
   })
@@ -54,24 +59,27 @@ describe('message draft attachment commands purge document structure', () => {
     deleteMessageAttachmentRowsMock.mockResolvedValue(deleted)
   })
 
-  it('unlinking deletes through the purging helper and queues section search cleanup', async () => {
-    const { em, ctx } = createCtx()
+  it('unlinking detaches the exact message references without deleting rows or purging document structure', async () => {
+    const { em, ctx, auth } = createCtx()
     const command = mockRegisteredCommands.get('messages.attachments.unlink_from_draft')!
 
     await command.execute({ messageId, tenantId, organizationId, userId, attachmentIds: [attachmentId] }, ctx)
 
-    expect(em.nativeDelete).not.toHaveBeenCalled()
-    expect(deleteMessageAttachmentRowsMock).toHaveBeenCalledWith(em, {
+    expect(detachMessageAttachmentsMock).toHaveBeenCalledWith(
+      em,
       messageId,
-      tenantId,
+      [attachmentId],
       organizationId,
-      includeIds: [attachmentId],
-    })
-    expect(enqueueMessageAttachmentSectionCleanupMock).toHaveBeenCalledWith(deleted)
+      tenantId,
+      expect.objectContaining({ auth }),
+    )
+    expect(em.nativeDelete).not.toHaveBeenCalled()
+    expect(deleteMessageAttachmentRowsMock).not.toHaveBeenCalled()
+    expect(enqueueMessageAttachmentSectionCleanupMock).not.toHaveBeenCalled()
   })
 
   it.each(['messages.attachments.link_to_draft', 'messages.attachments.unlink_from_draft'])(
-    'undo of %s purges the attachments it drops and queues cleanup after the flush',
+    'undo of %s detaches the attachments it drops without deleting or purging them',
     async (commandId) => {
       const { em, ctx } = createCtx()
       const command = mockRegisteredCommands.get(commandId)!
@@ -84,17 +92,15 @@ describe('message draft attachment commands purge document structure', () => {
 
       await command.undo({ logEntry, ctx })
 
-      expect(em.nativeDelete).not.toHaveBeenCalled()
-      expect(deleteMessageAttachmentRowsMock).toHaveBeenCalledWith(em, {
-        messageId,
-        tenantId,
-        organizationId,
-        excludeIds: [keptAttachmentId],
-      })
-      expect(enqueueMessageAttachmentSectionCleanupMock).toHaveBeenCalledWith(deleted)
-      expect(em.flush.mock.invocationCallOrder[0]).toBeLessThan(
-        enqueueMessageAttachmentSectionCleanupMock.mock.invocationCallOrder[0],
+      expect(em.nativeUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ recordId: messageId, tenantId, organizationId, id: { $nin: [keptAttachmentId] } }),
+        { entityId: 'attachments:library', recordId: `messages-detached:${messageId}` },
       )
+      expect(em.nativeDelete).not.toHaveBeenCalled()
+      expect(deleteMessageAttachmentRowsMock).not.toHaveBeenCalled()
+      expect(enqueueMessageAttachmentSectionCleanupMock).not.toHaveBeenCalled()
+      expect(em.flush).toHaveBeenCalled()
     },
   )
 })
