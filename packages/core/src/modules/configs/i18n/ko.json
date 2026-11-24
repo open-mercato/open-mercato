@@ -149,7 +149,7 @@
   "configs.systemStatus.variables.cacheProviderNamespace.label": "캐시 프로바이더 네임스페이스",
   "configs.systemStatus.variables.cacheSqlitePath.description": "SQLite 캐시 파일의 파일 시스템 경로입니다.",
   "configs.systemStatus.variables.cacheSqlitePath.label": "캐시 SQLite 경로",
-  "configs.systemStatus.variables.cacheStrategy.description": "캐시 백엔드 전략입니다 (memory, sqlite, redis 등).",
+  "configs.systemStatus.variables.cacheStrategy.description": "캐시 백엔드 전략입니다 (memory, sqlite, redis 등). CACHE_PROVIDER가 설정되면 무시됩니다.",
   "configs.systemStatus.variables.cacheStrategy.label": "캐시 전략",
   "configs.systemStatus.variables.cacheTtl.description": "기본 캐시 유효 시간(밀리초)입니다.",
   "configs.systemStatus.variables.cacheTtl.label": "캐시 TTL",

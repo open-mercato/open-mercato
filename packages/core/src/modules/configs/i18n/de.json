@@ -149,7 +149,7 @@
   "configs.systemStatus.variables.cacheProviderNamespace.label": "Cache-Provider-Namespace",
   "configs.systemStatus.variables.cacheSqlitePath.description": "Dateisystempfad für die SQLite-Cache-Datei.",
   "configs.systemStatus.variables.cacheSqlitePath.label": "Cache-SQLite-Pfad",
-  "configs.systemStatus.variables.cacheStrategy.description": "Cache-Backend-Strategie (memory, sqlite, redis…).",
+  "configs.systemStatus.variables.cacheStrategy.description": "Cache-Backend-Strategie (memory, sqlite, redis…). Wird ignoriert, wenn CACHE_PROVIDER gesetzt ist.",
   "configs.systemStatus.variables.cacheStrategy.label": "Cache-Strategie",
   "configs.systemStatus.variables.cacheTtl.description": "Standard-Cache-Gültigkeitsdauer in Millisekunden.",
   "configs.systemStatus.variables.cacheTtl.label": "Cache-TTL",
