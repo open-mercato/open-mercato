@@ -155,4 +155,28 @@ describe('mercato maintenance CLI', () => {
     const { run } = harness({ force: true })
     expect((await run('off')).exitCode).toBe(MAINTENANCE_EXIT.held)
   })
+
+  it('exits 4 when the store fails after it was opened', async () => {
+    const base = createFileMaintenanceStore(makeTempDir())
+    const flaky = { ...base, listProcesses: async () => { throw new Error('connection reset') } } as MaintenanceStateStore
+    const { run } = harness({}, flaky)
+    await run('on')
+    const off = await run('off')
+    expect(off.exitCode).toBe(MAINTENANCE_EXIT.storeUnreachable)
+    expect(off.errors.join('\n')).toContain('connection reset')
+  })
+
+  it('refuses to change the bypass token while any operation holds the window', async () => {
+    const { run, store } = harness()
+    await run('on')
+    await mutateState(store, (current) => ({
+      next: { ...current, hold: { id: 'h', operation: 'backups.create', pid: process.pid, host: os.hostname(), heartbeatAt: new Date().toISOString(), forbidsBypass: false, gateRevision: current.gateRevision + 1 } },
+      result: undefined,
+    }))
+    const before = await store.readState()
+    const result = await run('on', ['--rotate-bypass'])
+    expect(result.exitCode).toBe(MAINTENANCE_EXIT.invalidArgs)
+    const after = await store.readState()
+    expect(after.kind === 'ok' && before.kind === 'ok' && after.state.gateRevision === before.state.gateRevision).toBe(true)
+  })
 })

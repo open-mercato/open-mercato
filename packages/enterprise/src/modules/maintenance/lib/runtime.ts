@@ -26,6 +26,7 @@ export const MAINTENANCE_STATUS_PATH = '/api/maintenance/status'
 const DOMAIN_RESOLVE_PATH = '/api/customer_accounts/domain-resolve'
 const BYPASS_ATTEMPT_WINDOW_MS = 60_000
 const BYPASS_ATTEMPT_LIMIT = 10
+const BYPASS_ATTEMPT_KEYS_MAX = 10_000
 
 export type DecisionStateSource = 'store' | 'env' | 'sticky' | 'failsafe'
 
@@ -247,6 +248,12 @@ function consumeBypassAttempt(runtime: MaintenanceRuntime, key: string): boolean
   const now = Date.now()
   const entry = runtime.bypassAttempts.get(key)
   if (!entry || entry.resetAt <= now) {
+    if (runtime.bypassAttempts.size >= BYPASS_ATTEMPT_KEYS_MAX) {
+      for (const [candidate, value] of runtime.bypassAttempts) {
+        if (value.resetAt <= now) runtime.bypassAttempts.delete(candidate)
+      }
+      if (runtime.bypassAttempts.size >= BYPASS_ATTEMPT_KEYS_MAX) return false
+    }
     runtime.bypassAttempts.set(key, { count: 1, resetAt: now + BYPASS_ATTEMPT_WINDOW_MS })
     return true
   }

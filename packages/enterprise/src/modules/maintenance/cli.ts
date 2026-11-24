@@ -170,8 +170,8 @@ export function createMaintenanceCliCommands(deps: MaintenanceCliDeps): ModuleCl
       let result
       try {
         result = await mutateState(store, (current, now) => {
-          if (issueBypass && current.hold?.forbidsBypass) {
-            throw new CliUsageError('A hold that forbids bypass is active; a bypass token cannot be issued now.')
+          if (issueBypass && current.hold) {
+            throw new CliUsageError(`Operation "${current.hold.operation}" holds the window; changing the bypass token now would abort it. Retry after it finishes.`)
           }
           return activateState(current, {
             title: stringOpt(args, 'title'),
@@ -381,7 +381,18 @@ export function createMaintenanceCliCommands(deps: MaintenanceCliDeps): ModuleCl
     },
   }
 
-  return [on, off, status, drain]
+  return [on, off, status, drain].map((command) => ({
+    ...command,
+    async run(argv: string[]) {
+      try {
+        await command.run(argv)
+      } catch (error) {
+        const message = error instanceof Error ? error.message.replace('[internal] ', '') : String(error)
+        output.error(`ERROR: maintenance state store operation failed (${message}).`)
+        deps.setExitCode(MAINTENANCE_EXIT.storeUnreachable)
+      }
+    },
+  }))
 }
 
 function createDefaultDeps(): MaintenanceCliDeps & { closeStore(): Promise<void> } {
