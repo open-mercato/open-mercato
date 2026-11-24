@@ -80,6 +80,21 @@ Staff sign-in now fails closed with the localized generic login error (`{ ok: fa
 
 Operators should restore MFA service registration or challenge-store availability before retrying sign-in. The explicit emergency-bypass setting retains its existing behavior and administrator warning. Failures are logged and reported via telemetry (`security.mfa_service_unavailable`, `security.mfa_challenge_creation_failed`, `auth.login_interceptor_failed`, and `auth.login_revoke_failed` if provisional-session cleanup fails). No database migration or credential-format change is required.
 
+## Fulltext reindex preserves record organization ownership (#8397)
+
+Tenant-wide fulltext reindexing now keeps each source row's `organization_id`
+in the indexed document and search build context. An explicit `null` stays
+global; a projection that omits the column keeps the existing request-scope
+fallback. Direct reindexes and queued batch reloads use the same rule.
+
+Operators with documents written by an older tenant-wide reindex should run a
+tenant-wide fulltext rebuild through Settings > Search or `POST /api/search/reindex`
+with All organizations selected. An organization-scoped rebuild cannot identify
+the original owners of historical documents incorrectly stored with a null
+organization. The general `search reindex` CLI does not rebuild fulltext.
+No startup command, environment variable, database migration, provider default,
+or public API shape changes.
+
 ## Extension header parsing and analytics SQL identifier hardening (#10331, #10332)
 
 Two security-hardening narrowings landed on shared request-header parsing and dashboard analytics SQL construction:
