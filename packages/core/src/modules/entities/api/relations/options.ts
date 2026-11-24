@@ -4,11 +4,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
-import type { EntityMetadata } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -26,6 +26,7 @@ export const metadata = {
 }
 
 const ALLOWED_ROUTE_CONTEXT_FIELDS = new Set(['kind', 'entity_id', 'product_id'])
+const DEFAULT_LABEL_FIELDS = ['name', 'title', 'code', 'email', 'id']
 
 const logger = createLogger('entities')
 
@@ -118,15 +119,32 @@ export async function GET(req: Request) {
   }, { orderBy: { tenantId: 'desc nulls last', organizationId: 'desc nulls last' } }, scope)
   const declaredLabel = declared?.labelField
   const configuredLabel = classification.kind === 'custom' ? customEntity?.labelField : undefined
-  const labelCandidates = Array.from(new Set(['name', 'title', 'code', 'email', 'id', declaredLabel, configuredLabel].filter((field): field is string => Boolean(field)).flatMap((field) => [field, field.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()])))
-  if (requestedLabelField && !labelCandidates.includes(requestedLabelField)) {
+  const labelCandidates = [declaredLabel, configuredLabel, ...DEFAULT_LABEL_FIELDS]
+    .filter((field): field is string => Boolean(field))
+  const metadata = registeredTable
+    ? listEntityMetadata(em).find((entry) => entry.tableName === registeredTable)
+    : undefined
+  const columnsByLabel = new Map<string, string>()
+  for (const property of Object.values(metadata?.properties ?? {})) {
+    if (property.fieldNames?.length !== 1) continue
+    const [column] = property.fieldNames
+    if (!labelCandidates.includes(property.name) && !labelCandidates.includes(column)) continue
+    columnsByLabel.set(property.name, column)
+    columnsByLabel.set(column, column)
+  }
+  const customLabelAliases = classification.kind === 'custom'
+    ? labelCandidates.map((field) => field.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase())
+    : []
+  if (requestedLabelField && !labelCandidates.includes(requestedLabelField) &&
+    !columnsByLabel.has(requestedLabelField) && !customLabelAliases.includes(requestedLabelField)) {
     return NextResponse.json({ error: translate('api.errors.badRequest', 'Bad request') }, { status: 400 })
   }
-  const metadata = registeredTable
-    ? (Object.values(em.getMetadata().getAll()) as EntityMetadata[]).find((entry) => entry.tableName === registeredTable)
-    : undefined
-  const fieldsInMetadata = new Set(Object.values(metadata?.properties ?? {}).flatMap((property) => [property.name, ...(property.fieldNames ?? [])]))
-  const labelField = requestedLabelField || configuredLabel || declaredLabel || labelCandidates.find((field) => fieldsInMetadata.has(field)) || 'id'
+  const systemLabel = [requestedLabelField, ...labelCandidates]
+    .map((field) => columnsByLabel.get(field))
+    .find((column) => column !== undefined)
+  const labelField = classification.kind === 'custom'
+    ? requestedLabelField || configuredLabel || declaredLabel || 'id'
+    : systemLabel ?? 'id'
   const filters: Record<string, unknown> = {}
   if (ids.length === 1) filters.id = ids[0]
   else if (ids.length > 1) filters.id = { $in: ids }

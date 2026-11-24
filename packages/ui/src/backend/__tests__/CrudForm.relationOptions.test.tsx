@@ -59,6 +59,22 @@ describe('relation option feedback', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Unsaved draft', target: 'retained-id' }), expect.any(Object)))
   })
 
+  it('keeps static choices available when the dynamic loader fails', async () => {
+    const fields: CrudField[] = [{
+      id: 'target',
+      label: 'Related record',
+      type: 'select',
+      options: [{ value: 'static', label: 'Static choice' }],
+      loadOptions: async () => { throw new Error('[internal] Options unavailable') },
+    }]
+    renderWithProviders(<CrudForm fields={fields} initialValues={{ target: 'static' }} onSubmit={() => {}} />, { dict })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load options')
+    const select = screen.getByRole('combobox', { name: 'Related record' })
+    expect(select).toBeEnabled()
+    expect(select).toHaveTextContent('Static choice')
+  })
+
   it('distinguishes a successful empty lookup from a failure', async () => {
     renderWithProviders(
       <CrudForm fields={fieldsFor(async () => [])} onSubmit={() => {}} />,

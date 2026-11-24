@@ -14,6 +14,8 @@ Reuse `classifyRecordsEntity` and `assertEntityAclForRequest`. Reject platform-o
 
 Labels may use a trusted module `ce.ts` label, a scoped custom entity's configured label, or fixed `name`, `title`, `code`, `email`, `id` candidates. Trusted camelCase labels also accept their snake_case storage spelling. System labels cannot be overridden with a mutable custom-entity row. Custom registration precedence is organization, tenant, instance. Third-party declared labels remain supported subject to existing target ACL. Route-context fields retain their existing fixed allowlist. Results are capped at 100.
 
+For ORM records, resolve allowed selectors to their actual column using registered metadata. Use the next available safe label when a declaration names a missing column. Projection and search use the same resolved column.
+
 Relation lookup resolves the trusted request organization scope once. Classification, label-definition lookup, target ACL and record queries use that same effective tenant and selected organization. Rejected or explicitly empty scopes fail closed. A resolved finite scope without a selected organization retains its allowed organization filters. The existing resolver controls all-organization selection, including its home-organization behavior for restricted principals.
 
 Basic and hybrid base-table paths refuse tables with neither `tenant_id` nor `organization_id`, before business reads, coverage or decryption. The existing `omitAutomaticTenantOrgScope: true` is the explicit opt-in; hybrid retains its established basic-engine delegation for this flag. Custom document storage keeps its existing tenant isolation. No new query option, DI seam, dependency, startup or configuration behavior is introduced.
@@ -39,6 +41,7 @@ This is the security tightening requested by #9106. Unsafe arbitrary-column read
 - Focused route tests: sensitive/undeclared/platform targets, own-view denial, restricted custom ACL, unsafe fields, scoped queries, safe route context, unknown ids and third-party labels.
 - `global-scope.pg.test.ts`, gated by the existing `OM_COUNT_CAP_PG_URL` throwaway-database convention: both real SQL engines reject global reads by default, accept explicit opt-out, and exclude a second tenant's labels.
 - `TC-ENTITIES-9106-relation-options-security.spec.ts`: self-created metadata-only role/user and custom entity/record, real authentication, system/feature denial, permitted labels and unsafe field rejection, with teardown. Requires a running test app; execution status belongs to validation evidence.
+- The same spec creates a product and a portal user and checks the default label, the existing configured selector, and name search through the relation-options API.
 - `TC-ENTITIES-9106-selected-organization.spec.ts`: self-created organizations, actors, grants, definitions and records verify home/selected organization controls, finite all-organization results and rejected selection, with teardown.
 
 - UI unit coverage: loading/403 retry preserves draft and relation values; valid empty results remain distinct; a superseded loader cannot overwrite new feedback. Remote relation paging rejects failures without publishing a partial list.
