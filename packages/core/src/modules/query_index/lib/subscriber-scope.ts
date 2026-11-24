@@ -14,6 +14,7 @@ export type QueryIndexSourceMetadata = {
   tableName?: string
   organizationColumn: string | null
   tenantColumn: string | null
+  deletedAtColumn?: string
 }
 
 export type QueryIndexSourceScope =
@@ -94,9 +95,11 @@ export function resolveQueryIndexSourceTableMetadata(
   if (!tableName) return null
   const schema = typeof metadata.schema === 'string' && metadata.schema !== '*' ? metadata.schema : undefined
   const table = schema ? `${schema}.${tableName}` : tableName
+  const deletedAtColumn = resolveScopeColumn(metadata, 'deletedAt', table)
   return {
     table,
     ...(schema ? { schema, tableName } : {}),
+    ...(deletedAtColumn ? { deletedAtColumn } : {}),
     organizationColumn: resolveScopeColumn(metadata, 'organizationId', table),
     tenantColumn: resolveScopeColumn(metadata, 'tenantId', table),
   }
