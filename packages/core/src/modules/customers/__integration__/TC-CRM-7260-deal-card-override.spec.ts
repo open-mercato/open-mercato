@@ -81,15 +81,18 @@ test.describe('TC-CRM-7260: app-defined pipeline card references', () => {
     return { card, id }
   }
 
-  test('shows references from both list pages and opens the appended deal by ID', async ({ page }) => {
-    await login(page, 'admin')
-    const firstPage = waitForListPage(page, 1)
+  async function selectFixturePipeline(page: Page) {
     await page.goto('/backend/customers/deals/pipeline')
     await page.getByRole('button', { name: /^Pipeline:/ }).click()
     const chooser = page.getByRole('dialog').filter({ hasText: 'Filter: Pipeline' })
     await chooser.getByRole('radio', { name: pipelineName, exact: true }).click()
     await chooser.getByRole('button', { name: 'Apply', exact: true }).click()
-    await expectCardFromResponse(page, await firstPage, 25)
+  }
+
+  test('shows references from both list pages and opens the appended deal by ID', async ({ page }) => {
+    await login(page, 'admin')
+    const [firstPage] = await Promise.all([waitForListPage(page, 1), selectFixturePipeline(page)])
+    await expectCardFromResponse(page, firstPage, 25)
 
     const [secondPage] = await Promise.all([
       waitForListPage(page, 2),
