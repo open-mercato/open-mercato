@@ -161,6 +161,35 @@ describeWithPostgres('external email budgets against PostgreSQL', () => {
       .toEqual([{ scope: 'tenant', count: 2 }, { scope: 'user', count: 2 }])
   })
 
+  it('does not charge a recipient reserved under the previous lookup pepper again', async () => {
+    const originalPepper = process.env.LOOKUP_HASH_PEPPER
+    const originalOldPepper = process.env.LOOKUP_HASH_OLD_PEPPER
+    try {
+      dailyLimit = 1
+      const tenantId = randomUUID()
+      const userId = randomUUID()
+      const now = new Date('2026-11-11T12:00:00.000Z')
+      process.env.LOOKUP_HASH_PEPPER = 'pepper-before-rotation'
+      delete process.env.LOOKUP_HASH_OLD_PEPPER
+      const before = budgetInput(tenantId, userId)
+      await checkExternalEmailBudget(before.container, before.scope, 'recipient@example.com', { now })
+
+      process.env.LOOKUP_HASH_PEPPER = 'pepper-after-rotation'
+      process.env.LOOKUP_HASH_OLD_PEPPER = 'pepper-before-rotation'
+      const after = budgetInput(tenantId, userId)
+      const repeated = await checkExternalEmailBudget(after.container, after.scope, 'recipient@example.com', { now })
+
+      expect(repeated).toBeNull()
+      expect(await manager().getConnection().execute('select count(*)::int as count from message_external_recipient_days'))
+        .toEqual([{ count: 1 }])
+    } finally {
+      if (originalPepper === undefined) delete process.env.LOOKUP_HASH_PEPPER
+      else process.env.LOOKUP_HASH_PEPPER = originalPepper
+      if (originalOldPepper === undefined) delete process.env.LOOKUP_HASH_OLD_PEPPER
+      else process.env.LOOKUP_HASH_OLD_PEPPER = originalOldPepper
+    }
+  })
+
   it('isolates recipient and window ledgers by tenant', async () => {
     dailyLimit = 1
     const firstTenant = randomUUID()
