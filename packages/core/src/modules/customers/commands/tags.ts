@@ -15,6 +15,8 @@ import {
   type TagAssignmentInput,
 } from '../data/validators'
 import {
+  commandScopeWhere,
+  type CommandScopeWhere,
   buildCustomerCommandLookup,
   ensureOrganizationScope,
   ensureTenantScope,
@@ -96,10 +98,11 @@ async function loadTagSnapshot(
   em: EntityManager,
   id: string,
   lookup?: ReturnType<typeof tagDeleteLookup>,
+  scopeWhere: CommandScopeWhere = {},
 ): Promise<TagSnapshot | null> {
   const tag = lookup
     ? await findOneWithDecryption(em, CustomerTag, lookup.where, {}, lookup.scope)
-    : await em.findOne(CustomerTag, { id })
+    : await em.findOne(CustomerTag, { id, ...scopeWhere })
   if (!tag) return null
   return {
     id: tag.id,
@@ -238,13 +241,13 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
   async prepare(rawInput, ctx) {
     const parsed = tagUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTagSnapshot(em, parsed.id)
+    const snapshot = await loadTagSnapshot(em, parsed.id, undefined, commandScopeWhere(ctx))
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = tagUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const tag = await em.findOne(CustomerTag, { id: parsed.id })
+    const tag = await em.findOne(CustomerTag, { id: parsed.id, ...commandScopeWhere(ctx) })
     if (!tag) throw notFound('Tag not found')
     ensureTenantScope(ctx, tag.tenantId)
     ensureOrganizationScope(ctx, tag.organizationId)

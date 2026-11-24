@@ -547,6 +547,7 @@ export const priceCreateSchema = priceBaseSchema
 export const priceUpdateSchema = z
   .object({
     id: uuid(),
+    announce: z.boolean().optional(),
   })
   .merge(priceBaseSchema.partial())
   .superRefine(priceQuantityRangeRefinement)

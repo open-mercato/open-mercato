@@ -26,6 +26,7 @@ import {
   type InteractionCancelInput,
 } from '../data/validators'
 import {
+  commandScopeWhere,
   ensureOrganizationScope,
   ensureTenantScope,
   requireTimelineParentEntity,
@@ -222,7 +223,12 @@ async function ensureInteractionRestoreAccess(
 }
 
 async function loadInteractionSnapshot(em: EntityManager, id: string, ctx?: CommandRuntimeContext): Promise<InteractionSnapshot | null> {
-  const interaction = await findOneWithDecryption(em, CustomerInteraction, { id }, { populate: ['entity'] })
+  const interaction = await findOneWithDecryption(
+    em,
+    CustomerInteraction,
+    { id, ...(ctx ? commandScopeWhere(ctx) : {}) },
+    { populate: ['entity'] },
+  )
   if (!interaction) return null
   if (ctx) await ensureInteractionMutationAccess(ctx, em, interaction)
   const custom = await loadCustomFieldSnapshot(em, {
@@ -874,7 +880,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const { parsed, custom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, projections } = await runInTransaction(em, async (trx) => {
-      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null, ...commandScopeWhere(ctx) })
       if (!interaction) {
         enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
         throw notFound('Interaction not found')
@@ -1251,7 +1257,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
     const parsed = interactionCompleteSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
-      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null, ...commandScopeWhere(ctx) })
       if (!interaction) {
         enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
         throw notFound('Interaction not found')
@@ -1393,7 +1399,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
     const parsed = interactionCancelSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
-      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null, ...commandScopeWhere(ctx) })
       if (!interaction) {
         enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
         throw notFound('Interaction not found')
@@ -1533,7 +1539,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       const id = requireId(input, 'Interaction id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
-        const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id, deletedAt: null })
+        const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id, deletedAt: null, ...commandScopeWhere(ctx) })
         if (!interaction) {
           enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: id, request: ctx.request ?? null })
           throw notFound('Interaction not found')

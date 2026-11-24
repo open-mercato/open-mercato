@@ -62,6 +62,11 @@ const crud = makeCrudRoute({
       receivedAt: 'received_at',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
+      catalog_variant_id: 'catalog_variant_id',
+      warehouse_id: 'warehouse_id',
+      reference_type: 'reference_type',
+      referenceType: 'reference_type',
+      performed_at: 'performed_at',
     },
     buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}

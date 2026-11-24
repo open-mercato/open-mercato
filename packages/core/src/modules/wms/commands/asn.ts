@@ -1,6 +1,7 @@
 import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { withRequiredFeatures } from './featureGuard'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
@@ -2113,11 +2114,11 @@ const closeAsnCommand: CommandHandler<AsnCloseInput, { asnId: string; status: As
     buildCrudLog(ctx, input, result?.asnId ?? null, 'wms.audit.asn.close', 'Complete ASN', WMS_ASN_RESOURCE),
 }
 
-registerCommand(createAsnCommand)
-registerCommand(updateAsnCommand)
-registerCommand(deleteAsnCommand)
-registerCommand(createReceivingLineCommand)
-registerCommand(updateReceivingLineCommand)
-registerCommand(deleteReceivingLineCommand)
-registerCommand(receiveAsnLineCommand)
-registerCommand(closeAsnCommand)
+registerCommand(withRequiredFeatures(createAsnCommand, [['wms.manage_asn']]))
+registerCommand(withRequiredFeatures(updateAsnCommand, [['wms.manage_asn']]))
+registerCommand(withRequiredFeatures(deleteAsnCommand, [['wms.manage_asn']]))
+registerCommand(withRequiredFeatures(createReceivingLineCommand, [['wms.manage_asn']]))
+registerCommand(withRequiredFeatures(updateReceivingLineCommand, [['wms.manage_asn']]))
+registerCommand(withRequiredFeatures(deleteReceivingLineCommand, [['wms.manage_asn']]))
+registerCommand(withRequiredFeatures(receiveAsnLineCommand, [['wms.receive_inventory']]))
+registerCommand(withRequiredFeatures(closeAsnCommand, [['wms.manage_asn']]))
