@@ -237,6 +237,9 @@ export class CheckoutLinkSlugOwner {
 
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
   tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
 }
 
 @Entity({ tableName: 'checkout_transactions' })

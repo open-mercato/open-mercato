@@ -11,17 +11,19 @@ const describeWithPostgres = process.env.OM_PG_INTEGRATION === '1' ? describe : 
 describeWithPostgres('checkout link slug ownership on PostgreSQL', () => {
   const originalScope = { tenantId: randomUUID(), organizationId: randomUUID() }
   const otherScope = { tenantId: randomUUID(), organizationId: randomUUID() }
+  const sameTenantOtherOrganization = { tenantId: originalScope.tenantId, organizationId: randomUUID() }
   const originalLinkId = randomUUID()
   const ambiguousLiveLinkId = randomUUID()
+  const ambiguousOrganizationLiveLinkId = randomUUID()
   let postgres: StartedTestContainer | undefined
   let db: Client
   let config: ClientConfig
   let orm: MikroORM
 
-  async function addLink(slug: string, tenantId: string, options: { id?: string; retired?: boolean } = {}) {
+  async function addLink(slug: string, scope: typeof originalScope, options: { id?: string; retired?: boolean } = {}) {
     await db.query(
-      'insert into checkout_links (id, slug, tenant_id, deleted_at) values ($1, $2, $3, $4)',
-      [options.id ?? randomUUID(), slug, tenantId, options.retired ? new Date() : null],
+      'insert into checkout_links (id, slug, tenant_id, organization_id, deleted_at) values ($1, $2, $3, $4, $5)',
+      [options.id ?? randomUUID(), slug, scope.tenantId, scope.organizationId, options.retired ? new Date() : null],
     )
   }
 
@@ -51,12 +53,14 @@ describeWithPostgres('checkout link slug ownership on PostgreSQL', () => {
     db = new Client(config)
     await db.connect()
     await db.query(`
-      create table checkout_links (id uuid primary key, slug text not null, tenant_id uuid not null, deleted_at timestamptz);
+      create table checkout_links (id uuid primary key, slug text not null, tenant_id uuid not null, organization_id uuid not null, deleted_at timestamptz);
       create unique index checkout_links_slug_index on checkout_links (slug) where deleted_at is null;
     `)
-    await addLink('retired', originalScope.tenantId, { id: originalLinkId, retired: true })
-    await addLink('ambiguous', originalScope.tenantId, { retired: true })
-    await addLink('ambiguous', otherScope.tenantId, { id: ambiguousLiveLinkId })
+    await addLink('retired', originalScope, { id: originalLinkId, retired: true })
+    await addLink('ambiguous', originalScope, { retired: true })
+    await addLink('ambiguous', otherScope, { id: ambiguousLiveLinkId })
+    await addLink('organization-history', originalScope, { retired: true })
+    await addLink('organization-history', sameTenantOtherOrganization, { id: ambiguousOrganizationLiveLinkId })
 
     const statements: string[] = []
     const migration = Object.create(Migration20261119143000_checkout.prototype) as Migration20261119143000_checkout
@@ -89,8 +93,8 @@ describeWithPostgres('checkout link slug ownership on PostgreSQL', () => {
 
   it('provides stable UUID record IDs for tenant-scoped query indexing', async () => {
     const reservations = await db.query(
-      'select id, slug from checkout_link_slug_owners where tenant_id = $1 order by id',
-      [originalScope.tenantId],
+      'select id, slug from checkout_link_slug_owners where tenant_id = $1 and organization_id = $2 order by id',
+      [originalScope.tenantId, originalScope.organizationId],
     )
     expect(reservations.rows).toEqual([
       { id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f-]{27}$/), slug: 'retired' },
@@ -99,10 +103,10 @@ describeWithPostgres('checkout link slug ownership on PostgreSQL', () => {
     expect(reservation.id).toBe(reservations.rows[0].id)
   })
 
-  it('reserves a previously deleted link for its original tenant and allows restore', async () => {
+  it('reserves a previously deleted link for its original scope and allows restore', async () => {
     const otherSlug = await allocate('retired', otherScope)
     expect(otherSlug).toBe('retired-2')
-    await addLink(otherSlug, otherScope.tenantId)
+    await addLink(otherSlug, otherScope)
     await expect(allocate('retired', originalScope)).resolves.toBe('retired')
     await expect(allocate('retired', originalScope, originalLinkId)).resolves.toBe('retired')
     await expect(db.query(
@@ -118,17 +122,50 @@ describeWithPostgres('checkout link slug ownership on PostgreSQL', () => {
     await expect(allocate('ambiguous', otherScope)).resolves.toBe('ambiguous-2')
   })
 
-  it('allows the owning tenant to create a replacement for a retired link', async () => {
-    await addLink('replacement', originalScope.tenantId)
+  it('blocks a sibling organization from taking ownership when creating, restoring or renaming a link', async () => {
+    const retainedId = randomUUID()
+    await addLink('organization-owned', originalScope, { id: retainedId, retired: true })
+    const siblingId = randomUUID()
+    await addLink('sibling-link', sameTenantOtherOrganization, { id: siblingId })
+    const ownershipError = { code: '23505', constraint: 'checkout_link_slug_owners_slug_unique' }
+
+    await expect(allocate('organization-owned', sameTenantOtherOrganization)).resolves.toBe('organization-owned-2')
+    await expect(addLink('organization-owned', sameTenantOtherOrganization)).rejects.toMatchObject(ownershipError)
+    await expect(db.query(
+      'update checkout_links set deleted_at = null, organization_id = $1 where id = $2',
+      [sameTenantOtherOrganization.organizationId, retainedId],
+    )).rejects.toMatchObject(ownershipError)
+    await expect(db.query(
+      'update checkout_links set slug = $1 where id = $2',
+      ['organization-owned', siblingId],
+    )).rejects.toMatchObject(ownershipError)
+    await expect(db.query('update checkout_links set deleted_at = null where id = $1', [retainedId]))
+      .resolves.toMatchObject({ rowCount: 1 })
+    await expect(db.query(
+      'update checkout_links set organization_id = $1 where id = $2',
+      [sameTenantOtherOrganization.organizationId, retainedId],
+    )).rejects.toMatchObject(ownershipError)
+  })
+
+  it('keeps an existing live slug with ambiguous same-tenant history until retirement', async () => {
+    await expect(allocate('organization-history', sameTenantOtherOrganization, ambiguousOrganizationLiveLinkId))
+      .resolves.toBe('organization-history')
+    await db.query('update checkout_links set deleted_at = now() where id = $1', [ambiguousOrganizationLiveLinkId])
+    await expect(allocate('organization-history', originalScope)).resolves.toBe('organization-history-2')
+    await expect(allocate('organization-history', sameTenantOtherOrganization)).resolves.toBe('organization-history-2')
+  })
+
+  it('allows the owning organization to create a replacement for a retired link', async () => {
+    await addLink('replacement', originalScope)
     await db.query("update checkout_links set deleted_at = now() where slug = 'replacement'")
     const slug = await allocate('replacement', originalScope)
     expect(slug).toBe('replacement')
-    await addLink(slug, originalScope.tenantId)
+    await addLink(slug, originalScope)
     await expect(allocate('replacement', originalScope)).resolves.toBe('replacement-2')
   })
 
   it('reserves both slugs when a link is renamed', async () => {
-    await addLink('before-rename', originalScope.tenantId)
+    await addLink('before-rename', originalScope)
     await db.query("update checkout_links set slug = 'after-rename' where slug = 'before-rename'")
     await expect(allocate('before-rename', otherScope)).resolves.toBe('before-rename-2')
     await expect(allocate('before-rename', originalScope)).resolves.toBe('before-rename')
@@ -142,14 +179,14 @@ describeWithPostgres('checkout link slug ownership on PostgreSQL', () => {
     try {
       await writer.query('begin')
       await writer.query(
-        'insert into checkout_links (id, slug, tenant_id, deleted_at) values ($1, $2, $3, now())',
-        [randomUUID(), 'competing', originalScope.tenantId],
+        'insert into checkout_links (id, slug, tenant_id, organization_id, deleted_at) values ($1, $2, $3, $4, now())',
+        [randomUUID(), 'competing', originalScope.tenantId, originalScope.organizationId],
       )
       const staleCandidate = await allocate('competing', otherScope)
       expect(staleCandidate).toBe('competing')
       await writer.query('commit')
 
-      await expect(addLink(staleCandidate, otherScope.tenantId)).rejects.toMatchObject({
+      await expect(addLink(staleCandidate, otherScope)).rejects.toMatchObject({
         code: '23505',
         constraint: 'checkout_link_slug_owners_slug_unique',
       })
@@ -159,15 +196,15 @@ describeWithPostgres('checkout link slug ownership on PostgreSQL', () => {
     }
   })
   it('rolls back reservations without deleting checkout links', async () => {
-    const before = await db.query('select id, slug, tenant_id, deleted_at from checkout_links order by id')
+    const before = await db.query('select id, slug, tenant_id, organization_id, deleted_at from checkout_links order by id')
     const statements: string[] = []
     const migration = Object.create(Migration20261119143000_checkout.prototype) as Migration20261119143000_checkout
     Object.defineProperty(migration, 'addSql', { value: (statement: string) => statements.push(statement) })
     await migration.down()
     for (const statement of statements) await db.query(statement)
-    const after = await db.query('select id, slug, tenant_id, deleted_at from checkout_links order by id')
+    const after = await db.query('select id, slug, tenant_id, organization_id, deleted_at from checkout_links order by id')
     expect(after.rows).toEqual(before.rows)
     await expect(db.query('select * from checkout_link_slug_owners')).rejects.toMatchObject({ code: '42P01' })
-    await expect(addLink('after-rollback', otherScope.tenantId)).resolves.toBeUndefined()
+    await expect(addLink('after-rollback', otherScope)).resolves.toBeUndefined()
   })
 })

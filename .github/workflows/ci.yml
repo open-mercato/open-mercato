@@ -664,10 +664,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-
-      - name: Fetch base branch for change detection
-        if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.base_ref }} --depth=1
+        with:
+          # On pull_request HEAD is the merge commit and HEAD^1 the base it was merged onto.
+          # Change detection below diffs against HEAD^1, which a depth-1 checkout lacks.
+          fetch-depth: 2
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -765,12 +765,17 @@ jobs:
 
       - name: Checking types
         # Stabilization PRs, workflow edits and protected branch pushes run the full gate.
-        # Other PRs scope to packages/app that changed since the base branch.
+        # Other PRs scope to packages/app that changed against the base commit they merge onto.
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ]; then
+            yarn typecheck
+          elif ! git rev-parse --quiet --verify 'HEAD^1^{commit}' >/dev/null; then
+            echo "::warning::PR base commit HEAD^1 is not in the checkout; running the full typecheck"
+            yarn typecheck
+          elif ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn typecheck
           else
-            yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
+            yarn turbo run typecheck --filter='[HEAD^1]...'
           fi
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -791,10 +796,15 @@ jobs:
       - name: Test
         # Same scoping as typecheck, including full gates for workflow edits.
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ]; then
+            yarn test
+          elif ! git rev-parse --quiet --verify 'HEAD^1^{commit}' >/dev/null; then
+            echo "::warning::PR base commit HEAD^1 is not in the checkout; running the full unit suite"
+            yarn test
+          elif ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn test
           else
-            yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
+            yarn turbo run test --filter='[HEAD^1]...'
           fi
 
       - name: Test scripts
@@ -1232,6 +1242,17 @@ jobs:
             .ai/qa/test-results/results.json
             .ai/qa/test-results/coverage-shard-${{ steps.shard-meta.outputs.shard_index }}/
           if-no-files-found: ignore
+
+      - name: Verify staff and portal auth rate limits
+        if: matrix.shard == 'none' || matrix.shard == '1/15'
+        env:
+          OM_INTEGRATION_AUTH_RATE_LIMIT_FIXTURE: '1'
+          OM_TEST_RATE_LIMIT_MODE: enabled
+          RATE_LIMIT_TRUST_PROXY_DEPTH: '0'
+          RATE_LIMIT_STRATEGY: memory
+          RATE_LIMIT_LOGIN_IP_POINTS: '2'
+          RATE_LIMIT_CUSTOMER_LOGIN_IP_POINTS: '2'
+        run: yarn test:integration:ephemeral TC-AUTH-016 --no-reuse-env
 
   # ── Merge shard coverage ─────────────────────────────────────────────────────
   # Final gate — runs after all integration shards AND the test job complete.

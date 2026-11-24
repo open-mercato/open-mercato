@@ -394,7 +394,7 @@ The actual pay link with a unique public URL slug. Shares all template columns p
 **Indexes:**
 - Partial unique index: `UNIQUE (slug) WHERE deleted_at IS NULL`
 - Index: `(organization_id, tenant_id, status, deleted_at)`
-- `checkout_link_slug_owners` uses a UUID `id` for platform query indexing and a unique `slug` constraint. It reserves each slug by tenant after deletion or renaming. A tenant can reuse its retired slug when no live link uses it. Requests from other tenants receive the next available suffix.
+- `checkout_link_slug_owners` uses a UUID `id` for platform query indexing and a unique `slug` constraint. It reserves each slug for its tenant and organization after deletion or renaming. The owning organization can reuse its retired slug when no live link uses it. Requests from other scopes receive the next available suffix.
 
 ### Entity: CheckoutTransaction
 
@@ -1976,7 +1976,7 @@ Optional future enhancements to generic payment-source correlation in `payment_g
 
 ### Checkout slug ownership (#9115, 2026-11-19)
 
-The additive migration backfills reservations from live and soft-deleted checkout links. It installs a database trigger that reserves slugs in the same transaction as the link write. Existing live links keep their URLs. If records from multiple tenants already share a slug, the current live link can keep it until deletion or renaming, after which the slug is unavailable to every tenant. Earlier slugs that no longer appear in any stored link row cannot be reconstructed by the migration.
+The additive migration backfills reservations from live and soft-deleted checkout links. It installs a database trigger that reserves slugs in the same transaction as the link write. Existing live links keep their URLs. If records from multiple tenant and organization scopes already share a slug, the current live link keeps it until deletion or renaming. After retirement, the slug remains reserved without an owner and cannot be reused by any organization. Earlier slugs that no longer appear in any stored link row cannot be reconstructed by the migration.
 
 Deploy the migration with the updated checkout application. Checkout link writes, including payment reservation and counter updates, wait for the backfill transaction to commit. Reverting the migration drops the reservations, including any history recorded after the upgrade.
 
@@ -2110,4 +2110,4 @@ None identified.
 - Recorded @haxiorz’s human approval of the security exception for all 18 administrative fields and acknowledgment of the client/operator migration; independent review and QA remain required.
 
 ### 2026-11-19
-- Reserved public checkout slugs for the original tenant after soft-deletion or renaming and added PostgreSQL coverage for migration, restore, and competing writes (#9115).
+- Reserved public checkout slugs for the original tenant and organization after soft-deletion or renaming and added PostgreSQL coverage for migration, restore, and competing writes (#9115).

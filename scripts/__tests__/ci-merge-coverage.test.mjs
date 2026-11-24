@@ -80,7 +80,7 @@ test('CI orchestration changes select the full integration suite without includi
   }
 })
 
-function runValidationSteps({ eventName = 'pull_request', changedPath = 'README.md', createParent = true, fullSuite = false } = {}) {
+function runValidationSteps({ eventName = 'pull_request', changedPath = 'README.md', createParent = true, fullSuite = false, stdout = [] } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-validation-scope-'))
   try {
     const git = (...argumentsList) => {
@@ -119,6 +119,7 @@ function runValidationSteps({ eventName = 'pull_request', changedPath = 'README.
         timeout: 10000,
       })
       assert.equal(result.status, 0, `${stepName}: ${result.stderr}`)
+      stdout.push(result.stdout)
     }
     return fs.readFileSync(callsFile, 'utf8').trim().split('\n')
   } finally {
@@ -133,8 +134,8 @@ test('CI workflow edits run full typecheck and unit gates', () => {
 test('documentation and module PRs preserve affected-package validation', () => {
   for (const changedPath of ['README.md', 'packages/core/src/modules/customers/index.ts']) {
     assert.deepEqual(runValidationSteps({ changedPath }), [
-      'turbo run typecheck --filter=[origin/main]...',
-      'turbo run test --filter=[origin/main]...',
+      'turbo run typecheck --filter=[HEAD^1]...',
+      'turbo run test --filter=[HEAD^1]...',
     ])
   }
 })
@@ -144,7 +145,14 @@ test('protected branch pushes run full typecheck and unit gates', () => {
 })
 
 test('unavailable PR comparison ancestry falls back to full validation', () => {
-  assert.deepEqual(runValidationSteps({ createParent: false }), ['typecheck', 'test'])
+  const stdout = []
+  assert.deepEqual(runValidationSteps({ createParent: false, stdout }), ['typecheck', 'test'])
+  for (const output of stdout) assert.match(output, /::warning::PR base commit HEAD\^1 is not in the checkout/)
+})
+
+test('the test job checkout keeps the PR base commit that change detection diffs against', () => {
+  const checkout = workflow.jobs.test.steps.find((step) => step.name === 'Checkout repository')
+  assert.ok(Number(checkout.with?.['fetch-depth']) >= 2 || Number(checkout.with?.['fetch-depth']) === 0)
 })
 
 test('explicit full-suite scope runs full validation for documentation PRs', () => {

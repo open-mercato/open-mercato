@@ -252,7 +252,7 @@ export function validateDescriptorCurrencies(providerKey: string | null | undefi
  * Generates a unique checkout link slug.
  *
  * Public checkout routes resolve slugs globally. A retired slug can be reused by its
- * owning tenant, and an existing live link can keep its slug when edited.
+ * owning organization, and an existing live link can keep its slug when edited.
  */
 export async function ensureUniqueSlug(
   em: EntityManager,
@@ -268,12 +268,14 @@ export async function ensureUniqueSlug(
     const liveLink = await em.findOne(CheckoutLink, {
       slug: candidate,
       deletedAt: null,
-    }, { fields: ['id', 'tenantId'] })
+    }, { fields: ['id', 'tenantId', 'organizationId'] })
     if (liveLink) {
-      if (liveLink.id === excludeId && liveLink.tenantId === scope.tenantId) return candidate
+      if (liveLink.id === excludeId && liveLink.tenantId === scope.tenantId && liveLink.organizationId === scope.organizationId) {
+        return candidate
+      }
     } else {
       const owner = await em.findOne(CheckoutLinkSlugOwner, { slug: candidate })
-      if (!owner || owner.tenantId === scope.tenantId) return candidate
+      if (!owner || (owner.tenantId === scope.tenantId && owner.organizationId === scope.organizationId)) return candidate
     }
     counter += 1
     candidate = `${base}-${counter}`

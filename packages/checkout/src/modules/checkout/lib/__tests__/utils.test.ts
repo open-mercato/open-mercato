@@ -106,20 +106,21 @@ describe('checkout utils', () => {
     expect(findOne).toHaveBeenNthCalledWith(1, CheckoutLink, {
       slug: 'shared-slug',
       deletedAt: null,
-    }, { fields: ['id', 'tenantId'] })
+    }, { fields: ['id', 'tenantId', 'organizationId'] })
     expect(findOne).toHaveBeenNthCalledWith(2, CheckoutLink, {
       slug: 'shared-slug-2',
       deletedAt: null,
-    }, { fields: ['id', 'tenantId'] })
+    }, { fields: ['id', 'tenantId', 'organizationId'] })
   })
 
   it.each([
-    ['same tenant', 'tenant_2', 'retired-slug'],
-    ['another tenant', 'tenant_1', 'retired-slug-2'],
-    ['multiple historical tenants', null, 'retired-slug-2'],
-  ])('allocates a retired slug previously used by %s', async (_description, tenantId, expected) => {
+    ['the same organization', 'tenant_2', 'org_2', 'retired-slug'],
+    ['another organization in the same tenant', 'tenant_2', 'org_1', 'retired-slug-2'],
+    ['another tenant', 'tenant_1', 'org_1', 'retired-slug-2'],
+    ['multiple historical scopes', null, null, 'retired-slug-2'],
+  ])('allocates a retired slug previously used by %s', async (_description, tenantId, organizationId, expected) => {
     const findOne = jest.fn(async (entity: unknown, where: { slug: string }) =>
-      entity === CheckoutLinkSlugOwner && where.slug === 'retired-slug' ? { tenantId } : null,
+      entity === CheckoutLinkSlugOwner && where.slug === 'retired-slug' ? { tenantId, organizationId } : null,
     )
 
     await expect(ensureUniqueSlug(
@@ -131,7 +132,7 @@ describe('checkout utils', () => {
   })
 
   it('keeps the slug of a live link when editing that link', async () => {
-    const findOne = jest.fn().mockResolvedValue({ id: 'editing-link', tenantId: 'tenant_2' })
+    const findOne = jest.fn().mockResolvedValue({ id: 'editing-link', tenantId: 'tenant_2', organizationId: 'org_2' })
 
     await expect(ensureUniqueSlug(
       { findOne } as unknown as EntityManager,
@@ -142,8 +143,22 @@ describe('checkout utils', () => {
     )).resolves.toBe('current-slug')
     expect(findOne).toHaveBeenCalledTimes(1)
     expect(findOne).toHaveBeenCalledWith(
-      CheckoutLink, { slug: 'current-slug', deletedAt: null }, { fields: ['id', 'tenantId'] },
+      CheckoutLink, { slug: 'current-slug', deletedAt: null }, { fields: ['id', 'tenantId', 'organizationId'] },
     )
+  })
+
+  it('requires the live link being edited to belong to the same organization', async () => {
+    const findOne = jest.fn()
+      .mockResolvedValueOnce({ id: 'editing-link', tenantId: 'tenant_2', organizationId: 'org_1' })
+      .mockResolvedValue(null)
+
+    await expect(ensureUniqueSlug(
+      { findOne } as unknown as EntityManager,
+      { tenantId: 'tenant_2', organizationId: 'org_2' },
+      'current-slug',
+      'Pay link',
+      'editing-link',
+    )).resolves.toBe('current-slug-2')
   })
 
   it('rejects fixed pricing when the submitted amount does not match', () => {
