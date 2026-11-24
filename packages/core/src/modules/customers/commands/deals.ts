@@ -13,6 +13,7 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerDeal,
@@ -469,15 +470,28 @@ async function syncDealPeople(
   deal: CustomerDeal,
   personIds: string[] | undefined | null,
   primaryPersonEntityId?: string | null,
-  options?: { stampLockToken?: boolean }
+  options?: { stampLockToken?: boolean; isNewDeal?: boolean }
 ): Promise<void> {
   // A freshly created deal has no other session holding a token to invalidate, and stamping
   // there would only make `updated_at` overtake `created_at` on every new deal with links.
   const stampLockToken = options?.stampLockToken !== false
+  const requestedPrimaryId = primaryPersonEntityId?.toLowerCase() ?? primaryPersonEntityId
+  if (personIds === undefined && requestedPrimaryId === undefined) return
+  if (!options?.isNewDeal) {
+    const scope = { tenantId: deal.tenantId, organizationId: deal.organizationId }
+    const lockedDeal = await findOneWithDecryption(
+      em,
+      CustomerDeal,
+      { id: deal.id, deletedAt: null, ...scope },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      scope,
+    )
+    if (!lockedDeal) throw notFound()
+  }
   if (personIds === undefined) {
-    if (primaryPersonEntityId === undefined) return
+    if (requestedPrimaryId === undefined) return
     const links = await em.find(CustomerDealPersonLink, { deal })
-    if (primaryPersonEntityId !== null && !links.some((link) => link.person.id === primaryPersonEntityId)) {
+    if (requestedPrimaryId !== null && !links.some((link) => link.person.id === requestedPrimaryId)) {
       const { translate } = await resolveTranslations()
       throw new CrudHttpError(400, {
         error: translate(
@@ -492,7 +506,7 @@ async function syncDealPeople(
     // row it was already on, and would briefly leave the deal with no primary at all inside
     // the transaction. Only one row can carry the flag (partial unique index on
     // `deal_id where is_primary`), so there is no second stale flag left to clean up here.
-    if (currentPrimaryId === primaryPersonEntityId) return
+    if (currentPrimaryId === requestedPrimaryId) return
     // Safe here: only assignments and the explicit flush below follow — no query runs
     // between this touch and the flush that persists it.
     if (stampLockToken) {
@@ -502,14 +516,14 @@ async function syncDealPeople(
       link.isPrimary = false
     }
     await em.flush()
-    if (primaryPersonEntityId !== null) {
-      const primaryLink = links.find((link) => link.person.id === primaryPersonEntityId)
+    if (requestedPrimaryId !== null) {
+      const primaryLink = links.find((link) => link.person.id === requestedPrimaryId)
       if (primaryLink) primaryLink.isPrimary = true
     }
     return
   }
-  const nextPersonIds = new Set(personIds ?? [])
-  if (primaryPersonEntityId !== undefined && primaryPersonEntityId !== null && !nextPersonIds.has(primaryPersonEntityId)) {
+  const nextPersonIds = new Set((personIds ?? []).map((personId) => personId.toLowerCase()))
+  if (requestedPrimaryId !== undefined && requestedPrimaryId !== null && !nextPersonIds.has(requestedPrimaryId)) {
     const { translate } = await resolveTranslations()
     throw new CrudHttpError(400, {
       error: translate(
@@ -523,7 +537,7 @@ async function syncDealPeople(
   const currentPrimary = existingLinks.find((link) => link.isPrimary)
   const currentPrimaryId = currentPrimary?.person.id ?? null
   const retainedPrimaryId = currentPrimaryId && nextPersonIds.has(currentPrimaryId) ? currentPrimaryId : null
-  const nextPrimaryId = primaryPersonEntityId === undefined ? retainedPrimaryId : primaryPersonEntityId
+  const nextPrimaryId = requestedPrimaryId === undefined ? retainedPrimaryId : requestedPrimaryId
   const linksToRemove = existingLinks.filter((link) => !nextPersonIds.has(link.person.id))
   const personIdsToAdd = Array.from(nextPersonIds).filter((personId) => !currentPersonIds.has(personId))
   if (linksToRemove.length === 0 && personIdsToAdd.length === 0 && nextPrimaryId === currentPrimaryId) return
@@ -667,7 +681,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           transitionedByUserId: normalizedTransitionAuthorUserId,
         })
       },
-      () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId, { stampLockToken: false }),
+      () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId, { stampLockToken: false, isNewDeal: true }),
       () => syncDealCompanies(em, deal, parsed.companyIds ?? [], { stampLockToken: false }),
     ], { transaction: true })
     await invalidateDictionaryKindCaches(ctx, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, createdDictionaryKinds)
@@ -739,6 +753,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let deal = await findOneWithDecryption(em, CustomerDeal, { id: after.deal.id })
+    const isNewDeal = deal === null
     if (!deal) {
       deal = em.create(CustomerDeal, {
         id: after.deal.id,
@@ -769,7 +784,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     }
     const restoredDeal = deal
     await withAtomicFlush(em, [
-      () => syncDealPeople(em, restoredDeal, after.people, after.primaryPersonEntityId),
+      () => syncDealPeople(em, restoredDeal, after.people, after.primaryPersonEntityId, { isNewDeal }),
       () => syncDealCompanies(em, restoredDeal, after.companies),
       () => deleteDealStageTransitions(em, restoredDeal),
       () => restoreDealStageTransitions(em, restoredDeal, after.transitions),
@@ -1077,6 +1092,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       : null
     const restoredPipelineStageId = revertedStageSnapshot ? before.deal.pipelineStageId : null
     let deal = await findOneWithDecryption(em, CustomerDeal, { id: before.deal.id })
+    const isNewDeal = deal === null
     if (!deal) {
       deal = em.create(CustomerDeal, {
         id: before.deal.id,
@@ -1149,7 +1165,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           transitionedByUserId: normalizedTransitionAuthorUserId,
         })
       },
-      () => syncDealPeople(em, deal, before.people, before.primaryPersonEntityId),
+      () => syncDealPeople(em, deal, before.people, before.primaryPersonEntityId, { isNewDeal }),
       () => syncDealCompanies(em, deal, before.companies),
     ], { transaction: true })
 
@@ -1245,6 +1261,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       let deal = await findOneWithDecryption(em, CustomerDeal, { id: before.deal.id })
+      const isNewDeal = deal === null
       if (!deal) {
         deal = em.create(CustomerDeal, {
           id: before.deal.id,
@@ -1274,7 +1291,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         em.persist(deal)
       }
       await withAtomicFlush(em, [
-        () => syncDealPeople(em, deal, before.people, before.primaryPersonEntityId),
+        () => syncDealPeople(em, deal, before.people, before.primaryPersonEntityId, { isNewDeal }),
         () => syncDealCompanies(em, deal, before.companies),
         () => deleteDealStageTransitions(em, deal),
         () => restoreDealStageTransitions(em, deal, before.transitions),

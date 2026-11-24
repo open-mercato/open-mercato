@@ -188,6 +188,17 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
         { id: adaId, isPrimary: true },
         { id: graceId, linkedAt: graceLinkedAt, isPrimary: false },
       ])
+
+      const replacements = await Promise.all([adaId, graceId].map((personId) =>
+        request.put(resolveUrl('/api/customers/deals'), {
+          headers: authHeaders,
+          data: { id: dealId, personIds: [personId] },
+        }),
+      ))
+      for (const replacement of replacements) expect(replacement.ok()).toBeTruthy()
+      const afterReplacements = await listPeople()
+      expect(afterReplacements.items).toHaveLength(1)
+      expect([adaId, graceId]).toContain(afterReplacements.items[0].id)
     } finally {
       for (const entry of created.reverse()) {
         await deleteEntityByBody(request, token, entry.path, entry.id)

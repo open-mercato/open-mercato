@@ -34,6 +34,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import '@open-mercato/core/modules/customers/commands'
+import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -390,6 +391,28 @@ describe('customers.deals.update — deal lock token on link changes', () => {
     expectTokenAdvanced(deal, probe)
   })
 
+  it('locks the scoped deal row before reading links to reconcile the whole set', async () => {
+    const { em } = await runUpdate(
+      { people: [{ personId: ADA }] },
+      { personIds: [ADA, BOB] },
+    )
+    const lockCall = em.findOne.mock.calls.findIndex(
+      ([entity, , options]: [unknown, unknown, { lockMode?: LockMode }?]) =>
+        entity === CustomerDeal && options?.lockMode === LockMode.PESSIMISTIC_WRITE,
+    )
+    expect(lockCall).toBeGreaterThanOrEqual(0)
+    expect(em.findOne.mock.calls[lockCall][1]).toEqual({
+      id: DEAL_ID,
+      deletedAt: null,
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+    })
+    const linksRead = em.find.mock.calls.findIndex(([entity]: [unknown]) => entity === CustomerDealPersonLink)
+    expect(em.findOne.mock.invocationCallOrder[lockCall]).toBeLessThan(
+      em.find.mock.invocationCallOrder[linksRead],
+    )
+  })
+
   it('advances the token when every person is unlinked', async () => {
     const { deal, probe } = await runUpdate({ people: [{ personId: ADA }] }, { personIds: [] })
     expectTokenAdvanced(deal, probe)
@@ -449,13 +472,27 @@ describe('customers.deals.update — deal lock token on link changes', () => {
     expectTokenUnchanged(deal, probe)
   })
 
+  it('matches uppercase UUIDs to existing links and the requested primary', async () => {
+    const { deal, em, probe } = await runUpdate(
+      { people: [{ personId: ADA, isPrimary: true }] },
+      { personIds: [ADA.toUpperCase(), BOB.toUpperCase(), BOB], primaryPersonEntityId: BOB.toUpperCase() },
+    )
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(insertedPersonIds(em)).toEqual([BOB])
+    expect(em.persist).toHaveBeenCalledWith(expect.objectContaining({
+      person: expect.objectContaining({ id: BOB }),
+      isPrimary: true,
+    }))
+    expectTokenAdvanced(deal, probe)
+  })
+
   // The primary-only branch (personIds omitted) reaches the same no-op guard by a different
   // route. Without it the branch would clear the flag on every row and flush just to put it
   // back on the row it was already on.
   it('writes nothing at all on a primary-only payload that re-sends the current primary', async () => {
     const { deal, em, probe } = await runUpdate(
       { people: [{ personId: ADA, isPrimary: true }, { personId: BOB }] },
-      { primaryPersonEntityId: ADA },
+      { primaryPersonEntityId: ADA.toUpperCase() },
     )
     expectTokenUnchanged(deal, probe)
     // The branch used to clear the flag on every row, flush, and re-set it on the row it had
@@ -547,6 +584,7 @@ describe('customers.deals.update — deal lock token on link changes', () => {
 
     expect(probe.touchTick).toBeNull()
     expect(deal.updatedAt.getTime()).toBe(BASE_UPDATED_AT.getTime())
+    expect(insertedPersonIds(em)).toEqual([ADA, BOB])
     expect(em.persist).toHaveBeenCalledWith(
       expect.objectContaining({ __entity: CustomerDealPersonLink }),
     )
