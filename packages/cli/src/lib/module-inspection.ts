@@ -63,6 +63,11 @@ function isModernYarnProject(appDir: string): boolean {
   }
 }
 
+function parseYarnConfigValue(stdout: string): unknown {
+  const output = stdout.trim()
+  return output === '' || output === 'undefined' ? undefined : JSON.parse(output)
+}
+
 function yarnNpmConfiguration(appDir: string, packageName: string, temporaryDir: string): string[] {
   if (!isModernYarnProject(appDir)) return []
   const settings = new Map<string, unknown>()
@@ -70,8 +75,8 @@ function yarnNpmConfiguration(appDir: string, packageName: string, temporaryDir:
     const result = spawn.sync(process.platform === 'win32' ? 'yarn.cmd' : 'yarn', ['config', 'get', setting, '--json', '--no-redacted'], {
       cwd: appDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15_000,
     })
-    if (result.error || result.status !== 0) throw new Error('Cannot inspect project package registry configuration')
-    settings.set(setting, JSON.parse(result.stdout))
+    if (result.error || result.status !== 0) throw new Error(`[internal] Cannot read Yarn setting ${setting} (exit ${result.status ?? 'none'})`)
+    settings.set(setting, parseYarnConfigValue(result.stdout))
   }
   const scope = packageName.startsWith('@') ? packageName.slice(1).split('/')[0] : undefined
   const scopeSettings = scope ? record(record(settings.get('npmScopes'))[scope]) : {}
