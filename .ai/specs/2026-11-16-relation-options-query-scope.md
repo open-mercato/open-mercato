@@ -42,6 +42,7 @@ This is the security tightening requested by #9106. Unsafe arbitrary-column read
 
 - Focused route tests: sensitive/undeclared/platform targets, own-view denial, restricted custom ACL, unsafe fields, scoped queries, safe route context, unknown ids and third-party labels.
 - The relation HTTP security scenario checks denial for Staff projects, tasks, and reports with their module view grants. Focused tests also cover missing owner policies and declared aliases of protected tables.
+- `TC-ENTITIES-9106-owner-policies.spec.ts` exercises the registered Staff and Attachments policies. It checks that staff readers see their own time entries and attachment readers see library files and documents they can access.
 - `global-scope.pg.test.ts`, gated by the existing `OM_COUNT_CAP_PG_URL` throwaway-database convention: both real SQL engines reject global reads by default, accept explicit opt-out, and exclude a second tenant's labels.
 - `TC-ENTITIES-9106-relation-options-security.spec.ts`: self-created metadata-only role/user and custom entity/record, real authentication, system/feature denial, permitted labels and unsafe field rejection, with teardown. Requires a running test app; execution status belongs to validation evidence.
 - The same spec creates a product and a portal user and checks the default label, the existing configured selector, and name search through the relation-options API.
