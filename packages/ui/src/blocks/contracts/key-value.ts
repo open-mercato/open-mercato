@@ -18,6 +18,10 @@ export const keyValueItemSchema = z
     message: 'Editable items need an editor',
     path: ['editor'],
   })
+  .refine((item) => !item.editable || typeof item.value === 'string' || typeof item.value === 'number', {
+    message: 'Editable items need a string or number value',
+    path: ['value'],
+  })
   .refine((item) => item.editor !== 'select' || (item.options?.length ?? 0) > 0, {
     message: 'Select editors need options',
     path: ['options'],

@@ -12,7 +12,7 @@ describe('EntityHeader contract', () => {
       ...base,
       subtitle: 'Customer since 2021',
       avatar: { initials: 'AC' },
-      status: { label: 'Active', tone: 'success' },
+      badge: { label: 'Active', tone: 'success' },
       meta: [{ key: 'owner', label: 'Owner', value: 'Jan Kowalski' }],
       actions: [
         { key: 'edit', label: 'Edit' },
@@ -46,6 +46,33 @@ describe('EntityHeader contract', () => {
       onAction: () => undefined,
     })
     expect(result.success).toBe(false)
+  })
+
+  it('rejects a primaryActionKey that references a destructive action', () => {
+    const result = entityHeaderPropsSchema.safeParse({
+      ...base,
+      actions: [{ key: 'delete', label: 'Delete', tone: 'destructive' }],
+      primaryActionKey: 'delete',
+      onAction: () => undefined,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toBe('primaryActionKey must not reference a destructive action')
+      expect(result.error.issues[0]?.path).toEqual(['primaryActionKey'])
+    }
+  })
+
+  it('accepts a primaryActionKey that references a non-destructive action', () => {
+    const result = entityHeaderPropsSchema.safeParse({
+      ...base,
+      actions: [
+        { key: 'edit', label: 'Edit' },
+        { key: 'delete', label: 'Delete', tone: 'destructive' },
+      ],
+      primaryActionKey: 'edit',
+      onAction: () => undefined,
+    })
+    expect(result.success).toBe(true)
   })
 
   it('rejects duplicate action and meta keys', () => {

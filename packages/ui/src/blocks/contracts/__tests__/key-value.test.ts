@@ -58,6 +58,22 @@ describe('KeyValue contract', () => {
     expect(result.success).toBe(false)
   })
 
+  it('accepts editable items with a number value', () => {
+    const result = keyValuePropsSchema.safeParse({
+      items: [{ key: 'seats', label: 'Seats', value: 12, editable: true, editor: 'text' }],
+      onEdit: async () => undefined,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects editable items with a non-primitive value', () => {
+    const result = keyValuePropsSchema.safeParse({
+      items: [{ key: 'tags', label: 'Tags', value: { type: 'span' }, editable: true, editor: 'text' }],
+      onEdit: async () => undefined,
+    })
+    expect(result.success).toBe(false)
+  })
+
   it('rejects duplicate keys and unsupported column counts', () => {
     expect(keyValuePropsSchema.safeParse({ items: [readOnlyItems[0], readOnlyItems[0]] }).success).toBe(false)
     expect(keyValuePropsSchema.safeParse({ items: readOnlyItems, columns: 3 }).success).toBe(false)

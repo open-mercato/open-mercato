@@ -12,6 +12,24 @@ import {
 } from '../activity-feed'
 
 describe('ActivityFeed', () => {
+  it('keeps the semibold title by default and supports a regular weight', () => {
+    const { container, rerender } = render(
+      <ActivityFeed>
+        <ActivityFeedItem title="Wei Chen uploaded report" />
+      </ActivityFeed>,
+    )
+    const titleSpan = () =>
+      container.querySelector('[data-slot="activity-feed-item-title"] > span') as HTMLElement
+    expect(titleSpan().className).toContain('font-semibold')
+    rerender(
+      <ActivityFeed>
+        <ActivityFeedItem title="Wei Chen uploaded report" titleWeight="regular" />
+      </ActivityFeed>,
+    )
+    expect(titleSpan().className).not.toContain('font-semibold')
+    expect(titleSpan().className).toContain('font-normal')
+  })
+
   it('renders an <ol> root with the data-slot marker', () => {
     const { container } = render(
       <ActivityFeed>
