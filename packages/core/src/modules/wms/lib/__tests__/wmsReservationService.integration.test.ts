@@ -67,6 +67,26 @@ function buildMultiOrganizationContext(fixture: Fixture, organizationIds: string
   } as unknown as CommandRuntimeContext
 }
 
+// Models an admin with a PARENT org selected (`parentOrganizationId`) acting on
+// a reservation that actually lives under the fixture's org, a descendant of
+// that selection — `filterIds` carries the descendant-expanded read scope the
+// directory module's `resolveOrganizationScope` would have resolved for that
+// selection (M1 regression).
+function buildParentOrgSelectedContext(fixture: Fixture, parentOrganizationId: string): CommandRuntimeContext {
+  return {
+    ...buildContext(fixture),
+    auth: { sub: randomUUID(), tenantId: fixture.tenantId, orgId: parentOrganizationId },
+    organizationScope: {
+      selectedId: parentOrganizationId,
+      filterIds: [parentOrganizationId, fixture.organizationId],
+      allowedIds: [parentOrganizationId, fixture.organizationId],
+      tenantId: fixture.tenantId,
+    },
+    selectedOrganizationId: parentOrganizationId,
+    organizationIds: [parentOrganizationId, fixture.organizationId],
+  } as unknown as CommandRuntimeContext
+}
+
 function buildReserveInput(fixture: Fixture, quantity: number, organizationId = fixture.organizationId) {
   return inventoryReservationCreateSchema.parse({
     tenantId: fixture.tenantId,
@@ -252,6 +272,36 @@ describeWithPostgres('wmsReservationService inside a caller transaction (Postgre
     expect(state.quantityReserved).toBe(6)
     expect(state.reservations).toHaveLength(1)
     expect(state.reservations[0].status).toBe('active')
+    expect(state.reservations[0].organizationId).toBe(fixture.organizationId)
+  })
+
+  it('releases a reservation owned by a descendant org when the actor has the parent org selected', async () => {
+    const fixture = await seedFixture('10')
+    const parentOrganizationId = randomUUID()
+    const reserved = await service.reserveInTransaction(
+      activeOrm().em.fork() as EntityManager,
+      buildContext(fixture),
+      buildReserveInput(fixture, 6),
+    )
+    const ctx = buildParentOrgSelectedContext(fixture, parentOrganizationId)
+
+    await activeOrm().em.fork().transactional(async (trx) => {
+      await service.releaseInTransaction(
+        trx as EntityManager,
+        ctx,
+        inventoryReservationReleaseSchema.parse({
+          tenantId: fixture.tenantId,
+          organizationId: parentOrganizationId,
+          reservationId: reserved.reservationId,
+          reason: 'descendant-org release under parent selection',
+        }),
+      )
+    })
+
+    const state = await readState(fixture)
+    expect(state.quantityReserved).toBe(0)
+    expect(state.reservations).toHaveLength(1)
+    expect(state.reservations[0].status).toBe('released')
     expect(state.reservations[0].organizationId).toBe(fixture.organizationId)
   })
 

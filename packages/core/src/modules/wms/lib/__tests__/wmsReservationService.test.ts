@@ -370,3 +370,71 @@ describe('WmsReservationService scope enforcement', () => {
     }
   })
 })
+
+describe('WmsReservationService descendant-org release (M1)', () => {
+  const PARENT_ORG = '44444444-4444-4444-8444-444444444444'
+
+  function createParentScopeCtx(em: FakeEm) {
+    return {
+      ...createCtx(em),
+      auth: { sub: USER_ID, tenantId: TENANT, orgId: PARENT_ORG },
+      organizationScope: {
+        selectedId: PARENT_ORG,
+        filterIds: [PARENT_ORG, ORG],
+        allowedIds: [PARENT_ORG, ORG],
+        tenantId: TENANT,
+      },
+      selectedOrganizationId: PARENT_ORG,
+      organizationIds: [PARENT_ORG, ORG],
+    } as unknown as CommandRuntimeContext
+  }
+
+  beforeEach(() => {
+    findOneWithDecryption.mockReset()
+    findWithDecryption.mockReset()
+  })
+
+  it('releases a reservation owned by a descendant org (ORG) when the actor has the parent org selected', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    const reservation = makeReservation() // organizationId: ORG — a descendant of PARENT_ORG
+    const balanceA = makeBalance({ id: BALANCE_ID_A, location: { id: LOCATION_A }, quantityReserved: '5' })
+    const balanceB = makeBalance({ id: BALANCE_ID_B, location: { id: LOCATION_B }, quantityReserved: '3' })
+    let reservationLookupWhere: Record<string, unknown> | undefined
+    const balanceLookupWheres: Record<string, unknown>[] = []
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) {
+        reservationLookupWhere = where
+        return reservation
+      }
+      if (entity === InventoryBalance) {
+        balanceLookupWheres.push(where)
+        if (where?.id === BALANCE_ID_A) return balanceA
+        if (where?.id === BALANCE_ID_B) return balanceB
+      }
+      return null
+    })
+
+    const result = await service.releaseInTransaction(
+      em,
+      createParentScopeCtx(em),
+      makeReleaseInput({ organizationId: PARENT_ORG }),
+    )
+
+    expect(result.reservationId).toBe(RESERVATION_ID)
+    // The lookup widens to the parent's descendant-expanded scope instead of
+    // requiring an exact match on the caller's (parent) organizationId.
+    expect(reservationLookupWhere).toMatchObject({ organizationId: { $in: [PARENT_ORG, ORG] } })
+    // Balances are scoped to the reservation's OWN org (ORG), never the
+    // caller's input org (PARENT_ORG) — otherwise the balance lookup would
+    // miss and the release would silently no-op the ledger.
+    expect(balanceLookupWheres.length).toBeGreaterThan(0)
+    for (const where of balanceLookupWheres) {
+      expect(where.organizationId).toBe(ORG)
+    }
+    expect(Number(balanceA.quantityReserved)).toBe(0)
+    expect(Number(balanceB.quantityReserved)).toBe(0)
+    expect(reservation.status).toBe('released')
+  })
+})

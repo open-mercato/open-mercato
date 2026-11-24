@@ -681,12 +681,16 @@ const allocateInventoryReservationCommand: CommandHandler<InventoryReservationAl
           touchedBalances: [] as InventoryBalance[],
         }
       }
+      // The reservation may live under a descendant org of the actor's
+      // input/selected scope (M1) — scope the balance lookups to the
+      // reservation's OWN tenant/org, never the caller's input scope.
+      const reservationScope: Scope = { tenantId: reservation.tenantId, organizationId: reservation.organizationId }
       const buckets = Array.isArray(metadata.allocatedBuckets) ? (metadata.allocatedBuckets as AllocationBucket[]) : []
       const touchedBalances: InventoryBalance[] = []
       for (const bucket of buckets) {
         const balance = await findReservationBucketBalance(
           trx,
-          scope,
+          reservationScope,
           reservation,
           bucket,
         )

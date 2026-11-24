@@ -110,6 +110,25 @@ function scopePredicate(scope: Scope): Scope {
   return { tenantId: scope.tenantId, organizationId: scope.organizationId }
 }
 
+// A reservation lookup by id must accept the actor's currently *selected*
+// organization even when the row itself lives under one of that org's
+// descendants (e.g. an admin viewing parent org P releases a reservation the
+// console shows for child org C). `ctx.organizationScope.filterIds` already
+// carries that descendant-expanded set for whichever org is selected
+// (`resolveOrganizationScope`, directory module). Only trust it when the
+// caller's resolved scope IS the selected org — an explicit cross-org claim
+// (input organizationId different from the session selection) keeps the
+// strict equality predicate, so a mismatched sibling org still 404s instead
+// of leaking another org's reservation (see the two-scope regression in
+// `wmsReservationService.integration.test.ts`).
+function reservationLookupPredicate(ctx: CommandRuntimeContext, scope: Scope): Record<string, unknown> {
+  const orgScope = ctx.organizationScope
+  if (orgScope && orgScope.selectedId === scope.organizationId && Array.isArray(orgScope.filterIds)) {
+    return { tenantId: scope.tenantId, organizationId: { $in: orgScope.filterIds } }
+  }
+  return scopePredicate(scope)
+}
+
 function resolveAuthorizedScope(
   ctx: CommandRuntimeContext,
   input: { tenantId: string; organizationId: string },
@@ -184,7 +203,7 @@ export async function requireReservation(
   const reservation = await findOneWithDecryption(
     em,
     InventoryReservation,
-    { id: reservationId, ...scopePredicate(resolvedScope), deletedAt: null },
+    { id: reservationId, ...reservationLookupPredicate(ctx, resolvedScope), deletedAt: null },
     lock ? { lockMode: LockMode.PESSIMISTIC_WRITE } : undefined,
     resolvedScope,
   )
@@ -615,6 +634,12 @@ export class WmsReservationService {
       if (reservation.status !== 'active') {
         throw new CrudHttpError(409, { error: 'invalid_reservation_state' })
       }
+      // The reservation (and the balances it charged) may live under a
+      // descendant org of the actor's input/selected scope (M1) — scope the
+      // balance lookups to the reservation's OWN tenant/org, never the
+      // caller's input scope, so a parent-selected release of a child-org
+      // reservation still finds the child-org balance.
+      const reservationScope: Scope = { tenantId: reservation.tenantId, organizationId: reservation.organizationId }
       const metadata = extractReservationMetadata(reservation)
       const buckets = Array.isArray(metadata.allocatedBuckets) ? (metadata.allocatedBuckets as AllocationBucket[]) : []
       const allocationState = metadata.allocationState ?? 'reserved'
@@ -622,7 +647,7 @@ export class WmsReservationService {
       for (const bucket of buckets) {
         const balance = await findReservationBucketBalance(
           innerTrx,
-          scope,
+          reservationScope,
           reservation,
           bucket,
         )
@@ -633,7 +658,7 @@ export class WmsReservationService {
             'quantityAllocated',
             toNumber(balance.quantityAllocated) - bucket.quantity,
             reservation.id,
-            scope,
+            reservationScope,
           )
         } else {
           enforceNonNegativeBalance(
@@ -641,7 +666,7 @@ export class WmsReservationService {
             'quantityReserved',
             toNumber(balance.quantityReserved) - bucket.quantity,
             reservation.id,
-            scope,
+            reservationScope,
           )
         }
         touchedBalances.push(balance)
