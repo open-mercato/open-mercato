@@ -11,9 +11,9 @@ Follow-up PRs (stacked): OSS engine packages (`.ai/specs/2026-11-24-oss-cache-pr
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Characterize stock cache selection, bootstrap fallback, readiness and purge | dispatch | todo | — |
-| 1 | 1.2 | Provider contract entry point with registration validation and settings resolution | group:A:capable | todo | — |
-| 1 | 1.3 | Cache service provider selection with lazy strategy handle and lifecycle | group:A:capable | todo | — |
+| 1 | 1.1 | Characterize stock cache selection, bootstrap fallback, readiness and purge | dispatch | done | d5750d82f1 |
+| 1 | 1.2 | Provider contract entry point with registration validation and settings resolution | group:A:capable | done | 0afb97ccb8 |
+| 1 | 1.3 | Cache service provider selection with lazy strategy handle and lifecycle | group:A:capable | done | 89a7cb1ca9 |
 | 1 | 1.4 | App cache-provider manifest generator and CLI manifest loader | dispatch:capable | todo | — |
 | 2 | 2.1 | Wire provider resolution into core bootstrap paths and app bootstrap | group:B:capable | todo | — |
 | 2 | 2.2 | Effective selection drives readiness, multi-instance guard and OAuth warning | group:B:capable | todo | — |
