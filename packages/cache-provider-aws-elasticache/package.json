@@ -1,0 +1,71 @@
+{
+  "name": "@open-mercato/cache-provider-aws-elasticache",
+  "version": "0.11.0",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE.md",
+  "description": "Open Mercato Enterprise cache provider for Amazon ElastiCache (node-based Valkey, cluster mode disabled, IAM authentication, TLS). Commercial package; requires Enterprise activation.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src",
+    "!src/**/__tests__",
+    "README.md",
+    "RUNBOOK.md",
+    "LICENSE.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node watch.mjs",
+    "test": "jest --config jest.config.cjs",
+    "test:containers": "OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --config jest.config.cjs --runInBand --testPathPatterns container",
+    "test:live": "jest --config jest.config.cjs --runInBand --testPathPatterns live",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "cache",
+    "aws",
+    "elasticache",
+    "valkey",
+    "open-mercato",
+    "cache-provider",
+    "enterprise"
+  ],
+  "peerDependencies": {
+    "@open-mercato/cache": ">=0.11.0"
+  },
+  "dependencies": {
+    "@aws-sdk/credential-provider-node": "^3.972.76",
+    "@open-mercato/cache-redis-protocol": "workspace:*",
+    "@smithy/signature-v4": "^5.6.12",
+    "ioredis": "^6.0.0",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@open-mercato/cache": "workspace:*",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.4.0",
+    "esbuild": "^0.28.2",
+    "jest": "^30.4.2",
+    "testcontainers": "^12.0.3",
+    "ts-jest": "^29.4.12",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/cache-provider-aws-elasticache"
+  }
+}

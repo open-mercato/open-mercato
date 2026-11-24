@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["jest", "node"],
+    "paths": {
+      "@open-mercato/cache-redis-protocol/test-support/*": ["../cache-redis-protocol/test-support/*"]
+    }
+  },
+  "include": ["src/**/*", "test-support/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
