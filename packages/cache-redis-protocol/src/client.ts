@@ -14,14 +14,22 @@ export type RespCredentials = {
 
 /**
  * Supplies fresh credentials (for example a short-lived cloud access token).
- * Called before the first connection, on every reconnect and, with
- * `refreshIntervalMs`, periodically to re-authenticate live connections.
+ * Called before the first connection, on every reconnect (of the client and of
+ * every cluster node), when a cluster node joins and, with `refreshIntervalMs`,
+ * on a schedule to re-authenticate live connections.
  */
 export type RespCredentialsProvider = () => Promise<RespCredentials>
 
+/**
+ * Re-`AUTH` schedule: a fixed interval, or a function evaluated after every
+ * refresh returning the delay until the next one (so a token-aware caller can
+ * re-authenticate before the current token expires).
+ */
+export type RespRefreshSchedule = number | (() => number)
+
 export type RespClientFactoryOptions = {
   credentialsProvider?: RespCredentialsProvider
-  refreshIntervalMs?: number
+  refreshIntervalMs?: RespRefreshSchedule
   /** Extra ioredis options merged last (managed-service specifics such as `dnsLookup` or `natMap`). */
   redisOptions?: RedisOptions
   clusterOptions?: Omit<ClusterOptions, 'redisOptions'>
@@ -33,6 +41,9 @@ export type RespManagedClient = {
   /** Stop credential refresh timers; the strategy calls this on close. */
   dispose(): void
 }
+
+/** Lower bound for a scheduled re-`AUTH`, so a misbehaving schedule cannot spin. */
+export const RESP_MIN_REFRESH_DELAY_MS = 100
 
 const RECONNECT_BASE_DELAY_MS = 100
 const RECONNECT_MAX_DELAY_MS = 2_000
@@ -84,13 +95,32 @@ function credentialTargets(client: RespClient): CredentialTarget[] {
   return [client]
 }
 
+async function authenticate(connection: Redis, credentials: RespCredentials): Promise<void> {
+  if (credentials.username !== undefined) await connection.auth(credentials.username, credentials.password)
+  else await connection.auth(credentials.password)
+}
+
 async function reauthenticate(client: RespClient, credentials: RespCredentials): Promise<void> {
   const connections: Redis[] = isClusterClient(client) ? client.nodes('all') : [client]
   await Promise.all(connections.map(async (connection) => {
     if (connection.status !== 'ready') return
-    if (credentials.username !== undefined) await connection.auth(credentials.username, credentials.password)
-    else await connection.auth(credentials.password)
+    await authenticate(connection, credentials)
   }))
+}
+
+function credentialsOf(options: RedisOptions): RespCredentials {
+  return { ...(options.username !== undefined ? { username: options.username } : {}), password: options.password ?? '' }
+}
+
+function sameCredentials(left: RespCredentials, right: RespCredentials): boolean {
+  return left.username === right.username && left.password === right.password
+}
+
+function nextRefreshDelay(schedule: RespRefreshSchedule | undefined): number | null {
+  if (schedule === undefined) return null
+  const raw = typeof schedule === 'function' ? schedule() : schedule
+  if (typeof schedule === 'number' && !(raw > 0)) return null
+  return Number.isFinite(raw) ? Math.max(RESP_MIN_REFRESH_DELAY_MS, raw) : null
 }
 
 /**
@@ -120,33 +150,72 @@ export function createIoredisClientFactory(settings: RespSettings, options: Resp
 
     client.on('error', (error: Error) => options.onError?.(error))
 
-    let refreshTimer: ReturnType<typeof setInterval> | null = null
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
+    let disposed = false
     const provider = options.credentialsProvider
     if (provider) {
+      const report = (error: unknown) => {
+        options.onError?.(error instanceof Error ? error : new Error('[internal] credential refresh failed'))
+      }
       const refresh = async (live: boolean) => {
         try {
           const credentials = await provider()
           for (const target of credentialTargets(client)) applyCredentials(target, credentials)
           if (live) await reauthenticate(client, credentials)
         } catch (error) {
-          options.onError?.(error instanceof Error ? error : new Error('[internal] credential refresh failed'))
+          report(error)
         }
       }
-      client.on('reconnecting', () => {
-        void refresh(false)
-      })
-      if (options.refreshIntervalMs !== undefined && options.refreshIntervalMs > 0) {
-        refreshTimer = setInterval(() => {
-          void refresh(true)
-        }, options.refreshIntervalMs)
+      const watched = new WeakSet<Redis>()
+      const watchConnection = (connection: Redis) => {
+        if (watched.has(connection)) return
+        watched.add(connection)
+        let connectedWith = credentialsOf(connection.options)
+        connection.on('connecting', () => {
+          connectedWith = credentialsOf(connection.options)
+        })
+        connection.on('reconnecting', () => {
+          provider().then((credentials) => applyCredentials(connection, credentials), report)
+        })
+        connection.on('ready', () => {
+          provider().then(async (credentials) => {
+            applyCredentials(connection, credentials)
+            if (sameCredentials(connectedWith, credentials) || connection.status !== 'ready') return
+            await authenticate(connection, credentials)
+            connectedWith = credentials
+          }).catch(report)
+        })
+      }
+      if (isClusterClient(client)) {
+        client.on('+node', (node: Redis) => {
+          watchConnection(node)
+          provider().then((credentials) => applyCredentials(node, credentials), report)
+        })
+        for (const node of client.nodes('all')) watchConnection(node)
+        client.on('reconnecting', () => {
+          void refresh(false)
+        })
+      } else {
+        watchConnection(client)
+      }
+      const schedule = () => {
+        if (disposed) return
+        const delay = nextRefreshDelay(options.refreshIntervalMs)
+        if (delay === null) return
+        refreshTimer = setTimeout(() => {
+          refreshTimer = null
+          void refresh(true).finally(schedule)
+        }, delay)
         refreshTimer.unref()
       }
+      schedule()
     }
 
     return {
       client,
       dispose() {
-        if (refreshTimer) clearInterval(refreshTimer)
+        disposed = true
+        if (refreshTimer) clearTimeout(refreshTimer)
         refreshTimer = null
       },
     }
