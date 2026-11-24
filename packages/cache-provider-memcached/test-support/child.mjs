@@ -4,6 +4,8 @@
 // CACHE_PROVIDER / CACHE_PROVIDER_NAMESPACE: normal provider selection.
 // MEMCACHED_CHILD_MODE: "serve" (conformance ops over stdio, default) or
 //   "workload" (MEMCACHED_WORKLOAD JSON, prints one JSON result line).
+// MEMCACHED_CHILD_STOCK_REDIS_URL: run the workload on the stock redis strategy
+//   instead (qualification reference only).
 import { pathToFileURL } from 'node:url'
 import { performance } from 'node:perf_hooks'
 
@@ -16,6 +18,7 @@ if (!bundlePath || !settingsJson) {
 
 const host = await import(pathToFileURL(bundlePath).href)
 const settings = JSON.parse(settingsJson)
+const stockRedisUrl = process.env.MEMCACHED_CHILD_STOCK_REDIS_URL
 let captured = null
 const registration = host.defineCacheProviderRegistration({
   id: 'open-mercato/memcached',
@@ -28,13 +31,15 @@ const registration = host.defineCacheProviderRegistration({
   }),
   settings: () => settings,
 })
-const resolved = await host.resolveCacheProvider([registration], { env: process.env })
-if (!resolved) {
+const resolved = stockRedisUrl ? null : await host.resolveCacheProvider([registration], { env: process.env })
+if (!stockRedisUrl && !resolved) {
   process.stderr.write('[internal] CACHE_PROVIDER did not select the memcached provider\n')
   process.exit(2)
 }
-const service = host.createCacheService({ provider: resolved })
-await service.healthcheck()
+const service = stockRedisUrl
+  ? host.createCacheService({ strategy: 'redis', redisUrl: stockRedisUrl })
+  : host.createCacheService({ provider: resolved })
+await service.healthcheck?.()
 
 function percentile(sorted, fraction) {
   if (sorted.length === 0) return null
