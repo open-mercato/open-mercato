@@ -1,5 +1,5 @@
 import protocols from 'infinispan/lib/protocols.js'
-import { guardDecodeWithMeta, patchHotRodProtocols, type HotRodDecoder } from '../hotrodPatch'
+import { guardDecodeNextEntries, guardDecodeWithMeta, patchHotRodProtocols, type HotRodDecoder } from '../hotrodPatch'
 
 type Protocol = { decodeWithMeta: () => HotRodDecoder }
 type ProtocolsModule = { resolve: (version: string, options: unknown) => Protocol }
@@ -56,5 +56,26 @@ describe('infinispan getWithMetadata decode guard', () => {
       expect(decoder({ status: 0 }, truncatedVersionedResponse())).toEqual({ continue: false })
     }
     expect(patchHotRodProtocols({})).toBe(false)
+  })
+
+  it('rethrows decoder errors that are not an incomplete frame', () => {
+    const broken: HotRodDecoder = () => { throw new Error('protocol violation') }
+    expect(() => guardDecodeWithMeta(broken)({ status: 0 }, completeVersionedResponse())).toThrow('protocol violation')
+    const outOfRange: HotRodDecoder = () => Buffer.alloc(1).readUInt32BE(0) as never
+    expect(guardDecodeWithMeta(outOfRange)({ status: 0 }, completeVersionedResponse())).toEqual({ continue: false })
+  })
+
+  it('refuses to patch a client whose protocols lack decodeWithMeta', () => {
+    expect(patchHotRodProtocols({ resolve: () => ({}) })).toBe(false)
+    expect(patchHotRodProtocols({ resolve: () => { throw new Error('unknown version') } })).toBe(false)
+  })
+
+  it('guards iterator pages against split frames as well', () => {
+    const truncatedTimestamp: HotRodDecoder = () => { throw new TypeError("Cannot read properties of undefined (reading 'length')") }
+    expect(guardDecodeNextEntries(truncatedTimestamp)({ status: 0 }, completeVersionedResponse())).toEqual({ continue: false })
+    const truncatedValue: HotRodDecoder = () => ({ continue: true, result: [{ key: 'a', value: 'x' }, { key: 'b', value: undefined }] })
+    expect(guardDecodeNextEntries(truncatedValue)({ status: 0 }, completeVersionedResponse())).toEqual({ continue: false })
+    const complete: HotRodDecoder = () => ({ continue: true, result: [{ key: 'a', value: 'x' }] })
+    expect(guardDecodeNextEntries(complete)({ status: 0 }, completeVersionedResponse())).toEqual({ continue: true, result: [{ key: 'a', value: 'x' }] })
   })
 })

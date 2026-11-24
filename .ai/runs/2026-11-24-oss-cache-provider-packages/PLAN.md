@@ -23,7 +23,13 @@ Branch: feat/oss-cache-provider-packages
 | 2 | 2.10 | Ignite real-engine qualification, packed install and evidence | dispatch | done | 6e66a0c5c4 |
 | 2 | 2.11 | Pin apache-ignite-client transitive dependencies | inline | done | dbfeb5ef85 |
 | 2 | 2.12 | Normalize container test scripts and record independent re-verification | inline | done | 559c66d81b |
-| 2 | 2.13 | Archive Delta into capabilities spec | inline | done | (this commit) |
+| 2 | 2.13 | Archive Delta into capabilities spec | inline | done | 96330f4764 |
+| 2 | 2.14-review-fix | Infinispan iterator/decoder guards and scope-tag-free v2 layout | inline | done | da6a563a2c |
+| 2 | 2.15-review-fix | RESP tag-set lifetime, clear ordering, stats and transport warnings | inline | done | 664a98063a |
+| 2 | 2.16-review-fix | Pin ioredis and align peer ranges | inline | done | 5e5fc09601 |
+| 2 | 2.17-review-fix | Root container qualification script and dated manual evidence | inline | done | c2dacdf29b |
+| 2 | 2.18-review-fix | Delete stale values before refusing oversize writes (Ignite, Memcached) | inline | done | 80b9eeda84 |
+| 2 | 2.19-review-fix | Token-aware RESP re-AUTH and cluster node credential refresh | inline | done | 8a2ea4041d |
 
 ## Goal
 

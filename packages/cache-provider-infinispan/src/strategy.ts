@@ -9,8 +9,10 @@ import {
   encodeTagShard,
   entryKey,
   entryKeyPrefix,
+  indexedTags,
   isMemberReclaimable,
   namespacePrefix,
+  scopeTagKeyPrefix,
   tagKeyPrefix,
   tagShardIndex,
   tagShardKey,
@@ -93,7 +95,7 @@ export function createInfinispanStrategy(options: InfinispanStrategyOptions): In
   const createWriteId = options.createWriteId ?? (() => randomBytes(9).toString('base64url'))
   const graceMs = config.indexPruneGraceMs
   const shards = config.tagIndexShards
-  const writeDeadlineMs = graceMs - config.commandTimeoutMs * 2
+  const writeDeadlineMs = graceMs - config.commandTimeoutMs * 4
   const healthKey = `${namespacePrefix(namespace)}health`
 
   async function readEntry(physicalKey: string): Promise<EntryRead> {
@@ -202,7 +204,7 @@ export function createInfinispanStrategy(options: InfinispanStrategyOptions): In
   }
 
   function exactPrunes(physicalKey: string, record: EntryRecord, into = new Map<string, Map<string, string | null>>()) {
-    for (const tag of record.tags) {
+    for (const tag of indexedTags(physicalKey, record.tags)) {
       const shardKey = tagShardKey(namespace, tag, tagShardIndex(physicalKey, shards), shards)
       const expected = into.get(shardKey) ?? new Map<string, string | null>()
       expected.set(physicalKey, record.writeId)
@@ -249,16 +251,48 @@ export function createInfinispanStrategy(options: InfinispanStrategyOptions): In
     return members
   }
 
+  async function removeScopedByPrefix(
+    keyPrefixes: string[],
+    matches: (record: EntryRecord) => boolean,
+    handled: ReadonlyMap<string, unknown>,
+    prunes: Map<string, Map<string, string | null>>,
+  ): Promise<number> {
+    const entryPrefix = entryKeyPrefix(namespace)
+    const pending: string[] = []
+    let removed = 0
+    const flush = async () => {
+      const batch = pending.splice(0, pending.length)
+      await mapLimit(batch, config.concurrency, async (physicalKey) => {
+        const outcome = await removeCurrent(physicalKey, matches)
+        if (outcome.removedRecord) {
+          removed += 1
+          exactPrunes(physicalKey, outcome.removedRecord, prunes)
+        }
+      })
+    }
+    await gateway.scan(async (storedKey) => {
+      if (!storedKey.startsWith(entryPrefix)) return
+      const physicalKey = storedKey.slice(entryPrefix.length)
+      if (handled.has(physicalKey) || !keyPrefixes.some((prefix) => physicalKey.startsWith(prefix))) return
+      pending.push(physicalKey)
+      if (pending.length >= config.iteratorBatchSize) await flush()
+    })
+    await flush()
+    return removed
+  }
+
   async function deleteByTags(tags: string[]): Promise<number> {
     const wanted = uniqueTags(tags)
     if (wanted.length === 0) return 0
     const wantedSet = new Set(wanted)
+    const matches = (record: EntryRecord) => record.tags.some((tag) => wantedSet.has(tag))
+    const scopePrefixes = wanted.map(scopeTagKeyPrefix).filter((prefix): prefix is string => prefix !== null)
     const candidates = await readTagMembers(wanted)
     const observedAt = now()
     const prunes = new Map<string, Map<string, string | null>>()
     let removed = 0
     await mapLimit(Array.from(candidates.entries()), config.concurrency, async ([physicalKey, observations]) => {
-      const outcome = await removeCurrent(physicalKey, (record) => record.tags.some((tag) => wantedSet.has(tag)))
+      const outcome = await removeCurrent(physicalKey, matches)
       if (outcome.removedRecord) {
         removed += 1
         exactPrunes(physicalKey, outcome.removedRecord, prunes)
@@ -272,6 +306,7 @@ export function createInfinispanStrategy(options: InfinispanStrategyOptions): In
         prunes.set(shardKey, expected)
       }
     })
+    if (scopePrefixes.length > 0) removed += await removeScopedByPrefix(scopePrefixes, matches, candidates, prunes)
     await pruneQuietly(prunes)
     return removed
   }
@@ -376,7 +411,7 @@ export function createInfinispanStrategy(options: InfinispanStrategyOptions): In
         payload,
       }
       const member: TagMember = { writeId: record.writeId, writtenAt, expiresAt: record.expiresAt }
-      await mapLimit(tags, config.concurrency, (tag) => addMember(tag, key, member))
+      await mapLimit(indexedTags(key, tags), config.concurrency, (tag) => addMember(tag, key, member))
       if (now() - writtenAt > writeDeadlineMs) {
         throw new CacheProviderError('timeout', `Cache provider "${PROVIDER_ID}" set exceeded its tag index write window`, { providerId: PROVIDER_ID })
       }

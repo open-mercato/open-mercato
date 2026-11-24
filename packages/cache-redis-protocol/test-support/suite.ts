@@ -157,7 +157,7 @@ export function defineRespProviderContainerSuite(options: RespProviderSuiteOptio
     })
 
     describe('engine-specific behaviour', () => {
-      it('stores entries under the hash-tagged layout with native TTL and no TTL on tag sets', async () => {
+      it('stores entries under the hash-tagged layout with native TTL on values and tag sets', async () => {
         const namespace = randomNamespace('layout')
         const service = createCacheService({ provider: await resolve(namespace) })
         try {
@@ -175,12 +175,41 @@ export function defineRespProviderContainerSuite(options: RespProviderSuiteOptio
           expect(stored.tags).toHaveLength(2)
           for (const tag of stored.tags) {
             expect(await context().admin.sismember(layout.tagKey(tag), resolvePhysicalCacheValueKey('k', null))).toBe(1)
-            expect(await context().admin.pttl(layout.tagKey(tag))).toBe(-1)
+            const tagTtl = await context().admin.pttl(layout.tagKey(tag))
+            expect(tagTtl).toBeGreaterThanOrEqual(pttl - 1_000)
+            expect(tagTtl).toBeLessThanOrEqual(60_000)
           }
         } finally {
           await service.clear()
           await service.close?.()
           await dropNamespace(context().admin, namespace)
+        }
+      })
+
+      it('keeps a tag set alive as long as its longest-lived member and persistent for members without TTL', async () => {
+        const namespace = randomNamespace('tagttl')
+        const layout = buildRespKeyLayout(namespace)
+        const tagKey = layout.tagKey('shared')
+        const strategy = await openStrategy(namespace)
+        try {
+          await strategy.set('long', 1, { tags: ['shared'], ttl: 60_000 })
+          await strategy.set('short', 2, { tags: ['shared'], ttl: 5_000 })
+          expect(await context().admin.pttl(tagKey)).toBeGreaterThan(50_000)
+          await strategy.set('long', 1, { tags: ['shared'], ttl: 120_000 })
+          expect(await context().admin.pttl(tagKey)).toBeGreaterThan(110_000)
+          await strategy.set('forever', 3, { tags: ['shared'] })
+          expect(await context().admin.pttl(tagKey)).toBe(-1)
+          await strategy.set('later', 4, { tags: ['shared'], ttl: 5_000 })
+          expect(await context().admin.pttl(tagKey)).toBe(-1)
+          expect(await strategy.deleteByTags(['shared'])).toBe(4)
+          expect(await context().admin.exists(tagKey)).toBe(0)
+
+          await strategy.set('brief', 5, { tags: ['brief'], ttl: 150 })
+          await sleep(500)
+          expect(await context().admin.exists(layout.tagKey('brief'))).toBe(0)
+        } finally {
+          await strategy.clear()
+          await strategy.close?.()
         }
       })
 

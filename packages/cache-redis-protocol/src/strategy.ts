@@ -4,7 +4,7 @@ import type { RespClient, RespManagedClient } from './client'
 import { isClusterClient } from './cluster'
 import { buildRespKeyLayout, RESP_LAYOUT_VERSION } from './layout'
 import type { RespKeyLayout } from './layout'
-import { DELETE_IF_UNCHANGED, REAP_TAG_MEMBERS, sha1Hex } from './scripts'
+import { DELETE_IF_UNCHANGED, REAP_TAG_MEMBERS, sha1Hex, WRITE_ENTRY } from './scripts'
 import type { RespScript } from './scripts'
 import { RESP_DEFAULTS } from './settings'
 
@@ -134,11 +134,11 @@ async function connectClient(client: RespClient, timeoutMs: number): Promise<voi
  * Layout (version 1), with `<ns>` the deployment namespace:
  * - `om:{<ns>}:v:<physicalKey>` holds the encoded entry `{ v, value, tags, expiresAt }`
  *   with a native `PX` TTL;
- * - `om:{<ns>}:t:<tag>` is a set of physical keys indexed under that tag.
+ * - `om:{<ns>}:t:<tag>` is a set of physical keys indexed under that tag, expiring
+ *   no earlier than its longest-lived member.
  *
  * The `{<ns>}` hash tag puts every key of a namespace in one cluster slot so a
- * value and its tag sets can be written in one MULTI and compared/deleted in one
- * script. The trade-off: one namespace never spreads across cluster shards.
+ * value and its tag sets can be written and compared/deleted in one script. The trade-off: one namespace never spreads across cluster shards.
  */
 export async function createRespCacheStrategy(
   clientFactory: RespStrategyClientFactory,
@@ -307,17 +307,11 @@ export async function createRespCacheStrategy(
         logger.warn('cache entry exceeds maxValueBytes; previous value removed and the write skipped', { bytes: size, limit: maxValueBytes })
         return
       }
-      await retryTryAgain(tryAgainAttempts, async () => {
-        const transaction = client.multi()
-        if (ttlMs !== null) transaction.set(valueKey, payload, 'PX', ttlMs)
-        else transaction.set(valueKey, payload)
-        for (const tag of tags) transaction.sadd(layout.tagKey(tag), key)
-        const results = await transaction.exec()
-        if (!results) throw new Error('[internal] RESP cache write transaction was discarded')
-        for (const [error] of results) {
-          if (error) throw error
-        }
-      })
+      await runScript(
+        WRITE_ENTRY,
+        [valueKey, ...tags.map((tag) => layout.tagKey(tag))],
+        [payload, ttlMs === null ? '' : String(ttlMs), key],
+      )
     },
 
     async has(key: string) {
@@ -348,9 +342,8 @@ export async function createRespCacheStrategy(
     },
 
     async clear() {
-      const removed = await unlinkAll(layout.valueScanPattern())
       await unlinkAll(layout.tagScanPattern())
-      return removed
+      return unlinkAll(layout.valueScanPattern())
     },
 
     async keys(pattern?: string) {
@@ -367,11 +360,11 @@ export async function createRespCacheStrategy(
     },
 
     async stats() {
-      const found = new Set<string>()
+      let size = 0
       await scanEach(layout.valueScanPattern(), async (valueKeys) => {
-        for (const valueKey of valueKeys) found.add(valueKey)
+        size += valueKeys.length
       })
-      return { size: found.size, expired: 0 }
+      return { size, expired: 0 }
     },
 
     async cleanup() {

@@ -66,7 +66,37 @@ end
 return removed
 `)
 
-export const RESP_SCRIPTS: ReadonlyArray<RespScript> = [DELETE_IF_UNCHANGED, REAP_TAG_MEMBERS]
+/**
+ * Write one entry and its tag memberships atomically. KEYS[1] is the value key,
+ * KEYS[2..] the tag keys; ARGV is `(payload, ttl ms or '' for no TTL, member)`.
+ * A tag set lives at least as long as its longest-lived member: a fresh set
+ * takes the entry TTL, an existing volatile set only ever extends, and a
+ * member without TTL makes the set persistent. Plain Lua instead of
+ * `PEXPIRE … GT` because KeyDB 6.3 (Redis 6.2 base) has no GT flag.
+ */
+export const WRITE_ENTRY = defineScript('om_cache_write_entry', `
+local ttl = tonumber(ARGV[2])
+if ttl then
+  redis.call('SET', KEYS[1], ARGV[1], 'PX', ttl)
+else
+  redis.call('SET', KEYS[1], ARGV[1])
+end
+for index = 2, #KEYS do
+  local tagKey = KEYS[index]
+  local current = redis.call('PTTL', tagKey)
+  redis.call('SADD', tagKey, ARGV[3])
+  if not ttl then
+    if current >= 0 then
+      redis.call('PERSIST', tagKey)
+    end
+  elseif current == -2 or (current >= 0 and current < ttl) then
+    redis.call('PEXPIRE', tagKey, ttl)
+  end
+end
+return 1
+`)
+
+export const RESP_SCRIPTS: ReadonlyArray<RespScript> = [DELETE_IF_UNCHANGED, REAP_TAG_MEMBERS, WRITE_ENTRY]
 
 export function sha1Hex(raw: Buffer | string): string {
   return createHash('sha1').update(raw).digest('hex')

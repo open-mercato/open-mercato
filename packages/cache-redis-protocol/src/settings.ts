@@ -113,3 +113,15 @@ export function redactRespSettings(settings: RespSettings): Record<string, unkno
     maxValueBytes: settings.maxValueBytes,
   }
 }
+
+export type RespTransportWarning = 'tls_verification_disabled' | 'credentials_over_plaintext'
+
+export function respTransportWarnings(
+  settings: Pick<RespSettings, 'tls' | 'password'>,
+  options: { externalCredentials?: boolean } = {},
+): RespTransportWarning[] {
+  const warnings: RespTransportWarning[] = []
+  if (settings.tls && settings.tls.rejectUnauthorized === false) warnings.push('tls_verification_disabled')
+  if (!settings.tls && (settings.password !== undefined || options.externalCredentials)) warnings.push('credentials_over_plaintext')
+  return warnings
+}

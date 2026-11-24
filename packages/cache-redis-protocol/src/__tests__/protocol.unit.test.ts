@@ -10,6 +10,8 @@ import {
   REAP_TAG_MEMBERS,
   redactRespSettings,
   respReconnectDelay,
+  respTransportWarnings,
+  WRITE_ENTRY,
 } from '../index'
 
 describe('RESP key layout', () => {
@@ -105,9 +107,19 @@ describe('RESP settings schema', () => {
   })
 })
 
+describe('RESP transport warnings', () => {
+  it('flags disabled certificate verification and credentials over plaintext', () => {
+    expect(respTransportWarnings({ tls: { rejectUnauthorized: false } })).toEqual(['tls_verification_disabled'])
+    expect(respTransportWarnings({ password: 'p' })).toEqual(['credentials_over_plaintext'])
+    expect(respTransportWarnings({}, { externalCredentials: true })).toEqual(['credentials_over_plaintext'])
+    expect(respTransportWarnings({ password: 'p', tls: { rejectUnauthorized: true } })).toEqual([])
+    expect(respTransportWarnings({})).toEqual([])
+  })
+})
+
 describe('RESP scripts and helpers', () => {
   it('publishes script digests matching their sources', () => {
-    for (const script of [DELETE_IF_UNCHANGED, REAP_TAG_MEMBERS]) {
+    for (const script of [DELETE_IF_UNCHANGED, REAP_TAG_MEMBERS, WRITE_ENTRY]) {
       expect(script.sha).toBe(createHash('sha1').update(script.source).digest('hex'))
     }
   })

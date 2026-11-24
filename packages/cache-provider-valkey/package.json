@@ -37,8 +37,7 @@
     "@open-mercato/cache": ">=0.11.0"
   },
   "dependencies": {
-    "@open-mercato/cache-redis-protocol": "workspace:*",
-    "ioredis": "^6.0.0"
+    "@open-mercato/cache-redis-protocol": "workspace:*"
   },
   "devDependencies": {
     "@open-mercato/cache": "workspace:*",

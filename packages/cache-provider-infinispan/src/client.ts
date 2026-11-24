@@ -109,7 +109,7 @@ export function buildHotRodClientOptions(config: InfinispanSettings): HotRodClie
 export type HotRodGateway = {
   run<T>(operation: string, body: (client: HotRodClient) => Promise<T>): Promise<T>
   getVersioned(operation: string, key: string): Promise<HotRodMetadataValue | undefined>
-  scan(visit: (key: string, value: unknown, version: Buffer | null) => Promise<void> | void): Promise<void>
+  scan(visit: (key: string, value: unknown) => Promise<void> | void): Promise<void>
   connect(): Promise<void>
   close(): Promise<void>
 }
@@ -214,13 +214,13 @@ export function createHotRodGateway(options: HotRodGatewayOptions): HotRodGatewa
     return { value: stored.value, version: stored.version }
   })
 
-  const scan = async (visit: (key: string, value: unknown, version: Buffer | null) => Promise<void> | void): Promise<void> => {
-    const iterator = await run('iterator open', (client) => client.iterator(config.iteratorBatchSize, { metadata: true }))
+  const scan = async (visit: (key: string, value: unknown) => Promise<void> | void): Promise<void> => {
+    const iterator = await run('iterator open', (client) => client.iterator(config.iteratorBatchSize))
     try {
       for (;;) {
         const step = await run('iterator next', () => iterator.next())
         if (step.done) break
-        if (typeof step.key === 'string') await visit(step.key, step.value, Buffer.isBuffer(step.version) ? step.version : null)
+        if (typeof step.key === 'string') await visit(step.key, step.value)
       }
     } finally {
       await withTimeout(iterator.close().catch(() => undefined), config.commandTimeoutMs).catch(() => undefined)

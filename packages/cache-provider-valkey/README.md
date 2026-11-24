@@ -8,7 +8,7 @@ Open Mercato cache provider (`open-mercato/valkey`) for **Valkey**, built on the
 yarn add @open-mercato/cache-provider-valkey
 ```
 
-Peer dependency: `@open-mercato/cache` (>= 0.11.0). Runtime dependencies: `@open-mercato/cache-redis-protocol` and `ioredis` 6.x only — no other provider package or engine client is pulled in.
+Peer dependency: `@open-mercato/cache` (>= 0.11.0). Runtime dependency: `@open-mercato/cache-redis-protocol` only (it pins the `ioredis` client exactly) — no other provider package or engine client is pulled in.
 
 ## Register and select
 
@@ -88,7 +88,7 @@ Valkey is BSD-3-Clause. `ioredis` (client) is MIT.
 
 - Native TTL: expired entries disappear, so `returnExpired` is not supported and `stats().expired` is always `0`.
 - One namespace lives in one hash slot (`om:{<namespace>}:…`); on a cluster it cannot spread over shards.
-- Tag sets have no TTL; members of expired entries are reaped by `cleanup()` and lazily by `deleteByTags()`.
+- Tag sets carry a native TTL no shorter than their longest-lived member (persistent while they hold a member written without TTL). Members of expired, overwritten or retagged entries are reaped by `cleanup()` (schedule it periodically) and lazily by `deleteByTags()`.
 - Oversize writes are dropped (with a warning) rather than stored or truncated.
 - After an engine restart without persistence the cache is empty; the same service reconnects (capped backoff, ≤ 2 s) without being recreated.
 - Commands fail fast while the endpoint is unreachable (bounded by `commandTimeoutMs` × `maxRetriesPerRequest`); the cache service surfaces those errors.
@@ -96,9 +96,11 @@ Valkey is BSD-3-Clause. `ioredis` (client) is MIT.
 
 ## Evidence
 
+Manual runs on a developer machine (macOS arm64, Docker Desktop), not CI. No CI job runs the container suites yet (see `packages/cache-redis-protocol/README.md` → *Proposed CI job*). Command: `yarn workspace @open-mercato/cache-provider-valkey test:containers` (or `yarn test:cache-providers:containers` from the repo root).
+
 | Image | Topology | Auth / TLS | Suite | Date |
 |---|---|---|---|---|
-| `valkey/valkey:8.1` (linux/arm64) | standalone | ACL user fenced to `~om:*`, default user off, TLS-only listener with throwaway CA | **32 passed / 0 failed / 32 total** container tests; unit (Docker-free default `yarn test`): 5 passed, container tests skipped there | 2026-11-24 |
+| `valkey/valkey:8.1` (linux/arm64) | standalone | ACL user fenced to `~om:*`, default user off, TLS-only listener with throwaway CA | **33 passed / 0 failed / 33 total** container tests; unit (Docker-free default `yarn test`): 5 passed, container tests skipped there | 2026-11-24 |
 
 Container suite (`OM_CACHE_PROVIDER_CONTAINER_TESTS=1 yarn workspace @open-mercato/cache-provider-valkey test:containers`, Testcontainers, real engine — no emulator, nothing skipped):
 
@@ -118,7 +120,8 @@ Container suite (`OM_CACHE_PROVIDER_CONTAINER_TESTS=1 yarn workspace @open-merca
 - ✅ cache provider conformance: valkey/valkey:8.1 · standalone · ACL + TLS > treats a corrupt stored value as a miss and recovers on rewrite
 - ✅ cache provider conformance: valkey/valkey:8.1 · standalone · ACL + TLS > crosses the batch boundary with 601 entries
 - ✅ cache provider conformance: valkey/valkey:8.1 · standalone · ACL + TLS > closes idempotently and a closed service reconnects or fails cleanly
-- ✅ engine-specific behaviour > stores entries under the hash-tagged layout with native TTL and no TTL on tag sets
+- ✅ engine-specific behaviour > stores entries under the hash-tagged layout with native TTL on values and tag sets
+- ✅ engine-specific behaviour > keeps a tag set alive as long as its longest-lived member and persistent for members without TTL
 - ✅ engine-specific behaviour > stays inside its namespace and ACL key fence
 - ✅ engine-specific behaviour > rejects wrong credentials without leaking them
 - ✅ engine-specific behaviour > requires TLS and verifies the server certificate
@@ -143,11 +146,11 @@ Two independent service instances (separate connections) through the tenant-awar
 
 | Operation | Count | p50 (ms) | p95 (ms) | max (ms) |
 |---|---|---|---|---|
-| `set` | 2000 | 0.289 | 0.406 | 1.772 |
-| `get` | 1800 | 0.114 | 0.168 | 1.442 |
-| `deleteByTags` | 200 | 0.701 | 1.372 | 3.877 |
+| `set` | 2000 | 0.302 | 0.497 | 2.786 |
+| `get` | 1800 | 0.138 | 0.233 | 2.228 |
+| `deleteByTags` | 200 | 0.81 | 1.446 | 3.132 |
 
-Throughput 8016 logical ops/s, 0 errors, 12.3 server commands per logical op (each service `set` writes a value and a metadata record; commands inside scripts are counted). Server command counts: srem=12990, sadd=11820, get=7577, del=4087, exec=4000, multi=4000, set=4000, evalsha=318, sscan=200, mget=197.
+Throughput 7233 logical ops/s, 0 errors, 15.05 server commands per logical op (each service `set` writes a value and a metadata record through one `EVALSHA`; commands inside scripts are counted, so the per-tag `PTTL`/`PEXPIRE` of the tag-set TTL rule add server work but no round trips). Server command counts: srem=13030, pttl=11838, sadd=11838, get=7519, evalsha=4314, del=4118, set=4000, pexpire=3158, sscan=200, mget=198. Manual run, 2026-11-24, same command as above.
 
 Accepted operating envelope for this profile: entries ≤ `maxValueBytes` (8 MiB default), tag sets up to the tested 601+ members per tag with `batchSize` 64–500, p95 budget ≈ 1 ms for `get`/`set` and ≈ 3 ms for a `deleteByTags` of ~20 entries on a local network.
 

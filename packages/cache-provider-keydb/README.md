@@ -8,7 +8,7 @@ Open Mercato cache provider (`open-mercato/keydb`) for **KeyDB**, built on the s
 yarn add @open-mercato/cache-provider-keydb
 ```
 
-Peer dependency: `@open-mercato/cache` (>= 0.11.0). Runtime dependencies: `@open-mercato/cache-redis-protocol` and `ioredis` 6.x only — no other provider package or engine client is pulled in.
+Peer dependency: `@open-mercato/cache` (>= 0.11.0). Runtime dependency: `@open-mercato/cache-redis-protocol` only (it pins the `ioredis` client exactly) — no other provider package or engine client is pulled in.
 
 ## Register and select
 
@@ -87,7 +87,7 @@ KeyDB is BSD-3-Clause. `ioredis` (client) is MIT. KeyDB upstream activity is low
 
 - Native TTL: expired entries disappear, so `returnExpired` is not supported and `stats().expired` is always `0`.
 - One namespace lives in one hash slot (`om:{<namespace>}:…`); on a cluster it cannot spread over shards.
-- Tag sets have no TTL; members of expired entries are reaped by `cleanup()` and lazily by `deleteByTags()`.
+- Tag sets carry a native TTL no shorter than their longest-lived member (persistent while they hold a member written without TTL). Members of expired, overwritten or retagged entries are reaped by `cleanup()` (schedule it periodically) and lazily by `deleteByTags()`.
 - Oversize writes are dropped (with a warning) rather than stored or truncated.
 - After an engine restart without persistence the cache is empty; the same service reconnects (capped backoff, ≤ 2 s) without being recreated.
 - Commands fail fast while the endpoint is unreachable (bounded by `commandTimeoutMs` × `maxRetriesPerRequest`); the cache service surfaces those errors.
@@ -95,9 +95,11 @@ KeyDB is BSD-3-Clause. `ioredis` (client) is MIT. KeyDB upstream activity is low
 
 ## Evidence
 
+Manual runs on a developer machine (macOS arm64, Docker Desktop), not CI. No CI job runs the container suites yet (see `packages/cache-redis-protocol/README.md` → *Proposed CI job*). Command: `yarn workspace @open-mercato/cache-provider-keydb test:containers` (or `yarn test:cache-providers:containers` from the repo root).
+
 | Image | Topology | Auth / TLS | Suite | Date |
 |---|---|---|---|---|
-| `eqalpha/keydb:arm64_v6.3.4` (linux/arm64) | standalone | ACL user fenced to `~om:*`, default user off, TLS-only listener with throwaway CA | **32 passed / 0 failed / 32 total** container tests; unit (Docker-free default `yarn test`): 5 passed, container tests skipped there | 2026-11-24 |
+| `eqalpha/keydb:arm64_v6.3.4` (linux/arm64) | standalone | ACL user fenced to `~om:*`, default user off, TLS-only listener with throwaway CA | **33 passed / 0 failed / 33 total** container tests; unit (Docker-free default `yarn test`): 5 passed, container tests skipped there | 2026-11-24 |
 
 Container suite (`OM_CACHE_PROVIDER_CONTAINER_TESTS=1 yarn workspace @open-mercato/cache-provider-keydb test:containers`, Testcontainers, real engine — no emulator, nothing skipped):
 
@@ -117,7 +119,8 @@ Container suite (`OM_CACHE_PROVIDER_CONTAINER_TESTS=1 yarn workspace @open-merca
 - ✅ cache provider conformance: eqalpha/keydb:arm64_v6.3.4 · standalone · ACL + TLS > treats a corrupt stored value as a miss and recovers on rewrite
 - ✅ cache provider conformance: eqalpha/keydb:arm64_v6.3.4 · standalone · ACL + TLS > crosses the batch boundary with 601 entries
 - ✅ cache provider conformance: eqalpha/keydb:arm64_v6.3.4 · standalone · ACL + TLS > closes idempotently and a closed service reconnects or fails cleanly
-- ✅ engine-specific behaviour > stores entries under the hash-tagged layout with native TTL and no TTL on tag sets
+- ✅ engine-specific behaviour > stores entries under the hash-tagged layout with native TTL on values and tag sets
+- ✅ engine-specific behaviour > keeps a tag set alive as long as its longest-lived member and persistent for members without TTL
 - ✅ engine-specific behaviour > stays inside its namespace and ACL key fence
 - ✅ engine-specific behaviour > rejects wrong credentials without leaking them
 - ✅ engine-specific behaviour > requires TLS and verifies the server certificate
@@ -142,11 +145,11 @@ Two independent service instances (separate connections) through the tenant-awar
 
 | Operation | Count | p50 (ms) | p95 (ms) | max (ms) |
 |---|---|---|---|---|
-| `set` | 2000 | 0.344 | 0.583 | 2.206 |
-| `get` | 1800 | 0.133 | 0.266 | 1.664 |
-| `deleteByTags` | 200 | 0.869 | 1.833 | 3.066 |
+| `set` | 2000 | 0.334 | 0.479 | 2.314 |
+| `get` | 1800 | 0.147 | 0.228 | 1.285 |
+| `deleteByTags` | 200 | 0.895 | 1.586 | 2.08 |
 
-Throughput 6483 logical ops/s, 0 errors, 12.26 server commands per logical op (each service `set` writes a value and a metadata record; commands inside scripts are counted). Server command counts: srem=12907, sadd=11832, get=7565, del=4032, multi=4000, set=4000, exec=4000, evalsha=308, sscan=200, mget=193.
+Throughput 6803 logical ops/s, 0 errors, 15.12 server commands per logical op (each service `set` writes a value and a metadata record through one `EVALSHA`; commands inside scripts are counted, so the per-tag `PTTL`/`PEXPIRE` of the tag-set TTL rule add server work but no round trips). Server command counts: srem=12992, sadd=11842, pttl=11842, get=7606, evalsha=4327, del=4070, set=4000, pexpire=3420, sscan=200, mget=193. Manual run, 2026-11-24, same command as above.
 
 Accepted operating envelope for this profile: entries ≤ `maxValueBytes` (8 MiB default), tag sets up to the tested 601+ members per tag with `batchSize` 64–500, p95 budget ≈ 1 ms for `get`/`set` and ≈ 3 ms for a `deleteByTags` of ~20 entries on a local network.
 

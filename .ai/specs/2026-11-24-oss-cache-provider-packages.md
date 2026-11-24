@@ -113,3 +113,4 @@ All packages are explicit opt-ins. Follow the shared coordinated cutover and rol
 ## Changelog
 
 - 2026-11-24 · Extracted independent OSS package work items and Docker gates from the extension spec after scope review.
+- 2026-11-24 · Review fixes: Infinispan layout `v2` stops indexing the host tenant scope tag (scope invalidation by bounded prefix scan, 5k-entry concurrent load test); RESP tag sets get a TTL bounded by their longest-lived member; Ignite and Memcached drop the previous copy before refusing an oversize write; container evidence is labelled as manual runs, with a root `test:cache-providers:containers` script and a proposed CI job awaiting maintainer approval.

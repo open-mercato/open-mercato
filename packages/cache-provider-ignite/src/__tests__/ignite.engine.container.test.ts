@@ -117,7 +117,7 @@ describeContainer('Apache Ignite 2.x engine behaviour (container)', () => {
     }
   }, 60_000)
 
-  it('stores large values under the limit and refuses oversize values without writing', async () => {
+  it('stores large values under the limit and refuses oversize values after dropping the previous copy', async () => {
     await withConformanceNamespace((namespace) => open(namespace, { maxValueBytes: 2 * 1024 * 1024 }), async (ctx) => {
       const service = await ctx.open()
       const tenant = ctx.tenant('size')
@@ -125,7 +125,11 @@ describeContainer('Apache Ignite 2.x engine behaviour (container)', () => {
         const large = 'ż'.repeat(400_000)
         await service.set('large', large, { tags: ['size'] })
         expect(await service.get('large')).toBe(large)
-        await expect(service.set('oversize', 'x'.repeat(3 * 1024 * 1024))).rejects.toBeInstanceOf(IgniteCacheValueTooLargeError)
+        await service.set('oversize', 'small')
+        expect(await service.get('oversize')).toBe('small')
+        const failure = await service.set('oversize', 'x'.repeat(3 * 1024 * 1024)).then(() => null, (error: unknown) => error)
+        expect(failure).toMatchObject({ name: 'CacheProviderError', code: 'unavailable' })
+        expect((failure as { originalError?: unknown }).originalError).toBeInstanceOf(IgniteCacheValueTooLargeError)
         expect(await service.get('oversize')).toBeNull()
         expect(await service.deleteByTags(['size'])).toBe(1)
       })

@@ -19,6 +19,8 @@ yarn add @open-mercato/cache-provider-ignite
 
 `@open-mercato/cache` (with the v1 provider host) is a peer dependency.
 
+**Also pin the client's transitive dependencies in your app.** `apache-ignite-client` declares `long` and `decimal.js` as `latest`. Add the `overrides` (npm) or `resolutions` (yarn) entries from [Supply-chain notes](#supply-chain-notes) to your app's `package.json`.
+
 ## Register the provider (`mercato.cache.ts`)
 
 Add the registration to `<app root>/mercato.cache.ts` (next to `package.json`), then run `yarn generate`.
@@ -68,7 +70,7 @@ The schema is strict: unknown keys are rejected, and errors report field paths o
 | `scanTimeoutMs` | default `120000` (1000–3600000) | Bound on one whole namespace scan. On expiry the call fails with code `timeout`. |
 | `mutationConcurrency` | default `16` (1–256) | Parallel conditional removals per scanned batch. |
 | `casAttempts` | default `8` (1–64) | Conditional-delete retries per entry before the call fails loudly. |
-| `maxValueBytes` | default `4 MiB` (1 KiB–256 MiB) | Larger records are refused with `IgniteCacheValueTooLargeError` (`code: 'value_too_large'`). Nothing is written. |
+| `maxValueBytes` | default `4 MiB` (1 KiB–256 MiB) | Larger records are refused with `IgniteCacheValueTooLargeError` (`code: 'value_too_large'`). The previous copy of the key is deleted first, so a stale value is never served after a failed overwrite. Through the cache service the error arrives as a sanitized `CacheProviderError` (`code: 'unavailable'`) with the original as its non-enumerable `originalError`. |
 
 `provider.redact(config)` returns endpoints and tuning values. It replaces the username, password, CA
 and key material with `[redacted]`/`configured`.
@@ -139,6 +141,7 @@ The persistent profile's data survives restarts until the template TTL or a name
   expirable independently of the values (page eviction, the template TTL) and could lose membership.
   The scan stays complete by construction.
 - **Corrupt records** are misses, dropped on read and on cleanup.
+- **Transport warnings:** `create` logs one warning when `tls.rejectUnauthorized` is `false` or when a password is configured without `tls` (credentials over plaintext). Both are accepted for local development only.
 - **Connections:** connect and command deadlines. A deadline, lost connection or missing cache discards
   the session and rebuilds it on next use, so it recovers after a node restart and recreates the
   namespace cache. `healthcheck()` is a single `containsKey` (non-mutating). `close()` is idempotent.
@@ -195,7 +198,11 @@ transitive dependencies for consumers. **Pin them in your app** and requalify wh
 
 The package depends on that client, plus `zod` for the settings schema.
 
+The package pins `apache-ignite-client` to exactly `1.0.0` because it relies on a **private field** of that client: `src/connection.ts` reaches `client._socket._socket._socket` to destroy the TCP/TLS socket when a deadline expires, since `disconnect()` alone does not abort a stalled socket. That access is wrapped (optional chaining inside a `try`), so a changed client shape loses only the forced close, not correctness. Re-check that path and requalify (`test:containers`, especially the paused-node tests) before changing the client version.
+
 ## Qualification evidence
+
+Manual runs on a developer machine, not CI. No CI job runs the container suites yet (see `packages/cache-redis-protocol/README.md` → *Proposed CI job*). Command: `yarn workspace @open-mercato/cache-provider-ignite test:containers` (or `yarn test:cache-providers:containers` from the repo root).
 
 Date: 2026-11-24 · Host: macOS arm64, Docker Desktop (8 GB VM) · Node.js 26.12.1 · Testcontainers 12 ·
 images pinned: `apacheignite/ignite:2.17.0-arm64`, reference `redis:7.4-alpine`.
@@ -204,12 +211,12 @@ images pinned: `apacheignite/ignite:2.17.0-arm64`, reference `redis:7.4-alpine`.
 |---|---|---|---|---|
 | `ignite.conformance.container.test.ts`: shared v1 conformance kit incl. independent process + corrupt value | `apacheignite/ignite:2.17.0-arm64` | 1 node, in-memory | none / none | 16/16 pass (repeated 4×) |
 | `ignite.secure.container.test.ts`: same kit + wrong password, untrusted CA, plaintext client | `apacheignite/ignite:2.17.0-arm64` | 1 node, native persistence | built-in auth (SQL-created user) / TLS 1.2+ with throwaway CA | 19/19 pass |
-| `ignite.engine.container.test.ts`: two-process retag race, two-process tag churn, foreign-cache fencing, non-mutating healthcheck, oversize values, paused node → command timeout → recovery, paused node → scan budget, restart → reconnect + cache recreated | `apacheignite/ignite:2.17.0-arm64` | 1 node | none / none | 9/9 pass |
+| `ignite.engine.container.test.ts`: two-process retag race, two-process tag churn, foreign-cache fencing, non-mutating healthcheck, oversize values (previous copy dropped), paused node → command timeout → recovery, paused node → scan budget, restart → reconnect + cache recreated | `apacheignite/ignite:2.17.0-arm64` | 1 node | none / none | 9/9 pass |
 | `ignite.limits.container.test.ts`: 3 s `CreatedExpiryPolicy` template reclaims un-TTL'd entries; 656 × 200 KiB into a 64 MiB region (336 survived) with no write failure | `apacheignite/ignite:2.17.0-arm64` | 1 node, 64 MiB region | none / none | 2/2 pass |
 | `ignite.packed.container.test.ts`: `npm pack` → install tarball into a fresh app outside the workspace (no sibling adapters) → registration + `resolveCacheProvider` → workflow on Ignite; consumer type-check | `apacheignite/ignite:2.17.0-arm64` | 1 node | none / none | 4/4 pass |
-| Unit (Docker-free, default `yarn test`): settings schema, redaction, key/record layout, CAS retry semantics on a fake transport | none | none | none | 39/39 pass |
+| Unit (Docker-free, default `yarn test`): settings schema, redaction, transport warnings, key/record layout, CAS retry semantics on a fake transport, oversize overwrite drops the previous copy | none | none | none | 41/41 pass |
 
-A full sequential run of all seven suites passed 89/89 in 42.8 s. Two earlier full runs that day
+Latest full run (2026-11-24, after the oversize and transport-warning changes): `test:containers` 50/50 in 33.6 s plus unit 41/41. An earlier full sequential run of all seven suites passed 89/89 in 42.8 s. Two earlier full runs that day
 failed: one with 20 failures, one with 2, all connect errors or timeouts. Both ran while another
 engine's container was using about 230% CPU on the same 8 GB Docker VM. Every suite passed when rerun
 on a quieter host. Treat the container suites as sensitive to Docker host contention.

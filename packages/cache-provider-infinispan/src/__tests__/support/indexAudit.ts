@@ -1,5 +1,5 @@
 import infinispan from 'infinispan'
-import { decodeEntryRecord, decodeTagShard, entryKeyPrefix, tagKeyPrefix, tagShardIndex, tagShardKey, type TagShard } from '../../layout'
+import { decodeEntryRecord, decodeTagShard, entryKeyPrefix, indexedTags, tagKeyPrefix, tagShardIndex, tagShardKey, type TagShard } from '../../layout'
 
 export type IndexAudit = { entries: number; shards: number; missingMemberships: string[] }
 
@@ -32,7 +32,7 @@ export async function auditTagIndex(
   }
   const missingMemberships: string[] = []
   for (const [physicalKey, record] of entries) {
-    for (const tag of record.tags) {
+    for (const tag of indexedTags(physicalKey, record.tags)) {
       const member = shardMap.get(tagShardKey(namespace, tag, tagShardIndex(physicalKey, shards), shards))?.get(physicalKey)
       if (!member || member.writeId !== record.writeId) missingMemberships.push(`${physicalKey} -> ${tag}`)
     }
