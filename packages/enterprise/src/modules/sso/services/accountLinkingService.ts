@@ -1,7 +1,7 @@
 import { EntityManager, type FilterQuery, type RequiredEntityData } from '@mikro-orm/postgresql'
 import { User, UserRole, Role } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { SsoConfig, SsoIdentity, SsoRoleGrant, ScimToken } from '../data/entities'
 import { emitSsoEvent } from '../events'
 import { EmailNotVerifiedError, SsoRolesRevokedError } from '../lib/errors'
@@ -96,7 +96,6 @@ export class AccountLinkingService {
     idpPayload: SsoIdentityPayload,
     tenantId: string,
   ): Promise<{ user: User; identity: SsoIdentity } | null> {
-    const emailHash = computeEmailHash(idpPayload.email)
     const user = await findOneWithDecryption(
       this.em,
       User,
@@ -105,7 +104,7 @@ export class AccountLinkingService {
         deletedAt: null,
         $or: [
           { email: idpPayload.email },
-          { emailHash },
+          { emailHash: { $in: emailHashLookupValues(idpPayload.email) } },
         ],
       } as FilterQuery<User>,
       {},
