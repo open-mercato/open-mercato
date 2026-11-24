@@ -131,6 +131,54 @@ async function openQuickAdd(page: Page, stageLabel: string): Promise<{ dialog: L
 test.describe('TC-CRM-STAGE-PROB-002: stage default probabilities in the deal UI', () => {
   test.setTimeout(240_000)
 
+  test('creates a deal without a prefilled probability after switching to a pipeline with no stages', async ({ page, request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = Date.now()
+    const enabledName = `QA STAGE-PROB-002 With stages ${stamp}`
+    const emptyName = `QA STAGE-PROB-002 Empty ${stamp}`
+    const fixtures: Fixtures = { pipelineIds: [], stageIds: [], dealIds: [] }
+
+    try {
+      await configurePipeline(request, token, fixtures, {
+        name: enabledName,
+        enabled: true,
+        stages: [{ label: `Negotiate ${stamp}`, defaultProbability: 60 }],
+      })
+      const empty = await configurePipeline(request, token, fixtures, { name: emptyName, enabled: true, stages: [] })
+
+      await login(page, 'admin')
+      await page.goto('/backend/customers/deals/create', { waitUntil: 'domcontentloaded' })
+      const pipelineField = page.locator('[data-crud-field-id="pipelineId"]')
+      await pickOption(page, pipelineField, enabledName)
+      await activate(page, page.getByRole('button', { name: 'More details', exact: true }))
+      const probability = page.locator('[data-crud-field-id="probability"] input')
+      await expect(probability).toHaveValue('60')
+
+      await pickOption(page, pipelineField, emptyName)
+      await expect(probability).toHaveValue('')
+      await expect(page.locator('[data-crud-field-id="pipelineStageId"]')).toBeHidden()
+      await page.locator('[data-crud-field-id="title"] input').fill(`QA STAGE-PROB-002 Create Empty ${stamp}`)
+
+      const saved = page.waitForResponse((response) =>
+        response.request().method() === 'POST' && new URL(response.url()).pathname === DEALS,
+      )
+      await page.getByRole('button', { name: 'Create deal', exact: true }).first().click()
+      const response = await saved
+      expect(response.status()).toBe(201)
+      const { id } = (await response.json()) as { id: string }
+      fixtures.dealIds.push(id)
+      expect(await readDeal(request, token, id)).toMatchObject({
+        pipelineId: empty.pipelineId,
+        pipelineStageId: null,
+        probability: null,
+      })
+    } finally {
+      for (const dealId of fixtures.dealIds) await deleteEntityIfExists(request, token, DEALS, dealId)
+      for (const stageId of fixtures.stageIds) await deleteEntityByBody(request, token, STAGES, stageId)
+      for (const pipelineId of fixtures.pipelineIds) await deleteEntityByBody(request, token, PIPELINES, pipelineId)
+    }
+  })
+
   test('deal forms and the Kanban quick-add prefill the stage default', async ({ page, request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
