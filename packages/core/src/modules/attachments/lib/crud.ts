@@ -1,4 +1,3 @@
-import { E } from '#generated/entities.ids.generated'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { Attachment } from '../data/entities'
 
@@ -16,5 +15,5 @@ export const attachmentCrudEvents: CrudEventsConfig<Attachment> = {
 }
 
 export const attachmentCrudIndexer: CrudIndexerConfig<Attachment> = {
-  entityType: E.attachments.attachment,
+  entityType: 'attachments:attachment',
 }

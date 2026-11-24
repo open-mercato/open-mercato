@@ -20,7 +20,7 @@ A team can work an address such as `orders@` while the employee who connected it
 
 - Accept an optional `SendAsUserOptions.authorizeNonOwner` callback as a fourth argument to `sendAsUser`. The existing DI registration exposes the same function. Call the policy only for a non-owner and pass the actor plus the resolved channel ID, owner ID, provider and channel type. Require an explicit `true` before continuing.
 - Resolve the active tenant and organization from the actor, and resolve the channel in that scope before consulting the caller. Refuse an ownerless channel before any policy or write. Preserve the existing status and mutation checks.
-- Read `channelMetadata.fromName` in the Gmail converter when an explicit name is absent. Collapse line breaks and tabs, escape quotes and backslashes using the existing helper, and carry the normalized name through both Gmail conversion passes. Use the address from the mailbox credentials at delivery. For a named send with older credentials that lack an address, fetch and validate the authenticated Gmail profile address. Fail the send if no mailbox address can be established.
+- Read `channelMetadata.fromName` in the Gmail converter when an explicit name is absent. Collapse line breaks and tabs, escape quotes and backslashes using the existing helper, and carry the normalized name through both Gmail conversion passes. Use the address from the mailbox credentials at delivery. When older credentials lack an address, use the authenticated Gmail profile’s validated address. Fail the send if no valid mailbox address can be established.
 
 ## Architecture
 
@@ -86,3 +86,4 @@ The authorization option is additive and defaults closed. Existing scoped lookup
 
 - 2026-11-21 — Proposed a per-call authorization policy and Gmail From display names for #7100.
 - 2026-11-21 — Added mailbox-profile resolution for legacy Gmail credentials and PostgreSQL scope coverage after implementation review.
+- 2026-11-24 — Reconciled prepared display-name metadata with Gmail’s authenticated address lookup for legacy channels.

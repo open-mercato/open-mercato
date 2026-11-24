@@ -265,6 +265,7 @@ describe('GmailChannelAdapter.sendMessage', () => {
         fromAddress: 'other@example.com',
       },
     })
+    expect(converted.metadata?.fromName).toBe('Chris "Orders" X-Injected: 1')
     const result = await adapter.sendMessage({
       content: converted.content,
       credentials: userCredentials,
@@ -328,20 +329,110 @@ describe('GmailChannelAdapter.sendMessage', () => {
     expect(mime).toContain('From: Chris at Orders <orders@example.com>')
   })
 
-  it('refuses a named send when the authenticated mailbox has no valid address', async () => {
-    const sendRawMessage = jest.fn()
-    setGmailApiClient(buildSendApi({
+  it('uses the stored mailbox address without requesting the Gmail profile', async () => {
+    const api = buildSendApi()
+    const getProfile = jest.spyOn(api, 'getProfile')
+    const sendRawMessage = jest.spyOn(api, 'sendRawMessage')
+    setGmailApiClient(api)
+
+    const result = await getGmailChannelAdapter().sendMessage(sendInput)
+
+    expect(result.status).toBe('sent')
+    expect(getProfile).not.toHaveBeenCalled()
+    expect(sendRawMessage.mock.calls[0][1].rawMessage?.toString('utf-8'))
+      .toContain('From: alice@gmail.com\r\n')
+  })
+
+  it('uses the authenticated Gmail profile for a legacy channel after outbound conversion', async () => {
+    const api = buildSendApi({
+      getProfile: async () => ({ emailAddress: 'legacy@example.com', historyId: '1' }),
+    })
+    const getProfile = jest.spyOn(api, 'getProfile')
+    const sendRawMessage = jest.spyOn(api, 'sendRawMessage')
+    setGmailApiClient(api)
+    const adapter = getGmailChannelAdapter()
+
+    const converted = await adapter.convertOutbound({
+      body: 'reply',
+      bodyFormat: 'text',
+      channelMetadata: {
+        to: ['bob@example.com'],
+        thread_id: 'gmail-thread:gm-thread-1',
+        inReplyTo: '<parent@example.com>',
+        fromAddress: 'other@example.com',
+      },
+    })
+
+    expect(converted.metadata).not.toHaveProperty('rawMessage')
+    expect(getProfile).not.toHaveBeenCalled()
+
+    const result = await adapter.sendMessage({
+      ...sendInput,
+      credentials: { accessToken: 'legacy-access' },
+      content: converted.content,
+      metadata: { ...converted.metadata, fromAddress: 'other@example.com' },
+    })
+
+    expect(result.status).toBe('sent')
+    expect(getProfile).toHaveBeenCalledWith({ accessToken: 'legacy-access' })
+    expect(sendRawMessage).toHaveBeenCalledTimes(1)
+    const [, sent] = sendRawMessage.mock.calls[0]
+    expect(sent.threadId).toBe('gm-thread-1')
+    expect(sent.rawMessage?.toString('utf-8')).toContain('From: legacy@example.com\r\n')
+    expect(sent.rawMessage?.toString('utf-8')).toContain('In-Reply-To: <parent@example.com>\r\n')
+  })
+
+  it.each([undefined, 'Chris at Orders'])('refuses a profile with no address (%s)', async (fromName) => {
+    const api = buildSendApi({
       getProfile: async () => ({ emailAddress: '', historyId: '1' }),
-      sendRawMessage,
-    }))
+    })
+    const sendRawMessage = jest.spyOn(api, 'sendRawMessage')
+    setGmailApiClient(api)
 
     const result = await getGmailChannelAdapter().sendMessage({
       ...sendInput,
-      credentials: { ...userCredentials, email: undefined },
-      metadata: { ...sendInput.metadata, fromName: 'Chris at Orders' },
+      credentials: { accessToken: 'legacy-access' },
+      metadata: { ...sendInput.metadata, fromName },
     })
 
-    expect(result).toMatchObject({ status: 'failed', error: '[internal] Gmail mailbox address unavailable' })
+    expect(result.status).toBe('failed')
+    expect(result.error).toMatch(/mailbox address/i)
+    expect(sendRawMessage).not.toHaveBeenCalled()
+  })
+
+  it('returns the reauth sentinel when a legacy mailbox profile lookup returns 401', async () => {
+    const api = buildSendApi({
+      getProfile: async () => {
+        throw new GmailApiError('Gmail profile request failed', 401, '')
+      },
+    })
+    const sendRawMessage = jest.spyOn(api, 'sendRawMessage')
+    setGmailApiClient(api)
+
+    const result = await getGmailChannelAdapter().sendMessage({
+      ...sendInput,
+      credentials: { accessToken: 'legacy-access' },
+    })
+
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('requires_reauth')
+    expect(sendRawMessage).not.toHaveBeenCalled()
+  })
+
+  it.each([503, 599])('lets the delivery worker retry a Gmail profile failure with status %i', async (status) => {
+    const api = buildSendApi({
+      getProfile: async () => {
+        throw new GmailApiError('Gmail profile request failed', status, 'Backend Error')
+      },
+    })
+    const sendRawMessage = jest.spyOn(api, 'sendRawMessage')
+    setGmailApiClient(api)
+
+    await expect(getGmailChannelAdapter().sendMessage({
+      ...sendInput,
+      credentials: { accessToken: 'legacy-access' },
+    })).rejects.toMatchObject({ status, transient: true })
+
     expect(sendRawMessage).not.toHaveBeenCalled()
   })
 
