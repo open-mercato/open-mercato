@@ -92,6 +92,20 @@ function metaKey(originalKey: string, prefixes: TenantPrefixes): string {
   return `${prefixes.keyPrefix}meta:${hashIdentifier(originalKey)}`
 }
 
+/**
+ * Physical key under which the tenant-aware wrapper stores a logical key's value
+ * record. Providers receive these already-scoped keys; exposed so provider
+ * conformance tooling can target a specific record without copying the layout.
+ */
+export function resolvePhysicalCacheValueKey(originalKey: string, tenantId: string | null): string {
+  const tenant = normalizeTenantKey(tenantId)
+  return storageKey(originalKey, {
+    keyPrefix: `tenant:${tenant}:key:`,
+    tagPrefix: `tenant:${tenant}:tag:`,
+    scopeTag: `tenant:${tenant}:tag:__scope__`,
+  })
+}
+
 function hashedTag(tag: string, prefixes: TenantPrefixes): string {
   return `${prefixes.tagPrefix}t:${hashIdentifier(tag)}`
 }

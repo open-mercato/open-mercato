@@ -19,6 +19,7 @@ Follow-up PRs (stacked): OSS engine packages (`.ai/specs/2026-11-24-oss-cache-pr
 | 2 | 2.2 | Effective selection drives readiness, multi-instance guard and OAuth warning | group:B:capable | done | a52600558c |
 | 2 | 2.3 | Post-generate structural purge through the generated manifest | group:B:capable | done | f7a9f0a178 |
 | 2 | 2.4 | Provider conformance kit and independently packed fixture provider | dispatch:capable | done | e873cea74a |
+| 2 | 2.4-review-fix | Export physical key layout and document provider decode and count contract | inline | done | (this commit) |
 | 2 | 2.5 | Provider-author and operator docs, env examples and template sync | dispatch | todo | — |
 | 2 | 2.6 | Archive Delta into capabilities spec | inline | todo | — |
 

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { createHash, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import type { CacheStrategy, CacheValue } from '../types'
 import { runWithCacheTenant } from '../tenantContext'
 import { validateCacheProviderNamespace } from '../provider'
+import { resolvePhysicalCacheValueKey } from '../service'
 import type { ConformanceRemoteOp, ConformanceRemoteProcess } from './remote'
 
 export type { ConformanceRemoteOp, ConformanceRemoteProcess } from './remote'
@@ -84,18 +85,12 @@ function randomTenant(label: string): string {
   return `${label}-${randomBytes(4).toString('hex')}`
 }
 
-function normalizeTenantSegment(tenant: string | null): string {
-  const value = typeof tenant === 'string' ? tenant.trim() : ''
-  if (!value) return 'global'
-  return value.replace(/[^a-zA-Z0-9._-]/g, '_')
-}
-
 /**
  * Physical value-record key the tenant-aware wrapper writes for a logical key.
  * Mirrors the wrapper layout in `service.ts`; used only to target corruption.
  */
 export function conformancePhysicalValueKey(key: string, tenant: string | null): string {
-  return `tenant:${normalizeTenantSegment(tenant)}:key:k:${createHash('sha256').update(key).digest('hex')}`
+  return resolvePhysicalCacheValueKey(key, tenant)
 }
 
 export function inCacheTenant<T>(tenant: string | null, fn: () => Promise<T>): Promise<T> {

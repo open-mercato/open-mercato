@@ -30,6 +30,10 @@ export type CacheProviderLogger = {
 
 export type CacheProviderHelpers = {
   encode(json: string): string | Buffer
+  /**
+   * Throws on a corrupt or truncated frame. Providers MUST catch the error,
+   * treat the record as a miss and may delete it; never surface it to callers.
+   */
   decode(raw: string | Buffer): string
   matchPattern(key: string, pattern: string): boolean
 }
@@ -51,6 +55,12 @@ export type CacheProviderDefinition<TConfig> = {
   id: string
   settings: CacheProviderSettingsSchema<TConfig>
   capability(config: TConfig): CacheProviderCapability
+  /**
+   * Returns a base strategy over already tenant-scoped physical keys. The host
+   * wrapper stores two records per logical entry (value + metadata, both with
+   * the same tags), so `deleteByTags`, `cleanup` and `clear` MUST count each
+   * removed physical record; the host halves the total into logical entries.
+   */
   create(config: TConfig, context: CacheProviderHostContext): CacheStrategy | Promise<CacheStrategy>
   redact?(config: TConfig): Record<string, unknown>
 }
