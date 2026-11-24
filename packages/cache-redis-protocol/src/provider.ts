@@ -9,7 +9,7 @@ import { createIoredisClientFactory } from './client'
 import type { RespClientFactoryOptions } from './client'
 import { detectRespServer } from './server'
 import type { RespServerEngine } from './server'
-import { redactRespSettings } from './settings'
+import { redactRespSettings, respTransportWarnings } from './settings'
 import type { RespSettings } from './settings'
 import { createRespCacheStrategy } from './strategy'
 
@@ -22,6 +22,11 @@ export type RespCacheProviderOptions<TConfig extends RespSettings> = {
 }
 
 const ERROR_LOG_INTERVAL_MS = 30_000
+
+const TRANSPORT_WARNING_MESSAGES = {
+  tls_verification_disabled: 'TLS server certificate verification is disabled (tls.rejectUnauthorized: false); the connection is open to interception',
+  credentials_over_plaintext: 'credentials are sent over a plaintext connection; configure tls',
+} as const
 
 /**
  * Build everything a RESP cache provider definition needs except `apiVersion`,
@@ -39,6 +44,9 @@ export function createRespCacheProvider<TConfig extends RespSettings>(
     async create(config: TConfig, context: CacheProviderHostContext): Promise<CacheStrategy> {
       let lastErrorLoggedAt = 0
       const extra = options.clientOptions ? options.clientOptions(config, context) : {}
+      for (const warning of respTransportWarnings(config, { externalCredentials: extra.credentialsProvider !== undefined })) {
+        context.logger.warn(TRANSPORT_WARNING_MESSAGES[warning])
+      }
       const factory = createIoredisClientFactory(config, {
         ...extra,
         onError: (error) => {
