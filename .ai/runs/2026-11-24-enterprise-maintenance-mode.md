@@ -94,11 +94,11 @@ Spec PR: #9434 (merged)
 - [x] 2.5 CLI on/off/status/drain with exit-code tests — 327bb2159d
 - [x] 2.6 Heartbeats, admission accounting, drain and coordinator holds with tests — 5d39a2014e
 - [x] 2.7 Status endpoint, bypass form, overlay and banner widgets, i18n — bf7ad6cc6d
-- [ ] 2.8 Integration tests
+- [x] 2.8 Integration tests — e459fc85c1
 
 ### Phase 3: Key rotation integration
 
-- [ ] 3.1 Wrap audited rotation entry points with withMaintenanceHold
-- [ ] 3.2 Add --enter-maintenance and --exit-maintenance flags
-- [ ] 3.3 Rotation maintenance unit tests
-- [ ] 3.4 UPGRADE_NOTES, rotation docs and spec changelog
+- [x] 3.1 Wrap audited rotation entry points with withMaintenanceHold — 2aea797e5e
+- [x] 3.2 Add --enter-maintenance and --exit-maintenance flags — 2aea797e5e
+- [x] 3.3 Rotation maintenance unit tests — 61aebd0733
+- [x] 3.4 UPGRADE_NOTES, rotation docs and spec changelog — 16a5509495
