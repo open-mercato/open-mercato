@@ -282,6 +282,7 @@ type EffectiveCacheSelection =
   | { kind: 'provider'; provider: ResolvedCacheProvider }
 
 const DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS = 10_000
+const DEFAULT_PROVIDER_RETRY_COOLDOWN_MS = 1_000
 const REQUIRED_PROVIDER_STRATEGY_METHODS = [
   'get',
   'set',
@@ -338,6 +339,12 @@ function resolveProviderConnectTimeoutMs(): number {
   const raw = process.env.CACHE_PROVIDER_CONNECT_TIMEOUT_MS
   const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS
+}
+
+function resolveProviderRetryCooldownMs(): number {
+  const raw = process.env.CACHE_PROVIDER_RETRY_COOLDOWN_MS
+  const parsed = raw !== undefined && raw.trim().length > 0 ? Number(raw) : Number.NaN
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_PROVIDER_RETRY_COOLDOWN_MS
 }
 
 function isProviderStrategy(value: unknown): value is ProviderStrategy {
@@ -415,10 +422,13 @@ function createLazyProviderStrategy(
   provider: ResolvedCacheProvider,
   context: CacheProviderHostContext,
   timeoutMs: number,
+  retryCooldownMs: number,
 ): ProviderStrategy {
   let active: ProviderStrategy | null = null
   let pending: Promise<ProviderStrategy> | null = null
   let closing: Promise<void> | null = null
+  let closed = false
+  let lastFailure: { error: CacheProviderError; at: number } | null = null
   let generation = 0
 
   const sanitize = (error: unknown, operation: ProviderOperation): CacheProviderError =>
@@ -428,15 +438,12 @@ function createLazyProviderStrategy(
     })
 
   const ensure = async (operation: ProviderOperation): Promise<ProviderStrategy> => {
-    if (closing) {
-      try {
-        await closing
-      } catch (error) {
-        throw sanitize(error, 'close')
-      }
+    if (closed) {
+      throw new CacheProviderError('unavailable', `Cache provider "${provider.id}" is closed`, { providerId: provider.id })
     }
     if (active) return active
     if (!pending) {
+      if (lastFailure && Date.now() - lastFailure.at < retryCooldownMs) throw lastFailure.error
       const attemptGeneration = generation
       const attempt: Promise<ProviderStrategy> = connectProviderStrategy(provider, context, timeoutMs).then(
         async (strategy) => {
@@ -445,11 +452,15 @@ function createLazyProviderStrategy(
             throw new CacheProviderError('unavailable', `Cache provider "${provider.id}" was closed during initialization`, { providerId: provider.id })
           }
           active = strategy
+          lastFailure = null
           if (pending === attempt) pending = null
           return strategy
         },
         (error: unknown) => {
           if (pending === attempt) pending = null
+          if (attemptGeneration === generation) {
+            lastFailure = { error: sanitize(error, operation), at: Date.now() }
+          }
           throw error
         },
       )
@@ -475,8 +486,10 @@ function createLazyProviderStrategy(
     if (!closing) {
       const current = active
       const inflight = pending
+      closed = true
       active = null
       pending = null
+      lastFailure = null
       generation += 1
       closing = (async () => {
         if (inflight) await inflight.catch(() => undefined)
@@ -487,9 +500,7 @@ function createLazyProviderStrategy(
             throw sanitize(error, 'close')
           }
         }
-      })().finally(() => {
-        closing = null
-      })
+      })()
     }
     return closing
   }
@@ -527,7 +538,12 @@ function createProviderTenantAwareStrategy(provider: ResolvedCacheProvider, opti
     defaultTtl: resolveDefaultTtl(options),
     codec: resolveCodecOptions(options),
   })
-  const lazyStrategy = createLazyProviderStrategy(provider, context, resolveProviderConnectTimeoutMs())
+  const lazyStrategy = createLazyProviderStrategy(
+    provider,
+    context,
+    resolveProviderConnectTimeoutMs(),
+    resolveProviderRetryCooldownMs(),
+  )
   return createTenantAwareWrapper(lazyStrategy, false)
 }
 
