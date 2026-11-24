@@ -38,7 +38,7 @@ export async function POST(req: Request) {
       challengeId,
       methodType,
       { request: req },
-      { userId: context.auth.sub },
+      { userId: context.auth.sub, tenantId: context.auth.tenantId ?? null, sessionId: context.auth.sid ?? null },
     )
     return NextResponse.json({ ok: true, ...(prepared.clientData ? { clientData: prepared.clientData } : {}) })
   } catch (error) {

@@ -1,5 +1,14 @@
 # Upgrade Notes
 
+## Durable staff login events (#8106)
+
+With `OM_AUTH_SIGN_IN_DURABLE_EVENTS=true`, staff password sign-in emits `auth.login.success` or `auth.login.failed` with an attempt UUID and event timestamp. Events retain their IDs and existing fields and add optional trusted-proxy IP and bounded user-agent fields. Known-account failures include resolved tenant, organization and user IDs. The wrong-role path adds the `role_denied` failure reason. The setting defaults to false, preserving legacy payloads and delivery on upgrade.
+
+Deploy the events worker and idempotent persistent consumers ahead of the producer. Persistent login subscribers run through queue dispatch in both single-delivery modes. They can run after the HTTP response and can be retried. Use the tenant and `attemptId` together as an idempotency key. Non-persistent subscribers retain inline delivery. Monitor oldest-job age, failed jobs and queue throughput after rollout.
+
+Before enabling the setting on the app, review exact and wildcard webhook subscriptions and approve the expanded payload for each recipient. Protect queue, webhook and backup storage as personal data, restrict access, and configure age-based cleanup to match the sign-in retention window. For removal or rollback, drain authorized work and purge expired or erased attempts from pending and failed jobs, webhook deliveries and recipient copies. Suppress replay for erased identities. Disable the setting to restore legacy delivery. Already queued payloads remain in place until processed or purged.
+
+
 ## CRUD factory security and query correctness bundle
 
 These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.

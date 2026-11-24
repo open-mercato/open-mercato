@@ -192,7 +192,7 @@ describe('security auth/login api interceptor', () => {
     )
 
     expect(result).toEqual({})
-    expect(mockReportError).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), { module: 'security', code: 'security.sign_in_mfa_claims_invalid' })
   })
 
   test('fails closed when the MFA verification service is unavailable', async () => {
@@ -298,7 +298,33 @@ describe('security auth/login api interceptor', () => {
     expect(result).toEqual({})
     expect(createChallenge).not.toHaveBeenCalled()
     expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
-    expect(mockLoggerWarn).not.toHaveBeenCalled()
+    expect(mockLoggerWarn).toHaveBeenCalledWith('Unable to record sign-in MFA outcome', { code: 'security.sign_in_mfa_claims_invalid' })
+  })
+
+  test('records emergency bypass against the signed login attempt only', async () => {
+    if (!interceptor?.after) throw new Error('[internal] Expected security auth/login interceptor')
+    process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+    const identity = {
+      sub: '1c092754-22ff-44fb-928a-468f8fbfa13d',
+      tenantId: 'f03068a4-fa18-4b32-8b9e-83be6e08199b',
+      sid: '51b2056b-e8a9-434c-a63d-1ee9fd58f624',
+    }
+    const createChallenge = jest.fn() as CreateChallengeMock
+    const execute = jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{ status: 'bypassed' }])
+    const transaction = { execute }
+    const em = { transactional: (write: (manager: typeof transaction) => Promise<void>) => write(transaction) }
+
+    const result = await interceptor.after(
+      { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
+      { statusCode: 200, body: { ok: true, token: signJwt(identity) }, headers: {} },
+      { ...buildContext(createChallenge), em: em as unknown as InterceptorContext['em'] },
+    )
+
+    expect(result).toEqual({})
+    expect(createChallenge).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenNthCalledWith(2, expect.stringContaining('insert into security_sign_in_mfa_receipts'), [
+      identity.tenantId, identity.sub, identity.sid, null, 'bypassed', null,
+    ])
   })
 
   test('keeps the emergency bypass working when the verification service is unavailable', async () => {
@@ -351,6 +377,6 @@ describe('security auth/login api interceptor', () => {
 
     expect(result.replace).toBeDefined()
     expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
-    expect(mockLoggerWarn).not.toHaveBeenCalled()
+    expect(mockLoggerWarn).toHaveBeenCalledWith('Unable to record sign-in MFA outcome', { code: 'security.sign_in_mfa_claims_invalid' })
   })
 })

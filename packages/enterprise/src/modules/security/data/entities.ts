@@ -1,4 +1,4 @@
-import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
+import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import {
   ChallengeMethod,
   EnforcementScope,
@@ -207,6 +207,7 @@ export class SudoSession {
 
 @Entity({ tableName: 'mfa_challenges' })
 @Index({ name: 'idx_mfa_challenges_lookup', properties: ['id', 'expiresAt'] })
+@Unique({ name: 'mfa_challenges_tenant_sign_in_attempt_unique', properties: ['tenantId', 'signInAttemptId'] })
 export class MfaChallenge {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -216,6 +217,9 @@ export class MfaChallenge {
 
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
+
+  @Property({ name: 'sign_in_attempt_id', type: 'uuid', nullable: true })
+  signInAttemptId?: string | null
 
   @Property({ name: 'otp_code_hash', type: 'text', nullable: true })
   otpCodeHash?: string | null
@@ -240,4 +244,166 @@ export class MfaChallenge {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+}
+
+export type SignInResult = 'success' | 'failure'
+export type SignInDeviceType = 'desktop' | 'mobile' | 'tablet' | 'bot' | 'unknown'
+export type SignInMfaReceiptStatus = 'not_required' | 'enrollment_required' | 'bypassed' | 'pending' | 'verified'
+export type SignInMfaStatus = SignInMfaReceiptStatus | 'unknown'
+export type SignInNotificationIntentStatus = 'pending' | 'delivered' | 'suppressed'
+
+@Entity({ tableName: 'security_sign_in_attempts' })
+@Unique({ name: 'sec_sign_in_attempt_source_unique', properties: ['tenantId', 'sourceAttemptId'] })
+@Index({ name: 'sec_sign_in_attempt_tenant_occurred', properties: ['tenantId', 'occurredAt'] })
+@Index({ name: 'sec_sign_in_attempt_tenant_user_occurred', properties: ['tenantId', 'userId', 'occurredAt'] })
+@Index({ name: 'sec_sign_in_attempt_tenant_ip_hash', properties: ['tenantId', 'ipHash'] })
+@Index({ name: 'sec_sign_in_attempt_occurred', properties: ['occurredAt'] })
+export class SignInAttempt {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'source_attempt_id', type: 'uuid' })
+  sourceAttemptId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'user_id', type: 'uuid', nullable: true })
+  userId?: string | null
+
+  @Property({ type: 'text' })
+  email!: string
+
+  @Property({ name: 'email_hash', type: 'text' })
+  emailHash!: string
+
+  @Property({ type: 'text' })
+  result!: SignInResult
+
+  @Property({ type: 'text', nullable: true })
+  reason?: string | null
+
+  @Property({ name: 'ip_address', type: 'text', nullable: true })
+  ipAddress?: string | null
+
+  @Property({ name: 'ip_hash', type: 'text', nullable: true })
+  ipHash?: string | null
+
+  @Property({ name: 'user_agent', type: 'text', nullable: true })
+  userAgent?: string | null
+
+  @Property({ name: 'browser_name', type: 'text', nullable: true })
+  browserName?: string | null
+
+  @Property({ name: 'browser_major', type: 'text', nullable: true })
+  browserMajor?: string | null
+
+  @Property({ name: 'os_name', type: 'text', nullable: true })
+  osName?: string | null
+
+  @Property({ name: 'device_type', type: 'text' })
+  deviceType!: SignInDeviceType
+
+  @Property({ name: 'device_key', type: 'text' })
+  deviceKey!: string
+
+  @Property({ name: 'is_new_device', type: 'boolean', default: false })
+  isNewDevice = false
+
+  @Property({ name: 'mfa_status', type: 'text', nullable: true })
+  mfaStatus?: SignInMfaStatus | null
+
+  @Property({ name: 'occurred_at', type: Date })
+  occurredAt!: Date
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'security_known_devices' })
+@Unique({ name: 'sec_known_device_identity_unique', properties: ['tenantId', 'userId', 'deviceKey'] })
+@Index({ name: 'sec_known_device_last_seen', properties: ['lastSeenAt'] })
+export class KnownDevice {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'device_key', type: 'text' })
+  deviceKey!: string
+
+  @Property({ name: 'first_seen_at', type: Date })
+  firstSeenAt!: Date
+
+  @Property({ name: 'last_seen_at', type: Date })
+  lastSeenAt!: Date
+}
+
+@Entity({ tableName: 'security_sign_in_mfa_receipts' })
+@Unique({ name: 'sec_sign_in_mfa_receipt_source_unique', properties: ['tenantId', 'sourceAttemptId'] })
+@Unique({ name: 'sec_sign_in_mfa_receipt_challenge_unique', properties: ['tenantId', 'challengeId'] })
+@Index({ name: 'sec_sign_in_mfa_receipt_created', properties: ['createdAt'] })
+export class SignInMfaReceipt {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'source_attempt_id', type: 'uuid' })
+  sourceAttemptId!: string
+
+  @Property({ name: 'challenge_id', type: 'uuid', nullable: true })
+  challengeId?: string | null
+
+  @Property({ type: 'text' })
+  status!: SignInMfaReceiptStatus
+
+  @Property({ name: 'verified_at', type: Date, nullable: true })
+  verifiedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'security_sign_in_notification_intents' })
+@Unique({ name: 'sec_sign_in_notification_device_unique', properties: ['tenantId', 'knownDeviceId'] })
+@Index({ name: 'sec_sign_in_notification_status_created', properties: ['status', 'createdAt'] })
+export class SignInNotificationIntent {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'source_attempt_id', type: 'uuid' })
+  sourceAttemptId!: string
+
+  @Property({ name: 'known_device_id', type: 'uuid' })
+  knownDeviceId!: string
+
+  @Property({ type: 'text' })
+  status!: SignInNotificationIntentStatus
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'delivered_at', type: Date, nullable: true })
+  deliveredAt?: Date | null
 }

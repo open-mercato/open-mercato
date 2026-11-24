@@ -22,6 +22,11 @@ const mockEm = {
   create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ id: 'challenge-1', ...data })),
   persist: jest.fn(),
   flush: jest.fn(async () => undefined),
+  execute: jest.fn(async (statement: string, parameters: unknown[]) =>
+    statement.startsWith('insert into security_sign_in_mfa_receipts') ? [{ status: parameters[4] }] : []),
+  transactional<T>(work: (manager: typeof mockEm) => Promise<T>) {
+    return work(mockEm)
+  },
 }
 const mockAuthService = {
   findUsersByEmail: jest.fn(async () => [{
@@ -40,6 +45,7 @@ const mockContainer = {
     if (name === 'authService') return mockAuthService
     if (name === 'em') return mockEm
     if (name === 'eventBus') return { emitEvent: async () => undefined }
+    if (name === 'rateLimiterService') return undefined
     if (name === 'mfaVerificationService' && !serviceUnavailable) return mfaService
     throw new Error('[internal] Service unavailable')
   },
@@ -87,20 +93,23 @@ async function expectDenied(response: Response, status = 500) {
   expect(response.headers.get('set-cookie')).toBeNull()
   expect(mockAuthService.deleteSessionById).toHaveBeenCalledTimes(1)
   expect(mockAuthService.deleteSessionById).toHaveBeenCalledWith(sessionId)
-  expect(mockEmitAuthEvent).not.toHaveBeenCalledWith('auth.login.success', expect.anything())
+  expect(mockEmitAuthEvent).not.toHaveBeenCalledWith('auth.login.success', expect.anything(), expect.anything())
   expect(mockEmitAuthEvent).toHaveBeenCalledWith(
     'auth.login.failed',
     expect.objectContaining({ email: 'mfa-test@example.com', reason: 'after_interceptor_failed' }),
+    expect.objectContaining({ persistent: true, skipPersistentSubscribersInline: true }),
   )
 }
 
 describe('login route with the registered MFA interceptor and verification service', () => {
+  const originalDurableEvents = process.env.OM_AUTH_SIGN_IN_DURABLE_EVENTS
   const originalJwtSecret = process.env.JWT_SECRET
   const originalBypass = process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
 
   beforeEach(() => {
     jest.clearAllMocks()
     jest.useFakeTimers()
+    process.env.OM_AUTH_SIGN_IN_DURABLE_EVENTS = 'true'
     process.env.JWT_SECRET = 'login-mfa-integration-test-secret'
     delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
     serviceUnavailable = false
@@ -130,10 +139,24 @@ describe('login route with the registered MFA interceptor and verification servi
     registerApiInterceptors([])
     jest.clearAllTimers()
     jest.useRealTimers()
+    if (originalDurableEvents === undefined) delete process.env.OM_AUTH_SIGN_IN_DURABLE_EVENTS
+    else process.env.OM_AUTH_SIGN_IN_DURABLE_EVENTS = originalDurableEvents
     if (originalJwtSecret === undefined) delete process.env.JWT_SECRET
     else process.env.JWT_SECRET = originalJwtSecret
     if (originalBypass === undefined) delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
     else process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = originalBypass
+  })
+
+  test('preserves the MFA challenge if only its audit receipt fails', async () => {
+    mockEm.execute.mockRejectedValueOnce(new Error('audit storage unavailable'))
+    const response = await login(false)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ ok: true, mfa_required: true, challenge_id: 'challenge-1' })
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+      module: 'security',
+      code: 'security.sign_in_mfa_receipt_failed',
+    })
   })
 
   test.each([false, true])('denies a method lookup failure with remember=%s', async (remember) => {
@@ -203,7 +226,7 @@ describe('login route with the registered MFA interceptor and verification servi
     expect(body.refreshToken).toBe('provisional-refresh')
     expect(mockEm.find).not.toHaveBeenCalled()
     expect(mockAuthService.deleteSessionById).not.toHaveBeenCalled()
-    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }), expect.objectContaining({ persistent: true }))
   })
 
   test('reports revocation failure and still returns no credentials', async () => {
@@ -240,7 +263,7 @@ describe('login route with the registered MFA interceptor and verification servi
     expect(response.headers.get('set-cookie')).toContain('auth_token=')
     expect(response.headers.get('set-cookie')).toContain('session_token=provisional-refresh')
     expect(mockAuthService.deleteSessionById).not.toHaveBeenCalled()
-    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }), expect.objectContaining({ persistent: true }))
   })
 
   test.each([false, true])('issues only pending credentials for an MFA account with remember=%s', async (remember) => {
@@ -258,7 +281,7 @@ describe('login route with the registered MFA interceptor and verification servi
       userId, isActive: true, deletedAt: null,
     }, expect.anything())
     expect(mockAuthService.deleteSessionById).not.toHaveBeenCalled()
-    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }), expect.objectContaining({ persistent: true }))
   })
 
   test('rejects invalid credentials before invoking MFA or creating a session', async () => {

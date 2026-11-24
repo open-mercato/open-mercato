@@ -441,6 +441,47 @@ describe('MfaVerificationService', () => {
     expect(challenges[0]).toEqual(challengeBefore)
   })
 
+  test('rejects a challenge mapped to a different pending session', async () => {
+    const { service, challenges, provider } = createServiceContext()
+    const created = await service.createChallenge('user-1')
+    Object.assign(challenges[0], { signInAttemptId: 'other-session' })
+
+    await expect(service.verifyChallenge(
+      created.challengeId,
+      'totp',
+      { code: '123456' },
+      undefined,
+      { userId: 'user-1', tenantId: 'tenant-1', sessionId: 'session-1' },
+    )).rejects.toMatchObject({ statusCode: 404 })
+    expect(provider.verify).not.toHaveBeenCalled()
+  })
+
+  test('preserves valid MFA and requests reconciliation after an audit-only write failure', async () => {
+    const { service, em, challenges } = createServiceContext()
+    const created = await service.createChallenge('user-1')
+    Object.assign(challenges[0], { signInAttemptId: 'session-1' })
+    const transaction = {
+      execute: jest.fn().mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('receipt temporarily unavailable')),
+    }
+    Object.assign(em, {
+      transactional: async (work: (manager: typeof transaction) => Promise<void>) => work(transaction),
+    })
+
+    await expect(service.verifyChallenge(
+      created.challengeId,
+      'totp',
+      { code: '123456' },
+      undefined,
+      { userId: 'user-1', tenantId: 'tenant-1', sessionId: 'session-1' },
+    )).resolves.toBe(true)
+    expect(challenges[0].verifiedAt).toBeInstanceOf(Date)
+    expect(mockedEmitSecurityEvent).toHaveBeenCalledWith(
+      'security.mfa.verified',
+      { userId: 'user-1', challengeId: created.challengeId, methodType: 'totp' },
+      { tenantId: 'tenant-1', persistent: true },
+    )
+  })
+
   test('verifyChallenge succeeds when scope.userId matches challenge.userId', async () => {
     const { service, challenges } = createServiceContext()
     const created = await service.createChallenge('user-1')

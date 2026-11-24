@@ -29,6 +29,7 @@ export interface CreateWebhookDeliveryInput {
   webhook: WebhookEntity
   eventId: string
   payload: Record<string, unknown>
+  messageId?: string
 }
 
 const logger = createLogger('webhooks')
@@ -60,7 +61,7 @@ export async function createWebhookDelivery(input: CreateWebhookDeliveryInput): 
   const delivery = input.em.create(WebhookDeliveryEntity, {
     webhookId: input.webhook.id,
     eventType: input.eventId,
-    messageId: generateMessageId(),
+    messageId: input.messageId ?? generateMessageId(),
     payload: bodyPayload,
     status: 'pending',
     attemptNumber: 0,

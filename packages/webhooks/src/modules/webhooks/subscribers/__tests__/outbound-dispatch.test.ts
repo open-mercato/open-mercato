@@ -57,6 +57,47 @@ function createDispatchEntityManagers() {
   return { rootEm, handlerEm, webhookEm }
 }
 
+describe('staff sign-in webhooks', () => {
+  const attemptId = 'fbcf2f20-e9af-463e-aaf2-5df93274fb41'
+  const tenantId = 'tenant'
+  const organizationId = 'org'
+  const payload = { tenantId, organizationId, attemptId }
+  const eventName = 'auth.login.success'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    jest.mocked(getDeclaredEvents).mockReturnValue([])
+  })
+
+  test('requires trusted organization scope before resolving subscriptions', async () => {
+    const resolve = jest.fn()
+    await handler(payload, { resolve, eventName, tenantId, organizationId: null })
+    expect(resolve).not.toHaveBeenCalled()
+  })
+
+  test('reuses the same scoped delivery when a durable event is replayed', async () => {
+    const webhook = { id: 'webhook', tenantId, organizationId, subscribedEvents: [eventName] }
+    const transaction = { execute: jest.fn() }
+    const webhookEm = { transactional: async (work: (em: typeof transaction) => Promise<unknown>) => work(transaction) }
+    const em = { fork: () => ({ fork: () => webhookEm }) }
+    const context = { eventName, tenantId, organizationId, resolve: <Result,>() => em as unknown as Result }
+    const delivery = { id: 'delivery', tenantId, organizationId, status: 'pending' } as Awaited<ReturnType<typeof createWebhookDelivery>>
+    jest.mocked(getDeclaredEvents).mockReturnValue([])
+    jest.mocked(findWithDecryption).mockResolvedValue([webhook])
+    jest.mocked(isWebhookIntegrationEnabled).mockResolvedValue(true)
+    jest.mocked(createWebhookDelivery).mockResolvedValue(delivery)
+    jest.mocked(findOneWithDecryption).mockResolvedValueOnce(null).mockResolvedValueOnce({ ...delivery, status: 'sent' })
+
+    await handler(payload, context)
+    await handler(payload, context)
+
+    expect(createWebhookDelivery).toHaveBeenCalledTimes(1)
+    expect(createWebhookDelivery).toHaveBeenCalledWith(expect.objectContaining({ messageId: `msg_sign_in_${attemptId}` }))
+    expect(enqueueWebhookDelivery).toHaveBeenCalledTimes(1)
+    expect(enqueueWebhookDelivery).toHaveBeenCalledWith({ deliveryId: 'delivery', tenantId, organizationId })
+  })
+})
+
 describe('webhooks outbound dispatch subscriber', () => {
   afterEach(() => {
     jest.clearAllMocks()

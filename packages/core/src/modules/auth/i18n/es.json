@@ -341,6 +341,7 @@
   "auth.acl.features.security.profile.manage": "Administrar perfil de seguridad",
   "auth.acl.features.security.profile.password": "Cambiar la propia contraseña",
   "auth.acl.features.security.profile.view": "Ver perfil de seguridad",
+  "auth.acl.features.security.sign_ins.view": "Ver actividad de inicio de sesión",
   "auth.acl.features.security.sudo.manage": "Administrar protección sudo",
   "auth.acl.features.security.sudo.view": "Ver protección sudo",
   "auth.acl.features.shipping_carriers.manage": "Administrar operaciones de transportistas",

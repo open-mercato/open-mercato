@@ -1054,6 +1054,7 @@ jobs:
       DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-documents-collaboration-v2-secret-32-bytes'
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
+      OM_AUTH_SIGN_IN_DURABLE_EVENTS: 'true'
       # The forms module refuses its DEV-ONLY deterministic KMS adapter under
       # NODE_ENV=production, which is how the ephemeral harness runs the app.
       # Without a master key `formsEncryptionService` does not resolve and every

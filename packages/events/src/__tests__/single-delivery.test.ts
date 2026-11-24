@@ -146,6 +146,26 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
     expect(calls).toEqual(['persistent-sub'])
   })
 
+  test.each(['true', 'false'])('queues persistent login subscribers once with single delivery %s', async (mode) => {
+    process.env.OM_EVENTS_SINGLE_DELIVERY = mode
+    const calls: string[] = []
+    const bus = createEventBus({ resolve: ((name: string) => name) as never })
+    const eventId = 'auth.login.success'
+    const payload = { attemptId: '271ca2db-e131-402a-9153-99c540a37c48' }
+    bus.registerModuleSubscribers([
+      makeSub('persistent-sub', eventId, true, calls),
+      makeSub('ephemeral-sub', eventId, false, calls),
+    ])
+
+    await bus.emit(eventId, payload, { persistent: true, skipPersistentSubscribersInline: true })
+
+    expect(calls).toEqual(['ephemeral-sub'])
+    expect(readQueuedJobs()).toHaveLength(1)
+    expect(readQueuedJobs()[0].payload).toMatchObject({ event: eventId, payload, persistentDeliveredInline: false })
+    await bus.dispatchQueued(eventId, payload)
+    expect(calls).toEqual(['ephemeral-sub', 'persistent-sub'])
+  })
+
   test('an opt-in non-persistent probe skips persistent subscribers inline', async () => {
     process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
     const calls: string[] = []

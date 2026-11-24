@@ -12,6 +12,7 @@ import { MfaService } from './services/MfaService'
 import { MfaVerificationService } from './services/MfaVerificationService'
 import { MfaEnforcementService } from './services/MfaEnforcementService'
 import { MfaAdminService } from './services/MfaAdminService'
+import { SignInActivityService } from './services/SignInActivityService'
 import { SudoChallengeService } from './services/SudoChallengeService'
 import { mfaProviders as defaultMfaProviders } from './security.mfa-providers'
 
@@ -36,6 +37,7 @@ export function register(container: AppContainer) {
     mfaVerificationService: asClass(MfaVerificationService).scoped(),
     mfaEnforcementService: asClass(MfaEnforcementService).scoped(),
     mfaAdminService: asClass(MfaAdminService).scoped(),
+    signInActivityService: asClass(SignInActivityService).scoped(),
     sudoChallengeService: asClass(SudoChallengeService).scoped(),
   })
 }

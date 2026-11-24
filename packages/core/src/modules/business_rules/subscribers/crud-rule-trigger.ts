@@ -17,6 +17,7 @@ import {
   resolveBusinessRuleRbacService,
 } from '../lib/rule-engine'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { readStaffSignInAttemptId } from '@open-mercato/shared/lib/events/staff-sign-in'
 
 const logger = createLogger('business_rules').child({ component: 'crud-rule-trigger' })
 
@@ -59,7 +60,7 @@ export default async function handle(
   ctx: CrudRuleTriggerContext,
 ): Promise<void> {
   const eventName = ctx.eventName
-  if (!eventName) return
+  if (!eventName || readStaffSignInAttemptId(eventName, payload)) return
   if (isExcludedEvent(eventName)) return
 
   const parsed = parseEventName(eventName)

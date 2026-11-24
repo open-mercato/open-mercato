@@ -341,6 +341,7 @@
   "auth.acl.features.security.profile.manage": "Manage security profile",
   "auth.acl.features.security.profile.password": "Change own password",
   "auth.acl.features.security.profile.view": "View security profile",
+  "auth.acl.features.security.sign_ins.view": "로그인 활동 보기",
   "auth.acl.features.security.sudo.manage": "Manage sudo protection",
   "auth.acl.features.security.sudo.view": "View sudo protection",
   "auth.acl.features.shipping_carriers.manage": "Manage shipping carrier operations",

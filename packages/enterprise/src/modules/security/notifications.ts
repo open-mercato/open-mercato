@@ -1,6 +1,26 @@
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
 
+export const signInNewDeviceNotificationType = 'security.sign_in.new_device'
+
 export const notificationTypes: NotificationTypeDefinition[] = [
+  {
+    type: 'security.sign_in.new_device',
+    module: 'security',
+    category: 'auth',
+    channels: ['in_app'],
+    titleKey: 'security.notifications.signInNewDevice.title',
+    bodyKey: 'security.notifications.signInNewDevice.body',
+    severity: 'warning',
+    icon: 'monitor-smartphone',
+    linkHref: '/backend/profile/security',
+    actions: [{
+      id: 'review_sign_in',
+      labelKey: 'security.notifications.signInNewDevice.action',
+      href: '/backend/profile/security',
+      variant: 'outline',
+    }],
+    expiresAfterHours: 168,
+  },
   {
     type: 'security.mfa.emergency_bypass_detected',
     module: 'security',

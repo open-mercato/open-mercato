@@ -159,3 +159,7 @@ alter table "organizations" add constraint "organizations_tenant_slug_uniq" uniq
 ```
 
 The pre-check runs **outside** `em.transactional`, so two concurrent `mercato auth setup --orgSlug=foo` invocations creating new tenants can both pass the application-level check and both succeed at the DB level (different `tenant_id`, identical `slug`). Downstream tooling that relies on the slug as a stable cross-tenant handle should either serialize provisioning calls or add a partial unique index on `slug` alone (`where slug is not null`) in a follow-up migration; in that case the pre-check can move inside the transactional block and become a true uniqueness gate.
+
+## Staff password sign-in events
+
+`auth.login.success` and `auth.login.failed` retain their existing IDs. The password route adds optional `attemptId`, `occurredAt`, `ip`, and `userAgent` fields, plus resolved account IDs on failure. The attempt ID is the session ID on success and a server-generated UUID on failure. Persistent subscribers run through the events worker. Use trusted event options for scope and the tenant and attempt IDs to make retries idempotent. See [Staff login events](../../../../../apps/docs/docs/framework/events/overview.mdx#staff-login-events).

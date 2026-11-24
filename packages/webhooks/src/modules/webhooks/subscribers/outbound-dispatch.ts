@@ -3,8 +3,10 @@ import type { SubscriberContext } from '@open-mercato/events/types'
 import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { matchAnyWebhookEventPattern } from '@open-mercato/shared/lib/events/patterns'
+import { readStaffSignInAttemptId } from '@open-mercato/shared/lib/events/staff-sign-in'
 import { getDeclaredEvents } from '@open-mercato/shared/modules/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createWebhookDelivery } from '../lib/delivery'
 import { enqueueWebhookDelivery } from '../lib/queue'
 import { isWebhookIntegrationEnabled } from '../lib/integration-state'
@@ -65,9 +67,15 @@ export default async function handler(
 
   if (shouldSkipOutboundDispatch(eventId)) return
 
-  const tenantId = payload.tenantId as string | undefined
-  const organizationId = payload.organizationId as string | undefined
-  if (!tenantId) return
+  const signInAttemptId = readStaffSignInAttemptId(eventId, payload)
+  const tenantId = signInAttemptId && 'tenantId' in ctx ? ctx.tenantId : payload.tenantId
+  const organizationId = signInAttemptId && 'organizationId' in ctx ? ctx.organizationId : payload.organizationId
+  if (typeof tenantId !== 'string' || !tenantId) return
+  if (organizationId != null && typeof organizationId !== 'string') return
+  if (signInAttemptId && (
+    !('tenantId' in ctx) || !('organizationId' in ctx) || !organizationId
+    || tenantId !== payload.tenantId || organizationId !== payload.organizationId
+  )) return
 
   if (eventId.startsWith('webhooks.')) return
   if (eventId.startsWith('query_index.')) return
@@ -146,12 +154,21 @@ export default async function handler(
       const webhookEm = forkOutboundEntityManager(em)
       let createdDeliveryId: string | null = null
       try {
-        const delivery = await createWebhookDelivery({
-          em: webhookEm,
-          webhook,
-          eventId,
-          payload,
-        })
+        const deliveryInput = { em: webhookEm, webhook, eventId, payload }
+        const delivery = signInAttemptId
+          ? await webhookEm.transactional(async (transaction) => {
+            const messageId = `msg_sign_in_${signInAttemptId}`
+            const scope = { tenantId: webhook.tenantId, organizationId: webhook.organizationId }
+            await transaction.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [
+              `webhooks:sign-in:${scope.tenantId}:${scope.organizationId}:${webhook.id}:${eventId}:${messageId}`,
+            ])
+            const existing = await findOneWithDecryption(transaction, WebhookDeliveryEntity, {
+              ...scope, webhookId: webhook.id, eventType: eventId, messageId,
+            }, undefined, scope)
+            return existing ?? createWebhookDelivery({ ...deliveryInput, em: transaction, messageId })
+          })
+          : await createWebhookDelivery(deliveryInput)
+        if (signInAttemptId && delivery.status !== 'pending') return
         createdDeliveryId = delivery.id
 
         await enqueueWebhookDelivery({
@@ -160,6 +177,11 @@ export default async function handler(
           organizationId: delivery.organizationId,
         })
       } catch (error) {
+        if (signInAttemptId) {
+          const failure = new Error('[internal] Failed to queue a sign-in webhook delivery')
+          getTelemetryRuntime()?.reportError(failure, { module: 'webhooks', code: 'webhooks.sign_in_enqueue_failed' })
+          throw failure
+        }
         if (createdDeliveryId) {
           const failedDelivery = await findOneWithDecryption(
             webhookEm,

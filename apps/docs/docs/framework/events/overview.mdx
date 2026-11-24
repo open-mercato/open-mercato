@@ -263,3 +263,24 @@ export default async function onRequestFailed(payload: any, ctx: { resolve: <T =
   logger?.error?.('Request failed', payload)
 }
 ```
+
+## Staff login events
+
+With `OM_AUTH_SIGN_IN_DURABLE_EVENTS=true` on the app, the staff password sign-in endpoint emits `auth.login.success` and `auth.login.failed` with a stable `attemptId`, an ISO `occurredAt` timestamp, a trusted-proxy `ip` when available, and up to 512 characters of `userAgent`. Failure events include the resolved `userId`, `tenantId` and `organizationId` when available. The setting defaults to false and preserves the legacy payloads and delivery when unset or disabled. Other emitters and older releases can omit these fields.
+
+Persistent subscribers receive these password sign-in events from the events worker. Use the tenant and attempt ID to make retry handling idempotent. Before rollout, inventory exact and wildcard subscribers, including outbound webhooks. Restrict access to queue and webhook storage and apply the chosen sign-in retention window to pending jobs, failed jobs and delivery records. Authorize existing webhook recipients to receive the expanded payload before enabling the producer. Coordinate expiry and erasure with recipients that store their own copies. During rollback, disable the producer and drain or purge existing work under the same policy. Review replay eligibility before reprocessing failed jobs.
+
+Built-in workflow, business rule, and agent process wildcard subscriptions skip staff password sign-in records. Their trigger scope is unchanged by the new audit scope. Outbound webhook subscriptions can receive the expanded payload only for the exact organization in the trusted emitter scope. Replayed login events reuse the same webhook delivery for each subscription. Recipients should still deduplicate Standard Webhooks delivery attempts using the message ID.
+
+### Operate Enterprise sign-in history
+
+Sign-in history requires tenant data encryption and a keyed lookup hash. Set `LOOKUP_HASH_PEPPER` to a managed secret on the app and the workers, and use the same key material on both. An unavailable encryption key or unkeyed lookup hash prevents the history write and leaves it eligible for event retry. Review queue failures before deploying the producer or rotating either key. `OM_SECURITY_SIGN_IN_ACTIVITY` controls history collection and display, `OM_SECURITY_SIGN_IN_NOTIFY_NEW_DEVICE` controls new-device alerts, and `OM_SECURITY_SIGN_IN_RETENTION_DAYS` defaults to 90 and accepts 1 through 730 days.
+
+Run the `events`, `security-sign-in-retention`, and `security-sign-in-notification` queue workers. Security module setup registers a daily retention job and a minute-by-minute notification recovery job when the scheduler is available. On an existing deployment, rerun the module's default setup through the usual deployment process. Where the scheduler is absent, configure a system timer to submit an empty job to `security-sign-in-retention` daily and to `security-sign-in-notification` every minute through the deployment's queue adapter. Verify worker and scheduler health by observing a test sign-in and confirming that a pending notification intent is processed.
+
+### Manually erase a staff member's sign-in activity
+
+1. Confirm the exact tenant and user IDs from the approved erasure request. Pause delivery and replay of the affected tenant's sign-in and MFA events. Quiesce the account and wait for in-flight handlers to finish.
+2. Remove or suppress replay of matching pending, failed, and archived queue jobs. Match the trusted tenant and the login payload's user ID (`id` for success, `userId` for failure). Include webhook delivery records, logs or exports that retained the payload, and recipients' copies where applicable. Follow the backup expiry policy for storage that cannot be modified in place. Keep replay suppression active until all retained copies have expired.
+3. In a single transaction, identify the user's attempt, device, and challenge IDs in the selected tenant. Remove matching new-device notifications using the tenant, recipient, notification type and device-based group keys. Delete their matching notification intents, MFA receipts, known devices, and sign-in attempts. Clear the matching `mfa_challenges.sign_in_attempt_id` correlations. Every statement must constrain both `tenant_id` and the corresponding user or recipient ID.
+4. Verify that scoped reads and pending job searches return no matching activity and that an unrelated tenant's records are intact. Resume processing after confirming that queued and archived events cannot re-create the erased records.

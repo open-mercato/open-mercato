@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { MfaChallenge, UserMfaMethod } from '../data/entities'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
 import { emitSecurityEvent } from '../events'
@@ -6,8 +7,10 @@ import type { MfaService } from './MfaService'
 import type { MfaEnforcementService } from './MfaEnforcementService'
 import type { MfaProviderRuntimeContext, MfaVerifyContext } from '../lib/mfa-provider-interface'
 import type { SecurityModuleConfig } from '../lib/security-config'
+import { readSignInActivityConfig } from '../lib/sign-in-activity-config'
 import { readSecurityModuleConfig } from '../lib/security-config'
-import { MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
+import { persistSignInMfaReceipt, reportSignInMfaFailure, type SignInMfaIdentity } from '../lib/sign-in-mfa-receipt'
+import { MFA_ENROLLMENT_REQUIRED_CODE, MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
 
 type AvailableMethod = {
   type: string
@@ -27,6 +30,8 @@ type ChallengeCreationResult = {
 
 export type MfaVerificationAuthScope = {
   userId: string
+  tenantId?: string | null
+  sessionId?: string | null
 }
 
 export class MfaVerificationServiceError extends Error {
@@ -40,6 +45,8 @@ export class MfaVerificationServiceError extends Error {
   }
 }
 
+class SignInReceiptWriteError extends Error {}
+
 export class MfaVerificationService {
   constructor(
     private readonly em: EntityManager,
@@ -49,10 +56,14 @@ export class MfaVerificationService {
     private readonly securityConfig: SecurityModuleConfig = readSecurityModuleConfig(),
   ) {}
 
-  async createChallenge(userId: string): Promise<ChallengeCreationResult> {
-    const methods = await this.getActiveMethods(userId)
+  async createChallenge(userId: string, signIn?: SignInMfaIdentity): Promise<ChallengeCreationResult> {
+    const { methods, isEnforced } = await this.getActiveMethods(userId)
     if (methods.length === 0) {
-      throw new MfaVerificationServiceError('No MFA methods configured', 400, MFA_NO_METHODS_CONFIGURED_CODE)
+      throw new MfaVerificationServiceError(
+        'No MFA methods configured',
+        400,
+        isEnforced && signIn ? MFA_ENROLLMENT_REQUIRED_CODE : MFA_NO_METHODS_CONFIGURED_CODE,
+      )
     }
 
     const availableMethods = methods
@@ -71,20 +82,37 @@ export class MfaVerificationService {
       throw new MfaVerificationServiceError('No registered MFA providers are available for the configured methods', 400)
     }
 
-    const challenge = this.em.create(MfaChallenge, {
+    const challengeData = {
       userId,
       tenantId: methods[0].tenantId,
       expiresAt: new Date(Date.now() + this.securityConfig.mfa.challengeTtlMs),
       attempts: 0,
       createdAt: new Date(),
-    })
+    }
+    if (signIn && signIn.tenantId === challengeData.tenantId && signIn.userId === userId) {
+      try {
+        const challengeId = await this.em.transactional(async (em) => {
+          const challenge = em.create(MfaChallenge, { ...challengeData, signInAttemptId: signIn.attemptId })
+          em.persist(challenge)
+          await em.flush()
+          await withSignInReceiptWrite(() => persistSignInMfaReceipt(em, signIn, {
+            status: 'pending', challengeId: challenge.id,
+          }))
+          return challenge.id
+        })
+        return { challengeId, availableMethods }
+      } catch (error) {
+        if (!(error instanceof SignInReceiptWriteError)) throw error
+        reportSignInMfaFailure('security.sign_in_mfa_receipt_failed')
+      }
+    } else if (signIn) {
+      reportSignInMfaFailure('security.sign_in_mfa_claims_invalid')
+    }
+
+    const challenge = this.em.create(MfaChallenge, challengeData)
     this.em.persist(challenge)
     await this.em.flush()
-
-    return {
-      challengeId: challenge.id,
-      availableMethods,
-    }
+    return { challengeId: challenge.id, availableMethods }
   }
 
   /**
@@ -201,15 +229,47 @@ export class MfaVerificationService {
     }, payload, context, runtimeContext)
 
     if (verified) {
-      challenge.verifiedAt = new Date()
-      challenge.methodType = methodType
-      method.lastUsedAt = new Date()
-      await this.em.flush()
-      await emitSecurityEvent('security.mfa.verified', {
-        userId: challenge.userId,
-        challengeId: challenge.id,
-        methodType,
-      })
+      const verifiedAt = new Date()
+      const attemptId = challenge.signInAttemptId
+      const markVerified = async (em: EntityManager) => {
+        challenge.verifiedAt = verifiedAt
+        challenge.methodType = methodType
+        method.lastUsedAt = verifiedAt
+        await em.flush()
+      }
+      let retryAuditReceipt = false
+      if (attemptId) {
+        try {
+          await this.em.transactional(async (em) => {
+            await withSignInReceiptWrite(() => persistSignInMfaReceipt(em, {
+              tenantId: challenge.tenantId,
+              userId: challenge.userId,
+              attemptId,
+            }, { status: 'verified', challengeId: challenge.id, verifiedAt }))
+            await markVerified(em)
+          })
+        } catch (error) {
+          if (!(error instanceof SignInReceiptWriteError)) throw error
+          reportSignInMfaFailure('security.sign_in_mfa_receipt_failed')
+          retryAuditReceipt = true
+          await markVerified(this.em)
+        }
+      } else {
+        await markVerified(this.em)
+      }
+      const event = { userId: challenge.userId, challengeId: challenge.id, methodType }
+      if (attemptId) {
+        try {
+          await emitSecurityEvent('security.mfa.verified', event, {
+            tenantId: challenge.tenantId,
+            ...(retryAuditReceipt ? { persistent: true } : {}),
+          })
+        } catch {
+          reportSignInMfaFailure('security.sign_in_mfa_receipt_failed')
+        }
+      } else {
+        await emitSecurityEvent('security.mfa.verified', event)
+      }
       return true
     }
 
@@ -217,8 +277,29 @@ export class MfaVerificationService {
     return false
   }
 
-  async verifyRecoveryCode(userId: string, code: string): Promise<boolean> {
-    return this.mfaService.verifyRecoveryCode(userId, code)
+  async verifyRecoveryCode(
+    userId: string,
+    code: string,
+    scope?: Pick<MfaVerificationAuthScope, 'tenantId' | 'sessionId'>,
+  ): Promise<boolean> {
+    const verified = await this.mfaService.verifyRecoveryCode(userId, code)
+    const { tenantId, sessionId } = scope ?? {}
+    if (!verified || !tenantId || !sessionId || !readSignInActivityConfig().enabled) return verified
+
+    try {
+      await this.em.transactional(async (em) => {
+        const challenge = await findOneWithDecryption(em, MfaChallenge, {
+          tenantId, userId, signInAttemptId: sessionId,
+        }, undefined, { tenantId })
+        if (!challenge) return
+        await persistSignInMfaReceipt(em, { tenantId, userId, attemptId: sessionId }, {
+          status: 'verified', challengeId: challenge.id, verifiedAt: new Date(),
+        })
+      })
+    } catch {
+      reportSignInMfaFailure('security.sign_in_mfa_receipt_failed')
+    }
+    return verified
   }
 
   private async getValidChallenge(
@@ -229,7 +310,13 @@ export class MfaVerificationService {
       id: challengeId,
       userId: scope.userId,
     })
-    if (!challenge) {
+    if (
+      !challenge
+      || (challenge.signInAttemptId && (
+        (scope.tenantId !== undefined && scope.tenantId !== challenge.tenantId)
+        || (scope.sessionId !== undefined && scope.sessionId !== challenge.signInAttemptId)
+      ))
+    ) {
       throw new MfaVerificationServiceError('MFA challenge not found', 404)
     }
     if (challenge.verifiedAt) {
@@ -269,7 +356,7 @@ export class MfaVerificationService {
     }
   }
 
-  private async getActiveMethods(userId: string): Promise<UserMfaMethod[]> {
+  private async getActiveMethods(userId: string): Promise<{ methods: UserMfaMethod[]; isEnforced: boolean }> {
     const methods = await this.em.find(
       UserMfaMethod,
       {
@@ -284,10 +371,10 @@ export class MfaVerificationService {
 
     const policy = await this.mfaEnforcementService.getEffectivePolicyForUser(userId)
     if (!policy?.isEnforced || !policy.allowedMethods?.length) {
-      return methods
+      return { methods, isEnforced: policy?.isEnforced ?? false }
     }
 
-    return methods.filter((method) => policy.allowedMethods?.includes(method.type))
+    return { methods: methods.filter((method) => policy.allowedMethods?.includes(method.type)), isEnforced: true }
   }
 
   private async findMethod(userId: string, methodType: string): Promise<UserMfaMethod> {
@@ -314,6 +401,14 @@ export class MfaVerificationService {
       throw new MfaVerificationServiceError(`MFA method '${methodId}' not found`, 404)
     }
     return method
+  }
+}
+
+async function withSignInReceiptWrite<Result>(write: () => Promise<Result>): Promise<Result> {
+  try {
+    return await write()
+  } catch {
+    throw new SignInReceiptWriteError('[internal] Sign-in MFA receipt write failed')
   }
 }
 
