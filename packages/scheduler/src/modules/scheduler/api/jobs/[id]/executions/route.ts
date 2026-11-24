@@ -9,6 +9,7 @@ import { resolveScheduleAccess } from '../../../../lib/scheduleAccess.js'
 import { getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('scheduler').child({ component: 'executions' })
 
@@ -139,8 +140,13 @@ export async function GET(
 
   } catch (error: unknown) {
     logger.error('Error fetching execution history', { err: error })
+    try {
+      getTelemetryRuntime()?.reportError(error, { module: 'scheduler', code: 'scheduler.fetch_executions_failed' })
+    } catch (telemetryError) {
+      logger.warn('Failed to report execution history error to telemetry', { err: telemetryError })
+    }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : translate('scheduler.error.fetch_executions_failed', 'Failed to fetch execution history') },
+      { error: translate('scheduler.error.fetch_executions_failed', 'Failed to fetch execution history') },
       { status: 500 }
     )
   }
