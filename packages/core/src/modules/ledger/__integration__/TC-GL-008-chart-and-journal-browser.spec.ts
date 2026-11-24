@@ -128,7 +128,15 @@ test('manages the chart of accounts and reads a posted entry as a viewer', async
       await expect(creditCells).toHaveText([...creditFields, '', balance])
       await viewer.screenshot({ path: test.info().outputPath('ledger-journal-detail.png') })
 
-      await content.getByRole('link', { name: '#2', exact: true }).click()
+      const [detail] = await Promise.all([
+        viewer.waitForResponse((response) => {
+          const url = new URL(response.url())
+          return response.request().method() === 'GET'
+            && url.pathname === '/api/ledger/journal-entries'
+            && url.searchParams.get('id') === reversalId
+        }),
+        content.getByRole('link', { name: '#2', exact: true }).click(),
+      ])
       await expect(viewer).toHaveURL(new RegExp(reversalId + '$'))
       await expect(content.getByRole('heading', { name: 'Journal entry #2' })).toBeVisible()
       await expect(debitCells).toHaveText([...debitFields, '', balance])
@@ -138,7 +146,6 @@ test('manages the chart of accounts and reads a posted entry as a viewer', async
       )
       await viewer.screenshot({ path: test.info().outputPath('ledger-journal-reversal.png') })
 
-      const detail = await viewer.request.get(`/api/ledger/journal-entries?id=${reversalId}`)
       expect(detail.status()).toBe(200)
       const detailLines = ((await detail.json()) as { items: Array<{ lines?: Array<{ currencyId: string; currencyCode: string }> }> }).items[0].lines ?? []
       expect(detailLines.map(({ currencyId, currencyCode }) => [currencyId, currencyCode]).sort()).toEqual([
