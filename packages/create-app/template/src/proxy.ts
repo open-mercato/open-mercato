@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
+import { evaluateRequestGates } from '@open-mercato/shared/lib/runtime/request-gate'
 import {
   createContentSecurityPolicyRequestHeaders,
   devServerLoopbackFrameAncestorOrigins,
@@ -7,13 +8,30 @@ import {
 import { stripeContentSecurityPolicy } from '@open-mercato/gateway-stripe/contentSecurityPolicy'
 import { resolveDocumentsCollaborationCspOrigins } from '@open-mercato/documents/contentSecurityPolicy'
 
-export function proxy(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { requestHeaders, contentSecurityPolicy } = createContentSecurityPolicyRequestHeaders(req.headers, {
     env: process.env,
     ...stripeContentSecurityPolicy,
     connectOrigins: [...stripeContentSecurityPolicy.connectOrigins, ...resolveDocumentsCollaborationCspOrigins()],
     frameAncestorOrigins: process.env.OM_DEV_SERVER_LOOPBACK_FRAMING === '1' ? devServerLoopbackFrameAncestorOrigins : [],
   })
+  const gateResponse = await evaluateRequestGates({
+    surface: 'page',
+    method: req.method,
+    pathname: req.nextUrl.pathname,
+    headers: req.headers,
+    cookies: { get: (name: string) => req.cookies.get(name)?.value },
+  })
+  if (gateResponse) {
+    const gated = new NextResponse(gateResponse.body, {
+      status: gateResponse.status,
+      statusText: gateResponse.statusText,
+      headers: gateResponse.headers,
+    })
+    gated.headers.set('Content-Security-Policy', contentSecurityPolicy)
+    return gated
+  }
+
   requestHeaders.set('x-next-url', req.nextUrl.pathname)
   const response = NextResponse.next({ request: { headers: requestHeaders } })
   response.headers.set('Content-Security-Policy', contentSecurityPolicy)
