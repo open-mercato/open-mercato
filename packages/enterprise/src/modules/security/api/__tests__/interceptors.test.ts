@@ -192,7 +192,7 @@ describe('security auth/login api interceptor', () => {
     )
 
     expect(result).toEqual({})
-    expect(mockReportError).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), { module: 'security', code: 'security.sign_in_mfa_claims_invalid' })
   })
 
   test('fails closed when the MFA verification service is unavailable', async () => {
@@ -298,7 +298,7 @@ describe('security auth/login api interceptor', () => {
     expect(result).toEqual({})
     expect(createChallenge).not.toHaveBeenCalled()
     expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
-    expect(mockLoggerWarn).not.toHaveBeenCalled()
+    expect(mockLoggerWarn).toHaveBeenCalledWith('Unable to record sign-in MFA outcome', { code: 'security.sign_in_mfa_claims_invalid' })
   })
 
   test('keeps the emergency bypass working when the verification service is unavailable', async () => {
@@ -351,6 +351,6 @@ describe('security auth/login api interceptor', () => {
 
     expect(result.replace).toBeDefined()
     expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
-    expect(mockLoggerWarn).not.toHaveBeenCalled()
+    expect(mockLoggerWarn).toHaveBeenCalledWith('Unable to record sign-in MFA outcome', { code: 'security.sign_in_mfa_claims_invalid' })
   })
 })

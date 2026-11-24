@@ -3,7 +3,11 @@ import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig, requestMfaEmergencyBypassNotification } from '../lib/security-config'
-import { MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
+import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { readSignInActivityConfig } from '../lib/sign-in-activity-config'
+import { persistSignInMfaReceipt, reportSignInMfaFailure, type SignInMfaIdentity } from '../lib/sign-in-mfa-receipt'
+import { MFA_ENROLLMENT_REQUIRED_CODE, MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
 
 const logger = createLogger('security').child({ component: 'auth-login-mfa-interceptor' })
 
@@ -17,7 +21,7 @@ type JwtClaims = {
 }
 
 type MfaVerificationServiceLike = {
-  createChallenge: (userId: string) => Promise<{
+  createChallenge: (userId: string, signIn?: SignInMfaIdentity) => Promise<{
     challengeId: string
     availableMethods: Array<{ type: string; label: string; icon: string }>
   }>
@@ -54,10 +58,35 @@ function resolveMfaVerificationService(container: { resolve: (name: string) => u
   }
 }
 
-function isNoMfaMethodsConfiguredError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-  const candidate = error as Error & { code?: unknown }
-  return candidate.name === 'MfaVerificationServiceError' && candidate.code === MFA_NO_METHODS_CONFIGURED_CODE
+const signInIdentitySchema = z.object({ tenantId: z.string().uuid(), userId: z.string().uuid(), attemptId: z.string().uuid() })
+
+function readSignInIdentity(claims: JwtClaims): SignInMfaIdentity | undefined {
+  if (!readSignInActivityConfig().enabled) return undefined
+  const parsed = signInIdentitySchema.safeParse({
+    tenantId: claims.tenantId, userId: claims.sub, attemptId: claims.sid,
+  })
+  if (parsed.success) return parsed.data
+  reportSignInMfaFailure('security.sign_in_mfa_claims_invalid')
+}
+
+function classifyNoChallenge(error: unknown): 'not_required' | 'enrollment_required' | null {
+  if (!(error instanceof Error) || error.name !== 'MfaVerificationServiceError' || !('code' in error)) return null
+  if (error.code === MFA_NO_METHODS_CONFIGURED_CODE) return 'not_required'
+  if (error.code === MFA_ENROLLMENT_REQUIRED_CODE) return 'enrollment_required'
+  return null
+}
+
+async function recordNoChallenge(
+  em: EntityManager,
+  identity: SignInMfaIdentity | undefined,
+  status: 'not_required' | 'enrollment_required' | 'bypassed',
+) {
+  if (!identity) return
+  try {
+    await em.transactional(async (transaction) => persistSignInMfaReceipt(transaction, identity, { status }))
+  } catch {
+    reportSignInMfaFailure('security.sign_in_mfa_receipt_failed')
+  }
 }
 
 function reportMfaLoginFailure(
@@ -93,12 +122,17 @@ export const interceptors: ApiInterceptor[] = [
       if (typeof response.body.token !== 'string' || response.body.token.length === 0) return {}
 
       const claims = readClaims(response.body.token)
-      if (!claims) return {}
+      if (!claims) {
+        if (readSignInActivityConfig().enabled) reportSignInMfaFailure('security.sign_in_mfa_claims_invalid')
+        return {}
+      }
+      const signIn = readSignInIdentity(claims)
 
       // The emergency bypass is an explicit operator override and must keep working even
       // when the MFA service is degraded, so it is evaluated before service resolution.
       if (readSecurityModuleConfig().mfa.emergencyBypass) {
         emitMfaEmergencyBypassActiveWarning('login MFA challenge bypassed', { userId: claims.sub })
+        await recordNoChallenge(context.em, signIn, 'bypassed')
         await requestMfaEmergencyBypassNotification({ tenantId: claims.tenantId, organizationId: claims.orgId })
         return {}
       }
@@ -107,6 +141,7 @@ export const interceptors: ApiInterceptor[] = [
       if (!mfaVerificationService) {
         // Fail closed: without the MFA service we cannot know whether this account needs a
         // second factor, so the already-issued full staff token must not reach the caller.
+        if (signIn) reportSignInMfaFailure('security.sign_in_mfa_service_unavailable')
         const unavailableError = new Error('[internal] MFA verification service unavailable for auth/login')
         reportMfaLoginFailure(
           unavailableError,
@@ -117,7 +152,9 @@ export const interceptors: ApiInterceptor[] = [
       }
 
       try {
-        const challenge = await mfaVerificationService.createChallenge(claims.sub)
+        const challenge = signIn
+          ? await mfaVerificationService.createChallenge(claims.sub, signIn)
+          : await mfaVerificationService.createChallenge(claims.sub)
         const pendingToken = signJwt(
           {
             sub: claims.sub,
@@ -145,7 +182,12 @@ export const interceptors: ApiInterceptor[] = [
         // Only a verified no-MFA account may proceed with the pre-issued token. Any other
         // failure (reading methods, persisting the challenge, provider resolution) must
         // abort the login instead of returning the full JWT and refresh token.
-        if (isNoMfaMethodsConfiguredError(error)) return {}
+        const noChallenge = classifyNoChallenge(error)
+        if (noChallenge) {
+          await recordNoChallenge(context.em, signIn, noChallenge)
+          return {}
+        }
+        if (signIn) reportSignInMfaFailure('security.sign_in_mfa_challenge_failed')
         reportMfaLoginFailure(
           error,
           'security.mfa_challenge_creation_failed',

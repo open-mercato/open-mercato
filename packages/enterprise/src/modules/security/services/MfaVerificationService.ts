@@ -7,7 +7,8 @@ import type { MfaEnforcementService } from './MfaEnforcementService'
 import type { MfaProviderRuntimeContext, MfaVerifyContext } from '../lib/mfa-provider-interface'
 import type { SecurityModuleConfig } from '../lib/security-config'
 import { readSecurityModuleConfig } from '../lib/security-config'
-import { MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
+import { persistSignInMfaReceipt, reportSignInMfaFailure, type SignInMfaIdentity } from '../lib/sign-in-mfa-receipt'
+import { MFA_ENROLLMENT_REQUIRED_CODE, MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
 
 type AvailableMethod = {
   type: string
@@ -49,10 +50,14 @@ export class MfaVerificationService {
     private readonly securityConfig: SecurityModuleConfig = readSecurityModuleConfig(),
   ) {}
 
-  async createChallenge(userId: string): Promise<ChallengeCreationResult> {
-    const methods = await this.getActiveMethods(userId)
+  async createChallenge(userId: string, signIn?: SignInMfaIdentity): Promise<ChallengeCreationResult> {
+    const { methods, isEnforced } = await this.getActiveMethods(userId)
     if (methods.length === 0) {
-      throw new MfaVerificationServiceError('No MFA methods configured', 400, MFA_NO_METHODS_CONFIGURED_CODE)
+      throw new MfaVerificationServiceError(
+        'No MFA methods configured',
+        400,
+        isEnforced ? MFA_ENROLLMENT_REQUIRED_CODE : MFA_NO_METHODS_CONFIGURED_CODE,
+      )
     }
 
     const availableMethods = methods
@@ -71,20 +76,34 @@ export class MfaVerificationService {
       throw new MfaVerificationServiceError('No registered MFA providers are available for the configured methods', 400)
     }
 
-    const challenge = this.em.create(MfaChallenge, {
+    const challengeData = {
       userId,
       tenantId: methods[0].tenantId,
       expiresAt: new Date(Date.now() + this.securityConfig.mfa.challengeTtlMs),
       attempts: 0,
       createdAt: new Date(),
-    })
+    }
+    if (signIn && signIn.tenantId === challengeData.tenantId && signIn.userId === userId) {
+      try {
+        const challengeId = await this.em.transactional(async (em) => {
+          const challenge = em.create(MfaChallenge, { ...challengeData, signInAttemptId: signIn.attemptId })
+          em.persist(challenge)
+          await em.flush()
+          await persistSignInMfaReceipt(em, signIn, { status: 'pending', challengeId: challenge.id })
+          return challenge.id
+        })
+        return { challengeId, availableMethods }
+      } catch {
+        reportSignInMfaFailure('security.sign_in_mfa_receipt_failed')
+      }
+    } else if (signIn) {
+      reportSignInMfaFailure('security.sign_in_mfa_claims_invalid')
+    }
+
+    const challenge = this.em.create(MfaChallenge, challengeData)
     this.em.persist(challenge)
     await this.em.flush()
-
-    return {
-      challengeId: challenge.id,
-      availableMethods,
-    }
+    return { challengeId: challenge.id, availableMethods }
   }
 
   /**
@@ -201,15 +220,33 @@ export class MfaVerificationService {
     }, payload, context, runtimeContext)
 
     if (verified) {
-      challenge.verifiedAt = new Date()
-      challenge.methodType = methodType
-      method.lastUsedAt = new Date()
-      await this.em.flush()
-      await emitSecurityEvent('security.mfa.verified', {
-        userId: challenge.userId,
-        challengeId: challenge.id,
-        methodType,
-      })
+      const verifiedAt = new Date()
+      const attemptId = challenge.signInAttemptId
+      if (attemptId) {
+        // Keep the projected audit state and challenge verification in the same transaction.
+        await this.em.transactional(async (em) => {
+          await persistSignInMfaReceipt(em, {
+            tenantId: challenge.tenantId,
+            userId: challenge.userId,
+            attemptId,
+          }, { status: 'verified', challengeId: challenge.id, verifiedAt })
+          challenge.verifiedAt = verifiedAt
+          challenge.methodType = methodType
+          method.lastUsedAt = verifiedAt
+          await em.flush()
+        })
+      } else {
+        challenge.verifiedAt = verifiedAt
+        challenge.methodType = methodType
+        method.lastUsedAt = verifiedAt
+        await this.em.flush()
+      }
+      const event = { userId: challenge.userId, challengeId: challenge.id, methodType }
+      if (attemptId) {
+        await emitSecurityEvent('security.mfa.verified', event, { tenantId: challenge.tenantId })
+      } else {
+        await emitSecurityEvent('security.mfa.verified', event)
+      }
       return true
     }
 
@@ -269,7 +306,7 @@ export class MfaVerificationService {
     }
   }
 
-  private async getActiveMethods(userId: string): Promise<UserMfaMethod[]> {
+  private async getActiveMethods(userId: string): Promise<{ methods: UserMfaMethod[]; isEnforced: boolean }> {
     const methods = await this.em.find(
       UserMfaMethod,
       {
@@ -284,10 +321,10 @@ export class MfaVerificationService {
 
     const policy = await this.mfaEnforcementService.getEffectivePolicyForUser(userId)
     if (!policy?.isEnforced || !policy.allowedMethods?.length) {
-      return methods
+      return { methods, isEnforced: policy?.isEnforced ?? false }
     }
 
-    return methods.filter((method) => policy.allowedMethods?.includes(method.type))
+    return { methods: methods.filter((method) => policy.allowedMethods?.includes(method.type)), isEnforced: true }
   }
 
   private async findMethod(userId: string, methodType: string): Promise<UserMfaMethod> {
