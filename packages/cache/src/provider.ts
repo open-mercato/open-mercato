@@ -144,6 +144,45 @@ export function isCacheProviderError(error: unknown): error is CacheProviderErro
     || (error instanceof Error && error.name === 'CacheProviderError' && typeof (error as { code?: unknown }).code === 'string')
 }
 
+const CACHE_PROVIDER_ERROR_CODES: ReadonlySet<string> = new Set<CacheProviderErrorCode>([
+  'invalid_registration',
+  'duplicate_id',
+  'reserved_id',
+  'not_registered',
+  'load_failed',
+  'id_mismatch',
+  'unsupported_api_version',
+  'invalid_settings',
+  'missing_namespace',
+  'invalid_namespace',
+  'conflicting_selection',
+  'unavailable',
+  'timeout',
+  'not_resolved',
+])
+
+/**
+ * Pass a real `CacheProviderError` from this module through unchanged; wrap any
+ * other error (including one that only looks like a `CacheProviderError`) into a
+ * host-authored error so provider-controlled messages never reach callers or logs.
+ * A look-alike keeps its `code` when it is a known code; everything else becomes
+ * `unavailable`. The original error stays reachable only as a non-enumerable cause.
+ */
+export function toSanitizedCacheProviderError(
+  error: unknown,
+  fallback: { message: string; providerId?: string },
+): CacheProviderError {
+  if (error instanceof CacheProviderError) return error
+  const lookalikeCode = isCacheProviderError(error) ? (error as { code: string }).code : null
+  const code: CacheProviderErrorCode = lookalikeCode !== null && CACHE_PROVIDER_ERROR_CODES.has(lookalikeCode)
+    ? lookalikeCode as CacheProviderErrorCode
+    : 'unavailable'
+  return new CacheProviderError(code, fallback.message, {
+    ...(fallback.providerId !== undefined ? { providerId: fallback.providerId } : {}),
+    cause: error,
+  })
+}
+
 export const CACHE_PROVIDER_ENV = 'CACHE_PROVIDER'
 export const CACHE_PROVIDER_NAMESPACE_ENV = 'CACHE_PROVIDER_NAMESPACE'
 export const RESERVED_CACHE_PROVIDER_IDS: ReadonlyArray<string> = ['memory', 'redis', 'sqlite', 'jsonfile']
@@ -151,6 +190,8 @@ export const RESERVED_CACHE_PROVIDER_IDS: ReadonlyArray<string> = ['memory', 're
 const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/
 const NAMESPACE_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/
 const SENSITIVE_META_KEY_PATTERN = /(pass|secret|token|key|credential|auth|cookie|session|dsn|url|uri|endpoint|cert)/i
+const URL_USER_INFO_PATTERN = /([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi
+const SECRET_PAIR_PATTERN = /\b([a-z0-9_.-]*(?:pass(?:word|wd)?|pwd|secret|token|api[_-]?key|access[_-]?key|auth|credentials?)[a-z0-9_.-]*)(\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s;,&]+)/gi
 
 export function defineCacheProvider<TConfig>(
   definition: Omit<CacheProviderDefinition<TConfig>, 'apiVersion'>,
@@ -303,11 +344,11 @@ export async function resolveCacheProvider(
   registrations: ReadonlyArray<CacheProviderRegistration>,
   options: ResolveCacheProviderOptions = {},
 ): Promise<ResolvedCacheProvider | null> {
-  validateCacheProviderRegistrations(registrations)
   const env = options.env ?? process.env
   const explicit = typeof options.selectedId === 'string' ? options.selectedId.trim() : ''
   const selectedId = explicit.length > 0 ? explicit : readSelectedCacheProviderId(env)
   if (!selectedId) return null
+  validateCacheProviderRegistrations(registrations)
 
   if (isReservedProviderId(selectedId)) {
     throw new CacheProviderError(
@@ -374,6 +415,12 @@ export async function resolveCacheProvider(
   return { id, definition, config, placement, namespace }
 }
 
+function scrubSecretsInText(value: string): string {
+  return value
+    .replace(URL_USER_INFO_PATTERN, '$1***@')
+    .replace(SECRET_PAIR_PATTERN, '$1$2***')
+}
+
 function sanitizeLogMeta(meta: CacheProviderLogMeta | undefined): CacheProviderLogMeta | undefined {
   if (!meta || typeof meta !== 'object') return undefined
   const sanitized: CacheProviderLogMeta = {}
@@ -385,7 +432,8 @@ function sanitizeLogMeta(meta: CacheProviderLogMeta | undefined): CacheProviderL
     } else if (value === null || typeof value === 'number' || typeof value === 'boolean') {
       sanitized[key] = value
     } else if (typeof value === 'string') {
-      sanitized[key] = value.length > 200 ? `${value.slice(0, 200)}…` : value
+      const scrubbed = scrubSecretsInText(value)
+      sanitized[key] = scrubbed.length > 200 ? `${scrubbed.slice(0, 200)}…` : scrubbed
     } else {
       sanitized[key] = '[omitted]'
     }
@@ -430,11 +478,21 @@ export function createCacheProviderHostContext(
 
 const SELECTION_STATE_KEY = Symbol.for('@open-mercato/cache/provider-selection')
 
+type CacheProviderSelectionKey = {
+  registrations: ReadonlyArray<CacheProviderRegistration>
+  selectedId: string | null
+  namespace: string | null
+}
+
+type CacheProviderSelectionMemo = CacheProviderSelectionKey & {
+  pending: Promise<ResolvedCacheProvider | null>
+  settled: { provider: ResolvedCacheProvider | null } | null
+  failure: CacheProviderError | null
+}
+
 type CacheProviderSelectionState = {
   registrations: ReadonlyArray<CacheProviderRegistration>
-  pending: Promise<ResolvedCacheProvider | null> | null
-  settled: { selectedId: string | null; provider: ResolvedCacheProvider | null } | null
-  failure: CacheProviderError | null
+  memo: CacheProviderSelectionMemo | null
 }
 
 type GlobalWithSelectionState = typeof globalThis & {
@@ -442,7 +500,7 @@ type GlobalWithSelectionState = typeof globalThis & {
 }
 
 function createSelectionState(): CacheProviderSelectionState {
-  return { registrations: [], pending: null, settled: null, failure: null }
+  return { registrations: [], memo: null }
 }
 
 function selectionState(): CacheProviderSelectionState {
@@ -453,42 +511,81 @@ function selectionState(): CacheProviderSelectionState {
   return scope[SELECTION_STATE_KEY]
 }
 
+function readSelectionKey(state: CacheProviderSelectionState, env: CacheProviderEnv): CacheProviderSelectionKey {
+  const rawNamespace = env[CACHE_PROVIDER_NAMESPACE_ENV]
+  const namespace = typeof rawNamespace === 'string' ? rawNamespace.trim() : ''
+  return {
+    registrations: state.registrations,
+    selectedId: readSelectedCacheProviderId(env),
+    namespace: namespace.length > 0 ? namespace : null,
+  }
+}
+
+function matchesSelectionKey(memo: CacheProviderSelectionMemo, key: CacheProviderSelectionKey): boolean {
+  return memo.registrations === key.registrations
+    && memo.selectedId === key.selectedId
+    && memo.namespace === key.namespace
+}
+
+/**
+ * Register the application's cache providers. Replacing the registrations
+ * discards any memoized selection so the next `prepareCacheProviderSelection()`
+ * resolves against the new list.
+ */
 export function setCacheProviderRegistrations(registrations: ReadonlyArray<CacheProviderRegistration>): void {
-  selectionState().registrations = Array.isArray(registrations) ? [...registrations] : registrations
+  const state = selectionState()
+  state.registrations = Array.isArray(registrations) ? [...registrations] : registrations
+  state.memo = null
 }
 
 export function getCacheProviderRegistrations(): ReadonlyArray<CacheProviderRegistration> {
   return selectionState().registrations
 }
 
+/**
+ * Resolve the selected provider once per (registrations, `CACHE_PROVIDER`,
+ * `CACHE_PROVIDER_NAMESPACE`) combination. A call whose combination differs from
+ * the memoized one re-resolves. A `not_registered` failure against an empty
+ * registration list is not memoized, so registering the manifest later recovers.
+ */
 export function prepareCacheProviderSelection(options: { env?: CacheProviderEnv } = {}): Promise<ResolvedCacheProvider | null> {
   const state = selectionState()
-  if (state.pending) return state.pending
   const env = options.env ?? process.env
-  const selectedId = readSelectedCacheProviderId(env)
-  state.pending = resolveCacheProvider(state.registrations, { env }).then(
+  const key = readSelectionKey(state, env)
+  if (state.memo && matchesSelectionKey(state.memo, key)) return state.memo.pending
+  const memo: CacheProviderSelectionMemo = {
+    ...key,
+    pending: Promise.resolve(null),
+    settled: null,
+    failure: null,
+  }
+  memo.pending = resolveCacheProvider(key.registrations, { env }).then(
     (provider) => {
-      state.settled = { selectedId, provider }
+      memo.settled = { provider }
       return provider
     },
     (error: unknown) => {
-      const failure = isCacheProviderError(error)
-        ? error
-        : new CacheProviderError('unavailable', 'Cache provider selection failed', { cause: error })
-      state.failure = failure
+      const failure = toSanitizedCacheProviderError(error, { message: 'Cache provider selection failed' })
+      if (failure.code === 'not_registered' && key.registrations.length === 0) {
+        if (state.memo === memo) state.memo = null
+      } else {
+        memo.failure = failure
+      }
       throw failure
     },
   )
-  return state.pending
+  state.memo = memo
+  return memo.pending
 }
 
 export function getPreparedCacheProvider(env: CacheProviderEnv = process.env): ResolvedCacheProvider | null {
   const selectedId = readSelectedCacheProviderId(env)
   if (!selectedId) return null
   const state = selectionState()
-  if (state.failure) throw state.failure
-  if (state.settled && state.settled.selectedId === selectedId && state.settled.provider) {
-    return state.settled.provider
+  const memo = state.memo
+  if (memo && matchesSelectionKey(memo, readSelectionKey(state, env))) {
+    if (memo.failure) throw memo.failure
+    if (memo.settled?.provider) return memo.settled.provider
   }
   throw new CacheProviderError(
     'not_resolved',

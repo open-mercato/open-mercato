@@ -14,8 +14,8 @@ import {
   CacheProviderError,
   createCacheProviderHostContext,
   getPreparedCacheProvider,
-  isCacheProviderError,
   readSelectedCacheProviderId,
+  toSanitizedCacheProviderError,
 } from './provider'
 
 function normalizeTenantKey(raw: string | null | undefined): string {
@@ -282,6 +282,7 @@ type EffectiveCacheSelection =
   | { kind: 'provider'; provider: ResolvedCacheProvider }
 
 const DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS = 10_000
+const DEFAULT_PROVIDER_RETRY_COOLDOWN_MS = 1_000
 const REQUIRED_PROVIDER_STRATEGY_METHODS = [
   'get',
   'set',
@@ -338,6 +339,12 @@ function resolveProviderConnectTimeoutMs(): number {
   const raw = process.env.CACHE_PROVIDER_CONNECT_TIMEOUT_MS
   const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS
+}
+
+function resolveProviderRetryCooldownMs(): number {
+  const raw = process.env.CACHE_PROVIDER_RETRY_COOLDOWN_MS
+  const parsed = raw !== undefined && raw.trim().length > 0 ? Number(raw) : Number.NaN
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_PROVIDER_RETRY_COOLDOWN_MS
 }
 
 function isProviderStrategy(value: unknown): value is ProviderStrategy {
@@ -400,28 +407,43 @@ function connectProviderStrategy(
           if (settled) return
           clearTimeout(timer)
           settled = true
-          reject(isCacheProviderError(error)
-            ? error
-            : new CacheProviderError('unavailable', `Cache provider "${provider.id}" failed to initialize`, { providerId: provider.id, cause: error }))
+          reject(toSanitizedCacheProviderError(error, {
+            message: `Cache provider "${provider.id}" failed to initialize`,
+            providerId: provider.id,
+          }))
         },
       )
   })
 }
 
+type ProviderOperation = 'get' | 'set' | 'has' | 'delete' | 'deleteByTags' | 'clear' | 'keys' | 'stats' | 'healthcheck' | 'cleanup' | 'close'
+
 function createLazyProviderStrategy(
   provider: ResolvedCacheProvider,
   context: CacheProviderHostContext,
   timeoutMs: number,
+  retryCooldownMs: number,
 ): ProviderStrategy {
   let active: ProviderStrategy | null = null
   let pending: Promise<ProviderStrategy> | null = null
   let closing: Promise<void> | null = null
+  let closed = false
+  let lastFailure: { error: CacheProviderError; at: number } | null = null
   let generation = 0
 
-  const ensure = async (): Promise<ProviderStrategy> => {
-    if (closing) await closing
+  const sanitize = (error: unknown, operation: ProviderOperation): CacheProviderError =>
+    toSanitizedCacheProviderError(error, {
+      message: `Cache provider "${provider.id}" ${operation} failed`,
+      providerId: provider.id,
+    })
+
+  const ensure = async (operation: ProviderOperation): Promise<ProviderStrategy> => {
+    if (closed) {
+      throw new CacheProviderError('unavailable', `Cache provider "${provider.id}" is closed`, { providerId: provider.id })
+    }
     if (active) return active
     if (!pending) {
+      if (lastFailure && Date.now() - lastFailure.at < retryCooldownMs) throw lastFailure.error
       const attemptGeneration = generation
       const attempt: Promise<ProviderStrategy> = connectProviderStrategy(provider, context, timeoutMs).then(
         async (strategy) => {
@@ -430,50 +452,70 @@ function createLazyProviderStrategy(
             throw new CacheProviderError('unavailable', `Cache provider "${provider.id}" was closed during initialization`, { providerId: provider.id })
           }
           active = strategy
+          lastFailure = null
           if (pending === attempt) pending = null
           return strategy
         },
         (error: unknown) => {
           if (pending === attempt) pending = null
+          if (attemptGeneration === generation) {
+            lastFailure = { error: sanitize(error, operation), at: Date.now() }
+          }
           throw error
         },
       )
       pending = attempt
     }
-    return pending
+    try {
+      return await pending
+    } catch (error) {
+      throw sanitize(error, operation)
+    }
+  }
+
+  const run = async <T>(operation: ProviderOperation, call: (strategy: ProviderStrategy) => Promise<T> | T): Promise<T> => {
+    const strategy = await ensure(operation)
+    try {
+      return await call(strategy)
+    } catch (error) {
+      throw sanitize(error, operation)
+    }
   }
 
   const close = async (): Promise<void> => {
     if (!closing) {
       const current = active
       const inflight = pending
+      closed = true
       active = null
       pending = null
+      lastFailure = null
       generation += 1
       closing = (async () => {
         if (inflight) await inflight.catch(() => undefined)
-        if (current) await current.close()
-      })().finally(() => {
-        closing = null
-      })
+        if (current) {
+          try {
+            await current.close()
+          } catch (error) {
+            throw sanitize(error, 'close')
+          }
+        }
+      })()
     }
     return closing
   }
 
   return {
-    get: async (key, options) => (await ensure()).get(key, options),
-    set: async (key, value, options) => (await ensure()).set(key, value, options),
-    has: async (key) => (await ensure()).has(key),
-    delete: async (key) => (await ensure()).delete(key),
-    deleteByTags: async (tags) => (await ensure()).deleteByTags(tags),
-    clear: async () => (await ensure()).clear(),
-    keys: async (pattern) => (await ensure()).keys(pattern),
-    stats: async () => (await ensure()).stats(),
-    healthcheck: async () => (await ensure()).healthcheck(),
-    cleanup: async () => {
-      const strategy = await ensure()
-      return strategy.cleanup ? strategy.cleanup() : 0
-    },
+    get: (key, options) => run('get', (strategy) => strategy.get(key, options)),
+    set: (key, value, options) => run('set', (strategy) => strategy.set(key, value, options)),
+    has: (key) => run('has', (strategy) => strategy.has(key)),
+    delete: (key) => run('delete', (strategy) => strategy.delete(key)),
+    deleteByTags: (tags) => run('deleteByTags', (strategy) => strategy.deleteByTags(tags)),
+    clear: () => run('clear', (strategy) => strategy.clear()),
+    keys: (pattern) => run('keys', (strategy) => strategy.keys(pattern)),
+    stats: () => run('stats', (strategy) => strategy.stats()),
+    healthcheck: () => run('healthcheck', (strategy) => strategy.healthcheck()),
+    cleanup: () => run('cleanup', (strategy) => (strategy.cleanup ? strategy.cleanup() : 0)),
     close,
   }
 }
@@ -496,7 +538,12 @@ function createProviderTenantAwareStrategy(provider: ResolvedCacheProvider, opti
     defaultTtl: resolveDefaultTtl(options),
     codec: resolveCodecOptions(options),
   })
-  const lazyStrategy = createLazyProviderStrategy(provider, context, resolveProviderConnectTimeoutMs())
+  const lazyStrategy = createLazyProviderStrategy(
+    provider,
+    context,
+    resolveProviderConnectTimeoutMs(),
+    resolveProviderRetryCooldownMs(),
+  )
   return createTenantAwareWrapper(lazyStrategy, false)
 }
 

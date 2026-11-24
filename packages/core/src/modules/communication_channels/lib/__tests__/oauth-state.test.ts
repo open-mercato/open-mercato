@@ -13,6 +13,7 @@ import {
   createOAuthState,
   emitOAuthStateMemoryCacheStartupWarningIfNeeded,
   resetOAuthStateMemoryCacheStartupWarningForTests,
+  runDeferredOAuthStateCacheWarningCheck,
   decryptOAuthState,
   DEFAULT_OAUTH_RETURN_URL,
   encryptOAuthState,
@@ -456,14 +457,43 @@ describe('emitOAuthStateMemoryCacheStartupWarningIfNeeded with a registered cach
     expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ startup: true, cacheProvider: 'acme/local' })
   })
 
-  it('falls back to the CACHE_STRATEGY check when the selection cannot be described', () => {
+  it('defers instead of consulting CACHE_STRATEGY when the selection cannot be described', () => {
     const describeSelection = () => { throw new Error('not prepared') }
-    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_PROVIDER: 'acme/x', CACHE_STRATEGY: 'redis' }, describeSelection)
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_PROVIDER: 'acme/x', CACHE_STRATEGY: 'memory' }, describeSelection)
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  it('warns after bootstrap prepares a local provider even when a stale CACHE_STRATEGY=redis is set', () => {
+    const env = { CACHE_PROVIDER: 'acme/local', CACHE_STRATEGY: 'redis' }
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded(env, () => { throw new Error('not prepared') })
     expect(mockLoggerWarn).not.toHaveBeenCalled()
 
-    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_PROVIDER: 'acme/x', CACHE_STRATEGY: 'memory' }, describeSelection)
+    const describeSelection = jest.fn(() => ({ kind: 'provider' as const, id: 'acme/local', placement: 'local' as const }))
+    runDeferredOAuthStateCacheWarningCheck(env, describeSelection)
     expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
-    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ cacheStrategy: 'memory' })
+    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ cacheProvider: 'acme/local' })
+
+    runDeferredOAuthStateCacheWarningCheck(env, describeSelection)
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded(env, describeSelection)
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(describeSelection).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays silent after the deferred check resolves a shared provider', () => {
+    const env = { CACHE_PROVIDER: 'acme/shared', CACHE_STRATEGY: 'memory' }
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded(env, () => { throw new Error('not prepared') })
+    const describeSelection = jest.fn(() => ({ kind: 'provider' as const, id: 'acme/shared', placement: 'shared' as const }))
+    runDeferredOAuthStateCacheWarningCheck(env, describeSelection)
+    runDeferredOAuthStateCacheWarningCheck(env, describeSelection)
+    expect(describeSelection).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  it('does nothing in the deferred check when nothing was deferred', () => {
+    const describeSelection = jest.fn(() => ({ kind: 'provider' as const, id: 'acme/x', placement: 'local' as const }))
+    runDeferredOAuthStateCacheWarningCheck({ CACHE_PROVIDER: 'acme/x' }, describeSelection)
+    expect(describeSelection).not.toHaveBeenCalled()
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
   it('does not describe the selection for stock deployments', () => {

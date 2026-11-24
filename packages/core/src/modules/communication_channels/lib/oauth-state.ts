@@ -1,9 +1,11 @@
 import crypto from 'node:crypto'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-import { describeCacheSelection, type CacheSelection } from '@open-mercato/cache'
-import { readSelectedCacheProviderId } from '@open-mercato/cache/provider'
+import { emitOAuthStateMemoryCacheStartupWarningIfNeeded } from './oauth-state-cache-warning'
 
-const oauthStateLogger = createLogger('communication_channels').child({ component: 'oauth-state' })
+export {
+  emitOAuthStateMemoryCacheStartupWarningIfNeeded,
+  resetOAuthStateMemoryCacheStartupWarningForTests,
+  runDeferredOAuthStateCacheWarningCheck,
+} from './oauth-state-cache-warning'
 
 /**
  * OAuth state-cookie helper for the communication_channels hub.
@@ -298,58 +300,6 @@ export function createOAuthState(params: {
   }
   const cookie = encryptOAuthState(payload)
   return { payload, cookie, stateParam: state }
-}
-
-let memoryCacheStartupWarningEmitted = false
-
-function describeSelectedProviderPlacement(
-  providerId: string,
-  describeSelection: () => CacheSelection,
-): CacheSelection['placement'] | null {
-  try {
-    const selection = describeSelection()
-    return selection.kind === 'provider' && selection.id === providerId ? selection.placement : null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Emit a one-time startup warning unless the effective cache is shared across
- * replicas. With a registered cache provider (`CACHE_PROVIDER`) its resolved
- * placement decides; when the selection cannot be described yet, the stock
- * `CACHE_STRATEGY` check applies. For stock strategies every value other than
- * redis (memory, sqlite, jsonfile) keeps replay markers per process or per node,
- * so the single-use guarantee only holds across replicas on redis.
- */
-export function emitOAuthStateMemoryCacheStartupWarningIfNeeded(
-  env: NodeJS.ProcessEnv = process.env,
-  describeSelection: () => CacheSelection = describeCacheSelection,
-): void {
-  if (memoryCacheStartupWarningEmitted) return
-  const providerId = readSelectedCacheProviderId(env)
-  const providerPlacement = providerId ? describeSelectedProviderPlacement(providerId, describeSelection) : null
-  if (providerPlacement === 'shared') return
-  if (providerId && providerPlacement === 'local') {
-    memoryCacheStartupWarningEmitted = true
-    oauthStateLogger.warn(
-      `OAuth state single-use protection needs a store shared across replicas. CACHE_PROVIDER=${providerId} resolves to a local (per-process or per-node) cache; multi-replica deployments MUST select a shared cache.`,
-      { context: 'startup', startup: true, cacheProvider: providerId },
-    )
-    return
-  }
-  const strategy = (env.CACHE_STRATEGY ?? 'memory').trim().toLowerCase()
-  if (strategy === 'redis') return
-  memoryCacheStartupWarningEmitted = true
-  oauthStateLogger.warn(
-    `OAuth state single-use protection needs a store shared across replicas. CACHE_STRATEGY=${strategy} is per-process or per-node; multi-replica deployments MUST set CACHE_STRATEGY=redis.`,
-    { context: 'startup', startup: true, cacheStrategy: strategy },
-  )
-}
-
-/** Test helper — reset the one-time startup warning latch. */
-export function resetOAuthStateMemoryCacheStartupWarningForTests(): void {
-  memoryCacheStartupWarningEmitted = false
 }
 
 emitOAuthStateMemoryCacheStartupWarningIfNeeded()

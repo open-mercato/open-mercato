@@ -10,12 +10,18 @@ import {
   type CacheProviderRegistration,
 } from '@open-mercato/cache/provider'
 import { bootstrap, bootstrapProcessRoot, getCachedCacheService } from '../bootstrap'
+import {
+  emitOAuthStateMemoryCacheStartupWarningIfNeeded,
+  resetOAuthStateMemoryCacheStartupWarningForTests,
+} from '../modules/communication_channels/lib/oauth-state-cache-warning'
+
+const mockLoggerWarn = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const stubLogger = {
     debug: jest.fn(),
     info: jest.fn(),
-    warn: jest.fn(),
+    warn: (...args: unknown[]) => mockLoggerWarn(...args),
     error: jest.fn(),
     child: () => stubLogger,
   }
@@ -58,7 +64,7 @@ type FakeProvider = {
   close: jest.Mock
 }
 
-function fakeProvider(): FakeProvider {
+function fakeProvider(placement: 'local' | 'shared' = 'shared'): FakeProvider {
   const close = jest.fn(async () => {})
   const create = jest.fn(() => {
     const base = createMemoryStrategy()
@@ -67,7 +73,7 @@ function fakeProvider(): FakeProvider {
   const definition = defineCacheProvider<Record<string, never>>({
     id: PROVIDER_ID,
     settings: { safeParse: () => ({ success: true, data: {} }) },
-    capability: () => ({ placement: 'shared' }),
+    capability: () => ({ placement }),
     create,
   })
   const registration = defineCacheProviderRegistration({
@@ -201,5 +207,44 @@ describe('core bootstrap cache provider resolution', () => {
     expect(await cache.get('stock')).toBe(1)
     expect(provider.create).not.toHaveBeenCalled()
     await container.dispose()
+  })
+
+  it('boots the stock cache when CACHE_PROVIDER is unset even if registrations are invalid', async () => {
+    setCacheProviderRegistrations([
+      { id: 'redis', load: async () => { throw new Error('unused') }, settings: () => ({}) },
+      { id: 'not a valid id' } as unknown as CacheProviderRegistration,
+    ])
+    const container = createContainer().register({ em: asValue({}) })
+
+    await bootstrap(container)
+
+    const cache = container.resolve<CacheStrategy>('cache')
+    await cache.set('stock', 2)
+    expect(await cache.get('stock')).toBe(2)
+    await container.dispose()
+  })
+
+  it('re-runs a deferred OAuth cache warning once the provider selection is prepared', async () => {
+    resetOAuthStateMemoryCacheStartupWarningForTests()
+    mockLoggerWarn.mockClear()
+    try {
+      const provider = fakeProvider('local')
+      setCacheProviderRegistrations([provider.registration])
+      process.env.CACHE_PROVIDER = PROVIDER_ID
+      process.env.CACHE_PROVIDER_NAMESPACE = 'test-ns'
+      process.env.CACHE_STRATEGY = 'redis'
+
+      emitOAuthStateMemoryCacheStartupWarningIfNeeded()
+      expect(mockLoggerWarn).not.toHaveBeenCalled()
+
+      const container = createContainer().register({ em: asValue({}) })
+      await bootstrap(container)
+
+      const oauthWarnings = mockLoggerWarn.mock.calls.filter(([, meta]) => (meta as { cacheProvider?: string } | undefined)?.cacheProvider === PROVIDER_ID)
+      expect(oauthWarnings).toHaveLength(1)
+      await container.dispose()
+    } finally {
+      resetOAuthStateMemoryCacheStartupWarningForTests()
+    }
   })
 })

@@ -147,18 +147,30 @@ describe('cache provider contract', () => {
 
   describe('registration validation', () => {
     it.each(['memory', 'redis', 'sqlite', 'jsonfile', 'custom'])('rejects reserved id %s', async (id) => {
-      await expectProviderError(resolveCacheProvider([registration({ id })], { env: {} }), 'reserved_id')
+      await expectProviderError(resolveCacheProvider([registration({ id })], { env: baseEnv }), 'reserved_id')
     })
 
     it.each(['Acme/fixture', 'acme/', '/fixture', 'acme/fix ture', 'acme/a/b', ''])('rejects invalid id %p', async (id) => {
-      await expectProviderError(resolveCacheProvider([registration({ id })], { env: {} }), 'invalid_registration')
+      await expectProviderError(resolveCacheProvider([registration({ id })], { env: baseEnv }), 'invalid_registration')
     })
 
     it('rejects missing load or settings functions', async () => {
       const noLoad = { id: 'acme/fixture', settings: () => ({}) } as unknown as CacheProviderRegistration
       const noSettings = { id: 'acme/fixture', load: async () => fixtureDefinition() } as unknown as CacheProviderRegistration
-      await expectProviderError(resolveCacheProvider([noLoad], { env: {} }), 'invalid_registration')
-      await expectProviderError(resolveCacheProvider([noSettings], { env: {} }), 'invalid_registration')
+      await expectProviderError(resolveCacheProvider([noLoad], { env: baseEnv }), 'invalid_registration')
+      await expectProviderError(resolveCacheProvider([noSettings], { env: baseEnv }), 'invalid_registration')
+    })
+
+    it('ignores registrations entirely when nothing is selected', async () => {
+      const invalid = [
+        registration({ id: 'memory' }),
+        registration({ id: 'Bad Id' }),
+        { id: 'acme/fixture' } as unknown as CacheProviderRegistration,
+        registration(),
+        registration(),
+      ]
+      await expect(resolveCacheProvider(invalid, { env: {} })).resolves.toBeNull()
+      await expect(resolveCacheProvider(invalid, { env: { CACHE_PROVIDER: '  ' } })).resolves.toBeNull()
     })
 
     it('rejects duplicate ids before loading anything', async () => {
@@ -346,6 +358,61 @@ describe('cache provider contract', () => {
       expect(() => getPreparedCacheProvider()).toThrow(CacheProviderError)
     })
 
+    it('lets stock selection succeed with invalid registrations when CACHE_PROVIDER is unset', async () => {
+      delete process.env.CACHE_PROVIDER
+      setCacheProviderRegistrations([registration({ id: 'redis' }), registration({ id: 'not valid' })])
+      await expect(prepareCacheProviderSelection()).resolves.toBeNull()
+      expect(getPreparedCacheProvider()).toBeNull()
+    })
+
+    it('discards the memoized selection when registrations are replaced', async () => {
+      process.env.CACHE_PROVIDER = 'acme/fixture'
+      process.env.CACHE_PROVIDER_NAMESPACE = 'deploy-1'
+      const firstLoad = jest.fn(async () => fixtureDefinition())
+      setCacheProviderRegistrations([registration({ load: firstLoad })])
+      const first = await prepareCacheProviderSelection()
+      const secondLoad = jest.fn(async () => fixtureDefinition())
+      setCacheProviderRegistrations([registration({ load: secondLoad })])
+      expect(() => getPreparedCacheProvider()).toThrow(expect.objectContaining({ code: 'not_resolved' }))
+      const second = await prepareCacheProviderSelection()
+      expect(second).not.toBe(first)
+      expect(firstLoad).toHaveBeenCalledTimes(1)
+      expect(secondLoad).toHaveBeenCalledTimes(1)
+      expect(getPreparedCacheProvider()).toBe(second)
+    })
+
+    it('re-resolves when the selected id or namespace changes', async () => {
+      process.env.CACHE_PROVIDER = 'acme/fixture'
+      process.env.CACHE_PROVIDER_NAMESPACE = 'deploy-1'
+      const load = jest.fn(async () => fixtureDefinition())
+      const otherLoad = jest.fn(async () => fixtureDefinition('acme/other'))
+      setCacheProviderRegistrations([registration({ load }), registration({ id: 'acme/other', load: otherLoad })])
+      const first = await prepareCacheProviderSelection()
+      expect(first?.id).toBe('acme/fixture')
+
+      process.env.CACHE_PROVIDER_NAMESPACE = 'deploy-2'
+      expect(() => getPreparedCacheProvider()).toThrow(expect.objectContaining({ code: 'not_resolved' }))
+      const renamed = await prepareCacheProviderSelection()
+      expect(renamed?.namespace).toBe('deploy-2')
+      expect(load).toHaveBeenCalledTimes(2)
+
+      process.env.CACHE_PROVIDER = 'acme/other'
+      const switched = await prepareCacheProviderSelection()
+      expect(switched?.id).toBe('acme/other')
+      expect(getPreparedCacheProvider()).toBe(switched)
+      expect(otherLoad).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not memoize not_registered against an empty registration list', async () => {
+      process.env.CACHE_PROVIDER = 'acme/fixture'
+      process.env.CACHE_PROVIDER_NAMESPACE = 'deploy-1'
+      await expectProviderError(prepareCacheProviderSelection(), 'not_registered')
+      expect(() => getPreparedCacheProvider()).toThrow(expect.objectContaining({ code: 'not_resolved' }))
+      setCacheProviderRegistrations([registration()])
+      const resolved = await prepareCacheProviderSelection()
+      expect(resolved?.id).toBe('acme/fixture')
+    })
+
     it('is shared through a global symbol', async () => {
       process.env.CACHE_PROVIDER = 'acme/fixture'
       process.env.CACHE_PROVIDER_NAMESPACE = 'deploy-1'
@@ -374,6 +441,28 @@ describe('cache provider contract', () => {
         expect(logged).toContain('attempt')
       } finally {
         warn.mockRestore()
+      }
+    })
+
+    it('scrubs URL user-info and secret pairs from string meta values', () => {
+      const error = jest.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        const context = createCacheProviderHostContext({ id: 'acme/fixture', namespace: 'deploy-1' })
+        context.logger.error('connection lost', {
+          reason: `connect ECONNREFUSED rediss://default:${SECRET}@cache.internal:6380/0`,
+          detail: `host=db.internal port=5432 password=${SECRET} sslmode=require`,
+          quoted: `Server=x;User Id=app;Password="${SECRET}";`,
+          atSign: `redis://user:p@${SECRET}@host:6379`,
+          plain: 'retrying in 500ms',
+        })
+        const [, meta] = error.mock.calls[0] as [string, Record<string, string>]
+        expect(inspect(error.mock.calls)).not.toContain(SECRET)
+        expect(meta.reason).toBe('connect ECONNREFUSED rediss://***@cache.internal:6380/0')
+        expect(meta.detail).toBe('host=db.internal port=5432 password=*** sslmode=require')
+        expect(meta.atSign).toBe('redis://***@host:6379')
+        expect(meta.plain).toBe('retrying in 500ms')
+      } finally {
+        error.mockRestore()
       }
     })
   })

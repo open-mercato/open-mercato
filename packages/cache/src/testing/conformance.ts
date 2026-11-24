@@ -187,7 +187,7 @@ export async function assertCacheMiss(service: CacheStrategy, key: string, messa
 }
 
 function sorted(values: string[]): string[] {
-  return [...values].sort()
+  return [...values].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
 async function writeInChunks(count: number, write: (index: number) => Promise<void>): Promise<void> {

@@ -22,7 +22,15 @@ Follow-up PRs (stacked): OSS engine packages (`.ai/specs/2026-11-24-oss-cache-pr
 | 2 | 2.4-review-fix | Export physical key layout and document provider decode and count contract | inline | done | a98efd0dbb |
 | 2 | 2.4-checkpoint-fix | Pass cache env through turbo generate and name the provider readiness probe | inline | done | efaa89e19e |
 | 2 | 2.5 | Provider-author and operator docs, env examples and template sync | dispatch | done | 48805b4a2b |
-| 2 | 2.6 | Archive Delta into capabilities spec | inline | done | (this commit) |
+| 2 | 2.6 | Archive Delta into capabilities spec | inline | done | 191be38f6c |
+| 3 | 3.1-review-fix | Sanitize runtime provider operation and close errors | inline | done | 3e45aa6048 |
+| 3 | 3.2-review-fix | Ignore registrations when unselected and key the selection memo | inline | done | 1bcf6de1c0 |
+| 3 | 3.3-review-fix | Provider init retry cooldown and terminal closed state | inline | done | 2008ab07e7 |
+| 3 | 3.4-review-fix | Defer the OAuth cache warning until the provider selection is prepared | inline | done | 7c31d651c5 |
+| 3 | 3.5-review-fix | Scrub DSN secrets in provider logs and show provider selection on system status | inline | done | 08179f62c0 |
+| 3 | 3.6-review-fix | Document sanitized runtime errors, unselected registrations, retry cooldown, closed state and generate env | inline | done | 412004323e |
+| 3 | 3.7-review-fix | Give the conformance kit sort an explicit comparator | inline | done | 5470e2d6a9 |
+| 3 | 3.8-review-fix | Own the Redis URL and wire-protocol helpers in the cache package | inline | done | (this commit) |
 
 ## Goal
 

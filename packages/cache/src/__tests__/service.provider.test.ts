@@ -1,3 +1,4 @@
+import { inspect } from 'node:util'
 import {
   CacheService,
   createCacheService,
@@ -97,6 +98,7 @@ describe('cache service provider selection', () => {
     delete process.env.CACHE_PROVIDER
     delete process.env.CACHE_PROVIDER_NAMESPACE
     delete process.env.CACHE_PROVIDER_CONNECT_TIMEOUT_MS
+    delete process.env.CACHE_PROVIDER_RETRY_COOLDOWN_MS
     delete process.env.CACHE_STRATEGY
     resetCacheProviderSelectionForTests()
   })
@@ -239,6 +241,7 @@ describe('cache service provider selection', () => {
       const create = jest.fn<CacheStrategy, []>()
         .mockImplementationOnce(() => ({ ...createMemoryStrategy(), close: partialClose }))
         .mockImplementationOnce(() => good)
+      process.env.CACHE_PROVIDER_RETRY_COOLDOWN_MS = '0'
       const cache = createCacheService({ provider: resolvedProvider(create) })
       await expectCode(cache.get('k'), 'invalid_registration')
       expect(partialClose).toHaveBeenCalledTimes(1)
@@ -252,12 +255,52 @@ describe('cache service provider selection', () => {
       const create = jest.fn<CacheStrategy, []>()
         .mockImplementationOnce(() => { throw new Error(`ECONNREFUSED token=${SECRET}`) })
         .mockImplementationOnce(() => good)
+      process.env.CACHE_PROVIDER_RETRY_COOLDOWN_MS = '0'
       const cache = createCacheService({ provider: resolvedProvider(create) })
       const error = await expectCode(cache.set('k', 'v'), 'unavailable')
       expect(error.message).not.toContain(SECRET)
       expect(JSON.stringify(error)).not.toContain(SECRET)
       expect(await cache.get('k')).toBeNull()
       expect(create).toHaveBeenCalledTimes(2)
+    })
+
+    it('reuses the last init failure during the retry cooldown, then retries', async () => {
+      const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000)
+      try {
+        const good = recordingStrategy()
+        const create = jest.fn<CacheStrategy, []>()
+          .mockImplementationOnce(() => { throw new Error('ECONNREFUSED') })
+          .mockImplementationOnce(() => good)
+        const cache = createCacheService({ provider: resolvedProvider(create) })
+        const first = await expectCode(cache.get('k'), 'unavailable')
+        now.mockReturnValue(1_000_500)
+        await expect(cache.has('k')).rejects.toBe(first)
+        await expect(cache.set('k', 'v')).rejects.toBe(first)
+        expect(create).toHaveBeenCalledTimes(1)
+        now.mockReturnValue(1_001_000)
+        expect(await cache.get('k')).toBeNull()
+        expect(create).toHaveBeenCalledTimes(2)
+      } finally {
+        now.mockRestore()
+      }
+    })
+
+    it('honours a custom retry cooldown', async () => {
+      process.env.CACHE_PROVIDER_RETRY_COOLDOWN_MS = '5000'
+      const now = jest.spyOn(Date, 'now').mockReturnValue(2_000_000)
+      try {
+        const create = jest.fn<CacheStrategy, []>(() => { throw new Error('down') })
+        const cache = createCacheService({ provider: resolvedProvider(create) })
+        await expectCode(cache.get('k'), 'unavailable')
+        now.mockReturnValue(2_004_999)
+        await expectCode(cache.get('k'), 'unavailable')
+        expect(create).toHaveBeenCalledTimes(1)
+        now.mockReturnValue(2_005_000)
+        await expectCode(cache.get('k'), 'unavailable')
+        expect(create).toHaveBeenCalledTimes(2)
+      } finally {
+        now.mockRestore()
+      }
     })
 
     it('closes idempotently and only once', async () => {
@@ -267,6 +310,19 @@ describe('cache service provider selection', () => {
       await Promise.all([cache.close?.(), cache.close?.()])
       await cache.close?.()
       expect(strategy.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects every operation with unavailable once closed and never reconnects', async () => {
+      const create = jest.fn(() => recordingStrategy())
+      const cache = createCacheService({ provider: resolvedProvider(create) })
+      await cache.set('k', 'v')
+      await cache.close?.()
+      const error = await expectCode(cache.get('k'), 'unavailable')
+      expect(error.message).toContain('closed')
+      await expectCode(cache.set('k', 'v'), 'unavailable')
+      await expectCode(cache.healthcheck!(), 'unavailable')
+      await expectCode(cache.cleanup!(), 'unavailable')
+      expect(create).toHaveBeenCalledTimes(1)
     })
 
     it('does not create a strategy just to close it', async () => {
@@ -291,6 +347,53 @@ describe('cache service provider selection', () => {
       await closing
       await expectCode(pendingRead, 'unavailable')
       expect(strategy.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('sanitizes runtime operation errors so provider messages never leak', async () => {
+      const leaky = new Error(`READONLY redis://user:${SECRET}@cache.internal`)
+      const strategy = recordingStrategy()
+      strategy.get = async () => { throw leaky }
+      strategy.healthcheck.mockImplementation(async () => { throw leaky })
+      strategy.close.mockImplementation(async () => { throw leaky })
+      const cache = createCacheService({ provider: resolvedProvider(() => strategy) })
+      const errors = [
+        await expectCode(cache.get('k'), 'unavailable'),
+        await expectCode(cache.healthcheck!(), 'unavailable'),
+        await expectCode(cache.close!(), 'unavailable'),
+      ]
+      for (const error of errors) {
+        expect(error.providerId).toBe('acme/test')
+        expect(error.originalError).toBe(leaky)
+        expect(Object.keys(error)).not.toContain('originalError')
+        expect(error.message).not.toContain(SECRET)
+        expect(JSON.stringify(error)).not.toContain(SECRET)
+        expect(inspect(error, { depth: 10 })).not.toContain(SECRET)
+      }
+      expect(errors[0].message).toBe('Cache provider "acme/test" get failed')
+    })
+
+    it('passes real CacheProviderError instances from operations through unchanged', async () => {
+      const own = new CacheProviderError('timeout', 'Cache provider "acme/test" get timed out', { providerId: 'acme/test' })
+      const strategy = recordingStrategy()
+      strategy.get = async () => { throw own }
+      const cache = createCacheService({ provider: resolvedProvider(() => strategy) })
+      await expect(cache.get('k')).rejects.toBe(own)
+    })
+
+    it('re-wraps a create error that only looks like a CacheProviderError', async () => {
+      const lookalike = Object.assign(new Error(`invalid token ${SECRET}`), { name: 'CacheProviderError', code: 'invalid_settings' })
+      const unknownCode = Object.assign(new Error(`boom ${SECRET}`), { name: 'CacheProviderError', code: 'bogus' })
+      const create = jest.fn<CacheStrategy, []>()
+        .mockImplementationOnce(() => { throw lookalike })
+        .mockImplementationOnce(() => { throw unknownCode })
+      process.env.CACHE_PROVIDER_RETRY_COOLDOWN_MS = '0'
+      const cache = createCacheService({ provider: resolvedProvider(create) })
+      const first = await expectCode(cache.get('k'), 'invalid_settings')
+      expect(first).not.toBe(lookalike)
+      expect(first.message).not.toContain(SECRET)
+      expect(first.originalError).toBe(lookalike)
+      const second = await expectCode(cache.get('k'), 'unavailable')
+      expect(second.message).not.toContain(SECRET)
     })
 
     it('delegates healthcheck to the provider strategy', async () => {

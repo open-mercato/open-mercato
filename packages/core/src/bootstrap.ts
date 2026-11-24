@@ -11,6 +11,7 @@ import {
   prepareCacheProviderSelection,
   readSelectedCacheProviderId,
 } from '@open-mercato/cache/provider'
+import { runDeferredOAuthStateCacheWarningCheck } from './modules/communication_channels/lib/oauth-state-cache-warning'
 import { createKmsService, type KmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
@@ -133,6 +134,7 @@ export function getCachedRateLimiterService(): RateLimiterService | null {
 
 export async function bootstrap(container: AwilixContainer) {
   await prepareCacheProviderSelection()
+  runDeferredOAuthStateCacheWarningCheck()
   // Register the cache service. Prefer the process-wide singleton so caches
   // survive across request containers; fall back to a per-request instance
   // when the singleton is disabled or fails to build.
@@ -339,6 +341,7 @@ function getProcessKmsService(): KmsService {
 
 export async function bootstrapProcessRoot(root: AwilixContainer): Promise<() => void> {
   await prepareCacheProviderSelection()
+  runDeferredOAuthStateCacheWarningCheck()
   const cache = getCachedCacheService()
   if (!cache) throw new Error('[internal] Process root requires the shared cache service')
   const kmsService = getProcessKmsService()
