@@ -341,6 +341,7 @@
   "auth.acl.features.security.profile.manage": "Zarządzaj profilem bezpieczeństwa",
   "auth.acl.features.security.profile.password": "Zmieniaj własne hasło",
   "auth.acl.features.security.profile.view": "Wyświetl profil bezpieczeństwa",
+  "auth.acl.features.security.sign_ins.view": "Wyświetl aktywność logowania",
   "auth.acl.features.security.sudo.manage": "Zarządzaj ochroną sudo",
   "auth.acl.features.security.sudo.view": "Wyświetl ochronę sudo",
   "auth.acl.features.shipping_carriers.manage": "Zarządzaj operacjami przewoźników",
