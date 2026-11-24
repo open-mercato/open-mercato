@@ -23,6 +23,10 @@ import { E } from '#generated/entities.ids.generated'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { denyCustomerDetailReadAsNotFound } from '../../../lib/detailReadAccess'
+import { dealReopenFeatures, isDealClosedForReopen } from '../../../lib/dealReopen'
+import { resolveEffectivePipelineStage } from '../../../lib/effectiveDealPipelineStage'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import {
@@ -111,10 +115,6 @@ function readIncludeFlags(request: Request): Set<string> {
 function readViewMode(request: Request): 'full' | 'lite' {
   const raw = new URL(request.url).searchParams.get('view')
   return raw === 'lite' || raw === 'detail-lite' ? 'lite' : 'full'
-}
-
-function normalizeStageLabel(value: string | null | undefined): string {
-  return typeof value === 'string' ? value.trim().toLowerCase() : ''
 }
 
 type StageTransitionPayload = {
@@ -286,50 +286,6 @@ async function loadPipelineStageAppearanceMap(
   return map
 }
 
-async function resolveEffectivePipelineStage(
-  em: EntityManager,
-  deal: CustomerDeal,
-  decryptionScope: { tenantId: string | null; organizationId: string | null },
-): Promise<CustomerPipelineStage | null> {
-  if (deal.pipelineStageId) {
-    const exactStage = await findOneWithDecryption(
-      em,
-      CustomerPipelineStage,
-      {
-        id: deal.pipelineStageId,
-        organizationId: deal.organizationId,
-        tenantId: deal.tenantId,
-      },
-      {},
-      decryptionScope,
-    )
-    if (exactStage) return exactStage
-  }
-
-  const normalizedStageLabel = normalizeStageLabel(deal.pipelineStage)
-  if (!normalizedStageLabel) return null
-
-  const scopedStages = await findWithDecryption(
-    em,
-    CustomerPipelineStage,
-    {
-      organizationId: deal.organizationId,
-      tenantId: deal.tenantId,
-      ...(deal.pipelineId ? { pipelineId: deal.pipelineId } : {}),
-    },
-    { orderBy: { order: 'ASC' } },
-    decryptionScope,
-  )
-
-  const matchingStages = scopedStages.filter((stage) => normalizeStageLabel(stage.label) === normalizedStageLabel)
-  if (matchingStages.length === 1) return matchingStages[0] ?? null
-  if (matchingStages.length > 1) {
-    const distinctPipelineIds = new Set(matchingStages.map((stage) => stage.pipelineId))
-    if (distinctPipelineIds.size === 1) return matchingStages[0] ?? null
-  }
-  return null
-}
-
 const DEAL_DETAIL_CACHE_RESOURCE = 'customers.deal'
 // Every entity the detail payload reads, expressed with the same resourceKind
 // strings the customers commands declare. `expandResourceAliases` canonicalizes
@@ -454,20 +410,30 @@ export async function GET(request: Request, context: { params?: Record<string, u
   }
 
   const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
-  const resolveViewer = async (): Promise<{ name: string | null; email: string | null }> => {
+  const resolveViewer = async () => {
     if (!viewerUserId) {
-      return { name: null, email: auth.email ?? null }
+      return { userId: null, name: null, email: auth.email ?? null }
     }
-    const viewer = await findOneWithDecryption(
-      em,
-      User,
-      { id: viewerUserId, tenantId: auth.tenantId ?? null },
-      {},
-      { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
-    )
+    const [viewer, canReopenDeal] = await Promise.all([
+      findOneWithDecryption(
+        em,
+        User,
+        { id: viewerUserId, tenantId: auth.tenantId ?? null },
+        {},
+        { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+      ),
+      isDealClosedForReopen(deal) ? Promise.resolve().then(() => (
+        container.resolve<RbacService>('rbacService').userHasAllFeatures(viewerUserId, dealReopenFeatures, decryptionScope)
+      )).catch((error: unknown) => {
+        reportTelemetryError(error, { module: 'customers', code: 'customers.deal.reopen.viewer_access_failed' })
+        return false
+      }) : undefined,
+    ])
     return {
+      userId: viewerUserId,
       name: viewer?.name ?? null,
       email: viewer?.email ?? auth.email ?? null,
+      ...(canReopenDeal === undefined ? {} : { canReopenDeal }),
     }
   }
 
@@ -507,10 +473,10 @@ export async function GET(request: Request, context: { params?: Record<string, u
     }
   }
   if (cachedBody) {
-    const viewerInfo = await resolveViewer()
+    const viewer = await resolveViewer()
     return NextResponse.json(await enrichCustomerDetailResponse({
       ...cachedBody,
-      viewer: { userId: viewerUserId, name: viewerInfo.name, email: viewerInfo.email },
+      viewer,
     }, 'deal', { auth, container, em, tenantId: cacheTenantId, organizationId: cacheOrganizationId }))
   }
 
@@ -699,7 +665,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     }
   }
 
-  const [associations, customFieldValues, viewerInfo, owner, effectiveStage, stageTransitions] = await Promise.all([
+  const [associations, customFieldValues, viewer, owner, effectiveStage, stageTransitions] = await Promise.all([
     resolveAssociations(),
     loadCustomFieldValues({
       em,
@@ -717,8 +683,6 @@ export async function GET(request: Request, context: { params?: Record<string, u
 
   const { people, companies, linkedPersonIds, linkedCompanyIds } = associations
   const customFields = normalizeCustomFieldResponse(customFieldValues[deal.id]) ?? {}
-  const viewerName = viewerInfo.name
-  const viewerEmail = viewerInfo.email
   const ownerPayload = owner
     ? {
       id: owner.id,
@@ -797,12 +761,6 @@ export async function GET(request: Request, context: { params?: Record<string, u
     currentStage: effectiveCurrentStage,
     fallbackTimestamp: deal.createdAt.toISOString(),
   })
-
-  const viewer = {
-    userId: viewerUserId,
-    name: viewerName,
-    email: viewerEmail,
-  }
 
   // Everything except the request-specific viewer block is shareable across
   // authorized callers, so it is what gets cached.
@@ -942,6 +900,7 @@ const dealDetailResponseSchema = z.object({
     userId: z.string().uuid().nullable(),
     name: z.string().nullable(),
     email: z.string().nullable(),
+    canReopenDeal: z.boolean().optional(),
   }),
   pipelineStages: z.array(pipelineStageInfoSchema),
   pipelineStageProbabilitiesEnabled: z.boolean(),

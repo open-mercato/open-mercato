@@ -206,6 +206,13 @@ export const dealUpdateSchema = z
   })
   .merge(dealCreateSchema.partial())
 
+export const dealReopenSchema = z.strictObject({
+  id: uuid(),
+  pipelineStageId: uuid().nullable(),
+})
+
+export type DealReopenInput = z.infer<typeof dealReopenSchema>
+
 // Bulk update schemas — used by `api/deals/bulk-update-{owner,stage}/route.ts`. Kept here
 // so all deal-write contracts live next to `dealCreateSchema` / `dealUpdateSchema`.
 export const dealsBulkUpdateOwnerSchema = z.object({

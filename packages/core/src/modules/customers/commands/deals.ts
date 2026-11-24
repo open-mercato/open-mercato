@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { LockMode } from '@mikro-orm/core'
 import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
@@ -25,8 +26,10 @@ import {
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import {
   dealCreateSchema,
+  dealReopenSchema,
   dealUpdateSchema,
   type DealCreateInput,
+  type DealReopenInput,
   type DealUpdateInput,
 } from '../data/validators'
 import {
@@ -46,7 +49,7 @@ import {
   buildCustomFieldResetMap,
   type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { CrudHttpError, badRequest, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, badRequest, conflict, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -58,6 +61,11 @@ import {
   type PipelineStageSnapshot,
 } from '../lib/closureStage'
 import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
+import { dealReopenFeatures, isDealClosedForReopen } from '../lib/dealReopen'
+import { resolveEffectivePipelineStage } from '../lib/effectiveDealPipelineStage'
+import { isTerminalPipelineOutcomeLabel } from '../components/detail/pipelineStageUtils'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveStageDefaultProbability } from '../lib/stageDefaultProbability'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { decimalToString, parseDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
@@ -115,12 +123,13 @@ async function loadPipelineStageSnapshot(
   pipelineStageId: string,
   tenantId: string,
   organizationId: string,
+  lockMode?: LockMode,
 ): Promise<PipelineStageSnapshot | null> {
   const stage = await findOneWithDecryption(
     em,
     CustomerPipelineStage,
     { id: pipelineStageId, tenantId, organizationId },
-    {},
+    lockMode === undefined ? {} : { lockMode },
     { tenantId, organizationId },
   )
   if (!stage) return null
@@ -804,27 +813,39 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
   },
 }
 
-const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
+async function ensureReopenAccess(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  deal: CustomerDeal,
+): Promise<void> {
+  const rbac = ctx.container.resolve<RbacService>('rbacService')
+  const scope = { tenantId: deal.tenantId, organizationId: deal.organizationId }
+  if (ctx.auth?.sub && await rbac.userHasAllFeaturesWithEntityManager(em, ctx.auth.sub, dealReopenFeatures, scope)) return
+  const { translate } = await resolveTranslations()
+  throw forbidden(translate('customers.errors.access_denied', 'Access denied'))
+}
+
+const updateDealCommand = {
   id: 'customers.deals.update',
   outputSchema: dealCommandOutputSchema,
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(dealUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadDealSnapshot(em, parsed.id, commandScopeWhere(ctx))
     return snapshot ? { before: snapshot } : {}
   },
-  async execute(rawInput, ctx) {
+  async execute(rawInput, ctx, reopen?: DealReopenInput) {
     const { parsed: parsedInput, custom } = parseWithCustomFields(dealUpdateSchema, rawInput)
     const parsed = withExactAmounts(parsedInput, rawInput, ['valueAmount'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const deal = await findOneWithDecryption(em, CustomerDeal, { id: parsed.id, deletedAt: null, ...commandScopeWhere(ctx) })
-    const record = deal ?? null
-    if (!record) throw notFound('Deal not found')
+    if (!deal) throw notFound('Deal not found')
+    let record = deal
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
 
-    const previousStatus = record.status
-    const previousPipelineStageId = record.pipelineStageId ?? null
+    let previousStatus = record.status
+    let previousPipelineStageId = record.pipelineStageId ?? null
     const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
 
     let nextStageSnapshot: PipelineStageSnapshot | null = null
@@ -859,9 +880,40 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       }),
       phases: [
         async () => {
+          let reopenPipelineId: string | null = null
+          if (reopen) {
+            const { translate } = await resolveTranslations()
+            const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
+            const current = await findOneWithDecryption(em, CustomerDeal, {
+              id: parsed.id,
+              deletedAt: null,
+              ...scope,
+            }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }, scope)
+            if (!current) throw notFound(translate('customers.deals.reopen.notFound', 'Deal not found.'))
+            record = current
+            await ensureReopenAccess(ctx, em, record)
+            await enforceCommandOptimisticLockWithGuards(ctx.container, {
+              resourceKind: 'customers.deal',
+              resourceId: record.id,
+              current: record.updatedAt,
+              request: ctx.request ?? null,
+            })
+            if (!isDealClosedForReopen(record)) {
+              throw conflict(translate('customers.deals.reopen.alreadyOpen', 'The deal is already open.'))
+            }
+            reopenPipelineId = record.pipelineId ?? (await resolveEffectivePipelineStage(em, record, scope))?.pipelineId ?? null
+            if (Boolean(reopenPipelineId) !== Boolean(reopen.pipelineStageId)) {
+              throw badRequest(translate('customers.deals.reopen.invalidStage', 'Choose an open stage in this deal’s pipeline.'))
+            }
+            previousStatus = record.status
+            previousPipelineStageId = record.pipelineStageId ?? null
+            await ctx.beforeTransactionalWrite?.(em, reopen)
+          }
+
           requestedClosureOutcome = resolveRequestedClosureOutcome(parsed)
-          const requestedPipelineId =
-            parsed.pipelineId !== undefined ? parsed.pipelineId ?? null : record.pipelineId ?? null
+          const requestedPipelineId = reopen
+            ? reopenPipelineId
+            : parsed.pipelineId !== undefined ? parsed.pipelineId ?? null : record.pipelineId ?? null
           const closureStageSnapshot =
             parsed.pipelineStageId === undefined && requestedClosureOutcome
               ? await loadClosurePipelineStageSnapshot(em, {
@@ -872,19 +924,24 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
               })
               : null
           pipelineStageAssignmentChanged =
-            parsed.pipelineStageId !== undefined || closureStageSnapshot !== null
+            reopen !== undefined || parsed.pipelineStageId !== undefined || closureStageSnapshot !== null
           const pipelineAssignmentChanged =
             parsed.pipelineId !== undefined || pipelineStageAssignmentChanged
-          const requestedPipelineStageId =
-            parsed.pipelineStageId !== undefined
+          const requestedPipelineStageId = reopen
+            ? reopen.pipelineStageId
+            : parsed.pipelineStageId !== undefined
               ? parsed.pipelineStageId ?? null
               : closureStageSnapshot?.id ?? record.pipelineStageId ?? null
 
           nextStageSnapshot = closureStageSnapshot ?? (
             requestedPipelineStageId && (pipelineAssignmentChanged || !record.pipelineStage)
-              ? await loadPipelineStageSnapshot(em, requestedPipelineStageId, record.tenantId, record.organizationId)
+              ? await loadPipelineStageSnapshot(em, requestedPipelineStageId, record.tenantId, record.organizationId, reopen ? LockMode.PESSIMISTIC_READ : undefined)
               : null
           )
+          if (reopen && nextStageSnapshot && isTerminalPipelineOutcomeLabel(nextStageSnapshot.label)) {
+            const { translate } = await resolveTranslations()
+            throw badRequest(translate('customers.deals.reopen.invalidStage', 'Choose an open stage in this deal’s pipeline.'))
+          }
           if (pipelineAssignmentChanged) {
             nextPipelineAssignment = await resolvePipelineAssignment(em, {
               tenantId: record.tenantId,
@@ -903,7 +960,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             }, createdDictionaryKinds))?.value ?? nextStageSnapshot.label
             : null
           resolvedCurrentPipelineStageLabel =
-            !nextStageSnapshot && record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)
+            !reopen && !nextStageSnapshot && record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)
               ? await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId, createdDictionaryKinds)
               : null
           const enteredStageId =
@@ -923,7 +980,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           if (parsed.description !== undefined) record.description = parsed.description ?? null
           if (parsed.status !== undefined) record.status = parsed.status ?? record.status
           if (parsed.pipelineStage !== undefined) record.pipelineStage = parsed.pipelineStage ?? null
-          if (parsed.pipelineId !== undefined || (pipelineStageAssignmentChanged && nextStageSnapshot)) {
+          if (reopen || parsed.pipelineId !== undefined || (pipelineStageAssignmentChanged && nextStageSnapshot)) {
             record.pipelineId = nextPipelineAssignment.pipelineId
           }
           if (pipelineStageAssignmentChanged) record.pipelineStageId = nextPipelineAssignment.pipelineStageId
@@ -965,6 +1022,12 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           }
           if (parsed.lossReasonId !== undefined) record.lossReasonId = parsed.lossReasonId ?? null
           if (parsed.lossNotes !== undefined) record.lossNotes = parsed.lossNotes ?? null
+          if (reopen) {
+            record.closureOutcome = null
+            record.lossReasonId = null
+            record.lossNotes = null
+            if (!nextStageSnapshot) record.pipelineStage = null
+          }
         },
         async () => {
           // CRITICAL: persist the scalar mutations above before any further `em.findOne` / sync
@@ -1188,6 +1251,19 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       })
     }
   },
+} satisfies CommandHandler<DealUpdateInput | DealReopenInput, { dealId: string }>
+
+const reopenDealCommand: CommandHandler<DealReopenInput, { dealId: string }> = {
+  ...updateDealCommand,
+  id: 'customers.deals.reopen',
+  prepareSnapshotInsideTransaction: true,
+  prepare(input, ctx) {
+    return updateDealCommand.prepare({ id: input.id }, ctx)
+  },
+  execute(rawInput, ctx) {
+    const input = dealReopenSchema.parse(rawInput)
+    return updateDealCommand.execute({ id: input.id, status: 'open' }, ctx, input)
+  },
 }
 
 const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { dealId: string }> =
@@ -1319,4 +1395,5 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
 
 registerCommand(createDealCommand)
 registerCommand(updateDealCommand)
+registerCommand(reopenDealCommand)
 registerCommand(deleteDealCommand)

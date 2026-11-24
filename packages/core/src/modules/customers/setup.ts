@@ -86,6 +86,7 @@ export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     admin: [
       'customers.*',
+      'sales.reopen',
       // `auth.users.list` is granted alongside `customers.*` so the owner picker resolves
       // user names in CRM-preset apps where the optional `staff` module is absent.
       // Without it the fallback to /api/auth/users returns 403 and owners show as "Unknown".

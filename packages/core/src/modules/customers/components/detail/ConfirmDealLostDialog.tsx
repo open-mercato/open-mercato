@@ -159,7 +159,7 @@ export function ConfirmDealLostDialog({
                 {t('customers.deals.detail.lost.warningTitle', 'This action closes the deal')}
               </AlertTitle>
               <AlertDescription>
-                {t('customers.deals.detail.lost.warning', "This action sets the stage to 'Lost' and cannot be undone without 'sales.reopen' permission")}
+                {t('customers.deals.detail.lost.warning', "Marks this deal as lost. Users with reopen permission can use Reopen deal to return it to active work.")}
               </AlertDescription>
             </Alert>
 
