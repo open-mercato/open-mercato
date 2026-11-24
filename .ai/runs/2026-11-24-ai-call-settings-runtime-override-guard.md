@@ -30,9 +30,9 @@ Decision (user): reject with 400, not silently ignore.
 
 ### Phase 1: Guard and tests
 
-- [ ] 1.1 Add `runtime_override_disabled` deny code and runtime guard in `runAiAgentText` / `runAiAgentObject`
-- [ ] 1.2 Map the code to 400 in the run-object route and document it
-- [ ] 1.3 Unit tests for the guard and route mapping
+- [x] 1.1 Add `runtime_override_disabled` deny code and runtime guard in `runAiAgentText` / `runAiAgentObject` — 7ee9585323
+- [x] 1.2 Map the code to 400 in the run-object route and document it — 7ee9585323
+- [x] 1.3 Unit tests for the guard and route mapping — 7ee9585323
 
 ### Phase 2: Validation
 
