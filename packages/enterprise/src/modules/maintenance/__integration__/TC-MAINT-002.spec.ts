@@ -70,6 +70,13 @@ test.describe('TC-MAINT-002: Maintenance window gates traffic', () => {
       const wrongBypass = await request.get('/api/customers/people', { headers: { 'X-Maintenance-Bypass': 'wrong' } })
       expect(wrongBypass.status()).toBe(503)
 
+      const form = await request.post('/maintenance-bypass', { form: { token }, maxRedirects: 0 })
+      expect(form.status()).toBe(303)
+      expect(form.headers()['location']).toMatch(/\/backend$/)
+      expect(form.headers()['set-cookie']).toMatch(/om_maintenance_bypass=.+HttpOnly/i)
+      const rejected = await request.post('/maintenance-bypass', { form: { token: 'wrong' }, maxRedirects: 0 })
+      expect(rejected.status()).toBe(403)
+
       maintenance(['off'])
       windowOn = false
       await waitForGate(async () => (await request.get('/api/customers/people')).status() !== 503)
