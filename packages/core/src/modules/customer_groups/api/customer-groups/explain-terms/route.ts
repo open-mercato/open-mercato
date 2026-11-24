@@ -13,6 +13,7 @@ import type { CustomerGroup } from '../../../data/entities'
 import { findCustomerInScope, organizationIdsFromScope } from '../../../lib/customerScope'
 import {
   loadCustomerGroupAncestorChain,
+  normalizeResolvedTerms,
   TERMS_CURRENCY_SOURCE_BASE_CURRENCY,
   type CustomerGroupsService,
   type ResolvedTerms,
@@ -120,12 +121,16 @@ export async function GET(req: Request) {
     }
 
     const groupResolution = await customerGroupsService.resolveGroups({ customerId, tenantId })
-    const resolvedTerms: ResolvedTerms = await customerGroupsService.resolveTerms({
-      customerId,
-      tenantId,
-      groupIds: groupResolution.groupIds,
-      ...(customer.organizationId ? { organizationId: customer.organizationId } : {}),
-    })
+    // A DI override written before Release 5 may omit the four Release 5 fields; the
+    // response still carries a `value` and `sourceGroupId` for each of them.
+    const resolvedTerms: ResolvedTerms = normalizeResolvedTerms(
+      await customerGroupsService.resolveTerms({
+        customerId,
+        tenantId,
+        groupIds: groupResolution.groupIds,
+        ...(customer.organizationId ? { organizationId: customer.organizationId } : {}),
+      }),
+    )
 
     // The FULL `{id,code,name}` ancestor path per field (not just the winning
     // `sourceGroupId`) renders the panel's visible ancestor breadcrumb (spec: "a

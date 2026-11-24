@@ -68,6 +68,27 @@ export type ResolvedTerms = {
   sources: ResolvedTermsSources
 }
 
+const RELEASE_5_TERMS_FIELD_NAMES = [
+  'approvalPolicy',
+  'termsCurrencyCode',
+  'allowQuoteRequests',
+  'requiresPoNumber',
+] as const satisfies readonly TermsFieldName[]
+type Release5TermsFieldName = (typeof RELEASE_5_TERMS_FIELD_NAMES)[number]
+
+/**
+ * The `resolveTerms` result a `customerGroupsService` DI override written before Release 5
+ * returns: the four Release 5 fields and their `sources` entries may be missing. Accepted
+ * by the `CustomerGroupsService` contract so such an override keeps type-checking
+ * (BACKWARD_COMPATIBILITY.md §9); consumers pass the result through
+ * `normalizeResolvedTerms` before reading the Release 5 fields.
+ */
+export type LegacyResolvedTerms = Omit<ResolvedTerms, Release5TermsFieldName | 'sources'> &
+  Partial<Pick<ResolvedTerms, Release5TermsFieldName>> & {
+    sources: Omit<ResolvedTermsSources, Release5TermsFieldName> &
+      Partial<Pick<ResolvedTermsSources, Release5TermsFieldName>>
+  }
+
 // Ancestor-walk depth cap — the group hierarchy's own depth cap (spec §5.1, enforced at
 // create/update time by `findParentAssignmentIssue`), shared so the two cannot drift.
 // Defensive only: normal data can never produce a chain this long, but this stops a
@@ -130,7 +151,7 @@ export type ResolvedAssortmentScope = {
 
 export interface CustomerGroupsService {
   resolveGroups(input: ResolveGroupsInput): Promise<GroupResolution>
-  resolveTerms(input: ResolveTermsInput): Promise<ResolvedTerms>
+  resolveTerms(input: ResolveTermsInput): Promise<ResolvedTerms | LegacyResolvedTerms>
   resolveAssortmentScope(input: ResolveAssortmentScopeInput): Promise<ResolvedAssortmentScope>
 }
 
@@ -249,6 +270,26 @@ function tenantDefaultTerms(): ResolvedTerms {
       requiresPoNumber: null,
     },
   }
+}
+
+/**
+ * Fills the Release 5 fields a legacy override omits with their tenant defaults and a
+ * `null` (tenant default) source; a complete result is returned with the same values.
+ */
+export function normalizeResolvedTerms(terms: ResolvedTerms | LegacyResolvedTerms): ResolvedTerms {
+  const defaults = tenantDefaultTerms()
+  const normalized: ResolvedTerms = {
+    ...terms,
+    approvalPolicy: terms.approvalPolicy ?? defaults.approvalPolicy,
+    termsCurrencyCode: terms.termsCurrencyCode ?? defaults.termsCurrencyCode,
+    allowQuoteRequests: terms.allowQuoteRequests ?? defaults.allowQuoteRequests,
+    requiresPoNumber: terms.requiresPoNumber ?? defaults.requiresPoNumber,
+    sources: { ...defaults.sources, ...terms.sources },
+  }
+  for (const field of RELEASE_5_TERMS_FIELD_NAMES) {
+    if (terms[field] === undefined || terms.sources[field] === undefined) normalized.sources[field] = null
+  }
+  return normalized
 }
 
 function toNumberOrNull(value: string | null | undefined): number | null {
