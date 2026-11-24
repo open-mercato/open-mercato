@@ -1,5 +1,5 @@
 import type { CacheProviderHostContext } from '@open-mercato/cache/provider'
-import type { CacheGetOptions, CacheSetOptions, CacheStrategy, CacheValue } from '@open-mercato/cache'
+import type { CacheGetOptions, CacheSetOptions, CacheStrategy, CacheValue } from '@open-mercato/cache/types'
 import type { MemcachedClient, MemcachedCommandName } from './protocol/client'
 import { MemcachedCacheError, isMemcachedCacheError, toProviderFailure } from './errors'
 import {
