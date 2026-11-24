@@ -60,6 +60,6 @@ Enforce strict selected-organization isolation across dictionaries read and writ
 
 ### Phase 2: Regression tests and validation
 
-- [ ] 2.1 Add unit tests for `resolveDictionariesRouteContext` organization scope resolution and inheritance
-- [ ] 2.2 Add route and command unit tests for cross-organization read/write isolation
-- [ ] 2.3 Add self-contained Playwright API integration test covering Org A / Org B dictionary isolation
+- [x] 2.1 Add unit tests for `resolveDictionariesRouteContext` organization scope resolution and inheritance — ddbe2d5145
+- [x] 2.2 Add route and command unit tests for cross-organization read/write isolation — 8aee76a6fc
+- [x] 2.3 Add self-contained Playwright API integration test covering Org A / Org B dictionary isolation — 2967672685
