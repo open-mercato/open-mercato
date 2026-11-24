@@ -53,11 +53,13 @@ function mockBootstrapDependencies({
   appModules = [],
   bootstrapModules = [],
   codeWorkflows = [],
+  cacheProviders = [],
 }: {
   fullModules?: object[]
   appModules?: object[]
   bootstrapModules?: object[]
   codeWorkflows?: CodeWorkflowDefinition[]
+  cacheProviders?: object[]
 } = {}) {
   jest.doMock('@open-mercato/shared/lib/i18n/server', () => ({
     registerAppDictionaryLoader: registerAppDictionaryLoaderMock,
@@ -86,6 +88,7 @@ function mockBootstrapDependencies({
   jest.doMock('@/.mercato/generated/message-types.generated', () => ({ messageTypes: [] }))
   jest.doMock('@/.mercato/generated/message-objects.generated', () => ({ messageObjectTypes: [] }))
   jest.doMock('@/.mercato/generated/workflows.generated', () => ({ allCodeWorkflows: codeWorkflows }))
+  jest.doMock('@/.mercato/generated/cache-providers.generated', () => ({ cacheProviders }))
   jest.doMock('@/.mercato/generated/bootstrap-registrations.generated', () => ({
     runBootstrapRegistrations: runBootstrapRegistrationsMock,
   }))
@@ -151,5 +154,21 @@ describe('app bootstrap', () => {
     const { getCodeWorkflow } = await import('@open-mercato/core/modules/workflows/lib/code-registry')
     expect(getCodeWorkflow('invalid-workflow')).toBeUndefined()
     expect(getCodeWorkflow('valid-workflow')).toEqual(validWorkflow)
+  })
+
+  it('registers the generated cache provider manifest before cache construction', async () => {
+    const registration = {
+      id: 'acme/example',
+      load: jest.fn(),
+      settings: jest.fn(() => ({})),
+    }
+    mockBootstrapDependencies({ cacheProviders: [registration] })
+
+    await import('@/bootstrap-common')
+
+    const { getCacheProviderRegistrations } = await import('@open-mercato/shared/lib/cache/providers')
+    expect(getCacheProviderRegistrations()).toEqual([registration])
+    expect(registration.load).not.toHaveBeenCalled()
+    expect(registration.settings).not.toHaveBeenCalled()
   })
 })

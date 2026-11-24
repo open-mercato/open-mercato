@@ -6,6 +6,11 @@ import { findAppRoot, type AppRoot } from './appResolver'
 import { registerEntityIds } from '../encryption/entityIds'
 import { createLogger } from '../logger'
 import {
+  readSelectedCacheProviderId,
+  setCacheProviderRegistrations,
+  type CacheProviderRegistration,
+} from '../cache/providers'
+import {
   applyModuleOverridesFromEnabledModules,
   type ModuleEntryWithOverrides,
 } from '../../modules/overrides'
@@ -757,6 +762,38 @@ async function loadAppModuleOverrides(appDir: string): Promise<void> {
   applyModuleOverridesFromEnabledModules(enabledModules as ModuleEntryWithOverrides[])
 }
 
+const CACHE_PROVIDERS_GENERATED_FILE = 'cache-providers.generated.ts'
+
+/**
+ * Register the app's cache provider manifest for the dynamic bootstrap path.
+ *
+ * The Next.js runtime registers `cacheProviders` statically from `bootstrap-common.ts`.
+ * Worker, scheduler and CLI processes bootstrap here instead, so without this a
+ * `CACHE_PROVIDER` selection could never resolve outside the web process. The manifest is
+ * only loaded when a provider is selected: stock deployments never compile or import it.
+ * A manifest that exists but fails to load throws, because silently falling back to the
+ * stock cache would split cache state between the web and background processes.
+ */
+async function loadSelectedCacheProviderRegistrations(appDir: string, generatedDir: string): Promise<void> {
+  if (!readSelectedCacheProviderId(process.env)) return
+  const tsPath = path.join(generatedDir, CACHE_PROVIDERS_GENERATED_FILE)
+  if (!fs.existsSync(tsPath)) {
+    setCacheProviderRegistrations([])
+    return
+  }
+  const manifestModule = await compileAndImport(tsPath, {
+    appRoot: appDir,
+    outFile: path.join(generatedDir, 'cache-providers.compiled.mjs'),
+  })
+  const cacheProviders = manifestModule.cacheProviders
+  if (!Array.isArray(cacheProviders)) {
+    throw new Error(
+      `[internal] ${CACHE_PROVIDERS_GENERATED_FILE} must export a cacheProviders array. Run \`yarn generate\` and check mercato.cache.ts.`,
+    )
+  }
+  setCacheProviderRegistrations(cacheProviders as CacheProviderRegistration[])
+}
+
 /**
  * Dynamically load bootstrap data from a resolved app directory.
  *
@@ -869,6 +906,7 @@ export async function bootstrapFromAppRoot(appRoot?: string): Promise<BootstrapD
     // and `registerCliModules` in the mercato bin right after this function returns;
     // both read the override side-registry this populates.
     await loadAppModuleOverrides(resolved.appDir)
+    await loadSelectedCacheProviderRegistrations(resolved.appDir, resolved.generatedDir)
     const data = await loadBootstrapData(resolved.appDir)
     const [appDiRegistrar, bootstrapRegistrationsModule] = await Promise.all([
       loadAppDiRegistrar(resolved.appDir),
