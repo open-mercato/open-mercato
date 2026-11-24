@@ -466,6 +466,42 @@ describe('catalogOmnibusService worked examples', () => {
     })
   })
 
+  it('uses a rolling window for ordinary edits on a channel offer', async () => {
+    const regularOffer = { offerId: OFFER, variantId: VARIANT }
+    addRow({ ...regularOffer, gross: '168.00', recordedAt: '2026-04-20T00:00:00.000Z' })
+    addRow({ ...regularOffer, gross: '79.00', recordedAt: '2026-05-01T00:00:00.000Z' })
+    const increase = addRow({ ...regularOffer, gross: '168.00', recordedAt: '2026-05-05T00:00:00.000Z' })
+    const current = addRow({ ...regularOffer, gross: '89.00', recordedAt: '2026-05-09T00:00:00.000Z' })
+    const service = buildService()
+    for (const presented of [increase, current]) {
+      const block = await service.resolveOmnibusBlock(
+        em,
+        { ...ctx(), ...regularOffer, now: presented.recordedAt },
+        { ...presentedFrom(presented), isAnnounced: false },
+      )
+      expect(block).toMatchObject({
+        promotionAnchorAt: null,
+        lowestPriceGross: '79.0000',
+        applicable: false,
+      })
+    }
+  })
+
+  it('retains the offer anchor when its preview falls back to an ordinary non-offer price', async () => {
+    const offerRecordedAt = '2026-05-01T00:00:00.000Z'
+    addRow({ offerId: OFFER, gross: '80.00', recordedAt: offerRecordedAt })
+    const fallback = addRow({ gross: '100.00', recordedAt: '2026-04-20T00:00:00.000Z' })
+
+    const result = await buildService().computeLowestPrice(
+      em,
+      { ...ctx(), offerId: OFFER },
+      omnibusConfigSchema.parse(baseConfig()),
+      presentedFrom(fallback),
+    )
+
+    expect(result.promotionAnchorAt).toBe(offerRecordedAt)
+  })
+
   it('E6 — insufficient history reports the lowest and the oldest in-window rows separately', async () => {
     addRow({ gross: '95.00', recordedAt: '2026-06-02T00:00:00.000Z' })
     addRow({ gross: '90.00', recordedAt: '2026-06-05T00:00:00.000Z' })
@@ -843,6 +879,27 @@ describe('catalogOmnibusService member-state derogations', () => {
       windowEnd: '2026-05-01T00:00:00.000Z',
     })
     expect(windowIdsMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps an ordinary offer edit on a rolling window when progressive reductions are enabled', async () => {
+    const current = addProgressiveCampaign([
+      ['90.00', '2026-05-01T00:00:00.000Z'],
+      ['80.00', '2026-05-05T00:00:00.000Z'],
+      ['70.00', '2026-05-09T00:00:00.000Z'],
+    ])
+    const block = await buildService(derogationConfig({ progressiveReductionRule: true })).resolveOmnibusBlock(
+      em,
+      ctx({ now: current.recordedAt }),
+      { ...presentedFrom(current), isAnnounced: false },
+    )
+    expect(block).toMatchObject({
+      applicabilityReason: 'not_announced',
+      applicable: false,
+      lowestPriceGross: '80.0000',
+      promotionAnchorAt: null,
+      windowEnd: '2026-05-09T00:00:00.000Z',
+    })
+    expect(campaignIdsMock).not.toHaveBeenCalled()
   })
 
   it('falls back to the standard window when the campaign price goes up', async () => {

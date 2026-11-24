@@ -111,6 +111,7 @@ describe.each(['create', 'edit'] as const)('Variant %s price submission', (mode)
     expect(grossWriter).toHaveBeenCalledWith('catalog/prices', expect.objectContaining({ unitPriceGross: exact }))
     expect(createCrud).toHaveBeenCalledWith('catalog/prices', expect.objectContaining({ unitPriceNet: exact }))
     if (mode === 'edit') {
+      expect(updateCrud).toHaveBeenCalledWith('catalog/prices', expect.objectContaining({ announce: false }))
       expect(withScopedApiRequestHeaders).toHaveBeenCalledWith(buildOptimisticLockHeader(priceVersion), expect.any(Function))
     }
   })

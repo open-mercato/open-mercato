@@ -272,10 +272,15 @@ function needsFirstListedAt(lookup: PreparedLookup): boolean {
   return lookup.channelConfig?.newArrivalRule === 'shorter_window' && lookup.context.firstListedAt === undefined
 }
 
+function isOrdinaryOfferEdit({ offerId, presentedEntry }: PreparedLookup): boolean {
+  return presentedEntry?.offerId === offerId && presentedEntry.isAnnounced === false
+}
+
 function isProgressiveCandidate(lookup: PreparedLookup): boolean {
   return (
     lookup.channelConfig?.progressiveReductionRule === true &&
     lookup.offerId !== null &&
+    !isOrdinaryOfferEdit(lookup) &&
     Boolean(lookup.context.variantId || lookup.context.productId)
   )
 }
@@ -386,7 +391,7 @@ export function buildOmnibusBlock(
   if (!result.lowestRow) return emptyBlock(result, context.currencyCode, result.reason ?? 'no_history')
   const applicable =
     Boolean(presentedEntry?.startsAt) ||
-    Boolean(presentedEntry?.offerId) ||
+    (Boolean(presentedEntry?.offerId) && presentedEntry?.isAnnounced !== false) ||
     presentedEntry?.isAnnounced === true ||
     priceKindIsPromotion
   const reason: OmnibusApplicabilityReason =
@@ -780,7 +785,9 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
   }
 
   private async resolveOfferAnchors(em: EntityManager, prepared: PreparedLookup[]): Promise<void> {
-    const needing = prepared.filter((lookup) => lookup.anchor === null && lookup.offerId !== null)
+    const needing = prepared.filter((lookup) =>
+      lookup.anchor === null && lookup.offerId !== null && !isOrdinaryOfferEdit(lookup),
+    )
     if (!needing.length) return
     const misses: Array<{ lookup: PreparedLookup; key: string }> = []
     for (const lookup of needing) {
