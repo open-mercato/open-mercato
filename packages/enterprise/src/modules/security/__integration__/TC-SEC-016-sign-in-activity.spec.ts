@@ -48,7 +48,8 @@ test('TC-SEC-016: records enrollment for an enforced user without a compliant me
     expect(success.mfaStatus).toBe('enrollment_required')
     await setAuthCookie(page, token)
     await page.goto('/backend')
-    await expect(page).toHaveURL(/\/backend\/profile\/security\/mfa\?.*reason=mfa_enrollment_required/)
+    await expect(page).toHaveURL(/\/backend\/profile\/security\/mfa(?:\?|$)/)
+    await expect(page.getByRole('heading', { name: 'MFA enrollment required' })).toBeVisible()
   } finally {
     await fixture.dispose()
   }

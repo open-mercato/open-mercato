@@ -27,7 +27,7 @@ export type ActivityRow = {
   userAgent: string | null
 }
 
-type Actor = { tenantId: string; userId: string; email: string; password: string }
+type Actor = { tenantId: string; organizationId: string; userId: string; email: string; password: string }
 type LoginResult = { ok: boolean; token?: string; mfa_required?: boolean; challenge_id?: string; redirect?: string }
 
 const actorFeatures = [
@@ -106,7 +106,7 @@ export async function createActivityFixture(request: APIRequestContext) {
     const { id: policyId } = await policy.json() as { id: string }
     cleanup.push(() => apiRequest(request, 'DELETE', `/api/security/enforcement/${policyId}`, { token: adminToken }))
 
-    return { tenantId, userId, email, password }
+    return { tenantId, organizationId, userId, email, password }
   }
 
   return { adminToken, createActor, dispose }

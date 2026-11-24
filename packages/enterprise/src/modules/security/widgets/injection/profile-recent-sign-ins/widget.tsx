@@ -75,6 +75,7 @@ function ProfileRecentSignIns() {
 const widgetModule: InjectionWidgetModule = {
   metadata: {
     id: 'security.injection.profile-recent-sign-ins',
+    title: 'Recent sign-ins',
     features: ['security.profile.view'],
     priority: 500,
     enabled: true,
