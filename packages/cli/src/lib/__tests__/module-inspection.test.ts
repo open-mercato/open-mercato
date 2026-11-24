@@ -239,7 +239,18 @@ describe('module artifact inspection', () => {
       npmAuthToken: 'null\n',
       npmAuthIdent: 'null\n',
     }, () => { throw new Error('npm pack must not run') })
-    expect(() => inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root)).toThrow('while trying to read the project registry configuration')
+    expect(() => inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root)).toThrow('while trying to read the project registry configuration. Yarn setting npmScopes returned output that is not JSON.')
+    try { inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root) } catch (error) {
+      expect(String(error)).not.toContain('test-token-do-not-print')
+    }
+  })
+
+  it('names the Yarn setting and exit code when yarn config get fails, without exposing its output', () => {
+    fs.writeFileSync(path.join(root, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
+    jest.spyOn(spawn, 'sync').mockImplementation((_command, args) => args?.[2] === 'npmRegistries'
+      ? { status: 1, stdout: 'test-token-do-not-print', stderr: 'test-token-do-not-print', pid: 1, output: [], signal: null }
+      : { status: 0, stdout: 'undefined\n', stderr: '', pid: 1, output: [], signal: null })
+    expect(() => inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root)).toThrow('Yarn setting npmRegistries could not be read (exit 1).')
     try { inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root) } catch (error) {
       expect(String(error)).not.toContain('test-token-do-not-print')
     }
