@@ -38,6 +38,13 @@ Operator requested autonomous continuation after the duplicate-slot stop. The pr
 
 The previous run autosaved the test-only repair in 7c999c0f90; preserve that commit and validate it rather than rewriting history. Latest main CI 45338224448 also passed. Runner: local (no configured/running compose app). A read-only investigation child checks the historical failure classification while the root owns the coupled repair and validation; one final review child follows all implementation work. No extra workflow changes are needed: existing `ci-full` and `stabilize/` handling already force all 15 shards.
 
+## Resume — 2026-11-24 15:00 UTC
+The operator authorized autonomous continuation after the ownership conflict. The cockpit marks previous owner `f1a55e82` and its child done, with no corresponding processes remaining. Recovery comment 7135457087 records the prior lock/comment; exact-SHA release and create-only acquisition established run `a55cdf02-d6b4-45be-a805-25f68e63c7c2`, claim comment 7135471743, lock `43da399942271fbcfae16a08907067f957e548d4`.
+
+The exact-head full suite [45345851906](https://github.com/open-mercato/open-mercato/actions/runs/45345851906) passed at `1b6503a20290ab7a1d52499b4eba48e16929d4f7`, including all 15 integration shards, unfiltered typecheck/units, builds, lint, timezone and document multi-instance checks. No workflow edits are needed; full-suite support is already present on main.
+
+Runner: local. The first ordered local gate passed commands 1–6; its 15-minute process limit expired during `yarn test` after 50 tasks succeeded, including 2,987 core suites and 415 enterprise suites. One create-app session-share fixture failed because this host lacked Info-ZIP `unzip`. A user-local copy of Ubuntu's `unzip` package supplies the documented prerequisite without repository changes; the exact failing fixture now passes. The ordered gate is rerunning with a 40-minute per-command limit and unchanged repository test timeouts. An optional 90-second Playwright discovery probe returned no output before timing out; the remote full suite supplies integration evidence. Final independent review and exact-final-head CI still gate completion.
+
 ## Progress
 PR: #10492
 
@@ -47,7 +54,7 @@ PR: #10492
 - [x] 1.1 Inspect latest main failures and independently investigate shard failures; open draft PR with full scope. — 728a368d4f
 
 ### Phase 2: Fix demonstrated root causes
-- [ ] 2.1 Reproduce failures, implement minimal fixes with regression coverage, and run targeted checks.
+- [x] 2.1 Reproduce failures, implement minimal fixes with regression coverage, and run targeted checks. — 7c999c0f90
 
 ### Phase 3: Validate and review
 - [ ] 3.1 Run configured local gate and the PR's full remote suite; repair until green.
