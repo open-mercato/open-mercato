@@ -263,3 +263,9 @@ export default async function onRequestFailed(payload: any, ctx: { resolve: <T =
   logger?.error?.('Request failed', payload)
 }
 ```
+
+## Staff login events
+
+The staff password sign-in endpoint emits `auth.login.success` and `auth.login.failed` with a stable `attemptId`, an ISO `occurredAt` timestamp, a trusted-proxy `ip` when available, and up to 512 characters of `userAgent`. Failure events include the resolved `userId`, `tenantId` and `organizationId` when available. Other emitters and older releases can omit these fields.
+
+Persistent subscribers receive these password sign-in events from the events worker. Use the tenant and attempt ID to make retry handling idempotent. Before rollout, inventory exact and wildcard subscribers, including outbound webhooks. Restrict access to queue and webhook storage and apply the chosen sign-in retention window to pending jobs, failed jobs and delivery records. Coordinate expiry and erasure with recipients that store their own copies. During rollback, drain or purge existing work under the same policy. Review replay eligibility before reprocessing failed jobs.
