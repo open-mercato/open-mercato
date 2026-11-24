@@ -15,6 +15,9 @@ export function ensureOpenCodePassword(repoRoot, env = process.env) {
   const appText = fs.existsSync(appEnv) ? fs.readFileSync(appEnv, 'utf8') : null
   const rootPassword = parseEnv(rootText).OPENCODE_PASSWORD
   const appPassword = parseEnv(appText ?? '').OPENCODE_PASSWORD
+  if (rootPassword?.trim() && appPassword?.trim() && rootPassword !== appPassword) {
+    throw new Error('OPENCODE_PASSWORD differs between .env and apps/mercato/.env. Set the same value in both files before starting OpenCode.')
+  }
   const password = [rootPassword, appPassword].find((value) => value?.trim()) ?? secretHex()
   const rootNeedsPassword = !rootPassword?.trim()
   if (rootNeedsPassword) {

@@ -12,7 +12,7 @@ import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
 import { StepBlocked, buildToolchainStep, containerRuntimeStep, databaseStep, hostGatewayStep, infraUpStep, serviceConfigurationStep, serviceConnectionsStep, buildUpSteps, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
-import { ensureEnvFiles } from '../env-setup.mjs'
+import { ensureEnvFiles, ensureOpenCodePassword } from '../env-setup.mjs'
 import { describeInfraProblem, devRuntimeArgs, externalDatabaseHost, removeLeftoverComposeResources, resolveUpMode, startInfra } from '../infra.mjs'
 import { detectDockerRuntime, detectWsl, findPortConflicts, findUnhealthyServices, formatInfraProblem, startInfraServices } from '../infra-preflight.mjs'
 import { checkBuildToolchain, defenderExclusionCovers, detectHostGateway, hostIpCandidates } from '../doctor.mjs'
@@ -502,6 +502,28 @@ test('ensureEnvFiles gives the app and the OpenCode service the same stable cred
   assert.equal(setup.openCodePasswordChanged, true)
   assert.equal(ensureEnvFiles(repo, options).openCodePasswordChanged, false)
   assert.equal(readEnvValue(setup.rootEnv, 'OPENCODE_PASSWORD'), password)
+})
+
+test('the starter rejects mismatched saved OpenCode passwords without overwriting or revealing either', () => {
+  const repo = makeFakeAppRepo()
+  const rootEnv = path.join(repo, '.env')
+  const appEnv = path.join(repo, 'apps', 'mercato', '.env')
+  const composePassword = 'test-only-compose-password'
+  const appPassword = 'test-only-app-password'
+  const composeText = `OPENCODE_PASSWORD=${composePassword}\n`
+  const appText = `OPENCODE_PASSWORD=${appPassword}\n`
+  fs.writeFileSync(rootEnv, composeText)
+  fs.writeFileSync(appEnv, appText)
+
+  assert.throws(() => ensureOpenCodePassword(repo, {}), (error) => {
+    assert.match(error.message, /OPENCODE_PASSWORD differs between \.env and apps\/mercato\/\.env/)
+    assert.ok(!error.message.includes(composePassword))
+    assert.ok(!error.message.includes(appPassword))
+    return true
+  })
+  assert.equal(ensureOpenCodePassword(repo, { OPENCODE_PASSWORD: 'test-only-shell-override' }), false)
+  assert.equal(fs.readFileSync(rootEnv, 'utf8'), composeText)
+  assert.equal(fs.readFileSync(appEnv, 'utf8'), appText)
 })
 
 test('ensureEnvFiles gives the app .env the same generated tenant encryption key as the compose .env', () => {

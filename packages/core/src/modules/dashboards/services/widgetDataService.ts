@@ -252,7 +252,7 @@ export class WidgetDataService {
   private buildCacheKey(request: WidgetDataRequest): string {
     const hash = createHash('sha256')
     hash.update(JSON.stringify({ request, scope: this.scope }))
-    return `widget-data:${hash.digest('hex').slice(0, 16)}`
+    return `widget-data:v2:${hash.digest('hex').slice(0, 16)}`
   }
 
   private getCacheTags(entityType: string): string[] {
