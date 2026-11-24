@@ -29,7 +29,7 @@ type WithoutNullNumerics<T> = {
  * omitted.
  */
 export function omitNullLineNumerics<T extends object>(line: T): WithoutNullNumerics<T> {
-  const result: Record<string, unknown> = { ...line }
+  const result: Record<string, unknown> = { ...(line as Record<string, unknown>) }
   for (const field of SALES_LINE_NUMERIC_INPUT_FIELDS) {
     if (result[field] === null) delete result[field]
   }
