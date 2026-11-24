@@ -5,7 +5,7 @@ export type {
   RespCacheStrategyTimeouts,
   RespStrategyClientFactory,
 } from './strategy'
-export { createIoredisClientFactory, respReconnectDelay } from './client'
+export { createIoredisClientFactory, RESP_MIN_REFRESH_DELAY_MS, respReconnectDelay } from './client'
 export type {
   RespClient,
   RespClientFactory,
@@ -13,6 +13,7 @@ export type {
   RespCredentials,
   RespCredentialsProvider,
   RespManagedClient,
+  RespRefreshSchedule,
 } from './client'
 export { isClusterClient } from './cluster'
 export { buildRespKeyLayout, escapeRespGlob, literalPatternPrefix, RESP_KEY_ROOT, RESP_LAYOUT_VERSION } from './layout'
