@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Relation options and explicit global query scope (#9106)
+
+Relation options require read access to the target entity and return only fixed or server-declared label fields. Clients can omit `labelField` to use the default or select an authorized label declared by the owning module or custom entity. For stored relation fields, edit the field configuration and remove the `labelField` query parameter from its `optionsUrl` to use the default. Split ID batches larger than 100.
+
+Module authors querying tables without tenant or organization columns must set `omitAutomaticTenantOrgScope: true` from trusted server code and apply their own visibility filters. Operators should review metadata-only roles that previously relied on relation lookups for record access. No database migration is required. [Specification](.ai/specs/2026-11-16-relation-options-query-scope.md).
+
 Open Mercato `0.5.0` is our biggest release so far. It bundles more than 250 fixes and
 improvements that landed after the Hackathon in Sopot, alongside several important
 dependency and tooling upgrades. That combination is exactly why this document now exists:
