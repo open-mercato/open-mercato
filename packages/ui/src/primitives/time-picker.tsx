@@ -592,6 +592,13 @@ export type TimePickerProps = {
   onOpenChange?: (open: boolean) => void
   popoverAlign?: 'start' | 'center' | 'end'
   popoverSide?: 'top' | 'right' | 'bottom' | 'left'
+  /**
+   * Render the popover in Radix modal mode. A picker opened from inside a modal Dialog needs
+   * this: the dialog's scroll lock blocks wheel and touch scrolling on portaled content that is
+   * not part of its own lock tree, so the slot list cannot be scrolled. Off by default, because
+   * modal mode adds a background scroll lock that a time field on a plain form page does not need.
+   */
+  popoverModal?: boolean
 
   className?: string
   disabled?: boolean
@@ -954,6 +961,7 @@ export function TimePicker({
   onOpenChange,
   popoverAlign = 'start',
   popoverSide = 'bottom',
+  popoverModal = false,
   className,
   disabled = false,
   'aria-label': ariaLabel,
@@ -1068,7 +1076,7 @@ export function TimePicker({
   if (!trigger) return card
 
   return (
-    <Popover open={open} onOpenChange={setOpenWithSnapshot}>
+    <Popover open={open} onOpenChange={setOpenWithSnapshot} modal={popoverModal}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         align={popoverAlign}
