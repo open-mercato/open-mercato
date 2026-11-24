@@ -17,7 +17,7 @@ describe('infinispan settings schema', () => {
       connectTimeoutMs: 5000,
       commandTimeoutMs: 5000,
       iteratorBatchSize: 256,
-      tagIndexShards: 16,
+      tagIndexShards: 64,
       indexPruneGraceMs: 120000,
     })
     expect(parsed.tls).toBeUndefined()

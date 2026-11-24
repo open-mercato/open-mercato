@@ -37,7 +37,7 @@ export const infinispanSettingsSchema = z.object({
   iteratorBatchSize: z.number().int().min(1).max(10_000).default(256),
   concurrency: z.number().int().min(1).max(256).default(16),
   maxCasAttempts: z.number().int().min(1).max(1_000).default(64),
-  tagIndexShards: z.number().int().min(1).max(1_024).default(16),
+  tagIndexShards: z.number().int().min(1).max(1_024).default(64),
   maxTagsPerEntry: z.number().int().min(1).max(1_024).default(64),
   maxValueBytes: z.number().int().min(1_024).max(64 * 1024 * 1024).default(4 * 1024 * 1024),
   indexPruneGraceMs: z.number().int().min(1_000).max(24 * 60 * 60 * 1000).default(120_000),

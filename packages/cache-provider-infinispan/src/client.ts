@@ -1,4 +1,5 @@
 import { CacheProviderError } from '@open-mercato/cache/provider'
+import { applyHotRodDecodePatch } from './hotrodPatch'
 import type { InfinispanSettings } from './settings'
 
 export const PROVIDER_ID = 'open-mercato/infinispan'
@@ -68,13 +69,16 @@ function isHotRodModule(value: unknown): value is HotRodModule {
 }
 
 export async function loadHotRodConnector(): Promise<HotRodConnector> {
+  if (!await applyHotRodDecodePatch().catch(() => false)) {
+    throw new CacheProviderError('load_failed', `Cache provider "${PROVIDER_ID}" does not support the installed infinispan client version`, { providerId: PROVIDER_ID })
+  }
   const imported: unknown = await import('infinispan')
   const candidates = [imported, (imported as { default?: unknown }).default]
-  const module = candidates.find(isHotRodModule)
-  if (!module) {
+  const hotRod = candidates.find(isHotRodModule)
+  if (!hotRod) {
     throw new CacheProviderError('load_failed', `Cache provider "${PROVIDER_ID}" could not load the infinispan Hot Rod client`, { providerId: PROVIDER_ID })
   }
-  return (servers, options) => module.client(servers, options)
+  return (servers, options) => hotRod.client(servers, options)
 }
 
 export function buildHotRodClientOptions(config: InfinispanSettings): HotRodClientOptions {
@@ -104,6 +108,7 @@ export function buildHotRodClientOptions(config: InfinispanSettings): HotRodClie
 
 export type HotRodGateway = {
   run<T>(operation: string, body: (client: HotRodClient) => Promise<T>): Promise<T>
+  getVersioned(operation: string, key: string): Promise<HotRodMetadataValue | undefined>
   scan(visit: (key: string, value: unknown, version: Buffer | null) => Promise<void> | void): Promise<void>
   connect(): Promise<void>
   close(): Promise<void>
@@ -200,6 +205,15 @@ export function createHotRodGateway(options: HotRodGatewayOptions): HotRodGatewa
     return result
   }
 
+  const getVersioned = (operation: string, key: string) => run(operation, async (client) => {
+    const stored = await client.getWithMetadata(key)
+    if (stored === undefined) return undefined
+    if (typeof stored.value !== 'string' || !Buffer.isBuffer(stored.version)) {
+      throw new CacheProviderError('unavailable', `Cache provider "${PROVIDER_ID}" ${operation} returned an incomplete versioned read`, { providerId: PROVIDER_ID })
+    }
+    return { value: stored.value, version: stored.version }
+  })
+
   const scan = async (visit: (key: string, value: unknown, version: Buffer | null) => Promise<void> | void): Promise<void> => {
     const iterator = await run('iterator open', (client) => client.iterator(config.iteratorBatchSize, { metadata: true }))
     try {
@@ -215,6 +229,7 @@ export function createHotRodGateway(options: HotRodGatewayOptions): HotRodGatewa
 
   return {
     run,
+    getVersioned,
     scan,
     async connect() {
       await acquire()

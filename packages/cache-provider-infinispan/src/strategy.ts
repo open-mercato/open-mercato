@@ -97,7 +97,7 @@ export function createInfinispanStrategy(options: InfinispanStrategyOptions): In
   const healthKey = `${namespacePrefix(namespace)}health`
 
   async function readEntry(physicalKey: string): Promise<EntryRead> {
-    const stored = await gateway.run('get', (client) => client.getWithMetadata(entryKey(namespace, physicalKey)))
+    const stored = await gateway.getVersioned('get', entryKey(namespace, physicalKey))
     if (!stored) return { state: 'missing' }
     const record = decodeEntryRecord(stored.value)
     if (!record) return { state: 'corrupt', version: stored.version }
@@ -137,7 +137,7 @@ export function createInfinispanStrategy(options: InfinispanStrategyOptions): In
     const shardKey = tagShardKey(namespace, tag, tagShardIndex(physicalKey, shards), shards)
     for (let attempt = 0; attempt < config.maxCasAttempts; attempt++) {
       if (attempt > 0) await backoff(attempt)
-      const current = await gateway.run('tag index read', (client) => client.getWithMetadata(shardKey))
+      const current = await gateway.getVersioned('tag index read', shardKey)
       const at = now()
       if (!current) {
         const fresh: TagShard = new Map([[physicalKey, member]])
@@ -165,7 +165,7 @@ export function createInfinispanStrategy(options: InfinispanStrategyOptions): In
   async function removeMembers(shardKey: string, expected: Map<string, string | null>): Promise<void> {
     for (let attempt = 0; attempt < config.maxCasAttempts; attempt++) {
       if (attempt > 0) await backoff(attempt)
-      const current = await gateway.run('tag index read', (client) => client.getWithMetadata(shardKey))
+      const current = await gateway.getVersioned('tag index read', shardKey)
       if (!current) return
       const shard = decodeTagShard(current.value)
       if (!shard) return
@@ -313,7 +313,7 @@ export function createInfinispanStrategy(options: InfinispanStrategyOptions): In
   async function collectGarbage(shardKeys: string[]): Promise<void> {
     await mapLimit(shardKeys, config.concurrency, async (shardKey) => {
       try {
-        const current = await gateway.run('tag index read', (client) => client.getWithMetadata(shardKey))
+        const current = await gateway.getVersioned('tag index read', shardKey)
         if (!current) return
         const shard = decodeTagShard(current.value)
         if (!shard) return

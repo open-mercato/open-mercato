@@ -10,8 +10,8 @@
   "scripts": {
     "build": "node build.mjs",
     "test": "jest --config jest.config.cjs",
-    "test:containers": "OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --config jest.config.cjs --runInBand --testPathPatterns container",
-    "qualify": "node scripts/qualify.mjs",
+    "test:containers": "OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --config jest.config.cjs --runInBand --testPathPatterns container --testPathIgnorePatterns qualify",
+    "qualify": "OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --config jest.config.cjs --runInBand src/__tests__/qualify.container.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "exports": {
@@ -35,7 +35,7 @@
     "hotrod"
   ],
   "dependencies": {
-    "infinispan": "~0.16.3",
+    "infinispan": "0.16.3",
     "zod": "^4.6.6"
   },
   "peerDependencies": {
