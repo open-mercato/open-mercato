@@ -106,7 +106,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
-        { status: 400, description: 'Malformed payload or message cap exceeded.' },
+        { status: 400, description: 'Malformed payload or message cap exceeded, or `callSettings` sent to an agent declaring `allowRuntimeOverride: false` (`runtime_override_disabled`).' },
         { status: 401, description: 'Unauthenticated caller.' },
         { status: 403, description: 'Caller lacks agent-level or tool-level required features.' },
         { status: 404, description: 'Unknown agent id.' },
@@ -147,6 +147,7 @@ function statusForDenyCode(code: AgentPolicyDenyCode): number {
     case 'mutation_blocked_by_policy':
       return 409
     case 'attachment_type_not_accepted':
+    case 'runtime_override_disabled':
       return 400
     default:
       return 409

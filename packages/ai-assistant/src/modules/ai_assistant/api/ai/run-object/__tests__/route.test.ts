@@ -448,6 +448,34 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
     expect(json.code).toBe('tool_not_whitelisted')
   })
 
+  it('maps runtime_override_disabled from the runtime to 400', async () => {
+    const { AgentPolicyError } = await import('../../../../lib/agent-tools')
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extract',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        allowRuntimeOverride: false,
+        output: { schemaName: 'Extract', schema: z.object({ title: z.string() }) },
+      }),
+    ])
+    runAiAgentObjectMock.mockRejectedValueOnce(
+      new AgentPolicyError('runtime_override_disabled', 'Runtime override disabled'),
+    )
+
+    const response = await POST(
+      buildRequest({
+        agent: 'catalog.extract',
+        messages: [{ role: 'user', content: 'hi' }],
+        callSettings: { temperature: 0.2 },
+      }) as any,
+    )
+
+    expect(response.status).toBe(400)
+    const json = await response.json()
+    expect(json.code).toBe('runtime_override_disabled')
+  })
+
   describe('dispatcher-owned agents', () => {
     const AO_AGENT = 'ops.triage'
     const AGENT_RUN_ID = 'ao-run-1'
