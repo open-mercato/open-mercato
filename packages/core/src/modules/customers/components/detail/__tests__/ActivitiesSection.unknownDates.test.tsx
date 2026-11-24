@@ -8,6 +8,12 @@ import en from '../../../i18n/en.json'
 import pl from '../../../i18n/pl.json'
 
 const readApiMock = jest.fn()
+let mockCanDeleteActivity = true
+
+jest.mock('../hooks/useActivityDeleteAccess', () => ({
+  useActivityDeleteAccess: () => () => mockCanDeleteActivity,
+}))
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (url: string) => readApiMock(url),
   apiCallOrThrow: jest.fn(),

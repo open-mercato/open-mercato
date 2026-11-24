@@ -26,12 +26,18 @@ describe('MobilePersonDetail', () => {
       />,
     )
 
-    expect(screen.getByText('Details zone content')).toBeInTheDocument()
+    const detailsTab = screen.getByRole('tab', { name: 'Details', selected: true })
+    const detailsPanel = screen.getByRole('tabpanel', { name: 'Details' })
+    expect(detailsPanel.id).toBe(detailsTab.getAttribute('aria-controls'))
+    expect(detailsPanel).toHaveTextContent('Details zone content')
     expect(screen.queryByText('Activity zone content')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: 'Activity' }))
 
-    expect(screen.getByText('Activity zone content')).toBeInTheDocument()
+    const activityTab = screen.getByRole('tab', { name: 'Activity', selected: true })
+    const activityPanel = screen.getByRole('tabpanel', { name: 'Activity' })
+    expect(activityPanel.id).toBe(activityTab.getAttribute('aria-controls'))
+    expect(activityPanel).toHaveTextContent('Activity zone content')
     expect(screen.queryByText('Details zone content')).not.toBeInTheDocument()
   })
 

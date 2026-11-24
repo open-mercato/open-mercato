@@ -26,6 +26,7 @@ module.exports = {
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
+    '^@open-mercato/telemetry/browser$': '<rootDir>/../telemetry/src/browser/index.ts',
     '^@open-mercato/ui/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
@@ -43,7 +44,15 @@ module.exports = {
   ],
   testMatch: [
     '<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)',
-    '<rootDir>/__integration__/**/*.spec.(ts|tsx)',
+    // `.spec.tsx` is this package's jsdom/RTL "integration" convention (no
+    // runnable Next.js route to drive with Playwright — see
+    // TC-AI-UI-003-aichat-registry.spec.tsx). Plain `.spec.ts` under the same
+    // directory is reserved for real Playwright browser specs (discovered by
+    // the root `.ai/qa/tests/playwright.config.ts`, e.g.
+    // TC-UI-FLASH-001-url-flash-browser-race.spec.ts) and must stay out of
+    // Jest's run — it calls `@playwright/test`'s `test()`, which throws when
+    // invoked outside the Playwright runner.
+    '<rootDir>/__integration__/**/*.spec.tsx',
   ],
   passWithNoTests: true,
 }

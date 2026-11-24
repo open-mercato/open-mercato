@@ -17,6 +17,8 @@ import type { KeyboardSensorOptions } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { DataLoader } from '../primitives/DataLoader'
+import { LoadingMessage } from './detail/LoadingMessage'
+import { ErrorMessage } from './detail/ErrorMessage'
 import { Checkbox } from '../primitives/checkbox'
 import { Input } from '../primitives/input'
 import { PasswordInput } from '../primitives/password-input'
@@ -84,7 +86,13 @@ import type { Locale } from 'date-fns/locale'
 import { DateTimePicker } from './inputs/DateTimePicker'
 import { TimePicker } from './inputs/TimePicker'
 import { DatePicker } from './inputs/DatePicker'
-import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
+import {
+  mapCrudServerErrorToFormErrors,
+  normalizeCrudServerError,
+  parseServerMessage,
+  resolveFieldIssueTranslation,
+  type CrudServerFieldIssues,
+} from './utils/serverErrors'
 import { withScopedApiRequestHeaders } from './utils/apiCall'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from './utils/optimisticLock'
 import { surfaceRecordConflict } from './conflicts'
@@ -340,7 +348,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   formId?: string
   customFieldsLoadingMessage?: string
   cancelHref?: string
-  successRedirect?: string
+  successRedirect?: string | ((values: TValues, result: void | CrudFormSubmitResult) => string | undefined)
   deleteRedirect?: string
   onSubmit?: (values: TValues, context?: CrudFormSubmitContext) => Promise<void | CrudFormSubmitResult> | void | CrudFormSubmitResult
   onSubmitSuccess?: (values: TValues, result: void | CrudFormSubmitResult) => Promise<void> | void
@@ -655,6 +663,18 @@ function serializeIssuePath(path: ReadonlyArray<string | number | symbol>): stri
     })
     .filter((segment): segment is string => segment !== null)
   return segments.length > 0 ? segments.join('.') : null
+}
+
+function collectSchemaFieldIssues(issues: readonly z.ZodIssue[]): CrudServerFieldIssues | undefined {
+  const { fieldIssues } = normalizeCrudServerError({
+    details: issues.map((issue) => ({ ...issue, path: [serializeIssuePath(issue.path)] })),
+  })
+  if (!fieldIssues) return undefined
+  return Object.fromEntries(Object.entries(fieldIssues).filter(([, issue]) => {
+    if (issue.code === 'too_big') return issue.params?.maximum !== undefined
+    if (issue.code === 'too_small') return issue.params?.minimum !== undefined
+    return true
+  }))
 }
 
 function normalizeDirtySnapshotValue(value: unknown): unknown {
@@ -1358,11 +1378,23 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   )
 
   const translateValidationErrors = React.useCallback(
-    (fieldErrors: Record<string, string>): Record<string, string> =>
+    (fieldErrors: Record<string, string>, fieldIssues?: CrudServerFieldIssues): Record<string, string> =>
       Object.fromEntries(
-        Object.entries(fieldErrors).map(([fieldId, message]) => [fieldId, translateValidationMessage(message)]),
+        Object.entries(fieldErrors).map(([fieldId, message]) => {
+          // Only trust the structured issue's code/params when the message it was
+          // extracted from still matches — a `transformValidation` widget may have
+          // rewritten `message` into something the issue's params no longer describe.
+          const issue = fieldIssues?.[fieldId]
+          const translation = issue && issue.message === message
+            ? resolveFieldIssueTranslation(issue, message)
+            : { key: '', fallback: message, params: undefined }
+          const translated = translation.key
+            ? t(translation.key, translation.fallback, translation.params)
+            : translateValidationMessage(message)
+          return [fieldId, translated]
+        }),
       ),
-    [translateValidationMessage],
+    [t, translateValidationMessage],
   )
 
   const mapDefsForValidation = React.useCallback(
@@ -2339,7 +2371,10 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         })
         if (Object.keys(schemaFieldErrors).length) {
           const transformedErrors = await transformValidationErrors(schemaFieldErrors)
-          Object.assign(nextFieldErrors, translateValidationErrors(transformedErrors))
+          Object.assign(
+            nextFieldErrors,
+            translateValidationErrors(transformedErrors, collectSchemaFieldIssues(result.error.issues)),
+          )
         }
       }
     }
@@ -3242,7 +3277,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           logger.debug('Schema validation failed', { issues: res.error.issues })
         }
         const transformedErrors = await transformValidationErrors(fieldErrors)
-        setErrors(translateValidationErrors(transformedErrors))
+        setErrors(translateValidationErrors(transformedErrors, collectSchemaFieldIssues(res.error.issues)))
         flash(highlightedMessage, 'error')
         return
       }
@@ -3385,7 +3420,10 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         logger.error('Error in onSubmitSuccess', { err })
         getTelemetryRuntime()?.reportError(err, { module: 'ui', code: 'ui.form_submit_success_failed' })
       }
-      if (successRedirect) redirectNavigationStarted = await navigateWithGuard(successRedirect)
+      const successRedirectTarget = typeof successRedirect === 'function'
+        ? successRedirect(coreSubmitValues, submitResult)
+        : successRedirect
+      if (successRedirectTarget) redirectNavigationStarted = await navigateWithGuard(successRedirectTarget)
     } catch (err: unknown) {
       clearSubmitNavigationBypass()
       try {
@@ -3405,21 +3443,13 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       } catch {
         // ignore event dispatch failures
       }
-      const { message: helperMessage, fieldErrors: serverFieldErrors } = mapCrudServerErrorToFormErrors(err, { customEntity })
+      const { message: helperMessage, fieldErrors: serverFieldErrors, fieldIssues: serverFieldIssues } =
+        mapCrudServerErrorToFormErrors(err, { customEntity })
       const combinedFieldErrors = serverFieldErrors ?? {}
       const hasFieldErrors = Object.keys(combinedFieldErrors).length > 0
-      const firstFieldMessage = hasFieldErrors
-        ? (() => {
-            const firstKey = Object.keys(combinedFieldErrors)[0]
-            if (!firstKey) return null
-            const value = combinedFieldErrors[firstKey]
-            if (typeof value !== 'string' || !value.trim().length) return null
-            return translateValidationMessage(value)
-          })()
-        : null
       if (hasFieldErrors) {
         const transformedErrors = await transformValidationErrors(combinedFieldErrors)
-        setErrors(translateValidationErrors(transformedErrors))
+        setErrors(translateValidationErrors(transformedErrors, serverFieldIssues))
         if (process.env.NODE_ENV !== 'production') {
           logger.debug('Submission failed with field errors', { fieldErrors: transformedErrors })
         }
@@ -3432,8 +3462,14 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       if (hasFieldErrors) {
         const lowered = displayMessage.toLowerCase()
         const highlightedLower = highlightedMessage.toLowerCase()
-        if (!displayMessage || lowered === 'invalid input' || lowered === highlightedLower) {
-          displayMessage = firstFieldMessage ?? highlightedMessage
+        // When the only message we have is one that already duplicates a field's
+        // own text (or is empty/generic), fall back to the generic summary instead
+        // of repeating the same sentence in both the banner and under the field.
+        const matchesFieldMessage = Object.values(combinedFieldErrors).some(
+          (fieldMessage) => fieldMessage.trim().toLowerCase() === lowered,
+        )
+        if (!displayMessage || lowered === 'invalid input' || lowered === highlightedLower || matchesFieldMessage) {
+          displayMessage = highlightedMessage
         }
       }
       if (!displayMessage && err instanceof Error && typeof err.message === 'string' && err.message.trim()) {
@@ -3455,6 +3491,8 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       } else if (!hasFieldErrors) {
         flash(displayMessage, 'error')
       }
+      // Always set the inline banner, even with field errors — it is the only
+      // top-level signal the save failed when the toast above is suppressed.
       setFormError(displayMessage)
     } finally {
       // A successful submit that kicks off the success-redirect keeps the form
@@ -3499,7 +3537,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           try {
             dynamicOptionLoadersRef.current.set(f.id, f.loadOptions)
             const opts = await f.loadOptions()
-            if (!cancelled) storeDynamicOptions(f.id, opts)
+            if (!cancelled && dynamicOptionLoadersRef.current.get(f.id) === f.loadOptions) storeDynamicOptions(f.id, opts)
           } catch {
             // ignore
           }
@@ -3526,11 +3564,12 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       }
       try {
         const fetched = await loader(query)
-        if (query === undefined) {
+        if (query === undefined && dynamicOptionLoadersRef.current.get(field.id) === loader) {
           storeDynamicOptions(field.id, fetched)
         }
         return fetched
-      } catch {
+      } catch (error) {
+        if (builtin.type === 'select') throw error
         return builtin.options ?? EMPTY_OPTIONS
       }
     }
@@ -3543,7 +3582,9 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       if (!('type' in f) || f.type === 'custom') continue
       const builtin = f as CrudBuiltinField
       const staticOptions = builtin.options ?? EMPTY_OPTIONS
-      const dynamic = dynamicOptions[f.id]
+      const dynamic = !builtin.loadOptions || dynamicOptionLoadersRef.current.get(f.id) === builtin.loadOptions
+        ? dynamicOptions[f.id]
+        : undefined
       if (dynamic && dynamic.length) {
         const merged: CrudFieldOption[] = []
         const seen = new Set<string>()
@@ -3921,13 +3962,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           if (renderedSections.length) customFieldsInnerNodes.push(...renderedSections)
 
           if (collapsibleGroupsEnabled && g.title) {
-            const customFieldCount = customFieldLayout.reduce(
-              (sum, entity) => sum + entity.sections.reduce(
-                (sSum, section) => sSum + section.groups.reduce(
-                  (gSum, group) => gSum + group.fields.length, 0,
-                ), 0,
-              ), 0,
-            )
             const customFieldErrors = customFieldLayout.reduce(
               (sum, entity) => sum + entity.sections.reduce(
                 (sSum, section) => sSum + section.groups.reduce(
@@ -3946,7 +3980,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
                 title={t(g.title, g.title)}
                 pageType={collapsiblePageType}
                 errorCount={customFieldErrors}
-                fieldCount={customFieldCount}
                 chevronPosition={collapsibleChevronPosition}
               >
                 <div className={densityStackMd}>
@@ -4006,7 +4039,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               title={t(g.title, g.title)}
               pageType={collapsiblePageType}
               errorCount={groupErrorCount}
-              fieldCount={groupFields.length}
               chevronPosition={collapsibleChevronPosition}
             >
               <div className={densityStackMd}>
@@ -4102,7 +4134,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               )}
               {hasSecondaryColumn ? <div className={`min-w-0 ${densityStackMd}`} data-crud-injection-region>{col2Content}</div> : null}
             </div>
-            {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
+            {formError ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
@@ -4201,7 +4233,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
                 )
               })}
             </div>
-            {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
+            {formError ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
@@ -4830,10 +4862,20 @@ const FieldControl = React.memo(function FieldControlImpl({
   const readOnly = Boolean(field.readOnly)
   const autoFocusField = autoFocus && !disabled
 
+  const [optionLoadState, setOptionLoadState] = React.useState<'loading' | 'ready' | 'error'>('loading')
+  const [optionRetry, setOptionRetry] = React.useState(0)
+  const optionLoader = builtin?.loadOptions
+
   React.useEffect(() => {
     if (!hasLoader || field.type === 'custom') return
-    loadFieldOptions(field).catch(() => {})
-  }, [field, hasLoader, loadFieldOptions])
+    let active = true
+    setOptionLoadState('loading')
+    loadFieldOptions(field).then(
+      () => { if (active) setOptionLoadState('ready') },
+      () => { if (active) setOptionLoadState('error') },
+    )
+    return () => { active = false }
+  }, [field.id, field.type, hasLoader, optionLoader, optionRetry, loadFieldOptions])
 
   const loadFieldSuggestions = React.useMemo(() => {
     if (!hasLoader) return undefined
@@ -4844,19 +4886,22 @@ const FieldControl = React.memo(function FieldControlImpl({
   }, [field, hasLoader, loadFieldOptions])
 
   const placeholder = builtin?.placeholder
-  const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
+  const rootClassName = wrapperClassName ? `min-w-0 space-y-1 ${wrapperClassName}` : 'min-w-0 space-y-1'
   const validateOnWrapperBlur = supportsWrapperBlurValidation(field)
   const singleSelectValue = Array.isArray(value)
     ? String(value[0] ?? '')
     : value == null
       ? ''
       : String(value)
+  const singleSelectOptions = hasLoader && optionLoadState !== 'ready'
+    ? builtin?.options ?? EMPTY_OPTIONS
+    : options
   const singleSelectOptionsKey = React.useMemo(
-    () => options.map((opt) => `${opt.value}:${opt.label}`).join('\0'),
-    [options],
+    () => singleSelectOptions.map((opt) => `${opt.value}:${opt.label}`).join('\0'),
+    [singleSelectOptions],
   )
   const singleSelectLabel = singleSelectValue
-    ? options.find((option) => option.value === singleSelectValue)?.label
+    ? singleSelectOptions.find((option) => option.value === singleSelectValue)?.label
     : undefined
 
   // Fields rendering a single focusable control get a real htmlFor/id pair;
@@ -5110,29 +5155,47 @@ const FieldControl = React.memo(function FieldControlImpl({
             }
             setValue(field.id, next)
           }}
-          disabled={disabled || readOnly}
+          disabled={disabled || readOnly || (hasLoader && optionLoadState !== 'ready' && singleSelectOptions.length === 0)}
         >
           <SelectTrigger id={controlId} data-crud-focus-target="">
             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>
               {singleSelectLabel}
             </SelectValue>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-content-available-width)]">
             {!field.required && value != null && value !== '' && (
               <SelectItem value={SELECT_CLEAR_SENTINEL}>
                 {t('ui.forms.select.clearOption', '— Clear —')}
               </SelectItem>
             )}
-            {options
+            {singleSelectOptions
               .filter((opt) => opt.value !== '')
               .map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
+                  <span className="min-w-0 whitespace-normal break-words">{opt.label}</span>
                 </SelectItem>
               ))}
           </SelectContent>
         </Select>
       )}
+      {field.type === 'select' && hasLoader ? (
+        <div aria-live="polite" aria-busy={optionLoadState === 'loading'}>
+          {optionLoadState === 'loading' ? <LoadingMessage label={t('ui.forms.select.loadingOptions')} /> : null}
+          {optionLoadState === 'error' ? (
+            <ErrorMessage
+              label={t('ui.forms.select.loadOptionsError')}
+              action={
+                <Button type="button" variant="outline" size="sm" disabled={disabled || readOnly} onClick={() => setOptionRetry((attempt) => attempt + 1)}>
+                  {t('ui.forms.select.retryOptions')}
+                </Button>
+              }
+            />
+          ) : null}
+          {optionLoadState === 'ready' && options.length === 0 ? (
+            <p role="status" className="text-sm text-muted-foreground">{t('ui.forms.select.noOptions')}</p>
+          ) : null}
+        </div>
+      ) : null}
       {field.type === 'select' && builtin?.multiple && builtin.listbox === true && (
         <div role="group" aria-labelledby={labelId}>
           <ListboxMultiSelect
@@ -5223,6 +5286,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.field.label === next.field.label &&
   prev.field.description === next.field.description &&
   prev.field.required === next.field.required &&
+  (prev.field.type === 'custom' || next.field.type === 'custom' || prev.field.loadOptions === next.field.loadOptions) &&
   prev.markRequired === next.markRequired &&
   prev.value === next.value &&
   prev.error === next.error &&

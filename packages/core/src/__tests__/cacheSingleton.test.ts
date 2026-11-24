@@ -8,6 +8,8 @@ jest.mock('@open-mercato/search', () => ({
   searchDeleteMetadata: {},
 }), { virtual: true })
 
+jest.mock('@open-mercato/search/di', () => ({ registerScopedSearchModule: jest.fn() }), { virtual: true })
+
 import { getCachedCacheService } from '../bootstrap'
 
 const CACHE_GLOBAL_KEY = '__openMercatoCacheService__'
