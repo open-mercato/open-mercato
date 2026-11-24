@@ -20,6 +20,7 @@ import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resource-usage'
+import { admitRequest } from '@open-mercato/shared/lib/runtime/request-gate'
 
 // Ensure all package registrations are initialized for API routes.
 bootstrap()
@@ -490,6 +491,45 @@ async function dispatchRequest(
     receivedAt: new Date().toISOString(),
   }
   await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
+  const admission = await admitRequest({
+    surface: 'api',
+    method,
+    pathname: req.nextUrl.pathname,
+    headers: req.headers,
+    cookies: { get: (name: string) => req.cookies.get(name)?.value },
+  })
+  if (!admission.admitted) {
+    await emitLifecycleEvent(applicationLifecycleEvents.requestCompleted, {
+      ...receivedPayload,
+      status: admission.response.status,
+      userId: null,
+      tenantId: null,
+      durationMs: Date.now() - startedAt,
+    })
+    return admission.response
+  }
+  try {
+    return await routeAdmittedRequest(method, req, t, pathname, receivedPayload, startedAt)
+  } finally {
+    admission.release()
+  }
+}
+
+type ReceivedPayload = {
+  requestId: string
+  method: HttpMethod
+  pathname: string
+  receivedAt: string
+}
+
+async function routeAdmittedRequest(
+  method: HttpMethod,
+  req: NextRequest,
+  t: Awaited<ReturnType<typeof resolveTranslations>>['t'],
+  pathname: string,
+  receivedPayload: ReceivedPayload,
+  startedAt: number,
+): Promise<Response> {
   const match = findApiRouteManifestMatch(getApiRouteManifests(), method, pathname, req)
   if (!match) {
     const response = NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
