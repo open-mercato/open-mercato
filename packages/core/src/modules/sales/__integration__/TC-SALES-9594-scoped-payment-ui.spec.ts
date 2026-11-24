@@ -168,6 +168,7 @@ test('TC-SALES-9594: scoped actors see localized payment metadata and preserve a
       expect((await page.request.post('/api/auth/locale', { data: { locale } })).status()).toBe(200)
       await page.goto(`/backend/sales/orders/${orderId}`, { waitUntil: 'domcontentloaded' })
       await expect(page.locator('html')).toHaveAttribute('lang', locale)
+      await expect(page.getByRole('button', { name: new RegExp(`${marker} Sales$`) })).toBeVisible()
       await page.getByRole('button', { name: labels.tab, exact: true }).click()
       const reference = page.getByRole('cell', { name: paymentEdit.paymentReference, exact: true })
       const table = page.getByRole('table').filter({ has: reference })
