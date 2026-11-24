@@ -69,6 +69,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'every packages/* and apps/mercato module acl.ts — localized ACL feature catalog coverage and English title drift (#5500)',
       },
       {
+        path: 'src/modules/entities/lib/__tests__/entityAcl.firstPartyCoverage.test.ts',
+        scans: 'first-party entity and ACL declarations across packages and apps — relation target permissions (#9106)',
+      },
+      {
         path: 'src/__tests__/feature-policy-authorization-coverage.test.ts',
         scans: 'server runtime roots across packages and app templates — low-level ACL authorization bypasses',
       },
@@ -320,6 +324,10 @@ export const REPO_WIDE_GUARDS = [
  * Each entry needs a reason, so the next person can tell "already covered" from "forgotten".
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
+  {
+    path: 'apps/mercato/src/components/__tests__/DemoFeedbackWidget.test.tsx',
+    reason: 'Reads onboarding locale dictionaries as fixture data for the app widget; it does not audit onboarding source. The app-owned Jest suite runs when this component changes, and onboarding owns dictionary validation.',
+  },
   {
     path: 'packages/cli/src/lib/__tests__/module-search.test.ts',
     reason: 'Reads only package-local catalog fixtures and per-test mkdtemp app roots; packages/core and apps/mercato literals construct temporary resolver layouts, never audit repository sources.',

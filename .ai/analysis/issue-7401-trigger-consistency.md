@@ -1,0 +1,11 @@
+# Workflow trigger consistency (#7401)
+
+The event-trigger service previously cached a tenant/organization's unified trigger list on `globalThis` for five minutes. Definition writes cleared that list only in the writer's process. An already-warmed worker missed newly saved triggers and continued matching edited, disabled or deleted triggers until expiry. Sharing the Map between duplicate module imports solved only the single-process case.
+
+Trigger lists now load from the existing scoped `findWithDecryption` queries for every evaluation. Queries request `refresh: true` so a long-lived EntityManager cannot return previously managed trigger/definition values. No cache backend, event transport, schema, dependency, route or public signature changes. The optional `CacheService` argument and synchronous `invalidateTriggerCache` hook remain accepted for existing consumers; no trigger snapshot is retained for them to invalidate.
+
+This deliberately costs two scoped DB reads per evaluated event, plus one definition lookup when legacy triggers exist, instead of those reads once per five minutes. Empty organizations also incur these reads. A shared cache alone does not solve the default memory backend's process isolation; best-effort notifications leave disconnect/startup invalidation gaps. Durable revisions or transactional cache coordination require a separate design rather than adding a second consistency mechanism in this fix. Events concurrent with a write can still observe the database snapshot before that write commits.
+
+Unchanged rules: legacy/embedded/code merging and priority order, DB customizations shadowing code definitions, embedded triggers only from the highest enabled published version, soft-delete filtering, trusted tenant and organization scoping, debounce and maximum-instance controls.
+
+Regression coverage executes the real service in two VM contexts with independent globals/module exports over a shared mocked storage boundary. Warming a worker and then adding/editing/disabling/deleting through the other identity reproduces six failures on the old implementation. The fixed implementation passes those cases and the existing code-trigger, published-version and debounce suites. The storage boundary is mocked; this is not a live database/queue or browser test.

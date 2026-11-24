@@ -124,7 +124,7 @@ describe('scoped calendar event type resolver', () => {
       normalizedValue: 'meeting',
       label: 'Meeting',
       icon: 'lucide:users',
-      color: '#f59e0b',
+      color: '#0f766e',
       activityTypeBehavior: null,
       organizationId,
       updatedAt: new Date('2026-09-01T00:00:00.000Z'),

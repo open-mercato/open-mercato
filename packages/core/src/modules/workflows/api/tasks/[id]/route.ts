@@ -66,6 +66,10 @@ export async function GET(
       )
     }
 
+    if (!z.guid().safeParse(params.id).success) {
+      return NextResponse.json(TASK_NOT_FOUND_BODY, { status: 404 })
+    }
+
     const task = await em.findOne(UserTask, {
       id: params.id,
       tenantId,

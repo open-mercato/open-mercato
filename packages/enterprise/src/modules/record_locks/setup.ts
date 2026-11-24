@@ -4,6 +4,7 @@ import { DEFAULT_RECORD_LOCK_SETTINGS, RECORD_LOCKS_MODULE_ID, RECORD_LOCKS_SETT
 
 export const setup: ModuleSetupConfig = {
   async onTenantCreated({ em }) {
+    if (!em.getMetadata().find(ModuleConfig)) return
     const existing = await em.findOne(ModuleConfig, {
       moduleId: RECORD_LOCKS_MODULE_ID,
       name: RECORD_LOCKS_SETTINGS_NAME,

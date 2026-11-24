@@ -12,6 +12,14 @@ describe('AnthropicAdapter', () => {
     expect(adapter.defaultModels[0].id).toBe('claude-haiku-4-5-20251001')
   })
 
+  it('lists Claude 4.6 models under their undated API ids', () => {
+    const ids = adapter.defaultModels.map((model) => model.id)
+    expect(ids).toEqual(
+      expect.arrayContaining(['claude-sonnet-4-6', 'claude-opus-4-6']),
+    )
+    expect(ids.filter((id) => /^claude-(sonnet|opus)-4-6-\d{8}$/.test(id))).toEqual([])
+  })
+
   it('detects configuration from env', () => {
     expect(
       adapter.isConfigured({ ANTHROPIC_API_KEY: 'sk-ant-key' }),

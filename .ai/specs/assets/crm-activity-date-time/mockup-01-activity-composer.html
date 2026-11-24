@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CRM activity composer proposal</title>
+<style>
+:root { font: 14px system-ui, sans-serif; color: #20242d; background: #f8f9fb; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px 18px; }
+main { max-width: 860px; margin: auto; }
+h1 { margin: 0 0 18px; font-size: 23px; }
+h2 { margin: 0; font-size: 16px; }
+section { background: white; border: 1px solid #e3e6ed; border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+button { font: inherit; border: 1px solid #e0e4eb; border-radius: 8px; padding: 8px 12px; color: inherit; background: white; }
+.primary { background: #353ed0; border-color: #353ed0; color: white; }
+.types { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.selected { background: #eff0ff; border-color: #c8ccfa; color: #2f38af; }
+.fields { display: grid; grid-template-columns: 1fr minmax(225px, 0.48fr); gap: 14px; }
+label { display: block; font-weight: 600; font-size: 13px; }
+textarea, .picker { width: 100%; margin-top: 6px; text-align: left; }
+textarea { min-height: 75px; border: 1px solid #e0e4eb; border-radius: 8px; font: inherit; resize: none; padding: 10px; }
+p { color: #515968; font-size: 13px; margin: 6px 0 0; }
+@media (max-width: 540px) { .fields { grid-template-columns: 1fr; } }
+</style>
+<main>
+  <h1>Northwind Studio</h1>
+  <section>
+    <header><h2>Add activity</h2><button class="primary">Save activity</button></header>
+    <div class="types"><button class="selected">Call</button><button>Email</button><button>Meeting</button><button>Note</button></div>
+    <div class="fields">
+      <div><label for="description">Description</label><textarea id="description" readonly>Call to confirm the renewal timeline.</textarea></div>
+      <div><label for="date">Date and time</label><button id="date" class="picker">Nov 26, 2026 · 10:30</button><p>Past activities go to history. Future activities are planned.</p></div>
+    </div>
+  </section>
+  <section><header><h2>Planned activities</h2><button>Schedule</button></header></section>
+</main>
