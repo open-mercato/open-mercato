@@ -9,7 +9,7 @@ import { resolveNotificationService } from '@open-mercato/core/modules/notificat
 import { SignInAttempt, SignInNotificationIntent } from '../data/entities'
 import { inAppNotificationsAvailable } from '../lib/inAppNotifications'
 import { readSignInActivityConfig } from '../lib/sign-in-activity-config'
-import { signInNewDeviceNotification } from '../notifications'
+import { notificationTypes, signInNewDeviceNotificationType } from '../notifications'
 
 export const metadata: WorkerMeta = {
   queue: 'security-sign-in-notification',
@@ -22,6 +22,7 @@ const browsers = new Set(['Chrome', 'Firefox', 'Safari', 'Edge', 'Opera', 'Samsu
 const systems = new Set(['Windows', 'macOS', 'iOS', 'iPadOS', 'Android', 'Linux', 'ChromeOS'])
 const utcTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' })
 const batchSize = 100
+const signInNewDeviceNotification = notificationTypes.find((definition) => definition.type === signInNewDeviceNotificationType)
 
 export async function deliverSignInNotification(
   em: EntityManager,
@@ -48,6 +49,7 @@ export async function deliverSignInNotification(
     if (!config.enabled || !config.notifyNewDevice || !attempt || attempt.occurredAt.getTime() < Date.now() - config.retentionMs) {
       intent.status = 'suppressed'
     } else if (notificationService) {
+      if (!signInNewDeviceNotification) throw new Error('[internal] New-device notification type is unavailable')
       const browserName = attempt.browserName ?? ''
       const osName = attempt.osName ?? ''
       await notificationService.createBatch({

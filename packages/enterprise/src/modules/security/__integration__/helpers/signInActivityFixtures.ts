@@ -35,6 +35,8 @@ const actorFeatures = [
 ]
 
 export async function createActivityFixture(request: APIRequestContext) {
+  const available = await request.get('/api/security/sign-ins')
+  expect(available.status(), 'The isolated app must expose Enterprise sign-in activity').not.toBe(404)
   const adminToken = await withCredentialIsolatedRequest((isolated) => getAuthToken(isolated, 'superadmin'))
   const homeTenantId = getTokenScope(adminToken).tenantId
   const cleanup: Array<() => Promise<unknown>> = []
