@@ -149,3 +149,6 @@ Run against the live branch dev server on :3100.
 
 ## Live browser smoke
 - Deal save with stale version → `PUT 409` → unified RecordConflictBanner ("Record changed — This record was modified…") + Refresh. Screenshot `checkpoint-7-artifacts/record-conflict-bar-deal.png`.
+
+## After review fixes
+The full gate above ran before the review-fix steps. The review-fix commits touch only the provider packages; for every touched package `yarn test`, `npx tsc --noEmit` (src + tests) and the full sequential Testcontainers suites were re-run green afterwards (see the review-fix rows in PLAN.md and the PR summary comment).
