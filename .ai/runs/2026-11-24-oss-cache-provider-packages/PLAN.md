@@ -22,8 +22,8 @@ Branch: feat/oss-cache-provider-packages
 | 2 | 2.9 | Apache Ignite 2.x thin-client provider | dispatch | done | 71bf574275 |
 | 2 | 2.10 | Ignite real-engine qualification, packed install and evidence | dispatch | done | 6e66a0c5c4 |
 | 2 | 2.11 | Pin apache-ignite-client transitive dependencies | inline | done | dbfeb5ef85 |
-| 2 | 2.12 | Normalize container test scripts and record independent re-verification | inline | done | (this commit) |
-| 2 | 2.13 | Archive Delta into capabilities spec | inline | todo | — |
+| 2 | 2.12 | Normalize container test scripts and record independent re-verification | inline | done | 559c66d81b |
+| 2 | 2.13 | Archive Delta into capabilities spec | inline | done | (this commit) |
 
 ## Goal
 
