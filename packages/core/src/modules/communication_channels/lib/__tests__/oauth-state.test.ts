@@ -431,3 +431,45 @@ describe('OAuth return URL validation', () => {
     expect(normalizeOAuthReturnUrl(value)).toBe(DEFAULT_OAUTH_RETURN_URL)
   })
 })
+
+describe('emitOAuthStateMemoryCacheStartupWarningIfNeeded with a registered cache provider', () => {
+  beforeEach(() => {
+    resetOAuthStateMemoryCacheStartupWarningForTests()
+    mockLoggerWarn.mockClear()
+  })
+
+  it('is silent when the selected provider resolves to shared placement', () => {
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded(
+      { CACHE_PROVIDER: 'acme/shared', CACHE_STRATEGY: 'memory' },
+      () => ({ kind: 'provider', id: 'acme/shared', placement: 'shared' }),
+    )
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  it('warns once naming CACHE_PROVIDER when the provider resolves to local placement', () => {
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded(
+      { CACHE_PROVIDER: 'acme/local', CACHE_STRATEGY: 'redis' },
+      () => ({ kind: 'provider', id: 'acme/local', placement: 'local' }),
+    )
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn.mock.calls[0][0]).toContain('CACHE_PROVIDER=acme/local')
+    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ startup: true, cacheProvider: 'acme/local' })
+  })
+
+  it('falls back to the CACHE_STRATEGY check when the selection cannot be described', () => {
+    const describeSelection = () => { throw new Error('not prepared') }
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_PROVIDER: 'acme/x', CACHE_STRATEGY: 'redis' }, describeSelection)
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_PROVIDER: 'acme/x', CACHE_STRATEGY: 'memory' }, describeSelection)
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ cacheStrategy: 'memory' })
+  })
+
+  it('does not describe the selection for stock deployments', () => {
+    const describeSelection = jest.fn(() => ({ kind: 'provider' as const, id: 'acme/x', placement: 'shared' as const }))
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_STRATEGY: 'memory' }, describeSelection)
+    expect(describeSelection).not.toHaveBeenCalled()
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+  })
+})

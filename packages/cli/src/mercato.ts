@@ -45,7 +45,11 @@ import { parseModuleInstallArgs } from './lib/module-install-args'
 import type { ModuleCommandResult } from './lib/module-install'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
-import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
+import {
+  assertSingleInstanceStrategies,
+  readInfraStrategySnapshot,
+  resolveEffectiveCacheProviderSnapshot,
+} from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
 import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
@@ -2615,7 +2619,10 @@ export async function run(argv = process.argv) {
           applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
           // Throws on single-instance strategies under a multi-instance topology,
           // aborting before the start lock is acquired or any process is spawned.
-          assertSingleInstanceStrategies(runtimeEnv)
+          const cacheProvider = await resolveEffectiveCacheProviderSnapshot(appDir, runtimeEnv)
+          assertSingleInstanceStrategies(runtimeEnv, {
+            snapshot: readInfraStrategySnapshot(runtimeEnv, { cacheProvider }),
+          })
           const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
           const serverStartLock = acquireServerStartLock(appDir, {
             port: runtimeEnv.PORT ?? process.env.PORT ?? null,

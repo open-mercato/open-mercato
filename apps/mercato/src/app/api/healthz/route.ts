@@ -1,4 +1,6 @@
 import type { CacheStrategy } from '@open-mercato/cache'
+import { describeCacheSelection } from '@open-mercato/cache'
+import { isCacheProviderError } from '@open-mercato/shared/lib/cache/providers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { bootstrap } from '@/bootstrap-api'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -18,11 +20,36 @@ type HealthcheckDependencies = {
   timeoutMs: number
   logger: Pick<Console, 'error'>
   cacheStrategy: () => string | undefined
+  cacheProviderSelected: () => boolean
 }
 
 type HealthcheckProbe = {
   name: 'database' | 'redis'
   run: () => Promise<unknown>
+}
+
+function sanitizeCacheProviderFailure(error: unknown): Error {
+  const code = isCacheProviderError(error) ? ` (${error.code})` : ''
+  return new Error(`Cache provider healthcheck failed${code}`)
+}
+
+function isCacheProviderSelected(dependencies: HealthcheckDependencies): boolean {
+  try {
+    return dependencies.cacheProviderSelected()
+  } catch (error) {
+    throw sanitizeCacheProviderFailure(error)
+  }
+}
+
+async function probeCacheProvider(cache: CacheStrategy): Promise<void> {
+  if (!cache.healthcheck) {
+    throw new Error('Cache provider healthcheck is unavailable')
+  }
+  try {
+    await cache.healthcheck()
+  } catch (error) {
+    throw sanitizeCacheProviderFailure(error)
+  }
 }
 
 function withTimeout(probe: HealthcheckProbe, timeoutMs: number): Promise<void> {
@@ -69,6 +96,7 @@ export function createHealthcheckHandler(
     timeoutMs: HEALTHCHECK_TIMEOUT_MS,
     logger: console,
     cacheStrategy: () => process.env.CACHE_STRATEGY,
+    cacheProviderSelected: () => describeCacheSelection().kind === 'provider',
     ...overrides,
   }
 
@@ -90,6 +118,10 @@ export function createHealthcheckHandler(
         {
           name: 'redis',
           run: async () => {
+            if (isCacheProviderSelected(dependencies)) {
+              await probeCacheProvider(cache)
+              return
+            }
             if (dependencies.cacheStrategy() === 'redis') {
               if (!cache.healthcheck) {
                 throw new Error('Redis cache healthcheck is unavailable')

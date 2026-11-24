@@ -1,5 +1,7 @@
 import crypto from 'node:crypto'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { describeCacheSelection, type CacheSelection } from '@open-mercato/cache'
+import { readSelectedCacheProviderId } from '@open-mercato/cache/provider'
 
 const oauthStateLogger = createLogger('communication_channels').child({ component: 'oauth-state' })
 
@@ -300,15 +302,42 @@ export function createOAuthState(params: {
 
 let memoryCacheStartupWarningEmitted = false
 
+function describeSelectedProviderPlacement(
+  providerId: string,
+  describeSelection: () => CacheSelection,
+): CacheSelection['placement'] | null {
+  try {
+    const selection = describeSelection()
+    return selection.kind === 'provider' && selection.id === providerId ? selection.placement : null
+  } catch {
+    return null
+  }
+}
+
 /**
- * Emit a one-time startup warning unless the cache strategy is redis. Every other
- * strategy (memory, sqlite, jsonfile) keeps replay markers per process or per node,
+ * Emit a one-time startup warning unless the effective cache is shared across
+ * replicas. With a registered cache provider (`CACHE_PROVIDER`) its resolved
+ * placement decides; when the selection cannot be described yet, the stock
+ * `CACHE_STRATEGY` check applies. For stock strategies every value other than
+ * redis (memory, sqlite, jsonfile) keeps replay markers per process or per node,
  * so the single-use guarantee only holds across replicas on redis.
  */
 export function emitOAuthStateMemoryCacheStartupWarningIfNeeded(
   env: NodeJS.ProcessEnv = process.env,
+  describeSelection: () => CacheSelection = describeCacheSelection,
 ): void {
   if (memoryCacheStartupWarningEmitted) return
+  const providerId = readSelectedCacheProviderId(env)
+  const providerPlacement = providerId ? describeSelectedProviderPlacement(providerId, describeSelection) : null
+  if (providerPlacement === 'shared') return
+  if (providerId && providerPlacement === 'local') {
+    memoryCacheStartupWarningEmitted = true
+    oauthStateLogger.warn(
+      `OAuth state single-use protection needs a store shared across replicas. CACHE_PROVIDER=${providerId} resolves to a local (per-process or per-node) cache; multi-replica deployments MUST select a shared cache.`,
+      { context: 'startup', startup: true, cacheProvider: providerId },
+    )
+    return
+  }
   const strategy = (env.CACHE_STRATEGY ?? 'memory').trim().toLowerCase()
   if (strategy === 'redis') return
   memoryCacheStartupWarningEmitted = true
