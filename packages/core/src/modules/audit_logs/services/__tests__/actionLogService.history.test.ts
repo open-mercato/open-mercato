@@ -10,6 +10,7 @@ import {
 } from 'kysely'
 import { encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { registerTelemetryRuntime, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { ActionLogService } from '../actionLogService'
 
 const tenantId = '10000000-0000-4000-8000-000000000001'
@@ -120,17 +121,45 @@ test('normalizes an authorized fallback row and decrypts once under its actual o
   )
 })
 
-test('propagates operational query and decryption failures', async () => {
-  const decryptionError = new Error('decryption unavailable')
+test('propagates a lookup failure and retains safe metadata after a payload decryption failure', async () => {
   const encryption = {
     isEnabled: jest.fn().mockReturnValue(true),
-    getDek: jest.fn().mockRejectedValue(decryptionError),
+    getDek: jest.fn().mockRejectedValue(new Error('decryption error containing raw provider details')),
   } as unknown as TenantDataEncryptionService
   const { service, executeQuery } = fixture(encryption)
   const queryError = new Error('database unavailable')
   executeQuery.mockRejectedValueOnce(queryError)
   await expect(service.findLatestResourceHistory(exact)).rejects.toBe(queryError)
 
-  executeQuery.mockResolvedValueOnce({ rows: [{ id: rowId, tenant_id: tenantId }] })
-  await expect(service.findLatestResourceHistory(exact)).rejects.toBe(decryptionError)
+  const reportError = jest.fn()
+  const disposeTelemetry = registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+  try {
+    const createdAt = new Date('2026-11-24T10:00:00.000Z')
+    executeQuery.mockResolvedValueOnce({
+      rows: [{
+        id: rowId,
+        tenant_id: tenantId,
+        organization_id: organizationId,
+        created_at: createdAt,
+        actor_user_id: actorUserId,
+        changes_json: { field: 'raw payload' },
+        snapshot_before: { field: 'raw snapshot' },
+        snapshot_after: { field: 'raw snapshot' },
+      }],
+    })
+    await expect(service.findLatestResourceHistory(exact)).resolves.toEqual({
+      id: rowId,
+      actorUserId,
+      createdAt,
+      changesJson: null,
+      snapshotBefore: null,
+      snapshotAfter: null,
+    })
+    expect(reportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[internal] Audit history payload could not be decrypted' }),
+      { module: 'audit_logs', code: 'audit_logs.history_decryption_failed' },
+    )
+  } finally {
+    disposeTelemetry()
+  }
 })

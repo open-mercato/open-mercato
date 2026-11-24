@@ -10,6 +10,11 @@ import type {
   AuditHistoryOrganizationScope,
 } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
+import { getCachedDictionary } from '@open-mercato/shared/lib/i18n/dictionary-cache'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { emitRecordLocksEvent } from '../events'
 import {
@@ -201,6 +206,20 @@ export type RecordLockServiceDeps = {
   actionLogService?: ActionLogService | null
   resolveAuditHistory?: () => ActionLogHistoryService | undefined
   rbacService?: RbacService | null
+}
+
+export class RecordLockHistoryUnavailableError extends CrudHttpError {
+  constructor() {
+    const translate = createFallbackTranslator(getCachedDictionary(defaultLocale) ?? {})
+    super(503, { error: translate('api.errors.internal', 'Internal server error') })
+  }
+}
+
+function reportHistoryLookupFailure() {
+  getTelemetryRuntime()?.reportError(new Error('[internal] Record lock audit history lookup failed'), {
+    module: 'record_locks',
+    code: 'record_locks.audit_history_lookup_failed',
+  })
 }
 
 export type ParsedRecordLockHeaders = Partial<RecordLockMutationHeaders>
@@ -462,10 +481,10 @@ export class RecordLockService {
   async acquire(input: RecordLockAcquireInput): Promise<RecordLockAcquireResult | RecordLockAcquireFailure> {
     this.scheduleCleanup(input.tenantId)
     const settings = await this.getSettings()
-    const latest = await this.findLatestActionLog(input)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
 
     if (!resourceEnabled) {
+      const latest = await this.findLatestActionLogForGuard(input, false)
       return {
         ok: true,
         enabled: settings.enabled,
@@ -513,6 +532,8 @@ export class RecordLockService {
         lock: lockView,
       }
     }
+
+    const latest = await this.findLatestActionLogForGuard(input, !ownedActiveLock)
 
     if (ownedActiveLock) {
       ownedActiveLock.strategy = settings.strategy
@@ -958,7 +979,6 @@ export class RecordLockService {
     const activeLocks = await this.findActiveLocks(input, now)
     const ownedActiveLock = activeLocks.find((lock) => lock.lockedByUserId === input.userId) ?? null
     const competingLock = activeLocks.find((lock) => lock.lockedByUserId !== input.userId) ?? null
-    const latest = await this.findLatestActionLog(input)
     const shouldReleaseOnSuccess = Boolean(
       ownedActiveLock
       && (!parsedHeaders.token || ownedActiveLock.token === parsedHeaders.token),
@@ -987,6 +1007,7 @@ export class RecordLockService {
         }
       }
 
+      const latest = await this.findLatestActionLogForGuard(input, false)
       return {
         ok: true,
         enabled: settings.enabled,
@@ -1046,10 +1067,10 @@ export class RecordLockService {
       }
     }
 
+    const baseActionLogId = parsedHeaders.baseLogId ?? ownedActiveLock?.baseActionLogId ?? null
+    const requiresHistory = !existingConflict && Boolean(baseActionLogId || ownedActiveLock)
+    const latest = await this.findLatestActionLogForGuard(input, requiresHistory)
     if (!existingConflict) {
-      const baseActionLogId = parsedHeaders.baseLogId
-        ?? (ownedActiveLock ? ownedActiveLock.baseActionLogId : null)
-
       const hasConflictingBaseLog = Boolean(
         latest?.id
         && baseActionLogId
@@ -1687,6 +1708,19 @@ export class RecordLockService {
     return this.readLatestAuditHistory(input)
   }
 
+  private async findLatestActionLogForGuard(
+    input: RecordLockScope & RecordLockAuditScope,
+    required: boolean,
+  ): Promise<AuditHistoryEntry | null> {
+    try {
+      return await this.findLatestActionLog(input)
+    } catch {
+      reportHistoryLookupFailure()
+      if (!required) return null
+      throw new RecordLockHistoryUnavailableError()
+    }
+  }
+
   private findLatestActionLogByActor(
     input: RecordLockScope & RecordLockAuditScope,
     actorUserId: string,
@@ -1960,9 +1994,14 @@ export class RecordLockService {
     if (!organization) return null
 
     const { tenantId, resourceKind, resourceId } = scope
-    return await this.resolveAuditHistory()?.findResourceHistoryById({
-      tenantId, resourceKind, resourceId, organization,
-    }, logId) ?? null
+    try {
+      return await this.resolveAuditHistory()?.findResourceHistoryById({
+        tenantId, resourceKind, resourceId, organization,
+      }, logId) ?? null
+    } catch {
+      reportHistoryLookupFailure()
+      return null
+    }
   }
 
   private collectSnapshotDiffPaths(

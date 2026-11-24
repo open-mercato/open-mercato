@@ -1,6 +1,7 @@
 import type { ActionLogHistoryService, AuditHistoryEntry } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
 import { RecordLockService } from '../lib/recordLockService'
+import { createRecordLockCrudMutationGuardService } from '../lib/crudMutationGuardService'
 import type { RecordLockSettings } from '../lib/config'
 import { emitRecordLocksEvent } from '../events'
 
@@ -1344,5 +1345,97 @@ describe('RecordLockService without the audit history provider', () => {
       latestActionLogId: null,
       lock: { id: lock.id },
     })
+  })
+})
+
+describe('RecordLockService when audit history fails', () => {
+  function guardFor(service: RecordLockService) {
+    return createRecordLockCrudMutationGuardService(service, {
+      validateMutation: jest.fn().mockResolvedValue({ ok: true, shouldRunAfterSuccess: false }),
+      afterMutationSuccess: jest.fn(),
+    }, { envValue: 'on' })
+  }
+
+  function lockMutationScope(lock: ReturnType<typeof buildLock>) {
+    return {
+      tenantId: lock.tenantId,
+      organizationId: lock.organizationId,
+      userId: lock.lockedByUserId,
+      resourceKind: lock.resourceKind,
+      resourceId: lock.resourceId,
+    }
+  }
+
+  test('refuses acquisition and mutation against a competing pessimistic lock without reading history', async () => {
+    const findLatestResourceHistory = jest.fn().mockRejectedValue(new Error('raw database error'))
+    const { service, em } = createService({ ...DEFAULT_SETTINGS, strategy: 'pessimistic' }, { findLatestResourceHistory })
+    const active = buildLock({ strategy: 'pessimistic', expiresAt: new Date(Date.now() + 60_000) })
+    em.find.mockResolvedValue([active])
+    const scope = { ...lockMutationScope(active), userId: '90000000-0000-4000-8000-000000000001' }
+
+    await expect(service.acquire(scope)).resolves.toMatchObject({ ok: false, status: 423, code: 'record_locked' })
+    await expect(guardFor(service).validateMutation({
+      ...scope,
+      operation: 'update',
+      requestMethod: 'PUT',
+      requestHeaders: new Headers(),
+    })).resolves.toMatchObject({ ok: false, status: 423, body: { code: 'record_locked' } })
+    expect(findLatestResourceHistory).not.toHaveBeenCalled()
+  })
+
+  test.each(['base log header', 'active lock'])(
+    'returns a sanitized failure when it cannot check a legacy %s after the OSS floor passes',
+    async (evidence) => {
+      const findLatestResourceHistory = jest.fn().mockRejectedValue(new Error('raw database error'))
+      const { service, em } = createService(DEFAULT_SETTINGS, { findLatestResourceHistory })
+      const lock = buildLock({ expiresAt: new Date(Date.now() + 60_000) })
+      const headers = new Headers()
+      if (evidence === 'base log header') headers.set('x-om-record-lock-base-log-id', lock.baseActionLogId)
+      else em.find.mockResolvedValue([lock])
+
+      await expect(guardFor(service).validateMutation({
+        ...lockMutationScope(lock),
+        operation: 'update',
+        requestMethod: 'PUT',
+        requestHeaders: headers,
+      })).resolves.toEqual({
+        ok: false,
+        status: 503,
+        body: { error: 'Internal server error' },
+      })
+      expect(findLatestResourceHistory).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  test('keeps the stale-base refusal when conflict detail reads fail', async () => {
+    const lock = buildLock()
+    const incomingId = '80000000-0000-4000-8000-000000000001'
+    const findResourceHistoryById = jest.fn().mockRejectedValue(new Error('raw database error'))
+    const { service, em } = createService(DEFAULT_SETTINGS, {
+      findLatestResourceHistory: jest.fn().mockResolvedValue({
+        id: incomingId,
+        actorUserId: '90000000-0000-4000-8000-000000000001',
+        createdAt: new Date(),
+        changesJson: null,
+        snapshotBefore: null,
+        snapshotAfter: null,
+      }),
+      findResourceHistoryById,
+    })
+    em.create.mockImplementation((_entity: unknown, value: Record<string, unknown>) => ({
+      ...value, id: 'a0000000-0000-4000-8000-000000000001',
+    }))
+
+    await expect(guardFor(service).validateMutation({
+      ...lockMutationScope(lock),
+      operation: 'update',
+      requestMethod: 'PUT',
+      requestHeaders: new Headers({ 'x-om-record-lock-base-log-id': lock.baseActionLogId }),
+    })).resolves.toMatchObject({
+      ok: false,
+      status: 409,
+      body: { code: 'record_lock_conflict', conflict: { incomingActionLogId: incomingId, changes: [] } },
+    })
+    expect(findResourceHistoryById).toHaveBeenCalledTimes(2)
   })
 })

@@ -23,6 +23,7 @@ import {
 } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY,
   actionLogBelongsToSubject,
@@ -905,20 +906,27 @@ export class ActionLogService {
     const row = await lookup.limit(1).executeTakeFirst()
     if (!row) return null
 
-    const decrypted = await this.decryptEntryPayload({
-      tenantId: row.tenant_id,
-      organizationId: row.organization_id,
-      changesJson: row.changes_json,
-      snapshotBefore: row.snapshot_before,
-      snapshotAfter: row.snapshot_after,
-    }, { throwOnFailure: true })
-    return {
-      id: row.id,
-      actorUserId: row.actor_user_id,
-      createdAt: row.created_at,
-      changesJson: readAuditHistoryRecord(decrypted.changesJson),
-      snapshotBefore: readAuditHistoryRecord(decrypted.snapshotBefore),
-      snapshotAfter: readAuditHistoryRecord(decrypted.snapshotAfter),
+    const entry = { id: row.id, actorUserId: row.actor_user_id, createdAt: row.created_at }
+    try {
+      const decrypted = await this.decryptEntryPayload({
+        tenantId: row.tenant_id,
+        organizationId: row.organization_id,
+        changesJson: row.changes_json,
+        snapshotBefore: row.snapshot_before,
+        snapshotAfter: row.snapshot_after,
+      }, { throwOnFailure: true })
+      return {
+        ...entry,
+        changesJson: readAuditHistoryRecord(decrypted.changesJson),
+        snapshotBefore: readAuditHistoryRecord(decrypted.snapshotBefore),
+        snapshotAfter: readAuditHistoryRecord(decrypted.snapshotAfter),
+      }
+    } catch {
+      getTelemetryRuntime()?.reportError(new Error('[internal] Audit history payload could not be decrypted'), {
+        module: 'audit_logs',
+        code: 'audit_logs.history_decryption_failed',
+      })
+      return { ...entry, changesJson: null, snapshotBefore: null, snapshotAfter: null }
     }
   }
 
