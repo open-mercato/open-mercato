@@ -74,6 +74,8 @@ Modules own their upgrade actions in a server-only `upgrades.ts` manifest plus o
 
 ## Progress
 
+PR: #10475
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Module ownership
