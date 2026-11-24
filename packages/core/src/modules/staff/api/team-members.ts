@@ -85,6 +85,7 @@ const crud = makeCrudRoute({
     ],
     sortFieldMap: {
       displayName: F.display_name,
+      isActive: F.is_active,
       createdAt: F.created_at,
       updatedAt: F.updated_at,
     },
@@ -112,7 +113,7 @@ const crud = makeCrudRoute({
         filters[F.team_id] = query.teamId
       }
       if (query.roleId) {
-        filters[F.role_ids] = { $contains: [query.roleId] }
+        filters[F.role_ids] = { $overlap: [query.roleId] }
       }
       return filters
     },
