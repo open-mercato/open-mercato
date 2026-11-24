@@ -11,7 +11,7 @@ import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-comm
 import { buildScheduledCommandContext, resolveScheduledCommandActorUserId } from '../lib/commandContext.js'
 import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { beginWorkerJob, shouldPauseWork } from '@open-mercato/shared/lib/runtime/worker-gate'
+import { beginWorkerJob, notifyWorkerRunnerStarted, shouldPauseWork } from '@open-mercato/shared/lib/runtime/worker-gate'
 import {
   canDispatchScheduleQueueTarget,
   getSchedulerQueueRequiredFeatures,
@@ -83,6 +83,8 @@ export class LocalSchedulerService {
     logger.warn(
       'Local scheduler strategy provides no cross-process protection: duplicate prevention is in-process only, so a second process polling the same database will execute the same due schedule. Run exactly one process with QUEUE_STRATEGY=local, or use the async strategy for distributed locking.',
     )
+
+    notifyWorkerRunnerStarted({ kind: 'scheduler' })
 
     // Run initial poll immediately
     await this.poll()

@@ -1,6 +1,7 @@
 import {
   beginWorkerJob,
   hasWorkerGates,
+  notifyWorkerRunnerStarted,
   registerWorkerGate,
   shouldPauseWork,
   unregisterWorkerGate,
@@ -62,5 +63,12 @@ describe('worker gate', () => {
     expect(shouldPauseWork({ kind: 'scheduler' })).toBe(false)
     const release = beginWorkerJob({ kind: 'scheduler' })
     expect(() => release()).not.toThrow()
+  })
+
+  it('notifies gates when a runner starts', () => {
+    const started: string[] = []
+    registerWorkerGate({ id: 'test', shouldPause: () => false, onRunnerStarted: (info) => { started.push(`${info.kind}:${info.queueName ?? ''}`) } })
+    notifyWorkerRunnerStarted({ kind: 'worker', queueName: 'events' })
+    expect(started).toEqual(['worker:events'])
   })
 })

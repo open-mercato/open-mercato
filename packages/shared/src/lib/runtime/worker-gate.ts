@@ -21,6 +21,8 @@ export type WorkerGate = {
   onResumed?(info: WorkerGateInfo): void
   /** In-flight accounting: called when a job starts; the returned callback runs when it settles. */
   onJobStarted?(info: WorkerGateInfo): WorkerJobRelease | void
+  /** Called once when a worker runner or the scheduler starts, so idle processes can report liveness. */
+  onRunnerStarted?(info: WorkerGateInfo): void
 }
 
 const WORKER_GATES_KEY = '__openMercatoWorkerGates__'
@@ -67,7 +69,7 @@ export function shouldPauseWork(info: WorkerGateInfo): boolean {
   return false
 }
 
-function notify(hook: 'onPaused' | 'onResumed', info: WorkerGateInfo): void {
+function notify(hook: 'onPaused' | 'onResumed' | 'onRunnerStarted', info: WorkerGateInfo): void {
   for (const gate of gateStore()) {
     const callback = gate[hook]
     if (typeof callback !== 'function') continue
@@ -77,6 +79,10 @@ function notify(hook: 'onPaused' | 'onResumed', info: WorkerGateInfo): void {
       logger.error('Worker gate callback threw', { gateId: gate.id, hook, err: error })
     }
   }
+}
+
+export function notifyWorkerRunnerStarted(info: WorkerGateInfo): void {
+  notify('onRunnerStarted', info)
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
