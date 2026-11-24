@@ -10,7 +10,7 @@ Server-only. ESM with TypeScript types. Placement: `shared` (all app instances s
 yarn add @open-mercato/cache-provider-infinispan
 ```
 
-Peer dependency: `@open-mercato/cache` `^0.11.0`. Runtime dependencies: the Apache-2.0 Hot Rod client [`infinispan`](https://www.npmjs.com/package/infinispan) (pinned to `0.16.3`, see [Client defects worked around](#client-defects-worked-around)) and `zod`. No other provider package or engine client is pulled in.
+Peer dependency: `@open-mercato/cache` (>= 0.11.0). Runtime dependencies: the Apache-2.0 Hot Rod client [`infinispan`](https://www.npmjs.com/package/infinispan) (pinned to `0.16.3`, see [Client defects worked around](#client-defects-worked-around)) and `zod`. No other provider package or engine client is pulled in.
 
 ## Prepare the server
 
