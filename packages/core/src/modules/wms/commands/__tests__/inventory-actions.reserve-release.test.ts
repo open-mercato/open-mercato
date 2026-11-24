@@ -77,6 +77,7 @@ function createCtx(em: ReturnType<typeof createEm>) {
         if (name === 'em') return em
         if (name === 'dataEngine') return {}
         if (name === 'wmsReservationService') return wmsReservationService
+        if (name === 'rbacService') return { userHasAllFeatures: async () => true }
         throw new Error(`Unexpected resolve: ${name}`)
       },
     },
