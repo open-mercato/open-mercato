@@ -8,6 +8,8 @@ export type TenantSetupScope = {
 
 export type TenantSetupContext = TenantSetupScope & {
   em: EntityManager
+  container?: AwilixContainer
+  enabledModuleIds?: ReadonlySet<string>
 }
 
 export type InitSetupContext = TenantSetupContext & {
