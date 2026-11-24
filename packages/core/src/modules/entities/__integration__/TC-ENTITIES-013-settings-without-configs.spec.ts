@@ -1,16 +1,16 @@
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import english from '../i18n/en.json'
-import polish from '../i18n/pl.json'
 
 export const integrationMeta = { dependsOnModules: ['auth', 'entities'] }
 
-test('TC-ENTITIES-012: entity settings and create form work with Configs omitted', async ({ page, request }) => {
-  test.slow()
+test('TC-ENTITIES-013: entity settings and create form work with Configs omitted', async ({ page, request }) => {
+  const english = JSON.parse(readFileSync(new URL('../i18n/en.json', import.meta.url), 'utf8')) as Record<string, string>
+  const polish = JSON.parse(readFileSync(new URL('../i18n/pl.json', import.meta.url), 'utf8')) as Record<string, string>
   const appRoot = process.env.OM_TEST_APP_ROOT?.trim() || path.resolve('apps/mercato')
   await bootstrapFromAppRoot(appRoot)
   const moduleIds = getModules().map((module) => module.id)
