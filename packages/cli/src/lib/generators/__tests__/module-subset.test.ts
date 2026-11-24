@@ -1111,6 +1111,49 @@ export function GET() {
     expect(searchApp).not.toContain('core_mod')
   })
 
+  it('uses private core message object entries only in the standalone client registry', async () => {
+    const enabled: ModuleEntry[] = [
+      { id: 'customers', from: '@open-mercato/core' },
+      { id: 'sales', from: '@open-mercato/core' },
+      { id: 'currencies', from: '@open-mercato/core' },
+      { id: 'vendor', from: '@vendor/messages' },
+    ]
+    const legacyDefinition = 'export const messageObjectTypes = [{ loadPreview: async () => ({ title: "legacy" }) }]'
+    for (const { id } of enabled) {
+      const moduleRoot = path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', id)
+      touchFile(path.join(moduleRoot, 'index.js'), `export const metadata = { id: "${id}" }`)
+      touchFile(path.join(moduleRoot, 'message-objects.js'), legacyDefinition)
+      if (id !== 'currencies') {
+        touchFile(path.join(moduleRoot, 'message-objects.client.js'), 'export const messageObjectTypes = []')
+      }
+    }
+    touchFile(path.join(tmpDir, 'src', 'modules', 'customers', 'message-objects.client.ts'), legacyDefinition)
+    touchFile(path.join(tmpDir, 'src', 'modules', 'sales', 'message-objects.ts'), legacyDefinition)
+
+    const resolver = createStandaloneMockResolver(tmpDir, enabled)
+    const getModuleImportBase = resolver.getModuleImportBase
+    resolver.getModuleImportBase = (entry) => ({
+      ...getModuleImportBase(entry),
+      pkgBase: `${entry.from}/modules/${entry.id}`,
+    })
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+    expect(result.errors).toEqual([])
+
+    const readOutput = (fileName: string) => fs.readFileSync(path.join(resolver.getOutputDir(), fileName), 'utf8')
+    const client = readOutput('messages.client.generated.ts')
+    const server = readOutput('message-objects.generated.ts')
+    expect(client).toContain('from "@open-mercato/core/modules/customers/message-objects.client"')
+    expect(client).not.toContain('from "@open-mercato/core/modules/customers/message-objects"')
+    expect(server).toContain('from "@open-mercato/core/modules/customers/message-objects"')
+    expect(server).not.toContain('message-objects.client')
+    for (const output of [client, server]) {
+      expect(output).toContain('from "@/modules/sales/message-objects"')
+      expect(output).toContain('from "@open-mercato/core/modules/currencies/message-objects"')
+      expect(output).toContain('from "@vendor/messages/modules/vendor/message-objects"')
+      expect(output).not.toContain('messages/modules/vendor/message-objects.client')
+    }
+  })
+
   it('uses standalone source mirror i18n files when dist modules omit translation assets', async () => {
     touchFile(
       path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'customers', 'i18n', 'en.json'),

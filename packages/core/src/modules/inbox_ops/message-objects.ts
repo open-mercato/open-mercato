@@ -1,34 +1,29 @@
 import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
-import { InboxEmailPreview } from './components/messages/InboxEmailPreview'
+import clientMessageObjectTypes from './message-objects.client'
 
-export const messageObjectTypes: MessageObjectTypeDefinition[] = [
-  {
-    module: 'inbox_ops',
-    entityType: 'inbox_email',
-    messageTypes: ['inbox_ops.email', 'inbox_ops.reply'],
-    labelKey: 'inbox_ops.title',
-    icon: 'mail-open',
-    PreviewComponent: InboxEmailPreview,
-    actions: [
-      {
-        id: 'view',
-        labelKey: 'inbox_ops.view_in_messages',
-        variant: 'outline',
-        href: '/backend/inbox-ops',
-      },
-    ],
-    loadPreview: async (entityId, ctx) => {
-      try {
-        if (typeof window !== 'undefined') {
-          return { title: 'Inbox Email', subtitle: entityId }
-        }
-        const { loadInboxEmailPreview } = await import('./lib/messageObjectPreviews')
-        return loadInboxEmailPreview(entityId, ctx)
-      } catch {
-        return { title: 'Inbox Email', subtitle: entityId }
-      }
-    },
+type PreviewLoader = NonNullable<MessageObjectTypeDefinition['loadPreview']>
+
+const previewLoaders: Record<string, PreviewLoader | undefined> = {
+  inbox_email: async (entityId, ctx) => {
+    try {
+      const { loadInboxEmailPreview } = await import('./lib/messageObjectPreviews')
+      return loadInboxEmailPreview(entityId, ctx)
+    } catch {
+      return { title: 'Inbox Email', subtitle: entityId }
+    }
   },
-]
+}
+
+export const messageObjectTypes: MessageObjectTypeDefinition[] = clientMessageObjectTypes.map((type) => {
+  const loadServerPreview = previewLoaders[type.entityType]
+  if (!loadServerPreview) return type
+  return {
+    ...type,
+    loadPreview: (entityId, ctx) => {
+      if (typeof window !== 'undefined' && type.loadPreview) return type.loadPreview(entityId, ctx)
+      return loadServerPreview(entityId, ctx)
+    },
+  }
+})
 
 export default messageObjectTypes
