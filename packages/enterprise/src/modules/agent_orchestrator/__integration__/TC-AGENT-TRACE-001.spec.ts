@@ -1,5 +1,8 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { deleteAgentRunsWithTraceByIds } from './helpers/agentPerfFixtures'
 import { signTraceIngest, TRACE_INGEST_HEADERS } from '../lib/trace/ingestAuth'
 
 /**
@@ -10,7 +13,7 @@ import { signTraceIngest, TRACE_INGEST_HEADERS } from '../lib/trace/ingestAuth'
  * `(runtime, externalRunId)` is a no-op; the run is queryable with its trace
  * tree; a bad signature is rejected with 401.
  *
- * NOTE: signing reuses the per-tenant derived secret, so the test process and the
+ * NOTE: signing uses a key scoped to the tenant and organization, so the test process and the
  * server MUST share `JWT_SECRET` (the integration harness boots the app with a
  * fixed test secret the test process inherits).
  */
@@ -141,5 +144,81 @@ test.describe('TC-AGENT-TRACE-001: trace ingest, query, idempotency, HMAC gate',
       data: raw,
     })
     expect(response.status()).toBe(401)
+  })
+
+  test('accepts a linked trace only when its recorded step occurrence exists', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const { tenantId, organizationId } = decodeScope(token)
+    const scope = { tenantId, organizationId }
+    const workflowInstanceId = randomUUID()
+    const stepId = 'review'
+    const workflowId = `trace-test-${workflowInstanceId}`
+    const currentAttemptId = randomUUID()
+    const runs = [currentAttemptId, randomUUID()].map((invocationId) => ({
+      id: randomUUID(),
+      invocationId,
+      payload: { ...buildTracePayload(randomUUID()), workflowInstanceId, stepId },
+    }))
+    const runIds = runs.map(({ id }) => id)
+    const [current, stale] = runs
+
+    try {
+      await withClient(async (client) => {
+        await client.query(
+          `insert into workflow_instances (id, definition_id, workflow_id, version, status, current_step_id,
+             context, started_at, tenant_id, organization_id, created_at, updated_at)
+           values ($1, $2, $3, 1, 'RUNNING', $4, '{}', now(), $5, $6, now(), now())`,
+          [workflowInstanceId, randomUUID(), workflowId, stepId, tenantId, organizationId],
+        )
+        await client.query(
+          `insert into step_instances (id, workflow_instance_id, step_id, step_name, step_type, status,
+             tenant_id, organization_id, created_at, updated_at)
+           values ($1, $2, $3, 'Review', 'AUTOMATED', 'RUNNING', $4, $5, now(), now())`,
+          [currentAttemptId, workflowInstanceId, stepId, tenantId, organizationId],
+        )
+        for (const { id, invocationId, payload } of runs) {
+          await client.query(
+            `insert into agent_runs (id, tenant_id, organization_id, workflow_instance_id, step_id, invocation_id,
+               agent_id, runtime, external_run_id, input, created_at, updated_at)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, '{}', now(), now())`,
+            [id, tenantId, organizationId, workflowInstanceId, stepId, invocationId, payload.agentId,
+              payload.runtime, payload.externalRunId],
+          )
+        }
+      })
+
+      const accepted = await postTrace(request, scope, current.payload)
+      expect(accepted.status(), await accepted.text()).toBe(202)
+      expect(await accepted.json()).toMatchObject({ runId: current.id, created: false, spansAppended: 2 })
+
+      const rejected = await postTrace(request, scope, stale.payload)
+      expect(rejected.status()).toBe(422)
+      expect(await rejected.json()).toMatchObject({ code: 'workflow_instance_out_of_scope' })
+
+      await withClient(async (client) => {
+        const skipped = await client.query('select id from agent_spans where agent_run_id = $1', [stale.id])
+        expect(skipped.rows).toHaveLength(0)
+        const logs = await client.query(
+          `select actor_user_id, tenant_id, organization_id, source_key, context_json, command_payload
+             from action_logs where command_id = 'agent_orchestrator.trace.ingest' and resource_id = $1`,
+          [current.id],
+        )
+        expect(logs.rows).toEqual([expect.objectContaining({
+          actor_user_id: null,
+          tenant_id: tenantId,
+          organization_id: organizationId,
+          source_key: 'api',
+          context_json: expect.objectContaining({ systemActor: 'system:trace-ingest-webhook' }),
+          command_payload: null,
+        })])
+      })
+    } finally {
+      await deleteAgentRunsWithTraceByIds(runIds)
+      await withClient(async (client) => {
+        await client.query('delete from action_logs where resource_id = any($1::text[])', [runIds])
+        await client.query('delete from step_instances where id = $1', [currentAttemptId])
+        await client.query('delete from workflow_instances where id = $1', [workflowInstanceId])
+      })
+    }
   })
 })

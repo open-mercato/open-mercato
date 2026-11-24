@@ -1,10 +1,10 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { traceIngestSchema, TRACE_INGEST_MAX_COST_MINOR } from '../data/validators'
-import { assertTraceIngestOrganization, assertTraceIngestRun } from '../lib/trace/ingestScope'
+import { assertTraceIngestOrganization, assertTraceIngestRun, withTraceIngestAuthority } from '../lib/trace/ingestScope'
 import { AgentRun } from '../data/entities'
 import type { IngestScope, IngestTraceOptions } from '../lib/trace/traceIngestionService'
-import { CommandBus } from '@open-mercato/shared/lib/commands'
+import { CommandBus, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 jest.mock('../lib/trace/traceIngestionService', () => ({
@@ -44,6 +44,7 @@ import { ingestTrace } from '../lib/trace/traceIngestionService'
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 const workflowInstanceId = '55555555-5555-4555-8555-555555555555'
+const invocationId = '66666666-6666-4666-8666-666666666666'
 
 type OrganizationFixture = { id: string }
 
@@ -80,11 +81,11 @@ function makeReader(result = true) {
   return { hasWorkflowStepReference: jest.fn(async () => result) }
 }
 
-type RunFixture = Pick<AgentRun, 'agentId' | 'deletedAt' | 'workflowInstanceId' | 'stepId' | 'invocationId'>
+type RunFixture = Pick<AgentRun, 'id' | 'agentId' | 'deletedAt' | 'workflowInstanceId' | 'stepId' | 'invocationId'>
 
 const scope = { tenantId, organizationId }
 const agentId = 'agent-1'
-const linkedRun: RunFixture = { agentId, workflowInstanceId, stepId: 'review', invocationId: 'invocation-1' }
+const linkedRun: RunFixture = { id: 'run-1', agentId, workflowInstanceId, stepId: 'review', invocationId }
 
 describe('traceIngestSchema bounds', () => {
   const base = { runtime: 'opencode', externalRunId: 'run-1', agentId: 'agent-1' }
@@ -137,7 +138,7 @@ describe('trace ingest authorization', () => {
     const reader = makeReader()
     await expect(assertTraceIngestRun(em, makeContainer(em, reader), scope, { agentId }, linkedRun))
       .resolves.toBeUndefined()
-    expect(reader.hasWorkflowStepReference).toHaveBeenCalledWith(em, scope, workflowInstanceId, 'review')
+    expect(reader.hasWorkflowStepReference).toHaveBeenCalledWith(em, scope, workflowInstanceId, 'review', invocationId)
   })
 
   it.each([
@@ -179,19 +180,22 @@ describe('agent_orchestrator.trace.ingest command wiring', () => {
     workflowExecutor: unknown
     payload: Record<string, unknown>
     run?: RunFixture
+    authority?: Parameters<typeof withTraceIngestAuthority>[1]
+    systemActor?: boolean
   }) {
     const em = makeEm(options.organization, options.run)
-    const container = makeContainer(em, options.workflowExecutor)
+    const container = makeContainer(em, options.workflowExecutor) as unknown as CommandRuntimeContext['container']
+    const ctx: CommandRuntimeContext = {
+      container,
+      auth: null,
+      organizationScope: null,
+      selectedOrganizationId: organizationId,
+      organizationIds: [organizationId],
+      systemActor: options.systemActor,
+    }
     return new CommandBus().execute('agent_orchestrator.trace.ingest', {
       input: { tenantId, organizationId, payload: options.payload },
-      ctx: {
-        container,
-        auth: null,
-        organizationScope: null,
-        selectedOrganizationId: organizationId,
-        organizationIds: [organizationId],
-        systemActor: true,
-      },
+      ctx: options.authority ? withTraceIngestAuthority(ctx, options.authority) : ctx,
     })
   }
 
@@ -223,6 +227,7 @@ describe('agent_orchestrator.trace.ingest command wiring', () => {
         organization: { id: organizationId },
         workflowExecutor: makeReader(false),
         run: linkedRun,
+        systemActor: true,
         payload: {
           runtime: 'opencode',
           externalRunId: 'run-1',
@@ -233,5 +238,32 @@ describe('agent_orchestrator.trace.ingest command wiring', () => {
       }),
     ).rejects.toMatchObject({ status: 422 })
     expect(ingestTrace).toHaveBeenCalledTimes(1)
+  })
+
+  it('binds the webhook dispatch to its verified scope even if the command input changes', async () => {
+    await expect(executeIngest({
+      organization: { id: organizationId },
+      workflowExecutor: makeReader(),
+      payload: { runtime: 'opencode', externalRunId: 'run-1', agentId },
+      authority: { source: 'webhook', ...scope, organizationId: workflowInstanceId },
+    })).rejects.toMatchObject({ status: 401 })
+    expect(organizationQueries).toHaveLength(0)
+    expect(ingestTrace).not.toHaveBeenCalled()
+  })
+
+  it('allows trusted parallel OpenCode capture only for its persisted run without correlation fields', async () => {
+    const workflowExecutor = makeReader(false)
+    const options = {
+      organization: { id: organizationId },
+      workflowExecutor,
+      payload: { runtime: 'opencode', externalRunId: 'run-1', agentId },
+      run: { ...linkedRun, invocationId: null },
+      authority: { source: 'opencode' as const, ...scope, runId: linkedRun.id },
+    }
+    await expect(executeIngest(options)).resolves.toMatchObject({ result: { runId: linkedRun.id } })
+    await expect(executeIngest({ ...options, run: { ...linkedRun, id: 'run-2' } })).rejects.toMatchObject({ status: 422 })
+    await expect(executeIngest({ ...options, payload: { ...options.payload, workflowInstanceId } }))
+      .rejects.toMatchObject({ status: 422 })
+    expect(workflowExecutor.hasWorkflowStepReference).not.toHaveBeenCalled()
   })
 })

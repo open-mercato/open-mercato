@@ -46,7 +46,9 @@ import { aiTools, SUBMIT_OUTCOME_TOOL_ID } from '../ai-tools'
 import { compileOutcome } from '../lib/sdk/outcomeSchema'
 import { InMemoryAgentRunSessionStore } from '../lib/runtime/agentRunSessionStore'
 import { RUN_MANIFEST_SPAN_NAME } from '../lib/trace/runManifest'
+import { getTraceIngestAuthority } from '../lib/trace/ingestScope'
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
 const submitOutcomeTool = aiTools.find((t) => t.name === SUBMIT_OUTCOME_TOOL_ID) as AiToolDefinition
 
@@ -106,7 +108,7 @@ function registerExampleFileAgent(): AgentRegistryEntry {
   return entry
 }
 
-type RecordedCommand = { id: string; input: unknown }
+type RecordedCommand = { id: string; input: unknown; ctx: CommandRuntimeContext }
 
 type IngestCommandInput = {
   tenantId: string
@@ -137,8 +139,8 @@ function makeHarness(options: { capturePolicy?: unknown } = {}) {
   const executed: RecordedCommand[] = []
   const commandBus = {
     executed,
-    async execute<I, O>(id: string, opts: { input: I }): Promise<{ result: O }> {
-      executed.push({ id, input: opts.input })
+    async execute<I, O>(id: string, opts: { input: I; ctx: CommandRuntimeContext }): Promise<{ result: O }> {
+      executed.push({ id, input: opts.input, ctx: opts.ctx })
       return { result: { runId: 'run-123' } as unknown as O }
     },
   }
@@ -287,7 +289,11 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
       openCodeClient: makeFakeClient({ container }),
     })
 
-    const result = await runner.run(entry, { subject: 'payouts stuck' }, runCtx)
+    const result = await runner.run(entry, { subject: 'payouts stuck' }, {
+      ...runCtx,
+      workflowInstanceId: 'workflow-1',
+      stepId: 'parallel-review',
+    })
     expect(result.kind).toBe('proposal')
 
     // Assert the run ingested its trace through the audited command with the
@@ -303,6 +309,14 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
     expect(payload.runtime).toBe('opencode')
     expect(payload.externalRunId).toBe('ses_trace_1')
     expect(payload.agentId).toBe(FILE_AGENT_ID)
+    expect(payload).not.toHaveProperty('workflowInstanceId')
+    const ingestContext = commandBus.executed.find((call) => call.id === 'agent_orchestrator.trace.ingest')!.ctx
+    expect(getTraceIngestAuthority(ingestContext)).toEqual({
+      source: 'opencode',
+      runId: 'run-123',
+      tenantId: runCtx.tenantId,
+      organizationId: runCtx.organizationId,
+    })
 
     const toolNames = payload.spans.flatMap((s) => (s.toolCalls ?? []).map((c) => c.toolName))
     expect(toolNames).toEqual(['load_skill', 'run_skill_script'])

@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { readBoundedRequestBody, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
 import { traceIngestSchema } from '../../../data/validators'
 import { enforcePublicEndpointRateLimit } from '../../../lib/guardrails/publicEndpointRateLimit'
 import { verifyTraceIngestRequest } from '../../../lib/trace/ingestAuth'
+import { withTraceIngestAuthority } from '../../../lib/trace/ingestScope'
 import type { IngestTraceCommandInput } from '../../../commands/trace'
 import type { IngestTraceResult } from '../../../lib/trace/traceIngestionService'
 import { agentOrchestratorTag } from '../../openapi'
@@ -65,15 +66,14 @@ export async function POST(req: Request) {
   }
 
   const commandBus = container.resolve('commandBus') as CommandBus
-  const ctx: CommandRuntimeContext = {
+  const ctx = withTraceIngestAuthority({
     container,
     auth: null,
     organizationScope: null,
     selectedOrganizationId: principal.organizationId,
     organizationIds: [principal.organizationId],
     request: req,
-    systemActor: true,
-  }
+  }, { source: 'webhook', ...principal })
 
   const { result } = await commandBus.execute<IngestTraceCommandInput, IngestTraceResult>(
     'agent_orchestrator.trace.ingest',

@@ -3,8 +3,9 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { traceIngestSchema } from '../data/validators'
-import { assertTraceIngestOrganization, assertTraceIngestRun } from '../lib/trace/ingestScope'
+import { assertTraceIngestOrganization, assertTraceIngestRun, getTraceIngestAuthority } from '../lib/trace/ingestScope'
 import { ingestTrace, type IngestTraceResult } from '../lib/trace/traceIngestionService'
 import { createArtifactResultOffloader } from '../lib/trace/artifactStore'
 import { resolveIngestContentCapture } from '../lib/trace/ingestContentCapture'
@@ -34,11 +35,17 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
   id: 'agent_orchestrator.trace.ingest',
   async execute(rawInput, ctx) {
     const input = ingestTraceCommandSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+    const authority = getTraceIngestAuthority(ctx)
+    if (authority && (authority.tenantId !== scope.tenantId || authority.organizationId !== scope.organizationId)) {
+      throw new CrudHttpError(401, { error: 'Trace ingest verification failed' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     await assertTraceIngestOrganization(em, scope)
     const result = await ingestTrace(em, scope, input.payload, {
-      assertRunScope: (run) => assertTraceIngestRun(em, ctx.container, scope, input.payload, run),
+      assertRunScope: (run) => assertTraceIngestRun(
+        em, ctx.container, scope, input.payload, run, authority?.source === 'opencode' ? authority.runId : undefined,
+      ),
       offloadArtifactResult: createArtifactResultOffloader(ctx.container, scope),
       ...(await resolveIngestContentCapture(ctx.container, scope, input.payload)),
     })
@@ -118,6 +125,19 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
     }
 
     return result
+  },
+  buildLog({ ctx, result }) {
+    const authority = getTraceIngestAuthority(ctx)
+    if (authority?.source !== 'webhook') return
+    return {
+      replayable: false,
+      tenantId: authority.tenantId,
+      organizationId: authority.organizationId,
+      actorUserId: 'system:trace-ingest-webhook',
+      resourceKind: 'agent_orchestrator:agent_run',
+      resourceId: result.runId,
+      context: { source: 'api' },
+    }
   },
 }
 
