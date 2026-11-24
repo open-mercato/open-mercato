@@ -14,7 +14,7 @@ import {
 } from '@open-mercato/shared/security/featurePolicy'
 import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
 import { hasFeature } from '@open-mercato/shared/security/features'
-import { resolveRoleOrganizationScope, roleAclAllowsOrganization } from './roleOrganizationScope'
+import { resolveRoleOrganizationScope, roleAclAllowsOrganization, roleAclHasGlobalOrganizationScope, userAclHasGlobalOrganizationScope } from './roleOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('auth.rbac')
@@ -80,9 +80,22 @@ function isAclData(value: unknown): value is AclData {
 }
 
 function isRestrictedRoleAcl(acl: Pick<RoleAcl, 'organizationsJson'>): boolean {
-  return Array.isArray(acl.organizationsJson)
-    && acl.organizationsJson.length > 0
-    && !acl.organizationsJson.includes('__all__')
+  return !roleAclHasGlobalOrganizationScope(acl)
+}
+
+function projectUserAcl(acl: UserAcl, organizationId: string | null, isHomeTenant: boolean): AclData {
+  const globalScope = userAclHasGlobalOrganizationScope(acl)
+  const organizations = acl.organizationsJson == null
+    ? null
+    : Array.isArray(acl.organizationsJson) ? [...acl.organizationsJson] : []
+  const superAdmin = isHomeTenant && acl.isSuperAdmin === true
+  const scopedWildcard = superAdmin
+    && (globalScope || (organizationId !== null && organizations?.includes(organizationId)))
+  return {
+    isSuperAdmin: superAdmin && globalScope,
+    features: scopedWildcard ? ['*'] : Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : [],
+    organizations,
+  }
 }
 
 type FeatureOrganizationCandidate = {
@@ -176,8 +189,7 @@ function buildFeatureOrganizationScope(
 }
 
 function roleAclProvidesGlobalFeatureScope(acl: Pick<RoleAcl, 'organizationsJson'>): boolean {
-  const organizations = Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null
-  return !organizations || organizations.length === 0 || organizations.includes('__all__')
+  return roleAclHasGlobalOrganizationScope(acl)
 }
 
 function roleAclProvidesGlobalVisibility(
@@ -283,7 +295,7 @@ export class RbacService {
   }
 
   private getCacheKey(userId: string, scope: { tenantId: string | null; organizationId: string | null }): string {
-    const namespace = userId.startsWith('api_key:') ? 'rbac:delegated-v1' : 'rbac'
+    const namespace = userId.startsWith('api_key:') ? 'rbac:delegated-v2' : 'rbac:scoped-admin-v1'
     return `${namespace}:${userId}:${scope.tenantId || 'null'}:${scope.organizationId || 'null'}`
   }
 
@@ -449,7 +461,7 @@ export class RbacService {
       isSuperAdmin: true,
       deletedAt: null,
     } as FilterQuery<UserAcl>)
-    if (userSuper?.isSuperAdmin) {
+    if (userSuper?.isSuperAdmin && userAclHasGlobalOrganizationScope(userSuper)) {
       if (useCache) this.globalSuperAdminCache.set(userId, true)
       return true
     }
@@ -668,11 +680,7 @@ export class RbacService {
       { orderBy: { createdAt: 'desc', id: 'desc' } } as const,
     )
     if (uacl) {
-      const result = {
-        isSuperAdmin: !!uacl.isSuperAdmin,
-        features: Array.isArray(uacl.featuresJson) ? (uacl.featuresJson as string[]) : [],
-        organizations: Array.isArray(uacl.organizationsJson) ? (uacl.organizationsJson as string[]) : null,
-      }
+      const result = projectUserAcl(uacl, scope.organizationId, tenantId === user.tenantId)
       await this.setCache(cacheKey, result, userId, scope)
       return result
     }
@@ -711,7 +719,9 @@ export class RbacService {
       const roleAcls = Array.isArray(racls) ? racls : []
       for (const r of roleAcls) {
         if (roleAclAllowsOrganization(r, roleOrganizationScope)) {
-          isSuper = isSuper || !!r.isSuperAdmin
+          const superAdmin = r.isSuperAdmin === true && tenantId === user.tenantId
+          isSuper = isSuper || (superAdmin && roleAclHasGlobalOrganizationScope(r))
+          if (superAdmin && roleOrganizationScope?.size && !features.includes('*')) features.push('*')
           if (Array.isArray(r.featuresJson)) for (const f of r.featuresJson) if (!features.includes(f)) features.push(f)
           if (isRestrictedRoleAcl(r)) hasApplicableRestrictedRole = true
         }
@@ -846,11 +856,7 @@ export class RbacService {
       { orderBy: { createdAt: 'desc', id: 'desc' } },
     )
     if (userAcl) {
-      return {
-        isSuperAdmin: userAcl.isSuperAdmin === true,
-        features: Array.isArray(userAcl.featuresJson) ? [...userAcl.featuresJson] : [],
-        organizations: Array.isArray(userAcl.organizationsJson) ? [...userAcl.organizationsJson] : null,
-      }
+      return projectUserAcl(userAcl, scope.organizationId, tenantId === user.tenantId)
     }
 
     const links = await findWithDecryption(
@@ -877,7 +883,9 @@ export class RbacService {
     let hasApplicableRestrictedRole = false
     for (const acl of roleAcls) {
       if (roleAclAllowsOrganization(acl, roleScope)) {
-        isSuperAdmin = isSuperAdmin || acl.isSuperAdmin === true
+        const superAdmin = acl.isSuperAdmin === true && tenantId === user.tenantId
+        isSuperAdmin = isSuperAdmin || (superAdmin && roleAclHasGlobalOrganizationScope(acl))
+        if (superAdmin && roleScope?.size && !features.includes('*')) features.push('*')
         for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
           if (!features.includes(feature)) features.push(feature)
         }
@@ -1110,8 +1118,7 @@ export class RbacService {
     if (grants.kind === 'user_acl') {
       const grantedFeatures = grants.features
       const allowedOrganizations = grants.organizations
-      const hasGlobalScope = grants.isSuperAdmin
-        || allowedOrganizations === null
+      const hasGlobalScope = allowedOrganizations === null
         || allowedOrganizations.includes('__all__')
       const unrestricted = authorizeFeatures([...required], {
         grantedFeatures,
@@ -1124,8 +1131,7 @@ export class RbacService {
         unrestricted: false,
         filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
           .filter((organization) => {
-            const scopeAllowed = grants.isSuperAdmin
-              || allowedOrganizations === null
+            const scopeAllowed = allowedOrganizations === null
               || allowedOrganizations.includes('__all__')
               || allowedOrganizations.includes(organization.id)
             return authorizeFeatures([...required], {
@@ -1154,7 +1160,7 @@ export class RbacService {
     userId: string,
     tenantId: string,
   ): Promise<FeatureOrganizationGrants> {
-    const cacheKey = `rbac:feature-organizations:delegated-v1:${userId}:${tenantId}`
+    const cacheKey = `rbac:feature-organizations:scoped-admin-v1:${userId}:${tenantId}`
     const key = userId.startsWith('api_key:')
       ? await this.em.fork().findOne(ApiKey, { id: userId.slice('api_key:'.length), deletedAt: null })
       : undefined
@@ -1236,7 +1242,7 @@ export class RbacService {
     if (userAcl) {
       return {
         kind: 'user_acl',
-        isSuperAdmin: userAcl.isSuperAdmin === true,
+        isSuperAdmin: user.tenantId === tenantId && userAcl.isSuperAdmin === true,
         features: Array.isArray(userAcl.featuresJson) ? [...userAcl.featuresJson] : [],
         organizations: Array.isArray(userAcl.organizationsJson) ? [...userAcl.organizationsJson] : null,
       }
@@ -1259,7 +1265,13 @@ export class RbacService {
       deletedAt: null,
       role: { $in: roleIds, deletedAt: null },
     })
-    return { kind: 'roles', roleGrants: roleAcls.map(toFeatureOrganizationRoleGrant) }
+    return {
+      kind: 'roles',
+      roleGrants: roleAcls.map((acl) => ({
+        ...toFeatureOrganizationRoleGrant(acl),
+        isSuperAdmin: user.tenantId === tenantId && acl.isSuperAdmin === true,
+      })),
+    }
   }
 
   /**

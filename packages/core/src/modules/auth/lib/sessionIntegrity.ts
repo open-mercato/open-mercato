@@ -4,6 +4,7 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Role, RoleAcl, Session, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
+import { roleAclHasGlobalOrganizationScope, userAclHasGlobalOrganizationScope } from '../services/roleOrganizationScope'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const INVALID_SCOPE = Symbol('invalid-scope')
@@ -98,6 +99,7 @@ export async function resolveCanonicalStaffAuthContext(
   }
 
   if (!user || user.isConfirmed === false) return null
+  if (typeof auth.email === 'string' && auth.email !== user.email) return null
 
   const currentTenantId = normalizeScopeId(user.tenantId ?? null)
   const currentOrganizationId = normalizeScopeId(user.organizationId ?? null)
@@ -188,7 +190,7 @@ async function userAclGrantsSuperAdmin(
     undefined,
     { tenantId, organizationId },
   )
-  return !!(userAcl && (userAcl as { isSuperAdmin?: boolean }).isSuperAdmin === true)
+  return userAcl?.isSuperAdmin === true && userAclHasGlobalOrganizationScope(userAcl)
 }
 
 async function roleAclGrantsSuperAdmin(
@@ -206,7 +208,7 @@ async function roleAclGrantsSuperAdmin(
   )
   if (!roleIds.length) return false
 
-  const roleAcl = await findOneWithDecryption(
+  const roleAcls = await findWithDecryption(
     em,
     RoleAcl,
     {
@@ -218,7 +220,7 @@ async function roleAclGrantsSuperAdmin(
     undefined,
     { tenantId, organizationId },
   )
-  return !!(roleAcl && (roleAcl as { isSuperAdmin?: boolean }).isSuperAdmin === true)
+  return roleAcls.some((acl) => acl.isSuperAdmin === true && roleAclHasGlobalOrganizationScope(acl))
 }
 
 export async function isAuthContextValid(

@@ -9,7 +9,7 @@ import {
 describe('passwordPolicy', () => {
   it('returns the default policy when no env overrides are present', () => {
     expect(getPasswordPolicy({} as NodeJS.ProcessEnv)).toEqual({
-      minLength: 6,
+      minLength: 12,
       requireDigit: true,
       requireUppercase: true,
       requireSpecial: true,
@@ -44,7 +44,7 @@ describe('passwordPolicy', () => {
     } as NodeJS.ProcessEnv
 
     expect(getPasswordPolicy(env)).toEqual({
-      minLength: 6,
+      minLength: 12,
       requireDigit: true,
       requireUppercase: true,
       requireSpecial: true,

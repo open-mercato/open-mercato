@@ -27,7 +27,7 @@ export type PasswordRequirementFormatter = (
 ) => string
 
 const DEFAULT_POLICY: PasswordPolicy = {
-  minLength: 6,
+  minLength: 12,
   requireDigit: true,
   requireUppercase: true,
   requireSpecial: true,

@@ -108,9 +108,10 @@ export default function AuthProfilePage() {
       const currentPassword = values.currentPassword?.trim() ?? ''
       const password = values.password?.trim() ?? ''
       const confirmPassword = values.confirmPassword?.trim() ?? ''
-      const hasPasswordIntent = Boolean(currentPassword || password || confirmPassword)
+      const hasPasswordIntent = Boolean(password || confirmPassword)
+      const emailChanged = values.email.trim() !== email
 
-      if (hasPasswordIntent && !currentPassword) {
+      if ((hasPasswordIntent || emailChanged) && !currentPassword) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: t('auth.profile.form.errors.currentPasswordRequired', 'Current password is required.'),
@@ -139,20 +140,21 @@ export default function AuthProfilePage() {
         })
       }
     })
-  }, [passwordPolicy, t])
+  }, [email, passwordPolicy, t])
 
   const handleSubmit = React.useCallback(async (values: ProfileFormValues) => {
     const nextEmail = values.email?.trim() ?? ''
     const currentPassword = values.currentPassword?.trim() ?? ''
     const password = values.password?.trim() ?? ''
 
-    if (!password && nextEmail === email) {
+    const emailChanged = nextEmail !== email
+    if (!password && !emailChanged) {
       throw createCrudFormError(t('auth.profile.form.errors.noChanges', 'No changes to save.'))
     }
 
-    const payload: { email: string; currentPassword?: string; password?: string } = { email: nextEmail }
+    const payload: { email?: string; currentPassword: string; password?: string } = { currentPassword }
+    if (emailChanged) payload.email = nextEmail
     if (password) payload.password = password
-    if (password) payload.currentPassword = currentPassword
 
     const result = await readApiResultOrThrow<ProfileUpdateResponse>(
       '/api/auth/profile',
@@ -168,6 +170,10 @@ export default function AuthProfilePage() {
     setEmail(resolvedEmail)
     setFormKey((prev) => prev + 1)
     flash(t('auth.profile.form.success', 'Profile updated.'), 'success')
+    if (emailChanged) {
+      router.replace('/login')
+      return
+    }
     router.refresh()
   }, [email, router, t])
 
