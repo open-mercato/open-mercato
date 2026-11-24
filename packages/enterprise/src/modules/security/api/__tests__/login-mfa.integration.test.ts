@@ -22,6 +22,11 @@ const mockEm = {
   create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ id: 'challenge-1', ...data })),
   persist: jest.fn(),
   flush: jest.fn(async () => undefined),
+  execute: jest.fn(async (statement: string, parameters: unknown[]) =>
+    statement.startsWith('insert into security_sign_in_mfa_receipts') ? [{ status: parameters[4] }] : []),
+  transactional<T>(work: (manager: typeof mockEm) => Promise<T>) {
+    return work(mockEm)
+  },
 }
 const mockAuthService = {
   findUsersByEmail: jest.fn(async () => [{
@@ -136,6 +141,18 @@ describe('login route with the registered MFA interceptor and verification servi
     else process.env.JWT_SECRET = originalJwtSecret
     if (originalBypass === undefined) delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
     else process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = originalBypass
+  })
+
+  test('preserves the MFA challenge if only its audit receipt fails', async () => {
+    mockEm.execute.mockRejectedValueOnce(new Error('audit storage unavailable'))
+    const response = await login(false)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ ok: true, mfa_required: true, challenge_id: 'challenge-1' })
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+      module: 'security',
+      code: 'security.sign_in_mfa_receipt_failed',
+    })
   })
 
   test.each([false, true])('denies a method lookup failure with remember=%s', async (remember) => {

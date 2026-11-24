@@ -90,13 +90,13 @@ export class MfaVerificationService {
     if (signIn && signIn.tenantId === challengeData.tenantId && signIn.userId === userId) {
       try {
         const challengeId = await this.em.transactional(async (em) => {
-          return withSignInReceiptWrite(async () => {
-            const challenge = em.create(MfaChallenge, { ...challengeData, signInAttemptId: signIn.attemptId })
-            em.persist(challenge)
-            await em.flush()
-            await persistSignInMfaReceipt(em, signIn, { status: 'pending', challengeId: challenge.id })
-            return challenge.id
-          })
+          const challenge = em.create(MfaChallenge, { ...challengeData, signInAttemptId: signIn.attemptId })
+          em.persist(challenge)
+          await em.flush()
+          await withSignInReceiptWrite(() => persistSignInMfaReceipt(em, signIn, {
+            status: 'pending', challengeId: challenge.id,
+          }))
+          return challenge.id
         })
         return { challengeId, availableMethods }
       } catch (error) {
@@ -289,8 +289,10 @@ export class MfaVerificationService {
     })
     if (
       !challenge
-      || (scope.tenantId !== undefined && scope.tenantId !== challenge.tenantId)
-      || (challenge.signInAttemptId && scope.sessionId !== undefined && scope.sessionId !== challenge.signInAttemptId)
+      || (challenge.signInAttemptId && (
+        (scope.tenantId !== undefined && scope.tenantId !== challenge.tenantId)
+        || (scope.sessionId !== undefined && scope.sessionId !== challenge.signInAttemptId)
+      ))
     ) {
       throw new MfaVerificationServiceError('MFA challenge not found', 404)
     }
