@@ -220,9 +220,7 @@ export async function checkAuthorization(
       requiredFeatures,
     })
     const { organizationId } = featureContext
-    const hasNoApprovedOrganization = organizationId === null
-      && Array.isArray(featureContext.allowedOrganizationIds)
-      && featureContext.allowedOrganizationIds.length === 0
+    const hasNoApprovedOrganization = organizationId === null && featureContext.featureApprovedNoOrganization === true
     const ok = !hasNoApprovedOrganization && await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
       tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
       organizationId,

@@ -749,6 +749,7 @@ describe('resolveFeatureCheckContext', () => {
       allowedIds: [],
       tenantId: 'tenant-1',
     })
+    expect(featureContext.featureApprovedNoOrganization).toBe(false)
     await expect(resolveOrganizationScopeForRequest({ container, auth, request }))
       .resolves.toEqual(featureContext.scope)
   })
@@ -1070,6 +1071,7 @@ describe('resolveFeatureCheckContext for a principal without a home organization
     expect(featureContext.organizationId).toBeNull()
     expect(featureContext.scope.filterIds).toEqual([])
     expect(featureContext.allowedOrganizationIds).toEqual([])
+    expect(featureContext.featureApprovedNoOrganization).toBe(true)
   })
 
   it('leaves a tenant-wide grant unnarrowed with a null organization', async () => {
