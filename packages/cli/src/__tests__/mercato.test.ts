@@ -661,6 +661,29 @@ describe('--help never triggers side effects (issue #5581)', () => {
       consoleErrorSpy.mockRestore()
     })
 
+    it('prints usage instead of executing configs restore-defaults when --help is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const restoreDefaults = jest.fn()
+
+      registerCliModules([
+        {
+          id: 'configs',
+          cli: [{ command: 'restore-defaults', run: restoreDefaults }],
+        } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'configs', 'restore-defaults', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(restoreDefaults).not.toHaveBeenCalled()
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('mercato configs restore-defaults [args]')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
     it('still runs the command when no help flag is present', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
@@ -1180,6 +1203,11 @@ describe('init command failure output', () => {
     )
     expect(configsRestoreDefaults).toHaveBeenCalledTimes(expectedRestoreCount)
     expect(authSetup).toHaveBeenCalled()
+    if (configsEnabled) {
+      expect(configsRestoreDefaults.mock.invocationCallOrder[0]).toBeLessThan(
+        authSetup.mock.invocationCallOrder[0],
+      )
+    }
     expect(queryIndexReindex).toHaveBeenCalledWith(['--force', '--tenant', 'tenant-1'])
 
     consoleErrorSpy.mockRestore()
