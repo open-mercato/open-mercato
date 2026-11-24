@@ -1,8 +1,6 @@
 import { readFileSync } from 'node:fs'
-import path from 'node:path'
 import { expect, test } from '@playwright/test'
-import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
-import { getModules } from '@open-mercato/shared/lib/modules/registry'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
@@ -11,13 +9,10 @@ export const integrationMeta = { dependsOnModules: ['auth', 'entities'] }
 test('TC-ENTITIES-013: entity settings and create form work with Configs omitted', async ({ page, request }) => {
   const english = JSON.parse(readFileSync(new URL('../i18n/en.json', import.meta.url), 'utf8')) as Record<string, string>
   const polish = JSON.parse(readFileSync(new URL('../i18n/pl.json', import.meta.url), 'utf8')) as Record<string, string>
-  const appRoot = process.env.OM_TEST_APP_ROOT?.trim() || path.resolve('apps/mercato')
-  await bootstrapFromAppRoot(appRoot)
-  const moduleIds = getModules().map((module) => module.id)
-  expect(moduleIds).toContain('entities')
-  test.skip(moduleIds.includes('configs'), 'This regression requires Configs omitted from the actual app module registry')
-
   const token = await getAuthToken(request, 'admin')
+  const configs = await apiRequest(request, 'GET', '/api/configs/system-status', { token })
+  test.skip(configs.status() !== 404, 'This regression requires Configs omitted from the actual app module registry')
+
   const endpoint = '/api/entities/entity-settings'
   const defaultPolicy = { newEntitiesRestrictedByDefault: false, updatedAt: null }
   const initial = await apiRequest(request, 'GET', endpoint, { token })
@@ -49,9 +44,11 @@ test('TC-ENTITIES-013: entity settings and create form work with Configs omitted
   expect(unchanged.status()).toBe(200)
   expect(await readJsonSafe(unchanged)).toEqual(defaultPolicy)
 
-  await page.context().addCookies((await request.storageState()).cookies)
+  await login(page, 'admin')
   await page.goto('/backend/entities/user/create')
   await expect(page.getByRole('heading', { name: 'Create Entity', exact: true })).toBeVisible()
   await expect(page.getByRole('checkbox', { name: 'Restrict record access', exact: true })).not.toBeChecked()
-  await page.screenshot({ path: test.info().outputPath('configs-omitted-create.png'), fullPage: true })
+  if (process.env.PW_CAPTURE_SCREENSHOTS === '1') {
+    await page.screenshot({ path: test.info().outputPath('configs-omitted-create.png'), fullPage: true })
+  }
 })

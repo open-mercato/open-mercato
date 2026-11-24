@@ -326,4 +326,4 @@ This is intentional and consistent with `server dev`, but supervisors or CI pipe
 |------|--------|
 | 2026-04-23 | Created companion spec for CLI optional-module orchestration across `init`, `server dev`, `server start`, and standalone runtime supervision. |
 | 2026-05-05 | Documented `server start` non-zero-exit behavior change in BC section, justified `dev.mjs` `resolveProjectBinary(...)` scope, and explained the intentional dev/prod env divergence for `next dev`, queue-worker, and scheduler subprocesses. Worker exit labels now include the discovered queue names so `Queue worker (queue-a, queue-b)` makes post-mortems unambiguous. |
-| 2026-11-24 | Covered Configs-omitted initialization through the existing optional command helper while preserving failure propagation for present commands. |
+| 2026-11-24 | Documented Configs-omitted initialization and added coverage for a restore command that fails while Configs is enabled. |

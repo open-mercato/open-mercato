@@ -8,6 +8,7 @@ import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { ModuleConfigService } from '../../configs/lib/module-config-service'
+import { tryResolve } from '../lib/tryResolve'
 
 // Tenant-scoped policy: when true, new custom entities are created with
 // `access_restricted = true` unless the create request explicitly sets the flag.
@@ -23,7 +24,7 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const container = await createRequestContainer()
-  const moduleConfigService = container.resolve<ModuleConfigService | undefined>('moduleConfigService', { allowUnregistered: true })
+  const moduleConfigService = tryResolve<ModuleConfigService>(container, 'moduleConfigService')
   if (!moduleConfigService) {
     return NextResponse.json({ newEntitiesRestrictedByDefault: false, updatedAt: null })
   }
@@ -51,7 +52,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   }
   const container = await createRequestContainer()
-  const moduleConfigService = container.resolve<ModuleConfigService | undefined>('moduleConfigService', { allowUnregistered: true })
+  const moduleConfigService = tryResolve<ModuleConfigService>(container, 'moduleConfigService')
   if (!moduleConfigService) {
     const { translate } = await resolveTranslations()
     return NextResponse.json(

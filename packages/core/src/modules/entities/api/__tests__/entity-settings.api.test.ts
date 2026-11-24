@@ -5,30 +5,21 @@ const STORED_UPDATED_AT = '2026-01-01T00:00:00.000Z'
 
 const mockGetRecord = jest.fn()
 const mockSetValue = jest.fn()
+const mockResolveConfig = jest.fn()
 const mockRunAfterSuccess = jest.fn(async () => undefined)
 const mockBeginGuard = jest.fn(async (..._args: unknown[]) => ({ blockedResponse: null, runAfterSuccess: mockRunAfterSuccess }))
 const mockTranslate = jest.fn((key: string, fallback?: string) => fallback ?? key)
 let mockConfigsEnabled = true
-let mockConfigResolutionError: Error | null = null
 
-jest.mock('@open-mercato/shared/lib/di/container', () => {
-  const { asFunction, asValue, createContainer } = jest.requireActual<typeof import('awilix')>('awilix')
-  return {
-    createRequestContainer: async () => {
-      const container = createContainer()
-      container.register({ commandOptimisticLockGuardService: asValue(null) })
-      if (mockConfigsEnabled) {
-        container.register({
-          moduleConfigService: asFunction(() => {
-            if (mockConfigResolutionError) throw mockConfigResolutionError
-            return { getRecord: mockGetRecord, setValue: mockSetValue }
-          }),
-        })
-      }
-      return container
-    },
-  }
-})
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: async () => {
+    const { asFunction, asValue, createContainer } = jest.requireActual<typeof import('awilix')>('awilix')
+    const container = createContainer()
+    container.register('commandOptimisticLockGuardService', asValue(null))
+    if (mockConfigsEnabled) container.register('moduleConfigService', asFunction(() => mockResolveConfig()))
+    return container
+  },
+}))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: async () => ({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1', isSuperAdmin: false }),
@@ -66,7 +57,7 @@ describe('/api/entities/entity-settings', () => {
     jest.clearAllMocks()
     delete process.env.OM_OPTIMISTIC_LOCK
     mockConfigsEnabled = true
-    mockConfigResolutionError = null
+    mockResolveConfig.mockImplementation(() => ({ getRecord: mockGetRecord, setValue: mockSetValue }))
     mockGetRecord.mockResolvedValue({ value: true, updatedAt: STORED_UPDATED_AT })
     mockSetValue.mockResolvedValue({ value: false, updatedAt: '2026-02-01T00:00:00.000Z' })
   })
@@ -101,15 +92,12 @@ describe('/api/entities/entity-settings', () => {
   })
 
   describe('when the configs module is enabled', () => {
-    it.each(['GET', 'PUT'] as const)('%s propagates a registered service resolution failure', async (method) => {
-      const failure = new Error('[internal] registered config service failed')
-      mockConfigResolutionError = failure
+    it('propagates a registered config service initialization failure', async () => {
+      const failure = new Error('[internal] config service initialization failed')
+      mockResolveConfig.mockImplementation(() => { throw failure })
 
-      const response = method === 'GET'
-        ? GET(new Request('http://localhost/api/entities/entity-settings'))
-        : PUT(putRequest({ newEntitiesRestrictedByDefault: true }))
-
-      await expect(response).rejects.toBe(failure)
+      await expect(GET(new Request('http://localhost/api/entities/entity-settings'))).rejects.toBe(failure)
+      await expect(PUT(putRequest({ newEntitiesRestrictedByDefault: true }))).rejects.toBe(failure)
       expect(mockGetRecord).not.toHaveBeenCalled()
       expect(mockSetValue).not.toHaveBeenCalled()
       expect(mockBeginGuard).not.toHaveBeenCalled()
