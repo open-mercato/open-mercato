@@ -75,6 +75,7 @@ type Row = Record<string, unknown>
 
 type CommandHandlerLike = {
   id: string
+  prepare: (input: Row, ctx: unknown) => Promise<{ before: Row }>
   execute: (input: Row, ctx: unknown) => Promise<{ priceId: string }>
   undo: (args: { logEntry: Row; ctx: unknown }) => Promise<void>
   redo?: (args: { input: Row; logEntry: Row; ctx: unknown }) => Promise<unknown>
@@ -280,6 +281,23 @@ describe('catalog price commands record omnibus price history', () => {
     })
   })
 
+  it.each([
+    ['implicit offer promotion', undefined, false, true],
+    ['explicit ordinary offer edit', false, false, false],
+    ['explicit offer announcement', true, false, true],
+    ['promotional price kind', false, true, true],
+  ])('records the announcement for an %s', async (_label, announce, isPromotion, expected) => {
+    const offerId = '88888888-8888-4888-8888-888888888888'
+    const record = buildPriceRecord({ offer: { id: offerId }, priceKind: { ...FAKE_PRICE_KIND, isPromotion } })
+    findOneWithDecryption.mockResolvedValue(record)
+    const harness = buildHarness()
+
+    await commandById('catalog.prices.update').execute({ id: PRICE_ID, unitPriceNet: 50, announce }, harness.ctx)
+
+    expect(harness.historyRows).toHaveLength(1)
+    expect(harness.historyRows[0]).toMatchObject({ offerId, isAnnounced: expected })
+  })
+
   it('records a delete entry from the pre-delete snapshot', async () => {
     const record = buildPriceRecord()
     findOneWithDecryption.mockResolvedValue(record)
@@ -326,6 +344,20 @@ describe('catalog price commands record omnibus price history', () => {
       unitPriceGross: '100.0000',
       metadata: { undoneCommand: 'catalog.prices.update' },
     })
+  })
+
+  it('restores the ordinary-edit announcement state when an offer price update is undone', async () => {
+    const offerId = '88888888-8888-4888-8888-888888888888'
+    const record = buildPriceRecord({ offer: { id: offerId } })
+    findOneWithDecryption.mockResolvedValueOnce(record).mockResolvedValueOnce({ isAnnounced: false })
+    const harness = buildHarness({ existingPrice: record })
+    const command = commandById('catalog.prices.update')
+    const { before } = await command.prepare({ id: PRICE_ID }, harness.ctx)
+
+    expect(before).toMatchObject({ offerId, omnibusAnnounced: false })
+    await command.undo({ logEntry: undoLog({ before }), ctx: harness.ctx })
+
+    expect(harness.historyRows[0]).toMatchObject({ changeType: 'undo', offerId, isAnnounced: false })
   })
 
   it('records an undo entry when a delete is undone', async () => {

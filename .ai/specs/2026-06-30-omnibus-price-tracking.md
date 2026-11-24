@@ -43,7 +43,7 @@ Directive (EU) **2019/2161** ("Omnibus", in force 28 May 2022) amended Directive
 |-------------------|------------------------|
 | 6a(2) lowest price in ≥30 days | `CatalogPriceHistoryEntry` log + `lookbackDays` window, `MIN` by axis |
 | reference fixed for the campaign | `starts_at`-anchored window (frozen `windowEnd`) |
-| announced reductions only | `applicable` rule (`starts_at` ∨ `offer_id` ∨ `is_announced` ∨ promotion kind) |
+| announced reductions only | `applicable` rule (`starts_at` ∨ eligible `offer_id` ∨ `is_announced` ∨ promotion kind) |
 | 6a(3) perishables | product `omnibus_exempt` + channel `perishableGoodsRule` |
 | 6a(4) new arrivals | product `first_listed_at` + channel `newArrivalRule` / `newArrivalsLookbackDays` |
 | 6a(5) progressive reduction | channel `progressiveReductionRule` + offer-grouped detection (freeze to pre-campaign baseline) |
@@ -81,7 +81,7 @@ This feature gives Open Mercato a first-class, tenant-scoped mechanism to **reco
 
 1. **Record** an immutable `CatalogPriceHistoryEntry` on every price mutation through the catalog command layer. Writes are best-effort and isolated (forked `EntityManager`, after `flush`, in `try/catch`) so a history failure never aborts the price write.
 2. **Resolve** the reference in `catalogOmnibusService`: baseline (last entry before the window) + all in-window entries → select the single row with the lowest value on the configured axis (`gross` default) → return that row's net **and** gross.
-3. **Anchor** the window to the promotion's `starts_at` (or the offer's first entry) so the reference does not drift during a long promotion.
+3. **Anchor** the window to the promotion's `starts_at` (or the first entry for an offer without an explicit ordinary-edit signal) so the reference does not drift during a long promotion.
 4. **Gate** to *announced* reductions and EU channels (`enabledCountryCodes`).
 5. **Protect** the log with a DB immutability trigger + partial-unique idempotency index + a `REVOKE UPDATE/DELETE` deploy step.
 6. **Surface** via read APIs, an admin settings panel, a price-editor reference row, and an immutable sales-line snapshot.
@@ -94,7 +94,7 @@ This feature gives Open Mercato a first-class, tenant-scoped mechanism to **reco
 | DB immutability **trigger** (not ORM `beforeSave`) + `REVOKE` | A legal log must be immutable regardless of access path. ORM hooks are bypassed by `nativeUpdate`/QueryBuilder/raw SQL. |
 | Reference computed in the **application layer** | Config-driven, multi-branch logic; testable service code, not SQL. |
 | net + gross from the **same** row | Independent `MIN(net)`/`MIN(gross)` across mixed tax rates yields a non-existent pair. |
-| Applicability from **announcement signals**, not price comparison | `applicable = startsAt ∨ offerId ∨ isAnnounced ∨ priceKind.isPromotion`; tax-only change does not trigger. |
+| Applicability from **announcement signals**, not price comparison | `applicable = startsAt ∨ (offerId ∧ isAnnounced !== false) ∨ isAnnounced === true ∨ priceKind.isPromotion`; tax-only change does not trigger. |
 | Window **anchored** to `starts_at` | A sliding window would shift the reference on day 31 of a 45-day promotion. |
 | `recorded_at` = app-set UTC, ms precision, no DB default | One clock source for all window math; avoids skew-induced drift. |
 | `idempotency_key = sha256(price_id ∣ change_type ∣ recorded_at.toISOString())` | Dedup on retry; a recurring sale returning to a prior price still records a fresh timestamped row. |
@@ -181,7 +181,7 @@ Immutable snapshot of a `CatalogProductPrice` at the moment of change. Never upd
 | `recorded_at` | timestamptz (UTC) | **App-set, ms precision, no DB default**; immutable |
 | `change_type` | enum | `create` \| `update` \| `delete` \| `undo` |
 | `source` | enum | Capture origin (`api`, `system`) |
-| `is_announced` | boolean? | `true` if `starts_at ∨ offer_id ∨ announce`; `false` if no signal; `null` only legacy (treat as `false`) |
+| `is_announced` | boolean? | `true` for dated prices, explicit announcements, and offers without an ordinary-edit signal. `false` for routine updates without another promotion signal. Legacy `null` retains the offer fallback. |
 | `idempotency_key` | string? | `sha256(price_id∣change_type∣recorded_at.toISOString())`; `null` for backfill/system rows |
 | `metadata` | jsonb? | Optional caller context |
 
@@ -364,7 +364,7 @@ function resolveOmnibusBlock(em, ctx, presentedEntry, priceKindIsPromotion):
   result = computeLowestPrice(em, ctx, config, presentedEntry)
   if result.reason in {not_in_eu_market, missing_channel_context}: return emptyBlock(result)
   if result.lowestRow == null: return emptyBlock(result.reason ?? 'no_history')
-  applicable = presentedEntry.startsAt? ∨ presentedEntry.offerId? ∨ presentedEntry.isAnnounced==true ∨ priceKindIsPromotion
+  applicable = presentedEntry.startsAt? ∨ (presentedEntry.offerId? ∧ presentedEntry.isAnnounced !== false) ∨ presentedEntry.isAnnounced==true ∨ priceKindIsPromotion
   reason = result.reason ?? (result.insufficientHistory ? 'insufficient_history'
                             : applicable ? 'announced_promotion' : 'not_announced')
   return block(presentedKind, result, applicable, reason)
@@ -383,7 +383,7 @@ function computeLowestPrice(em, ctx, config, presentedEntry):
   lookbackDays = channelConfig?.lookbackDays ?? config.lookbackDays ?? 30
   axis = channelConfig?.minimizationAxis ?? config.minimizationAxis ?? 'gross'
   offerId = ctx.offerId ?? presentedEntry?.offerId
-  firstOffer = offerId ? fetchFirstOfferEntry(offerId) : null
+  firstOffer = offerId and presentedEntry?.isAnnounced !== false ? fetchFirstOfferEntry(offerId) : null
   if offerId and firstOffer and channelConfig?.progressiveReductionRule:           # M6: gate on the derived offerId (ctx OR presented)
       r = resolveProgressive(em, ctx, firstOffer, axis, lookbackDays); if r: return r   # else fall through
   p = resolvePerishable(em, ctx, channelConfig, lookbackDays, axis); if p: return p
@@ -761,3 +761,5 @@ None blocking. Open **as-built verification** items (spec is compliant; implemen
 - **2026-10-08** — Known Gap added: window candidates ignore `starts_at`/`ends_at` (scheduled prices in effect inside the window can be missed). `GET /api/catalog/config/omnibus` accepts `catalog.settings.view` **or** `catalog.settings.manage`, so a settings manager can always read what they edit.
 - **2026-10-09** — Review fixes: `GET /api/catalog/prices/history` now requires `productId` or `variantId` (unscoped listing → 400) so reads and `includeTotal` counts always hit a scoped index; omnibus config `channels` keys must be UUIDs; product-delete undo records `undo` history entries for restored prices. `isPersonalized`/`personalizationReason` recorded as a deferred Known Gap (not implemented on the products-list response).
 - **2026-10-13** — Review fixes (PR #7142): a product-level lookup (`product_id` scope) now matches only product-level rows (`variant_id IS NULL`) — variant rows share `product_id` and leaked a variant's lower price into the product's reference. The baseline skips a price whose history already ended at or before `windowStart` (a `delete` row, or an undo of its create). An update or undo that turns a tracked price customer-, group-, user- or tier-specific writes a closing `delete` row from the last tracked state (`metadata: { closedBy, reason: 'untracked' }`), so the public price it replaced stops being a baseline.
+
+- **2026-11-24** — #6416 documents the optional `announce` flag on price updates. Routine variant editor updates send `announce: false` and use a rolling window, while dates, promotional price kinds, and callers omitting the flag retain their campaign behavior. Ordinary offer entries stay in their existing history scope. Previously recorded entries retain their original interpretation until a new ordinary update is recorded.

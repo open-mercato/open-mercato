@@ -264,7 +264,7 @@ export function buildOmnibusBlock(
   if (!result.lowestRow) return emptyBlock(result, context.currencyCode, result.reason ?? 'no_history')
   const applicable =
     Boolean(presentedEntry?.startsAt) ||
-    Boolean(presentedEntry?.offerId) ||
+    (Boolean(presentedEntry?.offerId) && presentedEntry?.isAnnounced !== false) ||
     presentedEntry?.isAnnounced === true ||
     priceKindIsPromotion
   const reason: OmnibusApplicabilityReason =
@@ -496,7 +496,9 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
   }
 
   private async resolveOfferAnchors(em: EntityManager, prepared: PreparedLookup[]): Promise<void> {
-    const needing = prepared.filter((lookup) => lookup.anchor === null && lookup.offerId !== null)
+    const needing = prepared.filter(
+      (lookup) => lookup.anchor === null && lookup.offerId !== null && lookup.presentedEntry?.isAnnounced !== false,
+    )
     if (!needing.length) return
     const misses: Array<{ lookup: PreparedLookup; key: string }> = []
     for (const lookup of needing) {
