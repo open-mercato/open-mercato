@@ -10,9 +10,14 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveEntityAclRequirement } from '../../lib/entityAcl'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
+  GET: { requireAuth: true },
 }
 
 const ALLOWED_ROUTE_CONTEXT_FIELDS = new Set(['kind', 'entity_id', 'product_id'])
@@ -32,7 +37,7 @@ export async function GET(req: Request) {
         .filter((entry) => entry.length > 0),
     ),
   )
-  const routeContextFields = Array.from(
+  let routeContextFields = Array.from(
     new Set(
       (url.searchParams.get('routeContextFields') || '')
         .split(',')
@@ -42,20 +47,51 @@ export async function GET(req: Request) {
   )
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const container = await createRequestContainer()
+  const rbac = container.resolve<RbacService>('rbacService')
+  const requiredFeatures = ['entities.definitions.view']
+  const legacy = await resolveFeatureCheckContext({ container, auth, request: req, requiredFeatures })
+  const canViewDefinitions = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
+    tenantId: legacy.scope.tenantId ?? auth.tenantId,
+    organizationId: legacy.organizationId,
+  })
+  let tenantId = auth.tenantId
+  let organizationId = auth.orgId ?? undefined
+  if (!canViewDefinitions) {
+    const forbidden = async () => {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden'), requiredFeatures }, { status: 403 })
+    }
+    if (entityId !== 'catalog:catalog_product') return forbidden()
+    const target = resolveEntityAclRequirement(entityId)
+    if (!target) return forbidden()
+    const { scope } = await resolveFeatureCheckContext({ container, auth, request: req, requiredFeatures: target.view })
+    if (!scope.tenantId || scope.tenantId !== auth.tenantId || !scope.selectedId ||
+      scope.selectionRejected || isExplicitlyEmptyOrganizationScope(scope) ||
+      (scope.filterIds && !scope.filterIds.includes(scope.selectedId))) return forbidden()
+    if (!await rbac.userHasAllFeatures(auth.sub, target.view, {
+      tenantId: scope.tenantId,
+      organizationId: scope.selectedId,
+    })) return forbidden()
+    if (labelField && labelField !== 'title' && labelField !== 'name' && labelField !== 'id') return forbidden()
+    tenantId = scope.tenantId
+    organizationId = scope.selectedId
+    labelField = labelField === 'id' ? 'id' : 'title'
+    routeContextFields = []
+  }
   if (!entityId) return NextResponse.json({ items: [] })
 
-  const container = await createRequestContainer()
   const qe = container.resolve('queryEngine') as QueryEngine
   const em = container.resolve('em') as EntityManager
 
-  const customEntity = await em.findOne(CustomEntity, {
+  const customEntity = canViewDefinitions ? await em.findOne(CustomEntity, {
     entityId,
     $and: [
       { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
       { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
     ],
     isActive: true,
-  })
+  }) : null
 
   // A relation field can point at an entity that does not exist — most often a half-configured
   // `relatedEntityId` that was never filled in (#4949 reported `entityId=p:0`). The query engine
@@ -87,11 +123,14 @@ export async function GET(req: Request) {
   const filters: Record<string, unknown> = {}
   if (ids.length === 1) filters.id = ids[0]
   else if (ids.length > 1) filters.id = { $in: ids }
-  if (q) filters[labelField] = { $ilike: `%${escapeLikePattern(q)}%` }
+  if (q) {
+    const searchField = canViewDefinitions ? labelField : 'title'
+    filters[searchField] = { $ilike: `%${escapeLikePattern(q)}%` }
+  }
   const fields = Array.from(new Set(['id', labelField, ...routeContextFields]))
   const res = await qe.query(entityId, {
-    tenantId: auth.tenantId ?? undefined,
-    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
+    tenantId,
+    ...(organizationId ? { organizationId } : {}),
     fields,
     filters,
     page: { page: 1, pageSize: Math.min(ids.length || 50, 200) },
