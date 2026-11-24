@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 199 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 200 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -17,6 +17,8 @@ This catalog indexes 199 focused lessons. Route the task first, then read only r
 - Run `yarn lessons:check` before committing.
 
 ## Catalog
+
+- [Inspect all test reporters before classifying a truncated run](lessons/inspect-all-test-reporters-before-classifying-truncation.md) — area:testing,debugging; module:create_app; topic:validation-evidence,test-reporters,timeouts,test-prerequisites
 
 - [Preserve peer resolution when copying test dependencies](lessons/preserve-peer-resolution-when-copying-test-dependencies.md) — area:testing,debugging; module:platform; topic:package-runtime,worktrees,peer-dependencies,lockfile
 
@@ -126,13 +128,13 @@ This catalog indexes 199 focused lessons. Route the task first, then read only r
 - [Type Kysely tables on generic transaction managers](lessons/type-kysely-tables-on-generic-transaction-managers.md) — area:module-data,testing; module:shared,entities; topic:kysely,transactions,typechecking
 - [Normalize raw SQL result types before JSON responses](lessons/normalize-raw-sql-result-types-before-json-responses.md) — area:module-data; module:platform; topic:testing,type-normalization
 - [JSON column defaults, twice-parsed command inputs, and scale-padded numerics](lessons/orm-json-defaults-double-parsed-inputs-and-numeric-padding.md) — area:module-data,debugging; module:eudr; topic:database-migrations,command-pattern,generated-files
-- [Organization-scoped routes must resolve request selection and reject invalid explicit writes](lessons/organization-scoped-routes-must-resolve-request-selection.md) — area:module-data,integration,debugging; module:entities,directory,auth,customer_accounts; topic:data-scoping,access-control,route-coverage,backward-compatibility
+- [Organization-scoped routes must resolve request selection and reject invalid explicit writes](lessons/organization-scoped-routes-must-resolve-request-selection.md) — area:module-data,integration,debugging; module:entities,directory,auth,customer_accounts; topic:data-scoping,access-control,route-coverage,backward-compatibility,integration-fixtures
 - [Empty collection scopes need an explicit semantic predicate](lessons/empty-collection-scopes-need-an-explicit-semantic-predicate.md) — area:backend-ui,module-data,testing; module:auth; topic:access-control,data-scoping,route-coverage
 - [PostgreSQL partial unique indexes are not constraints](lessons/postgresql-partial-unique-indexes-are-not-constraints.md) — area:module-data,debugging; module:platform; topic:data-integrity,data-scoping,testing
 - [Preserve Turbopack compiler cache during greenfield dev warmup](lessons/preserve-turbopack-compiler-cache-during-greenfield-dev.md) — area:module-data,architecture,debugging; module:cache,auth,create_app; topic:dev-runtime,runtime-startup,template-sync
 - [Propagate async undo refusals before snapshot access](lessons/propagate-async-undo-refusals-before-snapshot-access.md) — area:module-data,testing,debugging; module:warranty_claims; topic:command-pattern,undo,async-control-flow,typecheck
 - [Projection updates that change indexed parent fields must emit query-index upserts](lessons/projection-updates-that-change-indexed-parent-fields.md) — area:module-data,debugging; module:query_index,customers,events; topic:command-pattern,events,filters
-- [Query-index custom-field cardinality comes from definitions, not row count](lessons/query-index-custom-field-cardinality-comes-from.md) — area:module-data,umes,backend-ui; module:entities,query_index,search; topic:custom-fields,data-scoping,query-index
+- [Query-index custom-field cardinality comes from definitions, not row count](lessons/query-index-custom-field-cardinality-comes-from.md) — area:module-data,umes,backend-ui; module:entities,query_index,search,shared,customers; topic:custom-fields,data-scoping,query-index,encryption,filters,typechecking
 - [Query diagnostics must survive result replacement](lessons/query-diagnostics-must-survive-result-replacement.md) — area:module-data,umes,testing; module:query_index; topic:query-index,encryption,filters
 - [makeCrudRoute `sortField` must be `z.string()` + `sortFieldMap`, not a strict enum](lessons/makecrudroute-sortfield-is-a-string-with-a-sortfieldmap.md) — area:module-data,backend-ui; module:eudr,customers; topic:crud-factory,query-index
 - [Standalone generators must reuse package-generated entity metadata instead of parsing compiled `dist` files](lessons/standalone-generators-must-reuse-package-generated.md) — area:module-data,architecture,framework-context; module:entities,cli,create_app; topic:auto-discovery,build-output,data-scoping
