@@ -4,6 +4,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Attachment, AttachmentPartition } from '../../data/entities'
@@ -51,14 +52,17 @@ function isSuperAdmin(auth: AuthLike): boolean {
 
 function canManagePartition(auth: AuthLike, entry: AttachmentPartition): boolean {
   if (!auth?.tenantId) return false
-  if (entry.tenantId && entry.tenantId === auth.tenantId) return true
-  if (entry.tenantId == null && isSuperAdmin(auth)) return true
-  return false
+  if (entry.tenantId == null) return isSuperAdmin(auth)
+  if (entry.tenantId !== auth.tenantId) return false
+  if (isSuperAdmin(auth)) return true
+  return !!auth.orgId && entry.organizationId === auth.orgId
 }
 
 function partitionVisibilityFilter(auth: AuthLike) {
   if (isSuperAdmin(auth)) return {}
-  return { $or: [{ tenantId: null }, { tenantId: auth?.tenantId ?? null }] }
+  const tenantId = auth?.tenantId ?? null
+  const shared = [{ tenantId: null, organizationId: null }, { tenantId, organizationId: null }]
+  return { $or: auth?.orgId ? [...shared, { tenantId, organizationId: auth.orgId }] : shared }
 }
 
 function serializePartition(entry: AttachmentPartition) {
@@ -101,7 +105,7 @@ async function enqueuePartitionSectionSearchSync(
     await enqueueDocumentSectionSearch(container, {
       mode: entry.indexDocumentSections ? 'index' : 'delete',
       tenantId,
-      organizationId: null,
+      organizationId: entry.organizationId ?? null,
       partitionCode: entry.code,
     })
   } catch (error) {
@@ -140,6 +144,10 @@ export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  if (!auth.orgId && !isSuperAdmin(auth)) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 })
   }
   let json: unknown = null
   try {

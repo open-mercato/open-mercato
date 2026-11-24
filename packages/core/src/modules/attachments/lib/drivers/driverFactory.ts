@@ -3,6 +3,7 @@ import type { StorageDriver } from './types'
 import { LocalStorageDriver } from './localDriver'
 import { LegacyPublicStorageDriver } from './legacyPublicDriver'
 import { AttachmentPartition } from '../../data/entities'
+import { canUseAttachmentPartition } from '../partitionScope'
 import {
   AttachmentStorageConfigurationError,
   assertAttachmentStoragePartitionExists,
@@ -62,6 +63,9 @@ export class StorageDriverFactory {
   async resolveForPartition(partitionCode: string, scope?: DriverScope): Promise<StorageDriver> {
     getAttachmentStoragePolicy()
     const partition = await this.em.findOne(AttachmentPartition, { code: partitionCode })
+    if (partition && !canUseAttachmentPartition(partition, scope)) {
+      throw new AttachmentStorageConfigurationError('partition_missing')
+    }
     assertAttachmentStoragePartitionExists(Boolean(partition))
     if (!partition) return this.localDriver ??= new LocalStorageDriver()
 

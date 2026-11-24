@@ -1,4 +1,6 @@
 {
+  "customer_accounts.errors.invite_role_invalid": "초대 역할 중 하나 이상이 유효하지 않습니다.",
+  "customer_accounts.errors.invite_role_forbidden": "초대 역할 중 하나 이상을 부여할 권한이 없습니다.",
   "customer_accounts.actions.cancelInvitation": "포털 초대 취소",
   "customer_accounts.admin.actions.activate": "활성화",
   "customer_accounts.admin.actions.createUser": "사용자 생성",

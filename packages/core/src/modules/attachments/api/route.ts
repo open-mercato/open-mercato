@@ -1,3 +1,4 @@
+import { canUseAttachmentPartition } from '../lib/partitionScope'
 import { attachmentErrorSchema } from './openapi'
 import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { assertAttachmentStoragePartitionExists, getAttachmentStoragePolicy } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
@@ -472,7 +473,7 @@ async function uploadAttachment(req: Request) {
   if (!partition) {
     partition = await em.findOne(AttachmentPartition, { code: defaultPartitionCode })
   }
-  if (!partition) {
+  if (!partition || !canUseAttachmentPartition(partition, { tenantId, organizationId: orgId })) {
     assertAttachmentStoragePartitionExists(false)
     return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
   }

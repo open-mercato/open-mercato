@@ -5,6 +5,7 @@ import { Attachment, AttachmentPartition } from '../data/entities'
 import { StorageDriverFactory } from './drivers'
 import { assertAttachmentStoragePartitionExists } from './drivers/storageValidation'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode } from './partitions'
+import { canUseAttachmentPartition } from './partitionScope'
 import { buildAttachmentFileUrl } from './imageUrls'
 import { mergeAttachmentMetadata, upsertAssignment } from './metadata'
 import { assertAttachmentScopeInvariant } from './access'
@@ -59,7 +60,9 @@ export async function createAttachmentFromBuffer(input: CreateAttachmentFromBuff
     await ensureDefaultPartitions(em)
     partition = await em.findOne(AttachmentPartition, { code })
   }
-  if (!partition) throw new Error(`[internal] attachment partition "${code}" is not available`)
+  if (!partition || !canUseAttachmentPartition(partition, input)) {
+    throw new Error(`[internal] attachment partition "${code}" is not available`)
+  }
 
   await ensureAttachmentPartitionProtection(em, partition)
 

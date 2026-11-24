@@ -2,6 +2,7 @@ import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import type { z } from 'zod'
 
 export type ScopedContext = (CommandRuntimeContext | CrudCtx) & {
@@ -65,8 +66,18 @@ export function withScopedPayload<T extends Record<string, unknown>>(
   // converges on, so the check holds regardless of body size or dispatcher-level route flags.
   enforceActorTenant(tenantId, ctx, translate, options)
 
+  const requestedOrg = (source as { organizationId?: string })?.organizationId
+  if (typeof requestedOrg === 'string' && requestedOrg && ctx.auth) {
+    if (!authIsSuperAdmin(ctx.auth)
+      && !ctx.organizationScope
+      && !(ctx.selectedOrganizationId ?? ctx.auth.orgId)) {
+      throw new CrudHttpError(403, { error: translate('api.errors.forbidden', 'Forbidden') })
+    }
+    ensureOrganizationScope(ctx, requestedOrg)
+  }
+
   const resolvedOrg =
-    (source as { organizationId?: string })?.organizationId ??
+    requestedOrg ??
     ctx.selectedOrganizationId ??
     ctx.auth?.orgId ??
     null

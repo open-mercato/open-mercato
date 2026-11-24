@@ -106,6 +106,7 @@
   "dictionaries.entries.create": "Dodaj wpis słownika",
   "dictionaries.entries.delete": "Usuń wpis słownika",
   "dictionaries.entries.update": "Zaktualizuj wpis słownika",
+  "dictionaries.errors.system_protected": "Nie można zmieniać kluczy słowników systemowych ani wyłączać lub usuwać tych słowników.",
   "dictionaries.errors.currency_protected": "Słownik walut jest wymagany i nie może być modyfikowany ani usuwany.",
   "dictionaries.errors.duplicate": "Słownik o tym kluczu już istnieje",
   "dictionaries.errors.entry_create_failed": "Nie udało się utworzyć wpisu słownikowego.",

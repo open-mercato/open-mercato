@@ -106,6 +106,7 @@
   "dictionaries.entries.create": "사전 항목 추가",
   "dictionaries.entries.delete": "사전 항목 삭제",
   "dictionaries.entries.update": "사전 항목 수정",
+  "dictionaries.errors.system_protected": "시스템 사전의 키는 변경할 수 없으며 시스템 사전을 비활성화하거나 삭제할 수 없습니다.",
   "dictionaries.errors.currency_protected": "통화 사전은 필수이며 수정하거나 삭제할 수 없습니다.",
   "dictionaries.errors.duplicate": "이 키를 가진 사전이 이미 존재합니다",
   "dictionaries.errors.entry_create_failed": "사전 항목 생성에 실패했습니다.",

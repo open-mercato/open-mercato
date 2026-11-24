@@ -25,6 +25,7 @@ import {
   buildDistinctCurrencyQuery,
   buildGroupSourceRowsQuery,
   resolveGroupExpression,
+  resolveWidgetGroupLimit,
 } from '../lib/aggregations'
 import {
   type ExactDecimal,
@@ -701,9 +702,7 @@ export class WidgetDataService {
       .map(([groupKey, bucket]) => ({ groupKey, value: aggregateBucket(request.metric.aggregate, bucket) }))
       .sort(compareWidgetDataItemsByValueDesc)
 
-    if (request.groupBy?.limit && request.groupBy.limit > 0) {
-      data = data.slice(0, Math.min(request.groupBy.limit, 100))
-    }
+    data = data.slice(0, resolveWidgetGroupLimit(request.groupBy?.limit))
 
     if (request.groupBy?.resolveLabels) {
       data = await this.resolveGroupLabels(data, request.entityType, request.groupBy.field)

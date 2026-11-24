@@ -1,5 +1,15 @@
 # Upgrade Notes
 
+## Staff authorization and credential changes
+
+Organization-limited administrator grants provide elevated features only inside the granted organizations. Platform-wide administration requires an unrestricted grant. Review automated clients and API keys that rely on a scoped staff grant, and assign each the tenant and organization permissions it needs.
+
+Changing a staff account's sign-in email via `PUT /api/auth/profile` requires the existing `currentPassword` field. After a successful change, the user must sign in again with the new email. The update revokes their previous browser access and refresh sessions and unused password-reset links. For accounts managed solely by a single sign-on provider, use the operator-managed identity update flow.
+
+The default minimum for new staff passwords is 12 characters. Existing passwords and explicit policy settings continue to work. Align `OM_PASSWORD_MIN_LENGTH` and `NEXT_PUBLIC_OM_PASSWORD_MIN_LENGTH` if you customize the policy. Keep staff login forms within 16 KiB and handle HTTP 413 if the form exceeds this limit.
+
+See [Staff identity boundaries](.ai/specs/2026-11-24-staff-identity-boundaries.md) for compatibility and rollout details.
+
 ## CRUD factory security and query correctness bundle
 
 These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.
@@ -110,6 +120,12 @@ Two security-hardening narrowings landed on shared request-header parsing and da
 The attachment library automatically fills in assignment labels and links only when the caller can read the referenced entity in the selected tenant and organization. Existing assignment IDs and saved labels and links stay available under the attachment's existing access policy. Supported built-in targets use their owning module's read grants. Custom records require the custom-record view grant and any entity-specific grant. When a target cannot be safely resolved, clients can display the stored label or ID.
 
 Server callers of `resolveAssignmentEnrichments` that want automatic enrichment must pass `authorization: { auth, container }` from the verified request and a matching tenant and organization. Calls without that context return an empty enrichment map. Operators should use existing target-module grants for roles that already need that data and adjust custom record grants separately. No data migration is required.
+
+## Deployment service access
+
+Full-app Compose publishes LocalStack on loopback. Recreate the container to apply the binding, and use the internal service endpoint for Compose consumers. Set one strong random `OPENCODE_PASSWORD` for the OpenCode service and its callers, then rebuild and recreate both sides. The hybrid starter provisions this local credential automatically.
+
+Production installs seed sample portal accounts only when provided a private `OM_INIT_PORTAL_DEMO_PASSWORD`. Deactivate or reset older sample identities and revoke their active portal sessions. Restrict access to shared development registries and reprovision any registry that previously accepted anonymous writes. Existing external Verdaccio publishers should use a token issued for the provisioned publisher account. The bundled Traefik HTTPS routers now send a host-scoped HSTS policy. See the [deployment migration instructions](docker/README.md#updating-existing-deployments) and [registry authentication notes](config/verdaccio/README.md).
 
 ## Fullapp development agent authentication (#9116)
 
@@ -6679,3 +6695,10 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+### Scoped resource administration and execution limits
+
+- Attachment partition administration follows the caller's organization and limits edits of shared partitions to platform administrators. Staff invitation flows must use roles in their own tenant and organization. Callers that invite users with roles reserved for administrators need an authorized staff identity with `customer_accounts.roles.manage`. Reissue outstanding privileged invitations from an active staff user with the grant.
+- HTTP MCP clients that delegate to a chat session must authenticate with the configured `MCP_SERVER_API_KEY` or its file-backed equivalent. The chat session's own ephemeral API key can also authenticate that session. Managed API key listings omit ephemeral chat credentials.
+- Grouped analytics returns at most 100 groups when a request omits a limit. Its grouped total reflects the returned buckets. Supply a lower limit or narrow the underlying data as needed. Analytics interceptors can narrow filters for the requested entity.
+- The PostgreSQL vector runtime leaves the shared index intact on dimension changes. Operators should provision and validate a replacement index, then switch settings and reindex in a controlled migration.

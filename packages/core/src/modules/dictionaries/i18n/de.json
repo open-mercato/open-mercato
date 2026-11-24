@@ -106,6 +106,7 @@
   "dictionaries.entries.create": "Wörterbucheintrag hinzufügen",
   "dictionaries.entries.delete": "Wörterbucheintrag löschen",
   "dictionaries.entries.update": "Wörterbucheintrag aktualisieren",
+  "dictionaries.errors.system_protected": "Schlüssel von Systemwörterbüchern können nicht geändert werden. Systemwörterbücher können nicht deaktiviert oder gelöscht werden.",
   "dictionaries.errors.currency_protected": "Das Währungswörterbuch ist erforderlich und kann nicht geändert oder gelöscht werden.",
   "dictionaries.errors.duplicate": "Ein Wörterbuch mit diesem Schlüssel existiert bereits",
   "dictionaries.errors.entry_create_failed": "Wörterbucheintrag konnte nicht erstellt werden.",

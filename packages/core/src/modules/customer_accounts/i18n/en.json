@@ -1,4 +1,6 @@
 {
+  "customer_accounts.errors.invite_role_invalid": "One or more invitation roles are invalid.",
+  "customer_accounts.errors.invite_role_forbidden": "You are not allowed to grant one or more invitation roles.",
   "customer_accounts.actions.cancelInvitation": "Cancel portal invitation",
   "customer_accounts.admin.actions.activate": "Activate",
   "customer_accounts.admin.actions.createUser": "Create User",

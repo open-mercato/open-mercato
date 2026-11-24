@@ -3,6 +3,10 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { invitationAcceptSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerInvitationService,
   isCustomerInvitationEmailConflictError,
@@ -44,6 +48,19 @@ export async function POST(req: Request) {
       parsed.data.token,
       parsed.data.password,
       parsed.data.displayName,
+      async (inviterUserId, scope) => {
+        const inviter = await findOneWithDecryption(
+          container.resolve<EntityManager>('em'),
+          User,
+          { id: inviterUserId, deletedAt: null, isConfirmed: true },
+          { fields: ['id'], refresh: true },
+        )
+        return !!inviter && await container.resolve<RbacService>('rbacService').userHasAllFeatures(
+          inviterUserId,
+          ['customer_accounts.invite', 'customer_accounts.roles.manage'],
+          scope,
+        )
+      },
     )
   } catch (error) {
     if (isCustomerInvitationEmailConflictError(error)) {

@@ -1,4 +1,6 @@
 {
+  "customer_accounts.errors.invite_role_invalid": "Uno o más roles de la invitación no son válidos.",
+  "customer_accounts.errors.invite_role_forbidden": "No puedes conceder uno o más roles de la invitación.",
   "customer_accounts.actions.cancelInvitation": "Cancelar invitación al portal",
   "customer_accounts.admin.actions.activate": "Activate",
   "customer_accounts.admin.actions.createUser": "Crear usuario",

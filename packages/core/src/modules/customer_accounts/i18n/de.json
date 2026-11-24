@@ -1,4 +1,6 @@
 {
+  "customer_accounts.errors.invite_role_invalid": "Mindestens eine Einladungsrolle ist ungültig.",
+  "customer_accounts.errors.invite_role_forbidden": "Du darfst mindestens eine der Einladungsrollen nicht vergeben.",
   "customer_accounts.actions.cancelInvitation": "Portaleinladung widerrufen",
   "customer_accounts.admin.actions.activate": "Activate",
   "customer_accounts.admin.actions.createUser": "Benutzer erstellen",

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAX_WIDGET_GROUPS } from '../../../lib/aggregations'
 
 export const aggregateFunctionSchema = z.enum(['count', 'sum', 'avg', 'min', 'max'])
 export const dateGranularitySchema = z.enum(['day', 'week', 'month', 'quarter', 'year'])
@@ -78,7 +79,7 @@ export const widgetDataRequestSchema = z.object({
     .object({
       field: z.string().min(1),
       granularity: dateGranularitySchema.optional(),
-      limit: z.number().int().min(1).max(100).optional(),
+      limit: z.number().int().min(1).max(MAX_WIDGET_GROUPS).optional(),
       resolveLabels: z.boolean().optional(),
     })
     .optional(),

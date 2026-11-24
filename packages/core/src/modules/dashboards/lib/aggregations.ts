@@ -333,6 +333,14 @@ export function buildDistinctCurrencyQuery(
   return { sql, params: where.params }
 }
 
+export const MAX_WIDGET_GROUPS = 100
+
+export function resolveWidgetGroupLimit(limit: number | undefined): number {
+  return typeof limit === 'number' && Number.isInteger(limit) && limit > 0
+    ? Math.min(limit, MAX_WIDGET_GROUPS)
+    : MAX_WIDGET_GROUPS
+}
+
 export function buildAggregationQuery(options: BuildAggregationQueryOptions): AggregationQuery | null {
   const { registry } = options
   const config = registry.getEntityTypeConfig(options.entityType)
@@ -361,9 +369,7 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
       // encrypted path can mirror the same ordering (#4622).
       orderByClause = `ORDER BY value DESC NULLS LAST`
 
-      if (options.groupBy.limit && options.groupBy.limit > 0) {
-        limitClause = `LIMIT ${Math.min(options.groupBy.limit, 100)}`
-      }
+      limitClause = `LIMIT ${resolveWidgetGroupLimit(options.groupBy.limit)}`
     }
   }
 

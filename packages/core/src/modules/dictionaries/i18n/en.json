@@ -106,6 +106,7 @@
   "dictionaries.entries.create": "Add dictionary entry",
   "dictionaries.entries.delete": "Delete dictionary entry",
   "dictionaries.entries.update": "Update dictionary entry",
+  "dictionaries.errors.system_protected": "System dictionary keys cannot be changed and system dictionaries cannot be disabled or deleted.",
   "dictionaries.errors.currency_protected": "The currency dictionary is required and cannot be modified or deleted.",
   "dictionaries.errors.duplicate": "A dictionary with this key already exists",
   "dictionaries.errors.entry_create_failed": "Failed to create dictionary entry.",

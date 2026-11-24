@@ -239,6 +239,20 @@ describe('attachment partitions API — tenant scoping', () => {
     expect(codes).toEqual(['privateAttachments', 'tenantAPriv'])
   })
 
+  it('omits sibling-organization partitions from reads and refuses their mutations', async () => {
+    const siblingPartition = store.partitions[2]
+    siblingPartition.tenantId = 'tenantA'
+    const { GET, PUT, DELETE } = await loadHandlers()
+
+    const list = await (await GET(buildRequest('GET', null))).json()
+    expect(list.items.map((entry: PartitionRow) => entry.id)).not.toContain(siblingPartition.id)
+    expect((await PUT(buildRequest('PUT', {
+      id: siblingPartition.id, code: siblingPartition.code, title: 'Updated title',
+    }))).status).toBe(404)
+    expect((await DELETE(buildRequest('DELETE', null, `?id=${siblingPartition.id}`))).status).toBe(404)
+    expect(store.partitions).toContain(siblingPartition)
+  })
+
   it('GET as superadmin returns every partition', async () => {
     currentAuth = { sub: 'root', tenantId: 'tenantA', orgId: 'orgA', isSuperAdmin: true }
     const { GET } = await loadHandlers()
@@ -342,6 +356,7 @@ describe('attachment partitions API — tenant scoping', () => {
     // attempting deletion of a default code by tenant.
     const seeded = store.partitions.find((p) => p.id === '11111111-1111-4111-8111-111111111111')!
     seeded.tenantId = 'tenantA'
+    seeded.organizationId = 'orgA'
     const { DELETE: del } = await loadHandlers()
     const res = await del(buildRequest('DELETE', null, '?id=11111111-1111-4111-8111-111111111111'))
     expect(res.status).toBe(400)
@@ -470,7 +485,7 @@ describe('attachment partitions API — tenant scoping', () => {
       expect(mockEnqueueDocumentSectionSearch).toHaveBeenCalledWith(expect.anything(), {
         mode: 'index',
         tenantId: 'tenantA',
-        organizationId: null,
+        organizationId: 'orgA',
         partitionCode: 'tenantAPriv',
       })
       expect(mockEm.flush.mock.invocationCallOrder[0]).toBeLessThan(
@@ -495,7 +510,7 @@ describe('attachment partitions API — tenant scoping', () => {
       expect(mockEnqueueDocumentSectionSearch).toHaveBeenCalledWith(expect.anything(), {
         mode: 'delete',
         tenantId: 'tenantA',
-        organizationId: null,
+        organizationId: 'orgA',
         partitionCode: 'tenantAPriv',
       })
     })

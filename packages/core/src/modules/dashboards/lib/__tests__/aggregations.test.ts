@@ -214,13 +214,14 @@ describe('aggregations', () => {
       expect(result?.params).toContain(end)
     })
 
-    it('includes groupBy clause', () => {
+    it('bounds groups by default when no limit is supplied', () => {
       const result = buildAggregationQuery({
         ...baseOptions,
         groupBy: { field: 'status' },
       })
       expect(result?.sql).toContain('GROUP BY status')
       expect(result?.sql).toContain('status AS group_key')
+      expect(result?.sql).toContain('LIMIT 100')
     })
 
     it('includes groupBy with granularity for timestamp fields', () => {
