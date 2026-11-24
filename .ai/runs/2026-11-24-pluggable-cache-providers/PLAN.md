@@ -31,6 +31,7 @@ Follow-up PRs (stacked): OSS engine packages (`.ai/specs/2026-11-24-oss-cache-pr
 | 3 | 3.6-review-fix | Document sanitized runtime errors, unselected registrations, retry cooldown, closed state and generate env | inline | done | 412004323e |
 | 3 | 3.7-review-fix | Give the conformance kit sort an explicit comparator | inline | done | 5470e2d6a9 |
 | 3 | 3.8-review-fix | Own the Redis URL and wire-protocol helpers in the cache package | inline | done | 517be0947b |
+| 3 | 3.9-qa-fix | Say on system status that CACHE_STRATEGY is ignored when a provider is selected | inline | done | (this commit) |
 
 ## Goal
 
