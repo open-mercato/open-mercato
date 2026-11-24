@@ -28,6 +28,21 @@ test('TC-TRANS-021: injected field action saves labels, descriptions and option 
     await page.context().addCookies([{ name: 'locale', value: 'en', url: baseURL! }])
     await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}`)
     await expect(page.getByPlaceholder('snake_case', { exact: true })).toHaveValue(fieldKey)
+    const definitionWrites: string[] = []
+    page.on('request', (sent) => {
+      if (sent.method() === 'POST' && new URL(sent.url()).pathname === '/api/entities/definitions.batch') {
+        definitionWrites.push(sent.method())
+      }
+    })
+    const addOption = page.getByRole('button', { name: 'Add option', exact: true })
+    await addOption.click()
+    const optionDialog = page.getByRole('dialog', { name: 'Add option', exact: true })
+    await expect(optionDialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(optionDialog).toBeHidden()
+    await expect(addOption).toBeFocused()
+    expect(definitionWrites).toEqual([])
+
     await page.getByRole('button', { name: 'Translate field', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: `Translate field: ${fieldKey}`, exact: true })
     await expect(dialog).toBeVisible()
