@@ -43,7 +43,8 @@ describe('module-facts customers fixture (T1 anti-drift guard)', () => {
     // share your OWN conversation, so the existing `customers.*` admin wildcard
     // grants no escalation).
     expect(facts.events).toHaveLength(51)
-    expect(facts.aclFeatures).toHaveLength(22)
+    expect(facts.aclFeatures).toHaveLength(23)
+    expect(facts.aclFeatures).toContain('sales.reopen')
     expect(facts.searchEntities).toEqual([
       'customers:customer_person_profile',
       'customers:customer_company_profile',

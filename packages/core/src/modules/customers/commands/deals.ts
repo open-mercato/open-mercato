@@ -830,7 +830,7 @@ const updateDealCommand = {
   outputSchema: dealCommandOutputSchema,
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(dealUpdateSchema, rawInput)
-    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadDealSnapshot(em, parsed.id, commandScopeWhere(ctx))
     return snapshot ? { before: snapshot } : {}
   },
@@ -1257,8 +1257,10 @@ const reopenDealCommand: CommandHandler<DealReopenInput, { dealId: string }> = {
   ...updateDealCommand,
   id: 'customers.deals.reopen',
   prepareSnapshotInsideTransaction: true,
-  prepare(input, ctx) {
-    return updateDealCommand.prepare({ id: input.id }, ctx)
+  async prepare(input, ctx) {
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
+    const snapshot = await loadDealSnapshot(em, input.id, commandScopeWhere(ctx))
+    return snapshot ? { before: snapshot } : {}
   },
   execute(rawInput, ctx) {
     const input = dealReopenSchema.parse(rawInput)

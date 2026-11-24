@@ -74,6 +74,8 @@ test('reopens a won deal by keyboard and retains its selected open stage after r
   try {
     const wonStageId = await createPipelineStageFixture(request, token, { pipelineId, label: 'Won', order: 0 })
     stageIds.push(wonStageId)
+    const stageId = await createPipelineStageFixture(request, token, { pipelineId, label: 'Qualification', order: 1 })
+    stageIds.push(stageId)
     dealId = await createDealFixture(request, token, { title, status: 'win', pipelineId, pipelineStageId: wonStageId })
 
     await login(page, 'admin')
@@ -81,15 +83,12 @@ test('reopens a won deal by keyboard and retains its selected open stage after r
     const action = page.getByRole('button', { name: 'Reopen deal', exact: true })
     await action.click()
     const dialog = page.getByRole('dialog', { name: 'Reopen deal' })
-    await expect(dialog.getByText('This pipeline has no open stages.')).toBeVisible()
+    await expect(dialog.getByRole('combobox', { name: 'Open stage' })).toBeVisible()
     await expect(dialog.getByRole('button', { name: 'Reopen deal' })).toBeDisabled()
     await page.keyboard.press('Escape')
     await expect(dialog).toBeHidden()
     expect((await readDeal(request, token, dealId)).status).toBe('win')
 
-    const stageId = await createPipelineStageFixture(request, token, { pipelineId, label: 'Qualification', order: 1 })
-    stageIds.push(stageId)
-    await page.reload({ waitUntil: 'domcontentloaded' })
     await action.click()
     await dialog.getByRole('combobox', { name: 'Open stage' }).click()
     await page.getByRole('option', { name: 'Qualification', exact: true }).click()
@@ -108,6 +107,29 @@ test('reopens a won deal by keyboard and retains its selected open stage after r
   } finally {
     await deleteEntityIfExists(request, token, dealsPath, dealId)
     for (const stageId of stageIds) await deleteEntityByBody(request, token, '/api/customers/pipeline-stages', stageId)
+    await deleteEntityByBody(request, token, '/api/customers/pipelines', pipelineId)
+  }
+})
+
+test('explains when the pipeline has no open stages', async ({ page, request }) => {
+  const token = await getAuthToken(request, 'admin')
+  const title = `Terminal-only pipeline ${randomUUID()}`
+  const pipelineId = await createPipelineFixture(request, token, { name: title })
+  let stageId: string | null = null
+  let dealId: string | null = null
+
+  try {
+    stageId = await createPipelineStageFixture(request, token, { pipelineId, label: 'Lost', order: 0 })
+    dealId = await createDealFixture(request, token, { title, status: 'lost', pipelineId, pipelineStageId: stageId })
+    await login(page, 'admin')
+    await page.goto(`/backend/customers/deals/${dealId}`, { waitUntil: 'domcontentloaded' })
+    await page.getByRole('button', { name: 'Reopen deal', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Reopen deal' })
+    await expect(dialog.getByText('This pipeline has no open stages.')).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Reopen deal' })).toBeDisabled()
+  } finally {
+    await deleteEntityIfExists(request, token, dealsPath, dealId)
+    await deleteEntityByBody(request, token, '/api/customers/pipeline-stages', stageId)
     await deleteEntityByBody(request, token, '/api/customers/pipelines', pipelineId)
   }
 })
