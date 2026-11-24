@@ -57,3 +57,5 @@ PR: #10540
 - [x] 2.1 Characterize CALL_API credential lifecycle, identity, and missing-api_keys behavior — b9dc1060c8
 - [x] 2.2 Add ApiKeyOneTimeIssuer contract and api_keys DI registration — 0f8fb8993f
 - [x] 2.3 Cut over executeCallApi to soft-resolve apiKeyOneTimeIssuer with unit and decoupling tests — 25624cd848
+
+- [x] Review hardening: finite retry normalization, sparse-array/rejecting-async/dedupe guards, one-time issuer normalization, DI seam & override tests — 3e81766ae8
