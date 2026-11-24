@@ -70,6 +70,8 @@ Spec PR: #9434 (merged)
 
 ## Progress
 
+PR: #10539
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 0: Spikes and audit
