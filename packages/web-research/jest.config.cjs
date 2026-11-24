@@ -3,13 +3,14 @@ const base = require('../../jest.config.base.cjs')
 
 module.exports = {
   ...base,
+  preset: 'ts-jest',
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   transform: {
     '^.+\\.(t|j)sx?$': [
-      '<rootDir>/../../scripts/jest-mikroorm-transformer.cjs',
+      'ts-jest',
       {
         tsconfig: {
           rootDir: '.',
