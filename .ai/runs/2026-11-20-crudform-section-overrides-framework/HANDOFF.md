@@ -9,4 +9,4 @@ The framework, Todo showcase, C1–C12 integration matrix and disabled Example r
 
 ## Remaining gates
 
-Step 6.4 awaits the complete provider-backed release on Linux. The release foundation hit the Docker memory limit, and the isolated Linux runner has no active provider session. Keep the required GitHub `test` check and all integration shards visible until they settle on the repaired head. GitHub requires one approving review from an eligible reviewer. The PR also requires manual QA sign-off.
+Step 6.4 awaits the complete provider-backed release on Linux. The release foundation hit the Docker memory limit, and the isolated Linux runner has no active provider session. GitHub requires one approving review from an eligible reviewer. The PR also requires manual QA sign-off. [Human QA request](https://github.com/open-mercato/open-mercato/pull/10067#issuecomment-7100273770)

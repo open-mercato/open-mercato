@@ -13,6 +13,10 @@ All eight commands in the ordered local gate passed on `8c2c97c79e` with Node 24
 
 The full GitHub integration matrix passed all 15 shards on `fd0b28bed3`. The required Linux `test` job repeatedly exited during typechecking without a compiler diagnostic, including a job-only retry. [Full CI run](https://github.com/open-mercato/open-mercato/actions/runs/44825377493)
 
+After the base sync, all eight required GitHub checks, all 15 integration shards, and CodeQL passed on `8542a3b7f9`. Production Chromium on Node 24.19.0 verified the preceding UI commit `8a2157b491`, including the localized rejection summary, field messages, corrected save, access denial, and Polish mobile layout. [Main CI](https://github.com/open-mercato/open-mercato/actions/runs/45221726667) · [CodeQL](https://github.com/open-mercato/open-mercato/actions/runs/45221719538)
+
+The advisory mutation run on `8542a3b7f9` reached the 150-minute limit. Commit `c9e6a15379` raised the package job limit to 240 minutes. Check the PR for the rerun on its current head. [Canceled mutation job](https://github.com/open-mercato/open-mercato/actions/runs/45221726367/job/137858210152) · [Current PR checks](https://github.com/open-mercato/open-mercato/pull/10067/checks)
+
 The standalone `test:create-app:integration` run reproduced missing runtime fixture state. The runner now uses the disposable app's database and queue directory, passes the same test login fixture to initialization and Playwright, and keeps a dedicated outbox worker alive across retries. Both brand persistence and ERP delivery passed on the fresh standalone app with the repaired worker setup. The canonical focused runner is being repeated to verify that setup from startup through teardown.
 
 ## Standalone harness

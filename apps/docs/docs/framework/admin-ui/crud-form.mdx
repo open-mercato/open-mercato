@@ -157,6 +157,8 @@ Because hosts address groups by id, a built-in group's `id` is a contract surfac
 
 Use [section overrides](../modules/overrides.mdx#crudform-sections) when adding, hiding, or replacing a group changes what the form can write. A host registers the exact compositions it supports. Each alternative identifies the ordered groups, contribution IDs, callers, payload and custom-field ownership, dependencies, and guarded mutation surfaces for one `(hostId, formVariant, formOperation)` tuple.
 
+When a section-policy write is rejected with field errors, `CrudForm` maps payload paths back to the configured fields and translates structured validation messages. For `mutation_guard_rejected` and `validation_failed` responses with field errors, the form shows a localized summary alongside the field errors. Users can correct the highlighted values and submit again.
+
 ### Extend a published host
 
 Use `defineCrudFormExtension` to change sections of a host that already publishes a section policy. In the contributing module's `form-sections.ts`, export `crudFormExtensions` with one declaration per host. This example assumes the host publishes the `details` and `notes` groups, lists `title` as a field of `details`, and provides a custom-field definition set.
