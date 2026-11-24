@@ -32,4 +32,4 @@ PR: #10548
 
 ### Phase 2: Linked date and recency sort
 
-- [ ] 2.1 Enable the shared Linked column and verify recency after unlinking
+- [x] 2.1 Enable the shared Linked column and verify recency after unlinking — 86db0e00f7
