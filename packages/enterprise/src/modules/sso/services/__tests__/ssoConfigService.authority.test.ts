@@ -1,6 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
+import { createContainer } from 'awilix'
 import polish from '../../i18n/pl.json'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { getTelemetryRuntime, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { SsoConfig } from '../../data/entities'
@@ -21,6 +24,15 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 const scope: SsoAdminScope = {
   actorUserId: 'config-editor', isSuperAdmin: false, tenantId: 'tenant-1', organizationId: 'org-1',
+}
+
+function writeContext(expected?: string) {
+  return {
+    container: createContainer(),
+    request: new Request('http://localhost/api/sso/config/config-1', {
+      headers: expected ? { [OPTIMISTIC_LOCK_HEADER_NAME]: expected } : undefined,
+    }),
+  }
 }
 
 function fixture(existing = true) {
@@ -136,9 +148,49 @@ describe('SSO configuration authority', () => {
   it('reauthorizes a legacy configuration on an authorized save', async () => {
     const { service, config, em } = fixture()
     config.authorizationUserId = null
-    await service.update(scope, config.id, { name: 'Reauthorized' })
+    await service.update(scope, config.id, { name: 'Reauthorized' }, writeContext())
     expect(config.authorizationUserId).toBe(scope.actorUserId)
     expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('updates a version-matched configuration under the scoped transaction lock', async () => {
+    const { service, config, em } = fixture()
+    const expected = config.updatedAt.toISOString()
+    await expect(service.update(scope, config.id, { name: 'Renamed', autoLinkByEmail: false }, writeContext(expected)))
+      .resolves.toMatchObject({ name: 'Renamed', autoLinkByEmail: false })
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(em.findOne).toHaveBeenCalledWith(SsoConfig, {
+      id: config.id, organizationId: scope.organizationId, deletedAt: null,
+    }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+    expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['General and role mappings', (service: SsoConfigService, id: string, expected: string) =>
+      service.update(scope, id, { autoLinkByEmail: true, appRoleMappings: {}, clientSecret: 'replacement' }, writeContext(expected))],
+    ['activation', (service: SsoConfigService, id: string, expected: string) => service.activate(scope, id, true, writeContext(expected))],
+    ['deactivation', (service: SsoConfigService, id: string, expected: string) => service.activate(scope, id, false, writeContext(expected))],
+    ['add domain', (service: SsoConfigService, id: string, expected: string) => service.addDomain(scope, id, 'other.example.com', writeContext(expected))],
+    ['remove domain', (service: SsoConfigService, id: string, expected: string) => service.removeDomain(scope, id, 'example.com', writeContext(expected))],
+    ['delete config', (service: SsoConfigService, id: string, expected: string) => service.delete(scope, id, writeContext(expected))],
+  ] as const)('rejects a stale %s write before mutating the configuration', async (_action, write) => {
+    const { service, config, em, encryption } = fixture()
+    const before = { ...config }
+    const expected = new Date(config.updatedAt.getTime() - 1).toISOString()
+
+    await expect(write(service, config.id, expected)).rejects.toMatchObject({
+      status: 409,
+      body: {
+        error: 'record_modified',
+        code: 'optimistic_lock_conflict',
+        expectedUpdatedAt: expected,
+        currentUpdatedAt: config.updatedAt.toISOString(),
+      },
+    })
+    expect(config).toEqual(before)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(encryption.encryptEntityPayload).not.toHaveBeenCalled()
+    expect(emitSsoEvent).not.toHaveBeenCalled()
   })
 
   it.each(['activate', 'addDomain', 'removeDomain'] as const)('checks authority for %s', async (operation) => {

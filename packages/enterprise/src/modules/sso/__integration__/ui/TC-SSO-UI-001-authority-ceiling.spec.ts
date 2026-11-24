@@ -16,6 +16,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { acknowledgeGlobalNotices } from '@open-mercato/core/helpers/integration/auth'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 /**
  * TC-SSO-UI-001: SSO config page surfaces authority-ceiling refusals
@@ -166,6 +167,70 @@ async function addRoleMapping(page: Page, dict: Record<string, string>, idpRole:
   await localRoleSelect.selectOption(localRole)
   await page.getByRole('button', { name: dict['common.add'], exact: true }).click()
 }
+
+test('TC-SSO-UI-002: rejects a stale General save and uses the refreshed configuration on retry', async ({ page, request }) => {
+  test.setTimeout(120_000)
+  const dict = loadDictionary('en')
+  await withCeilingFixture(request, async (fixture) => {
+    await signInAsManager(page, fixture, 'en')
+    const configPath = `/api/sso/config/${fixture.configId}`
+    const loadedConfigResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === configPath && response.request().method() === 'GET' && response.ok(),
+    )
+    await openConfig(page, fixture, dict)
+    const loadedConfig = await (await loadedConfigResponse).json() as { name: string; updatedAt: string }
+    expect(loadedConfig.updatedAt).toBeTruthy()
+    const expected = loadedConfig.updatedAt
+    const nameInput = page.getByLabel(dict['sso.admin.field.name'], { exact: true })
+    const clientIdInput = page.getByLabel(dict['sso.admin.field.clientId'], { exact: true })
+    const save = page.getByRole('button', { name: dict['common.save'], exact: true })
+    await nameInput.fill('Renamed by manager')
+
+    const writes = await Promise.all(['concurrent-client-first', 'concurrent-client-second'].map((clientId) =>
+      apiRequest(request, 'PUT', configPath, {
+        token: fixture.adminToken,
+        headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: expected },
+        data: { clientId, autoLinkByEmail: false },
+      }),
+    ))
+    expect(writes.map((response) => response.status()).sort()).toEqual([200, 409])
+    const winner = await writes.find((response) => response.ok())!.json() as { clientId: string; updatedAt: string }
+    expect(winner.updatedAt).toBeTruthy()
+    expect(winner.updatedAt).not.toBe(expected)
+
+    const staleSave = waitForConfigWrite(page, fixture)
+    await save.click()
+    const conflict = await staleSave
+    expect(conflict.status()).toBe(409)
+    expect(await conflict.json()).toMatchObject({
+      code: 'optimistic_lock_conflict',
+      expectedUpdatedAt: expected,
+      currentUpdatedAt: winner.updatedAt,
+    })
+    await expect(nameInput).toHaveValue('Renamed by manager')
+
+    const banner = page.getByTestId('record-conflict-banner')
+    await expect(banner).toBeVisible()
+    await banner.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect(clientIdInput).toHaveValue(winner.clientId)
+    await expect(nameInput).toHaveValue(loadedConfig.name)
+
+    await nameInput.fill('Renamed after refresh')
+    const retry = waitForConfigWrite(page, fixture)
+    await save.click()
+    const saved = await retry
+    expect(saved.status()).toBe(200)
+    expect(await saved.json()).toMatchObject({
+      name: 'Renamed after refresh', clientId: winner.clientId, autoLinkByEmail: false,
+    })
+    await expect(page.getByTestId('sso-general-unsaved')).toHaveCount(0)
+
+    await nameInput.fill('Renamed again')
+    const nextSave = waitForConfigWrite(page, fixture)
+    await save.click()
+    expect((await nextSave).status()).toBe(200)
+  })
+})
 
 for (const locale of ['en', 'pl']) {
   test.describe(`TC-SSO-UI-001: SSO authority ceiling refusals are visible (${locale})`, () => {

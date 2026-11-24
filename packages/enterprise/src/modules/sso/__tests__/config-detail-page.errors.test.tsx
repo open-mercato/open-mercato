@@ -3,9 +3,11 @@
  */
 
 import type React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { dismissRecordConflict, getRecordConflictForTest } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import SsoConfigDetailPage from '../backend/sso/config/[id]/page'
 
@@ -17,6 +19,7 @@ jest.mock('next/navigation', () => ({
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
   apiCallOrThrow: jest.fn(),
+  withScopedApiRequestHeaders: jest.fn((_headers: Record<string, string>, operation: () => Promise<unknown>) => operation()),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -92,6 +95,8 @@ describe('SSO config detail page error surfacing', () => {
     apiCallOrThrowMock.mockRejectedValue(refusal(CEILING_MESSAGE))
   })
 
+  afterEach(dismissRecordConflict)
+
   it('shows the translated refusal when role mappings are rejected and keeps the edit marked unsaved', async () => {
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: 'Role Mappings' }))
@@ -119,6 +124,36 @@ describe('SSO config detail page error surfacing', () => {
     expect(screen.getByTestId('sso-general-save-error').textContent).toBe(CEILING_MESSAGE)
     expect(screen.getByDisplayValue('Renamed IdP')).toBeTruthy()
     expect(screen.getByTestId('sso-general-unsaved')).toBeTruthy()
+  })
+
+  it('uses the loaded version for General save and refreshes the version from the conflict action', async () => {
+    const latest = { ...CONFIG, updatedAt: '2026-11-01T00:00:00.001Z', clientId: 'current-client' }
+    apiCallMock.mockResolvedValueOnce(respond(CONFIG)).mockResolvedValueOnce(respond(latest))
+    apiCallOrThrowMock.mockRejectedValueOnce(Object.assign(new Error('record_modified'), {
+      status: 409,
+      body: {
+        code: 'optimistic_lock_conflict',
+        currentUpdatedAt: latest.updatedAt,
+        expectedUpdatedAt: CONFIG.updatedAt,
+      },
+    })).mockResolvedValueOnce(respond(latest))
+
+    renderPage()
+    fireEvent.change(await screen.findByDisplayValue(CONFIG.name), { target: { value: 'Renamed IdP' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(getRecordConflictForTest()?.currentUpdatedAt).toBe(latest.updatedAt))
+    expect(withScopedApiRequestHeaders).toHaveBeenLastCalledWith(
+      { [OPTIMISTIC_LOCK_HEADER_NAME]: CONFIG.updatedAt }, expect.any(Function),
+    )
+    expect(screen.getByDisplayValue('Renamed IdP')).toBeTruthy()
+
+    await act(async () => getRecordConflictForTest()?.onRefresh?.())
+    expect(await screen.findByDisplayValue(latest.clientId)).toBeTruthy()
+    fireEvent.change(screen.getByDisplayValue(CONFIG.name), { target: { value: 'Renamed after refresh' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(withScopedApiRequestHeaders).toHaveBeenLastCalledWith(
+      { [OPTIMISTIC_LOCK_HEADER_NAME]: latest.updatedAt }, expect.any(Function),
+    ))
   })
 
   it('shows the refusal when activation is rejected from the header', async () => {

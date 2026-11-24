@@ -51,7 +51,7 @@ export async function PUT(req: Request, ctx: RouteContext) {
 
     const container = await createRequestContainer()
     const service = container.resolve<SsoConfigService>('ssoConfigService')
-    const config = await service.update(scope, id, parsed.data)
+    const config = await service.update(scope, id, parsed.data, { container, request: req })
 
     return NextResponse.json(config)
   } catch (err) {
@@ -66,7 +66,7 @@ export async function DELETE(req: Request, ctx: RouteContext) {
 
     const container = await createRequestContainer()
     const service = container.resolve<SsoConfigService>('ssoConfigService')
-    await service.delete(scope, id)
+    await service.delete(scope, id, { container, request: req })
 
     return NextResponse.json({ ok: true })
   } catch (err) {
@@ -96,7 +96,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid input' },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Config not found' },
-        { status: 409, description: 'Conflict — JIT and SCIM are mutually exclusive' },
+        { status: 409, description: 'Configuration changed since it was loaded, or JIT and SCIM are both enabled' },
       ],
     },
     DELETE: {
@@ -106,6 +106,7 @@ export const openApi: OpenApiRouteDoc = {
       responses: [{ status: 200, description: 'Config deleted' }],
       errors: [
         { status: 400, description: 'Cannot delete active config' },
+        { status: 409, description: 'Configuration changed since it was loaded' },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Config not found' },
       ],

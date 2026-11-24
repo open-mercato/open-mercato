@@ -48,6 +48,8 @@ The existing settings page reports translated authorization refusals when saving
 
 ## Migration & Backward Compatibility
 
+For SSO configuration concurrency (#10099), clients can send the standard optimistic-lock header with the configuration's existing `updatedAt` on update, activation, domain changes, and delete. A stale version returns the standard `optimistic_lock_conflict` HTTP 409. The settings UI sends the version and reloads it after a successful write or when the administrator uses the conflict banner's Refresh action. Headerless requests and existing authorization checks retain their behavior. This change requires no migration.
+
 Deploy the additive migration before application code. An authorized administrator must review the issuer, credentials, domains, and complete role mappings, then save every legacy config. Reissue legacy SCIM tokens under an authorized human account. Clients do not change payloads or URLs; direct service consumers must supply the server-authenticated actor and preserve the injected authorization checks.
 
 Continuing to accept provenance-free mappings or account links would retain the exploit, so there is no insecure compatibility fallback. This security removal requires a named human maintainer's emergency compatibility approval before merge; automated review cannot grant it. The task's explicit schema approval authorizes implementation, not that merge waiver.
@@ -82,6 +84,7 @@ Missing/deleted/non-human/unconfirmed/deprovisioned authors, removed config/SCIM
 - OIDC first email link, existing identity link, JIT role mapping, and final-session config/authority drift.
 - Concurrent protected staff requests for two users of one configuration complete while a separate transaction holds its row lock. Protected staff API and session refresh reject both users’ existing federated credentials after the issuing author loses authority. Password login and refresh continue.
 - The SSO settings page displays the translated server refusal for a rejected save.
+- `TC-SSO-UI-002` checks concurrent versioned updates, preservation of the winning settings when General save returns a conflict, and consecutive saves using refreshed versions.
 - Same-tenant organization isolation, nullable config tenant resolution, direct user ACL elevation, author demotion/deletion, and normalized role-name matching.
 
 `TC-SSO-008-authority-ceiling.spec.ts` contains three self-contained native API scenarios for mapping/provenance enforcement, protected and subsequently elevated SCIM targets, cross-organization identity GET denial in both directions, and legacy recovery. Unit tests exercise OIDC linking/final-session denial, authorization-to-sync role drift, disabled authors, and transaction/event failure paths. Native runtime execution and real PostgreSQL concurrency remain unverified locally; no migration was applied.
@@ -95,3 +98,5 @@ Root, enterprise, auth, shared, and integration-test guides were reviewed. The d
 - 2026-11-15: Implemented approved provenance and live authority checks, exact mapped-role footprints, protected account/session/SCIM handling, migration/snapshot, regression coverage, and operator recovery documentation. Independent source review closed the role-selection race and related boundary issues. Validation, human compatibility sign-off, QA, and rollout are tracked separately.
 
 - 2026-11-20: Added authority revalidation when using or refreshing federated sessions, plus translated error feedback in SSO settings. Switched access and refresh validation to a read-only snapshot and added concurrent request coverage.
+
+- 2026-11-24: Added optimistic version checks to SSO configuration mutations and enabled the shared conflict banner on stale settings saves (#10099).

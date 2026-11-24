@@ -7,7 +7,8 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -26,6 +27,7 @@ interface SsoConfigRow {
   organizationId: string
   tenantId: string | null
   createdAt: string
+  updatedAt: string
 }
 
 interface ListResponse {
@@ -96,9 +98,11 @@ export default function SsoConfigListPage() {
 
     try {
       await runMutationWithContext(
-        () => apiCallOrThrow(`/api/sso/config/${row.id}`, { method: 'DELETE' }, {
-          errorMessage: t('sso.admin.error.deleteFailed', 'Failed to delete SSO configuration'),
-        }),
+        () => withScopedApiRequestHeaders(buildOptimisticLockHeader(row.updatedAt), () =>
+          apiCallOrThrow(`/api/sso/config/${row.id}`, { method: 'DELETE' }, {
+            errorMessage: t('sso.admin.error.deleteFailed', 'Failed to delete SSO configuration'),
+          }),
+        ),
         { id: row.id },
       )
     } catch (err) {
@@ -112,14 +116,16 @@ export default function SsoConfigListPage() {
   const handleToggleActivation = async (row: SsoConfigRow) => {
     try {
       await runMutationWithContext(
-        () => apiCallOrThrow(
-          `/api/sso/config/${row.id}/activate`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ active: !row.isActive }),
-          },
-          { errorMessage: t('sso.admin.error.activationFailed', 'Failed to update activation status') },
+        () => withScopedApiRequestHeaders(buildOptimisticLockHeader(row.updatedAt), () =>
+          apiCallOrThrow(
+            `/api/sso/config/${row.id}/activate`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ active: !row.isActive }),
+            },
+            { errorMessage: t('sso.admin.error.activationFailed', 'Failed to update activation status') },
+          ),
         ),
         { id: row.id, active: !row.isActive },
       )

@@ -83,7 +83,7 @@ const WORKSPACE_ALLOWLIST: Record<string, string> = {
     'exempt — per-tenant AI allowlist config (single-admin settings), not a collaborative-edit record surface. Outside Step-5 named scope.',
   'packages/ai-assistant/src/modules/ai_assistant/components/AiAssistantSettingsPageClient.tsx':
     'exempt — per-tenant AI assistant settings (single-admin config), not a collaborative-edit record surface. Outside Step-5 named scope.',
-  // --- enterprise security / sso config surfaces ---
+  // --- enterprise security config surfaces ---
   'packages/enterprise/src/modules/security/backend/security/enforcement/[id]/page.tsx':
     'exempt — tenant security-enforcement policy config (single-admin), not a collaborative-edit record surface. Outside Step-5 named scope.',
   'packages/enterprise/src/modules/security/backend/security/enforcement/page.tsx':
@@ -98,10 +98,6 @@ const WORKSPACE_ALLOWLIST: Record<string, string> = {
     'exempt — passkey provider config (single-admin), not a collaborative-edit record surface. Outside Step-5 named scope.',
   'packages/enterprise/src/modules/security/components/TotpProviderDetails.tsx':
     'exempt — TOTP provider config (single-admin), not a collaborative-edit record surface. Outside Step-5 named scope.',
-  'packages/enterprise/src/modules/sso/backend/page.tsx':
-    'exempt — SSO config list-row delete (single-admin config), not a collaborative-edit record surface. Outside Step-5 named scope.',
-  'packages/enterprise/src/modules/sso/backend/sso/config/[id]/page.tsx':
-    'exempt — SSO provider config edit/delete (single-admin config), not a collaborative-edit record surface. Outside Step-5 named scope.',
   // --- scheduler config surfaces ---
   'packages/scheduler/src/modules/scheduler/backend/config/scheduled-jobs/[id]/page.tsx':
     'exempt — scheduled-job config (single-admin scheduling config); job edits guarded at the command layer / outside Step-5 named scope.',
