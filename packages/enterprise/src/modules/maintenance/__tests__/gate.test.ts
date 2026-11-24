@@ -116,7 +116,7 @@ describe('maintenance gate', () => {
     })
     const ok = await evaluateMaintenanceGate(ctx({ surface: 'page', method: 'POST', pathname: '/maintenance-bypass', request: form(token) }))
     expect(ok!.response.status).toBe(303)
-    expect(ok!.response.headers.get('Location')).toBe('/backend')
+    expect(ok!.response.headers.get('Location')).toBe('http://localhost/backend')
     expect(ok!.response.headers.get('Set-Cookie')).toMatch(/^om_maintenance_bypass=.+HttpOnly; SameSite=Lax/)
     const bad = await evaluateMaintenanceGate(ctx({ surface: 'page', method: 'POST', pathname: '/maintenance-bypass', request: form('nope') }))
     expect(bad!.response.status).toBe(403)

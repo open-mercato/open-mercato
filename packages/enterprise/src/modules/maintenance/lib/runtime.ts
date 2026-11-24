@@ -304,8 +304,24 @@ async function handleBypassPage(state: MaintenanceStateV1, ctx: RequestGateConte
   logger.info('Maintenance bypass session granted', { windowId: state.windowId })
   return new Response(null, {
     status: 303,
-    headers: { Location: '/backend', 'Set-Cookie': cookie, 'Cache-Control': 'no-store' },
+    headers: { Location: resolveBypassRedirect(ctx), 'Set-Cookie': cookie, 'Cache-Control': 'no-store' },
   })
+}
+
+/** Next's proxy rejects relative redirect targets, so the bypass redirect is always absolute. */
+export function resolveBypassRedirect(ctx: RequestGateContext): string {
+  const base = ctx.request?.url
+  if (base) {
+    try {
+      return new URL('/backend', base).toString()
+    } catch {
+      return '/backend'
+    }
+  }
+  const host = ctx.headers.get('host')
+  if (!host) return '/backend'
+  const proto = ctx.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || 'http'
+  return `${proto}://${host}/backend`
 }
 
 function readBypassCredential(ctx: RequestGateContext): string | null {
