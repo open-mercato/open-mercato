@@ -349,6 +349,60 @@ describe('executeCallApi', () => {
     expect(mockEm.flush).toHaveBeenCalled()
   })
 
+  it('cleans up the one-time API key when the request is aborted via AbortSignal and keeps the secret out of results', async () => {
+    const abortController = new AbortController()
+    const abortError = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+    mockFetch.mockImplementation((_url: unknown, init?: RequestInit) => new Promise((_resolve, reject) => {
+      if (init?.signal?.aborted) {
+        reject(abortError)
+        return
+      }
+      init?.signal?.addEventListener('abort', () => reject(abortError), { once: true })
+      queueMicrotask(() => abortController.abort())
+    }) as any)
+
+    const pending = executeCallApi(
+      mockEm,
+      { endpoint: '/api/sales/orders', method: 'GET' },
+      mockContext,
+      mockContainer,
+      abortController.signal,
+    )
+
+    await expect(pending).rejects.toThrow('The operation was aborted')
+    expect(createdApiKeys).toHaveLength(1)
+    expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+    expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('returns the canonical CALL_API result envelope without leaking the one-time API key secret', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 201,
+      statusText: 'Created',
+      headers: new Map([['content-type', 'application/json']]),
+      json: async () => ({ id: 'order-999' }),
+    } as any)
+
+    const result = await executeCallApi(
+      mockEm,
+      { endpoint: '/api/sales/orders', method: 'POST', body: { note: 'pin' } },
+      mockContext,
+      mockContainer,
+    )
+
+    expect(result).toEqual({
+      status: 201,
+      statusText: 'Created',
+      headers: { 'content-type': 'application/json' },
+      body: { id: 'order-999' },
+      authenticated: true,
+      tenantId: 'tenant-456',
+      organizationId: 'org-789',
+    })
+    expect(JSON.stringify(result)).not.toContain('omk_')
+  })
+
   it('should parse non-JSON response as text', async () => {
     // Arrange
     mockFetch.mockResolvedValue({
