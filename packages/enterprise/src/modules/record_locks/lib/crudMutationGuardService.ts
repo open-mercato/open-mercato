@@ -12,6 +12,7 @@ import {
   OPTIMISTIC_LOCK_ENV_VAR,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { canonicalizeResourceTag } from '@open-mercato/shared/lib/crud/cache'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   readRecordLockHeaders,
   type ParsedRecordLockHeaders,
@@ -33,6 +34,18 @@ export type OssCrudMutationGuardServiceLike = {
 function resolveRecordLockMutationMethod(operation: CrudMutationGuardValidateInput['operation']): 'PUT' | 'DELETE' {
   if (operation === 'delete') return 'DELETE'
   return 'PUT'
+}
+
+function reportKeepMineCheckFailure(error: unknown, resourceKind: string): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'record_locks',
+      code: 'record_locks.keep_mine_floor_check_failed',
+      attributes: { resourceKind },
+    })
+  } catch {
+    return
+  }
 }
 
 function resolveConfig(envValue: string | null | undefined): OptimisticLockConfig {
@@ -89,7 +102,8 @@ export type CreateRecordLockCrudMutationGuardServiceOptions = {
  *      any record-lock token / widget state — so a tokenless API/CLI client is
  *      still caught (H1/H2). Exception: a "Keep my changes" retry whose
  *      conflict id record_locks verifies (`canKeepMineOverrideStaleVersion`:
- *      same user and record, override allowed, no write since the conflict)
+ *      same user and record, override allowed, no write since the conflict,
+ *      neither in the action log nor in the floor's current `updated_at`)
  *      passes on to step 3, which resolves the conflict. Without it the retry,
  *      which still sends the version the page loaded, could never save.
  *   3. Only if the floor passes, AND record_locks is enabled for the resource in
@@ -118,9 +132,13 @@ export function createRecordLockCrudMutationGuardService(
     recordLockInput: Parameters<RecordLockService['validateMutation']>[0],
   ): Promise<boolean> {
     if (floorResult.body?.code !== OPTIMISTIC_LOCK_CONFLICT_CODE) return false
+    const currentUpdatedAt = typeof floorResult.body.currentUpdatedAt === 'string'
+      ? floorResult.body.currentUpdatedAt
+      : null
     try {
-      return await recordLockService.canKeepMineOverrideStaleVersion(recordLockInput)
-    } catch {
+      return await recordLockService.canKeepMineOverrideStaleVersion(recordLockInput, currentUpdatedAt)
+    } catch (error) {
+      reportKeepMineCheckFailure(error, recordLockInput.resourceKind)
       return false
     }
   }

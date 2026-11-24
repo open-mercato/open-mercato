@@ -3,6 +3,12 @@ import type { OssCrudMutationGuardServiceLike } from '../lib/crudMutationGuardSe
 import type { RecordLockService } from '../lib/recordLockService'
 import { DEFAULT_RECORD_LOCK_SETTINGS } from '../lib/config'
 
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 const ENABLED_SETTINGS = { ...DEFAULT_RECORD_LOCK_SETTINGS, enabledResources: ['*'] }
 
 function floorPass(): OssCrudMutationGuardServiceLike {
@@ -12,12 +18,14 @@ function floorPass(): OssCrudMutationGuardServiceLike {
   }
 }
 
+const FLOOR_CURRENT_VERSION = '2026-11-23T10:00:00.480Z'
+
 function floor409(): OssCrudMutationGuardServiceLike {
   return {
     validateMutation: jest.fn().mockResolvedValue({
       ok: false,
       status: 409,
-      body: { code: 'optimistic_lock_conflict' },
+      body: { code: 'optimistic_lock_conflict', currentUpdatedAt: FLOOR_CURRENT_VERSION },
     }),
     afterMutationSuccess: jest.fn().mockResolvedValue(undefined),
   }
@@ -176,7 +184,7 @@ describe('record-lock CRUD guard decorator — Keep my changes vs the floor', ()
       resourceKind: 'catalog.product',
       resourceId: 'product-1',
       headers: expect.objectContaining({ resolution: 'accept_mine', conflictId }),
-    }))
+    }), FLOOR_CURRENT_VERSION)
     expect(validateMutation).toHaveBeenCalledTimes(1)
   })
 
@@ -190,12 +198,19 @@ describe('record-lock CRUD guard decorator — Keep my changes vs the floor', ()
     expect(validateMutation).not.toHaveBeenCalled()
   })
 
-  test('a failing keep-mine check keeps the floor 409 (fail-closed)', async () => {
-    const { recordLockService, validateMutation } = keepMineService({ verified: new Error('record_locks down') })
+  test('a failing keep-mine check keeps the floor 409 (fail-closed) and reports the error', async () => {
+    mockReportError.mockClear()
+    const failure = new Error('record_locks down')
+    const { recordLockService, validateMutation } = keepMineService({ verified: failure })
     const result = await createRecordLockCrudMutationGuardService(recordLockService, floor409()).validateMutation(keepMineInput)
 
     expect(result.ok).toBe(false)
     expect(validateMutation).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      module: 'record_locks',
+      code: 'record_locks.keep_mine_floor_check_failed',
+      attributes: { resourceKind: 'catalog.product' },
+    })
   })
 
   test('a floor failure other than a version conflict is never overridden', async () => {

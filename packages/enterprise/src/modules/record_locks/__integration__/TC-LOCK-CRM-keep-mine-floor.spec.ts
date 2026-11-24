@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { createDealFixture } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
+import { withClient } from '@open-mercato/core/modules/core/__integration__/helpers/dbFixtures';
 import { CONFLICT_DIALOG_TESTID } from '@open-mercato/core/modules/core/__integration__/helpers/optimisticLockUi';
 import {
   OPTIMISTIC_LOCK_HEADER,
@@ -26,7 +27,8 @@ import {
  * `optimistic_lock_conflict` and nothing was saved. record_locks now lets a
  * keep-mine retry through the floor when it verifies the conflict id itself and
  * nobody wrote the record since the conflict was shown. A third write in
- * between still blocks the retry.
+ * between still blocks the retry, also one that leaves no action log (a worker
+ * or a direct SQL update).
  *
  * Self-contained: creates its own deal via the API, restores the lock settings
  * and deletes the deal in `finally`.
@@ -86,6 +88,23 @@ async function raiseConflict(session: Session, dealId: string, label: string) {
   expect(conflictId).toBeTruthy();
 
   return { loadedUpdatedAt: loadedUpdatedAt as string, token: token as string, baseLogId: baseLogId as string, conflictId: conflictId as string };
+}
+
+async function writeDealTitleWithoutActionLog(dealId: string, title: string): Promise<void> {
+  await withClient(async (client) => {
+    const result = await client.query(
+      'update customer_deals set title = $1, updated_at = now() where id = $2',
+      [title, dealId],
+    );
+    expect(result.rowCount).toBe(1);
+  });
+}
+
+async function readDealTitleFromDb(dealId: string): Promise<string | null> {
+  return withClient(async (client) => {
+    const result = await client.query<{ title: string | null }>('select title from customer_deals where id = $1', [dealId]);
+    return result.rows[0]?.title ?? null;
+  });
 }
 
 async function keepMine(session: Session, dealId: string, title: string, conflict: Awaited<ReturnType<typeof raiseConflict>>) {
@@ -148,6 +167,34 @@ test.describe('TC-LOCK-CRM-keep-mine-floor: Keep my changes vs the optimistic-lo
       expect(refused.status).toBe(409);
       expect(refused.body?.code).toBe('optimistic_lock_conflict');
       expect(await getDealTitle(request, session.adminToken, dealId)).toBe(`${label} third`);
+    } finally {
+      if (lockToken && dealId) {
+        await releaseRecordLock(request, session.superadminToken, 'customers.deal', dealId, lockToken, 'cancelled', undefined, session.scopeHeaders).catch(() => {});
+      }
+      await cleanupDeal(request, session.adminToken, dealId);
+      if (previousSettings) await saveRecordLockSettings(request, session.superadminToken, previousSettings).catch(() => {});
+    }
+  });
+
+  test('a write that leaves no action log still blocks Keep my changes', async ({ request }) => {
+    const session = await openSession(request);
+    const label = `QA TC-LOCK-CRM-keep-mine-floor silent ${Date.now()}`;
+    let previousSettings: RecordLockSettings | null = null;
+    let dealId: string | null = null;
+    let lockToken: string | null = null;
+
+    try {
+      previousSettings = await enableOptimisticLocking(session);
+      dealId = await createDealFixture(request, session.adminToken, { title: label });
+      const conflict = await raiseConflict(session, dealId, label);
+      lockToken = conflict.token;
+
+      await writeDealTitleWithoutActionLog(dealId, `${label} silent`);
+
+      const refused = await keepMine(session, dealId, `${label} kept`, conflict);
+      expect(refused.status).toBe(409);
+      expect(refused.body?.code).toBe('optimistic_lock_conflict');
+      expect(await readDealTitleFromDb(dealId)).toBe(`${label} silent`);
     } finally {
       if (lockToken && dealId) {
         await releaseRecordLock(request, session.superadminToken, 'customers.deal', dealId, lockToken, 'cancelled', undefined, session.scopeHeaders).catch(() => {});

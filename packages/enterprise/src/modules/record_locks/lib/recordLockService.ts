@@ -948,11 +948,20 @@ export class RecordLockService {
    * without this the floor rejects every keep-mine save. It is allowed only for
    * a conflict this server raised for the requesting user on this record, when
    * the user may override incoming changes, and when nobody has written the
-   * record since the conflict was shown (the latest action log is still the
-   * incoming one). A write without these headers, or after a third change,
-   * keeps the floor's 409.
+   * record since the conflict was shown. That last condition is checked twice:
+   * the latest action log is still the incoming one, and the record's current
+   * `updated_at` (as read by the floor) is no later than that incoming log. The
+   * second check catches a write that left no action log (a worker or a direct
+   * SQL update). A write without these headers, after a third change, or with
+   * no readable current version keeps the floor's 409.
    */
-  async canKeepMineOverrideStaleVersion(input: RecordLockMutationValidationInput): Promise<boolean> {
+  async canKeepMineOverrideStaleVersion(
+    input: RecordLockMutationValidationInput,
+    currentUpdatedAt: string | null,
+  ): Promise<boolean> {
+    const currentVersionMs = currentUpdatedAt ? Date.parse(currentUpdatedAt) : Number.NaN
+    if (!Number.isFinite(currentVersionMs)) return false
+
     const settings = await this.getSettings()
     if (!isRecordLockingEnabledForResource(settings, input.resourceKind)) return false
 
@@ -971,7 +980,9 @@ export class RecordLockService {
     if (!(await this.canUserOverrideIncoming(input, settings))) return false
 
     const latest = await this.findLatestActionLogWithScopeFallback(input)
-    return latest?.id === conflict.incomingActionLogId
+    if (!latest || latest.id !== conflict.incomingActionLogId) return false
+    if (!(latest.createdAt instanceof Date)) return false
+    return currentVersionMs <= latest.createdAt.getTime()
   }
 
   async validateMutation(input: RecordLockMutationValidationInput): Promise<RecordLockValidationResult> {
