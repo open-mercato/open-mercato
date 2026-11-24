@@ -18,6 +18,7 @@ export type LaneStage = {
   id: string
   label: string
   tone: FilterOptionTone | null
+  hexColor?: string
 }
 
 export type LaneAggregateProp = {
@@ -229,7 +230,7 @@ function LaneImpl({
       style={{ width: typeof width === 'number' && Number.isFinite(width) ? `${width}px` : `${LANE_WIDTH_PX}px` }}
     >
       <div className="flex flex-col gap-2.5 overflow-clip rounded-lg bg-muted/40 px-4 py-3.5">
-        <div className={`h-1.5 w-full rounded-sm ${accentClass}`} aria-hidden="true" />
+        <div className={`h-1.5 w-full rounded-sm ${accentClass}`} style={{ backgroundColor: stage.hexColor }} aria-hidden="true" />
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
             <span className="truncate text-sm font-bold uppercase leading-normal text-foreground">

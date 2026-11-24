@@ -255,6 +255,27 @@ describe('customers commands shared utilities', () => {
       )
     })
 
+    it.each([
+      ['pipeline_stage', ' pink ', 'pink'],
+      ['pipeline_stage', '#ABCDEF', '#abcdef'],
+      ['pipeline_stage', null, null],
+      ['pipeline_stage', 'chartreuse', null],
+      ['status', 'pink', null],
+    ] as const)('persists a normalized %s color from %s', async (kind, color, expected) => {
+      const em = createEm()
+      em.findOne.mockResolvedValue(null)
+
+      await ensureDictionaryEntry(em as unknown as Parameters<typeof ensureDictionaryEntry>[0], {
+        tenantId: 't1',
+        organizationId: 'o1',
+        kind,
+        value: 'Qualified',
+        color,
+      })
+
+      expect(em.upsert).toHaveBeenCalledWith(CustomerDictionaryEntry, expect.objectContaining({ color: expected }), upsertOptions)
+    })
+
     it('updates existing entry with normalized color and icon', async () => {
       const existing = Object.assign(new CustomerDictionaryEntry(), {
         id: 'entry-1',

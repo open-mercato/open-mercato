@@ -54,11 +54,12 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
-import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
+import { mapDictionaryColorToTone, type FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { ViewTabsRow, VIEW_TABS_ROW_COMPONENT_ID, type ViewTabsRowProps } from './components/ViewTabsRow'
 import { LANE_WIDTH_CLASS } from './components/constants'
 import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
 import { buildDealDuplicatePayload, formatDealDuplicateTitle } from '../../../../lib/duplicateDeal'
+import { isPipelineStageColorTone } from '../../../../lib/pipelineStageColors'
 import { FilterBarRow, type KanbanFilterChip } from './components/FilterBarRow'
 import { Lane, type LaneStage } from './components/Lane'
 import { LaneCurrencyBreakdown } from './components/LaneCurrencyBreakdown'
@@ -138,9 +139,6 @@ type PipelineStageRecord = {
   order: number
   pipelineId: string
   defaultProbability?: number | null
-  // `color` is sourced from the `customer_dictionary_entries` row that backs each stage
-  // (kind = 'pipeline_stage'). After the 2026-05-19 hex→tone migration this stores a
-  // canonical tone identifier ('success', 'warning', etc.) rather than a hex string.
   color?: string | null
 }
 
@@ -293,36 +291,18 @@ function mapDealRecord(item: DealApiRecord, fallbackTitle: string): DealCardData
   }
 }
 
-// Canonical tone identifiers stored in `customer_dictionary_entries.color` after the
-// 2026-05-19 hex→tone migration. Keep in sync with `TONE_OPTIONS` in `AddStageDialog.tsx`.
-const KNOWN_STAGE_TONES: ReadonlySet<string> = new Set([
-  'success',
-  'warning',
-  'info',
-  'error',
-  'neutral',
-  'brand',
-  'pink',
-])
-
 function buildLaneStages(
   stages: PipelineStageRecord[],
   unassignedLabel: string,
   hasUnassigned: boolean,
 ): LaneStage[] {
   const sorted = stages.slice().sort((a, b) => a.order - b.order)
-  const lanes: LaneStage[] = sorted.map((stage, index) => ({
-    id: stage.id,
-    label: stage.label,
-    // Prefer the stage's persisted tone (now stored as a canonical identifier post-migration)
-    // so colors picked by operators in AddStageDialog actually show up on the kanban. Falls
-    // back to the position-based rotation for stages with no color set or unmapped legacy
-    // values that survived the migration's neutral-fallback arm.
-    tone:
-      stage.color && KNOWN_STAGE_TONES.has(stage.color)
-        ? (stage.color as FilterOptionTone)
-        : FALLBACK_TONES[index % FALLBACK_TONES.length],
-  }))
+  const lanes: LaneStage[] = sorted.map((stage, index) => {
+    const color = typeof stage.color === 'string' ? stage.color.trim() : undefined
+    const hexColor = color && /^#[0-9a-f]{6}$/i.test(color) ? color : undefined
+    const tone = isPipelineStageColorTone(color) ? color : mapDictionaryColorToTone(hexColor)
+    return { id: stage.id, label: stage.label, tone: tone ?? FALLBACK_TONES[index % FALLBACK_TONES.length], hexColor }
+  })
   if (hasUnassigned) {
     lanes.push({ id: '__unassigned', label: unassignedLabel, tone: 'neutral' })
   }

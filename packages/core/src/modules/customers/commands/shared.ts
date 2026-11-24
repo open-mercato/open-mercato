@@ -11,6 +11,7 @@ import type { EventBus } from '@open-mercato/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { invalidateDictionaryCache } from '../api/dictionaries/cache'
+import { isPipelineStageColorTone } from '../lib/pipelineStageColors'
 
 const logger = createLogger('customers')
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
@@ -27,6 +28,15 @@ export function normalizeDictionaryColor(input: unknown): string | null {
   const hexMatch = /^#([0-9a-fA-F]{6})$/.exec(trimmed)
   if (!hexMatch) return null
   return `#${hexMatch[1].toLowerCase()}`
+}
+
+export function normalizeDictionaryEntryColor(kind: string, color: unknown): string | null | undefined {
+  if (color === undefined) return undefined
+  if (kind === 'pipeline_stage' && typeof color === 'string') {
+    const trimmed = color.trim()
+    if (isPipelineStageColorTone(trimmed)) return trimmed
+  }
+  return normalizeDictionaryColor(color)
 }
 
 export function normalizeDictionaryIcon(input: unknown): string | null {
@@ -305,7 +315,7 @@ export async function ensureDictionaryEntry(
     throw new CrudHttpError(400, { error: 'Unsupported dictionary kind' })
   }
   const normalized = trimmed.toLowerCase()
-  const color = params.color === undefined ? undefined : normalizeDictionaryColor(params.color)
+  const color = normalizeDictionaryEntryColor(params.kind, params.color)
   const icon = params.icon === undefined ? undefined : normalizeDictionaryIcon(params.icon)
   const scope = {
     tenantId: params.tenantId,

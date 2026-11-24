@@ -17,6 +17,7 @@
 | 1.0 | 2026-05-19 | Initial spec: 27-item UX review punch list grouped into six commit phases (A11y / Navigation / Dialog shells / DS compliance / UX polish / PR body). Includes one SQL migration for stage colors and one new markdown TC-CRM scenario. |
 | 1.1 | 2026-05-20 | Round-2 review fixes (items 29–33): two P1 blockers (#32 multi-card drag, #33 currency popover opacity), two P2 (#29 duplicate Reset CTA, #30 off-screen Add stage CTA), one P3 (#31 lane-rail elevation). Adds Phase G with one new markdown scenario (TC-CRM-066) for bulk-drag. |
 | 1.2 | 2026-05-21 | Round-3 UX-designer corrections to round-2: (a) #30 — restore the trailing `AddStageLane` tile alongside the toolbar button (over-eager removal in 1.1 was reverted; both entry points coexist by design), (b) #31 — replace lane-rail overlap (`-mr-2`/`-ml-2`) with a positive 8px gap (`mr-2`/`ml-2`) so first/last lane edges don't touch the rail. |
+| 1.3 | 2026-11-24 | #8383 fixes stage color persistence for named tones and displays saved HEX colors on the lane accent. Both formats use the existing color field. |
 
 ---
 
@@ -219,6 +220,8 @@ No DI changes. No new events. No new API routes. No new ACL features. No new tra
 
 ### Change to `deal_stage.color`
 
+The #8383 fix preserves existing six-digit HEX values and restores writes of named tones. See the API and compatibility notes below for current behavior.
+
 The existing `color` column on `deal_stage` is `varchar` and currently stores arbitrary hex values produced by the 6-chip AddStageDialog picker. After this spec, `color` stores one of seven tone identifiers: `'success' | 'warning' | 'info' | 'error' | 'neutral' | 'brand' | 'pink'`.
 
 **Type-level change:** TypeScript validators and entity types narrow from `string` to the union above. UI consumers (Lane, AddStageDialog) read tones directly without runtime hex → tone mapping.
@@ -257,7 +260,7 @@ WHERE color IS NOT NULL;
 
 ## API Contracts
 
-No API changes. Existing CRUD routes for `deal_stage` accept the same `color` field; the value domain narrows but the type signature stays `string` at the HTTP layer (Zod validator on the server enforces the union).
+Pipeline-stage POST and PUT and pipeline-stage dictionary PATCH keep the existing `color` field and persist both named tones and six-digit HEX. The lane renders named tones with design-system tokens and HEX colors directly on the accent. An unset color uses the existing position-based palette.
 
 The Quick deal currencies prop (Phase E item 22) consumes the existing tenant currencies list already wired into the page. No new endpoint.
 
@@ -269,8 +272,8 @@ Per `BACKWARD_COMPATIBILITY.md`:
 
 | Surface | Classification | Change | BC handling |
 |---------|----------------|--------|-------------|
-| `deal_stage.color` column type | STABLE | Value domain narrows from arbitrary hex to 7-tone enum | Forward-only data migration. No schema change. |
-| `deal_stage` Zod validator | STABLE | Field constraint changes from `z.string()` (or hex regex) to `z.enum([...])` | Coordinated with migration in same release. |
+| Pipeline-stage `customer_dictionary_entries.color` | STABLE | Accepts the seven named tones and retains six-digit HEX values | The original forward-only migration remains valid. The #8383 fix needs no schema or data migration. |
+| Pipeline-stage API `color` field | STABLE | Stage writes and dictionary PATCH persist both forms | Existing HEX and null payloads remain valid. |
 | `QuickDealDialog` props | ADDITIVE-ONLY | New optional `currencies` prop | Defaults to a sensible fallback if omitted, but page always passes it now. |
 | `ActivityComposerDialog` props | ADDITIVE-ONLY | New `context.type`-aware refine message | No prop signature change. |
 | `CrudForm` `extraActions` | FROZEN | Not modified here. We change three consumers, not the primitive. | n/a — explicitly chose consumer-side fix over CrudForm fix. |
@@ -288,6 +291,7 @@ Per parent SPEC-048, Phase 5 covers the full integration test suite (`_pipeline`
 **This spec adds one new markdown scenario:**
 
 - `TC-CRM-018-deal-stage-color-migration.md` — verifies that a tenant with existing hex stage colors loads correctly after `yarn db:migrate`, that the 7-tone picker renders for new/edit dialogs, that migrated stages display with the correct tone, and that any unmapped legacy value falls back to `neutral` without erroring.
+- `TC-CRM-8383` covers stage POST and PUT, dictionary PATCH, and rendering saved and cleared colors on the Kanban board.
 
 No new Playwright TypeScript tests in this round. The reviewer's items do not introduce new business logic outside of (a) the migration (covered by the markdown scenario above) and (b) the `returnTo` redirect (covered manually during PR QA).
 

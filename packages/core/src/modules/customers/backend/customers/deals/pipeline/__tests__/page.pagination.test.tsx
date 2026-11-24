@@ -9,6 +9,7 @@ import DealsKanbanPage from '../page'
 const mockApiCall = jest.fn()
 let mockScopeVersion = 0
 let mockOrganizationId = 'organization-1'
+let mockStageColor: string | null
 
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn() }) }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
@@ -76,10 +77,10 @@ jest.mock('../components/Lane', () => ({
     deals: DealCardData[]
     isLoadingMore: boolean
     onLoadMore: (stageId: string) => void
-    stage: { id: string }
+    stage: { id: string; tone: string | null; hexColor?: string }
     aggregate: { count: number }
   }) => (
-    <section aria-label="Deal lane">
+    <section aria-label="Deal lane" data-tone={stage.tone} data-hex-color={stage.hexColor}>
       <output data-testid="deal-ids">{deals.map((deal) => deal.id).join(',')}</output>
       {deals.length < aggregate.count ? (
         <button type="button" disabled={isLoadingMore} onClick={() => onLoadMore(stage.id)}>Show more</button>
@@ -139,11 +140,12 @@ describe('Deals Kanban pagination', () => {
   beforeEach(() => {
     mockScopeVersion = 0
     mockOrganizationId = 'organization-1'
+    mockStageColor = null
     mockApiCall.mockReset()
     mockApiCall.mockImplementation(async (url: string) => {
       const pathname = new URL(url, 'http://localhost').pathname
       if (pathname === '/api/customers/pipelines') return { ok: true, result: { items: [{ id: 'pipeline-1', name: 'Sales', isDefault: true }] } }
-      if (pathname === '/api/customers/pipeline-stages') return { ok: true, result: { items: [{ id: 'stage-1', label: 'Qualified', order: 0, pipelineId: 'pipeline-1' }] } }
+      if (pathname === '/api/customers/pipeline-stages') return { ok: true, result: { items: [{ id: 'stage-1', label: 'Qualified', order: 0, pipelineId: 'pipeline-1', color: mockStageColor }] } }
       if (pathname === '/api/customers/deals/aggregate') return { ok: true, result: {
         baseCurrencyCode: 'EUR',
         perStage: [{ stageId: 'stage-1', count: 60, openCount: 60, totalInBaseCurrency: 1830, byCurrency: [{ currency: 'EUR', total: 1830, count: 60 }] }],
@@ -154,6 +156,22 @@ describe('Deals Kanban pagination', () => {
   })
 
   afterEach(() => cleanup())
+
+  it.each([
+    ['pink', 'pink', null],
+    ['#38BDF8', 'info', '#38BDF8'],
+    ['#22D3BB', 'info', '#22D3BB'],
+    [null, 'success', null],
+    ['invalid', 'success', null],
+    ['#0000; color: red', 'success', null],
+  ])('resolves lane appearance from stored color %s', async (color, tone, hexColor) => {
+    mockStageColor = color
+    renderBoard()
+
+    const lane = await screen.findByRole('region', { name: 'Deal lane' })
+    expect(lane).toHaveAttribute('data-tone', tone)
+    expect(lane.getAttribute('data-hex-color')).toBe(hexColor)
+  })
 
   it('restarts at page 2 after reversing sort and keeps all 60 unique deals reachable', async () => {
     renderBoard()
