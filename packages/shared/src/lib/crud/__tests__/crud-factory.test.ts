@@ -2551,6 +2551,61 @@ describe('CRUD Factory', () => {
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 
+  it('drops reserved prototype extension headers in applyInterceptorsBefore while keeping valid headers and subsequent requests healthy (#10331)', async () => {
+    const seenExtensionHeaders: Array<Record<string, Record<string, string>> | undefined> = []
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.inspect-extension-headers',
+            targetRoute: 'example/todos',
+            methods: ['GET'],
+            async before(_request, context) {
+              seenExtensionHeaders.push(context.extensionHeaders)
+              return { ok: true }
+            },
+          },
+        ],
+      },
+    ])
+
+    const route = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      list: { schema: z.object({}).passthrough() as any },
+    })
+
+    const probeRes = await route.GET(
+      new Request('http://x/api/example/todos', {
+        method: 'GET',
+        headers: {
+          'x-om-ext-__proto__-schema': 'evil schema',
+          'x-om-ext-constructor-prototype': 'polluted',
+          'x-om-ext-prototype-polluted': 'yes',
+          'x-om-ext-record_locks-token': 'lock-123',
+        },
+      }),
+    )
+    expect(probeRes.status).toBe(200)
+    expect(seenExtensionHeaders).toHaveLength(1)
+    expect(seenExtensionHeaders[0]).toEqual({ record_locks: { token: 'lock-123' } })
+    expect(Object.getPrototypeOf(seenExtensionHeaders[0])).toBeNull()
+    expect(Object.getPrototypeOf(seenExtensionHeaders[0]?.record_locks)).toBeNull()
+    expect(({} as Record<string, unknown>).schema).toBeUndefined()
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+
+    const followUpRes = await route.GET(
+      new Request('http://x/api/example/todos', {
+        method: 'GET',
+        headers: { 'x-om-ext-record_locks-token': 'lock-456' },
+      }),
+    )
+    expect(followUpRes.status).toBe(200)
+    expect(seenExtensionHeaders[1]).toEqual({ record_locks: { token: 'lock-456' } })
+  })
+
   it('DELETE route passes the whole query string to interceptor before hooks', async () => {
     const created = em.create(Todo, { title: 'Z', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
     created.id = '123e4567-e89b-12d3-a456-426614174011'
