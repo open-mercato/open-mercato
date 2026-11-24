@@ -95,6 +95,21 @@ describe('example todos route — optimistic-lock version round-trip', () => {
     expect(routeOptions().list.sortFieldMap.updated_at).toBe('updated_at')
   })
 
+  it('whitelists every sort key the todos UI, dashboard widget and API callers send', () => {
+    const sortFieldMap = routeOptions().list.sortFieldMap
+    expect(sortFieldMap).toEqual(
+      expect.objectContaining({
+        id: 'id',
+        title: 'title',
+        is_done: 'is_done',
+        created_at: 'created_at',
+        createdAt: 'created_at',
+        updated_at: 'updated_at',
+        updatedAt: 'updated_at',
+      }),
+    )
+  })
+
   it('documents updatedAt on the published list item schema', () => {
     const parsed = todoListItemSchema.parse(routeOptions().list.transformItem(baseRow()))
 

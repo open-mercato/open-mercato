@@ -59,6 +59,9 @@ export type EmbeddingPurpose = 'document' | 'query'
 // Cohere v3+ embeddings are asymmetric: queries must use `search_query`, indexed content `search_document`.
 const cohereInputType = (purpose: EmbeddingPurpose) => (purpose === 'query' ? 'search_query' : 'search_document')
 
+// Gemini embeddings accept a taskType hint; queries and indexed content should use the asymmetric pair.
+const googleTaskType = (purpose: EmbeddingPurpose) => (purpose === 'query' ? 'RETRIEVAL_QUERY' : 'RETRIEVAL_DOCUMENT')
+
 export class EmbeddingService {
   private config: EmbeddingProviderConfig
   private clientCache: Map<EmbeddingProviderId, ProviderClient> = new Map()
@@ -227,6 +230,9 @@ export class EmbeddingService {
       if (providerId === 'cohere') {
         return { cohere: { inputType: cohereInputType(purpose) } }
       }
+      if (providerId === 'google') {
+        return { google: { taskType: googleTaskType(purpose) } }
+      }
       return undefined
     }
 
@@ -237,7 +243,7 @@ export class EmbeddingService {
         }
         return undefined
       case 'google':
-        return { google: { outputDimensionality } }
+        return { google: { outputDimensionality, taskType: googleTaskType(purpose) } }
       case 'bedrock':
         return { bedrock: { dimensions: outputDimensionality } }
       case 'cohere':
