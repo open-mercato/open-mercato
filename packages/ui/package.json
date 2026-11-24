@@ -19,6 +19,7 @@
       "types": "./src/theme/index.ts",
       "default": "./dist/theme/index.js"
     },
+    "./theme/storefront.css": "./src/theme/storefront.css",
     "./backend/schedule": {
       "types": "./src/backend/schedule/index.ts",
       "default": "./dist/backend/schedule/index.js"

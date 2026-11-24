@@ -59,7 +59,7 @@ describe('Badge (Phase B.8)', () => {
     expect(root.getAttribute('data-size')).toBe('default')
     expect(root.textContent).toBe('Active')
     expect(root.className).toContain('bg-primary')
-    expect(root.className).toContain('rounded-full')
+    expect(root.className).toContain('rounded-badge')
   })
 
   it('renders all 10 pre-existing variants verbatim (backward compat for 83 import sites)', () => {

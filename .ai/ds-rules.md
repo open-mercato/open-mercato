@@ -121,6 +121,17 @@ Data visualization uses the dedicated `--chart-*` palette — never status token
 | Tiny inline element (checkbox, color dot, small chip) | `rounded-sm` (6px) |
 | Remove radius (table cells, flush edges) | `rounded-none` |
 
+Shape roles (themeable): the core primitives round through role utilities backed by runtime variables, so a theme scope restyles every block by overriding four variables. Use the role utility when building a primitive of that kind; keep the scale tokens above for everything else.
+
+| Role utility | Variable | Admin default | Used by |
+|--------------|----------|---------------|---------|
+| `rounded-button` | `--om-radius-button` | `calc(var(--radius) - 2px)` (= `rounded-md`) | `Button`, `IconButton` (non-`fullRadius`) |
+| `rounded-field` | `--om-radius-field` | `calc(var(--radius) - 2px)` (= `rounded-md`) | `Input`, `SelectTrigger`, `Textarea`, `DatePicker` trigger (size `lg`/`40` keep `rounded-lg`) |
+| `rounded-card` | `--om-radius-card` | `calc(var(--radius) + 6px)` (= `rounded-xl`) | `Card` |
+| `rounded-badge` | `--om-radius-badge` | `calc(infinity * 1px)` (= `rounded-full`) | `Badge` |
+
+Override the `--om-radius-*` variables in a theme scope (see `@open-mercato/ui/theme/storefront.css`), never the `--radius-*` utilities. They need no `.dark` override.
+
 Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `SegmentedControl`, `ActiveFilterChips`) are `rounded-full` by design. When a design explicitly calls for **no-pill chips** (dense filter rows, "Add filter" affordances, toolbar chips), do NOT force the pill primitives — build the chip on semantic tokens with `rounded-md` (or use `Tag shape="square"`). Never mix pill and no-pill chips in one row.
 
 ## Typography

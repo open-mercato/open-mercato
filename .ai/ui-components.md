@@ -83,6 +83,8 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 import { Button } from '@open-mercato/ui/primitives/button'
 ```
 
+Shape: `rounded-button` (`--om-radius-button`, admin default = `rounded-md`); `IconButton` shares it unless `fullRadius`.
+
 **Variants**:
 - `default` (primary CTA) · `destructive` (danger, quiet: red text + red border on the page surface)
 - `destructive-solid` (danger filled — point-of-no-return confirmations only)
@@ -328,6 +330,8 @@ import { Input } from '@open-mercato/ui/primitives/input'
 ```
 
 Text input primitive aligned with Figma DS Text Input. Renders a wrapper div with `[border + bg + focus halo + disabled tokens]` around the inner `<input>`. Supports left/right icon slots and standard HTML input types (`text`, `email`, `password`, `number`, `tel`, `url`, `search`, `date`).
+
+Shape: `rounded-field` (`--om-radius-field`, admin default = `rounded-md`; sizes `lg`/`40` keep `rounded-lg`), shared with `SelectTrigger`, `Textarea` and the `DatePicker` trigger.
 
 > Specialized inputs (Tag Input, Counter Input, Digit/OTP, Inline edit, Date Picker) are SEPARATE primitives — defer to their own sections when they land.
 
@@ -4533,7 +4537,7 @@ import {
 | Slot | Role |
 |---|---|
 | `ActivityFeed` | Root `<ol>` list. `flex flex-col gap-3` so entries stack with a comfortable vertical rhythm. |
-| `ActivityFeedItem` | Single entry. Slots: `avatar` (left, `size-7` recommended), `title` (ReactNode — actor + verb + inline object), `timestamp` (rendered as muted suffix text, no separator glyph), `actions` (right slot for kebab IconButton), and `children` (indented attachment / comment / status row below the title). |
+| `ActivityFeedItem` | Single entry. Slots: `avatar` (left, `size-7` recommended), `title` (ReactNode — actor + verb + inline object), `timestamp` (rendered as muted suffix text, no separator glyph), `actions` (right slot for kebab IconButton), `children` (indented attachment / comment / status row below the title), and `titleWeight` (`'semibold'` default, `'regular'` for hierarchy by color instead of weight). |
 | `ActivityFeedFileChip` | Paperclip + filename + size + optional download button. Used either inline in the title or in the indented attachment row. |
 | `ActivityFeedComment` | Comment card with leading speech-bubble icon + body + optional `onReply` link. Renders as a child of `ActivityFeedItem` (indented attachment style). |
 | `ActivityFeedStatusChip` | Semantic status pill (`success` / `warning` / `info` / `error` / `neutral`). Icon color comes from the status token; chip surface stays neutral so the icon carries the visual weight (matches Figma `Task Status Items [1.1]`). |
@@ -5587,6 +5591,8 @@ The following modules under `packages/ui/src/backend/inputs/` are kept as `@depr
 
 Inline pill for tagging, status, counts. CVA-based. New props in v5: `dot`, `removable`, `brand` variant, `size`.
 
+Shape: `rounded-badge` (`--om-radius-badge`, admin default = `rounded-full`).
+
 ### Variants
 - `default` — primary fill
 - `secondary` — neutral fill
@@ -5784,7 +5790,7 @@ Small primitives that need no full section — listed here so nothing shipped is
 
 | Primitive | Import | What it is | Rules |
 |---|---|---|---|
-| `Card` (+ `CardHeader` / `CardTitle` / `CardDescription` / `CardAction` / `CardContent` / `CardFooter`) | `@open-mercato/ui/primitives/card` | Generic surface container: `bg-card rounded-xl border shadow-sm`, `gap-6`, `px-6` sections | Use for standalone content cards; do NOT hand-roll `<div className="rounded-xl border bg-card">` |
+| `Card` (+ `CardHeader` / `CardTitle` / `CardDescription` / `CardAction` / `CardContent` / `CardFooter`) | `@open-mercato/ui/primitives/card` | Generic surface container: `bg-card rounded-card border shadow-sm` (`--om-radius-card`, admin default = `rounded-xl`), `gap-6`, `px-6` sections | Use for standalone content cards; do NOT hand-roll `<div className="rounded-xl border bg-card">` |
 | `Popover` (+ `PopoverTrigger` / `PopoverContent` / `PopoverAnchor` / `PopoverClose`) | `@open-mercato/ui/primitives/popover` | Radix popover portal at `z-popover`, `bg-popover` surface, `min-w-[280px]` | Base for custom floating panels; prefer higher-level `Select`/`Tooltip`/`CompactSelect` when they fit |
 | `Label` | `@open-mercato/ui/primitives/label` | Radix label: `text-sm font-medium`, disabled propagation via `peer-disabled`/`group-data-[disabled]` | Every standalone input needs one (or use `FormField`, which renders it) |
 | `DataLoader` | `@open-mercato/ui/primitives/DataLoader` | `isLoading`-gated wrapper rendering a centered `Spinner` before children | For simple section-level loading; full pages prefer `LoadingMessage` |

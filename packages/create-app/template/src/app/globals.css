@@ -131,6 +131,10 @@ TODO: Fix that latter to have reference by the package names
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 6px);
+  --radius-button: var(--om-radius-button);
+  --radius-field: var(--om-radius-field);
+  --radius-card: var(--om-radius-card);
+  --radius-badge: var(--om-radius-badge);
 
   /* ═══ Design System: Semantic Status Colors ═══ */
   --color-status-error-bg: var(--status-error-bg);
@@ -298,6 +302,14 @@ TODO: Fix that latter to have reference by the package names
   --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-geist-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --radius: 0.625rem;
+  /* Shape roles. Primitives read these through rounded-button / rounded-field /
+     rounded-card / rounded-badge, so a theme scope can restyle every block by
+     overriding four variables. Defaults equal rounded-md / rounded-md /
+     rounded-xl / rounded-full. Theme-invariant (no .dark override). */
+  --om-radius-button: calc(var(--radius) - 2px);
+  --om-radius-field: calc(var(--radius) - 2px);
+  --om-radius-card: calc(var(--radius) + 6px);
+  --om-radius-badge: calc(infinity * 1px);
   /* Vertical space a viewport-pinned floating CTA needs to clear: its bottom
      offset (1.5rem) plus its own height, rounded up to the spacing scale.
      Consumed by the `body[data-demo-feedback-fab]` safe-area rule below.

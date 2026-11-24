@@ -47,7 +47,7 @@ const iconButtonVariants = cva(
       },
       fullRadius: {
         true: 'rounded-full',
-        false: 'rounded-md',
+        false: 'rounded-button',
       },
     },
     defaultVariants: {
