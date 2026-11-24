@@ -91,4 +91,6 @@ Evidence: [human QA on PR #10129](https://github.com/open-mercato/open-mercato/p
 - [x] 8.2 Surface the settings save error when Configs is disabled (F-08) — 1284c73388
 - [x] 8.3 Fit translation inputs to the viewport, label them, and keep synthetic IDs out of the indexer (F-01, F-02, F-04, F-07) — 1284c73388
 - [x] 8.4 Reverify nullable dictionary descriptions already restored on the branch (F-10) — 601aa07186
-- [ ] 8.5 Run the validation gate, review the changes, and publish automated QA evidence
+- [x] 8.5 Run the validation gate, review the changes, and publish automated QA evidence — 7be59556a2
+
+Local Node 24 validation and template parity passed. [Source re-review](https://github.com/open-mercato/open-mercato/pull/10129#pullrequestreview-6040433129) and [automated QA](https://github.com/open-mercato/open-mercato/pull/10129#issuecomment-7133510075) record the production-profile and PostgreSQL results.
