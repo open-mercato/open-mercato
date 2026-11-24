@@ -1,5 +1,19 @@
 # Upgrade Notes
 
+## Legacy notification command-action cleanup (#7675)
+
+After upgrading the notification action authorization fix, operators can review and expire old command actions that cannot be distinguished from API-created copies. Choose the timestamp when every app/worker was upgraded and run a preview for one tenant from the matching release checkout. Prepare the checkout with `yarn install --immutable`, `yarn build:packages`, and `yarn generate`. The script loads the database configuration from `apps/mercato/.env` and the process environment.
+
+```bash
+node apps/mercato/scripts/cleanup-legacy-notification-commands.mjs --tenant 'TENANT_UUID' --before 'UPGRADE_ISO_TIMESTAMP'
+```
+
+Add `--org <organization-uuid>` to restrict the cleanup to one organization. Without it, the script includes every organization and tenant-global rows in the selected tenant. Supply a past timestamp. The script selects only rows created before that cutoff. The preview reports the size of the next batch and makes no changes.
+
+After reviewing the scope and cutoff, add `--apply` to expire that batch and remove its command-backed buttons. `--limit` accepts 1–100 and defaults to 100. Repeat with the same scope and cutoff, then confirm zero matches in preview mode. An apply run can skip rows temporarily locked by another transaction. Link-only buttons and other metadata are preserved. The script skips actions that have already been claimed or executed. Dismissed rows are included because they can be restored, and restoring a cleaned notification cannot restore its removed commands. Legitimate and API-created command buttons are indistinguishable, so this intentionally removes both kinds of historical commands in the selected scope.
+
+The script is optional and has no undo. Take a deployment backup before applying it. It runs only when invoked explicitly. Use the query in the [security specification](.ai/specs/2026-10-20-notification-action-command-authorization.md) to inspect pending historical rows before applying cleanup.
+
 ## Query index metadata cached across requests (#2967)
 
 The query index engine no longer re-reads table metadata and custom-field definitions

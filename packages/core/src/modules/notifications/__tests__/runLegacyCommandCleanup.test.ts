@@ -1,8 +1,7 @@
-import commands from '../cli'
+import { runLegacyCommandCleanup } from '../lib/runLegacyCommandCleanup'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { cleanupLegacyNotificationCommands } from '../lib/legacyCommandCleanup'
-import { createQueue } from '@open-mercato/queue'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/crud/cache', () => ({ invalidateCrudCache: jest.fn() }))
@@ -11,18 +10,16 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 jest.mock('../lib/legacyCommandCleanup', () => ({ cleanupLegacyNotificationCommands: jest.fn() }))
 jest.mock('../lib/routeHelpers', () => ({ NOTIFICATION_RESOURCE_KIND: 'notifications.notification' }))
-jest.mock('@open-mercato/queue', () => ({ createQueue: jest.fn() }))
 
 const tenantId = '00000000-0000-4000-8000-000000000001'
 const organizationId = '00000000-0000-4000-8000-000000000002'
 const before = '2026-10-20T00:00:00.000Z'
-const cleanup = commands.find((command) => command.command === 'cleanup-legacy-commands')!
 
-describe('legacy notification command cleanup CLI', () => {
+describe('legacy notification upgrade script', () => {
   const database = {}
   const emit = jest.fn()
   const em = { fork: jest.fn(), getKysely: () => database }
-  const container = { resolve: (name: string) => name === 'em' ? em : { emit } }
+  const container = { dispose: jest.fn().mockResolvedValue(undefined), resolve: (name: string) => name === 'em' ? em : { emit } }
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -48,13 +45,13 @@ describe('legacy notification command cleanup CLI', () => {
     ['--tenant', tenantId, '--before', before, '--apply=typo'],
     ['--tenant', tenantId, '--before', before, '--all-tenants'],
   ])('rejects unsafe options before opening a container: %j', async (...args) => {
-    await expect(cleanup.run(args)).rejects.toThrow('notifications.cli.legacyCommands.usage')
+    await expect(runLegacyCommandCleanup(args)).rejects.toThrow('notifications.upgrade.legacyCommands.usage')
     expect(createRequestContainer).not.toHaveBeenCalled()
     expect(cleanupLegacyNotificationCommands).not.toHaveBeenCalled()
   })
 
   it('previews one bounded tenant batch by default without invalidating or emitting', async () => {
-    await cleanup.run(['--tenant', tenantId, '--before', before])
+    await runLegacyCommandCleanup(['--tenant', tenantId, '--before', before])
     expect(cleanupLegacyNotificationCommands).toHaveBeenCalledWith(database, {
       tenant: tenantId, before, limit: 100, apply: false,
     })
@@ -67,7 +64,7 @@ describe('legacy notification command cleanup CLI', () => {
       { id: 'first', tenantId, organizationId },
       { id: 'second', tenantId, organizationId },
     ])
-    await cleanup.run(['--tenant', tenantId, '--org', organizationId, '--before', before, '--limit', '2', '--apply'])
+    await runLegacyCommandCleanup(['--tenant', tenantId, '--org', organizationId, '--before', before, '--limit', '2', '--apply'])
     expect(cleanupLegacyNotificationCommands).toHaveBeenCalledWith(database, {
       tenant: tenantId, org: organizationId, before, limit: 2, apply: true,
     })
@@ -84,17 +81,8 @@ describe('legacy notification command cleanup CLI', () => {
 
   it('does not invalidate caches or emit when the write fails', async () => {
     jest.mocked(cleanupLegacyNotificationCommands).mockRejectedValue(new Error('[internal] Fixture failure'))
-    await expect(cleanup.run(['--tenant', tenantId, '--before', before, '--apply'])).rejects.toThrow('[internal] Fixture failure')
+    await expect(runLegacyCommandCleanup(['--tenant', tenantId, '--before', before, '--apply'])).rejects.toThrow('[internal] Fixture failure')
     expect(invalidateCrudCache).not.toHaveBeenCalled()
     expect(emit).not.toHaveBeenCalled()
-  })
-
-  it('preserves the existing cleanup-expired command', async () => {
-    const enqueue = jest.fn().mockResolvedValue(undefined)
-    jest.mocked(createQueue).mockReturnValue({ enqueue } as never)
-    await commands.find((command) => command.command === 'cleanup-expired')!.run([])
-    expect(createQueue).toHaveBeenCalledWith('notifications', 'async')
-    expect(enqueue).toHaveBeenCalledWith({ type: 'cleanup-expired' })
-    expect(createRequestContainer).not.toHaveBeenCalled()
   })
 })

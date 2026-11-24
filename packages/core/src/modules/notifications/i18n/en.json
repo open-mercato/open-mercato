@@ -4,9 +4,6 @@
   "notifications.actions.markRead": "Mark as read",
   "notifications.actions.undo": "Undo",
   "notifications.badge.unread": "{count} unread notifications",
-  "notifications.cli.legacyCommands.applied": "Expired {count} legacy notifications and removed their command actions. Run again to process the next batch.",
-  "notifications.cli.legacyCommands.preview": "Preview: {count} pending legacy notifications in this batch. No changes made. Review the cutoff and scope before using --apply.",
-  "notifications.cli.legacyCommands.usage": "Usage: mercato notifications cleanup-legacy-commands --tenant <uuid> --before <past ISO timestamp> [--org <uuid>] [--limit 1-100] [--apply]. Preview is the default. Applying also removes command actions from matching notifications.",
   "notifications.close": "Close notifications",
   "notifications.delivery.email.actionNotice": "Actions are available in Open Mercato and are read-only in this email.",
   "notifications.delivery.email.bodyIntro": "Review the notification details and take any required actions.",
@@ -101,5 +98,8 @@
   "notifications.types.overrideConflict": "Another operator just saved this notification type. Reload and try again.",
   "notifications.types.unknownChannel": "Unknown notification channel",
   "notifications.types.unknownType": "Unknown notification type",
-  "notifications.unreadSummary": "{count} unread"
+  "notifications.unreadSummary": "{count} unread",
+  "notifications.upgrade.legacyCommands.applied": "Expired {count} legacy notifications and removed their command actions. Run again to process the next batch.",
+  "notifications.upgrade.legacyCommands.preview": "Preview: {count} pending legacy notifications in this batch. No changes made. Review the cutoff and scope before using --apply.",
+  "notifications.upgrade.legacyCommands.usage": "Usage: node apps/mercato/scripts/cleanup-legacy-notification-commands.mjs --tenant <uuid> --before <past ISO timestamp> [--org <uuid>] [--limit 1-100] [--apply]. Preview is the default. Applying also removes command actions from matching notifications."
 }

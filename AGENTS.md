@@ -1,7 +1,5 @@
 # Agents Guidelines
 
-Leverage the module system and follow strict naming and coding conventions to keep the system consistent and safe to extend.
-
 > **Instruction budget:** this file must stay under **32,768 bytes** (Codex's default
 > `project_doc_max_bytes`, shared with the nested `AGENTS.md` files below it) — anything past
 > that byte offset never reaches the agent. Keep hard rules and routing here, put long-form
@@ -33,6 +31,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 
 - Never expose cross-tenant data or skip tenant/organization scoping.
 - Never edit generated files by hand.
+- Never add one-off upgrade commands to the CLI. Use upgrade actions or `UPGRADE_NOTES.md` with a script or AI skill.
 - Never add code directly under `apps/mercato/src/` except committed, typed `*.generated.ts` registries described below.
 - Never create direct ORM relationships between modules.
 - Never bypass mutation guards, command side effects, encryption helpers, RBAC wildcard matching, or shared UI data-call helpers.

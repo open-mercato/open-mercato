@@ -4,9 +4,6 @@
   "notifications.actions.markRead": "Oznacz jako przeczytane",
   "notifications.actions.undo": "Cofnij",
   "notifications.badge.unread": "{count} nieprzeczytanych powiadomień",
-  "notifications.cli.legacyCommands.applied": "Wygaszono {count} starszych powiadomień i usunięto ich akcje poleceń. Uruchom ponownie, aby przetworzyć kolejną partię.",
-  "notifications.cli.legacyCommands.preview": "Podgląd: {count} oczekujących starszych powiadomień w tej partii. Nie wprowadzono zmian. Sprawdź datę graniczną i zakres przed użyciem --apply.",
-  "notifications.cli.legacyCommands.usage": "Użycie: mercato notifications cleanup-legacy-commands --tenant <uuid> --before <przeszła data ISO> [--org <uuid>] [--limit 1-100] [--apply]. Domyślnie wyświetlany jest podgląd. Zastosowanie usuwa także akcje poleceń z pasujących powiadomień.",
   "notifications.close": "Zamknij powiadomienia",
   "notifications.delivery.email.actionNotice": "Akcje są dostępne w Open Mercato i w tym e-mailu są tylko do odczytu.",
   "notifications.delivery.email.bodyIntro": "Sprawdź szczegóły powiadomienia i wykonaj wymagane działania.",
@@ -101,5 +98,8 @@
   "notifications.types.overrideConflict": "Inny operator właśnie zapisał ten typ powiadomienia. Odśwież i spróbuj ponownie.",
   "notifications.types.unknownChannel": "Nieznany kanał powiadomień",
   "notifications.types.unknownType": "Nieznany typ powiadomienia",
-  "notifications.unreadSummary": "{count} nieprzeczytanych"
+  "notifications.unreadSummary": "{count} nieprzeczytanych",
+  "notifications.upgrade.legacyCommands.applied": "Wygaszono {count} starszych powiadomień i usunięto ich akcje poleceń. Uruchom ponownie, aby przetworzyć kolejną partię.",
+  "notifications.upgrade.legacyCommands.preview": "Podgląd: {count} oczekujących starszych powiadomień w tej partii. Nie wprowadzono zmian. Sprawdź datę graniczną i zakres przed użyciem --apply.",
+  "notifications.upgrade.legacyCommands.usage": "Użycie: node apps/mercato/scripts/cleanup-legacy-notification-commands.mjs --tenant <uuid> --before <przeszła data ISO> [--org <uuid>] [--limit 1-100] [--apply]. Domyślnie wyświetlany jest podgląd. Zastosowanie usuwa także akcje poleceń z pasujących powiadomień."
 }

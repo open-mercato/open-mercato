@@ -4,9 +4,6 @@
   "notifications.actions.markRead": "Marcar como leída",
   "notifications.actions.undo": "Deshacer",
   "notifications.badge.unread": "{count} notificaciones no leídas",
-  "notifications.cli.legacyCommands.applied": "Se caducaron {count} notificaciones antiguas y se eliminaron sus acciones de comando. Ejecute de nuevo para procesar el siguiente lote.",
-  "notifications.cli.legacyCommands.preview": "Vista previa: {count} notificaciones antiguas pendientes en este lote. No se realizaron cambios. Revise la fecha de corte y el ámbito antes de usar --apply.",
-  "notifications.cli.legacyCommands.usage": "Uso: mercato notifications cleanup-legacy-commands --tenant <uuid> --before <fecha ISO pasada> [--org <uuid>] [--limit 1-100] [--apply]. La vista previa es el modo predeterminado. Al aplicar también se eliminan las acciones de comando de las notificaciones coincidentes.",
   "notifications.close": "Cerrar notificaciones",
   "notifications.delivery.email.actionNotice": "Las acciones están disponibles en Open Mercato y son de solo lectura en este correo.",
   "notifications.delivery.email.bodyIntro": "Revisa los detalles de la notificación y realiza las acciones necesarias.",
@@ -101,5 +98,8 @@
   "notifications.types.overrideConflict": "Otro operador acaba de guardar este tipo de notificación. Vuelve a cargar e inténtalo de nuevo.",
   "notifications.types.unknownChannel": "Canal de notificación desconocido",
   "notifications.types.unknownType": "Tipo de notificación desconocido",
-  "notifications.unreadSummary": "{count} sin leer"
+  "notifications.unreadSummary": "{count} sin leer",
+  "notifications.upgrade.legacyCommands.applied": "Se caducaron {count} notificaciones antiguas y se eliminaron sus acciones de comando. Ejecute de nuevo para procesar el siguiente lote.",
+  "notifications.upgrade.legacyCommands.preview": "Vista previa: {count} notificaciones antiguas pendientes en este lote. No se realizaron cambios. Revise la fecha de corte y el ámbito antes de usar --apply.",
+  "notifications.upgrade.legacyCommands.usage": "Uso: node apps/mercato/scripts/cleanup-legacy-notification-commands.mjs --tenant <uuid> --before <fecha ISO pasada> [--org <uuid>] [--limit 1-100] [--apply]. La vista previa es el modo predeterminado. Al aplicar también se eliminan las acciones de comando de las notificaciones coincidentes."
 }
