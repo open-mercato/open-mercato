@@ -33,6 +33,11 @@ Independent read-only child 484724b6 inspected logs and artifacts, made no chang
 
 The first PR full-suite run 45287501078 passed every runnable job, including all 15 shards. Historical failures remain intermittent because the relevant source is unchanged. Local full-unit attempt failed only at the cockpit temporary Unix socket path limit; repeat with TMPDIR/TMP/TEMP=/tmp and TURBO_ENV_MODE=loose to propagate it through Turbo.
 
+## Resume — 2026-11-24 07:00 UTC
+Operator requested autonomous continuation after the duplicate-slot stop. The previous run `0abc1206-8cb5-45bd-bf87-6c2109497aac` and its investigation child are marked done; no matching processes remain. This is an intentional recovery equivalent to `--force`: the takeover comment preserves prior claim 7116795833 and lock 10397641af13d8a1dd915aafd9db6453018fb9a8, then the exact-SHA lease release and create-only acquisition establish new run `f1a55e82-9590-4187-9d0e-adf596a90a99`, lock 3a23b2702c1f08bae6c5afbfc0546b8eb3af6e61. Existing human assignees and unrelated PRs are untouched.
+
+The previous run autosaved the test-only repair in 7c999c0f90; preserve that commit and validate it rather than rewriting history. Latest main CI 45338224448 also passed. Runner: local (no configured/running compose app). A read-only investigation child checks the historical failure classification while the root owns the coupled repair and validation; one final review child follows all implementation work. No extra workflow changes are needed: existing `ci-full` and `stabilize/` handling already force all 15 shards.
+
 ## Progress
 PR: #10492
 
