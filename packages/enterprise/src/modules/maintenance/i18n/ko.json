@@ -1,0 +1,19 @@
+{
+  "maintenance.api.unavailable": "유지보수로 인해 서비스를 일시적으로 사용할 수 없습니다.",
+  "maintenance.banner.title": "유지보수 모드가 켜져 있습니다 — 우회 중입니다",
+  "maintenance.banner.until": "{until}에 종료될 예정입니다.",
+  "maintenance.bypass.description": "유지보수 명령이 출력한 우회 토큰을 입력하면 이 시간 동안 애플리케이션을 사용할 수 있습니다.",
+  "maintenance.bypass.invalid": "이 우회 토큰은 현재 유지보수 기간에 유효하지 않습니다.",
+  "maintenance.bypass.submit": "계속",
+  "maintenance.bypass.title": "유지보수 우회",
+  "maintenance.bypass.tokenLabel": "우회 토큰",
+  "maintenance.bypass.tooManyAttempts": "시도 횟수가 너무 많습니다. 1분 후 다시 시도하세요.",
+  "maintenance.overlay.message": "지금은 변경 사항을 저장할 수 없습니다. 유지보수가 끝나면 페이지를 새로 고치세요.",
+  "maintenance.overlay.reload": "새로 고침",
+  "maintenance.overlay.title": "예정된 유지보수 진행 중",
+  "maintenance.overlay.until": "재개 예정: {until}",
+  "maintenance.page.contactSupport": "지원팀에 문의",
+  "maintenance.page.defaultMessage": "서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도하세요.",
+  "maintenance.page.defaultTitle": "예정된 유지보수를 진행하고 있습니다",
+  "maintenance.page.expectedBack": "재개 예정:"
+}

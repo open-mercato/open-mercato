@@ -253,6 +253,7 @@ if (enterpriseModulesEnabled) {
   enabledModules.push(
     { id: 'record_locks', from: '@open-mercato/enterprise' },
     { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
+    { id: 'maintenance', from: '@open-mercato/enterprise' },
   )
 }
 

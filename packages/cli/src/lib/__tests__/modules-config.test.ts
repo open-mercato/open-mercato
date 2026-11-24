@@ -273,6 +273,7 @@ describe('modules-config', () => {
         { id: 'storage_s3', from: '@open-mercato/storage-s3', flag: /OM_ENABLE_STORAGE_S3=true/ },
         { id: 'record_locks', from: '@open-mercato/enterprise', flag: /OM_ENABLE_ENTERPRISE_MODULES=true/ },
         { id: 'system_status_overlays', from: '@open-mercato/enterprise', flag: /OM_ENABLE_ENTERPRISE_MODULES=true/ },
+        { id: 'maintenance', from: '@open-mercato/enterprise', flag: /OM_ENABLE_ENTERPRISE_MODULES=true/ },
         { id: 'sso', from: '@open-mercato/enterprise', flag: /OM_ENABLE_ENTERPRISE_MODULES_SSO=true/ },
         { id: 'security', from: '@open-mercato/enterprise', flag: /OM_ENABLE_ENTERPRISE_MODULES_SECURITY=true/ },
         { id: 'agent_orchestrator', from: '@open-mercato/enterprise', flag: /OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true/ },

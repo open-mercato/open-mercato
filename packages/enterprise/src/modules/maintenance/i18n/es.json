@@ -1,0 +1,19 @@
+{
+  "maintenance.api.unavailable": "Servicio no disponible temporalmente por mantenimiento.",
+  "maintenance.banner.title": "El modo de mantenimiento está activo — lo estás omitiendo",
+  "maintenance.banner.until": "Se espera que la ventana termine a las {until}.",
+  "maintenance.bypass.description": "Introduce el token de acceso mostrado por el comando de mantenimiento para usar la aplicación durante esta ventana.",
+  "maintenance.bypass.invalid": "Este token de acceso no es válido para la ventana de mantenimiento actual.",
+  "maintenance.bypass.submit": "Continuar",
+  "maintenance.bypass.title": "Acceso durante el mantenimiento",
+  "maintenance.bypass.tokenLabel": "Token de acceso",
+  "maintenance.bypass.tooManyAttempts": "Demasiados intentos. Espera un minuto e inténtalo de nuevo.",
+  "maintenance.overlay.message": "Ahora no se pueden guardar los cambios. Recarga la página cuando termine el mantenimiento.",
+  "maintenance.overlay.reload": "Recargar",
+  "maintenance.overlay.title": "Mantenimiento programado en curso",
+  "maintenance.overlay.until": "Disponible de nuevo: {until}",
+  "maintenance.page.contactSupport": "Contactar con soporte",
+  "maintenance.page.defaultMessage": "El servicio no está disponible temporalmente. Vuelve a intentarlo en breve.",
+  "maintenance.page.defaultTitle": "Estamos realizando un mantenimiento programado",
+  "maintenance.page.expectedBack": "Disponible de nuevo:"
+}

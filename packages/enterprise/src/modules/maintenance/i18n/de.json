@@ -1,0 +1,19 @@
+{
+  "maintenance.api.unavailable": "Der Dienst ist wegen Wartungsarbeiten vorübergehend nicht verfügbar.",
+  "maintenance.banner.title": "Der Wartungsmodus ist aktiv — du umgehst ihn",
+  "maintenance.banner.until": "Das Zeitfenster endet voraussichtlich um {until}.",
+  "maintenance.bypass.description": "Gib das vom Wartungsbefehl ausgegebene Umgehungstoken ein, um die Anwendung während dieses Zeitfensters zu nutzen.",
+  "maintenance.bypass.invalid": "Dieses Umgehungstoken ist für das aktuelle Wartungsfenster nicht gültig.",
+  "maintenance.bypass.submit": "Weiter",
+  "maintenance.bypass.title": "Wartungsumgehung",
+  "maintenance.bypass.tokenLabel": "Umgehungstoken",
+  "maintenance.bypass.tooManyAttempts": "Zu viele Versuche. Warte eine Minute und versuche es erneut.",
+  "maintenance.overlay.message": "Änderungen können gerade nicht gespeichert werden. Lade die Seite neu, sobald die Wartung abgeschlossen ist.",
+  "maintenance.overlay.reload": "Neu laden",
+  "maintenance.overlay.title": "Geplante Wartung läuft",
+  "maintenance.overlay.until": "Voraussichtlich wieder verfügbar: {until}",
+  "maintenance.page.contactSupport": "Support kontaktieren",
+  "maintenance.page.defaultMessage": "Der Dienst ist vorübergehend nicht verfügbar. Bitte versuche es in Kürze erneut.",
+  "maintenance.page.defaultTitle": "Wir führen geplante Wartungsarbeiten durch",
+  "maintenance.page.expectedBack": "Voraussichtlich wieder verfügbar:"
+}
