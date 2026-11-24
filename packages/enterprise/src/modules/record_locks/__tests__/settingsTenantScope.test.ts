@@ -12,6 +12,7 @@ function createEm(rows: Array<{ tenantId: string | null; valueJson: unknown }>) 
     rows.find((row) => row.tenantId === where.tenantId) ?? null,
   )
   const em = {
+    getMetadata: jest.fn(() => ({ find: () => true })),
     findOne,
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
