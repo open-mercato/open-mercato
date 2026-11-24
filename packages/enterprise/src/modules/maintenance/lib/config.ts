@@ -1,6 +1,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { findAllApps, findAppRoot } from '@open-mercato/shared/lib/bootstrap/appResolver'
 import type { MaintenanceExpectedProcesses } from '@open-mercato/shared/lib/maintenance/types'
 
 export type MaintenanceStoreKind = 'auto' | 'redis' | 'file'
@@ -48,6 +49,20 @@ export function parseExpectedProcesses(raw: string | null | undefined): Maintena
   return result
 }
 
+/**
+ * The CLI may run from the monorepo root while the app runs from its own directory, so the
+ * default file-store location is anchored to the Next app root, not to the working directory.
+ */
+export function resolveDefaultStateDir(cwd: string = process.cwd()): string {
+  try {
+    const appRoot = findAppRoot(cwd) ?? findAllApps(cwd)[0] ?? null
+    if (appRoot) return path.join(appRoot.mercatoDir, 'maintenance')
+  } catch {
+    return path.join(cwd, '.mercato', 'maintenance')
+  }
+  return path.join(cwd, '.mercato', 'maintenance')
+}
+
 export function resolveMaintenanceConfig(env: NodeJS.ProcessEnv = process.env): MaintenanceConfig {
   const rawStore = (env.OM_MAINTENANCE_STORE ?? 'auto').trim().toLowerCase()
   const storeKind: MaintenanceStoreKind = rawStore === 'redis' || rawStore === 'file' ? rawStore : 'auto'
@@ -59,7 +74,7 @@ export function resolveMaintenanceConfig(env: NodeJS.ProcessEnv = process.env): 
   }
   return {
     storeKind,
-    stateDir: readOptional(env.OM_MAINTENANCE_STATE_DIR) ?? path.join(process.cwd(), '.mercato', 'maintenance'),
+    stateDir: readOptional(env.OM_MAINTENANCE_STATE_DIR) ?? resolveDefaultStateDir(),
     pollMs: readPositiveInt(env.OM_MAINTENANCE_POLL_MS, 2000, 100),
     heartbeatMs: readPositiveInt(env.OM_MAINTENANCE_HEARTBEAT_MS, 5000, 100),
     force: parseBooleanWithDefault(env.OM_MAINTENANCE_FORCE, false),

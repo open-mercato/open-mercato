@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
-import path from 'node:path'
 import { expect, test } from '@playwright/test'
+import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot'
 
 /**
  * TC-MAINT-002: Maintenance window gates API and pages; bypass and status work (spec M01–M06).
@@ -8,10 +8,12 @@ import { expect, test } from '@playwright/test'
  * Exclusive run only (OM_INTEGRATION_MAINTENANCE_EXCLUSIVE=1): the window is instance-wide.
  * The test runner must share the app's maintenance store (same host/state dir or Redis).
  */
-const APP_DIR = path.resolve(__dirname, '../../../../../../apps/mercato')
-
 function maintenance(args: string[]): string {
-  return execFileSync('yarn', ['mercato', 'maintenance', ...args], { cwd: APP_DIR, encoding: 'utf8', env: process.env })
+  return execFileSync('yarn', ['mercato', 'maintenance', ...args], {
+    cwd: process.env.OM_TEST_APP_ROOT?.trim() || process.cwd(),
+    encoding: 'utf8',
+    env: { ...process.env, OM_APP_ROOT: resolveAppRoot() },
+  })
 }
 
 function extractJson(output: string): Record<string, unknown> {

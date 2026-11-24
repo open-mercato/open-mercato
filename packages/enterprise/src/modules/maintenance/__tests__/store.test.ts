@@ -64,3 +64,15 @@ describe('redis durability detection', () => {
     expect(parseRedisDurability('aof_enabled:0\r\n', null)).toBe(false)
   })
 })
+
+describe('default state directory', () => {
+  it('anchors to the Next app root when the CLI runs from the monorepo root', () => {
+    const { resolveDefaultStateDir } = jest.requireActual('../lib/config') as typeof import('../lib/config')
+    const root = makeTempDir()
+    const appDir = path.join(root, 'apps', 'web')
+    fs.mkdirSync(path.join(appDir, '.mercato', 'generated'), { recursive: true })
+    fs.writeFileSync(path.join(appDir, 'next.config.ts'), 'export default {}')
+    expect(resolveDefaultStateDir(root)).toBe(path.join(appDir, '.mercato', 'maintenance'))
+    expect(resolveDefaultStateDir(appDir)).toBe(path.join(appDir, '.mercato', 'maintenance'))
+  })
+})
