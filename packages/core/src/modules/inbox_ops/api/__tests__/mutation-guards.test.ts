@@ -16,7 +16,11 @@ const ctx = {
   tenantId,
   organizationId,
   scope: { tenantId, organizationId },
-  em: { flush: flushMock, nativeUpdate: nativeUpdateMock },
+  em: {
+    flush: flushMock,
+    nativeUpdate: nativeUpdateMock,
+    transactional: (work: (em: { flush: typeof flushMock }) => Promise<unknown>) => work({ flush: flushMock }),
+  },
   container,
   eventBus: null,
 }

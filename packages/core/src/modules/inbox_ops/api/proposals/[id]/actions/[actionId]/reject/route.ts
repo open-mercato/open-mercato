@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runWithCacheTenant } from '@open-mercato/cache'
-import { rejectAction } from '../../../../../../lib/executionEngine'
+import { tryRejectAction } from '../../../../../../lib/executionEngine'
 import { resolveCache, invalidateCountsCache } from '../../../../../../lib/cache'
 import {
   resolveRequestContext,
@@ -25,7 +25,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Action already processed' }, { status: 409 })
     }
 
-    await rejectAction(resolved.action, toExecutionContext(ctx))
+    if (!(await tryRejectAction(resolved.action, toExecutionContext(ctx)))) {
+      return NextResponse.json({ error: 'Action already processed' }, { status: 409 })
+    }
 
     const cache = resolveCache(ctx.container)
     await runWithCacheTenant(ctx.tenantId, () => invalidateCountsCache(cache, ctx.tenantId))

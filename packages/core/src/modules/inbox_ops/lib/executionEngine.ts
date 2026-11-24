@@ -197,6 +197,13 @@ export async function rejectAction(
   action: InboxProposalAction,
   ctx: ExecutionContext,
 ): Promise<void> {
+  await tryRejectAction(action, ctx)
+}
+
+export async function tryRejectAction(
+  action: InboxProposalAction,
+  ctx: ExecutionContext,
+): Promise<boolean> {
   const em = ctx.em.fork()
   const rejectedAt = new Date()
   const claimed = await em.nativeUpdate(
@@ -215,7 +222,7 @@ export async function rejectAction(
       executedByUserId: ctx.userId,
     },
   )
-  if (claimed === 0) return
+  if (claimed === 0) return false
 
   const freshAction = await findOneWithDecryption(
     em,
@@ -224,7 +231,7 @@ export async function rejectAction(
     undefined,
     { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
   )
-  if (!freshAction) return
+  if (!freshAction) return true
 
   const encScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
   await resolveActionDiscrepancies(em, freshAction.id, encScope)
@@ -239,6 +246,7 @@ export async function rejectAction(
       organizationId: ctx.organizationId,
     })
   }
+  return true
 }
 
 export async function rejectProposal(
