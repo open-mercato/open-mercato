@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { expect, test, type Response } from '@playwright/test'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
@@ -146,16 +148,40 @@ const outageLocales = [
   },
 ]
 
+function matchesEphemeralEnvironment(baseURL: string | undefined): baseURL is string {
+  const databaseUrl = process.env.DATABASE_URL
+  if (process.env.OM_INTEGRATION_TEST !== 'true' || !baseURL || !databaseUrl) return false
+
+  try {
+    const appRoot = process.env.OM_TEST_APP_ROOT || process.cwd()
+    const state: { status?: unknown; baseUrl?: unknown; databaseUrl?: unknown } = JSON.parse(
+      readFileSync(join(appRoot, '.ai', 'qa', 'ephemeral-env.json'), 'utf8'),
+    )
+    return state?.status === 'running' && state.baseUrl === baseURL && state.databaseUrl === databaseUrl
+  } catch {
+    return false
+  }
+}
+
 for (const messages of outageLocales) {
   test(`TC-SEC-002: localized MFA outage and retry (${messages.locale})`, async ({ request, page, baseURL }) => {
-    test.skip(process.env.OM_INTEGRATION_TEST !== 'true', 'Requires the disposable integration database')
+    if (!matchesEphemeralEnvironment(baseURL)) {
+      test.skip(true, 'Requires the app URL and database URL from the running ephemeral integration environment')
+      return
+    }
     const adminToken = await createAdminApiToken(request)
     const password = `Valid1!${randomUUID()}`
     const user = await createUserFixture(request, adminToken, { password })
     const constraint = `test_mfa_outage_${randomUUID().replaceAll('-', '')}`
-    const removeOutage = () => withClient(async (client) => {
-      await client.query(`alter table mfa_challenges drop constraint if exists "${constraint}"`)
-    })
+    let outageInstalled = false
+    const removeOutage = async () => {
+      if (!outageInstalled) return
+      await withClient(async (client) => {
+        await client.query("set lock_timeout = '2s'")
+        await client.query(`alter table mfa_challenges drop constraint if exists "${constraint}"`)
+        outageInstalled = false
+      })
+    }
     const isLogin = (response: Response) =>
       new URL(response.url()).pathname === '/api/auth/login' && response.request().method() === 'POST'
 
@@ -163,15 +189,22 @@ for (const messages of outageLocales) {
       const login = await loginViaApi(request, user.email, password)
       const { secret } = await enrollTotp(request, login.token)
       await withClient(async (client) => {
+        const { rowCount } = await client.query(
+          'select 1 from user_mfa_methods where user_id = $1 and type = $2 and is_active',
+          [user.id, 'totp'],
+        )
+        expect(rowCount, 'The disposable database must contain the TOTP enrollment just written by the app').toBe(1)
         const { rows } = await client.query<{ ddl: string }>(
           `select format('alter table mfa_challenges add constraint %I check (user_id <> %L::uuid) not valid',
             $1::text, $2::uuid) as ddl`,
           [constraint, user.id],
         )
+        await client.query("set lock_timeout = '2s'")
         await client.query(rows[0].ddl)
+        outageInstalled = true
       })
 
-      await page.context().addCookies([{ name: 'locale', value: messages.locale, url: baseURL! }])
+      await page.context().addCookies([{ name: 'locale', value: messages.locale, url: baseURL }])
       await page.goto('/login')
       await page.getByLabel('Email', { exact: true }).fill(user.email)
       const passwordInput = page.getByLabel(messages.password, { exact: true })
