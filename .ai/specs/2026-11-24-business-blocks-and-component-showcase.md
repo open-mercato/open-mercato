@@ -35,7 +35,7 @@ Design target: blocks, combined with the Open Mercato way of building API routes
 
 | Layer | Location | Owner | Rule |
 |---|---|---|---|
-| Tokens and themes | existing token CSS, theming spec | platform | admin, storefront, merchant brand |
+| Tokens and themes | existing token CSS, theming spec, `@open-mercato/ui/theme/storefront.css` | platform | admin (default), storefront (`[data-theme="storefront"]`), merchant brand; shapes via role radius tokens |
 | Primitives | `@open-mercato/ui/primitives/*` (unchanged) | platform | no data access |
 | Interaction hooks | `@open-mercato/ui/headless/*` (new) | platform | focus, selection, keyboard move, roving lists; extracted only when the behaviour exists and has two justified uses; plain functions where no state is needed (e.g. date grouping) |
 | Blocks | `@open-mercato/ui/blocks/*` (new) | platform | follow their contract; props in, events out |
@@ -48,7 +48,8 @@ Design target: blocks, combined with the Open Mercato way of building API routes
 - Ids are strings. Dates are ISO 8601 strings; the block formats them with the shared locale helpers.
 - Content props arrive translated by the caller. Block chrome (e.g. "Today", "Load more") uses `useT()` under `ui.blocks.<block>.*`.
 - Event callbacks may return a promise. While it is pending the block shows the pending state on the affected control; on rejection it reverts any optimistic change and clears the pending state. Error messages are shown by the caller (flash, conflict bar), not by the block.
-- Every block accepts `status` and renders the shared `LoadingMessage`, `ErrorMessage` or `EmptyState`; purely static layout blocks (Stack, Inline) do not.
+- Every block accepts `status`. `loading` renders `LoadingMessage`, `error` renders `ErrorMessage` with `errorMessage`, `empty` renders the `emptyState` slot or the default `EmptyState` primitive; each replaces the block content. List blocks (KeyValue, Timeline) also treat an empty item list as `empty`. Timeline keeps its `header` and filters above these states so filters stay usable. EntityHeader has no empty state and renders normally for `empty`. Purely static layout blocks (Stack, Inline) take no `status`.
+- Block-specific fields must not reuse the shared prop names (`status`, `errorMessage`, `emptyState`, `className`).
 - DS rules apply: semantic tokens, DS scale, no arbitrary values, lucide icons, `om-ds-guardian` clean.
 
 ### Shared types
@@ -81,7 +82,7 @@ Each contract below becomes a TypeScript type plus a zod schema (`propsSchema`) 
 
 ### EntityHeader
 
-- **Input:** `title`, `subtitle?`, `avatar?: { src?: string; initials: string }`, `status?: { label: string; tone: BlockTone }`, `meta?: { key: string; label: string; value: string }[]`, `actions?: BlockAction[]`, `primaryActionKey?: string`.
+- **Input:** `title`, `subtitle?`, `avatar?: { src?: string; initials: string }`, `badge?: { label: string; tone: BlockTone }`, `meta?: { key: string; label: string; value: string }[]`, `actions?: BlockAction[]`, `primaryActionKey?: string`.
 - **Events:** `onAction(actionKey)`.
 - **Slots:** `leading`, `trailing`, `below`.
 - **State:** none; overflow menu open state only.
@@ -98,7 +99,7 @@ Each contract below becomes a TypeScript type plus a zod schema (`propsSchema`) 
 
 ### Timeline
 
-- **Input:** `items: TimelineItem[]`, `groupBy?: 'day' | 'none'`, `order: 'desc' | 'asc'`, `filters?: { key: string; label: string; count?: number }[]`, `activeFilterKey?: string`, `hasMore?: boolean`.
+- **Input:** `items: TimelineItem[]`, `groupBy?: 'day' | 'none'`, `order: 'desc' | 'asc'` (describes the order the caller already applied; the block does not sort), `filters?: { key: string; label: string; count?: number }[]`, `activeFilterKey?: string`, `hasMore?: boolean`.
 - **`TimelineItem`:** `id`, `occurredAt`, `kind: string`, `icon?: LucideIconName`, `title`, `body?: React.ReactNode`, `author?: { name: string; avatarSrc?: string }`, `attachments?: { name: string; href?: string; format?: string }[]`, `status?: { label: string; tone: BlockTone }`, `actions?: BlockAction[]`.
 - **Events:** `onItemAction(itemId, actionKey)`, `onFilterChange(filterKey)`, `onLoadMore() => Promise<void>`.
 - **Slots:** `renderItemBody(item)` override, `header`.
@@ -171,9 +172,21 @@ The schemas enforce these constraints in addition to the fields listed above:
 - **Inventory fields** for every component, existing ones included: data inputs, required providers, optional host services, extension points; status as public export / working example in a module / not found; separately Figma mapping, visual confirmation, installability (see `.ai/lessons/design-system-coverage-needs-a-source-inventory.md`). Phase 1 ships a hand-written seed list; the generator takes over in phase 4.
 - **JSON export:** data, slot names, event names, scenario names, links to examples; no functions. It describes installable code and is distinct from any runtime format an agent might use to generate UI on the fly.
 
+## Themes
+
+Blocks never carry theme-specific classes. A theme is a set of token values applied to a container.
+
+- **Role radius tokens** (additive): `--om-radius-button`, `--om-radius-field`, `--om-radius-card`, `--om-radius-badge`, exposed as `rounded-button`, `rounded-field`, `rounded-card`, `rounded-badge`. Defaults equal today's primitive radii, so the admin look does not change. `Button`, `Input`, `Card` and `Badge` use them.
+- **Storefront theme:** `@open-mercato/ui/theme/storefront.css`, scoped to `[data-theme="storefront"]`. Palette from the ecommerce Figma (black primary, neutral greys); shapes and type follow Storefront UI v2: pill buttons and badges, 0.75rem fields, 1.5rem cards, Inter. Status tokens unchanged.
+- The admin app does not import the storefront theme. Storybook and `apps/design` expose an Admin / Storefront switch.
+
 ## Public showcase `apps/design`
 
-A Next.js app (same Next and Tailwind 4 as `apps/mercato`, so previews match production), statically exported, generated from the registry. Own look on the OM DS; only the page structure follows ui.shadcn.com.
+A Next.js app (same Next and Tailwind 4 as `apps/mercato`, so previews match production), statically exported, generated from the registry. Styled with OM DS tokens (light by default, dark mode switch). The page structure follows Storefront UI v2 documentation:
+
+- **Sidebar groups:** Introduction, Foundations (tokens, themes, typography), Components (primitives), Blocks, Hooks (shown once the headless layer exists). Index pages list all components and all blocks.
+- **Top bar:** theme switch (Admin / Storefront) for previews, dark mode toggle, repository link.
+- **Component page:** title, description, tabs Usage / API / Source code. Usage lists every scenario with a heading, a Preview / Code toggle and an isolated preview frame (iframe on `/preview/<entry>/<variant>`) with a width handle and quick widths 390 / 768 / 1024 / 1440. API is generated from the zod contract (`z.toJSONSchema`, slot and event kinds from `.meta`). Source code links to the file.
 
 - **Entry by task** ("review overdue work", "see what happened to a record", "move work to the next stage"), with search by component name.
 - **Component pages:** preview and code, install or copy command, contract table (inputs, events, slots, state), Figma link.
@@ -224,11 +237,14 @@ Nothing is removed or renamed. Existing components keep their APIs. `GalleryEntr
 ## Open questions
 
 1. **Scope:** shared contracts for the whole OM with back office implemented first, storefront later in a separate package with its own dependency and bundle-size limits? Or back office only?
-2. **`apps/design`:** approve a new app in `apps/`, and hosting/domain? Fallback: a `/design` section in the existing docs first.
+2. **`apps/design`:** new app in `apps/` approved; hosting/domain still open.
 3. **Data wiring:** confirm TanStack Query as the cache base with OM helpers for reads and writes, and public data hooks only after two modules share a contract?
 4. **Kanban:** reconcile CRM and Staff boards first, then Figma, then extract?
 
 ## Changelog
+
+- 2026-11-24: Storefront direction decided: showcase structure follows Storefront UI v2 docs on OM DS tokens; storefront theme uses the ecommerce Figma palette with Storefront UI shapes; additive role radius tokens.
+- 2026-11-24: Phase 2 blocks implemented (EntityHeader, KeyValue, Timeline, Wizard, Stack/Inline) with gallery family `blocks`.
 
 - 2026-11-24: Phase 1 implemented: contracts in `packages/ui/src/blocks/contracts`, import-boundary test, portability inventory in `packages/ui/src/blocks/inventory`, `data-grids.mdx` fixed.
 - 2026-11-24: Documented validation rules enforced by the phase 1 contracts.
